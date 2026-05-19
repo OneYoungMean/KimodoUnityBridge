@@ -15,7 +15,13 @@ namespace KimodoUnityMotionTools.ProjectEditor
     internal sealed class KimodoBridgeClient : IDisposable
     {
         private Process process;
-        private CancellationTokenSource stderrCts;
+        private int processId = -1;
+        private TcpClient sharedClient;
+        private StreamReader sharedReader;
+        private StreamWriter sharedWriter;
+        private string sharedHost = string.Empty;
+        private int sharedPort = -1;
+        private readonly SemaphoreSlim ioLock = new SemaphoreSlim(1, 1);
         private string currentPortFilePath;
         private string currentHost = "127.0.0.1";
         private int currentPort = -1;
@@ -60,7 +66,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             if (File.Exists(portFile))
             {
-                if (TryReadPortFile(portFile, out string host, out int port) && await PingTcpAsync(host, port, token))
+                if (TryReadPortFile(portFile, out string host, out int port) && await PingTcpAsync(host, port, token, acceptLoading: true))
                 {
                     currentHost = host;
                     currentPort = port;
@@ -90,8 +96,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
 
             process = proc;
-            stderrCts = new CancellationTokenSource();
-            _ = DrainStderrAsync(proc, stderrCts.Token);
+            processId = proc.Id;
 
             try
             {
@@ -102,14 +107,9 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 while (true)
                 {
                     timeoutCts.Token.ThrowIfCancellationRequested();
-                    if (proc.HasExited)
-                    {
-                        throw new Exception($"Bridge exited with code {proc.ExitCode}.");
-                    }
-
                     if (TryReadPortFile(portFile, out string host, out int port))
                     {
-                        if (await PingTcpAsync(host, port, timeoutCts.Token))
+                        if (await PingTcpAsync(host, port, timeoutCts.Token, acceptLoading: true))
                         {
                             currentHost = host;
                             currentPort = port;
@@ -117,6 +117,18 @@ namespace KimodoUnityMotionTools.ProjectEditor
                         }
                     }
 
+                    if (proc.HasExited)
+                    {
+                        // Compatibility: some launchers may spawn a detached bridge process and exit quickly.
+                        // Re-check port file one more time before treating this as startup failure.
+                        if (TryReadPortFile(portFile, out host, out port) && await PingTcpAsync(host, port, timeoutCts.Token, acceptLoading: true))
+                        {
+                            currentHost = host;
+                            currentPort = port;
+                            return $"Ready - {modelName} on {host}:{port}";
+                        }
+                        throw new Exception($"Bridge exited with code {proc.ExitCode}.");
+                    }
                     await Task.Delay(250, timeoutCts.Token);
                 }
             }
@@ -149,49 +161,62 @@ namespace KimodoUnityMotionTools.ProjectEditor
             };
             req["seed"] = seed.HasValue ? seed.Value : null;
 
-            JObject msg = await SendRequestAsync(req, token);
-            string status = msg?.Value<string>("status") ?? string.Empty;
-            if (string.Equals(status, "error", StringComparison.OrdinalIgnoreCase))
+            var waitSw = Stopwatch.StartNew();
+            const double maxLoadingWaitSeconds = 600.0;
+            while (true)
             {
-                string message = msg.Value<string>("message") ?? "Bridge generation failed.";
-                string traceback = msg.Value<string>("traceback");
-                if (!string.IsNullOrWhiteSpace(traceback))
+                token.ThrowIfCancellationRequested();
+
+                JObject msg = await SendRequestAsync(req, token);
+                string status = msg?.Value<string>("status") ?? string.Empty;
+                if (string.Equals(status, "loading", StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new Exception($"{message}\n{traceback}");
+                    string loadingMessage = msg.Value<string>("message") ?? "Model is loading.";
+                    progress?.Invoke($"Bridge loading model... {loadingMessage}");
+                    if (waitSw.Elapsed.TotalSeconds > maxLoadingWaitSeconds)
+                    {
+                        throw new Exception($"Bridge model still loading after {maxLoadingWaitSeconds:0}s.");
+                    }
+                    await Task.Delay(1000, token);
+                    continue;
                 }
-                throw new Exception(message);
-            }
+                if (string.Equals(status, "error", StringComparison.OrdinalIgnoreCase))
+                {
+                    string message = msg.Value<string>("message") ?? "Bridge generation failed.";
+                    string traceback = msg.Value<string>("traceback");
+                    if (!string.IsNullOrWhiteSpace(traceback))
+                    {
+                        throw new Exception($"{message}\n{traceback}");
+                    }
+                    throw new Exception(message);
+                }
 
-            if (!string.Equals(status, "done", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new Exception($"Unexpected bridge response status: {status}");
-            }
+                if (!string.Equals(status, "done", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new Exception($"Unexpected bridge response status: {status}");
+                }
 
-            string motionJson = msg.Value<string>("motion_json_compact");
-            if (string.IsNullOrWhiteSpace(motionJson))
-            {
-                throw new Exception("Bridge completed without motion_json_compact.");
-            }
+                string motionJson = msg.Value<string>("motion_json_compact");
+                if (string.IsNullOrWhiteSpace(motionJson))
+                {
+                    throw new Exception("Bridge completed without motion_json_compact.");
+                }
 
-            progress?.Invoke("Bridge generation complete.");
-            return motionJson;
+                progress?.Invoke("Bridge generation complete.");
+                return motionJson;
+            }
         }
 
         public async Task StopAsync(CancellationToken token)
         {
             Process proc = process;
-            CancellationTokenSource cts = stderrCts;
             string portFilePath = currentPortFilePath;
+            int pid = processId;
             process = null;
-            stderrCts = null;
+            processId = -1;
             currentHost = "127.0.0.1";
             currentPort = -1;
-
-            if (cts != null)
-            {
-                try { cts.Cancel(); } catch { }
-                cts.Dispose();
-            }
+            await CloseSharedConnectionAsync();
 
             if (!string.IsNullOrWhiteSpace(portFilePath) && TryReadPortFile(portFilePath, out string host, out int port))
             {
@@ -211,7 +236,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 {
                     if (!proc.HasExited && !proc.WaitForExit(1500))
                     {
-                        proc.Kill();
+                        KillProcessTreeByPid(pid > 0 ? pid : proc.Id);
                     }
                 }
                 catch
@@ -242,18 +267,13 @@ namespace KimodoUnityMotionTools.ProjectEditor
             // StopAsync performs async I/O and can hang when networking/process
             // teardown is slow. Here we do a best-effort immediate cleanup.
             Process proc = process;
-            CancellationTokenSource cts = stderrCts;
             string portFilePath = currentPortFilePath;
+            int pid = processId;
             process = null;
-            stderrCts = null;
+            processId = -1;
             currentHost = "127.0.0.1";
             currentPort = -1;
-
-            if (cts != null)
-            {
-                try { cts.Cancel(); } catch { }
-                cts.Dispose();
-            }
+            CloseSharedConnectionSync();
 
             if (proc != null)
             {
@@ -261,7 +281,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 {
                     if (!proc.HasExited)
                     {
-                        proc.Kill();
+                        KillProcessTreeByPid(pid > 0 ? pid : proc.Id);
                     }
                 }
                 catch
@@ -294,7 +314,59 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             currentHost = host;
             currentPort = port;
-            return await PingTcpAsync(host, port, token);
+            return await PingTcpAsync(host, port, token, acceptLoading: true);
+        }
+
+        public async Task DetachAsync()
+        {
+            process = null;
+            processId = -1;
+            currentHost = "127.0.0.1";
+            currentPort = -1;
+            await CloseSharedConnectionAsync();
+            await Task.CompletedTask;
+        }
+
+        public async Task KillServerTreeAsync(CancellationToken token)
+        {
+            string portFilePath = currentPortFilePath;
+            int pid = processId;
+            Process proc = process;
+
+            process = null;
+            processId = -1;
+            currentHost = "127.0.0.1";
+            currentPort = -1;
+            await CloseSharedConnectionAsync();
+
+            try
+            {
+                if (pid <= 0 && proc != null)
+                {
+                    try { pid = proc.Id; } catch { pid = -1; }
+                }
+                if (pid > 0)
+                {
+                    KillProcessTreeByPid(pid);
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+            finally
+            {
+                if (proc != null)
+                {
+                    try { proc.Dispose(); } catch { }
+                }
+                if (!string.IsNullOrWhiteSpace(portFilePath))
+                {
+                    TryDeletePortFile(portFilePath);
+                }
+            }
+
+            await Task.CompletedTask;
         }
 
         private async Task EnsureHealthyOrThrowAsync(CancellationToken token)
@@ -305,13 +377,22 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
         }
 
-        private static async Task<bool> PingTcpAsync(string host, int port, CancellationToken token)
+        private async Task<bool> PingTcpAsync(string host, int port, CancellationToken token, bool acceptLoading = false)
         {
             try
             {
                 var req = new JObject { ["cmd"] = "ping" };
                 JObject resp = await SendRequestAsync(req, token, host, port);
-                return string.Equals(resp?.Value<string>("status"), "pong", StringComparison.OrdinalIgnoreCase);
+                string status = resp?.Value<string>("status") ?? string.Empty;
+                if (string.Equals(status, "pong", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                if (acceptLoading && string.Equals(status, "loading", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                return false;
             }
             catch
             {
@@ -324,44 +405,42 @@ namespace KimodoUnityMotionTools.ProjectEditor
             return await SendRequestAsync(req, token, currentHost, currentPort);
         }
 
-        private static async Task<JObject> SendRequestAsync(JObject req, CancellationToken token, string host, int port)
+        private async Task<JObject> SendRequestAsync(JObject req, CancellationToken token, string host, int port)
         {
             if (port <= 0)
             {
                 throw new Exception("Bridge port is invalid.");
             }
 
-            using var client = new TcpClient();
-            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            connectCts.CancelAfter(TimeSpan.FromSeconds(3));
-            Task connectTask = client.ConnectAsync(host, port);
-            Task cancelOrTimeoutTask = Task.Delay(Timeout.Infinite, connectCts.Token);
-            Task completed = await Task.WhenAny(connectTask, cancelOrTimeoutTask);
-            if (completed != connectTask)
+            await ioLock.WaitAsync(token);
+            try
             {
-                token.ThrowIfCancellationRequested();
-                throw new TimeoutException($"Bridge connect timeout: {host}:{port}");
+                await EnsureSharedConnectionAsync(host, port, token);
+
+                string line = req.ToString(Formatting.None);
+                await sharedWriter.WriteLineAsync(line);
+                string resp = await sharedReader.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(resp))
+                {
+                    throw new Exception("Empty bridge response.");
+                }
+
+                JToken parsed = JToken.Parse(resp);
+                if (parsed is not JObject obj)
+                {
+                    throw new Exception("Bridge response is not an object.");
+                }
+                return obj;
             }
-            await connectTask;
-
-            using NetworkStream ns = client.GetStream();
-            using var sw = new StreamWriter(ns, new UTF8Encoding(false), 1024, true) { AutoFlush = true };
-            using var sr = new StreamReader(ns, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
-
-            string line = req.ToString(Formatting.None);
-            await sw.WriteLineAsync(line);
-            string resp = await sr.ReadLineAsync();
-            if (string.IsNullOrWhiteSpace(resp))
+            catch
             {
-                throw new Exception("Empty bridge response.");
+                CloseSharedConnectionSync();
+                throw;
             }
-
-            JToken parsed = JToken.Parse(resp);
-            if (parsed is not JObject obj)
+            finally
             {
-                throw new Exception("Bridge response is not an object.");
+                ioLock.Release();
             }
-            return obj;
         }
 
         private static bool TryReadPortFile(string portFilePath, out string host, out int port)
@@ -415,29 +494,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
         }
 
-        private static async Task DrainStderrAsync(Process proc, CancellationToken token)
-        {
-            try
-            {
-                while (!token.IsCancellationRequested && !proc.HasExited)
-                {
-                    string line = await proc.StandardError.ReadLineAsync();
-                    if (line == null)
-                    {
-                        break;
-                    }
-                    if (!string.IsNullOrWhiteSpace(line))
-                    {
-                        UnityEngine.Debug.Log($"[Kimodo Bridge] {line}");
-                    }
-                }
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-
         private static ProcessStartInfo BuildLauncherStartInfo(string launcherPath, string modelName, string kimodoRootPath)
         {
             string ext = Path.GetExtension(launcherPath)?.ToLowerInvariant() ?? string.Empty;
@@ -452,13 +508,9 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return new ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    Arguments = $"/d /s /c \"\"{launcherPath}\"{args}\"",
-                    UseShellExecute = false,
-                    RedirectStandardError = true,
-                    RedirectStandardOutput = false,
-                    RedirectStandardInput = false,
-                    CreateNoWindow = true,
-                    StandardErrorEncoding = Encoding.UTF8,
+                    Arguments = $"/d /s /k \"\"{launcherPath}\"{args}\"",
+                    UseShellExecute = true,
+                    CreateNoWindow = false,
                     WorkingDirectory = Path.GetDirectoryName(launcherPath)
                 };
             }
@@ -469,17 +521,95 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 {
                     FileName = "bash",
                     Arguments = $"\"{launcherPath}\"{args}",
-                    UseShellExecute = false,
-                    RedirectStandardError = true,
-                    RedirectStandardOutput = false,
-                    RedirectStandardInput = false,
-                    CreateNoWindow = true,
-                    StandardErrorEncoding = Encoding.UTF8,
+                    UseShellExecute = true,
+                    CreateNoWindow = false,
                     WorkingDirectory = Path.GetDirectoryName(launcherPath)
                 };
             }
 
             throw new Exception($"Unsupported launcher extension: {ext}. Expected .bat/.cmd/.sh");
+        }
+
+        private static void KillProcessTreeByPid(int pid)
+        {
+            if (pid <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "taskkill.exe",
+                    Arguments = $"/PID {pid} /T /F",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = false,
+                    RedirectStandardOutput = false
+                };
+                using var killer = Process.Start(psi);
+                killer?.WaitForExit(5000);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private async Task EnsureSharedConnectionAsync(string host, int port, CancellationToken token)
+        {
+            if (sharedClient != null && sharedClient.Connected && string.Equals(sharedHost, host, StringComparison.OrdinalIgnoreCase) && sharedPort == port)
+            {
+                return;
+            }
+
+            CloseSharedConnectionSync();
+
+            var client = new TcpClient();
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            connectCts.CancelAfter(TimeSpan.FromSeconds(3));
+            Task connectTask = client.ConnectAsync(host, port);
+            Task cancelOrTimeoutTask = Task.Delay(Timeout.Infinite, connectCts.Token);
+            Task completed = await Task.WhenAny(connectTask, cancelOrTimeoutTask);
+            if (completed != connectTask)
+            {
+                token.ThrowIfCancellationRequested();
+                throw new TimeoutException($"Bridge connect timeout: {host}:{port}");
+            }
+            await connectTask;
+
+            NetworkStream ns = client.GetStream();
+            sharedWriter = new StreamWriter(ns, new UTF8Encoding(false), 1024, true) { AutoFlush = true };
+            sharedReader = new StreamReader(ns, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
+            sharedClient = client;
+            sharedHost = host;
+            sharedPort = port;
+        }
+
+        private async Task CloseSharedConnectionAsync()
+        {
+            await ioLock.WaitAsync();
+            try
+            {
+                CloseSharedConnectionSync();
+            }
+            finally
+            {
+                ioLock.Release();
+            }
+        }
+
+        private void CloseSharedConnectionSync()
+        {
+            try { sharedReader?.Dispose(); } catch { }
+            try { sharedWriter?.Dispose(); } catch { }
+            try { sharedClient?.Dispose(); } catch { }
+            sharedReader = null;
+            sharedWriter = null;
+            sharedClient = null;
+            sharedHost = string.Empty;
+            sharedPort = -1;
         }
     }
 }

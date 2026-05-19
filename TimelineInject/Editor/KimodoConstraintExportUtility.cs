@@ -47,6 +47,13 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
+            var markers = GatherKimodoMarkers(track, sourceClip);
+            if (markers.Count == 0)
+            {
+                // No constraints is valid: caller can clear sampler constraints input.
+                return true;
+            }
+
             PlayableDirector director = TimelineEditor.inspectedDirector;
             if (director == null)
             {
@@ -66,13 +73,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 error = "Animator transform is null.";
                 return false;
-            }
-
-            var markers = GatherKimodoMarkers(track, sourceClip);
-            if (markers.Count == 0)
-            {
-                // No constraints is valid: caller can clear sampler constraints input.
-                return true;
             }
 
             List<KimodoConstraintJson> constraints = new List<KimodoConstraintJson>();

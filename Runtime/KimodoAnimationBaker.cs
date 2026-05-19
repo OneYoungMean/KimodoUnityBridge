@@ -284,7 +284,7 @@ namespace KimodoUnityMotionTools
         {
             if (joint < 0 || joint >= jointCount)
             {
-                return "SOMA";
+                return string.Empty;
             }
 
             if (!string.IsNullOrWhiteSpace(cache[joint]))
@@ -296,7 +296,7 @@ namespace KimodoUnityMotionTools
             {
                 // Break malformed parent cycles safely.
                 string cycName = SanitizeName(data.joint_names[joint]);
-                cache[joint] = $"SOMA/{cycName}";
+                cache[joint] = cycName;
                 return cache[joint];
             }
 
@@ -307,11 +307,13 @@ namespace KimodoUnityMotionTools
             if (parent >= 0 && parent < jointCount && parent != joint)
             {
                 string parentPath = BuildJointPathRecursive(data, parent, jointCount, cache, visiting);
-                cache[joint] = $"{parentPath}/{safeName}";
+                cache[joint] = string.IsNullOrWhiteSpace(parentPath)
+                    ? safeName
+                    : $"{parentPath}/{safeName}";
             }
             else
             {
-                cache[joint] = $"SOMA/{safeName}";
+                cache[joint] = safeName;
             }
 
             visiting[joint] = false;
