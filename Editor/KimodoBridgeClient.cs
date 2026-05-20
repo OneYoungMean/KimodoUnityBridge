@@ -109,7 +109,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             try
             {
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(Mathf.Max(30f, startupTimeoutSeconds)));
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(30f, startupTimeoutSeconds)));
 
                 progress?.Invoke("Starting bridge...");
                 while (true)

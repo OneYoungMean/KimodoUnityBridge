@@ -31,7 +31,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
         private SerializedProperty comfyuiPort;
         private SerializedProperty bridgeModelName;
         private SerializedProperty bridgeVramMode;
-        private SerializedProperty bridgeStartupTimeoutSeconds;
         private SerializedProperty motionPrompt;
         private SerializedProperty generationFrames;
         private SerializedProperty numSamples;
@@ -61,13 +60,17 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private void OnEnable()
         {
+            InitializeSerializedBindings();
+        }
+
+        private void InitializeSerializedBindings()
+        {
             clip = (KimodoPlayableClip)target;
             generationBackend = serializedObject.FindProperty("generationBackend");
             comfyuiIP = serializedObject.FindProperty("comfyuiIP");
             comfyuiPort = serializedObject.FindProperty("comfyuiPort");
             bridgeModelName = serializedObject.FindProperty("bridgeModelName");
             bridgeVramMode = serializedObject.FindProperty("bridgeVramMode");
-            bridgeStartupTimeoutSeconds = serializedObject.FindProperty("bridgeStartupTimeoutSeconds");
             motionPrompt = serializedObject.FindProperty("motionPrompt");
             generationFrames = serializedObject.FindProperty("generationFrames");
             numSamples = serializedObject.FindProperty("numSamples");
@@ -84,6 +87,42 @@ namespace KimodoUnityMotionTools.ProjectEditor
             loopProp = serializedObject.FindProperty("m_Loop");
             savedSkeletonTypeProp = serializedObject.FindProperty("savedSkeletonType");
             autoRetargetOnBindingProp = serializedObject.FindProperty("autoRetargetOnBinding");
+        }
+
+        internal Task GenerateForTestsAsync()
+        {
+            InitializeSerializedBindings();
+            return GenerateAsync();
+        }
+
+        internal void CancelGenerationForTests()
+        {
+            CancelGenerationInternal();
+        }
+
+        internal bool IsGeneratingForTests => isGenerating;
+
+        internal string LastStatusForTests => lastStatus;
+
+        internal string LastErrorForTests => lastError;
+
+        internal void SetBridgeGenerationInputsForTests(
+            string prompt,
+            int generationFramesValue,
+            int diffusionStepsValue,
+            bool randomSeedEnabled,
+            int seedValue)
+        {
+            InitializeSerializedBindings();
+            serializedObject.Update();
+            generationBackend.intValue = (int)KimodoGenerationBackend.KimodoBridge;
+            motionPrompt.stringValue = prompt ?? string.Empty;
+            generationFrames.intValue = Mathf.Clamp(generationFramesValue, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES);
+            diffusionSteps.intValue = Mathf.Clamp(diffusionStepsValue, 1, 1000);
+            randomSeed.boolValue = randomSeedEnabled;
+            seed.intValue = seedValue;
+            numSamples.intValue = Mathf.Clamp(numSamples.intValue <= 0 ? 1 : numSamples.intValue, 1, 8);
+            serializedObject.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private void OnDisable()
@@ -132,14 +171,12 @@ namespace KimodoUnityMotionTools.ProjectEditor
                         bridgeVramMode,
                         new GUIContent("VRAM Mode", "Low: quantized text encoder (~4G). High: full Llama+LLM2Vec (~16G)."));
                 }
-                if (bridgeStartupTimeoutSeconds != null)
-                {
-                    bridgeStartupTimeoutSeconds.floatValue = Mathf.Max(500f,
-                        EditorGUILayout.FloatField("Bridge Startup Timeout (sec)", bridgeStartupTimeoutSeconds.floatValue));
-                }
 
-                EditorGUILayout.HelpBox("显存说明：Kimodo 本体约 2G；低显存量化模型约 4G；高显存完整模型约 16G。", MessageType.Info);
-                DrawEstimatedSetupTimeHint();
+                int encoderVramGb = clip.bridgeVramMode == KimodoBridgeVramMode.High ? 16 : 4;
+                int totalVramGb = 2 + encoderVramGb;
+                EditorGUILayout.HelpBox(
+                    $"Estimated VRAM for selected mode: ~{totalVramGb} GB (core 2 GB + encoder {encoderVramGb} GB).",
+                    MessageType.Info);
             }
             else
             {
@@ -171,7 +208,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 EditorGUILayout.PropertyField(
                     enableInbetweenInterpolation,
-                    new GUIContent("补间补帧", "使用前后邻接片段边界姿态作为约束生成中间动画。"));
+                    new GUIContent("In-between Interpolation", "Use neighboring clip boundary poses as constraints to generate in-between motion."));
             }
 
             generationTimeoutSeconds.floatValue = Mathf.Max(10f, EditorGUILayout.FloatField("Timeout (sec)", generationTimeoutSeconds.floatValue));
@@ -192,6 +229,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 lastStatus = "Generation canceled.";
             }
             GUI.enabled = true;
+
+            if (useBridge)
+            {
+                DrawEstimatedSetupTimeHint();
+            }
 
             if (useBridge)
             {
@@ -368,17 +410,17 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
-            string runtimeRoot = Path.Combine(ResolveProjectRoot(), "NvlabKimodoQuickServer");
-            if (IsBridgeInstallerRunning(runtimeRoot))
+            string runtimeRoot = KimodoServerLifecycleManager.GetRuntimeRootPath();
+            if (KimodoServerLifecycleManager.IsSetupRunning(runtimeRoot))
             {
                 return false;
             }
 
             bool shouldReset = EditorUtility.DisplayDialog(
                 "Kimodo",
-                $"构建环境失败，是否删除【{runtimeRoot}】重新生成？",
-                "删除并重试",
-                "取消");
+                $"Build environment failed. Delete [{runtimeRoot}] and regenerate?",
+                "Delete and Retry",
+                "Cancel");
             if (!shouldReset)
             {
                 return false;
@@ -406,17 +448,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 Repaint();
                 return false;
             }
-        }
-
-        private static bool IsBridgeInstallerRunning(string runtimeRoot)
-        {
-            if (string.IsNullOrWhiteSpace(runtimeRoot))
-            {
-                return false;
-            }
-
-            string setupLockPath = Path.Combine(runtimeRoot, ".setup.lock");
-            return File.Exists(setupLockPath);
         }
 
         private IKimodoGenerationBackend ResolveGenerationBackend()
@@ -469,8 +500,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         internal async Task<string> GenerateMotionJsonViaBridgeBackendAsync(string constraintsFilePath, int effectiveSeed, CancellationToken token)
         {
-            string projectRoot = ResolveProjectRoot();
-            string expectedRuntimeRoot = Path.Combine(projectRoot, "NvlabKimodoQuickServer");
+            string expectedRuntimeRoot = KimodoServerLifecycleManager.GetRuntimeRootPath();
             if (!Directory.Exists(expectedRuntimeRoot))
             {
                 lastStatus = "First setup: preparing NvlabKimodoQuickServer...";
@@ -478,22 +508,19 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 Debug.Log("[Kimodo] First setup: runtime root missing, bootstrapping from package template.");
             }
 
-            string kimodoRootPath = ResolveBridgeRootPath();
-            string launcherPath = ResolveBridgeLauncherPath(kimodoRootPath);
+            string kimodoRootPath = KimodoServerLifecycleManager.ResolveRuntimeRootOrThrow();
+            string launcherPath = KimodoServerLifecycleManager.ResolveStartScriptOrThrow(kimodoRootPath);
             string modelName = string.IsNullOrWhiteSpace(clip.bridgeModelName) ? "Kimodo-SOMA-RP-v1" : clip.bridgeModelName.Trim();
             bool highVram = clip.bridgeVramMode == KimodoBridgeVramMode.High;
-            float startupTimeout = Mathf.Max(500f, clip.bridgeStartupTimeoutSeconds);
             float durationSeconds = generationFrames.intValue / TargetFps;
 
             Debug.Log($"[Kimodo] Prompt: {motionPrompt.stringValue}");
 
-            KimodoBridgeClient bridge = KimodoServerLifecycleManager.GetOrCreateClient();
-            await bridge.StartAsync(
+            await KimodoServerLifecycleManager.StartServerAsync(
                 launcherPath,
                 modelName,
                 highVram,
                 kimodoRootPath,
-                startupTimeout,
                 progress =>
                 {
                     lastStatus = progress;
@@ -503,7 +530,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             lastStatus = $"Generating: {motionPrompt.stringValue}";
             Repaint();
-            return await bridge.GenerateAsync(
+            return await KimodoServerLifecycleManager.GenerateAsync(
                 motionPrompt.stringValue,
                 durationSeconds,
                 effectiveSeed,
@@ -517,44 +544,10 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 token);
         }
 
-        private static string ResolveBridgeLauncherPath(string kimodoRootPath)
-        {
-            string resolved = KimodoServerRuntimeUtil.ResolveStartScript(kimodoRootPath);
-            if (!string.IsNullOrWhiteSpace(resolved) && File.Exists(resolved))
-            {
-                return Path.GetFullPath(resolved);
-            }
-
-            throw new FileNotFoundException(
-                $"Bridge launcher not found under runtime root: {kimodoRootPath}. Expected new pipeline launcher: run_server.bat or bash/start_server.bat.");
-        }
-
-        private static string ResolveBridgeRootPath()
-        {
-            string runtimeRoot = KimodoServerRuntimeUtil.GetRuntimeRootPath();
-            if (!Directory.Exists(runtimeRoot) && !KimodoServerRuntimeUtil.EnsureRuntimeRootExists())
-            {
-                throw new DirectoryNotFoundException(
-                    $"Bridge runtime root not found and bootstrap failed: {runtimeRoot}");
-            }
-            return Path.GetFullPath(runtimeRoot);
-        }
-
-        private static string ResolveProjectRoot()
-        {
-            string cwd = Path.GetFullPath(Environment.CurrentDirectory);
-            if (Directory.Exists(Path.Combine(cwd, "Assets")))
-            {
-                return cwd;
-            }
-
-            return cwd;
-        }
-
         private void DrawBridgeModelSelector()
         {
             string current = string.IsNullOrWhiteSpace(bridgeModelName.stringValue) ? "Kimodo-SOMA-RP-v1" : bridgeModelName.stringValue.Trim();
-            string[] options = KimodoServerRuntimeUtil.SupportedModelNames;
+            string[] options = KimodoServerLifecycleManager.SupportedModelNames;
             int idx = Array.IndexOf(options, current);
             if (idx < 0)
             {
@@ -567,12 +560,14 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private void DrawEstimatedSetupTimeHint()
         {
-            string runtimeRoot = KimodoServerRuntimeUtil.GetRuntimeRootPath();
+            string runtimeRoot = KimodoServerLifecycleManager.GetRuntimeRootPath();
             bool highVram = clip != null && clip.bridgeVramMode == KimodoBridgeVramMode.High;
             string modelName = clip == null || string.IsNullOrWhiteSpace(clip.bridgeModelName) ? "Kimodo-SOMA-RP-v1" : clip.bridgeModelName.Trim();
-            int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(runtimeRoot, highVram, modelName);
-            int minutes = Mathf.Max(3, points * 3);
-            EditorGUILayout.HelpBox($"预计配置时间（按缺失容量估算）：约 {minutes} 分钟。计算规则：(缺失模型容量 + 首次配置5) * 3 分钟。", MessageType.None);
+            if (!KimodoServerLifecycleManager.TryGetModelMissingSetupMinutes(runtimeRoot, highVram, modelName, out int minutes))
+            {
+                return;
+            }
+            EditorGUILayout.HelpBox($"Model missing detected, update required, approximately {minutes} minutes.", MessageType.None);
         }
 
         private void CancelGenerationInternal()

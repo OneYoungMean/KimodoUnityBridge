@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System;
 using UnityEditor;
 using UnityEditor.Timeline;
@@ -15,8 +15,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
             serializedObject.Update();
 
             EditorGUILayout.HelpBox(
-                "用途: 约束角色根节点在指定帧的地面轨迹 (X/Z)。可选约束朝向 (global heading)。\n" +
-                "建议: 用于路径跟随、行走路线控制、转向控制。",
+                "Purpose: constrain the character root trajectory on the ground plane (X/Z) at a key frame. Optional heading constraint is supported.\\n" +
+                "Recommended for path following, locomotion route control, and turn direction control.",
                 MessageType.Info);
             EditorGUILayout.Space(4f);
 
@@ -52,7 +52,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             if (!KimodoConstraintMarkerEditorUtility.TryGetClipRangeForMarker(target as IMarker, out TimelineClip clipRange))
             {
-                EditorGUILayout.HelpBox("未找到所属 AnimationPlayableAsset。frame_indices 将使用当前存储值。", MessageType.Warning);
+                EditorGUILayout.HelpBox("Owning AnimationPlayableAsset not found. frame_indices will use the currently stored value.", MessageType.Warning);
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("frameIndices"));
                 return;
             }
@@ -105,8 +105,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
             serializedObject.Update();
 
             EditorGUILayout.HelpBox(
-                "用途: 在关键帧对全身姿态做强约束（根位置 + 全关节局部旋转）。\n" +
-                "建议: 用于定格某个明确动作姿势，保证生成结果在该时刻贴合目标姿态。",
+                "Purpose: apply a strong full-body pose constraint at a key frame (root position + local joint rotations).\\n" +
+                "Recommended when you need the generated motion to match a specific target pose at that frame.",
                 MessageType.Info);
             EditorGUILayout.Space(4f);
 
@@ -142,7 +142,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             if (!KimodoConstraintMarkerEditorUtility.TryGetClipRangeForMarker(target as IMarker, out TimelineClip clipRange))
             {
-                EditorGUILayout.HelpBox("未找到所属 AnimationPlayableAsset。frame_indices 将使用当前存储值。", MessageType.Warning);
+                EditorGUILayout.HelpBox("Owning AnimationPlayableAsset not found. frame_indices will use the currently stored value.", MessageType.Warning);
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("frameIndices"));
                 return;
             }
@@ -240,7 +240,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             if (!KimodoConstraintMarkerEditorUtility.TryGetClipRangeForMarker(target as IMarker, out TimelineClip clipRange))
             {
-                EditorGUILayout.HelpBox("未找到所属 AnimationPlayableAsset。frame_indices 将使用当前存储值。", MessageType.Warning);
+                EditorGUILayout.HelpBox("Owning AnimationPlayableAsset not found. frame_indices will use the currently stored value.", MessageType.Warning);
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("frameIndices"));
                 return;
             }
@@ -269,16 +269,16 @@ namespace KimodoUnityMotionTools.ProjectEditor
             switch (typeName)
             {
                 case "left-hand":
-                    return "用途: 约束左手末端链在关键帧的位置/朝向。\n建议: 用于抓取、挥手、指向等左手动作控制。";
+                    return "Purpose: constrain the left-hand end-effector chain position/orientation at a key frame.\\nRecommended for grab, wave, and pointing control.";
                 case "right-hand":
-                    return "用途: 约束右手末端链在关键帧的位置/朝向。\n建议: 用于抓取、挥手、指向等右手动作控制。";
+                    return "Purpose: constrain the right-hand end-effector chain position/orientation at a key frame.\\nRecommended for grab, wave, and pointing control.";
                 case "left-foot":
-                    return "用途: 约束左脚末端链在关键帧的位置/朝向。\n建议: 用于落脚点、踩点、防滑步控制。";
+                    return "Purpose: constrain the left-foot end-effector chain position/orientation at a key frame.\\nRecommended for foot placement, stepping targets, and anti-sliding control.";
                 case "right-foot":
-                    return "用途: 约束右脚末端链在关键帧的位置/朝向。\n建议: 用于落脚点、踩点、防滑步控制。";
+                    return "Purpose: constrain the right-foot end-effector chain position/orientation at a key frame.\\nRecommended for foot placement, stepping targets, and anti-sliding control.";
                 default:
-                    return "用途: 自定义末端约束（joint_names 可选 LeftHand/RightHand/LeftFoot/RightFoot/Hips）。\n" +
-                           "建议: 用于混合多末端目标（例如手脚同时命中目标）。";
+                    return "Purpose: custom end-effector constraint (joint_names can include LeftHand/RightHand/LeftFoot/RightFoot/Hips).\\n" +
+                           "Recommended for mixed multi-target constraints (for example, hand and foot targets at the same time).";
             }
         }
 
@@ -586,3 +586,4 @@ namespace KimodoUnityMotionTools.ProjectEditor
         }
     }
 }
+

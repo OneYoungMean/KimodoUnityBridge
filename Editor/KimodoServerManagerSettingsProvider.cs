@@ -11,9 +11,16 @@ namespace KimodoUnityMotionTools.ProjectEditor
 {
     internal sealed class KimodoServerManagerSettingsProvider : SettingsProvider
     {
+        private sealed class InstalledModelInfoView
+        {
+            public string Name;
+            public string DirectoryPath;
+            public long SizeBytes;
+        }
+
         private string runtimeRoot;
         private Vector2 scroll;
-        private List<KimodoServerRuntimeUtil.InstalledModelInfo> models = new List<KimodoServerRuntimeUtil.InstalledModelInfo>();
+        private List<InstalledModelInfoView> models = new List<InstalledModelInfoView>();
         private bool runtimeExists;
         private bool serverRunning;
         private string serverHost = "127.0.0.1";
@@ -42,7 +49,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             if (string.IsNullOrWhiteSpace(runtimeRoot))
             {
-                runtimeRoot = KimodoServerRuntimeUtil.GetRuntimeRootPath();
+                runtimeRoot = KimodoServerLifecycleManager.GetRuntimeRootPath();
             }
 
             EditorGUILayout.LabelField("Kimodo Server Manager", EditorStyles.boldLabel);
@@ -58,7 +65,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 if (GUILayout.Button("Create Kimodo Server", GUILayout.Width(180f)))
                 {
-                    bool ok = KimodoServerRuntimeUtil.EnsureRuntimeRootExists();
+                    bool ok = KimodoServerLifecycleManager.EnsureRuntimeRootExists();
                     lastOpStatus = ok ? "Runtime root created." : "Failed to create runtime root from package template.";
                     Refresh();
                 }
@@ -89,7 +96,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             EditorGUILayout.LabelField("Startup", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
-            string[] options = KimodoServerRuntimeUtil.SupportedModelNames;
+            string[] options = KimodoServerLifecycleManager.SupportedModelNames;
             int idx = Array.IndexOf(options, selectedModel);
             if (idx < 0) idx = 0;
             int newIdx = EditorGUILayout.Popup("Model", idx, options);
@@ -108,10 +115,15 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 lifecycleSettings.SaveSettings();
             }
 
-            EditorGUILayout.HelpBox("VRAM guide: Kimodo core ~2GB; Low mode quantized encoder ~4GB; High mode full stack ~16GB.", MessageType.Info);
-            int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(runtimeRoot, selectedVramMode == KimodoBridgeVramMode.High, selectedModel);
-            int minutes = Mathf.Max(3, points * 3);
-            EditorGUILayout.HelpBox($"Estimated setup time: about {minutes} minutes (rule: (missing model points + first setup 5) * 3).", MessageType.None);
+            int encoderVramGb = selectedVramMode == KimodoBridgeVramMode.High ? 16 : 4;
+            int totalVramGb = 2 + encoderVramGb;
+            EditorGUILayout.HelpBox(
+                $"Estimated VRAM for selected mode: ~{totalVramGb} GB (core 2 GB + encoder {encoderVramGb} GB).",
+                MessageType.Info);
+            if (KimodoServerLifecycleManager.TryGetModelMissingSetupMinutes(runtimeRoot, selectedVramMode == KimodoBridgeVramMode.High, selectedModel, out int minutes))
+            {
+                EditorGUILayout.HelpBox($"Model missing detected, update required, approximately {minutes} minutes.", MessageType.None);
+            }
 
             if (GUILayout.Button("Start Server", GUILayout.Width(140f)))
             {
@@ -132,7 +144,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 EditorGUILayout.HelpBox($"Running at {serverHost}:{serverPort}", MessageType.Info);
                 if (GUILayout.Button("Stop Server", GUILayout.Width(120f)))
                 {
-                    bool ok = KimodoServerRuntimeUtil.TrySendQuit(serverHost, serverPort);
+                    bool ok = KimodoServerLifecycleManager.TrySendQuit(serverHost, serverPort);
                     lastOpStatus = ok ? "Quit signal sent." : "Failed to send quit command.";
                     Refresh();
                 }
@@ -150,8 +162,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
             EditorGUILayout.Space(8f);
             EditorGUILayout.LabelField("Storage", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
-            long size = KimodoServerRuntimeUtil.GetDirectorySizeSafe(runtimeRoot);
-            EditorGUILayout.LabelField("Kimodo Data Size", KimodoServerRuntimeUtil.FormatBytes(size));
+            long size = KimodoServerLifecycleManager.GetDirectorySizeSafe(runtimeRoot);
+            EditorGUILayout.LabelField("Kimodo Data Size", KimodoServerLifecycleManager.FormatBytes(size));
             EditorGUILayout.EndVertical();
         }
 
@@ -172,7 +184,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 {
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.LabelField(model.Name, GUILayout.MinWidth(250f));
-                    EditorGUILayout.LabelField(KimodoServerRuntimeUtil.FormatBytes(model.SizeBytes), GUILayout.Width(90f));
+                    EditorGUILayout.LabelField(KimodoServerLifecycleManager.FormatBytes(model.SizeBytes), GUILayout.Width(90f));
                     if (GUILayout.Button("Clean", GUILayout.Width(70f)))
                     {
                         TryMoveToTrash(model.DirectoryPath);
@@ -217,7 +229,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 if (serverRunning)
                 {
-                    KimodoServerRuntimeUtil.TrySendQuit(serverHost, serverPort);
+                    KimodoServerLifecycleManager.TrySendQuit(serverHost, serverPort);
                 }
 
                 if (Directory.Exists(runtimeRoot))
@@ -226,25 +238,18 @@ namespace KimodoUnityMotionTools.ProjectEditor
                     Directory.Move(runtimeRoot, broken);
                 }
 
-                bool ok = KimodoServerRuntimeUtil.EnsureRuntimeRootExists();
+                bool ok = KimodoServerLifecycleManager.EnsureRuntimeRootExists();
                 if (!ok)
                 {
                     lastOpStatus = "TryFix failed: cannot bootstrap runtime.";
                     return;
                 }
 
-                string setup = KimodoServerRuntimeUtil.ResolveSetupScript(runtimeRoot);
-                if (!string.IsNullOrWhiteSpace(setup))
-                {
-                    int rc = RunBatchBlocking(setup, "--output console");
-                    lastOpStatus = rc == 0
-                        ? "TryFix complete: runtime reset and setup finished."
-                        : $"TryFix partial: setup exited with code {rc}.";
-                }
-                else
-                {
-                    lastOpStatus = "TryFix complete: runtime reset (setup script not found).";
-                }
+                string setup = KimodoServerLifecycleManager.ResolveSetupScriptOrThrow(runtimeRoot);
+                int rc = KimodoServerLifecycleManager.RunScriptBlocking(setup, "--output console");
+                lastOpStatus = rc == 0
+                    ? "TryFix complete: runtime reset and setup finished."
+                    : $"TryFix partial: setup exited with code {rc}.";
             }
             catch (Exception e)
             {
@@ -256,12 +261,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             try
             {
-                string startScript = KimodoServerRuntimeUtil.ResolveStartScript(runtimeRoot);
-                if (string.IsNullOrWhiteSpace(startScript) || !File.Exists(startScript))
-                {
-                    lastOpStatus = "Start script not found.";
-                    return;
-                }
+                string startScript = KimodoServerLifecycleManager.ResolveStartScriptOrThrow(runtimeRoot);
 
                 string args = $" --model \"{selectedModel}\"";
                 if (selectedVramMode == KimodoBridgeVramMode.High)
@@ -270,7 +270,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 }
                 args += " --output console";
 
-                var psi = BuildScriptStartInfo(startScript, args, keepWindowOpen: true, useShellExecute: true);
+                var psi = KimodoServerLifecycleManager.BuildScriptStartInfo(startScript, args, keepWindowOpen: true, useShellExecute: true);
                 DiagnosticsProcess.Start(psi);
                 lastOpStatus = $"Start requested: model={selectedModel}, vram={selectedVramMode}.";
             }
@@ -280,68 +280,13 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
         }
 
-        private int RunBatchBlocking(string scriptPath, string arguments)
-        {
-            if (string.IsNullOrWhiteSpace(scriptPath) || !File.Exists(scriptPath))
-            {
-                return -1;
-            }
-
-            var psi = BuildScriptStartInfo(scriptPath, arguments, keepWindowOpen: false, useShellExecute: false);
-            psi.RedirectStandardOutput = false;
-            psi.RedirectStandardError = false;
-            psi.CreateNoWindow = false;
-
-            using var proc = DiagnosticsProcess.Start(psi);
-            if (proc == null)
-            {
-                return -1;
-            }
-
-            proc.WaitForExit();
-            return proc.ExitCode;
-        }
-
-        private static System.Diagnostics.ProcessStartInfo BuildScriptStartInfo(string scriptPath, string arguments, bool keepWindowOpen, bool useShellExecute)
-        {
-            string fullPath = Path.GetFullPath(scriptPath);
-            string ext = Path.GetExtension(fullPath)?.ToLowerInvariant() ?? string.Empty;
-            string workingDir = Path.GetDirectoryName(fullPath) ?? Environment.CurrentDirectory;
-            string safeArgs = arguments ?? string.Empty;
-
-            if (ext == ".bat" || ext == ".cmd")
-            {
-                string mode = keepWindowOpen ? "/k" : "/c";
-                return new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = $"/d /s {mode} \"\"{fullPath}\"{safeArgs}\"",
-                    UseShellExecute = useShellExecute,
-                    WorkingDirectory = workingDir
-                };
-            }
-
-            if (ext == ".sh")
-            {
-                return new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "bash",
-                    Arguments = $"\"{fullPath}\"{safeArgs}",
-                    UseShellExecute = useShellExecute,
-                    WorkingDirectory = workingDir
-                };
-            }
-
-            throw new NotSupportedException($"Unsupported script extension: {ext}");
-        }
-
         private void TryDeleteAllData()
         {
             try
             {
                 if (serverRunning)
                 {
-                    KimodoServerRuntimeUtil.TrySendQuit(serverHost, serverPort);
+                    KimodoServerLifecycleManager.TrySendQuit(serverHost, serverPort);
                 }
 
                 if (Directory.Exists(runtimeRoot))
@@ -383,15 +328,15 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private void Refresh()
         {
-            runtimeRoot = KimodoServerRuntimeUtil.GetRuntimeRootPath();
+            runtimeRoot = KimodoServerLifecycleManager.GetRuntimeRootPath();
             runtimeExists = Directory.Exists(runtimeRoot);
 
             serverRunning = false;
             serverHost = "127.0.0.1";
             serverPort = -1;
-            if (runtimeExists && KimodoServerRuntimeUtil.TryReadServerPort(runtimeRoot, out string host, out int port))
+            if (runtimeExists && KimodoServerLifecycleManager.TryReadServerPort(runtimeRoot, out string host, out int port))
             {
-                if (KimodoServerRuntimeUtil.IsServerResponsive(host, port))
+                if (KimodoServerLifecycleManager.IsServerResponsive(host, port))
                 {
                     serverRunning = true;
                     serverHost = host;
@@ -400,8 +345,30 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
 
             models = runtimeExists
-                ? KimodoServerRuntimeUtil.GetInstalledModels(runtimeRoot)
-                : new List<KimodoServerRuntimeUtil.InstalledModelInfo>();
+                ? ConvertInstalledModels(KimodoServerLifecycleManager.GetInstalledModels(runtimeRoot))
+                : new List<InstalledModelInfoView>();
+        }
+
+        private static List<InstalledModelInfoView> ConvertInstalledModels(IReadOnlyList<KimodoServerLifecycleManager.InstalledModelInfo> source)
+        {
+            var result = new List<InstalledModelInfoView>();
+            if (source == null)
+            {
+                return result;
+            }
+
+            for (int i = 0; i < source.Count; i++)
+            {
+                KimodoServerLifecycleManager.InstalledModelInfo model = source[i];
+                result.Add(new InstalledModelInfoView
+                {
+                    Name = model.Name,
+                    DirectoryPath = model.DirectoryPath,
+                    SizeBytes = model.SizeBytes
+                });
+            }
+
+            return result;
         }
     }
 }

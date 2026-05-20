@@ -80,7 +80,6 @@ Commands:
 Unity clip fields (Bridge mode):
 - `bridgeModelName`
 - `bridgeVramMode` (`Low` / `High`)
-- `bridgeStartupTimeoutSeconds`
 
 Runtime start parameters (new pipeline):
 - `--model <MODEL_NAME>`

@@ -44,9 +44,6 @@ namespace KimodoUnityMotionTools
         [HideInInspector]
         [Tooltip("Deprecated legacy field. Local bridge startup is managed by packaged offline launcher.")]
         public string bridgeServerScriptPath = "";
-        [Min(500f)]
-        [Tooltip("Local bridge startup timeout in seconds. Minimum is 500.")]
-        public float bridgeStartupTimeoutSeconds = 500f;
 
         [TextArea(2, 6)]
         public string motionPrompt = "";

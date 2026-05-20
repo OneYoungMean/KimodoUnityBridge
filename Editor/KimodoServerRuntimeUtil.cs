@@ -13,6 +13,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
 {
     internal static class KimodoServerRuntimeUtil
     {
+        internal static string RuntimeRootOverrideForTests { get; set; }
+
         internal sealed class InstalledModelInfo
         {
             public string Name;
@@ -37,6 +39,10 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         internal static string GetRuntimeRootPath()
         {
+            if (!string.IsNullOrWhiteSpace(RuntimeRootOverrideForTests))
+            {
+                return Path.GetFullPath(RuntimeRootOverrideForTests);
+            }
             return Path.Combine(ResolveProjectRoot(), "NvlabKimodoQuickServer");
         }
 
@@ -318,6 +324,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         internal static string ResolveStartScript(string runtimeRoot)
         {
+            EnsureNoLegacyScripts(runtimeRoot);
+
             string s1 = Path.Combine(runtimeRoot, "run_server.bat");
             if (File.Exists(s1))
             {
@@ -350,23 +358,13 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 return s2RootSh;
             }
-
-            string legacy = Path.Combine(runtimeRoot, "start_kimodo_bridge_offline.bat");
-            string legacySh = Path.Combine(runtimeRoot, "start_kimodo_bridge_offline.sh");
-            if (File.Exists(legacy))
-            {
-                return legacy;
-            }
-            if (File.Exists(legacySh))
-            {
-                return legacySh;
-            }
-
             return string.Empty;
         }
 
         internal static string ResolveSetupScript(string runtimeRoot)
         {
+            EnsureNoLegacyScripts(runtimeRoot);
+
             string s1 = Path.Combine(runtimeRoot, "bash", "setup.bat");
             if (File.Exists(s1))
             {
@@ -388,13 +386,32 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 return s1RootSh;
             }
-
-            string legacy = Path.Combine(runtimeRoot, "setup_kimodo_offline.bat");
-            if (File.Exists(legacy))
-            {
-                return legacy;
-            }
             return string.Empty;
+        }
+
+        private static void EnsureNoLegacyScripts(string runtimeRoot)
+        {
+            if (string.IsNullOrWhiteSpace(runtimeRoot))
+            {
+                return;
+            }
+
+            string[] legacyScripts =
+            {
+                Path.Combine(runtimeRoot, "start_kimodo_bridge_offline.bat"),
+                Path.Combine(runtimeRoot, "start_kimodo_bridge_offline.sh"),
+                Path.Combine(runtimeRoot, "setup_kimodo_offline.bat"),
+                Path.Combine(runtimeRoot, "setup_kimodo_offline.sh")
+            };
+
+            foreach (string legacyScript in legacyScripts)
+            {
+                if (File.Exists(legacyScript))
+                {
+                    throw new InvalidOperationException(
+                        $"Legacy script detected and not supported: {legacyScript}");
+                }
+            }
         }
     }
 }

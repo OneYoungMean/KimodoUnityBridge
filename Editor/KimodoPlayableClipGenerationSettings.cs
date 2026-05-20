@@ -1,4 +1,4 @@
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
 
 namespace KimodoUnityMotionTools.ProjectEditor
@@ -50,7 +50,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             EditorGUILayout.LabelField("Kimodo Playable Clip", EditorStyles.boldLabel);
             EditorGUILayout.Space(4f);
-            EditorGUILayout.HelpBox("每次生成都会创建一个新动画。超过上限后会从最旧结果开始删除；若动画被其他资源引用则跳过。", MessageType.Info);
+            EditorGUILayout.HelpBox("Each generation creates a new animation clip. When the limit is exceeded, the oldest generated clips are removed first. Clips referenced by other assets are skipped.", MessageType.Info);
 
             EditorGUI.BeginChangeCheck();
             int newLimit = EditorGUILayout.IntSlider(
