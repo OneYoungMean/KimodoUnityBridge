@@ -25,8 +25,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private static readonly IKimodoGenerationBackend ComfyUiBackend = new ComfyUiGenerationBackend();
         private static readonly IKimodoGenerationBackend BridgeBackend = new KimodoBridgeGenerationBackend();
-        private static KimodoBridgeClient sharedBridgeClient;
-        private static bool bridgeLifecycleHooked;
 
         private SerializedProperty generationBackend;
         private SerializedProperty comfyuiIP;
@@ -86,7 +84,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             loopProp = serializedObject.FindProperty("m_Loop");
             savedSkeletonTypeProp = serializedObject.FindProperty("savedSkeletonType");
             autoRetargetOnBindingProp = serializedObject.FindProperty("autoRetargetOnBinding");
-            EnsureBridgeLifecycleHooks();
         }
 
         private void OnDisable()
@@ -198,11 +195,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             if (useBridge)
             {
-                bool bridgeRunning = sharedBridgeClient != null && sharedBridgeClient.IsRunning;
+                bool bridgeRunning = KimodoServerLifecycleManager.IsServerRunning;
                 EditorGUI.BeginDisabledGroup(!bridgeRunning);
                 if (GUILayout.Button("Close Bridge Server", GUILayout.Height(22)))
                 {
-                    _ = CloseSharedBridgeServerAsync();
+                    _ = KimodoServerLifecycleManager.CloseServerAsync();
                 }
                 EditorGUI.EndDisabledGroup();
             }
@@ -390,7 +387,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             bridgeEnvAutoRetryInProgress = true;
             try
             {
-                await CloseSharedBridgeServerAsync();
+                await KimodoServerLifecycleManager.CloseServerAsync();
                 if (Directory.Exists(runtimeRoot))
                 {
                     Directory.Delete(runtimeRoot, true);
@@ -490,7 +487,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             Debug.Log($"[Kimodo] Prompt: {motionPrompt.stringValue}");
 
-            KimodoBridgeClient bridge = GetOrCreateSharedBridgeClient();
+            KimodoBridgeClient bridge = KimodoServerLifecycleManager.GetOrCreateClient();
             await bridge.StartAsync(
                 launcherPath,
                 modelName,
@@ -1054,63 +1051,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             return null;
         }
 
-        private static KimodoBridgeClient GetOrCreateSharedBridgeClient()
-        {
-            if (sharedBridgeClient == null)
-            {
-                sharedBridgeClient = new KimodoBridgeClient();
-            }
-
-            return sharedBridgeClient;
-        }
-
-        private static async Task CloseSharedBridgeServerAsync()
-        {
-            if (sharedBridgeClient == null)
-            {
-                return;
-            }
-
-            KimodoBridgeClient bridge = sharedBridgeClient;
-            sharedBridgeClient = null;
-            try
-            {
-                await bridge.KillServerTreeAsync(CancellationToken.None);
-            }
-            catch
-            {
-                // ignore
-            }
-            finally
-            {
-                bridge.Dispose();
-            }
-        }
-
-        private static void EnsureBridgeLifecycleHooks()
-        {
-            if (bridgeLifecycleHooked)
-            {
-                return;
-            }
-
-            bridgeLifecycleHooked = true;
-            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
-            EditorApplication.quitting += OnEditorQuitting;
-        }
-
-        private static void OnPlayModeStateChanged(PlayModeStateChange state)
-        {
-            if (state == PlayModeStateChange.ExitingEditMode)
-            {
-                _ = CloseSharedBridgeServerAsync();
-            }
-        }
-
-        private static void OnEditorQuitting()
-        {
-            _ = CloseSharedBridgeServerAsync();
-        }
     }
 }
 

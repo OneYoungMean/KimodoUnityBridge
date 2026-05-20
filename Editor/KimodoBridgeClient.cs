@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using UnityEditor;
 using UnityEngine;
 
 namespace KimodoUnityMotionTools.ProjectEditor
@@ -25,6 +26,9 @@ namespace KimodoUnityMotionTools.ProjectEditor
         private string currentPortFilePath;
         private string currentHost = "127.0.0.1";
         private int currentPort = -1;
+        private string currentBridgeLogPath = string.Empty;
+        private CancellationTokenSource logPumpCts;
+        private Task logPumpTask;
         private bool disposed;
 
         public bool IsRunning
@@ -71,6 +75,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 {
                     currentHost = host;
                     currentPort = port;
+                    TryStartBridgeLogPump(Path.Combine(root, "log", "run_server.log"), progress);
                     return $"Ready - {modelName} on {host}:{port}";
                 }
 
@@ -88,7 +93,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 throw new FileNotFoundException($"Bridge launcher not found: {resolvedLauncher}");
             }
 
-            ProcessStartInfo psi = BuildLauncherStartInfo(resolvedLauncher, modelName, highVram, root);
+            string bridgeLogPath = BuildBridgeLogPath(root);
+            ProcessStartInfo psi = BuildLauncherStartInfo(resolvedLauncher, modelName, highVram, root, bridgeLogPath);
 
             Process proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             if (!proc.Start())
@@ -98,6 +104,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             process = proc;
             processId = proc.Id;
+            TryStartBridgeLogPump(bridgeLogPath, progress);
 
             try
             {
@@ -217,6 +224,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             processId = -1;
             currentHost = "127.0.0.1";
             currentPort = -1;
+            StopBridgeLogPump();
             await CloseSharedConnectionAsync();
 
             if (!string.IsNullOrWhiteSpace(portFilePath) && TryReadPortFile(portFilePath, out string host, out int port))
@@ -274,6 +282,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             processId = -1;
             currentHost = "127.0.0.1";
             currentPort = -1;
+            StopBridgeLogPump();
             CloseSharedConnectionSync();
 
             if (proc != null)
@@ -324,6 +333,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             processId = -1;
             currentHost = "127.0.0.1";
             currentPort = -1;
+            StopBridgeLogPump();
             await CloseSharedConnectionAsync();
             await Task.CompletedTask;
         }
@@ -338,6 +348,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             processId = -1;
             currentHost = "127.0.0.1";
             currentPort = -1;
+            StopBridgeLogPump();
             await CloseSharedConnectionAsync();
 
             try
@@ -495,21 +506,22 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
         }
 
-        private static ProcessStartInfo BuildLauncherStartInfo(string launcherPath, string modelName, bool highVram, string kimodoRootPath)
+        private static ProcessStartInfo BuildLauncherStartInfo(string launcherPath, string modelName, bool highVram, string kimodoRootPath, string bridgeLogPath)
         {
             string ext = Path.GetExtension(launcherPath)?.ToLowerInvariant() ?? string.Empty;
             string modelArg = $" --model \"{(string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim())}\"";
             string vramArg = highVram ? " --highvram" : string.Empty;
-            string args = modelArg + vramArg;
+            string outputArg = $" --output file --log \"{bridgeLogPath}\"";
+            string args = modelArg + vramArg + outputArg;
 
             if (ext == ".bat" || ext == ".cmd")
             {
                 return new ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    Arguments = $"/d /s /k \"\"{launcherPath}\"{args}\"",
-                    UseShellExecute = true,
-                    CreateNoWindow = false,
+                    Arguments = $"/d /s /c \"\"{launcherPath}\"{args}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
                     WorkingDirectory = Path.GetDirectoryName(launcherPath)
                 };
             }
@@ -520,8 +532,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 {
                     FileName = "bash",
                     Arguments = $"\"{launcherPath}\"{args}",
-                    UseShellExecute = true,
-                    CreateNoWindow = false,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
                     WorkingDirectory = Path.GetDirectoryName(launcherPath)
                 };
             }
@@ -609,6 +621,94 @@ namespace KimodoUnityMotionTools.ProjectEditor
             sharedClient = null;
             sharedHost = string.Empty;
             sharedPort = -1;
+        }
+
+        private static string BuildBridgeLogPath(string kimodoRootPath)
+        {
+            string logDir = Path.Combine(kimodoRootPath, "log");
+            if (!Directory.Exists(logDir))
+            {
+                Directory.CreateDirectory(logDir);
+            }
+
+            return Path.Combine(logDir, $"unity_bridge_{DateTime.Now:yyyyMMdd_HHmmss_fff}.log");
+        }
+
+        private void TryStartBridgeLogPump(string logPath, Action<string> progress)
+        {
+            StopBridgeLogPump();
+            if (string.IsNullOrWhiteSpace(logPath))
+            {
+                return;
+            }
+
+            currentBridgeLogPath = Path.GetFullPath(logPath);
+            var cts = new CancellationTokenSource();
+            logPumpCts = cts;
+            logPumpTask = Task.Run(() => PumpBridgeLogAsync(currentBridgeLogPath, progress, cts.Token));
+        }
+
+        private void StopBridgeLogPump()
+        {
+            CancellationTokenSource cts = logPumpCts;
+            logPumpCts = null;
+            if (cts != null)
+            {
+                try { cts.Cancel(); } catch { }
+                cts.Dispose();
+            }
+            logPumpTask = null;
+            currentBridgeLogPath = string.Empty;
+        }
+
+        private static async Task PumpBridgeLogAsync(string logPath, Action<string> progress, CancellationToken token)
+        {
+            try
+            {
+                DateTime waitUntil = DateTime.UtcNow.AddSeconds(120);
+                while (!token.IsCancellationRequested && !File.Exists(logPath))
+                {
+                    if (DateTime.UtcNow >= waitUntil)
+                    {
+                        return;
+                    }
+                    await Task.Delay(200, token);
+                }
+
+                if (!File.Exists(logPath))
+                {
+                    return;
+                }
+
+                using var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                while (!token.IsCancellationRequested)
+                {
+                    string line = await reader.ReadLineAsync();
+                    if (line == null)
+                    {
+                        await Task.Delay(120, token);
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
+
+                    string msg = $"[Bridge] {line}";
+                    progress?.Invoke(msg);
+                    EditorApplication.delayCall += () => UnityEngine.Debug.Log(msg);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // ignore
+            }
+            catch (Exception e)
+            {
+                EditorApplication.delayCall += () => UnityEngine.Debug.LogWarning($"[KimodoBridge] log pump stopped: {e.Message}");
+            }
         }
     }
 }

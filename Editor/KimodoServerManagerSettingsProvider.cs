@@ -97,11 +97,21 @@ namespace KimodoUnityMotionTools.ProjectEditor
             selectedVramMode = (KimodoBridgeVramMode)EditorGUILayout.EnumPopup(
                 new GUIContent("VRAM Mode", "Low: quantized encoder (~4G). High: full model stack (~16G)."),
                 selectedVramMode);
+            KimodoPlayableClipGenerationSettings lifecycleSettings = KimodoPlayableClipGenerationSettings.instance;
+            EditorGUI.BeginChangeCheck();
+            bool closeOnPlay = EditorGUILayout.Toggle(
+                new GUIContent("Close On Enter Play Mode", "When enabled, entering Play Mode will close Kimodo bridge server."),
+                lifecycleSettings.CloseBridgeServerOnEnterPlayMode);
+            if (EditorGUI.EndChangeCheck())
+            {
+                lifecycleSettings.CloseBridgeServerOnEnterPlayMode = closeOnPlay;
+                lifecycleSettings.SaveSettings();
+            }
 
-            EditorGUILayout.HelpBox("显存说明：Kimodo 本体约 2G；低显存量化模型约 4G；高显存完整模型约 16G。", MessageType.Info);
+            EditorGUILayout.HelpBox("VRAM guide: Kimodo core ~2GB; Low mode quantized encoder ~4GB; High mode full stack ~16GB.", MessageType.Info);
             int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(runtimeRoot, selectedVramMode == KimodoBridgeVramMode.High, selectedModel);
             int minutes = Mathf.Max(3, points * 3);
-            EditorGUILayout.HelpBox($"预计配置时间：约 {minutes} 分钟（按规则：(缺失模型容量 + 首次配置5) * 3 分钟）。", MessageType.None);
+            EditorGUILayout.HelpBox($"Estimated setup time: about {minutes} minutes (rule: (missing model points + first setup 5) * 3).", MessageType.None);
 
             if (GUILayout.Button("Start Server", GUILayout.Width(140f)))
             {
@@ -395,3 +405,4 @@ namespace KimodoUnityMotionTools.ProjectEditor
         }
     }
 }
+

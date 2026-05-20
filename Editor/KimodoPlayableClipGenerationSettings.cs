@@ -11,11 +11,18 @@ namespace KimodoUnityMotionTools.ProjectEditor
         internal const int DefaultGeneratedClipsLimit = 400;
 
         [SerializeField] private int maxGeneratedClips = DefaultGeneratedClipsLimit;
+        [SerializeField] private bool closeBridgeServerOnEnterPlayMode = true;
 
         internal int MaxGeneratedClips
         {
             get => Mathf.Clamp(maxGeneratedClips, MinGeneratedClipsLimit, MaxGeneratedClipsLimit);
             set => maxGeneratedClips = Mathf.Clamp(value, MinGeneratedClipsLimit, MaxGeneratedClipsLimit);
+        }
+
+        internal bool CloseBridgeServerOnEnterPlayMode
+        {
+            get => closeBridgeServerOnEnterPlayMode;
+            set => closeBridgeServerOnEnterPlayMode = value;
         }
 
         internal void SaveSettings()
@@ -58,7 +65,20 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 settings.SaveSettings();
             }
 
+            EditorGUI.BeginChangeCheck();
+            bool closeOnEnterPlay = EditorGUILayout.Toggle(
+                new GUIContent("Close Server On Enter Play Mode", "When enabled, entering Play Mode will close Kimodo bridge server."),
+                settings.CloseBridgeServerOnEnterPlayMode);
+            if (EditorGUI.EndChangeCheck())
+            {
+                settings.CloseBridgeServerOnEnterPlayMode = closeOnEnterPlay;
+                settings.SaveSettings();
+            }
+
             EditorGUILayout.LabelField($"Current Limit: {settings.MaxGeneratedClips}", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField(
+                $"Close On Enter Play Mode: {(settings.CloseBridgeServerOnEnterPlayMode ? "Enabled" : "Disabled")}",
+                EditorStyles.miniLabel);
         }
     }
 }
