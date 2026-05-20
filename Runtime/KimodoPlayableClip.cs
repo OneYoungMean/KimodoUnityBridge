@@ -1,7 +1,15 @@
 using UnityEngine;
 using UnityEngine.Playables;
-namespace UnityEngine.Timeline
+using UnityEngine.Timeline;
+
+namespace KimodoUnityMotionTools
 {
+    public enum KimodoBridgeVramMode
+    {
+        Low = 0,
+        High = 1
+    }
+
     public enum KimodoGenerationBackend
     {
         ComfyUI = 0,
@@ -31,6 +39,8 @@ namespace UnityEngine.Timeline
         [Tooltip("Deprecated legacy field. Local bridge startup is managed by packaged offline launcher.")]
         public string bridgeLauncherPath = "";
         public string bridgeModelName = "Kimodo-SOMA-RP-v1";
+        [Tooltip("Low: quantized encoder (~4G). High: full encoder (~16G). Kimodo base model ~2G.")]
+        public KimodoBridgeVramMode bridgeVramMode = KimodoBridgeVramMode.Low;
         [HideInInspector]
         [Tooltip("Deprecated legacy field. Local bridge startup is managed by packaged offline launcher.")]
         public string bridgeServerScriptPath = "";

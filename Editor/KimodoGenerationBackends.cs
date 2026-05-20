@@ -1,8 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using KimodoUnityMotionTools;
 
-namespace UnityEngine.Timeline
+namespace KimodoUnityMotionTools.ProjectEditor
 {
     internal interface IKimodoGenerationBackend
     {

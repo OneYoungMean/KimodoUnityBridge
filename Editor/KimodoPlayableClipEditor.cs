@@ -5,14 +5,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
-using UnityEditor.PackageManager;
 using UnityEditor.Timeline;
 using UnityEngine;
 using UnityEngine.Playables;
+using KimodoUnityMotionTools;
 using KimodoUnityMotionTools.ProjectEditor;
-using PackageInfo = UnityEditor.PackageManager.PackageInfo;
 
-namespace UnityEngine.Timeline
+namespace KimodoUnityMotionTools.ProjectEditor
 {
     [CustomEditor(typeof(KimodoPlayableClip))]
     public class KimodoPlayableClipEditor : UnityEditor.Editor
@@ -30,6 +29,7 @@ namespace UnityEngine.Timeline
         private SerializedProperty comfyuiIP;
         private SerializedProperty comfyuiPort;
         private SerializedProperty bridgeModelName;
+        private SerializedProperty bridgeVramMode;
         private SerializedProperty bridgeStartupTimeoutSeconds;
         private SerializedProperty motionPrompt;
         private SerializedProperty generationFrames;
@@ -62,6 +62,7 @@ namespace UnityEngine.Timeline
             comfyuiIP = serializedObject.FindProperty("comfyuiIP");
             comfyuiPort = serializedObject.FindProperty("comfyuiPort");
             bridgeModelName = serializedObject.FindProperty("bridgeModelName");
+            bridgeVramMode = serializedObject.FindProperty("bridgeVramMode");
             bridgeStartupTimeoutSeconds = serializedObject.FindProperty("bridgeStartupTimeoutSeconds");
             motionPrompt = serializedObject.FindProperty("motionPrompt");
             generationFrames = serializedObject.FindProperty("generationFrames");
@@ -118,13 +119,22 @@ namespace UnityEngine.Timeline
             {
                 if (bridgeModelName != null)
                 {
-                    EditorGUILayout.PropertyField(bridgeModelName, new GUIContent("Bridge Model"));
+                    DrawBridgeModelSelector();
+                }
+                if (bridgeVramMode != null)
+                {
+                    EditorGUILayout.PropertyField(
+                        bridgeVramMode,
+                        new GUIContent("VRAM Mode", "Low: quantized text encoder (~4G). High: full Llama+LLM2Vec (~16G)."));
                 }
                 if (bridgeStartupTimeoutSeconds != null)
                 {
                     bridgeStartupTimeoutSeconds.floatValue = Mathf.Max(500f,
                         EditorGUILayout.FloatField("Bridge Startup Timeout (sec)", bridgeStartupTimeoutSeconds.floatValue));
                 }
+
+                EditorGUILayout.HelpBox("显存说明：Kimodo 本体约 2G；低显存量化模型约 4G；高显存完整模型约 16G。", MessageType.Info);
+                DrawEstimatedSetupTimeHint();
             }
             else
             {
@@ -265,7 +275,7 @@ namespace UnityEngine.Timeline
             try
             {
                 EnsureAnimationClipExists();
-                TimelineClip timelineClip = FindTimelineClipForAsset(clip);
+                UnityEngine.Timeline.TimelineClip timelineClip = FindTimelineClipForAsset(clip);
                 string constraintsFilePath = string.Empty;
                 if (timelineClip != null)
                 {
@@ -448,6 +458,7 @@ namespace UnityEngine.Timeline
             string kimodoRootPath = ResolveBridgeRootPath();
             string launcherPath = ResolveBridgeLauncherPath(kimodoRootPath);
             string modelName = string.IsNullOrWhiteSpace(clip.bridgeModelName) ? "Kimodo-SOMA-RP-v1" : clip.bridgeModelName.Trim();
+            bool highVram = clip.bridgeVramMode == KimodoBridgeVramMode.High;
             float startupTimeout = Mathf.Max(500f, clip.bridgeStartupTimeoutSeconds);
             float durationSeconds = generationFrames.intValue / TargetFps;
 
@@ -457,6 +468,7 @@ namespace UnityEngine.Timeline
             await bridge.StartAsync(
                 launcherPath,
                 modelName,
+                highVram,
                 kimodoRootPath,
                 startupTimeout,
                 progress =>
@@ -502,13 +514,8 @@ namespace UnityEngine.Timeline
 
         private static string ResolveBridgeRootPath()
         {
-            string projectRoot = ResolveProjectRoot();
-            string runtimeRoot = Path.Combine(projectRoot, "NvlabKimodoQuickServer");
-            if (!Directory.Exists(runtimeRoot))
-            {
-                TryBootstrapRuntimeRootFromPackage(projectRoot, runtimeRoot);
-            }
-            if (!Directory.Exists(runtimeRoot))
+            string runtimeRoot = KimodoServerRuntimeUtil.GetRuntimeRootPath();
+            if (!Directory.Exists(runtimeRoot) && !KimodoServerRuntimeUtil.EnsureRuntimeRootExists())
             {
                 throw new DirectoryNotFoundException(
                     $"Bridge runtime root not found and bootstrap failed: {runtimeRoot}");
@@ -527,62 +534,28 @@ namespace UnityEngine.Timeline
             return cwd;
         }
 
-        private static void TryBootstrapRuntimeRootFromPackage(string projectRoot, string runtimeRoot)
+        private void DrawBridgeModelSelector()
         {
-            string packageResolvedPath = string.Empty;
-            try
+            string current = string.IsNullOrWhiteSpace(bridgeModelName.stringValue) ? "Kimodo-SOMA-RP-v1" : bridgeModelName.stringValue.Trim();
+            string[] options = KimodoServerRuntimeUtil.SupportedModelNames;
+            int idx = Array.IndexOf(options, current);
+            if (idx < 0)
             {
-                PackageInfo info = PackageInfo.FindForAssembly(typeof(KimodoPlayableClipEditor).Assembly);
-                if (info != null && !string.IsNullOrWhiteSpace(info.resolvedPath))
-                {
-                    packageResolvedPath = info.resolvedPath;
-                }
-            }
-            catch
-            {
-                // ignore and continue fallback probing
+                idx = 0;
             }
 
-            string candidate1 = string.IsNullOrWhiteSpace(packageResolvedPath)
-                ? string.Empty
-                : Path.GetFullPath(Path.Combine(packageResolvedPath, "NvlabKimodoQuickServer~"));
-            string candidate2 = Path.GetFullPath(Path.Combine(projectRoot, "Library", "PackageCache", "com.unity.kimodo_unity_motion_tools", "NvlabKimodoQuickServer~"));
-            string candidate3 = Path.GetFullPath(Path.Combine(projectRoot, "..", "..", "KimodoUnityBridge", "NvlabKimodoQuickServer~"));
-            string templateRoot = Directory.Exists(candidate1)
-                ? candidate1
-                : (Directory.Exists(candidate2) ? candidate2 : candidate3);
-
-            if (!Directory.Exists(templateRoot))
-            {
-                Debug.LogWarning($"[Kimodo] Runtime template not found. Tried: {candidate1} | {candidate2} | {candidate3}");
-                return;
-            }
-
-            Debug.Log($"[Kimodo] Bootstrapping runtime root from template: {templateRoot} -> {runtimeRoot}");
-            Directory.CreateDirectory(runtimeRoot);
-            CopyDirectoryRecursive(templateRoot, runtimeRoot);
+            int newIdx = EditorGUILayout.Popup(new GUIContent("Bridge Model"), idx, options);
+            bridgeModelName.stringValue = options[Mathf.Clamp(newIdx, 0, options.Length - 1)];
         }
 
-        private static void CopyDirectoryRecursive(string sourceDir, string destinationDir)
+        private void DrawEstimatedSetupTimeHint()
         {
-            Directory.CreateDirectory(destinationDir);
-
-            foreach (string file in Directory.GetFiles(sourceDir))
-            {
-                string destFile = Path.Combine(destinationDir, Path.GetFileName(file));
-                File.Copy(file, destFile, overwrite: true);
-            }
-
-            foreach (string dir in Directory.GetDirectories(sourceDir))
-            {
-                string dirName = Path.GetFileName(dir);
-                if (string.Equals(dirName, ".git", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-                string destSubDir = Path.Combine(destinationDir, Path.GetFileName(dir));
-                CopyDirectoryRecursive(dir, destSubDir);
-            }
+            string runtimeRoot = KimodoServerRuntimeUtil.GetRuntimeRootPath();
+            bool highVram = clip != null && clip.bridgeVramMode == KimodoBridgeVramMode.High;
+            string modelName = clip == null || string.IsNullOrWhiteSpace(clip.bridgeModelName) ? "Kimodo-SOMA-RP-v1" : clip.bridgeModelName.Trim();
+            int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(runtimeRoot, highVram, modelName);
+            int minutes = Mathf.Max(3, points * 3);
+            EditorGUILayout.HelpBox($"预计配置时间（按缺失容量估算）：约 {minutes} 分钟。计算规则：(缺失模型容量 + 首次配置5) * 3 分钟。", MessageType.None);
         }
 
         private void CancelGenerationInternal()
@@ -878,7 +851,7 @@ namespace UnityEngine.Timeline
 
         private void TrySyncTimelineDuration(int frames)
         {
-            TimelineClip timelineClip = FindTimelineClipForAsset(clip);
+            UnityEngine.Timeline.TimelineClip timelineClip = FindTimelineClipForAsset(clip);
             if (timelineClip == null)
             {
                 return;
@@ -889,14 +862,14 @@ namespace UnityEngine.Timeline
             timelineClip.duration = newDuration;
         }
 
-        private TimelineClip FindTimelineClipForAsset(PlayableAsset asset)
+        private UnityEngine.Timeline.TimelineClip FindTimelineClipForAsset(PlayableAsset asset)
         {
             if (TimelineEditor.inspectedAsset == null)
             {
                 return null;
             }
 
-            foreach (TimelineClip selectedClip in TimelineEditor.selectedClips)
+            foreach (UnityEngine.Timeline.TimelineClip selectedClip in TimelineEditor.selectedClips)
             {
                 if (selectedClip.asset == asset)
                 {
@@ -904,9 +877,9 @@ namespace UnityEngine.Timeline
                 }
             }
 
-            foreach (TrackAsset track in TimelineEditor.inspectedAsset.GetOutputTracks())
+            foreach (UnityEngine.Timeline.TrackAsset track in TimelineEditor.inspectedAsset.GetOutputTracks())
             {
-                foreach (TimelineClip timelineClip in track.GetClips())
+                foreach (UnityEngine.Timeline.TimelineClip timelineClip in track.GetClips())
                 {
                     if (timelineClip.asset == asset)
                     {

@@ -21,7 +21,7 @@ namespace KimodoUnityMotionTools
             public List<float> local_rot_quats;
         }
 
-        public static bool BakeIntoClip(AnimationClip targetClip, string motionJson, UnityEngine.Timeline.KimodoBakeSkeletonType skeletonType, out string error)
+        public static bool BakeIntoClip(AnimationClip targetClip, string motionJson, KimodoBakeSkeletonType skeletonType, out string error)
         {
             error = string.Empty;
 
@@ -47,7 +47,7 @@ namespace KimodoUnityMotionTools
                 return false;
             }
 
-            if (skeletonType != UnityEngine.Timeline.KimodoBakeSkeletonType.SOMA)
+            if (skeletonType != KimodoBakeSkeletonType.SOMA)
             {
                 error = "Only SOMA bake mode is supported.";
                 return false;
