@@ -35,6 +35,30 @@ namespace UnityEngine.Timeline
     }
 
     [Serializable]
+    public sealed class KimodoMarkerSampleRequest
+    {
+        public Animator animator;
+        public Transform skeletonRoot;
+        public TimelineClip sourceClip;
+        public double globalTime;
+        public int frameIndex;
+        public string markerType;
+    }
+
+    [Serializable]
+    public sealed class KimodoMarkerSampleResult
+    {
+        public Vector3 rootPosition;
+        public Vector2 rootHeading;
+        public List<Vector3> localAxisAngles = new List<Vector3>();
+    }
+
+    public interface IKimodoSampleMarker
+    {
+        bool TrySampleMarker(KimodoMarkerSampleRequest request, out KimodoMarkerSampleResult result, out string error);
+    }
+
+    [Serializable]
     public abstract class KimodoConstraintMarkerBase : Marker, IKimodoConstraintMarker
     {
         [Tooltip("If enabled, use manually edited marker values. If disabled, values are sampled from timeline pose at this marker time.")]

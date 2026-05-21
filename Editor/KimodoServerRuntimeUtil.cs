@@ -154,14 +154,20 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             try
             {
+                const int connectTimeoutMs = 1500;
+                const int ioTimeoutMs = 1200;
                 using var client = new TcpClient();
                 IAsyncResult ar = client.BeginConnect(host, port, null, null);
-                if (!ar.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(1.5)))
+                if (!ar.AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(connectTimeoutMs)))
                 {
                     return false;
                 }
                 client.EndConnect(ar);
+                client.ReceiveTimeout = ioTimeoutMs;
+                client.SendTimeout = ioTimeoutMs;
                 using NetworkStream stream = client.GetStream();
+                stream.ReadTimeout = ioTimeoutMs;
+                stream.WriteTimeout = ioTimeoutMs;
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false), 1024, leaveOpen: true) { AutoFlush = true };
                 using var reader = new StreamReader(stream, Encoding.UTF8, false, 1024, leaveOpen: true);
                 writer.WriteLine("{\"cmd\":\"ping\"}");
@@ -186,8 +192,13 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             try
             {
+                const int ioTimeoutMs = 1200;
                 using var client = new TcpClient(host, port);
+                client.ReceiveTimeout = ioTimeoutMs;
+                client.SendTimeout = ioTimeoutMs;
                 using NetworkStream stream = client.GetStream();
+                stream.ReadTimeout = ioTimeoutMs;
+                stream.WriteTimeout = ioTimeoutMs;
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false), 1024, leaveOpen: true) { AutoFlush = true };
                 using var reader = new StreamReader(stream, Encoding.UTF8, false, 1024, leaveOpen: true);
                 writer.WriteLine("{\"cmd\":\"quit\"}");

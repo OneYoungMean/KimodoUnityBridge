@@ -12,8 +12,9 @@ namespace KimodoUnityMotionTools.ProjectEditor
     public enum KimodoRetargetResultMode
     {
         SomaFallback = 0,
-        HumanoidMuscle = 1,
-        TargetBone = 2
+        DirectBone = 1,
+        HumanoidMuscle = 2,
+        TargetBone = 3
     }
 
     public static class KimodoRetargetPipeline
@@ -43,6 +44,14 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 details = bindError;
                 return false;
+            }
+
+            // Standard skeleton direct path: if target can directly consume current bone curves, skip avatar conversion.
+            if (CanDirectWriteBoneCurves(playableClip.clip, targetAnimator))
+            {
+                mode = KimodoRetargetResultMode.DirectBone;
+                details = "Direct bone write path used (compatible skeleton binding).";
+                return true;
             }
 
             bool hadHumanoidAvatar = targetAnimator.avatar != null && targetAnimator.avatar.isValid && targetAnimator.avatar.isHuman;
@@ -379,6 +388,56 @@ namespace KimodoUnityMotionTools.ProjectEditor
             dst.legacy = false;
             dst.EnsureQuaternionContinuity();
             EditorUtility.SetDirty(dst);
+        }
+
+        private static bool CanDirectWriteBoneCurves(AnimationClip clip, Animator targetAnimator)
+        {
+            if (clip == null || targetAnimator == null)
+            {
+                return false;
+            }
+
+            Transform root = targetAnimator.transform;
+            if (root == null)
+            {
+                return false;
+            }
+
+            EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(clip);
+            if (bindings == null || bindings.Length == 0)
+            {
+                return false;
+            }
+
+            // Consider direct write compatible when all transform paths in clip exist on target binding hierarchy.
+            var checkedPaths = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < bindings.Length; i++)
+            {
+                EditorCurveBinding b = bindings[i];
+                if (b.type != typeof(Transform))
+                {
+                    continue;
+                }
+
+                string path = b.path ?? string.Empty;
+                if (!checkedPaths.Add(path))
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    continue;
+                }
+
+                Transform t = root.Find(path);
+                if (t == null)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool TryConvertMuscleToTargetBoneClip(

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Net.Sockets;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -37,13 +38,51 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 try
                 {
-                    return process != null && !process.HasExited;
+                    if (process != null && !process.HasExited)
+                    {
+                        return true;
+                    }
+
+                    return currentPort > 0;
                 }
                 catch
                 {
                     return false;
                 }
             }
+        }
+
+        public async Task<bool> AttachToExistingServerAsync(
+            string kimodoRootPath,
+            Action<string> progress,
+            CancellationToken token)
+        {
+            if (string.IsNullOrWhiteSpace(kimodoRootPath))
+            {
+                return false;
+            }
+
+            string root = Path.GetFullPath(kimodoRootPath.Trim());
+            string portFile = Path.Combine(root, "serverport");
+            currentPortFilePath = portFile;
+            if (!TryReadPortFile(portFile, out string host, out int port))
+            {
+                return false;
+            }
+
+            if (!await PingTcpAsync(host, port, token, acceptLoading: true))
+            {
+                return false;
+            }
+
+            currentHost = host;
+            currentPort = port;
+            string attachLogPath = ResolveAttachLogPath(root);
+            if (!string.IsNullOrWhiteSpace(attachLogPath))
+            {
+                TryStartBridgeLogPump(attachLogPath, progress);
+            }
+            return true;
         }
 
         public async Task<string> StartAsync(
@@ -75,7 +114,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 {
                     currentHost = host;
                     currentPort = port;
-                    TryStartBridgeLogPump(Path.Combine(root, "log", "run_server.log"), progress);
+                    string attachLogPath = ResolveAttachLogPath(root);
+                    if (!string.IsNullOrWhiteSpace(attachLogPath))
+                    {
+                        TryStartBridgeLogPump(attachLogPath, progress);
+                    }
                     return $"Ready - {modelName} on {host}:{port}";
                 }
 
@@ -111,7 +154,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
                 timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(30f, startupTimeoutSeconds)));
 
-                progress?.Invoke("Starting bridge...");
+                ReportProgress(progress, "Starting bridge...");
                 while (true)
                 {
                     timeoutCts.Token.ThrowIfCancellationRequested();
@@ -180,7 +223,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 if (string.Equals(status, "loading", StringComparison.OrdinalIgnoreCase))
                 {
                     string loadingMessage = msg.Value<string>("message") ?? "Model is loading.";
-                    progress?.Invoke($"Bridge loading model... {loadingMessage}");
+                    ReportProgress(progress, $"Bridge loading model... {loadingMessage}");
                     if (waitSw.Elapsed.TotalSeconds > maxLoadingWaitSeconds)
                     {
                         throw new Exception($"Bridge model still loading after {maxLoadingWaitSeconds:0}s.");
@@ -210,7 +253,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                     throw new Exception("Bridge completed without motion_json_compact.");
                 }
 
-                progress?.Invoke("Bridge generation complete.");
+                ReportProgress(progress, "Bridge generation complete.");
                 return motionJson;
             }
         }
@@ -634,6 +677,42 @@ namespace KimodoUnityMotionTools.ProjectEditor
             return Path.Combine(logDir, $"unity_bridge_{DateTime.Now:yyyyMMdd_HHmmss_fff}.log");
         }
 
+        private static string ResolveAttachLogPath(string kimodoRootPath)
+        {
+            if (string.IsNullOrWhiteSpace(kimodoRootPath))
+            {
+                return string.Empty;
+            }
+
+            string logDir = Path.Combine(kimodoRootPath, "log");
+            try
+            {
+                if (!Directory.Exists(logDir))
+                {
+                    return string.Empty;
+                }
+
+                string[] bridgeLogs = Directory.GetFiles(logDir, "unity_bridge_*.log");
+                if (bridgeLogs.Length > 0)
+                {
+                    Array.Sort(bridgeLogs, (a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
+                    return bridgeLogs[0];
+                }
+
+                string runServerLog = Path.Combine(logDir, "run_server.log");
+                if (File.Exists(runServerLog))
+                {
+                    return runServerLog;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return string.Empty;
+        }
+
         private void TryStartBridgeLogPump(string logPath, Action<string> progress)
         {
             StopBridgeLogPump();
@@ -665,6 +744,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             try
             {
+                const int minProgressRefreshMs = 300;
+                const int pollMs = 100;
+                DateTime lastProgressEmitUtc = DateTime.MinValue;
+                string pendingProgress = null;
+                var pendingLines = new Queue<string>();
                 DateTime waitUntil = DateTime.UtcNow.AddSeconds(120);
                 while (!token.IsCancellationRequested && !File.Exists(logPath))
                 {
@@ -672,7 +756,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                     {
                         return;
                     }
-                    await Task.Delay(200, token);
+                    await Task.Delay(pollMs, token);
                 }
 
                 if (!File.Exists(logPath))
@@ -681,24 +765,63 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 }
 
                 using var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                // Start tailing from the current end, so Unity only prints newly appended bridge logs.
+                if (fs.CanSeek)
+                {
+                    fs.Seek(0, SeekOrigin.End);
+                }
                 using var reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
                 while (!token.IsCancellationRequested)
                 {
+                    bool hasNewData = false;
                     string line = await reader.ReadLineAsync();
-                    if (line == null)
+                    if (line != null)
                     {
-                        await Task.Delay(120, token);
-                        continue;
+                        hasNewData = true;
+                        EnqueueBridgeLines(line, pendingLines);
+                    }
+                    else if (fs.Length > fs.Position)
+                    {
+                        string tailChunk = await reader.ReadToEndAsync();
+                        if (!string.IsNullOrEmpty(tailChunk))
+                        {
+                            hasNewData = true;
+                            EnqueueBridgeLines(tailChunk, pendingLines);
+                        }
                     }
 
-                    if (string.IsNullOrWhiteSpace(line))
+                    while (pendingLines.Count > 0)
                     {
-                        continue;
+                        string raw = pendingLines.Dequeue();
+                        if (string.IsNullOrWhiteSpace(raw))
+                        {
+                            continue;
+                        }
+
+                        string trimmed = raw.Trim();
+                        string normalized = NormalizeBridgeLogLine(trimmed);
+                        if (LooksLikeTqdmProgress(trimmed))
+                        {
+                            // Keep only the latest progress line during cooldown windows.
+                            pendingProgress = normalized;
+                            continue;
+                        }
+
+                        EmitBridgeMessage(progress, normalized);
                     }
 
-                    string msg = $"[Bridge] {line}";
-                    progress?.Invoke(msg);
-                    EditorApplication.delayCall += () => UnityEngine.Debug.Log(msg);
+                    if (!string.IsNullOrEmpty(pendingProgress) &&
+                        (DateTime.UtcNow - lastProgressEmitUtc).TotalMilliseconds >= minProgressRefreshMs)
+                    {
+                        EmitBridgeMessage(progress, pendingProgress);
+                        pendingProgress = null;
+                        lastProgressEmitUtc = DateTime.UtcNow;
+                    }
+
+                    if (!hasNewData)
+                    {
+                        await Task.Delay(pollMs, token);
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -709,6 +832,113 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 EditorApplication.delayCall += () => UnityEngine.Debug.LogWarning($"[KimodoBridge] log pump stopped: {e.Message}");
             }
+        }
+
+        private static void EmitBridgeMessage(Action<string> progress, string line)
+        {
+            string msg = $"[Bridge] {line}";
+            ReportProgress(progress, msg);
+            EditorApplication.delayCall += () => UnityEngine.Debug.Log(msg);
+        }
+
+        private static void EnqueueBridgeLines(string text, Queue<string> queue)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+
+            string[] parts = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                queue.Enqueue(parts[i]);
+            }
+        }
+
+        private static string NormalizeBridgeLogLine(string line)
+        {
+            if (string.IsNullOrEmpty(line) || !LooksLikeTqdmProgress(line))
+            {
+                return line;
+            }
+
+            int firstPipe = line.IndexOf('|');
+            if (firstPipe < 0)
+            {
+                return line;
+            }
+
+            int secondPipe = line.IndexOf('|', firstPipe + 1);
+            if (secondPipe <= firstPipe + 1)
+            {
+                return line;
+            }
+
+            string bar = line.Substring(firstPipe + 1, secondPipe - firstPipe - 1);
+            bool needsNormalize = false;
+            for (int i = 0; i < bar.Length; i++)
+            {
+                char ch = bar[i];
+                if (ch > 127 || ch == '?' || char.IsControl(ch))
+                {
+                    needsNormalize = true;
+                    break;
+                }
+            }
+
+            if (!needsNormalize)
+            {
+                return line;
+            }
+
+            var normalizedBar = new StringBuilder(bar.Length);
+            for (int i = 0; i < bar.Length; i++)
+            {
+                char ch = bar[i];
+                if (ch <= 127 && !char.IsControl(ch) && ch != '?')
+                {
+                    normalizedBar.Append(ch);
+                }
+                else
+                {
+                    normalizedBar.Append('#');
+                }
+            }
+
+            return line.Substring(0, firstPipe + 1) + normalizedBar + line.Substring(secondPipe);
+        }
+
+        private static bool LooksLikeTqdmProgress(string line)
+        {
+            int percent = line.IndexOf('%');
+            int firstPipe = line.IndexOf('|');
+            int secondPipe = firstPipe >= 0 ? line.IndexOf('|', firstPipe + 1) : -1;
+            if (percent <= 0 || firstPipe <= percent || secondPipe <= firstPipe)
+            {
+                return false;
+            }
+
+            return line.Contains("/") && line.Contains("[") && line.Contains("]");
+        }
+
+        private static void ReportProgress(Action<string> progress, string message)
+        {
+            if (progress == null)
+            {
+                return;
+            }
+
+            EditorApplication.delayCall += () =>
+            {
+                try
+                {
+                    progress.Invoke(message);
+                }
+                catch (Exception e)
+                {
+                    UnityEngine.Debug.LogWarning($"[KimodoBridge] progress callback failed: {e.Message}");
+                }
+            };
         }
     }
 }

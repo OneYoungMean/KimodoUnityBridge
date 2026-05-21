@@ -1,7 +1,9 @@
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using Newtonsoft.Json.Linq;
+using System.Reflection;
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEngine;
 
 namespace KimodoUnityMotionTools
@@ -22,6 +24,25 @@ namespace KimodoUnityMotionTools
         }
 
         public static bool BakeIntoClip(AnimationClip targetClip, string motionJson, KimodoBakeSkeletonType skeletonType, out string error)
+        {
+            return BakeIntoClip(
+                targetClip,
+                motionJson,
+                skeletonType,
+                useRecorderSaveToClip: true,
+                ensureQuaternionContinuity: true,
+                curveFilterSettings: null,
+                out error);
+        }
+
+        public static bool BakeIntoClip(
+            AnimationClip targetClip,
+            string motionJson,
+            KimodoBakeSkeletonType skeletonType,
+            bool useRecorderSaveToClip,
+            bool ensureQuaternionContinuity,
+            KimodoCurveFilterSettings curveFilterSettings,
+            out string error)
         {
             error = string.Empty;
 
@@ -54,12 +75,33 @@ namespace KimodoUnityMotionTools
             }
 
             float fps = data.fps > 0 ? data.fps : 30f;
-            int frameCount = Mathf.Min(data.num_frames > 0 ? data.num_frames : data.positions.Count, data.positions.Count);
+            int positionFrames = data.positions != null ? data.positions.Count : 0;
+            int frameHint = data.num_frames > 0 ? data.num_frames : positionFrames;
+            int frameCount = positionFrames > 0
+                ? Mathf.Min(frameHint, positionFrames)
+                : Mathf.Max(2, frameHint);
 
             Undo.RecordObject(targetClip, "Bake Kimodo Animation");
             targetClip.ClearCurves();
-            BakeSomaCurves(targetClip, data, fps, frameCount);
+
+            if (useRecorderSaveToClip)
+            {
+                if (!TryBakeSomaCurvesWithRecorder(targetClip, data, fps, frameCount, curveFilterSettings, out string recorderError))
+                {
+                    Debug.LogWarning($"[Kimodo] Recorder bake failed, fallback to direct SetCurve. Reason: {recorderError}");
+                    BakeSomaCurvesDirect(targetClip, data, fps, frameCount);
+                }
+            }
+            else
+            {
+                BakeSomaCurvesDirect(targetClip, data, fps, frameCount);
+            }
+
             targetClip.frameRate = fps;
+            if (ensureQuaternionContinuity)
+            {
+                targetClip.EnsureQuaternionContinuity();
+            }
             EditorUtility.SetDirty(targetClip);
             return true;
         }
@@ -140,7 +182,9 @@ namespace KimodoUnityMotionTools
                 error = "No joint_names in motion data.";
                 return false;
             }
-            if (data.positions.Count < 2)
+            int positionFrames = data.positions != null ? data.positions.Count : 0;
+            int frameHint = data.num_frames > 0 ? data.num_frames : positionFrames;
+            if (frameHint < 2)
             {
                 error = "Need at least 2 frames for baking.";
                 return false;
@@ -148,7 +192,7 @@ namespace KimodoUnityMotionTools
             return true;
         }
 
-        private static void BakeSomaCurves(AnimationClip targetClip, MotionJsonData data, float fps, int frameCount)
+        private static void BakeSomaCurvesDirect(AnimationClip targetClip, MotionJsonData data, float fps, int frameCount)
         {
             int jointCount = Mathf.Min(data.joint_names.Length, data.num_joints > 0 ? data.num_joints : data.joint_names.Length);
             bool hasPositions = data.positions != null && data.positions.Count > 0;
@@ -212,6 +256,242 @@ namespace KimodoUnityMotionTools
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalRotation.z", qz);
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalRotation.w", qw);
                 }
+            }
+        }
+
+        private static bool TryBakeSomaCurvesWithRecorder(
+            AnimationClip targetClip,
+            MotionJsonData data,
+            float fps,
+            int frameCount,
+            KimodoCurveFilterSettings filterSettings,
+            out string error)
+        {
+            error = string.Empty;
+
+            int jointCount = Mathf.Min(data.joint_names.Length, data.num_joints > 0 ? data.num_joints : data.joint_names.Length);
+            bool hasPositions = data.positions != null && data.positions.Count > 0;
+            int rotJointCount = jointCount;
+            bool hasRotations = false;
+            if (data.local_rot_quats != null && data.local_rot_quats.Count > 0 && frameCount > 0)
+            {
+                int availableJointCount = data.local_rot_quats.Count / (frameCount * 4);
+                rotJointCount = Mathf.Min(jointCount, availableJointCount);
+                hasRotations = rotJointCount > 0;
+            }
+            int rootJoint = FindRootJointIndex(data, jointCount);
+            string[] jointPaths = BuildJointPaths(data, jointCount);
+
+            GameObject bakeRoot = null;
+            try
+            {
+                bakeRoot = BuildTempBakeHierarchy(data, jointCount, jointPaths);
+                if (bakeRoot == null)
+                {
+                    error = "Failed to build temporary bake hierarchy.";
+                    return false;
+                }
+
+                var recorder = new GameObjectRecorder(bakeRoot);
+                AddRecorderBindings(recorder, jointPaths, rootJoint, hasPositions, hasRotations, rotJointCount);
+
+                Transform[] jointTransforms = ResolveTransformsByPaths(bakeRoot.transform, jointPaths);
+                if (jointTransforms == null || jointTransforms.Length != jointCount)
+                {
+                    error = "Failed to resolve temp joint transforms.";
+                    return false;
+                }
+
+                for (int f = 0; f < frameCount; f++)
+                {
+                    for (int joint = 0; joint < jointCount; joint++)
+                    {
+                        Transform t = jointTransforms[joint];
+                        if (t == null)
+                        {
+                            continue;
+                        }
+
+                        if (hasPositions && joint == rootJoint)
+                        {
+                            t.localPosition = ReadPos(data, f, joint);
+                        }
+                        else if (joint == rootJoint)
+                        {
+                            t.localPosition = Vector3.zero;
+                        }
+
+                        if (hasRotations && joint < rotJointCount)
+                        {
+                            t.localRotation = ReadLocalQuat(data, f, joint, rotJointCount);
+                        }
+                        else
+                        {
+                            t.localRotation = Quaternion.identity;
+                        }
+                    }
+
+                    recorder.TakeSnapshot(1f / Mathf.Max(1f, fps));
+                }
+
+                SaveRecorderToClip(recorder, targetClip, fps, filterSettings);
+                return true;
+            }
+            catch (Exception e)
+            {
+                error = e.Message;
+                return false;
+            }
+            finally
+            {
+                if (bakeRoot != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(bakeRoot);
+                }
+            }
+        }
+
+        private static void AddRecorderBindings(
+            GameObjectRecorder recorder,
+            string[] jointPaths,
+            int rootJoint,
+            bool hasPositions,
+            bool hasRotations,
+            int rotJointCount)
+        {
+            if (recorder == null || jointPaths == null)
+            {
+                return;
+            }
+
+            if (hasPositions && rootJoint >= 0 && rootJoint < jointPaths.Length)
+            {
+                string path = jointPaths[rootJoint];
+                BindTransformFloat(recorder, path, "m_LocalPosition.x");
+                BindTransformFloat(recorder, path, "m_LocalPosition.y");
+                BindTransformFloat(recorder, path, "m_LocalPosition.z");
+            }
+
+            if (!hasRotations)
+            {
+                return;
+            }
+
+            int upper = Mathf.Min(rotJointCount, jointPaths.Length);
+            for (int joint = 0; joint < upper; joint++)
+            {
+                string path = jointPaths[joint];
+                BindTransformFloat(recorder, path, "m_LocalRotation.x");
+                BindTransformFloat(recorder, path, "m_LocalRotation.y");
+                BindTransformFloat(recorder, path, "m_LocalRotation.z");
+                BindTransformFloat(recorder, path, "m_LocalRotation.w");
+            }
+        }
+
+        private static void BindTransformFloat(GameObjectRecorder recorder, string path, string propertyName)
+        {
+            var binding = EditorCurveBinding.FloatCurve(path, typeof(Transform), propertyName);
+            recorder.Bind(binding);
+        }
+
+        private static GameObject BuildTempBakeHierarchy(MotionJsonData data, int jointCount, string[] jointPaths)
+        {
+            var root = new GameObject("__KimodoBakeTempRoot");
+            root.hideFlags = HideFlags.HideAndDontSave;
+
+            for (int i = 0; i < jointCount; i++)
+            {
+                string[] segments = (jointPaths[i] ?? string.Empty).Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                Transform current = root.transform;
+                for (int s = 0; s < segments.Length; s++)
+                {
+                    string seg = segments[s];
+                    Transform child = current.Find(seg);
+                    if (child == null)
+                    {
+                        var go = new GameObject(seg);
+                        go.transform.SetParent(current, false);
+                        child = go.transform;
+                    }
+                    current = child;
+                }
+            }
+
+            root.transform.localPosition = Vector3.zero;
+            root.transform.localRotation = Quaternion.identity;
+            root.transform.localScale = Vector3.one;
+            return root;
+        }
+
+        private static Transform[] ResolveTransformsByPaths(Transform root, string[] jointPaths)
+        {
+            var transforms = new Transform[jointPaths.Length];
+            for (int i = 0; i < jointPaths.Length; i++)
+            {
+                transforms[i] = root.Find(jointPaths[i]);
+                if (transforms[i] == null)
+                {
+                    return null;
+                }
+            }
+            return transforms;
+        }
+
+        private static void SaveRecorderToClip(GameObjectRecorder recorder, AnimationClip targetClip, float fps, KimodoCurveFilterSettings filterSettings)
+        {
+            var options = BuildCurveFilterOptions(filterSettings);
+
+            MethodInfo saveWithFilter = typeof(GameObjectRecorder).GetMethod(
+                "SaveToClip",
+                new[] { typeof(AnimationClip), typeof(float), typeof(CurveFilterOptions) });
+            if (saveWithFilter != null)
+            {
+                saveWithFilter.Invoke(recorder, new object[] { targetClip, fps, options });
+                return;
+            }
+
+            MethodInfo saveFpsOnly = typeof(GameObjectRecorder).GetMethod(
+                "SaveToClip",
+                new[] { typeof(AnimationClip), typeof(float) });
+            if (saveFpsOnly != null)
+            {
+                saveFpsOnly.Invoke(recorder, new object[] { targetClip, fps });
+                return;
+            }
+
+            recorder.SaveToClip(targetClip);
+        }
+
+        private static CurveFilterOptions BuildCurveFilterOptions(KimodoCurveFilterSettings filterSettings)
+        {
+            KimodoCurveFilterSettings settings = filterSettings ?? new KimodoCurveFilterSettings();
+            var options = new CurveFilterOptions
+            {
+                keyframeReduction = settings.keyframeReduction,
+                positionError = Mathf.Clamp01(settings.positionError),
+                rotationError = Mathf.Clamp01(settings.rotationError),
+                scaleError = Mathf.Clamp01(settings.scaleError),
+                floatError = Mathf.Clamp01(settings.floatError)
+            };
+
+            SetCurveFilterOptionBoolIfExists(options, "unrollRotation", settings.unrollRotation);
+            return options;
+        }
+
+        private static void SetCurveFilterOptionBoolIfExists(CurveFilterOptions options, string memberName, bool value)
+        {
+            Type t = typeof(CurveFilterOptions);
+            FieldInfo field = t.GetField(memberName, BindingFlags.Public | BindingFlags.Instance);
+            if (field != null && field.FieldType == typeof(bool))
+            {
+                field.SetValue(options, value);
+                return;
+            }
+
+            PropertyInfo prop = t.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance);
+            if (prop != null && prop.PropertyType == typeof(bool) && prop.CanWrite)
+            {
+                prop.SetValue(options, value, null);
             }
         }
 

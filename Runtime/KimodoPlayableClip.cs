@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
+
 namespace KimodoUnityMotionTools
 {
     public enum KimodoBridgeVramMode
@@ -22,7 +23,33 @@ namespace KimodoUnityMotionTools
     }
 
     [System.Serializable]
-    public class KimodoPlayableClip : AnimationPlayableAsset
+    public class KimodoCurveFilterSettings
+    {
+        [Tooltip("Whether to apply keyframe reduction when saving recorder data to clip.")]
+        public bool keyframeReduction = true;
+
+        [Range(0f, 1f)]
+        [Tooltip("Allowed position curve deviation (0-1). Unity docs suggest 0.5 as light compression.")]
+        public float positionError = 0.5f;
+
+        [Range(0f, 1f)]
+        [Tooltip("Allowed rotation curve deviation (0-1). Unity docs suggest 0.5 as light compression.")]
+        public float rotationError = 0.5f;
+
+        [Range(0f, 1f)]
+        [Tooltip("Allowed scale curve deviation (0-1). Unity docs suggest 0.5 as light compression.")]
+        public float scaleError = 0.5f;
+
+        [Range(0f, 1f)]
+        [Tooltip("Allowed float curve deviation (0-1). Unity docs suggest 0.5 as light compression.")]
+        public float floatError = 0.5f;
+
+        [Tooltip("Whether to unroll rotation if supported by this Unity version.")]
+        public bool unrollRotation = true;
+    }
+
+    [System.Serializable]
+    public class KimodoPlayableClip : AnimationPlayableAsset, IKimodoSampleMarker
     {
         [Header("Generation Backend")]
         public KimodoGenerationBackend generationBackend = KimodoGenerationBackend.KimodoBridge;
@@ -64,18 +91,13 @@ namespace KimodoUnityMotionTools
         public bool isGenerated;
         public string lastGeneratedPrompt;
         [Header("Bake Options")]
-        [Tooltip("Use Unity built-in keyframe reduction after baking.")]
-        public bool keyReduce = true;
-        [Range(0f, 1f)]
-        public float keyReducePositionError = 0.5f;
-        [Range(0f, 1f)]
-        public float keyReduceRotationError = 0.5f;
-        [Range(0f, 1f)]
-        public float keyReduceScaleError = 0.5f;
-        [Range(0f, 1f)]
-        public float keyReduceFloatError = 0.5f;
         [Tooltip("Auto retarget baked animation according to timeline binding animator.")]
         public bool autoRetargetOnBinding = true;
+        [Tooltip("Bake via GameObjectRecorder.SaveToClip so CurveFilterOptions can be applied.")]
+        public bool bakeUseRecorderSaveToClip = true;
+        [Tooltip("Run AnimationClip.EnsureQuaternionContinuity() after bake.")]
+        public bool bakeEnsureQuaternionContinuity = true;
+        public KimodoCurveFilterSettings curveFilterOptions = new KimodoCurveFilterSettings();
         
         public string motionData;
         public int frameCount;
@@ -93,6 +115,11 @@ namespace KimodoUnityMotionTools
         {
             return base.CreatePlayable(graph, owner);
         }
+
+        public bool TrySampleMarker(KimodoMarkerSampleRequest request, out KimodoMarkerSampleResult result, out string error)
+        {
+            return KimodoMarkerSamplingUtility.TrySampleMarker(request, out result, out error);
+        }
         
         public void ResetGeneration()
         {
@@ -105,6 +132,7 @@ namespace KimodoUnityMotionTools
             jointNames = null;
             motionPositions = null;
         }
+
     }
 }
 

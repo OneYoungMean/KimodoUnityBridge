@@ -21,18 +21,36 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private static KimodoBridgeClient sharedBridgeClient;
         private static bool isClosing;
+        private static bool isRecovering;
 
         static KimodoServerLifecycleManager()
         {
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
             EditorApplication.quitting += OnEditorQuitting;
+            EditorApplication.delayCall += RecoverBridgeAfterDomainReload;
         }
 
         internal static bool IsServerRunning
         {
             get
             {
-                return sharedBridgeClient != null && sharedBridgeClient.IsRunning;
+                if (sharedBridgeClient != null && sharedBridgeClient.IsRunning)
+                {
+                    return true;
+                }
+
+                string runtimeRoot = GetRuntimeRootPath();
+                if (!Directory.Exists(runtimeRoot))
+                {
+                    return false;
+                }
+
+                if (!TryReadServerPort(runtimeRoot, out string host, out int port))
+                {
+                    return false;
+                }
+
+                return IsServerResponsive(host, port);
             }
         }
 
@@ -181,6 +199,48 @@ namespace KimodoUnityMotionTools.ProjectEditor
             return sharedBridgeClient;
         }
 
+        private static async void RecoverBridgeAfterDomainReload()
+        {
+            if (isRecovering)
+            {
+                return;
+            }
+
+            isRecovering = true;
+            try
+            {
+                string runtimeRoot = GetRuntimeRootPath();
+                if (!Directory.Exists(runtimeRoot))
+                {
+                    return;
+                }
+
+                if (!TryReadServerPort(runtimeRoot, out string host, out int port))
+                {
+                    return;
+                }
+
+                if (!IsServerResponsive(host, port))
+                {
+                    return;
+                }
+
+                KimodoBridgeClient bridge = GetOrCreateClient();
+                await bridge.AttachToExistingServerAsync(
+                    runtimeRoot,
+                    message => UnityEngine.Debug.Log($"[KimodoBridge] {message}"),
+                    CancellationToken.None);
+            }
+            catch
+            {
+                // ignore recovery failures
+            }
+            finally
+            {
+                isRecovering = false;
+            }
+        }
+
         internal static async Task<string> StartServerAsync(
             string launcherPath,
             string modelName,
@@ -295,16 +355,23 @@ namespace KimodoUnityMotionTools.ProjectEditor
             isClosing = true;
             try
             {
-                if (sharedBridgeClient == null)
-                {
-                    return;
-                }
-
                 KimodoBridgeClient bridge = sharedBridgeClient;
                 sharedBridgeClient = null;
                 try
                 {
-                    await bridge.KillServerTreeAsync(CancellationToken.None);
+                    if (bridge != null)
+                    {
+                        await bridge.KillServerTreeAsync(CancellationToken.None);
+                    }
+                    else
+                    {
+                        string runtimeRoot = GetRuntimeRootPath();
+                        if (TryReadServerPort(runtimeRoot, out string host, out int port))
+                        {
+                            // Domain reload may clear our process handle; fall back to TCP quit.
+                            TrySendQuit(host, port);
+                        }
+                    }
                 }
                 catch
                 {
@@ -312,7 +379,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 }
                 finally
                 {
-                    bridge.Dispose();
+                    try { bridge?.Dispose(); } catch { }
                 }
             }
             finally
