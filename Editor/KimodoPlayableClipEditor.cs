@@ -23,6 +23,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
         private const float TargetFps = 60f;
         private const string GeneratedClipFolder = "Assets/KimodoGeneratedClips";
         private const string GeneratedClipNamePrefix = "Kimodo_";
+        private const double BridgeStatusQueryCooldownSeconds = 2.0;
 
         private SerializedProperty generationBackend;
         private SerializedProperty comfyuiIP;
@@ -59,10 +60,16 @@ namespace KimodoUnityMotionTools.ProjectEditor
         private string lastConstraintsPath = string.Empty;
         private string lastRetargetMode = "SOMA Fallback";
         private bool bridgeEnvAutoRetryInProgress;
+        private bool bridgeStatusQueryInFlight;
+        private int bridgeStatusQueryVersion;
+        private double nextBridgeStatusQueryAt;
+        private bool bridgeRunningCached;
+        private bool bridgeStatusReady;
 
         private void OnEnable()
         {
             InitializeSerializedBindings();
+            ScheduleBridgeStatusQuery(force: true);
         }
 
         private void InitializeSerializedBindings()
@@ -133,6 +140,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
         private void OnDisable()
         {
             CancelGenerationInternal();
+            bridgeStatusQueryVersion++;
+            bridgeStatusQueryInFlight = false;
             EditorUtility.ClearProgressBar();
         }
 
@@ -144,6 +153,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return;
             }
 
+            ScheduleBridgeStatusQuery(force: false);
             serializedObject.Update();
             DrawGenerationSection();
             DrawAnimationClipSection();
@@ -242,8 +252,12 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             if (useBridge)
             {
-                bool bridgeRunning = KimodoBridgeController.IsServerRunning;
-                EditorGUI.BeginDisabledGroup(!bridgeRunning);
+                if (!bridgeStatusReady)
+                {
+                    EditorGUILayout.LabelField("Bridge status: checking...", EditorStyles.miniLabel);
+                }
+
+                EditorGUI.BeginDisabledGroup(!bridgeRunningCached);
                 if (GUILayout.Button("Close Bridge Server", GUILayout.Height(22)))
                 {
                     _ = KimodoBridgeController.CloseServerAsync();
@@ -258,6 +272,62 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
+        }
+
+        private void ScheduleBridgeStatusQuery(bool force)
+        {
+            if (clip == null || clip.generationBackend != KimodoGenerationBackend.KimodoBridge)
+            {
+                return;
+            }
+
+            double now = EditorApplication.timeSinceStartup;
+            if (!force && (bridgeStatusQueryInFlight || now < nextBridgeStatusQueryAt))
+            {
+                return;
+            }
+
+            bridgeStatusQueryInFlight = true;
+            nextBridgeStatusQueryAt = now + BridgeStatusQueryCooldownSeconds;
+            int queryVersion = ++bridgeStatusQueryVersion;
+            string runtimeRoot = KimodoBridgeController.GetRuntimeRootPath();
+            _ = QueryBridgeStatusAsync(runtimeRoot, queryVersion);
+        }
+
+        private async Task QueryBridgeStatusAsync(string runtimeRoot, int queryVersion)
+        {
+            bool running = false;
+            try
+            {
+                running = await Task.Run(() =>
+                {
+                    if (string.IsNullOrWhiteSpace(runtimeRoot) || !Directory.Exists(runtimeRoot))
+                    {
+                        return false;
+                    }
+
+                    if (!KimodoBridgeController.TryReadServerPort(runtimeRoot, out string host, out int port))
+                    {
+                        return false;
+                    }
+
+                    return KimodoBridgeController.IsServerResponsive(host, port);
+                });
+            }
+            catch
+            {
+                running = false;
+            }
+
+            if (queryVersion != bridgeStatusQueryVersion)
+            {
+                return;
+            }
+
+            bridgeRunningCached = running;
+            bridgeStatusReady = true;
+            bridgeStatusQueryInFlight = false;
+            Repaint();
         }
 
         private void DrawAnimationClipSection()
@@ -634,7 +704,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
             string runtimeRoot = KimodoBridgeController.GetRuntimeRootPath();
             bool highVram = clip != null && clip.bridgeVramMode == KimodoBridgeVramMode.High;
             string modelName = clip == null || string.IsNullOrWhiteSpace(clip.bridgeModelName) ? "Kimodo-SOMA-RP-v1" : clip.bridgeModelName.Trim();
-            if (!KimodoBridgeController.TryGetModelMissingSetupMinutes(runtimeRoot, highVram, modelName, out int minutes))
+            string modelsRootOverride = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim();
+            if (!KimodoBridgeController.TryGetModelMissingSetupMinutes(runtimeRoot, highVram, modelName, modelsRootOverride, out int minutes))
             {
                 return;
             }

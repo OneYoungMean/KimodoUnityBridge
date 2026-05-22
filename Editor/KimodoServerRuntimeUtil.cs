@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
+using KimodoUnityMotionTools.Bridge;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditor.PackageManager;
@@ -34,7 +34,24 @@ namespace KimodoUnityMotionTools.ProjectEditor
         internal static string ResolveProjectRoot()
         {
             string cwd = Path.GetFullPath(Environment.CurrentDirectory);
-            return Directory.Exists(Path.Combine(cwd, "Assets")) ? cwd : cwd;
+            string probe = cwd;
+            for (int i = 0; i < 8; i++)
+            {
+                if (IsUnityProjectRoot(probe))
+                {
+                    return probe;
+                }
+
+                DirectoryInfo parent = Directory.GetParent(probe);
+                if (parent == null)
+                {
+                    break;
+                }
+
+                probe = parent.FullName;
+            }
+
+            return cwd;
         }
 
         internal static string GetRuntimeRootPath()
@@ -115,39 +132,13 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         internal static bool TryReadServerPort(string runtimeRoot, out string host, out int port)
         {
-            host = "127.0.0.1";
-            port = -1;
-            try
-            {
-                string portFile = Path.Combine(runtimeRoot, "serverport");
-                if (!File.Exists(portFile))
-                {
-                    return false;
-                }
-
-                string text = File.ReadAllText(portFile).Trim();
-                if (string.IsNullOrWhiteSpace(text))
-                {
-                    return false;
-                }
-
-                if (text.Contains(":"))
-                {
-                    string[] parts = text.Split(':');
-                    if (parts.Length != 2)
-                    {
-                        return false;
-                    }
-                    host = parts[0].Trim();
-                    return int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out port) && port > 0;
-                }
-
-                return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out port) && port > 0;
-            }
-            catch
-            {
-                return false;
-            }
+            string portFile = Path.Combine(runtimeRoot, "serverport");
+            return BridgeEndpointResolver.TryReadServerEndpointFromFile(
+                portFile,
+                "127.0.0.1",
+                out host,
+                out port,
+                out _);
         }
 
         internal static bool IsServerResponsive(string host, int port)
@@ -288,30 +279,52 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         internal static bool IsSelectedBridgeModelInstalled(string runtimeRoot, string modelName)
         {
+            return IsSelectedBridgeModelInstalled(runtimeRoot, modelName, null);
+        }
+
+        internal static bool IsSelectedBridgeModelInstalled(string runtimeRoot, string modelName, string modelsRootOverride)
+        {
             if (string.IsNullOrWhiteSpace(modelName))
             {
                 modelName = "Kimodo-SOMA-RP-v1";
             }
-            string modelDir = Path.Combine(runtimeRoot, "models", modelName.Trim());
+            string modelsRoot = string.IsNullOrWhiteSpace(modelsRootOverride)
+                ? Path.Combine(runtimeRoot, "models")
+                : Path.GetFullPath(modelsRootOverride.Trim());
+            string modelDir = Path.Combine(modelsRoot, modelName.Trim());
             return File.Exists(Path.Combine(modelDir, "model.safetensors"));
         }
 
         internal static bool IsTextEncoderInstalled(string runtimeRoot, bool highVram)
         {
+            return IsTextEncoderInstalled(runtimeRoot, highVram, null);
+        }
+
+        internal static bool IsTextEncoderInstalled(string runtimeRoot, bool highVram, string modelsRootOverride)
+        {
+            string modelsRoot = string.IsNullOrWhiteSpace(modelsRootOverride)
+                ? Path.Combine(runtimeRoot, "models")
+                : Path.GetFullPath(modelsRootOverride.Trim());
+
             if (highVram)
             {
-                string fullDir = Path.Combine(runtimeRoot, "models", "Meta-Llama-3-8B-Instruct");
-                string peftDir = Path.Combine(runtimeRoot, "models", "LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised");
+                string fullDir = Path.Combine(modelsRoot, "Meta-Llama-3-8B-Instruct");
+                string peftDir = Path.Combine(modelsRoot, "LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised");
                 bool fullOk = File.Exists(Path.Combine(fullDir, "model.safetensors.index.json")) || File.Exists(Path.Combine(fullDir, "model.safetensors"));
                 bool peftOk = File.Exists(Path.Combine(peftDir, "adapter_model.safetensors")) || File.Exists(Path.Combine(peftDir, "model.safetensors"));
                 return fullOk && peftOk;
             }
 
-            string nf4Dir = Path.Combine(runtimeRoot, "models", "KIMODO-Meta3_llm2vec_NF4");
+            string nf4Dir = Path.Combine(modelsRoot, "KIMODO-Meta3_llm2vec_NF4");
             return File.Exists(Path.Combine(nf4Dir, "model.safetensors"));
         }
 
         internal static int EstimateMissingConfigPoints(string runtimeRoot, bool highVram, string selectedModel)
+        {
+            return EstimateMissingConfigPoints(runtimeRoot, highVram, selectedModel, null);
+        }
+
+        internal static int EstimateMissingConfigPoints(string runtimeRoot, bool highVram, string selectedModel, string modelsRootOverride)
         {
             int points = 0;
             bool firstSetup = !File.Exists(Path.Combine(runtimeRoot, ".setup.complete"));
@@ -320,12 +333,12 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 points += 5;
             }
 
-            if (!IsSelectedBridgeModelInstalled(runtimeRoot, selectedModel))
+            if (!IsSelectedBridgeModelInstalled(runtimeRoot, selectedModel, modelsRootOverride))
             {
                 points += 2; // Kimodo base model estimate
             }
 
-            if (!IsTextEncoderInstalled(runtimeRoot, highVram))
+            if (!IsTextEncoderInstalled(runtimeRoot, highVram, modelsRootOverride))
             {
                 points += highVram ? 16 : 4;
             }
@@ -342,12 +355,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 return s1;
             }
-            string s1Sh = Path.Combine(runtimeRoot, "run_server.sh");
-            if (File.Exists(s1Sh))
-            {
-                return s1Sh;
-            }
-
             string s2 = Path.Combine(runtimeRoot, "bash", "start_server.bat");
             if (File.Exists(s2))
             {
@@ -370,6 +377,18 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return s2RootSh;
             }
             return string.Empty;
+        }
+
+        private static bool IsUnityProjectRoot(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            return
+                Directory.Exists(Path.Combine(path, "Assets")) &&
+                Directory.Exists(Path.Combine(path, "ProjectSettings"));
         }
 
         internal static string ResolveSetupScript(string runtimeRoot)

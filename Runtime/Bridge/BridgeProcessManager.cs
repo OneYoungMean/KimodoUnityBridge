@@ -13,7 +13,7 @@ namespace KimodoUnityMotionTools.Bridge
         private int processId = -1;
         private bool disposed;
 
-        public BridgeProcessManager(IBridgePlatformProcess platformProcess)
+        internal BridgeProcessManager(IBridgePlatformProcess platformProcess)
         {
             this.platformProcess = platformProcess ?? throw new ArgumentNullException(nameof(platformProcess));
             if (!this.platformProcess.SupportsCurrentPlatform())

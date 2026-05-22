@@ -207,7 +207,12 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 $"Estimated VRAM for selected mode: ~{totalVramGb} GB (core 2 GB + encoder {encoderVramGb} GB).",
                 MessageType.Info);
 
-            if (KimodoBridgeController.TryGetModelMissingSetupMinutes(runtimeRoot, selectedVramMode == KimodoBridgeVramMode.High, selectedModel, out int minutes))
+            if (KimodoBridgeController.TryGetModelMissingSetupMinutes(
+                runtimeRoot,
+                selectedVramMode == KimodoBridgeVramMode.High,
+                selectedModel,
+                ResolveModelsRootForServer(),
+                out int minutes))
             {
                 EditorGUILayout.HelpBox($"Model missing detected, update required, approximately {minutes} minutes.", MessageType.None);
             }
