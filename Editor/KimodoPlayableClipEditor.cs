@@ -20,7 +20,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
     [CustomEditor(typeof(KimodoPlayableClip))]
     public class KimodoPlayableClipEditor : UnityEditor.Editor
     {
-        private const float TargetFps = 60f;
+        private const float TargetFps = 30f;
         private const string GeneratedClipFolder = "Assets/KimodoGeneratedClips";
         private const string GeneratedClipNamePrefix = "Kimodo_";
         private const double BridgeStatusQueryCooldownSeconds = 2.0;

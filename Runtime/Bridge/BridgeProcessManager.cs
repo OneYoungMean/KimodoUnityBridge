@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using UnityEngine;
 
 namespace KimodoUnityMotionTools.Bridge
 {
@@ -39,7 +40,7 @@ namespace KimodoUnityMotionTools.Bridge
 
         public int ProcessId => processId;
 
-        public Process Start(string launcherPath, string modelName, bool highVram, bool forceSetup, string modelsRoot, string logPath)
+        public Process Start(string launcherPath, string modelName, bool highVram, bool forceSetup, string modelsRoot)
         {
             ThrowIfDisposed();
 
@@ -59,8 +60,8 @@ namespace KimodoUnityMotionTools.Bridge
                 modelName,
                 highVram,
                 forceSetup,
-                modelsRoot,
-                logPath);
+                modelsRoot);
+            UnityEngine.Debug.Log($"[Kimodo][BridgeProcess] launch cmd: {psi.FileName} {psi.Arguments} (cwd={psi.WorkingDirectory})");
             var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             if (!proc.Start())
             {

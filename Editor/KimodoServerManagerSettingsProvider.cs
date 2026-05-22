@@ -241,10 +241,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
             EditorGUILayout.LabelField("Status", serverState == ServerState.Enabled ? "enable" : "disable", EditorStyles.miniLabel);
 
+            bool inMaintenance = KimodoBridgeController.IsRuntimeMaintenanceInProgress;
             bool stopMode = serverState == ServerState.Enabled;
-            string buttonLabel = operationInProgress ? "Processing..." : (stopMode ? "Stop Server" : "Start Server");
+            string buttonLabel = (operationInProgress || inMaintenance) ? "Processing..." : (stopMode ? "Stop Server" : "Start Server");
 
-            using (new EditorGUI.DisabledScope(operationInProgress))
+            using (new EditorGUI.DisabledScope(operationInProgress || inMaintenance))
             {
                 if (GUILayout.Button(buttonLabel, GUILayout.Width(140f)))
                 {
@@ -337,7 +338,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private async Task StartServerAsync()
         {
-            if (operationInProgress)
+            if (operationInProgress || KimodoBridgeController.IsRuntimeMaintenanceInProgress)
             {
                 return;
             }
@@ -382,7 +383,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private async Task StopServerAsync()
         {
-            if (operationInProgress)
+            if (operationInProgress || KimodoBridgeController.IsRuntimeMaintenanceInProgress)
             {
                 return;
             }
@@ -457,6 +458,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             operationInProgress = true;
             operationStatus = "TryFix running...";
             lastError = string.Empty;
+            using IDisposable _maintenanceScope = KimodoBridgeController.EnterRuntimeMaintenanceScope();
 
             try
             {

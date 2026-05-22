@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -356,65 +355,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 KimodoBackendType.Bridge,
                 progress,
                 token);
-        }
-
-        internal static ProcessStartInfo BuildScriptStartInfo(string scriptPath, string arguments, bool keepWindowOpen, bool useShellExecute)
-        {
-            string fullPath = Path.GetFullPath(scriptPath);
-            string ext = Path.GetExtension(fullPath)?.ToLowerInvariant() ?? string.Empty;
-            string workingDir = Path.GetDirectoryName(fullPath) ?? Environment.CurrentDirectory;
-            string safeArgs = arguments ?? string.Empty;
-
-            if (ext == ".bat" || ext == ".cmd")
-            {
-                string mode = keepWindowOpen ? "/k" : "/c";
-                return new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = $"/d /s {mode} \"\"{fullPath}\"{safeArgs}\"",
-                    UseShellExecute = useShellExecute,
-                    WorkingDirectory = workingDir
-                };
-            }
-
-            if (ext == ".sh")
-            {
-                return new ProcessStartInfo
-                {
-                    FileName = "bash",
-                    Arguments = $"\"{fullPath}\"{safeArgs}",
-                    UseShellExecute = useShellExecute,
-                    WorkingDirectory = workingDir
-                };
-            }
-
-            throw new NotSupportedException($"Unsupported script extension: {ext}");
-        }
-
-        internal static int RunScriptBlocking(string scriptPath, string arguments)
-        {
-            if (string.IsNullOrWhiteSpace(scriptPath) || !File.Exists(scriptPath))
-            {
-                return -1;
-            }
-
-            ProcessStartInfo psi = BuildScriptStartInfo(scriptPath, arguments, keepWindowOpen: false, useShellExecute: false);
-            psi.RedirectStandardOutput = false;
-            psi.RedirectStandardError = false;
-            psi.CreateNoWindow = false;
-            UnityEngine.Debug.Log(
-                $"[Kimodo][BridgeManager] blocking cmd: {psi.FileName} {psi.Arguments} (cwd={psi.WorkingDirectory})");
-
-            using Process proc = Process.Start(psi);
-            if (proc == null)
-            {
-                return -1;
-            }
-
-            proc.WaitForExit();
-            UnityEngine.Debug.Log(
-                $"[Kimodo][BridgeManager] blocking cmd exit: code={proc.ExitCode}, file={psi.FileName}");
-            return proc.ExitCode;
         }
 
         internal static async Task CloseServerAsync()

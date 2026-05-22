@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using KimodoUnityMotionTools.Generation;
@@ -152,13 +151,17 @@ namespace KimodoUnityMotionTools.Tests
         [Test]
         public async Task Setup_WhenKilledMidway_ThenRerun_ShouldRecoverWithoutZombieProcesses()
         {
-            string setupScript = Path.Combine(scope.RuntimeRoot, "bash", "setup.bat");
-            if (!File.Exists(setupScript))
+            string runServerScript = KimodoServerRuntimeUtil.ResolveStartScript(scope.RuntimeRoot);
+            if (string.IsNullOrWhiteSpace(runServerScript) || !File.Exists(runServerScript))
             {
-                Assert.Ignore("setup script missing");
+                Assert.Ignore("run_server script missing");
             }
 
-            Process setup = KimodoBridgeTestHarness.StartScript(setupScript, "--output file", useShellExecute: false, keepWindowOpen: false);
+            Process setup = KimodoBridgeTestHarness.StartScript(
+                runServerScript,
+                "--model Kimodo-SOMA-RP-v1 --force-setup --config-only --output file",
+                useShellExecute: false,
+                keepWindowOpen: false);
             Assert.NotNull(setup, "Failed to start setup process");
             scope.Log("Setup launched pid=" + setup.Id);
 
@@ -180,7 +183,10 @@ namespace KimodoUnityMotionTools.Tests
                 setup.Dispose();
             }
 
-            int rerunCode = await KimodoBridgeTestHarness.RunScriptAndWaitAsync(setupScript, "--output file", 300000);
+            int rerunCode = await KimodoBridgeTestHarness.RunScriptAndWaitAsync(
+                runServerScript,
+                "--model Kimodo-SOMA-RP-v1 --force-setup --config-only --output file",
+                300000);
             scope.Log("Setup rerun exit code=" + rerunCode);
             if (rerunCode != 0)
             {

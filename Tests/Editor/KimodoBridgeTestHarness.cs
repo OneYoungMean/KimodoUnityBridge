@@ -97,14 +97,17 @@ namespace KimodoUnityMotionTools.Tests
 
         internal static async Task EnsureSetupOrIgnoreAsync(KimodoRuntimeScope scope, int timeoutSeconds = 180)
         {
-            string setupScript = Path.Combine(scope.RuntimeRoot, "bash", "setup.bat");
-            if (!File.Exists(setupScript))
+            string runServerScript = KimodoServerRuntimeUtil.ResolveStartScript(scope.RuntimeRoot);
+            if (string.IsNullOrWhiteSpace(runServerScript) || !File.Exists(runServerScript))
             {
-                Assert.Ignore($"setup script missing: {setupScript}");
+                Assert.Ignore($"run_server script missing: {runServerScript}");
             }
 
-            scope.Log("Running setup script.");
-            int code = await RunScriptAndWaitAsync(setupScript, "--output file", timeoutSeconds * 1000);
+            scope.Log("Running config-only setup via run_server.");
+            int code = await RunScriptAndWaitAsync(
+                runServerScript,
+                "--model Kimodo-SOMA-RP-v1 --force-setup --config-only --output file",
+                timeoutSeconds * 1000);
             scope.Log($"Setup exit code: {code}");
 
             if (code != 0)

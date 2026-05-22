@@ -19,7 +19,6 @@ namespace KimodoUnityMotionTools.Bridge
         private string currentHost;
         private int currentPort = -1;
         private string currentPortFilePath = string.Empty;
-        private string currentLogPath = string.Empty;
         private bool disposed;
 
         public KimodoBridgeService(BridgeRuntimeSettings settings)
@@ -95,15 +94,13 @@ namespace KimodoUnityMotionTools.Bridge
                 TryDeleteServerPortFile();
             }
 
-            currentLogPath = BridgeEndpointResolver.BuildBridgeLogPath(settings.runtimeRoot);
             processManager.Start(
                 settings.launcherPath,
                 settings.modelName,
                 settings.highVram,
                 settings.forceSetup,
-                settings.modelsRoot,
-                currentLogPath);
-            StartLogPump(currentLogPath, progress);
+                settings.modelsRoot);
+            StartLogPump(BridgeEndpointResolver.ResolveAttachLogPath(settings.runtimeRoot), progress);
 
             try
             {
@@ -143,6 +140,11 @@ namespace KimodoUnityMotionTools.Bridge
         {
             ThrowIfDisposed();
             await EnsureHealthyOrThrowAsync(token);
+            Debug.Log(
+                $"[KimodoBridge] Generate request: host={currentHost}:{currentPort}, " +
+                $"promptLen={(prompt ?? string.Empty).Length}, duration={durationSeconds:F3}, " +
+                $"steps={diffusionSteps}, seed={(seed.HasValue ? seed.Value.ToString() : "null")}, " +
+                $"constraintsPath='{constraintsJson ?? string.Empty}'");
 
             JObject response = await protocolClient.GenerateAsync(
                 currentHost,
@@ -156,12 +158,16 @@ namespace KimodoUnityMotionTools.Bridge
                 token);
 
             string status = response?.Value<string>("status") ?? string.Empty;
+            string responseMessage = response?.Value<string>("message") ?? string.Empty;
+            string motionJson = response?.Value<string>("motion_json_compact");
+            Debug.Log(
+                $"[KimodoBridge] Generate response: status='{status}', hasMotion={!string.IsNullOrWhiteSpace(motionJson)}, " +
+                $"message='{responseMessage}'");
             if (!string.Equals(status, "done", StringComparison.OrdinalIgnoreCase))
             {
-                throw new Exception($"Unexpected bridge response status: {status}");
+                throw new Exception($"Unexpected bridge response status: {status}. message={responseMessage}");
             }
 
-            string motionJson = response.Value<string>("motion_json_compact");
             if (string.IsNullOrWhiteSpace(motionJson))
             {
                 throw new Exception("Bridge completed without motion_json_compact.");
@@ -289,9 +295,9 @@ namespace KimodoUnityMotionTools.Bridge
             }
 
             StopSideLogPumps();
-            currentLogPath = logPath;
             Debug.Log($"[KimodoBridge][LogPump] runtimeRoot={settings.runtimeRoot}");
             Debug.Log($"[KimodoBridge][LogPump] bridgeLog={logPath}");
+            Debug.Log($"[KimodoBridge][LogPump] bridgeServerLog={Path.Combine(settings.runtimeRoot, "log", "bridge_server.log")}");
             Debug.Log($"[KimodoBridge][LogPump] setupLog={Path.Combine(settings.runtimeRoot, "log", "setup.log")}");
             Debug.Log($"[KimodoBridge][LogPump] downloadLog={Path.Combine(settings.runtimeRoot, "log", "download_model.log")}");
             logPump.Start(logPath, line =>
@@ -300,6 +306,7 @@ namespace KimodoUnityMotionTools.Bridge
                 progress?.Invoke(msg);
                 Debug.Log(msg);
             });
+            StartSideLogPump(Path.Combine(settings.runtimeRoot, "log", "bridge_server.log"), "[BridgeServer]", progress);
             StartSideLogPump(Path.Combine(settings.runtimeRoot, "log", "setup.log"), "[Setup]", progress);
             StartSideLogPump(Path.Combine(settings.runtimeRoot, "log", "download_model.log"), "[Download]", progress);
         }
@@ -308,7 +315,6 @@ namespace KimodoUnityMotionTools.Bridge
         {
             logPump.Stop();
             StopSideLogPumps();
-            currentLogPath = string.Empty;
         }
 
         private void StartSideLogPump(string logPath, string tag, Action<string> progress)

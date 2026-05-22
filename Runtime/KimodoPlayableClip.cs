@@ -107,7 +107,7 @@ namespace KimodoUnityMotionTools
         public float[] motionPositions;
         public KimodoBakeSkeletonType savedSkeletonType = KimodoBakeSkeletonType.SOMA;
 
-        public const int MIN_FRAMES = 120;
+        public const int MIN_FRAMES = 1;
         public const int MAX_FRAMES = 300;
         public const int DEFAULT_FRAMES = 150;
         

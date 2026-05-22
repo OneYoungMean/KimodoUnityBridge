@@ -73,6 +73,8 @@ namespace KimodoUnityMotionTools.Bridge
                 ["constraints_json"] = constraintsJson ?? string.Empty
             };
             request["seed"] = seed.HasValue ? seed.Value : null;
+            progress?.Invoke(
+                $"Bridge generate request sent: duration={durationSeconds:F3}s, steps={diffusionSteps}, seed={(seed.HasValue ? seed.Value.ToString() : "null")}.");
 
             DateTime waitStart = DateTime.UtcNow;
             while (true)
@@ -80,6 +82,8 @@ namespace KimodoUnityMotionTools.Bridge
                 token.ThrowIfCancellationRequested();
                 JObject response = await SendAsync(host, port, request, token);
                 string status = response?.Value<string>("status") ?? string.Empty;
+                string message = response?.Value<string>("message") ?? string.Empty;
+                progress?.Invoke($"Bridge generate response status={status}{(string.IsNullOrWhiteSpace(message) ? string.Empty : $", message={message}")}");
 
                 if (string.Equals(status, "loading", StringComparison.OrdinalIgnoreCase))
                 {
@@ -96,14 +100,14 @@ namespace KimodoUnityMotionTools.Bridge
 
                 if (string.Equals(status, "error", StringComparison.OrdinalIgnoreCase))
                 {
-                    string message = response.Value<string>("message") ?? "Bridge generation failed.";
+                    string errorMessage = response.Value<string>("message") ?? "Bridge generation failed.";
                     string traceback = response.Value<string>("traceback");
                     if (!string.IsNullOrWhiteSpace(traceback))
                     {
-                        throw new Exception($"{message}\n{traceback}");
+                        throw new Exception($"{errorMessage}\n{traceback}");
                     }
 
-                    throw new Exception(message);
+                    throw new Exception(errorMessage);
                 }
 
                 return response;
@@ -276,4 +280,3 @@ namespace KimodoUnityMotionTools.Bridge
         }
     }
 }
-

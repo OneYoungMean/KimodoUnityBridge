@@ -12,13 +12,6 @@ namespace KimodoUnityMotionTools.Bridge
             return Path.Combine(runtimeRoot, "serverport");
         }
 
-        public static string BuildBridgeLogPath(string runtimeRoot)
-        {
-            string logDir = Path.Combine(runtimeRoot, "log");
-            Directory.CreateDirectory(logDir);
-            return Path.Combine(logDir, "run_server.log");
-        }
-
         public static string ResolveAttachLogPath(string runtimeRoot)
         {
             if (string.IsNullOrWhiteSpace(runtimeRoot))
@@ -40,6 +33,12 @@ namespace KimodoUnityMotionTools.Bridge
                     return runServerLog;
                 }
 
+                string bridgeServerLog = Path.Combine(logDir, "bridge_server.log");
+                if (File.Exists(bridgeServerLog))
+                {
+                    return bridgeServerLog;
+                }
+
                 string bridgeRuntimeLog = Path.Combine(logDir, "test_input_log.log");
                 if (File.Exists(bridgeRuntimeLog))
                 {
@@ -58,7 +57,8 @@ namespace KimodoUnityMotionTools.Bridge
                 return string.Empty;
             }
 
-            return string.Empty;
+            // Default bridge log path used by bridge_server.py when KIMODO_BRIDGE_LOG is not provided.
+            return Path.Combine(logDir, "bridge_server.log");
         }
 
         public static bool TryReadServerEndpoint(string runtimeRoot, string hostFallback, out string host, out int port, out string error)
