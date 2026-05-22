@@ -126,7 +126,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             int seedValue)
         {
             InitializeSerializedBindings();
-            serializedObject.Update();
+            serializedObject.UpdateIfRequiredOrScript();
             generationBackend.intValue = (int)KimodoGenerationBackend.KimodoBridge;
             motionPrompt.stringValue = prompt ?? string.Empty;
             generationFrames.intValue = Mathf.Clamp(generationFramesValue, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES);
@@ -154,13 +154,16 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
 
             ScheduleBridgeStatusQuery(force: false);
-            serializedObject.Update();
+            serializedObject.UpdateIfRequiredOrScript();
             DrawGenerationSection();
             DrawAnimationClipSection();
             DrawBakeSection();
             DrawErrorSection();
             DrawGeneratedInfo();
-            serializedObject.ApplyModifiedProperties();
+            if (serializedObject.hasModifiedProperties)
+            {
+                serializedObject.ApplyModifiedProperties();
+            }
         }
 
         private void DrawGenerationSection()

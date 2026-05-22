@@ -304,6 +304,7 @@ namespace KimodoUnityMotionTools.Bridge
                 Debug.Log(msg);
             });
             StartSideLogPumpIfDifferent(Path.Combine(settings.runtimeRoot, "log", "bridge_server.log"), "[BridgeServer]", mainLogFullPath, progress);
+            StartSideLogPumpIfDifferent(Path.Combine(settings.runtimeRoot, "log", "bridge_message.log"), "[BridgeMessage]", mainLogFullPath, progress);
             StartSideLogPumpIfDifferent(Path.Combine(settings.runtimeRoot, "log", "run_server.log"), "[RunServer]", mainLogFullPath, progress);
             StartSideLogPumpIfDifferent(Path.Combine(settings.runtimeRoot, "log", "setup.log"), "[Setup]", mainLogFullPath, progress);
             StartSideLogPumpIfDifferent(Path.Combine(settings.runtimeRoot, "log", "download_model.log"), "[Download]", mainLogFullPath, progress);
