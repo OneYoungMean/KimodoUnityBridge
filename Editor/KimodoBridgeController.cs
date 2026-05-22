@@ -357,6 +357,42 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 token);
         }
 
+        internal static async Task<KimodoGenerationResultDto> GenerateBridgeAsync(
+            string launcherPath,
+            string modelName,
+            bool highVram,
+            string kimodoRootPath,
+            string modelsRoot,
+            KimodoGenerationRequestDto request,
+            Action<string> progress,
+            CancellationToken token)
+        {
+            if (request == null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
+            int startupTimeoutMs = 600000;
+            int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(kimodoRootPath, highVram, modelName, modelsRoot);
+            if (points > 0)
+            {
+                int minutes = Math.Max(3, points * 3);
+                startupTimeoutMs = Math.Max(startupTimeoutMs, (int)Math.Round(Math.Max(600f, minutes * 60f) * 1000f));
+            }
+
+            KimodoRuntimeGenerationService runtimeService = GetOrCreateRuntimeGenerationService(
+                kimodoRootPath,
+                launcherPath,
+                modelName,
+                highVram,
+                modelsRoot,
+                forceSetup: false,
+                startupTimeoutMs: startupTimeoutMs);
+
+            await runtimeService.StartAsync(KimodoBackendType.Bridge, progress, token);
+            return await runtimeService.GenerateAsync(request, KimodoBackendType.Bridge, progress, token);
+        }
+
         internal static async Task CloseServerAsync()
         {
             if (isClosing)

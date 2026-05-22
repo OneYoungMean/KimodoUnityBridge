@@ -26,7 +26,8 @@ namespace KimodoUnityMotionTools.Bridge
             string vramArg = highVram ? " --highvram" : string.Empty;
             string forceSetupArg = forceSetup ? " --force-setup" : string.Empty;
             string modelsArg = string.IsNullOrWhiteSpace(modelsRoot) ? string.Empty : $" --models-root \"{modelsRoot.Trim()}\"";
-            string args = modelArg + vramArg + forceSetupArg + modelsArg;
+            string outputArg = " --output file";
+            string args = modelArg + vramArg + forceSetupArg + modelsArg + outputArg;
 
             return new ProcessStartInfo
             {

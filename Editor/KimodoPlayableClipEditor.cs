@@ -232,7 +232,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
             float seconds = generationFrames.intValue / TargetFps;
             EditorGUILayout.LabelField($"Duration: {seconds:F2}s", EditorStyles.miniLabel);
 
-            GUI.enabled = !isGenerating;
+            bool disableGenerate = isGenerating || KimodoBridgeController.IsRuntimeMaintenanceInProgress;
+            GUI.enabled = !disableGenerate;
             if (GUILayout.Button("Generate & Bake", GUILayout.Height(32)))
             {
                 _ = GenerateAsync();
@@ -260,7 +261,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 EditorGUI.BeginDisabledGroup(!bridgeRunningCached);
                 if (GUILayout.Button("Close Bridge Server", GUILayout.Height(22)))
                 {
-                    _ = KimodoBridgeController.CloseServerAsync();
+                    _ = CloseBridgeServerAndRefreshStatusAsync();
                 }
                 EditorGUI.EndDisabledGroup();
             }
@@ -604,40 +605,9 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 Debug.Log($"[Kimodo] Using custom models root: {modelsRoot}");
             }
 
-            var settings = new KimodoRuntimeGenerationSettings
-            {
-                bridgeSettings = new BridgeRuntimeSettings
-                {
-                    runtimeRoot = kimodoRootPath,
-                    launcherPath = launcherPath,
-                    modelName = modelName,
-                    highVram = highVram,
-                    modelsRoot = modelsRoot,
-                    startupTimeoutMs = ComputeBridgeStartupTimeoutMs(kimodoRootPath, highVram, modelName)
-                },
-                comfyHost = comfyuiIP.stringValue,
-                comfyPort = comfyuiPort.intValue,
-                comfyTimeoutSeconds = generationTimeoutSeconds.floatValue,
-                comfyPollIntervalSeconds = pollIntervalSeconds.floatValue,
-                comfyWorkflowResourceName = "kimodo-unity-workflow"
-            };
-
             KimodoBackendType backendType = clip.generationBackend == KimodoGenerationBackend.KimodoBridge
                 ? KimodoBackendType.Bridge
                 : KimodoBackendType.ComfyUi;
-
-            using var runtimeService = new KimodoRuntimeGenerationService(settings);
-            if (backendType == KimodoBackendType.Bridge)
-            {
-                await runtimeService.StartAsync(
-                    backendType,
-                    progress =>
-                    {
-                        lastStatus = progress;
-                        Repaint();
-                    },
-                    token);
-            }
 
             lastStatus = $"Generating: {motionPrompt.stringValue}";
             Repaint();
@@ -651,15 +621,56 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 constraints_json = constraintsFilePath ?? string.Empty
             };
 
-            KimodoGenerationResultDto result = await runtimeService.GenerateAsync(
-                request,
-                backendType,
-                progress =>
+            KimodoGenerationResultDto result;
+            if (backendType == KimodoBackendType.Bridge)
+            {
+                result = await KimodoBridgeController.GenerateBridgeAsync(
+                    launcherPath,
+                    modelName,
+                    highVram,
+                    kimodoRootPath,
+                    modelsRoot,
+                    request,
+                    progress =>
+                    {
+                        lastStatus = progress;
+                        Repaint();
+                    },
+                    token);
+
+                ScheduleBridgeStatusQuery(force: true);
+            }
+            else
+            {
+                var settings = new KimodoRuntimeGenerationSettings
                 {
-                    lastStatus = progress;
-                    Repaint();
-                },
-                token);
+                    bridgeSettings = new BridgeRuntimeSettings
+                    {
+                        runtimeRoot = kimodoRootPath,
+                        launcherPath = launcherPath,
+                        modelName = modelName,
+                        highVram = highVram,
+                        modelsRoot = modelsRoot,
+                        startupTimeoutMs = ComputeBridgeStartupTimeoutMs(kimodoRootPath, highVram, modelName)
+                    },
+                    comfyHost = comfyuiIP.stringValue,
+                    comfyPort = comfyuiPort.intValue,
+                    comfyTimeoutSeconds = generationTimeoutSeconds.floatValue,
+                    comfyPollIntervalSeconds = pollIntervalSeconds.floatValue,
+                    comfyWorkflowResourceName = "kimodo-unity-workflow"
+                };
+
+                using var runtimeService = new KimodoRuntimeGenerationService(settings);
+                result = await runtimeService.GenerateAsync(
+                    request,
+                    backendType,
+                    progress =>
+                    {
+                        lastStatus = progress;
+                        Repaint();
+                    },
+                    token);
+            }
 
             if (result == null || string.IsNullOrWhiteSpace(result.motionJsonCompact))
             {
@@ -667,6 +678,15 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
 
             return result.motionJsonCompact;
+        }
+
+        private async Task CloseBridgeServerAndRefreshStatusAsync()
+        {
+            await KimodoBridgeController.CloseServerAsync();
+            bridgeRunningCached = false;
+            bridgeStatusReady = true;
+            ScheduleBridgeStatusQuery(force: true);
+            Repaint();
         }
 
         private int ComputeBridgeStartupTimeoutMs(string runtimeRoot, bool highVram, string modelName)
