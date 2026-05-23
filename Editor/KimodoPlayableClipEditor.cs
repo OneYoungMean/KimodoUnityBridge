@@ -45,10 +45,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
         private SerializedProperty loopProp;
         private SerializedProperty savedSkeletonTypeProp;
         private SerializedProperty autoRetargetOnBindingProp;
-        private SerializedProperty bakeUseRecorderSaveToClipProp;
-        private SerializedProperty bakeEnsureQuaternionContinuityProp;
-        private SerializedProperty curveFilterOptionsProp;
-        private bool showBakeAdvanced = false;
 
         private KimodoPlayableClip clip;
         private bool isGenerating;
@@ -92,9 +88,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             loopProp = serializedObject.FindProperty("m_Loop");
             savedSkeletonTypeProp = serializedObject.FindProperty("savedSkeletonType");
             autoRetargetOnBindingProp = serializedObject.FindProperty("autoRetargetOnBinding");
-            bakeUseRecorderSaveToClipProp = serializedObject.FindProperty("bakeUseRecorderSaveToClip");
-            bakeEnsureQuaternionContinuityProp = serializedObject.FindProperty("bakeEnsureQuaternionContinuity");
-            curveFilterOptionsProp = serializedObject.FindProperty("curveFilterOptions");
         }
 
         internal Task GenerateForTestsAsync()
@@ -233,7 +226,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             GUI.enabled = !disableGenerate;
             if (GUILayout.Button("Generate & Bake", GUILayout.Height(32)))
             {
-                _ = GenerateAsync();
+                _ = KimodoGenerateAndBakeService.GenerateFromInspectorAsync(this);
             }
             GUI.enabled = isGenerating;
             if (GUILayout.Button("Cancel", GUILayout.Height(24)))
@@ -328,37 +321,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             if (autoRetargetOnBindingProp != null)
             {
                 EditorGUILayout.PropertyField(autoRetargetOnBindingProp, new GUIContent("Auto Retarget On Binding"));
-            }
-
-            showBakeAdvanced = EditorGUILayout.Foldout(showBakeAdvanced, "Advanced / CurveFilterOptions", true);
-            if (showBakeAdvanced)
-            {
-                EditorGUI.indentLevel++;
-
-                if (bakeUseRecorderSaveToClipProp != null)
-                {
-                    EditorGUILayout.PropertyField(
-                        bakeUseRecorderSaveToClipProp,
-                        new GUIContent(
-                            "Use Recorder SaveToClip",
-                            "Use GameObjectRecorder.SaveToClip(..., fps, CurveFilterOptions). Disable to fallback to direct SetCurve path."));
-                }
-
-                if (bakeEnsureQuaternionContinuityProp != null)
-                {
-                    EditorGUILayout.PropertyField(
-                        bakeEnsureQuaternionContinuityProp,
-                        new GUIContent(
-                            "Ensure Quaternion Continuity",
-                            "Call AnimationClip.EnsureQuaternionContinuity() after bake."));
-                }
-
-                bool enableFilterOptions = bakeUseRecorderSaveToClipProp != null && bakeUseRecorderSaveToClipProp.boolValue;
-                EditorGUI.BeginDisabledGroup(!enableFilterOptions);
-                DrawCurveFilterOptionsFields();
-                EditorGUI.EndDisabledGroup();
-
-                EditorGUI.indentLevel--;
             }
 
             if (clip != null && clip.savedSkeletonType != KimodoBakeSkeletonType.SOMA)
@@ -714,9 +676,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 targetClip: clip.clip,
                 motionJson: clip.motionData,
                 skeletonType: KimodoBakeSkeletonType.SOMA,
-                useRecorderSaveToClip: clip.bakeUseRecorderSaveToClip,
-                ensureQuaternionContinuity: clip.bakeEnsureQuaternionContinuity,
-                curveFilterSettings: clip.curveFilterOptions,
                 out error
             );
 
@@ -775,66 +734,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             if (!string.IsNullOrEmpty(lastError))
             {
                 EditorGUILayout.HelpBox(lastError, MessageType.Error);
-            }
-        }
-
-        private void DrawCurveFilterOptionsFields()
-        {
-            if (curveFilterOptionsProp == null)
-            {
-                return;
-            }
-
-            SerializedProperty keyframeReduction = curveFilterOptionsProp.FindPropertyRelative("keyframeReduction");
-            SerializedProperty positionError = curveFilterOptionsProp.FindPropertyRelative("positionError");
-            SerializedProperty rotationError = curveFilterOptionsProp.FindPropertyRelative("rotationError");
-            SerializedProperty scaleError = curveFilterOptionsProp.FindPropertyRelative("scaleError");
-            SerializedProperty floatError = curveFilterOptionsProp.FindPropertyRelative("floatError");
-            SerializedProperty unrollRotation = curveFilterOptionsProp.FindPropertyRelative("unrollRotation");
-
-            if (keyframeReduction != null)
-            {
-                EditorGUILayout.PropertyField(
-                    keyframeReduction,
-                    new GUIContent("Keyframe Reduction", "Enable keyframe reduction in CurveFilterOptions."));
-            }
-            if (positionError != null)
-            {
-                EditorGUILayout.Slider(
-                    positionError,
-                    0f,
-                    1f,
-                    new GUIContent("Position Error", "Allowed position curve deviation percentage."));
-            }
-            if (rotationError != null)
-            {
-                EditorGUILayout.Slider(
-                    rotationError,
-                    0f,
-                    1f,
-                    new GUIContent("Rotation Error", "Allowed rotation curve deviation in degrees."));
-            }
-            if (scaleError != null)
-            {
-                EditorGUILayout.Slider(
-                    scaleError,
-                    0f,
-                    1f,
-                    new GUIContent("Scale Error", "Allowed scale curve deviation percentage."));
-            }
-            if (floatError != null)
-            {
-                EditorGUILayout.Slider(
-                    floatError,
-                    0f,
-                    1f,
-                    new GUIContent("Float Error", "Allowed float curve deviation percentage."));
-            }
-            if (unrollRotation != null)
-            {
-                EditorGUILayout.PropertyField(
-                    unrollRotation,
-                    new GUIContent("Unroll Rotation", "If supported by this Unity version, attempt rotation unroll."));
             }
         }
 

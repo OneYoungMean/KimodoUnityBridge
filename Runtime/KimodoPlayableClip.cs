@@ -23,32 +23,6 @@ namespace KimodoUnityMotionTools
     }
 
     [System.Serializable]
-    public class KimodoCurveFilterSettings
-    {
-        [Tooltip("Whether to apply keyframe reduction when saving recorder data to clip.")]
-        public bool keyframeReduction = true;
-
-        [Range(0f, 1f)]
-        [Tooltip("Allowed position curve deviation (0-1). Unity docs suggest 0.5 as light compression.")]
-        public float positionError = 0.5f;
-
-        [Range(0f, 1f)]
-        [Tooltip("Allowed rotation curve deviation (0-1). Unity docs suggest 0.5 as light compression.")]
-        public float rotationError = 0.5f;
-
-        [Range(0f, 1f)]
-        [Tooltip("Allowed scale curve deviation (0-1). Unity docs suggest 0.5 as light compression.")]
-        public float scaleError = 0.5f;
-
-        [Range(0f, 1f)]
-        [Tooltip("Allowed float curve deviation (0-1). Unity docs suggest 0.5 as light compression.")]
-        public float floatError = 0.5f;
-
-        [Tooltip("Whether to unroll rotation if supported by this Unity version.")]
-        public bool unrollRotation = true;
-    }
-
-    [System.Serializable]
     public class KimodoPlayableClip : AnimationPlayableAsset, IKimodoSampleMarker
     {
         [Header("Generation Backend")]
@@ -93,11 +67,6 @@ namespace KimodoUnityMotionTools
         [Header("Bake Options")]
         [Tooltip("Auto retarget baked animation according to timeline binding animator.")]
         public bool autoRetargetOnBinding = true;
-        [Tooltip("Bake via GameObjectRecorder.SaveToClip so CurveFilterOptions can be applied.")]
-        public bool bakeUseRecorderSaveToClip = true;
-        [Tooltip("Run AnimationClip.EnsureQuaternionContinuity() after bake.")]
-        public bool bakeEnsureQuaternionContinuity = true;
-        public KimodoCurveFilterSettings curveFilterOptions = new KimodoCurveFilterSettings();
         
         public string motionData;
         public int frameCount;
