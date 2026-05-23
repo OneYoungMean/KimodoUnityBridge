@@ -553,10 +553,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
             int requestedMs = Math.Max(30000, Mathf.RoundToInt(generationTimeoutSeconds.floatValue * 1000f));
             int timeoutMs = requestedMs;
 
-            int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(runtimeRoot, highVram, modelName);
-            if (points > 0)
+            KimodoBridgeController.ModelSetupStatus modelStatus =
+                KimodoBridgeController.EvaluateModelSetupStatus(runtimeRoot, highVram, modelName, modelsRootOverride: null);
+            if (modelStatus.Missing)
             {
-                int minutes = Math.Max(3, points * 3);
+                int minutes = modelStatus.EstimatedMinutes;
                 int dynamicMs = (int)Math.Round(Math.Max(600f, minutes * 60f) * 1000f);
                 timeoutMs = Math.Max(timeoutMs, dynamicMs);
             }

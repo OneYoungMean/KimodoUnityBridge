@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -87,7 +87,7 @@ namespace KimodoUnityMotionTools.Tests
             string workingRoot = Path.Combine(Path.GetTempPath(), "KimodoUnityBridgeTests", safeScenario + "_" + DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture));
             string runtimeRoot = Path.Combine(workingRoot, "NvlabKimodoQuickServer");
             Directory.CreateDirectory(workingRoot);
-            CopyDirectoryRecursive(templateRoot, runtimeRoot);
+            KimodoServerRuntimeUtil.CopyDirectoryRecursive(templateRoot, runtimeRoot);
 
             var scope = new KimodoRuntimeScope(scenarioName, workingRoot, runtimeRoot);
             KimodoServerRuntimeUtil.RuntimeRootOverrideForTests = runtimeRoot;
@@ -97,7 +97,7 @@ namespace KimodoUnityMotionTools.Tests
 
         internal static async Task EnsureSetupOrIgnoreAsync(KimodoRuntimeScope scope, int timeoutSeconds = 180)
         {
-            string runServerScript = KimodoServerRuntimeUtil.ResolveStartScript(scope.RuntimeRoot);
+            string runServerScript = BridgeLauncherResolver.ResolveStartScript(scope.RuntimeRoot);
             if (string.IsNullOrWhiteSpace(runServerScript) || !File.Exists(runServerScript))
             {
                 Assert.Ignore($"run_server script missing: {runServerScript}");
@@ -128,7 +128,7 @@ namespace KimodoUnityMotionTools.Tests
             float comfyPollIntervalSeconds = 1f,
             int startupTimeoutMs = 600000)
         {
-            string launcher = KimodoServerRuntimeUtil.ResolveStartScript(scope.RuntimeRoot);
+            string launcher = BridgeLauncherResolver.ResolveStartScript(scope.RuntimeRoot);
             return new KimodoRuntimeGenerationService(new KimodoRuntimeGenerationSettings
             {
                 bridgeSettings = new BridgeRuntimeSettings
@@ -149,7 +149,7 @@ namespace KimodoUnityMotionTools.Tests
             KimodoRuntimeScope scope,
             float startupTimeoutSeconds = 600f)
         {
-            string launcher = KimodoServerRuntimeUtil.ResolveStartScript(scope.RuntimeRoot);
+            string launcher = BridgeLauncherResolver.ResolveStartScript(scope.RuntimeRoot);
             if (string.IsNullOrWhiteSpace(launcher) || !File.Exists(launcher))
             {
                 Assert.Ignore("start script not found in runtime root.");
@@ -258,7 +258,7 @@ namespace KimodoUnityMotionTools.Tests
             await WaitForNoRuntimeProcessesAsync(scope.RuntimeRoot, TimeSpan.FromSeconds(10), scope);
             await WaitForPortFileUnreachableOrMissingAsync(scope.RuntimeRoot, TimeSpan.FromSeconds(10), scope);
 
-            string start = KimodoServerRuntimeUtil.ResolveStartScript(scope.RuntimeRoot);
+            string start = BridgeLauncherResolver.ResolveStartScript(scope.RuntimeRoot);
             Assert.IsFalse(string.IsNullOrWhiteSpace(start), "Start script should still be resolvable after cleanup.");
         }
 
@@ -642,29 +642,6 @@ namespace KimodoUnityMotionTools.Tests
             }
 
             return value.Replace('/', '\\').Trim().ToLowerInvariant();
-        }
-
-        private static void CopyDirectoryRecursive(string sourceDir, string destinationDir)
-        {
-            Directory.CreateDirectory(destinationDir);
-
-            foreach (string file in Directory.GetFiles(sourceDir))
-            {
-                string fileName = Path.GetFileName(file);
-                string target = Path.Combine(destinationDir, fileName);
-                File.Copy(file, target, true);
-            }
-
-            foreach (string dir in Directory.GetDirectories(sourceDir))
-            {
-                string dirName = Path.GetFileName(dir);
-                if (string.Equals(dirName, ".git", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                CopyDirectoryRecursive(dir, Path.Combine(destinationDir, dirName));
-            }
         }
 
         internal sealed class ProcessSnapshot

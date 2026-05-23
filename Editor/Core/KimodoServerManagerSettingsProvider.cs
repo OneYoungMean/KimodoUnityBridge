@@ -612,21 +612,15 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             try
             {
-                string[] dirs = Directory.GetDirectories(resolvedModelsRoot);
-                Array.Sort(dirs, StringComparer.OrdinalIgnoreCase);
-                for (int i = 0; i < dirs.Length; i++)
+                List<KimodoBridgeController.ModelDirectoryInfo> source =
+                    KimodoBridgeController.QueryDisplayableModelDirectories(resolvedModelsRoot);
+                for (int i = 0; i < source.Count; i++)
                 {
-                    string dir = dirs[i];
-                    string name = Path.GetFileName(dir);
-                    if (!ShouldDisplayModelDirectory(name))
-                    {
-                        continue;
-                    }
-
+                    KimodoBridgeController.ModelDirectoryInfo item = source[i];
                     models.Add(new InstalledModelInfoView
                     {
-                        Name = name,
-                        DirectoryPath = dir
+                        Name = item.Name,
+                        DirectoryPath = item.DirectoryPath
                     });
                 }
             }
@@ -634,20 +628,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 modelError = "Scan models failed: " + e.Message;
             }
-        }
-
-        private static bool ShouldDisplayModelDirectory(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return false;
-            }
-
-            return
-                name.StartsWith("Kimodo-", StringComparison.OrdinalIgnoreCase) ||
-                name.IndexOf("kimodo", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                name.IndexOf("llama", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                name.IndexOf("llm2vec", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private string ResolveModelsRootForServer()

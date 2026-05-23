@@ -1,10 +1,9 @@
 using System;
 using UnityEditor;
 using UnityEngine;
-using AnimationUtility = UnityEditor.AnimationUtility;
 public static class AvatarSetupToolExtension
 {
-    
+
     public static Avatar AutoGenerateHumanoidAvatarFromModelOrThrow(GameObject avatarRoot, bool forceReimport)
     {
         if (avatarRoot == null)
@@ -55,6 +54,31 @@ public static class AvatarSetupToolExtension
         }
 
         return avatar;
+    }
+
+    public static Quaternion GetAvatarPostRotationOrIdentity(Avatar avatar, int humanId)
+    {
+        if (avatar == null)
+        {
+            return Quaternion.identity;
+        }
+
+        return avatar.GetPostRotation(humanId);
+    }
+
+    public static float GetAvatarAxisLengthOrZero(Avatar avatar, int humanId)
+    {
+        if (avatar == null)
+        {
+            return 0f;
+        }
+
+        return avatar.GetAxisLength(humanId);
+    }
+
+    public static string GetSkeletonBoneParentNameOrEmpty(SkeletonBone bone)
+    {
+        return string.IsNullOrWhiteSpace(bone.parentName) ? string.Empty : bone.parentName;
     }
 
     private static bool TryGetModelImporter(GameObject gameObject, out ModelImporter importer, out string modelImporterPath)

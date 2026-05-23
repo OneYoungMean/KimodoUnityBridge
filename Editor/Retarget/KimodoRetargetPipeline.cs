@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Reflection;
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
@@ -12,22 +11,12 @@ namespace KimodoUnityMotionTools.ProjectEditor
     public enum KimodoRetargetResultMode
     {
         SomaFallback = 0,
-        DirectBone = 1,
-        HumanoidMuscle = 2,
-        TargetBone = 3
+        HumanoidMuscle = 1,
+        TargetBone = 2
     }
 
     public static partial class KimodoRetargetPipeline
     {
-        private static readonly FieldInfo SkeletonBoneParentNameField =
-            typeof(SkeletonBone).GetField("parentName", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-        private static readonly FieldInfo SkeletonBoneParentNameLegacyField =
-            typeof(SkeletonBone).GetField("m_ParentName", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-        private static readonly PropertyInfo SkeletonBoneParentNameProperty =
-            typeof(SkeletonBone).GetProperty("parentName", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-        private static readonly PropertyInfo SkeletonBoneParentNameLegacyProperty =
-            typeof(SkeletonBone).GetProperty("m_ParentName", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
         private readonly struct RetargetContext
         {
             public readonly AnimationClip SourceSomaBoneClip;
@@ -60,14 +49,9 @@ namespace KimodoUnityMotionTools.ProjectEditor
             mode = KimodoRetargetResultMode.SomaFallback;
             details = string.Empty;
 
-            if (!TryPrepareRetargetContext(playableClip, timelineClip, out RetargetContext context, out bool completed, out mode, out details))
+            if (!TryPrepareRetargetContext(playableClip, timelineClip, out RetargetContext context, out mode, out details))
             {
                 return false;
-            }
-
-            if (completed)
-            {
-                return true;
             }
 
             if (!TryCreateSomaSamplingAnimator(playableClip, out Animator somaAnimator, out GameObject somaTempRoot, out string somaError))
@@ -116,10 +100,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 if (somaTempRoot != null)
                 {
-                    if (somaTempRoot != null)
-                    {
                     UnityEngine.Object.DestroyImmediate(somaTempRoot);
-                    }
                 }
             }
         }
@@ -128,12 +109,10 @@ namespace KimodoUnityMotionTools.ProjectEditor
             KimodoPlayableClip playableClip,
             TimelineClip timelineClip,
             out RetargetContext context,
-            out bool completed,
             out KimodoRetargetResultMode mode,
             out string details)
         {
             context = default;
-            completed = false;
             mode = KimodoRetargetResultMode.SomaFallback;
             details = string.Empty;
 
@@ -155,13 +134,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
-            if (CanDirectWriteBoneCurves(playableClip.clip, targetAnimator))
-            {
-                mode = KimodoRetargetResultMode.DirectBone;
-                details = "Direct bone write path used (compatible skeleton binding).";
-                completed = true;
-                return true;
-            }
 
             bool hadHumanoidAvatar = targetAnimator.avatar != null && targetAnimator.avatar.isValid && targetAnimator.avatar.isHuman;
             if (!KimodoLocalAvatarUtility.TryEnsureHumanoidAvatar(
@@ -233,10 +205,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 if (targetTempRoot != null)
                 {
-                    if (targetTempRoot != null)
-                    {
                     UnityEngine.Object.DestroyImmediate(targetTempRoot);
-                    }
                 }
             }
         }
@@ -313,11 +282,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
-            if (playableClip != null && playableClip.clip != null)
-            {
-                EnsureHierarchyMatchesClipBindings(playableClip.clip, samplingRoot);
-            }
-
             animator = samplingRoot.gameObject.AddComponent<Animator>();
             animator.avatar = runtimeAvatar;
 
@@ -372,7 +336,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 SkeletonBone bone = skeleton[i];
                 string name = string.IsNullOrWhiteSpace(bone.name) ? $"Bone_{i}" : bone.name;
-                string parentName = GetSkeletonBoneParentNameReflective(bone);
+                string parentName = AvatarSetupToolExtension.GetSkeletonBoneParentNameOrEmpty(bone);
 
                 GameObject go = new GameObject(name);
                 Transform t = go.transform;
@@ -410,127 +374,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
 
             return true;
-        }
-
-        private static void EnsureHierarchyMatchesClipBindings(AnimationClip clip, Transform root)
-        {
-            if (clip == null || root == null)
-            {
-                return;
-            }
-
-            EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(clip);
-            var uniquePaths = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < bindings.Length; i++)
-            {
-                EditorCurveBinding b = bindings[i];
-                if (b.type != typeof(Transform))
-                {
-                    continue;
-                }
-
-                string path = b.path ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(path) || !uniquePaths.Add(path))
-                {
-                    continue;
-                }
-
-                EnsurePath(root, path);
-            }
-        }
-
-        private static Transform EnsurePath(Transform root, string path)
-        {
-            string[] segments = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
-            Transform current = root;
-            for (int i = 0; i < segments.Length; i++)
-            {
-                string segment = segments[i];
-                Transform child = current.Find(segment);
-                if (child == null)
-                {
-                    GameObject go = new GameObject(segment);
-                    child = go.transform;
-                    child.SetParent(current, false);
-                    child.localPosition = Vector3.zero;
-                    child.localRotation = Quaternion.identity;
-                    child.localScale = Vector3.one;
-                }
-                current = child;
-            }
-            return current;
-        }
-
-        private static string GetSkeletonBoneParentNameReflective(SkeletonBone bone)
-        {
-            try
-            {
-                object boxed = bone;
-                string value = GetSkeletonBoneStringMember(
-                    boxed,
-                    SkeletonBoneParentNameField,
-                    SkeletonBoneParentNameLegacyField,
-                    SkeletonBoneParentNameProperty,
-                    SkeletonBoneParentNameLegacyProperty);
-                return value ?? string.Empty;
-            }
-            catch
-            {
-                // ignore
-            }
-
-            return string.Empty;
-        }
-
-        private static string GetSkeletonBoneStringMember(
-            object boxed,
-            FieldInfo primaryField,
-            FieldInfo secondaryField,
-            PropertyInfo primaryProperty,
-            PropertyInfo secondaryProperty)
-        {
-            if (boxed == null)
-            {
-                return string.Empty;
-            }
-
-            if (primaryField != null)
-            {
-                object value = primaryField.GetValue(boxed);
-                if (value is string s && !string.IsNullOrWhiteSpace(s))
-                {
-                    return s;
-                }
-            }
-
-            if (secondaryField != null)
-            {
-                object value = secondaryField.GetValue(boxed);
-                if (value is string s && !string.IsNullOrWhiteSpace(s))
-                {
-                    return s;
-                }
-            }
-
-            if (primaryProperty != null)
-            {
-                object value = primaryProperty.GetValue(boxed, null);
-                if (value is string s && !string.IsNullOrWhiteSpace(s))
-                {
-                    return s;
-                }
-            }
-
-            if (secondaryProperty != null)
-            {
-                object value = secondaryProperty.GetValue(boxed, null);
-                if (value is string s && !string.IsNullOrWhiteSpace(s))
-                {
-                    return s;
-                }
-            }
-
-            return string.Empty;
         }
 
         private static Transform ResolveBuiltAvatarSkeletonRoot(Transform hierarchyRoot, Avatar avatar)
@@ -584,7 +427,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             for (int i = 0; i < skeleton.Length; i++)
             {
                 string name = skeleton[i].name;
-                string parentName = GetSkeletonBoneParentNameReflective(skeleton[i]);
+                string parentName = AvatarSetupToolExtension.GetSkeletonBoneParentNameOrEmpty(skeleton[i]);
                 if (string.IsNullOrWhiteSpace(name))
                 {
                     continue;
@@ -706,56 +549,5 @@ namespace KimodoUnityMotionTools.ProjectEditor
             dst.EnsureQuaternionContinuity();
             EditorUtility.SetDirty(dst);
         }
-
-        private static bool CanDirectWriteBoneCurves(AnimationClip clip, Animator targetAnimator)
-        {
-            if (clip == null || targetAnimator == null)
-            {
-                return false;
-            }
-
-            Transform root = targetAnimator.transform;
-            if (root == null)
-            {
-                return false;
-            }
-
-            EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(clip);
-            if (bindings == null || bindings.Length == 0)
-            {
-                return false;
-            }
-
-            // Consider direct write compatible when all transform paths in clip exist on target binding hierarchy.
-            var checkedPaths = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < bindings.Length; i++)
-            {
-                EditorCurveBinding b = bindings[i];
-                if (b.type != typeof(Transform))
-                {
-                    continue;
-                }
-
-                string path = b.path ?? string.Empty;
-                if (!checkedPaths.Add(path))
-                {
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    continue;
-                }
-
-                Transform t = root.Find(path);
-                if (t == null)
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
     }
 }

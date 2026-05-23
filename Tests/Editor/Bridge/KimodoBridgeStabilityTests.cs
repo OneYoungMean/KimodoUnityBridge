@@ -78,7 +78,7 @@ namespace KimodoUnityMotionTools.Tests
         {
             await KimodoBridgeTestHarness.EnsureSetupOrIgnoreAsync(scope);
 
-            string launcher = KimodoServerRuntimeUtil.ResolveStartScript(scope.RuntimeRoot);
+            string launcher = BridgeLauncherResolver.ResolveStartScript(scope.RuntimeRoot);
             Assert.IsTrue(File.Exists(launcher), "launcher script missing");
 
             Process process = KimodoBridgeTestHarness.StartScript(launcher, "--model Kimodo-SOMA-RP-v1 --output file", useShellExecute: false, keepWindowOpen: false);
@@ -151,7 +151,7 @@ namespace KimodoUnityMotionTools.Tests
         [Test]
         public async Task Setup_WhenKilledMidway_ThenRerun_ShouldRecoverWithoutZombieProcesses()
         {
-            string runServerScript = KimodoServerRuntimeUtil.ResolveStartScript(scope.RuntimeRoot);
+            string runServerScript = BridgeLauncherResolver.ResolveStartScript(scope.RuntimeRoot);
             if (string.IsNullOrWhiteSpace(runServerScript) || !File.Exists(runServerScript))
             {
                 Assert.Ignore("run_server script missing");

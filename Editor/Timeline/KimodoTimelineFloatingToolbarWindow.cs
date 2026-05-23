@@ -44,12 +44,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             EditorApplication.update += EnsureWindowWhenTimelineVisible;
         }
 
-        [MenuItem("Kimodo/Timeline/Floating Toolbar", priority = 120)]
-        private static void OpenFromMenu()
-        {
-            EnsureWindow(forceFocus: true);
-        }
-
         // Auto show/hide behavior:
         // - If Timeline window is closed, close this floating toolbar.
         // - If Timeline window is open and toolbar not created yet, create it.

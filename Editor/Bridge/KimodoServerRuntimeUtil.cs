@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using KimodoUnityMotionTools.Bridge;
 using UnityEditor;
@@ -11,12 +10,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
     internal static class KimodoServerRuntimeUtil
     {
         internal static string RuntimeRootOverrideForTests { get; set; }
-
-        internal sealed class InstalledModelInfo
-        {
-            public string Name;
-            public string DirectoryPath;
-        }
 
         internal static readonly string[] SupportedModelNames =
         {
@@ -126,42 +119,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
         }
 
-        internal static List<InstalledModelInfo> GetInstalledModels(string runtimeRoot)
-        {
-            var result = new List<InstalledModelInfo>();
-            string modelsRoot = Path.Combine(runtimeRoot, "models");
-            if (!Directory.Exists(modelsRoot))
-            {
-                return result;
-            }
-
-            foreach (string dir in Directory.GetDirectories(modelsRoot))
-            {
-                string name = Path.GetFileName(dir);
-                string required = Path.Combine(dir, "model.safetensors");
-                string requiredIndex = Path.Combine(dir, "model.safetensors.index.json");
-                string adapter = Path.Combine(dir, "adapter_model.safetensors");
-                if (!File.Exists(required) && !File.Exists(requiredIndex) && !File.Exists(adapter))
-                {
-                    continue;
-                }
-
-                result.Add(new InstalledModelInfo
-                {
-                    Name = name,
-                    DirectoryPath = dir
-                });
-            }
-
-            result.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            return result;
-        }
-
-        internal static bool IsSelectedBridgeModelInstalled(string runtimeRoot, string modelName)
-        {
-            return IsSelectedBridgeModelInstalled(runtimeRoot, modelName, null);
-        }
-
         internal static bool IsSelectedBridgeModelInstalled(string runtimeRoot, string modelName, string modelsRootOverride)
         {
             if (string.IsNullOrWhiteSpace(modelName))
@@ -226,39 +183,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             return points;
         }
 
-        internal static string ResolveStartScript(string runtimeRoot)
-        {
-            EnsureNoLegacyScripts(runtimeRoot);
-
-            string s1 = Path.Combine(runtimeRoot, "run_server.bat");
-            if (File.Exists(s1))
-            {
-                return s1;
-            }
-            string s2 = Path.Combine(runtimeRoot, "bash", "start_server.bat");
-            if (File.Exists(s2))
-            {
-                return s2;
-            }
-            string s2Root = Path.Combine(runtimeRoot, "start_server.bat");
-            if (File.Exists(s2Root))
-            {
-                return s2Root;
-            }
-
-            string s2Sh = Path.Combine(runtimeRoot, "bash", "start_server.sh");
-            if (File.Exists(s2Sh))
-            {
-                return s2Sh;
-            }
-            string s2RootSh = Path.Combine(runtimeRoot, "start_server.sh");
-            if (File.Exists(s2RootSh))
-            {
-                return s2RootSh;
-            }
-            return string.Empty;
-        }
-
         private static bool IsUnityProjectRoot(string path)
         {
             if (string.IsNullOrWhiteSpace(path))
@@ -269,59 +193,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             return
                 Directory.Exists(Path.Combine(path, "Assets")) &&
                 Directory.Exists(Path.Combine(path, "ProjectSettings"));
-        }
-
-        internal static string ResolveSetupScript(string runtimeRoot)
-        {
-            EnsureNoLegacyScripts(runtimeRoot);
-
-            string s1 = Path.Combine(runtimeRoot, "bash", "setup.bat");
-            if (File.Exists(s1))
-            {
-                return s1;
-            }
-            string s1Root = Path.Combine(runtimeRoot, "setup.bat");
-            if (File.Exists(s1Root))
-            {
-                return s1Root;
-            }
-
-            string s1Sh = Path.Combine(runtimeRoot, "bash", "setup.sh");
-            if (File.Exists(s1Sh))
-            {
-                return s1Sh;
-            }
-            string s1RootSh = Path.Combine(runtimeRoot, "setup.sh");
-            if (File.Exists(s1RootSh))
-            {
-                return s1RootSh;
-            }
-            return string.Empty;
-        }
-
-        private static void EnsureNoLegacyScripts(string runtimeRoot)
-        {
-            if (string.IsNullOrWhiteSpace(runtimeRoot))
-            {
-                return;
-            }
-
-            string[] legacyScripts =
-            {
-                Path.Combine(runtimeRoot, "start_kimodo_bridge_offline.bat"),
-                Path.Combine(runtimeRoot, "start_kimodo_bridge_offline.sh"),
-                Path.Combine(runtimeRoot, "setup_kimodo_offline.bat"),
-                Path.Combine(runtimeRoot, "setup_kimodo_offline.sh")
-            };
-
-            foreach (string legacyScript in legacyScripts)
-            {
-                if (File.Exists(legacyScript))
-                {
-                    throw new InvalidOperationException(
-                        $"Legacy script detected and not supported: {legacyScript}");
-                }
-            }
         }
     }
 }

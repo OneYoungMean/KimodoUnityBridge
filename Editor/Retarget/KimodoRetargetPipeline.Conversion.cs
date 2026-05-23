@@ -227,6 +227,25 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
                     Transform leftFootBone = avatarAnimator.GetBoneTransform(HumanBodyBones.LeftFoot);
                     Transform rightFootBone = avatarAnimator.GetBoneTransform(HumanBodyBones.RightFoot);
+                    bool hasAvatar = avatarAnimator.avatar != null;
+                    float effectiveHumanScale = avatarAnimator.humanScale;
+                    if (!(effectiveHumanScale > 0f) || float.IsNaN(effectiveHumanScale) || float.IsInfinity(effectiveHumanScale))
+                    {
+                        effectiveHumanScale = 1f;
+                    }
+
+                    bool leftIkValid = TryBuildIkGoalParams(
+                        avatarAnimator.avatar,
+                        AvatarIKGoal.LeftFoot,
+                        out int leftHumanId,
+                        out Quaternion leftPostRotation,
+                        out float leftAxisLength);
+                    bool rightIkValid = TryBuildIkGoalParams(
+                        avatarAnimator.avatar,
+                        AvatarIKGoal.RightFoot,
+                        out int rightHumanId,
+                        out Quaternion rightPostRotation,
+                        out float rightAxisLength);
 
                     for (int frame = 0; frame < frameCount; frame++)
                     {
@@ -254,46 +273,54 @@ namespace KimodoUnityMotionTools.ProjectEditor
                         rootQz.AddKey(t, pose.bodyRotation.z);
                         rootQw.AddKey(t, pose.bodyRotation.w);
 
-                        IkGoalTQ leftFootGoal = new IkGoalTQ(Vector3.zero, Quaternion.identity);
-                        if (leftFootBone != null)
+                        Vector3 leftFootGoalT = Vector3.zero;
+                        Quaternion leftFootGoalQ = Quaternion.identity;
+                        if (leftFootBone != null && hasAvatar && leftIkValid)
                         {
-                            leftFootGoal = ComputeIkGoalTQ(
-                                avatarAnimator.avatar,
-                                avatarAnimator.humanScale,
-                                AvatarIKGoal.LeftFoot,
+                            ComputeIkGoalTQ(
+                                effectiveHumanScale,
+                                leftHumanId,
+                                leftPostRotation,
+                                leftAxisLength,
                                 pose.bodyPosition,
                                 pose.bodyRotation,
                                 leftFootBone.position,
-                                leftFootBone.rotation);
+                                leftFootBone.rotation,
+                                out leftFootGoalT,
+                                out leftFootGoalQ);
                         }
 
-                        IkGoalTQ rightFootGoal = new IkGoalTQ(Vector3.zero, Quaternion.identity);
-                        if (rightFootBone != null)
+                        Vector3 rightFootGoalT = Vector3.zero;
+                        Quaternion rightFootGoalQ = Quaternion.identity;
+                        if (rightFootBone != null && hasAvatar && rightIkValid)
                         {
-                            rightFootGoal = ComputeIkGoalTQ(
-                                avatarAnimator.avatar,
-                                avatarAnimator.humanScale,
-                                AvatarIKGoal.RightFoot,
+                            ComputeIkGoalTQ(
+                                effectiveHumanScale,
+                                rightHumanId,
+                                rightPostRotation,
+                                rightAxisLength,
                                 pose.bodyPosition,
                                 pose.bodyRotation,
                                 rightFootBone.position,
-                                rightFootBone.rotation);
+                                rightFootBone.rotation,
+                                out rightFootGoalT,
+                                out rightFootGoalQ);
                         }
 
-                        leftFootTx.AddKey(t, leftFootGoal.t.x);
-                        leftFootTy.AddKey(t, leftFootGoal.t.y);
-                        leftFootTz.AddKey(t, leftFootGoal.t.z);
-                        leftFootQx.AddKey(t, leftFootGoal.q.x);
-                        leftFootQy.AddKey(t, leftFootGoal.q.y);
-                        leftFootQz.AddKey(t, leftFootGoal.q.z);
-                        leftFootQw.AddKey(t, leftFootGoal.q.w);
-                        rightFootTx.AddKey(t, rightFootGoal.t.x);
-                        rightFootTy.AddKey(t, rightFootGoal.t.y);
-                        rightFootTz.AddKey(t, rightFootGoal.t.z);
-                        rightFootQx.AddKey(t, rightFootGoal.q.x);
-                        rightFootQy.AddKey(t, rightFootGoal.q.y);
-                        rightFootQz.AddKey(t, rightFootGoal.q.z);
-                        rightFootQw.AddKey(t, rightFootGoal.q.w);
+                        leftFootTx.AddKey(t, leftFootGoalT.x);
+                        leftFootTy.AddKey(t, leftFootGoalT.y);
+                        leftFootTz.AddKey(t, leftFootGoalT.z);
+                        leftFootQx.AddKey(t, leftFootGoalQ.x);
+                        leftFootQy.AddKey(t, leftFootGoalQ.y);
+                        leftFootQz.AddKey(t, leftFootGoalQ.z);
+                        leftFootQw.AddKey(t, leftFootGoalQ.w);
+                        rightFootTx.AddKey(t, rightFootGoalT.x);
+                        rightFootTy.AddKey(t, rightFootGoalT.y);
+                        rightFootTz.AddKey(t, rightFootGoalT.z);
+                        rightFootQx.AddKey(t, rightFootGoalQ.x);
+                        rightFootQy.AddKey(t, rightFootGoalQ.y);
+                        rightFootQz.AddKey(t, rightFootGoalQ.z);
+                        rightFootQw.AddKey(t, rightFootGoalQ.w);
                     }
 
 
@@ -352,44 +379,49 @@ namespace KimodoUnityMotionTools.ProjectEditor
             return Mathf.Clamp01(normalized) * Mathf.Max(0f, duration);
         }
 
-        private readonly struct IkGoalTQ
+        private static bool TryBuildIkGoalParams(
+            Avatar avatar,
+            AvatarIKGoal goal,
+            out int humanId,
+            out Quaternion postRotation,
+            out float axisLength)
         {
-            public readonly Vector3 t;
-            public readonly Quaternion q;
+            humanId = HumanIdFromIkGoal(goal);
+            postRotation = Quaternion.identity;
+            axisLength = 0f;
 
-            public IkGoalTQ(Vector3 t, Quaternion q)
+            if (avatar == null || humanId == (int)HumanBodyBones.LastBone)
             {
-                this.t = t;
-                this.q = q;
+                return false;
             }
+
+            postRotation = AvatarSetupToolExtension.GetAvatarPostRotationOrIdentity(avatar, humanId);
+            axisLength = AvatarSetupToolExtension.GetAvatarAxisLengthOrZero(avatar, humanId);
+            return true;
         }
 
-        private static IkGoalTQ ComputeIkGoalTQ(
-            Avatar avatar,
+        private static void ComputeIkGoalTQ(
             float humanScale,
-            AvatarIKGoal goal,
+            int humanId,
+            Quaternion postRotation,
+            float axisLength,
             Vector3 bodyPosition,
             Quaternion bodyRotation,
             Vector3 skeletonWorldPosition,
-            Quaternion skeletonWorldRotation)
+            Quaternion skeletonWorldRotation,
+            out Vector3 goalT,
+            out Quaternion goalQ)
         {
-            if (avatar == null)
-            {
-                return new IkGoalTQ(Vector3.zero, Quaternion.identity);
-            }
-
-            int humanId = HumanIdFromIkGoal(goal);
+            goalT = Vector3.zero;
+            goalQ = Quaternion.identity;
             if (humanId == (int)HumanBodyBones.LastBone)
             {
-                return new IkGoalTQ(Vector3.zero, Quaternion.identity);
+                return;
             }
 
-            Quaternion postRotation = GetAvatarPostRotation(avatar, humanId);
-            float axisLength = GetAvatarAxisLength(avatar, humanId);
-
-            Quaternion goalQ = skeletonWorldRotation * postRotation;
-            Vector3 goalT = skeletonWorldPosition;
-            if (goal == AvatarIKGoal.LeftFoot || goal == AvatarIKGoal.RightFoot)
+            goalQ = skeletonWorldRotation * postRotation;
+            goalT = skeletonWorldPosition;
+            if (axisLength != 0f)
             {
                 goalT += goalQ * new Vector3(axisLength, 0f, 0f);
             }
@@ -401,8 +433,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
             {
                 goalT /= humanScale;
             }
-
-            return new IkGoalTQ(goalT, goalQ);
         }
 
         private static int HumanIdFromIkGoal(AvatarIKGoal goal)
@@ -421,97 +451,6 @@ namespace KimodoUnityMotionTools.ProjectEditor
                     return (int)HumanBodyBones.LastBone;
             }
         }
-
-        private static Quaternion GetAvatarPostRotation(Avatar avatar, int humanId)
-        {
-            var method = typeof(Avatar).GetMethod("GetPostRotation", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            if (method == null)
-            {
-                return Quaternion.identity;
-            }
-
-            return (Quaternion)method.Invoke(avatar, new object[] { humanId });
-        }
-
-        private static float GetAvatarAxisLength(Avatar avatar, int humanId)
-        {
-            var method = typeof(Avatar).GetMethod("GetAxisLength", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            if (method == null)
-            {
-                return 0f;
-            }
-
-            object value = method.Invoke(avatar, new object[] { humanId });
-            return value is float f ? f : 0f;
-        }
-
-        private static Transform FindTransformByName(Transform root, string name)
-        {
-            if (root == null || string.IsNullOrWhiteSpace(name))
-            {
-                return null;
-            }
-
-            var stack = new Stack<Transform>();
-            stack.Push(root);
-            while (stack.Count > 0)
-            {
-                Transform current = stack.Pop();
-                if (string.Equals(current.name, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    return current;
-                }
-
-                for (int i = 0; i < current.childCount; i++)
-                {
-                    stack.Push(current.GetChild(i));
-                }
-            }
-
-            return null;
-        }
-
-        private static Transform[] ResolveSoma30Joints(Transform root)
-        {
-            var joints = new Transform[Soma30Names.Length];
-            for (int i = 0; i < Soma30Names.Length; i++)
-            {
-                joints[i] = FindTransformByName(root, Soma30Names[i]) ?? root;
-            }
-            return joints;
-        }
-
-        private static Vector3 QuaternionToAxisAngleVector(Quaternion q)
-        {
-            q.Normalize();
-            q.ToAngleAxis(out float degrees, out Vector3 axis);
-            if (float.IsNaN(axis.x) || axis == Vector3.zero)
-            {
-                return Vector3.zero;
-            }
-
-            if (degrees > 180f)
-            {
-                degrees -= 360f;
-            }
-
-            float radians = degrees * Mathf.Deg2Rad;
-            return axis.normalized * radians;
-        }
-
-        private static readonly string[] Soma30Names =
-        {
-            "Hips", "Spine1", "Spine2", "Chest", "Neck1", "Neck2", "Head", "Jaw", "LeftEye", "RightEye",
-            "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand", "LeftHandThumbEnd", "LeftHandMiddleEnd",
-            "RightShoulder", "RightArm", "RightForeArm", "RightHand", "RightHandThumbEnd", "RightHandMiddleEnd",
-            "LeftLeg", "LeftShin", "LeftFoot", "LeftToeBase", "RightLeg", "RightShin", "RightFoot", "RightToeBase"
-        };
-
-        private static readonly int[] Soma30Parents =
-        {
-            -1, 0, 1, 2, 3, 4, 5, 6, 6, 6, 3, 10, 11, 12, 13, 13, 3, 16, 17, 18, 19, 19, 0, 22, 23, 24, 0, 26, 27, 28
-        };
-
         private static readonly string[] MusclePropertyNames = BuildMusclePropertyNames();
 
         private static string[] BuildMusclePropertyNames()
