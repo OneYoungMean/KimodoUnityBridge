@@ -84,6 +84,11 @@ namespace KimodoUnityMotionTools.Generation
             }
         }
 
+        public Task DetachAsync(CancellationToken token)
+        {
+            return Task.CompletedTask;
+        }
+
         public Task StopAsync(CancellationToken token)
         {
             return Task.CompletedTask;
@@ -571,4 +576,3 @@ namespace KimodoUnityMotionTools.Generation
         }
     }
 }
-

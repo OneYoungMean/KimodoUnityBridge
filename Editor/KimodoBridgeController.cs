@@ -460,7 +460,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private static void HandleBeforeAssemblyReload()
         {
-            DisposeSharedRuntimeGenerationService();
+            DetachSharedRuntimeGenerationService();
         }
 
         private static void HandleEditorQuitting()
@@ -493,6 +493,26 @@ namespace KimodoUnityMotionTools.ProjectEditor
             currentServiceHighVram = false;
             currentServiceForceSetup = false;
             InvalidateServerStateCache();
+        }
+
+        private static void DetachSharedRuntimeGenerationService()
+        {
+            KimodoRuntimeGenerationService service = sharedRuntimeGenerationService;
+            if (service == null)
+            {
+                return;
+            }
+
+            try
+            {
+                service.DetachAsync(KimodoBackendType.Bridge, CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch
+            {
+                // ignore
+            }
         }
 
         private static void ScheduleServerStateRefresh(bool force)

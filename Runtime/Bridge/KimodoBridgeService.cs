@@ -213,6 +213,13 @@ namespace KimodoUnityMotionTools.Bridge
             currentHost = settings.hostFallback;
         }
 
+        public async Task DetachAsync(CancellationToken token)
+        {
+            ThrowIfDisposed();
+            StopLogPump();
+            await protocolClient.DetachAsync();
+        }
+
         public async Task KillAsync(CancellationToken token)
         {
             ThrowIfDisposed();

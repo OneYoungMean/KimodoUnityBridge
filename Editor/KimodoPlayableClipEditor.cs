@@ -432,9 +432,16 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
             catch (Exception e)
             {
-                lastError = e.Message;
+                string backendName = clip != null ? clip.generationBackend.ToString() : "Unknown";
+                string modelName = clip != null ? clip.bridgeModelName : string.Empty;
+                string prompt = motionPrompt != null ? motionPrompt.stringValue : string.Empty;
+                int frames = generationFrames != null ? generationFrames.intValue : -1;
+                int steps = diffusionSteps != null ? diffusionSteps.intValue : -1;
+                int currentSeed = seed != null ? seed.intValue : 0;
+                string context = $"backend={backendName}, model={modelName}, frames={frames}, steps={steps}, seed={currentSeed}, constraints={lastConstraintsPath}, status={lastStatus}, prompt={prompt}";
+                lastError = $"{e.Message}\n{context}";
                 lastStatus = "Generation failed.";
-                Debug.LogError($"[Kimodo] Generate failed: {e}");
+                Debug.LogError($"[Kimodo] Generate failed.\nContext: {context}\nException: {e}");
             }
             finally
             {

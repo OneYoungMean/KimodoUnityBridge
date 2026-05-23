@@ -54,6 +54,11 @@ namespace KimodoUnityMotionTools.Generation
             return bridgeService.PingAsync(token, acceptLoading: true);
         }
 
+        public Task DetachAsync(CancellationToken token)
+        {
+            return bridgeService.DetachAsync(token);
+        }
+
         public Task StopAsync(CancellationToken token)
         {
             return bridgeService.StopAsync(token);
@@ -70,4 +75,3 @@ namespace KimodoUnityMotionTools.Generation
         }
     }
 }
-

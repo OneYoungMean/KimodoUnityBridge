@@ -51,6 +51,12 @@ namespace KimodoUnityMotionTools.Generation
             return GetAdapter(backendType).PingAsync(token);
         }
 
+        public Task DetachAsync(KimodoBackendType backendType, CancellationToken token)
+        {
+            ThrowIfDisposed();
+            return GetAdapter(backendType).DetachAsync(token);
+        }
+
         public Task StopAsync(KimodoBackendType backendType, CancellationToken token)
         {
             ThrowIfDisposed();
@@ -89,4 +95,3 @@ namespace KimodoUnityMotionTools.Generation
         }
     }
 }
-
