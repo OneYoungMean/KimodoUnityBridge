@@ -25,6 +25,9 @@ namespace KimodoUnityMotionTools
     [System.Serializable]
     public class KimodoCurveFilterOptions
     {
+        [Tooltip("Enable curve keyframe reduction.")]
+        public bool enabled = true;
+
         [Range(0f, 1f)]
         [Tooltip("CurveFilterOptions.positionError (0-1).")]
         public float positionError = 0.25f;

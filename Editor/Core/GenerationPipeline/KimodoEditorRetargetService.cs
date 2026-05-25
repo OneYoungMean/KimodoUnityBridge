@@ -84,11 +84,12 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
                 }
             }
 
-            if (didRetarget)
+            if (!didRetarget)
             {
-                ApplyCurveFilterAfterRetarget(clip.clip, clip.curveFilterOptions);
+                return false;
             }
 
+            ApplyCurveFilterAfterRetarget(clip.clip, clip.curveFilterOptions);
             return didRetarget;
         }
 
@@ -101,6 +102,8 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
 
             GameObject tempRoot = BuildHierarchyFromClipBindings(targetClip, "KimodoPostRetargetFilterRoot");
             tempRoot.hideFlags = HideFlags.HideAndDontSave;
+            AnimationClip recordedClip = null;
+            AnimationClip filteredClip = null;
             try
             {
                 var recorder = new UnityEditor.Animations.GameObjectRecorder(tempRoot);
@@ -115,9 +118,16 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
                     recorder.TakeSnapshot(dt);
                 }
 
+                recordedClip = new AnimationClip
+                {
+                    name = $"{targetClip.name}_RetargetRecorded",
+                    legacy = false,
+                    frameRate = fps
+                };
+
                 var filter = new UnityEditor.Animations.CurveFilterOptions
                 {
-                    keyframeReduction = true,
+                    keyframeReduction = options.enabled,
                     positionError = Mathf.Clamp01(options.positionError),
                     rotationError = Mathf.Clamp01(options.rotationError),
                     scaleError = Mathf.Clamp01(options.positionError),
@@ -125,8 +135,11 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
                     unrollRotation = true
                 };
 
-                targetClip.ClearCurves();
-                recorder.SaveToClip(targetClip, fps, filter);
+                recorder.SaveToClip(recordedClip, fps, filter);
+
+                filteredClip = BuildFilteredRecordedClip(recordedClip, targetClip.name, fps);
+                CopyClipData(filteredClip, targetClip);
+
                 if (options.ensureQuaternionContinuity)
                 {
                     targetClip.EnsureQuaternionContinuity();
@@ -134,7 +147,161 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             }
             finally
             {
+                if (filteredClip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(filteredClip);
+                }
+                if (recordedClip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(recordedClip);
+                }
                 Object.DestroyImmediate(tempRoot);
+            }
+        }
+
+        private static AnimationClip BuildFilteredRecordedClip(AnimationClip sourceClip, string clipName, float fps)
+        {
+            if (sourceClip == null)
+            {
+                return null;
+            }
+
+            string rootPath = ResolveRootBindingPath(sourceClip);
+            var output = new AnimationClip
+            {
+                name = $"{clipName}_Filtered",
+                legacy = sourceClip.legacy,
+                frameRate = fps > 0f ? fps : sourceClip.frameRate
+            };
+            UnityEditor.AnimationUtility.SetAnimationClipSettings(
+                output,
+                new UnityEditor.AnimationClipSettings
+                {
+                    loopTime = false,
+                    keepOriginalPositionY = true
+                });
+
+            UnityEditor.EditorCurveBinding[] bindings = UnityEditor.AnimationUtility.GetCurveBindings(sourceClip);
+            for (int i = 0; i < bindings.Length; i++)
+            {
+                UnityEditor.EditorCurveBinding binding = bindings[i];
+                if (!ShouldKeepRecordedBinding(binding, rootPath))
+                {
+                    continue;
+                }
+
+                AnimationCurve curve = UnityEditor.AnimationUtility.GetEditorCurve(sourceClip, binding);
+                if (curve != null)
+                {
+                    output.SetCurve(binding.path, binding.type, binding.propertyName, curve);
+                }
+            }
+
+            UnityEditor.EditorCurveBinding[] objectBindings = UnityEditor.AnimationUtility.GetObjectReferenceCurveBindings(sourceClip);
+            for (int i = 0; i < objectBindings.Length; i++)
+            {
+                UnityEditor.EditorCurveBinding binding = objectBindings[i];
+                UnityEditor.ObjectReferenceKeyframe[] curve = UnityEditor.AnimationUtility.GetObjectReferenceCurve(sourceClip, binding);
+                if (curve != null)
+                {
+                    UnityEditor.AnimationUtility.SetObjectReferenceCurve(output, binding, curve);
+                }
+            }
+
+            return output;
+        }
+
+        private static bool ShouldKeepRecordedBinding(UnityEditor.EditorCurveBinding binding, string rootPath)
+        {
+            string property = binding.propertyName ?? string.Empty;
+            string path = binding.path ?? string.Empty;
+
+            if (property.StartsWith("m_LocalRotation", System.StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (property.StartsWith("m_LocalPosition", System.StringComparison.Ordinal))
+            {
+                return string.Equals(path, rootPath, System.StringComparison.Ordinal);
+            }
+
+            if (property.StartsWith("m_LocalScale", System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static string ResolveRootBindingPath(AnimationClip clip)
+        {
+            if (clip == null)
+            {
+                return string.Empty;
+            }
+
+            UnityEditor.EditorCurveBinding[] bindings = UnityEditor.AnimationUtility.GetCurveBindings(clip);
+            string bestPath = string.Empty;
+            int bestDepth = int.MaxValue;
+
+            for (int i = 0; i < bindings.Length; i++)
+            {
+                string property = bindings[i].propertyName ?? string.Empty;
+                if (!property.StartsWith("m_Local", System.StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                string path = bindings[i].path ?? string.Empty;
+                int depth = string.IsNullOrEmpty(path) ? 0 : path.Split('/').Length;
+                if (depth < bestDepth)
+                {
+                    bestDepth = depth;
+                    bestPath = path;
+                }
+            }
+
+            return bestPath;
+        }
+
+        private static void CopyClipData(AnimationClip sourceClip, AnimationClip targetClip)
+        {
+            if (sourceClip == null || targetClip == null)
+            {
+                return;
+            }
+
+            targetClip.ClearCurves();
+            targetClip.frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : targetClip.frameRate;
+            UnityEditor.AnimationUtility.SetAnimationClipSettings(
+                targetClip,
+                new UnityEditor.AnimationClipSettings
+                {
+                    loopTime = false,
+                    keepOriginalPositionY = true
+                });
+
+            UnityEditor.EditorCurveBinding[] bindings = UnityEditor.AnimationUtility.GetCurveBindings(sourceClip);
+            for (int i = 0; i < bindings.Length; i++)
+            {
+                UnityEditor.EditorCurveBinding binding = bindings[i];
+                AnimationCurve curve = UnityEditor.AnimationUtility.GetEditorCurve(sourceClip, binding);
+                if (curve != null)
+                {
+                    targetClip.SetCurve(binding.path, binding.type, binding.propertyName, curve);
+                }
+            }
+
+            UnityEditor.EditorCurveBinding[] objectBindings = UnityEditor.AnimationUtility.GetObjectReferenceCurveBindings(sourceClip);
+            for (int i = 0; i < objectBindings.Length; i++)
+            {
+                UnityEditor.EditorCurveBinding binding = objectBindings[i];
+                UnityEditor.ObjectReferenceKeyframe[] curve = UnityEditor.AnimationUtility.GetObjectReferenceCurve(sourceClip, binding);
+                if (curve != null)
+                {
+                    UnityEditor.AnimationUtility.SetObjectReferenceCurve(targetClip, binding, curve);
+                }
             }
         }
 

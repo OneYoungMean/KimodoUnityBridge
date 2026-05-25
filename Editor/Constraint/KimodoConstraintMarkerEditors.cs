@@ -38,7 +38,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             DrawRoot2DFields(!useOverride);
 
-            serializedObject.ApplyModifiedProperties();
+            bool changed = serializedObject.ApplyModifiedProperties();
+            if (changed)
+            {
+                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(target as KimodoConstraintMarkerBase);
+            }
         }
 
         private void DrawCommonHeader(string type)
@@ -128,7 +132,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             DrawFullBodyFields(!useOverride);
 
-            serializedObject.ApplyModifiedProperties();
+            bool changed = serializedObject.ApplyModifiedProperties();
+            if (changed)
+            {
+                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(target as KimodoConstraintMarkerBase);
+            }
         }
 
         private void DrawCommonHeader(string type)
@@ -233,7 +241,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
             DrawEEFields(typeName, !useOverride);
 
-            serializedObject.ApplyModifiedProperties();
+            bool changed = serializedObject.ApplyModifiedProperties();
+            if (changed)
+            {
+                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(target as KimodoConstraintMarkerBase);
+            }
         }
 
         private void DrawAutoFrameIndices()
@@ -584,6 +596,17 @@ namespace KimodoUnityMotionTools.ProjectEditor
             EditorUtility.SetDirty(marker as UnityEngine.Object);
             KimodoEditorCommandManager.Dispatch(
                 new ConstraintSnapshotRefreshCommand());
+        }
+
+        public static void NotifyInspectorChanged(KimodoConstraintMarkerBase marker)
+        {
+            if (marker != null)
+            {
+                EditorUtility.SetDirty(marker);
+            }
+
+            KimodoEditorCommandManager.Dispatch(new ConstraintSnapshotRefreshCommand());
+            SceneView.RepaintAll();
         }
     }
 }

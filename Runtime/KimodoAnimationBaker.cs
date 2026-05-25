@@ -69,7 +69,6 @@ namespace KimodoUnityMotionTools
                 ? Mathf.Min(frameHint, positionFrames)
                 : Mathf.Max(2, frameHint);
 
-            Undo.RecordObject(targetClip, "Bake Kimodo Animation");
             targetClip.ClearCurves();
             AnimationUtility.SetAnimationClipSettings(
                 targetClip,
@@ -118,8 +117,12 @@ namespace KimodoUnityMotionTools
                 error = "Joint count is invalid for recorder save.";
                 return false;
             }
+            int rootJoint = FindRootJointIndex(data, jointCount);
+            string[] jointPaths = BuildJointPaths(data, jointCount);
 
             GameObject samplerRoot = null;
+            AnimationClip recordedClip = null;
+            AnimationClip filteredClip = null;
             try
             {
                 samplerRoot = CreateSamplerHierarchyForRecording(data, jointCount, modelName);
@@ -134,18 +137,18 @@ namespace KimodoUnityMotionTools
                     recorder.TakeSnapshot(dt);
                 }
 
-                targetClip.ClearCurves();
-                targetClip.frameRate = fps;
-                AnimationUtility.SetAnimationClipSettings(
-                    targetClip,
-                    new AnimationClipSettings
-                    {
-                        loopTime = false,
-                        keepOriginalPositionY = true
-                    });
+                recordedClip = new AnimationClip
+                {
+                    name = $"{targetClip.name}_Recorded",
+                    legacy = false,
+                    frameRate = fps
+                };
 
                 CurveFilterOptions filter = BuildCurveFilterOptions(options);
-                recorder.SaveToClip(targetClip, fps, filter);
+                recorder.SaveToClip(recordedClip, fps, filter);
+
+                filteredClip = BuildFilteredRecordedClip(recordedClip, jointPaths, rootJoint, targetClip.name, fps);
+                CopyClipData(filteredClip, targetClip);
 
                 if ((options ?? new KimodoCurveFilterOptions()).ensureQuaternionContinuity)
                 {
@@ -161,6 +164,14 @@ namespace KimodoUnityMotionTools
             }
             finally
             {
+                if (filteredClip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(filteredClip);
+                }
+                if (recordedClip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(recordedClip);
+                }
                 if (samplerRoot != null)
                 {
                     DestroySamplerHierarchyRoot(samplerRoot);
@@ -177,7 +188,7 @@ namespace KimodoUnityMotionTools
 
             return new CurveFilterOptions
             {
-                keyframeReduction = true,
+                keyframeReduction = effective.enabled,
                 positionError = positionError,
                 scaleError = positionError,
                 floatError = floatError,
@@ -210,6 +221,125 @@ namespace KimodoUnityMotionTools
             }
 
             return recordingRoot.gameObject;
+        }
+
+        private static AnimationClip BuildFilteredRecordedClip(
+            AnimationClip sourceClip,
+            string[] jointPaths,
+            int rootJoint,
+            string clipName,
+            float fps)
+        {
+            if (sourceClip == null)
+            {
+                return null;
+            }
+
+            var output = new AnimationClip
+            {
+                name = $"{clipName}_Filtered",
+                legacy = sourceClip.legacy,
+                frameRate = fps > 0f ? fps : sourceClip.frameRate
+            };
+            AnimationUtility.SetAnimationClipSettings(output, AnimationUtility.GetAnimationClipSettings(sourceClip));
+
+            EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(sourceClip);
+            for (int i = 0; i < bindings.Length; i++)
+            {
+                EditorCurveBinding binding = bindings[i];
+                if (!ShouldKeepRecordedBinding(binding, jointPaths, rootJoint))
+                {
+                    continue;
+                }
+
+                AnimationCurve curve = AnimationUtility.GetEditorCurve(sourceClip, binding);
+                if (curve != null)
+                {
+                    output.SetCurve(binding.path, binding.type, binding.propertyName, curve);
+                }
+            }
+
+            EditorCurveBinding[] objectBindings = AnimationUtility.GetObjectReferenceCurveBindings(sourceClip);
+            for (int i = 0; i < objectBindings.Length; i++)
+            {
+                EditorCurveBinding binding = objectBindings[i];
+                ObjectReferenceKeyframe[] curve = AnimationUtility.GetObjectReferenceCurve(sourceClip, binding);
+                if (curve != null)
+                {
+                    AnimationUtility.SetObjectReferenceCurve(output, binding, curve);
+                }
+            }
+
+            return output;
+        }
+
+        private static bool ShouldKeepRecordedBinding(EditorCurveBinding binding, string[] jointPaths, int rootJoint)
+        {
+            if (jointPaths == null || jointPaths.Length == 0)
+            {
+                return true;
+            }
+
+            string property = binding.propertyName ?? string.Empty;
+            if (!property.StartsWith("m_Local", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            var allowedPaths = new HashSet<string>(jointPaths, StringComparer.Ordinal);
+            string rootPath = (rootJoint >= 0 && rootJoint < jointPaths.Length) ? jointPaths[rootJoint] : string.Empty;
+
+            if (property.StartsWith("m_LocalRotation", StringComparison.Ordinal))
+            {
+                return allowedPaths.Contains(binding.path ?? string.Empty);
+            }
+
+            if (property.StartsWith("m_LocalPosition", StringComparison.Ordinal))
+            {
+                return string.Equals(binding.path ?? string.Empty, rootPath, StringComparison.Ordinal);
+            }
+
+            if (property.StartsWith("m_LocalScale", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static void CopyClipData(AnimationClip sourceClip, AnimationClip targetClip)
+        {
+            if (sourceClip == null || targetClip == null)
+            {
+                return;
+            }
+
+            targetClip.ClearCurves();
+            targetClip.frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : targetClip.frameRate;
+            AnimationUtility.SetAnimationClipSettings(targetClip, AnimationUtility.GetAnimationClipSettings(sourceClip));
+
+            EditorCurveBinding[] bindings = AnimationUtility.GetCurveBindings(sourceClip);
+            for (int i = 0; i < bindings.Length; i++)
+            {
+                EditorCurveBinding binding = bindings[i];
+                AnimationCurve curve = AnimationUtility.GetEditorCurve(sourceClip, binding);
+                if (curve != null)
+                {
+                    targetClip.SetCurve(binding.path, binding.type, binding.propertyName, curve);
+                }
+            }
+            var resultBinding = AnimationUtility.GetCurveBindings(targetClip);
+
+            EditorCurveBinding[] objectBindings = AnimationUtility.GetObjectReferenceCurveBindings(sourceClip);
+            for (int i = 0; i < objectBindings.Length; i++)
+            {
+                EditorCurveBinding binding = objectBindings[i];
+                ObjectReferenceKeyframe[] curve = AnimationUtility.GetObjectReferenceCurve(sourceClip, binding);
+                if (curve != null)
+                {
+                    AnimationUtility.SetObjectReferenceCurve(targetClip, binding, curve);
+                }
+            }
         }
 
         private static bool TryLoadAndBuildAvatarHierarchy(string modelName, Transform root, out Avatar avatar, out string error)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEditor.PackageManager;
 using UnityEditor.Timeline;
 using UnityEngine;
 using UnityEngine.Playables;
@@ -48,6 +49,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private static void OnSelectionChanged()
         {
+            if (CollectSelectedMarkers().Count == 0)
+            {
+                HideAllRigsAndClearActiveRenders();
+                SceneView.RepaintAll();
+            }
             MarkDirty();
         }
 
@@ -149,6 +155,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             lastSelectionHash = SelectionHash();
             lastMarkerStateHash = ComputeMarkerStateHash();
+            SetAllRigVisibility(false);
             ActiveRenders.Clear();
 
             List<KimodoConstraintMarkerBase> markers = CollectSelectedMarkers();
@@ -214,6 +221,10 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
 
             TrackAsset track = clipRange.GetParentTrack();
+            if (track == null && marker.parent is TrackAsset markerTrack)
+            {
+                track = markerTrack;
+            }
             if (track == null)
             {
                 error = "parent track not found";
@@ -227,10 +238,9 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
-            Animator boundAnimator = director.GetGenericBinding(track) as Animator;
-            if (boundAnimator == null || boundAnimator.transform == null)
+            if (!TryResolveBoundAnimatorForTrack(director, track, out Animator boundAnimator, out string bindError))
             {
-                error = "track has no animator binding";
+                error = bindError;
                 return false;
             }
 
@@ -258,6 +268,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
+            if (rig.Root != null && !rig.Root.gameObject.activeSelf)
+            {
+                rig.Root.gameObject.SetActive(true);
+            }
+
             renderEntry = new SnapshotRenderEntry
             {
                 Marker = marker,
@@ -268,6 +283,51 @@ namespace KimodoUnityMotionTools.ProjectEditor
             };
 
             return true;
+        }
+
+        private static bool TryResolveBoundAnimatorForTrack(
+            PlayableDirector director,
+            TrackAsset track,
+            out Animator animator,
+            out string error)
+        {
+            animator = null;
+            error = string.Empty;
+
+            if (director == null)
+            {
+                error = "Timeline inspected director is null";
+                return false;
+            }
+
+            if (track == null)
+            {
+                error = "track is null";
+                return false;
+            }
+
+            // 1) Prefer the binding directly on this clip's own track.
+            animator = director.GetGenericBinding(track) as Animator;
+            if (animator != null && animator.transform != null)
+            {
+                return true;
+            }
+
+            // 2) Fallback to parent track bindings only when self track has no binding.
+            TrackAsset current = track.parent as TrackAsset;
+            while (current != null)
+            {
+                animator = director.GetGenericBinding(current) as Animator;
+                if (animator != null && animator.transform != null)
+                {
+                    return true;
+                }
+
+                current = current.parent as TrackAsset;
+            }
+
+            error = "track has no animator binding on self track or parent tracks";
+            return false;
         }
 
         private static int BuildSnapshotKey(
@@ -484,7 +544,9 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
-            bool useOverride = marker.useOverride && marker is not KimodoEndEffectorConstraintMarker;
+            bool isCustomEndEffector = marker is KimodoEndEffectorConstraintMarker ee &&
+                                       string.Equals(ee.ConstraintType, "end-effector", StringComparison.OrdinalIgnoreCase);
+            bool useOverride = marker.useOverride && !isCustomEndEffector;
             if (useOverride && TryBuildPoseFromOverride(marker, clipRange, out unityPose))
             {
                 return true;
@@ -666,8 +728,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private static RigCacheEntry CreateRig(SkeletonPreviewRigType rigType)
         {
-            string path = ResolveRigModelPath(rigType);
-            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            GameObject prefab = LoadRigPrefab(rigType);
             if (prefab == null)
             {
                 return default;
@@ -676,7 +737,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             GameObject instance = UnityEngine.Object.Instantiate(prefab);
             instance.name = $"__KimodoSnapshot_{rigType}";
             instance.hideFlags = HideFlags.HideAndDontSave;
-            instance.SetActive(true);
+            instance.SetActive(false);
 
             Transform root = instance.transform;
             Transform[] transforms = root.GetComponentsInChildren<Transform>(true);
@@ -704,16 +765,63 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private static string ResolveRigModelPath(SkeletonPreviewRigType rigType)
         {
+            string fileName = ResolveRigFileName(rigType);
+
+            UnityEditor.PackageManager.PackageInfo packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(KimodoConstraintSnapshotVisualizer).Assembly);
+            if (packageInfo != null)
+            {
+                string byAssemblyPackage = $"{NormalizeAssetPath(packageInfo.assetPath)}/Editor/Model/{fileName}";
+                if (AssetDatabase.LoadAssetAtPath<GameObject>(byAssemblyPackage) != null)
+                {
+                    return byAssemblyPackage;
+                }
+            }
+
+            const string packageName = "com.unity.kimodo_unity_motion_tools";
+            string byPackageName = $"Packages/{packageName}/Editor/Model/{fileName}";
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(byPackageName) != null)
+            {
+                return byPackageName;
+            }
+
+            string byAssetsFolder = $"Assets/Editor/Model/{fileName}";
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(byAssetsFolder) != null)
+            {
+                return byAssetsFolder;
+            }
+
+            // Legacy relative path fallback for older local layouts.
+            return $"Editor/Model/{fileName}";
+        }
+
+        private static GameObject LoadRigPrefab(SkeletonPreviewRigType rigType)
+        {
+            string path = ResolveRigModelPath(rigType);
+            return AssetDatabase.LoadAssetAtPath<GameObject>(path);
+        }
+
+        private static string ResolveRigFileName(SkeletonPreviewRigType rigType)
+        {
             switch (rigType)
             {
                 case SkeletonPreviewRigType.Smplx:
-                    return "Editor/Model/SMPLX.fbx";
+                    return "SMPLX.fbx";
                 case SkeletonPreviewRigType.G1:
-                    return "Editor/Model/G1.fbx";
+                    return "G1.fbx";
                 case SkeletonPreviewRigType.Soma30:
                 default:
-                    return "Editor/Model/SOMA30.fbx";
+                    return "SOMA30.fbx";
             }
+        }
+
+        private static string NormalizeAssetPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+
+            return path.Replace('\\', '/').TrimEnd('/');
         }
 
         private static bool ApplySnapshotToRig(SnapshotCacheEntry snapshot, RigCacheEntry rig)
@@ -741,6 +849,17 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
         private static void OnSceneGui(SceneView sceneView)
         {
+            // If no marker is selected now, clear stale renders immediately so gizmos disappear at once.
+            if (CollectSelectedMarkers().Count == 0)
+            {
+                if (ActiveRenders.Count > 0)
+                {
+                    HideAllRigsAndClearActiveRenders();
+                    SceneView.RepaintAll();
+                }
+                return;
+            }
+
             if (ActiveRenders.Count == 0)
             {
                 return;
@@ -821,6 +940,29 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 }
             }
             RigCache.Clear();
+        }
+
+        private static void HideAllRigsAndClearActiveRenders()
+        {
+            ActiveRenders.Clear();
+            SetAllRigVisibility(false);
+        }
+
+        private static void SetAllRigVisibility(bool visible)
+        {
+            foreach (KeyValuePair<string, RigCacheEntry> kv in RigCache)
+            {
+                RigCacheEntry rig = kv.Value;
+                if (rig.Root == null || rig.Root.gameObject == null)
+                {
+                    continue;
+                }
+
+                if (rig.Root.gameObject.activeSelf != visible)
+                {
+                    rig.Root.gameObject.SetActive(visible);
+                }
+            }
         }
 
         [Serializable]

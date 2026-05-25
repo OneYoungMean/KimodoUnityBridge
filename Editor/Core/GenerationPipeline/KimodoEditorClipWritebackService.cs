@@ -165,6 +165,7 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             {
                 bakeFilterOptions = new KimodoCurveFilterOptions
                 {
+                    enabled = clip.curveFilterOptions.enabled,
                     positionError = 0f,
                     rotationError = 0f,
                     floatError = 0f,

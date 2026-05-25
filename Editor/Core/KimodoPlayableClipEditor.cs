@@ -546,7 +546,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 EditorGUILayout.PropertyField(enabledProp, new GUIContent("Reduce Keyframes"));
             }
 
-            if (enabledProp != null && enabledProp.boolValue)
+            bool curveFilterEnabled = enabledProp == null || enabledProp.boolValue;
+            if (curveFilterEnabled)
             {
                 if (positionErrorProp != null)
                 {
