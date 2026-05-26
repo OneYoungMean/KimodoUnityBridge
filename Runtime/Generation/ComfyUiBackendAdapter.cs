@@ -176,6 +176,22 @@ namespace KimodoUnityMotionTools.Generation
                     {
                         inputs["constraints_json"] = req.constraints_json ?? string.Empty;
                     }
+                    if (inputs["boundary_pose_json"] != null)
+                    {
+                        inputs["boundary_pose_json"] = req.boundary_pose_json ?? string.Empty;
+                    }
+                    if (inputs["loop_hint"] != null)
+                    {
+                        inputs["loop_hint"] = req.loop_hint;
+                    }
+                    if (inputs["segment_index"] != null)
+                    {
+                        inputs["segment_index"] = req.segment_index;
+                    }
+                    if (inputs["transition_duration"] != null)
+                    {
+                        inputs["transition_duration"] = req.transition_duration;
+                    }
                 }
             }
         }

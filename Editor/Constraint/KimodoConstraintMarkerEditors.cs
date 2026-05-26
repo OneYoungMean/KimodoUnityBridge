@@ -49,6 +49,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             EditorGUILayout.LabelField($"Kimodo Constraint Marker ({type})", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("useOverride"));
+            KimodoConstraintMarkerEditorUtility.DrawOverrideEditButton(serializedObject, target as KimodoConstraintMarkerBase);
             EditorGUILayout.Space(4f);
         }
 
@@ -143,6 +144,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
         {
             EditorGUILayout.LabelField($"Kimodo Constraint Marker ({type})", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("useOverride"));
+            KimodoConstraintMarkerEditorUtility.DrawOverrideEditButton(serializedObject, target as KimodoConstraintMarkerBase);
             EditorGUILayout.Space(4f);
         }
 
@@ -212,6 +214,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             else
             {
                 EditorGUILayout.PropertyField(overrideProp);
+                KimodoConstraintMarkerEditorUtility.DrawOverrideEditButton(serializedObject, target as KimodoConstraintMarkerBase);
             }
 
             DrawAutoFrameIndices();
@@ -311,6 +314,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             EditorGUILayout.PropertyField(serializedObject.FindProperty("localJointRots"), true);
             EditorGUI.EndDisabledGroup();
         }
+
     }
 
     internal static class KimodoConstraintMarkerEditorUtility
@@ -607,6 +611,36 @@ namespace KimodoUnityMotionTools.ProjectEditor
 
             KimodoEditorCommandManager.Dispatch(new ConstraintSnapshotRefreshCommand());
             SceneView.RepaintAll();
+        }
+
+        public static void DrawOverrideEditButton(SerializedObject so, KimodoConstraintMarkerBase marker)
+        {
+            if (so == null || marker == null)
+            {
+                return;
+            }
+
+            bool active = KimodoConstraintOverrideEditSession.HasActiveSession(marker);
+            string label = active ? "Editing..." : "Edit";
+            using (new EditorGUI.DisabledScope(active))
+            {
+                if (!GUILayout.Button(label, GUILayout.Height(22f)))
+                {
+                    return;
+                }
+
+                SerializedProperty overrideProp = so.FindProperty("useOverride");
+                if (overrideProp != null && !overrideProp.boolValue)
+                {
+                    overrideProp.boolValue = true;
+                    so.ApplyModifiedProperties();
+                }
+
+                if (!KimodoConstraintOverrideEditSession.TryBegin(marker, out string error))
+                {
+                    Debug.LogWarning($"[Kimodo][ConstraintOverrideEdit] begin failed: {error}");
+                }
+            }
         }
     }
 }

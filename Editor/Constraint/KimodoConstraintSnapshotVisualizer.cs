@@ -167,6 +167,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
             for (int i = 0; i < markers.Count; i++)
             {
                 KimodoConstraintMarkerBase marker = markers[i];
+                if (KimodoConstraintOverrideEditSession.HasActiveSession(marker))
+                {
+                    continue;
+                }
+
                 if (!TryBuildRenderEntry(marker, out SnapshotRenderEntry entry, out string error))
                 {
                     if (!string.IsNullOrWhiteSpace(error))
@@ -403,7 +408,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
             error = string.Empty;
 
             int frameIndex = KimodoConstraintMarkerEditorUtility.TimeToKimodoFrameIndex(clipRange, marker.time);
-            if (TryBuildRetargetedSnapshotFromTimeline(marker, clipRange, boundAnimator, rig, frameIndex, out snapshot))
+            bool isCustomEndEffector = marker is KimodoEndEffectorConstraintMarker ee &&
+                                       string.Equals(ee.ConstraintType, "end-effector", StringComparison.OrdinalIgnoreCase);
+            bool forceOverridePath = marker.useOverride && !isCustomEndEffector;
+            if (!forceOverridePath &&
+                TryBuildRetargetedSnapshotFromTimeline(marker, clipRange, boundAnimator, rig, frameIndex, out snapshot))
             {
                 return true;
             }
@@ -590,93 +599,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             TimelineClip clipRange,
             out KimodoMarkerSampleResult unityPose)
         {
-            unityPose = null;
-
-            KimodoConstraintJson json = marker.ToJson();
-            if (json == null || json.local_joints_rot == null || json.local_joints_rot.Count == 0)
-            {
-                return false;
-            }
-
-            int markerFrame = KimodoConstraintMarkerEditorUtility.TimeToKimodoFrameIndex(clipRange, marker.time);
-            int idx = FindFrameIndex(json.frame_indices, markerFrame);
-            if (idx < 0)
-            {
-                idx = 0;
-            }
-
-            if (idx >= json.local_joints_rot.Count)
-            {
-                idx = json.local_joints_rot.Count - 1;
-            }
-
-            if (idx < 0)
-            {
-                return false;
-            }
-
-            float[][] aa = json.local_joints_rot[idx];
-            if (aa == null || aa.Length == 0)
-            {
-                return false;
-            }
-
-            Vector3 rootPos = Vector3.zero;
-            if (json.root_positions != null && idx < json.root_positions.Count)
-            {
-                float[] rp = json.root_positions[idx];
-                if (rp != null && rp.Length >= 3)
-                {
-                    rootPos = KimodoSpaceConversionUtility.ToUnityRootPosition(new Vector3(rp[0], rp[1], rp[2]));
-                }
-            }
-            else if (json.smooth_root_2d != null && idx < json.smooth_root_2d.Count)
-            {
-                float[] r2 = json.smooth_root_2d[idx];
-                if (r2 != null && r2.Length >= 2)
-                {
-                    Vector2 heading2D = KimodoSpaceConversionUtility.ToUnityHeading(new Vector2(r2[0], r2[1]));
-                    rootPos = new Vector3(heading2D.x, 0f, heading2D.y);
-                }
-            }
-
-            var local = new List<Vector3>(aa.Length);
-            for (int i = 0; i < aa.Length; i++)
-            {
-                float[] v = aa[i];
-                if (v == null || v.Length < 3)
-                {
-                    local.Add(Vector3.zero);
-                    continue;
-                }
-                local.Add(KimodoSpaceConversionUtility.ToUnityAxisAngle(new Vector3(v[0], v[1], v[2])));
-            }
-
-            unityPose = new KimodoMarkerSampleResult
-            {
-                rootPosition = rootPos,
-                rootHeading = Vector2.right,
-                localAxisAngles = local
-            };
-
-            return true;
-        }
-
-        private static int FindFrameIndex(List<int> frames, int frame)
-        {
-            if (frames == null || frames.Count == 0)
-            {
-                return -1;
-            }
-
-            for (int i = 0; i < frames.Count; i++)
-            {
-                if (frames[i] == frame)
-                {
-                    return i;
-                }
-            }
-            return -1;
+            return KimodoConstraintOverridePoseUtility.TryBuildUnityPoseFromMarker(marker, out unityPose, out _);
         }
 
         private static bool TryBuildLocalPoseArrays(
@@ -924,6 +847,48 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
 
             return SkeletonPreviewRigType.Soma30;
+        }
+
+        internal static bool TryCreateStandalonePreviewRigForModel(
+            string modelName,
+            string namePrefix,
+            out GameObject rootObject,
+            out Transform[] transforms,
+            out string error)
+        {
+            rootObject = null;
+            transforms = null;
+            error = string.Empty;
+
+            SkeletonPreviewRigType rigType = ResolveRigTypeFromModel(modelName);
+            GameObject prefab = LoadRigPrefab(rigType);
+            if (prefab == null)
+            {
+                error = $"preview rig prefab missing for {rigType}";
+                return false;
+            }
+
+            GameObject instance = UnityEngine.Object.Instantiate(prefab);
+            instance.name = $"{namePrefix}_{rigType}";
+            transforms = instance.GetComponentsInChildren<Transform>(true);
+            if (transforms == null || transforms.Length == 0)
+            {
+                UnityEngine.Object.DestroyImmediate(instance);
+                error = "preview rig has no transforms";
+                return false;
+            }
+
+            instance.hideFlags = HideFlags.DontSaveInEditor;
+            for (int i = 0; i < transforms.Length; i++)
+            {
+                if (transforms[i] != null)
+                {
+                    transforms[i].gameObject.hideFlags = HideFlags.DontSaveInEditor;
+                }
+            }
+
+            rootObject = instance;
+            return true;
         }
 
         private static void ClearAllCaches()

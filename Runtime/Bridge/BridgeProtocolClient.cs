@@ -70,6 +70,10 @@ namespace KimodoUnityMotionTools.Bridge
             int? seed,
             int diffusionSteps,
             string constraintsJson,
+            string boundaryPoseJson,
+            bool loopHint,
+            int segmentIndex,
+            float transitionDurationSeconds,
             Action<string> progress,
             CancellationToken token)
         {
@@ -83,6 +87,10 @@ namespace KimodoUnityMotionTools.Bridge
                 ["constraints_json"] = constraintsJson ?? string.Empty
             };
             request["seed"] = seed.HasValue ? seed.Value : null;
+            request["boundary_pose_json"] = boundaryPoseJson ?? string.Empty;
+            request["loop_hint"] = loopHint;
+            request["segment_index"] = segmentIndex;
+            request["transition_duration"] = transitionDurationSeconds;
             progress?.Invoke(
                 $"Bridge generate request sent: duration={durationSeconds:F3}s, steps={diffusionSteps}, seed={(seed.HasValue ? seed.Value.ToString() : "null")}.");
 

@@ -1,5 +1,6 @@
 using System;
 using KimodoUnityMotionTools.Bridge;
+using UnityEngine;
 
 namespace KimodoUnityMotionTools.Generation
 {
@@ -17,6 +18,21 @@ namespace KimodoUnityMotionTools.Generation
         public int? seed;
         public int steps;
         public string constraints_json;
+        // Optional serialized boundary pose payload for segment stitching.
+        public string boundary_pose_json;
+        // Optional hint to backend that this request is for loop/infinite continuation.
+        public bool loop_hint;
+        // Optional segment sequence index for observability on backend side.
+        public int segment_index;
+        // Optional desired transition overlap in seconds.
+        public float transition_duration;
+    }
+
+    [Serializable]
+    public sealed class KimodoBoundaryPoseDto
+    {
+        public Vector3 rootPosition;
+        public Quaternion rootRotation;
     }
 
     [Serializable]

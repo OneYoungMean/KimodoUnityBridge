@@ -50,7 +50,11 @@ namespace KimodoUnityMotionTools.Ai
                 duration = clampedFrames / TargetFps,
                 seed = seed,
                 steps = Math.Max(1, steps),
-                constraints_json = string.Empty
+                constraints_json = string.Empty,
+                boundary_pose_json = string.Empty,
+                loop_hint = false,
+                segment_index = 0,
+                transition_duration = 0f
             };
         }
 

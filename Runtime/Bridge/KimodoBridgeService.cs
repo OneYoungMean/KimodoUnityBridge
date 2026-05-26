@@ -140,6 +140,10 @@ namespace KimodoUnityMotionTools.Bridge
             int? seed,
             int diffusionSteps,
             string constraintsJson,
+            string boundaryPoseJson,
+            bool loopHint,
+            int segmentIndex,
+            float transitionDurationSeconds,
             Action<string> progress,
             CancellationToken token)
         {
@@ -149,7 +153,9 @@ namespace KimodoUnityMotionTools.Bridge
                 $"[KimodoBridge] Generate request: host={currentHost}:{currentPort}, " +
                 $"promptLen={(prompt ?? string.Empty).Length}, duration={durationSeconds:F3}, " +
                 $"steps={diffusionSteps}, seed={(seed.HasValue ? seed.Value.ToString() : "null")}, " +
-                $"constraintsPath='{constraintsJson ?? string.Empty}'");
+                $"constraintsPath='{constraintsJson ?? string.Empty}', " +
+                $"loopHint={loopHint}, segmentIndex={segmentIndex}, transition={transitionDurationSeconds:F3}, " +
+                $"boundaryPoseLen={(boundaryPoseJson ?? string.Empty).Length}");
 
             JObject response = await protocolClient.GenerateAsync(
                 currentHost,
@@ -159,6 +165,10 @@ namespace KimodoUnityMotionTools.Bridge
                 seed,
                 diffusionSteps,
                 constraintsJson,
+                boundaryPoseJson,
+                loopHint,
+                segmentIndex,
+                transitionDurationSeconds,
                 progress,
                 token);
 

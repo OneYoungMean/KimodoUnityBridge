@@ -37,6 +37,10 @@ namespace KimodoUnityMotionTools.Generation
                 request.seed,
                 request.steps,
                 request.constraints_json,
+                request.boundary_pose_json,
+                request.loop_hint,
+                request.segment_index,
+                request.transition_duration,
                 progress,
                 token);
 

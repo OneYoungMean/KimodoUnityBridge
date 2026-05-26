@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using KimodoUnityMotionTools.Generation;
 
 namespace KimodoUnityMotionTools.Generation.Pipeline
 {
@@ -30,9 +31,18 @@ namespace KimodoUnityMotionTools.Generation.Pipeline
 
             token.ThrowIfCancellationRequested();
 
-            progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Invoking generation backend...");
+            progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Starting generation backend...");
 
             using var runtimeService = new KimodoRuntimeGenerationService(request.RuntimeSettings);
+            _ = await runtimeService.StartAsync(
+                request.BackendType,
+                message => progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, message ?? string.Empty),
+                token);
+
+            token.ThrowIfCancellationRequested();
+
+            progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Invoking generation backend...");
+
             KimodoGenerationResultDto result = await runtimeService.GenerateAsync(
                 request.GenerationRequest,
                 request.BackendType,
