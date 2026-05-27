@@ -26,6 +26,9 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             string promptOverride,
             Action<KimodoGeneratePipelineStage, string> progress,
             Action onWritebackCompleted,
+            string externalConstraintsJson,
+            bool useExternalConstraints,
+            Avatar explicitRetargetAvatar,
             CancellationToken token)
         {
             if (clip == null)
@@ -46,7 +49,9 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             }
 
             progress?.Invoke(KimodoGeneratePipelineStage.Constraint, "Building constraints...");
-            string constraintsJson = constraintProvider.BuildConstraintsJsonOrThrow(clip);
+            string constraintsJson = useExternalConstraints
+                ? (externalConstraintsJson ?? string.Empty)
+                : constraintProvider.BuildConstraintsJsonOrThrow(clip);
             string constraintsPath = string.IsNullOrWhiteSpace(constraintsJson) ? "(none)" : "(inline-json)";
 
             int effectiveSeed = ResolveEffectiveSeed(clip);
@@ -70,7 +75,7 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
 
             progress?.Invoke(KimodoGeneratePipelineStage.Retarget, "Retargeting...");
             TimelineClip timelineClip = constraintProvider.FindTimelineClipForAsset(clip);
-            retargetService.TryRetarget(clip, timelineClip, out _);
+            retargetService.TryRetarget(clip, timelineClip, explicitRetargetAvatar, out _);
 
             progress?.Invoke(KimodoGeneratePipelineStage.Finalize, "Finalizing generated assets...");
             clipWritebackService.TrimGeneratedClipsToLimit(clip);
@@ -82,7 +87,8 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             {
                 ConstraintsPath = constraintsPath,
                 Prompt = prompt,
-                Seed = effectiveSeed
+                Seed = effectiveSeed,
+                GeneratedClip = clip.clip
             };
         }
 

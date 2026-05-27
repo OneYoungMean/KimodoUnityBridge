@@ -161,6 +161,12 @@ namespace KimodoUnityMotionTools.ProjectEditor.Manager
                 promptOverride,
                 (stage, message) => EmitProgress(eventCommand, message, stage),
                 KimodoTimelinePreviewRefreshUtility.RefreshIfPreviewing,
+                (eventCommand as GeneratePlayableClipCommand)?.ExternalConstraint?.ConstraintsJson ??
+                (eventCommand as GenerateFromPromptCommand)?.ExternalConstraint?.ConstraintsJson,
+                (eventCommand as GeneratePlayableClipCommand)?.ExternalConstraint?.Enabled == true ||
+                (eventCommand as GenerateFromPromptCommand)?.ExternalConstraint?.Enabled == true,
+                (eventCommand as GeneratePlayableClipCommand)?.ExternalConstraint?.RetargetAvatar ??
+                (eventCommand as GenerateFromPromptCommand)?.ExternalConstraint?.RetargetAvatar,
                 state.Token);
 
             EmitCompleted(eventCommand, result);

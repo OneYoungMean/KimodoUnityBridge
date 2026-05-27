@@ -1,3 +1,5 @@
+using UnityEngine;
+
 namespace KimodoUnityMotionTools.ProjectEditor.Manager
 {
     public interface IKimodoEditorCommandResult
@@ -28,5 +30,6 @@ namespace KimodoUnityMotionTools.ProjectEditor.Manager
         public string ConstraintsPath;
         public string Prompt;
         public int Seed;
+        public AnimationClip GeneratedClip;
     }
 }

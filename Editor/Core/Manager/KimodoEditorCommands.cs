@@ -1,17 +1,32 @@
-﻿namespace KimodoUnityMotionTools.ProjectEditor.Manager
+using UnityEngine;
+
+namespace KimodoUnityMotionTools.ProjectEditor.Manager
 {
+    public sealed class KimodoExternalConstraintRequest
+    {
+        public string ConstraintsJson;
+        public bool Enabled;
+        public Avatar RetargetAvatar;
+    }
+
     public sealed class GeneratePlayableClipCommand : KimodoEditorCommandBase
     {
-        public GeneratePlayableClipCommand(KimodoPlayableClip clip, string promptOverride = null)
+        public GeneratePlayableClipCommand(
+            KimodoPlayableClip clip,
+            string promptOverride = null,
+            KimodoExternalConstraintRequest externalConstraint = null)
             : base(BuildTargetKey(clip), KimodoEditorCommandKind.GeneratePlayableClip)
         {
             Clip = clip;
             PromptOverride = promptOverride;
+            ExternalConstraint = externalConstraint;
         }
 
         public KimodoPlayableClip Clip { get; }
 
         public string PromptOverride { get; }
+
+        public KimodoExternalConstraintRequest ExternalConstraint { get; }
 
         private static string BuildTargetKey(KimodoPlayableClip clip)
         {
@@ -21,16 +36,22 @@
 
     public sealed class GenerateFromPromptCommand : KimodoEditorCommandBase
     {
-        public GenerateFromPromptCommand(int clipInstanceId, string promptOverride)
+        public GenerateFromPromptCommand(
+            int clipInstanceId,
+            string promptOverride,
+            KimodoExternalConstraintRequest externalConstraint = null)
             : base("clip:" + clipInstanceId, KimodoEditorCommandKind.GeneratePlayableClip)
         {
             ClipInstanceId = clipInstanceId;
             PromptOverride = promptOverride ?? string.Empty;
+            ExternalConstraint = externalConstraint;
         }
 
         public int ClipInstanceId { get; }
 
         public string PromptOverride { get; }
+
+        public KimodoExternalConstraintRequest ExternalConstraint { get; }
     }
 
     public sealed class CancelPlayableClipGenerationCommand : KimodoEditorCommandBase

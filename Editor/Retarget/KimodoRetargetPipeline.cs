@@ -126,13 +126,14 @@ namespace KimodoUnityMotionTools.ProjectEditor
         public static bool TryRetargetBakedClip(
             KimodoPlayableClip playableClip,
             TimelineClip timelineClip,
+            Avatar explicitAvatar,
             out KimodoRetargetResultMode mode,
             out string details)
         {
             mode = KimodoRetargetResultMode.SomaFallback;
             details = string.Empty;
 
-            if (!TryPrepareRetargetContext(playableClip, timelineClip, out RetargetContext context, out mode, out details))
+            if (!TryPrepareRetargetContext(playableClip, timelineClip, explicitAvatar, out RetargetContext context, out mode, out details))
             {
                 return false;
             }
@@ -191,6 +192,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
         private static bool TryPrepareRetargetContext(
             KimodoPlayableClip playableClip,
             TimelineClip timelineClip,
+            Avatar explicitAvatar,
             out RetargetContext context,
             out KimodoRetargetResultMode mode,
             out string details)
@@ -205,31 +207,15 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
-            if (timelineClip == null)
+            if (explicitAvatar == null || !explicitAvatar.isValid || !explicitAvatar.isHuman)
             {
-                details = "Timeline clip not found. Keep SOMA bake.";
+                details = "Explicit retarget avatar is null or invalid humanoid avatar.";
                 return false;
             }
 
-            if (!TryResolveBoundAnimator(timelineClip, out Animator targetAnimator, out string bindError))
-            {
-                details = bindError;
-                return false;
-            }
-
-
-            bool hadHumanoidAvatar = targetAnimator.avatar != null && targetAnimator.avatar.isValid && targetAnimator.avatar.isHuman;
-            if (!KimodoLocalAvatarUtility.TryEnsureHumanoidAvatar(
-                    targetAnimator,
-                    out Avatar ensuredAvatar,
-                    out string avatarSource,
-                    out string avatarError))
-            {
-                details = $"Ensure target avatar failed: {avatarError}";
-                return false;
-            }
-
-            context = new RetargetContext(playableClip.clip, targetAnimator, ensuredAvatar, avatarSource, hadHumanoidAvatar);
+            bool hadHumanoidAvatar = false;
+            string avatarSource = "ExplicitAvatar";
+            context = new RetargetContext(playableClip.clip, null, explicitAvatar, avatarSource, hadHumanoidAvatar);
             return true;
         }
 
@@ -268,7 +254,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             };
 
             error = string.Empty;
-            Animator targetSamplingAnimator = CreateTempAnimatorForAvatar(context.TargetAnimator, context.EnsuredAvatar, out GameObject targetTempRoot);
+            Animator targetSamplingAnimator = CreateTempAnimatorForAvatarObject(context.EnsuredAvatar, out GameObject targetTempRoot);
             if (targetSamplingAnimator == null)
             {
                 error = "Failed to create target sampling animator.";

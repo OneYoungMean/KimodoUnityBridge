@@ -6,22 +6,17 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
 {
     internal sealed class KimodoEditorRetargetService
     {
-        public bool TryRetarget(KimodoPlayableClip clip, TimelineClip timelineClip, out string details)
+        public bool TryRetarget(KimodoPlayableClip clip, TimelineClip timelineClip, Avatar explicitAvatar, out string details)
         {
             details = string.Empty;
             bool didRetarget = false;
 
             if (clip.autoRetargetOnBinding)
             {
-                if (CanDirectOutputByJointNameMatch(clip, timelineClip))
-                {
-                    Debug.Log("[Kimodo] Retarget skipped: all source joints are present on bound skeleton by name.");
-                    return false;
-                }
-
                 bool retargetOk = KimodoRetargetPipeline.TryRetargetBakedClip(
                     clip,
                     timelineClip,
+                    explicitAvatar,
                     out KimodoRetargetResultMode retargetMode,
                     out string retargetDetails);
 
@@ -314,97 +309,6 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             return t;
         }
 
-        private static bool CanDirectOutputByJointNameMatch(KimodoPlayableClip playableClip, TimelineClip timelineClip)
-        {
-            if (playableClip == null || playableClip.jointNames == null || playableClip.jointNames.Length == 0)
-            {
-                return false;
-            }
-
-            if (!TryResolveBoundAnimatorForTimelineClip(timelineClip, out Animator animator))
-            {
-                return false;
-            }
-
-            Transform skeletonRoot = animator != null ? animator.transform : null;
-            if (skeletonRoot == null)
-            {
-                return false;
-            }
-
-            var nameSet = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
-            var stack = new System.Collections.Generic.Stack<Transform>();
-            stack.Push(skeletonRoot);
-            while (stack.Count > 0)
-            {
-                Transform current = stack.Pop();
-                if (current == null)
-                {
-                    continue;
-                }
-
-                if (!string.IsNullOrWhiteSpace(current.name))
-                {
-                    nameSet.Add(current.name);
-                }
-
-                for (int i = 0; i < current.childCount; i++)
-                {
-                    stack.Push(current.GetChild(i));
-                }
-            }
-
-            for (int i = 0; i < playableClip.jointNames.Length; i++)
-            {
-                string jointName = playableClip.jointNames[i];
-                if (string.IsNullOrWhiteSpace(jointName))
-                {
-                    continue;
-                }
-
-                if (!nameSet.Contains(jointName))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        private static bool TryResolveBoundAnimatorForTimelineClip(TimelineClip timelineClip, out Animator animator)
-        {
-            animator = null;
-            if (timelineClip == null)
-            {
-                return false;
-            }
-
-            TrackAsset track = timelineClip.GetParentTrack();
-            if (track == null)
-            {
-                return false;
-            }
-
-            PlayableDirector director = UnityEditor.Timeline.TimelineEditor.inspectedDirector;
-            if (director == null)
-            {
-                return false;
-            }
-
-            TrackAsset currentTrack = track;
-            while (currentTrack != null)
-            {
-                animator = director.GetGenericBinding(currentTrack) as Animator;
-                if (animator != null)
-                {
-                    return true;
-                }
-
-                currentTrack = currentTrack.parent as TrackAsset;
-            }
-
-            return false;
-        }
     }
 }
 
