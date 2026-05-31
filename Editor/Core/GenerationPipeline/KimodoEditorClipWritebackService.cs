@@ -192,7 +192,7 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             }
         }
 
-        public bool BakeCurrentMotionData(KimodoPlayableClip clip, out string error)
+        public bool BakeCurrentMotionData(KimodoPlayableClip clip, bool hasValidRetargetAvatar, out string error)
         {
             error = string.Empty;
             if (clip == null || clip.clip == null || string.IsNullOrWhiteSpace(clip.motionData))
@@ -201,7 +201,7 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
                 return false;
             }
 
-            bool willRetargetPipeline = clip.autoRetargetOnBinding || (!clip.autoRetargetOnBinding && clip.CustomRetargetAvatar != null);
+            bool willRetargetPipeline = hasValidRetargetAvatar;
             KimodoCurveFilterOptions bakeFilterOptions = clip.curveFilterOptions;
             if (willRetargetPipeline && clip.curveFilterOptions != null)
             {

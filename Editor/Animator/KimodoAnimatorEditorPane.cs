@@ -42,8 +42,8 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             EditorGUILayout.LabelField("Generate Motion", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
             DrawProp(clipSo, "generationBackend", "Backend");
-            DrawProp(clipSo, "bridgeModelName", "Bridge Model");
-            DrawProp(clipSo, "bridgeVramMode", "VRAM Mode");
+            DrawKimodoBridgePanel(clipSo);
+            DrawComfyUiPanel(clipSo);
             DrawProp(clipSo, "motionPrompt", "Prompt", true, 60f);
             DrawProp(clipSo, "generationFrames", "Duration (frames)");
             DrawProp(clipSo, "diffusionSteps", "Diffusion Steps");
@@ -51,7 +51,6 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             DrawProp(clipSo, "seed", "Seed");
             DrawProp(clipSo, "enableInbetweenInterpolation", "In-between Interpolation");
             DrawProp(clipSo, "showConstraint", "Show Constraint");
-            DrawProp(clipSo, "workflowJsonAsset", "Workflow JSON Asset");
 
             bool canGenerate = !isGenerating && hasSelection;
             EditorGUI.BeginDisabledGroup(!canGenerate);
@@ -67,6 +66,27 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
                 cancelGenerate?.Invoke();
             }
             EditorGUI.EndDisabledGroup();
+            EditorGUILayout.EndVertical();
+        }
+
+        private static void DrawKimodoBridgePanel(SerializedObject clipSo)
+        {
+            EditorGUILayout.Space(4f);
+            EditorGUILayout.LabelField("Kimodo Bridge", EditorStyles.boldLabel);
+            EditorGUILayout.BeginVertical("box");
+            DrawProp(clipSo, "bridgeModelName", "Bridge Model");
+            DrawProp(clipSo, "bridgeVramMode", "VRAM Mode");
+            EditorGUILayout.EndVertical();
+        }
+
+        private static void DrawComfyUiPanel(SerializedObject clipSo)
+        {
+            EditorGUILayout.Space(4f);
+            EditorGUILayout.LabelField("ComfyUI", EditorStyles.boldLabel);
+            EditorGUILayout.BeginVertical("box");
+            DrawProp(clipSo, "workflowJsonAsset", "Workflow JSON Asset");
+            DrawProp(clipSo, "comfyUiHost", "ComfyUI Host");
+            DrawProp(clipSo, "comfyUiPort", "ComfyUI Port");
             EditorGUILayout.EndVertical();
         }
 

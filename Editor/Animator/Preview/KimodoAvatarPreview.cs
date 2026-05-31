@@ -118,6 +118,10 @@ public class KimodoPreviewTimeControl
         private bool m_ResetOnPlay = false;
         private float m_MouseDrag = 0.0f;
         private bool m_WrapForwardDrag = false;
+        private bool m_IsScrubbing = false;
+
+        public bool IsScrubbing => m_IsScrubbing;
+        public bool HasPendingManualTimeStep => m_DeltaTimeSet || m_NextCurrentTimeSet;
 
         private const float kStepTime = 0.01f;
         private const float kScrubberHeight = 21;
@@ -161,6 +165,7 @@ public class KimodoPreviewTimeControl
                     {
                         EditorGUIUtility.SetWantsMouseJumping(1);
                         EditorGUIUtility.hotControl = id;
+                        m_IsScrubbing = true;
                         m_MouseDrag = evt.mousePosition.x - scrubberRect.xMin;
                         nextCurrentTime = (m_MouseDrag * (stopTime - startTime) / scrubberRect.width + startTime);
                         m_WrapForwardDrag = false;
@@ -198,6 +203,7 @@ public class KimodoPreviewTimeControl
                     {
                         EditorGUIUtility.SetWantsMouseJumping(0);
                         EditorGUIUtility.hotControl = 0;
+                        m_IsScrubbing = false;
                         evt.Use();
                     }
                     break;

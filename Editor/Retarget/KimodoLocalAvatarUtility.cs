@@ -8,7 +8,33 @@ namespace KimodoUnityMotionTools.ProjectEditor
 {
     internal static class KimodoLocalAvatarUtility
     {
+        public readonly struct AvatarResolveResult
+        {
+            public AvatarResolveResult(Avatar avatar, bool isHumanoid, string source, string error)
+            {
+                Avatar = avatar;
+                IsHumanoid = isHumanoid;
+                Source = source ?? string.Empty;
+                Error = error ?? string.Empty;
+            }
+
+            public Avatar Avatar { get; }
+            public bool IsHumanoid { get; }
+            public string Source { get; }
+            public string Error { get; }
+        }
+
         private const string AvatarCacheFolder = "Assets/KimodoGenerated/Avatars";
+
+        public static AvatarResolveResult ResolveAvatarFromGameObject(GameObject avatarRoot)
+        {
+            if (TryEnsureHumanoidAvatar(avatarRoot, out Avatar avatar, out string source, out string error))
+            {
+                return new AvatarResolveResult(avatar, IsValidHumanoid(avatar), source, string.Empty);
+            }
+
+            return new AvatarResolveResult(null, false, string.Empty, error);
+        }
 
         public static bool TryEnsureHumanoidAvatar(
             GameObject avatarRoot,

@@ -66,16 +66,32 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             progress?.Invoke(KimodoGeneratePipelineStage.AssetWrite, "Creating generated clip asset...");
             clipWritebackService.CreateAndAssignNewAnimationClip(clip);
             clipWritebackService.ApplyMotionJsonToClip(clip, prompt, motionJson);
+            Avatar originRetargetAvatar = ResolveOriginRetargetAvatar(clip);
+            Avatar targetRetargetAvatar = ResolveTargetRetargetAvatar(clip, explicitRetargetAvatar);
+            bool hasValidRetargetAvatar =
+                originRetargetAvatar != null && originRetargetAvatar.isValid && originRetargetAvatar.isHuman &&
+                targetRetargetAvatar != null && targetRetargetAvatar.isValid && targetRetargetAvatar.isHuman;
+            if (!hasValidRetargetAvatar)
+            {
+                throw new InvalidOperationException("Retarget requires valid humanoid originAvatar and targetAvatar.");
+            }
 
             progress?.Invoke(KimodoGeneratePipelineStage.Bake, "Baking animation...");
-            if (!clipWritebackService.BakeCurrentMotionData(clip, out string bakeError))
+            if (!clipWritebackService.BakeCurrentMotionData(clip, hasValidRetargetAvatar, out string bakeError))
             {
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(bakeError) ? "Bake failed." : bakeError);
             }
 
             progress?.Invoke(KimodoGeneratePipelineStage.Retarget, "Retargeting...");
-            TimelineClip timelineClip = constraintProvider.FindTimelineClipForAsset(clip);
-            retargetService.TryRetarget(clip, timelineClip, explicitRetargetAvatar, out _);
+            bool retargetOk = retargetService.TryRetarget(
+                clip.clip,
+                originRetargetAvatar,
+                targetRetargetAvatar,
+                out _);
+            if (!retargetOk)
+            {
+                throw new InvalidOperationException("Retarget failed.");
+            }
 
             progress?.Invoke(KimodoGeneratePipelineStage.Finalize, "Finalizing generated assets...");
             clipWritebackService.TrimGeneratedClipsToLimit(clip);
@@ -95,6 +111,42 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
         public static IReadOnlyList<KimodoConstraintMarkerBase> GetLatestConstraintMarkers()
         {
             return KimodoEditorConstraintProvider.LatestMarkers;
+        }
+
+        private Avatar ResolveOriginRetargetAvatar(KimodoPlayableClip clip)
+        {
+            string modelName = clip != null ? clip.bridgeModelName : string.Empty;
+            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar avatar, out _))
+            {
+                return null;
+            }
+
+            return avatar != null && avatar.isValid && avatar.isHuman ? avatar : null;
+        }
+
+        private Avatar ResolveTargetRetargetAvatar(KimodoPlayableClip clip, Avatar explicitRetargetAvatar)
+        {
+            if (explicitRetargetAvatar != null && explicitRetargetAvatar.isValid && explicitRetargetAvatar.isHuman)
+            {
+                return explicitRetargetAvatar;
+            }
+
+            GameObject bindingObject = constraintProvider.FindTimelineBindingObjectForAsset(clip);
+            if (bindingObject != null)
+            {
+                KimodoLocalAvatarUtility.AvatarResolveResult result = KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(bindingObject);
+                if (result.IsHumanoid && result.Avatar != null)
+                {
+                    return result.Avatar;
+                }
+            }
+
+            if (clip.CustomRetargetAvatar != null && clip.CustomRetargetAvatar.isValid && clip.CustomRetargetAvatar.isHuman)
+            {
+                return clip.CustomRetargetAvatar;
+            }
+
+            return null;
         }
 
         private static int ResolveEffectiveSeed(KimodoPlayableClip clip)

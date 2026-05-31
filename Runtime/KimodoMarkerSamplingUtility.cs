@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Animations;
 using UnityEngine.Timeline;
 
 namespace KimodoUnityMotionTools
@@ -65,13 +66,6 @@ namespace KimodoUnityMotionTools
             18, 19
         };
 
-        private enum SkeletonProfile
-        {
-            Soma30 = 0,
-            G1Skel34 = 1,
-            Smplx22 = 2
-        }
-
         public static string[] GetJointNamesForModel(string modelName)
         {
             ResolveProfile(modelName, out string[] names, out _);
@@ -88,6 +82,97 @@ namespace KimodoUnityMotionTools
             Animator animator,
             Transform skeletonRoot,
             TimelineClip sourceClip,
+            string modelName,
+            double globalTime,
+            string markerType,
+            Avatar originAvatar,
+            Avatar targetAvatar,
+            out KimodoMarkerSampleResult result,
+            out string error)
+        {
+            if (originAvatar != null || targetAvatar != null)
+            {
+                if (!TryRetargetSamplePoseWithTools(
+                        animator,
+                        skeletonRoot,
+                        targetAvatar,
+                        originAvatar,
+                        markerType,
+                        globalTime,
+                        out result,
+                        out error))
+                {
+                    result = null;
+                    return false;
+                }
+
+                return true;
+            }
+
+            return TrySampleMarkerRaw(animator, skeletonRoot, modelName, globalTime, markerType, out result, out error);
+        }
+
+        private static bool TryRetargetSamplePoseWithTools(
+            Animator animator,
+            Transform skeletonRoot,
+            Avatar targetAvatar,
+            Avatar originAvatar,
+            string markerType,
+            double sampleTime,
+            out KimodoMarkerSampleResult result,
+            out string error)
+        {
+            result = null;
+            error = string.Empty;
+
+            if (animator == null)
+            {
+                error = "Animator is null.";
+                return false;
+            }
+
+            if (!KimodoRetargetTools.IsValidHumanoid(originAvatar))
+            {
+                error = "Origin avatar is null/invalid/non-humanoid.";
+                return false;
+            }
+
+            if (!KimodoRetargetTools.IsValidHumanoid(targetAvatar))
+            {
+                error = "Target avatar is null/invalid/non-humanoid.";
+                return false;
+            }
+
+            Transform root = skeletonRoot != null ? skeletonRoot : animator.transform;
+            if (root == null)
+            {
+                error = "Skeleton root is null.";
+                return false;
+            }
+
+            if (!TryCreateMuscleDataProvider(animator, root, originAvatar, out IGetMuscleData muscleData, out error))
+            {
+                return false;
+            }
+
+            if (!KimodoRetargetTools.TryRetarget(muscleData, targetAvatar, 30f, 1f / 30f, out KimodoRetargetTools.RetargetResult retargetResult, out error))
+            {
+                return false;
+            }
+
+            if (retargetResult == null || retargetResult.frames == null || retargetResult.frames.Length == 0)
+            {
+                error = "Retarget result is empty.";
+                return false;
+            }
+
+            result = BuildMarkerSampleResultFromRetargetResult(retargetResult, markerType, sampleTime);
+            return true;
+        }
+
+        public static bool TrySampleMarkerRaw(
+            Animator animator,
+            Transform skeletonRoot,
             string modelName,
             double globalTime,
             string markerType,
@@ -152,9 +237,26 @@ namespace KimodoUnityMotionTools
                     continue;
                 }
 
-                Quaternion local = parent >= 0 && parent < worldRots.Length
-                    ? Quaternion.Inverse(worldRots[parent]) * worldRots[i]
-                    : worldRots[i];
+                string jointName = jointNames != null && i < jointNames.Length ? jointNames[i] : string.Empty;
+                string normalized = string.IsNullOrWhiteSpace(jointName) ? string.Empty : jointName.Trim().ToLowerInvariant();
+                bool useWorldRotation = normalized == "hips"
+                    || normalized == "pelvis"
+                    || normalized == "left_hip"
+                    || normalized == "right_hip"
+                    || normalized == "left_hip_pitch_skel"
+                    || normalized == "right_hip_pitch_skel";
+
+                Quaternion local;
+                if (useWorldRotation)
+                {
+                    local = worldRots[i];
+                }
+                else
+                {
+                    local = parent >= 0 && parent < worldRots.Length
+                        ? Quaternion.Inverse(worldRots[parent]) * worldRots[i]
+                        : worldRots[i];
+                }
                 unityLocalAxisAngles.Add(KimodoRuntimeUtility.QuaternionToAxisAngleVector(local));
                 sampledJointIndices.Add(i);
             }
@@ -163,7 +265,7 @@ namespace KimodoUnityMotionTools
             {
                 constraintType = markerType ?? string.Empty,
                 sampleTime = globalTime,
-                rigType = ToConstraintRigType(ResolveProfileType(modelName)),
+                rigType = ResolveProfileType(modelName),
                 hasRootHeading = true,
                 rootPosition = unityRootPosition,
                 rootHeading = unityHeading,
@@ -174,34 +276,20 @@ namespace KimodoUnityMotionTools
             return true;
         }
 
-        private static KimodoConstraintRigType ToConstraintRigType(SkeletonProfile profile)
-        {
-            switch (profile)
-            {
-                case SkeletonProfile.G1Skel34:
-                    return KimodoConstraintRigType.G1;
-                case SkeletonProfile.Smplx22:
-                    return KimodoConstraintRigType.Smplx;
-                case SkeletonProfile.Soma30:
-                default:
-                    return KimodoConstraintRigType.Soma30;
-            }
-        }
-
         private static void ResolveProfile(string modelName, out string[] jointNames, out int[] parentIndices)
         {
-            SkeletonProfile profile = ResolveProfileType(modelName);
+            KimodoConstraintRigType profile = ResolveProfileType(modelName);
             switch (profile)
             {
-                case SkeletonProfile.G1Skel34:
+                case KimodoConstraintRigType.G1:
                     jointNames = G1Skel34Names;
                     parentIndices = G1Skel34Parents;
                     return;
-                case SkeletonProfile.Smplx22:
+                case KimodoConstraintRigType.Smplx:
                     jointNames = Smplx22Names;
                     parentIndices = Smplx22Parents;
                     return;
-                case SkeletonProfile.Soma30:
+                case KimodoConstraintRigType.Soma30:
                 default:
                     jointNames = Soma30Names;
                     parentIndices = Soma30Parents;
@@ -209,20 +297,20 @@ namespace KimodoUnityMotionTools
             }
         }
 
-        private static SkeletonProfile ResolveProfileType(string modelName)
+        private static KimodoConstraintRigType ResolveProfileType(string modelName)
         {
             string normalized = string.IsNullOrWhiteSpace(modelName) ? string.Empty : modelName.Trim().ToLowerInvariant();
             if (normalized.Contains("g1"))
             {
-                return SkeletonProfile.G1Skel34;
+                return KimodoConstraintRigType.G1;
             }
 
             if (normalized.Contains("smplx"))
             {
-                return SkeletonProfile.Smplx22;
+                return KimodoConstraintRigType.Smplx;
             }
 
-            return SkeletonProfile.Soma30;
+            return KimodoConstraintRigType.Soma30;
         }
 
         private static Transform[] ResolveJointTransforms(string[] names, Transform root, Animator animator)
@@ -357,6 +445,112 @@ namespace KimodoUnityMotionTools
             return null;
         }
 
+        private static bool TryCreateMuscleDataProvider(
+            Animator animator,
+            Transform skeletonRoot,
+            Avatar avatar,
+            out IGetMuscleData muscleData,
+            out string error)
+        {
+            muscleData = null;
+            error = string.Empty;
+
+            if (animator == null)
+            {
+                error = "Animator is null.";
+                return false;
+            }
+
+            if (!KimodoRetargetTools.IsValidHumanoid(avatar))
+            {
+                error = "Avatar is null/invalid/non-humanoid.";
+                return false;
+            }
+
+            muscleData = new AnimatorPoseMuscleData(animator, skeletonRoot, avatar);
+            return true;
+        }
+
+        private static KimodoMarkerSampleResult BuildMarkerSampleResultFromRetargetResult(
+            KimodoRetargetTools.RetargetResult retargetResult,
+            string markerType,
+            double sampleTime)
+        {
+            var result = new KimodoMarkerSampleResult
+            {
+                constraintType = markerType ?? string.Empty,
+                sampleTime = sampleTime,
+                rigType = KimodoConstraintRigType.Soma30,
+                hasRootHeading = true,
+                rootPosition = retargetResult != null ? retargetResult.rootPosition : Vector3.zero,
+                rootHeading = Vector2.right,
+                jointNames = new List<string>(),
+                localAxisAngles = new List<Vector3>(),
+                sampledJointIndices = new List<int>()
+            };
+
+            if (retargetResult == null || retargetResult.frames == null || retargetResult.frames.Length == 0)
+            {
+                return result;
+            }
+
+            KimodoRetargetTools.BoneFrame frame = retargetResult.frames[0];
+            if (frame == null)
+            {
+                return result;
+            }
+
+            result.jointNames = frame.boneNames != null ? new List<string>(frame.boneNames) : new List<string>();
+            result.sampledJointIndices = new List<int>(result.jointNames.Count);
+            result.localAxisAngles = new List<Vector3>(result.jointNames.Count);
+
+            for (int i = 0; i < result.jointNames.Count; i++)
+            {
+                result.sampledJointIndices.Add(i);
+                result.localAxisAngles.Add(KimodoRuntimeUtility.QuaternionToAxisAngleVector(frame.localRotations[i]));
+            }
+
+            if (retargetResult.rootRotation != Quaternion.identity)
+            {
+                Vector3 forward = retargetResult.rootRotation * Vector3.forward;
+                Vector2 heading = new Vector2(forward.x, forward.z);
+                result.rootHeading = heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.right;
+            }
+
+            return result;
+        }
+
+        private sealed class AnimatorPoseMuscleData : IGetMuscleData
+        {
+            private readonly HumanPoseHandler poseHandle;
+
+            public AnimatorPoseMuscleData(Animator animator, Transform root, Avatar avatar)
+            {
+                poseHandle = animator != null && root != null && KimodoRetargetTools.IsValidHumanoid(avatar)
+                    ? new HumanPoseHandler(avatar, root)
+                    : null;
+            }
+
+            public bool TryGetPoseHandle(out HumanPoseHandler poseHandleOut, out string error)
+            {
+                poseHandleOut = poseHandle;
+                error = poseHandleOut != null ? string.Empty : "Pose handle is null.";
+                return poseHandleOut != null;
+            }
+
+            public bool TryGetPose(float time, ref HumanPose pose, out string error)
+            {
+                error = string.Empty;
+                if (poseHandle == null)
+                {
+                    error = "Pose handle is null.";
+                    return false;
+                }
+
+                poseHandle.GetHumanPose(ref pose);
+                return true;
+            }
+        }
     }
 }
 

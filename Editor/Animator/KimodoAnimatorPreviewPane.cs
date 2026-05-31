@@ -29,6 +29,8 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
         private GameObject originalPreviewInstance;
         private GameObject generatedPreviewInstance;
         private KimodoAvatarPreviewCore avatarPreviewCore;
+        private float transitionPreRollSeconds = 0.3f;
+        private float transitionPostRollSeconds = 0.5f;
 
         private bool selectionLatched;
         private int latchedSelectionInstanceId;
@@ -41,6 +43,7 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
         public void Initialize()
         {
             avatarPreviewCore = new KimodoAvatarPreviewCore();
+            avatarPreviewCore.SetTransitionWindowPadding(transitionPreRollSeconds, transitionPostRollSeconds);
             TryCaptureSelectionIfNeeded();
             RefreshPreviewSource();
         }
@@ -78,6 +81,11 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
         public AnimatorState SelectedFromState => selectedFromState;
         public AnimatorStateMachine SelectedStateMachine => selectedStateMachine;
 
+        public void Tick()
+        {
+            avatarPreviewCore?.Tick();
+        }
+
         public void DrawToolbar(ref string lastStatus, ref string lastError, Action onResetAll)
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
@@ -97,12 +105,25 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
                     avatarPreviewCore?.RestartFromZeroAndPlay();
                 }
 
-                if (GUILayout.Button("Reset Preview", EditorStyles.toolbarButton, GUILayout.Width(100f)))
+                if (GUILayout.Button("Reselect", EditorStyles.toolbarButton, GUILayout.Width(100f)))
                 {
                     ResetAll();
                     onResetAll?.Invoke();
-                    lastStatus = "Generated preview and selection cleared.";
+                    lastStatus = string.Empty;
                     lastError = string.Empty;
+                }
+
+                GUILayout.Space(8f);
+                GUILayout.Label("Pre(s)", EditorStyles.miniLabel, GUILayout.Width(38f));
+                float newPre = EditorGUILayout.FloatField(transitionPreRollSeconds, EditorStyles.toolbarTextField, GUILayout.Width(50f));
+                GUILayout.Label("Post(s)", EditorStyles.miniLabel, GUILayout.Width(44f));
+                float newPost = EditorGUILayout.FloatField(transitionPostRollSeconds, EditorStyles.toolbarTextField, GUILayout.Width(50f));
+                if (!Mathf.Approximately(newPre, transitionPreRollSeconds) || !Mathf.Approximately(newPost, transitionPostRollSeconds))
+                {
+                    transitionPreRollSeconds = Mathf.Max(0f, newPre);
+                    transitionPostRollSeconds = Mathf.Max(0f, newPost);
+                    avatarPreviewCore?.SetTransitionWindowPadding(transitionPreRollSeconds, transitionPostRollSeconds);
+                    avatarPreviewCore?.RestartFromZeroAndPlay();
                 }
 
                 EditorGUI.BeginDisabledGroup(generatedPreviewHistory.Count == 0);
@@ -134,6 +155,7 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             if (avatarPreviewCore == null)
             {
                 avatarPreviewCore = new KimodoAvatarPreviewCore();
+                avatarPreviewCore.SetTransitionWindowPadding(transitionPreRollSeconds, transitionPostRollSeconds);
             }
 
             if (previewMode == PreviewMode.Generated)
@@ -194,8 +216,14 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             DestroyPreviewInstances();
             avatarPreviewCore?.Dispose();
             avatarPreviewCore = new KimodoAvatarPreviewCore();
+            avatarPreviewCore.SetTransitionWindowPadding(transitionPreRollSeconds, transitionPostRollSeconds);
             originalClipForPreview = null;
             retargetAvatarForPreview = null;
+
+            if (TryCaptureSelectionIfNeeded())
+            {
+                RefreshPreviewSource();
+            }
         }
 
         public void DrawSelectionInfo()
@@ -381,7 +409,27 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             }
 
             clip.SampleAnimation(tempAnimator.gameObject, (float)globalTime);
-            bool ok = KimodoMarkerSamplingUtility.TrySampleMarker(tempAnimator, tempAnimator.transform, null, modelName, globalTime, "fullbody", out sample, out error);
+            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar originAvatar, out string originError))
+            {
+                error = $"Resolve origin avatar failed: {originError}";
+                if (tempRoot != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(tempRoot);
+                }
+                return false;
+            }
+
+            bool ok = KimodoMarkerSamplingUtility.TrySampleMarker(
+                tempAnimator,
+                tempAnimator.transform,
+                null,
+                modelName,
+                globalTime,
+                "fullbody",
+                originAvatar,
+                avatar,
+                out sample,
+                out error);
             if (tempRoot != null)
             {
                 UnityEngine.Object.DestroyImmediate(tempRoot);
@@ -503,12 +551,8 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
 
             if (sourceRoot == null)
             {
-                sourceRoot = EditorGUIUtility.Load("Avatar/DefaultAvatar.fbx") as GameObject;
-                if (sourceRoot == null)
-                {
-                    error = "Cannot resolve preview character source.";
-                    return false;
-                }
+                error = "Cannot resolve preview character source.";
+                return false;
             }
 
             previewSourceTemplate = UnityEngine.Object.Instantiate(sourceRoot);

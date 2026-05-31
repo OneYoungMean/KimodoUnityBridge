@@ -137,6 +137,8 @@ namespace KimodoUnityMotionTools
                 modelName,
                 globalTime,
                 markerType,
+                null,
+                null,
                 out result,
                 out error);
         }

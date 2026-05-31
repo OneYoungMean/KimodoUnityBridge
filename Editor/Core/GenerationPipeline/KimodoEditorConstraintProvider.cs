@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using UnityEditor.Timeline;
+using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
@@ -41,6 +43,46 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
         public TimelineClip FindTimelineClipForAsset(PlayableAsset asset)
         {
             return KimodoTimelineClipResolver.FindTimelineClipForAsset(asset);
+        }
+
+        public GameObject FindTimelineBindingObjectForAsset(PlayableAsset asset)
+        {
+            TimelineClip sourceClip = FindTimelineClipForAsset(asset);
+            if (sourceClip == null)
+            {
+                return null;
+            }
+
+            TrackAsset track = sourceClip.GetParentTrack();
+            if (track == null)
+            {
+                return null;
+            }
+
+            PlayableDirector director = TimelineEditor.inspectedDirector;
+            if (director == null)
+            {
+                return null;
+            }
+
+            TrackAsset currentTrack = track;
+            while (currentTrack != null)
+            {
+                UnityEngine.Object binding = director.GetGenericBinding(currentTrack);
+                if (binding is Animator animator && animator != null)
+                {
+                    return animator.gameObject;
+                }
+
+                if (binding is GameObject go && go != null)
+                {
+                    return go;
+                }
+
+                currentTrack = currentTrack.parent as TrackAsset;
+            }
+
+            return null;
         }
 
         private void UpdateConstraintReferences(TimelineClip sourceClip)

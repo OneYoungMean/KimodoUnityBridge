@@ -1,4 +1,5 @@
 using KimodoUnityMotionTools.ProjectEditor.GenerationPipeline;
+using KimodoUnityMotionTools.Generation.Pipeline;
 using System;
 using System.Collections.Generic;
 using UnityEditor;
@@ -380,6 +381,19 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 string modelName = clipRange.asset is KimodoPlayableClip playableClip
                     ? playableClip.bridgeModelName
                     : "Kimodo-SOMA-RP-v1";
+                if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar originAvatar, out string originError))
+                {
+                    error = $"Resolve origin avatar failed: {originError}";
+                    return false;
+                }
+
+                KimodoLocalAvatarUtility.AvatarResolveResult targetAvatarResult = KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(animator.gameObject);
+                Avatar targetAvatar = targetAvatarResult.Avatar;
+                if (targetAvatar == null || !targetAvatar.isValid || !targetAvatar.isHuman)
+                {
+                    error = $"Resolve target avatar failed: {targetAvatarResult.Error}";
+                    return false;
+                }
 
                 if (!KimodoMarkerSamplingUtility.TrySampleMarker(
                         animator,
@@ -388,6 +402,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
                         modelName,
                         sampleTime,
                         marker.ConstraintType,
+                        originAvatar,
+                        targetAvatar,
                         out sample,
                         out error))
                 {
@@ -537,17 +553,17 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
-            if (clipRange.asset is not KimodoPlayableClip playableClip)
-            {
-                error = "playable clip is null";
-                return false;
-            }
-
-            string modelName = string.IsNullOrWhiteSpace(playableClip.bridgeModelName)
-                ? "Kimodo-SOMA-RP-v1"
-                : playableClip.bridgeModelName.Trim();
+            KimodoPlayableClip playableClip = clipRange.asset as KimodoPlayableClip;
+            string modelName = playableClip != null && !string.IsNullOrWhiteSpace(playableClip.bridgeModelName)
+                ? playableClip.bridgeModelName.Trim()
+                : "Kimodo-SOMA-RP-v1";
             KimodoConstraintRigType rigType = ResolveRigTypeFromModelName(modelName);
-            context = new PoseCacheRenderContext(playableClip.GetInstanceID(), animator.GetInstanceID(), modelName, rigType);
+            int clipContextId = playableClip != null
+                ? playableClip.GetInstanceID()
+                : ((clipRange.asset as UnityEngine.Object) != null
+                    ? (clipRange.asset as UnityEngine.Object).GetInstanceID()
+                    : track.GetInstanceID());
+            context = new PoseCacheRenderContext(clipContextId, animator.GetInstanceID(), modelName, rigType);
             return true;
         }
 

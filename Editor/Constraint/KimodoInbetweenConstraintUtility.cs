@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using KimodoUnityMotionTools.Generation.Pipeline;
 using UnityEditor.Timeline;
 using UnityEngine;
 using UnityEngine.Playables;
@@ -140,6 +141,19 @@ namespace KimodoUnityMotionTools.ProjectEditor
             string modelName = sourceClip.asset is KimodoPlayableClip playableClip
                 ? playableClip.bridgeModelName
                 : "Kimodo-SOMA-RP-v1";
+            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar originAvatar, out string originError))
+            {
+                error = $"Resolve origin avatar failed: {originError}";
+                return false;
+            }
+
+            KimodoLocalAvatarUtility.AvatarResolveResult targetAvatarResult = KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(animator.gameObject);
+            Avatar targetAvatar = targetAvatarResult.Avatar;
+            if (targetAvatar == null || !targetAvatar.isValid || !targetAvatar.isHuman)
+            {
+                error = $"Resolve target avatar failed: {targetAvatarResult.Error}";
+                return false;
+            }
 
             if (!KimodoMarkerSamplingUtility.TrySampleMarker(
                     animator,
@@ -148,6 +162,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
                     modelName,
                     sampleTime,
                     markerType,
+                    originAvatar,
+                    targetAvatar,
                     out sample,
                     out error))
             {

@@ -1,550 +1,876 @@
-using KimodoUnityMotionTools.Generation.Pipeline;
 using System;
-using System.Collections.Generic;
 using UnityEditor;
-using UnityEditor.Timeline;
 using UnityEngine;
+using UnityEngine.Animations;
 using UnityEngine.Playables;
+using KimodoUnityMotionTools.Generation.Pipeline;
 using UnityEngine.Timeline;
 
 namespace KimodoUnityMotionTools.ProjectEditor
 {
     public enum KimodoRetargetResultMode
     {
-        SomaFallback = 0,
-        HumanoidMuscle = 1,
-        TargetBone = 2
+        TargetBone = 1
+    }
+
+    public sealed class KimodoRetargetPreviewFrame
+    {
+        public HumanPose sourcePose;
+        public HumanPose targetPose;
+        public KimodoRetargetTools.BoneFrame targetBoneFrame;
+        public string[] boneNames;
+    }
+
+    public sealed class KimodoRetargetDebugFrame
+    {
+        public HumanPose sourcePose;
+        public HumanPose originBonePose;
+        public HumanPose originMusclePose;
+        public HumanPose targetMusclePose;
+        public HumanPose targetBonePose;
+        public KimodoRetargetTools.BoneFrame originBoneFrame;
+        public KimodoRetargetTools.BoneFrame originMuscleFrame;
+        public KimodoRetargetTools.BoneFrame targetMuscleFrame;
+        public KimodoRetargetTools.BoneFrame targetBoneFrame;
     }
 
     public static partial class KimodoRetargetPipeline
     {
-        private readonly struct RetargetContext
+        private static bool IsMuscleAnimationClip(AnimationClip clip)
         {
-            public readonly AnimationClip SourceSomaBoneClip;
-            public readonly Animator TargetAnimator;
-            public readonly Avatar EnsuredAvatar;
-            public readonly string AvatarSource;
-            public readonly bool HadHumanoidAvatar;
-
-            public RetargetContext(
-                AnimationClip sourceSomaBoneClip,
-                Animator targetAnimator,
-                Avatar ensuredAvatar,
-                string avatarSource,
-                bool hadHumanoidAvatar)
-            {
-                SourceSomaBoneClip = sourceSomaBoneClip;
-                TargetAnimator = targetAnimator;
-                EnsuredAvatar = ensuredAvatar;
-                AvatarSource = avatarSource;
-                HadHumanoidAvatar = hadHumanoidAvatar;
-            }
+            return clip != null && clip.isHumanMotion;
         }
 
-        internal static bool TryRetargetClipToAvatar(
-            AnimationClip sourceSomaClip,
+        public static bool TryRetargetClip(
+            AnimationClip sourceClip,
+            Avatar originAvatar,
             Avatar targetAvatar,
             out AnimationClip outputClip,
+            out KimodoRetargetResultMode mode,
             out string details)
         {
             outputClip = null;
+            mode = KimodoRetargetResultMode.TargetBone;
             details = string.Empty;
 
-            if (sourceSomaClip == null)
+            if (!TryBuildSourceMuscleData(sourceClip, originAvatar, out IGetMuscleData muscleData, out details))
             {
-                details = "Source clip is null.";
-                return false;
-            }
-
-            if (targetAvatar == null || !targetAvatar.isValid || !targetAvatar.isHuman)
-            {
-                details = "Custom avatar is null or invalid humanoid avatar.";
-                return false;
-            }
-
-            if (!TryCreateSomaSamplingAnimator(null, out Animator somaAnimator, out GameObject somaTempRoot, out string somaError))
-            {
-                details = $"Ensure SOMA avatar failed: {somaError}";
                 return false;
             }
 
             try
             {
-                if (!TryBuildSomaMuscleClip(sourceSomaClip, somaAnimator, out AnimationClip muscleClip, out string muscleError))
+                if (!KimodoRetargetTools.TryRetarget(
+                        muscleData,
+                        targetAvatar,
+                        sourceClip != null && sourceClip.frameRate > 0f ? sourceClip.frameRate : 30f,
+                        sourceClip != null ? sourceClip.length : 0f,
+                        out KimodoRetargetTools.RetargetResult result,
+                        out details))
                 {
-                    details = $"SOMA->Muscle failed: {muscleError}";
                     return false;
                 }
 
                 outputClip = new AnimationClip
                 {
-                    name = $"{sourceSomaClip.name}_RetargetCustomAvatar",
-                    legacy = false,
-                    frameRate = sourceSomaClip.frameRate > 0f ? sourceSomaClip.frameRate : 30f
+                    frameRate = sourceClip != null && sourceClip.frameRate > 0f ? sourceClip.frameRate : 30f,
+                    legacy = false
                 };
 
-                Animator targetSamplingAnimator = CreateTempAnimatorForAvatarObject(targetAvatar, out GameObject targetTempRoot);
-                if (targetSamplingAnimator == null)
+                if (!TryWriteRetargetResultToClip(result, outputClip, out details))
                 {
-                    details = "Failed to create sampling animator from custom avatar.";
                     return false;
                 }
 
-                try
-                {
-                    if (!TryConvertMuscleToTargetBoneClip(
-                            muscleClip,
-                            targetSamplingAnimator,
-                            outputClip,
-                            out string toBoneError,
-                            sourceSomaClip.frameRate))
-                    {
-                        details = $"Muscle->TargetBone failed: {toBoneError}";
-                        return false;
-                    }
-                }
-                finally
-                {
-                    if (targetTempRoot != null)
-                    {
-                        UnityEngine.Object.DestroyImmediate(targetTempRoot);
-                    }
-                }
-
-                details = "Retarget ok (Mode=CustomAvatar).";
+                details = "Retarget ok (new core).";
                 return true;
             }
             finally
             {
-                if (somaTempRoot != null)
+                if (muscleData is IDisposable disposable)
                 {
-                    UnityEngine.Object.DestroyImmediate(somaTempRoot);
+                    disposable.Dispose();
                 }
             }
         }
 
         public static bool TryRetargetBakedClip(
-            KimodoPlayableClip playableClip,
-            TimelineClip timelineClip,
-            Avatar explicitAvatar,
+            AnimationClip targetClip,
+            Avatar originAvatar,
+            Avatar targetAvatar,
+            out AnimationClip outputClip,
             out KimodoRetargetResultMode mode,
             out string details)
         {
-            mode = KimodoRetargetResultMode.SomaFallback;
-            details = string.Empty;
+            return TryRetargetClip(targetClip, originAvatar, targetAvatar, out outputClip, out mode, out details);
+        }
 
-            if (!TryPrepareRetargetContext(playableClip, timelineClip, explicitAvatar, out RetargetContext context, out mode, out details))
-            {
-                return false;
-            }
+        public static bool TryBuildPreviewFrame(
+            AnimationClip sourceClip,
+            Avatar originAvatar,
+            Avatar targetAvatar,
+            float sampleTime,
+            out KimodoRetargetPreviewFrame preview,
+            out string error)
+        {
+            preview = null;
+            error = string.Empty;
 
-            if (!TryCreateSomaSamplingAnimator(playableClip, out Animator somaAnimator, out GameObject somaTempRoot, out string somaError))
+            if (!TryBuildSourceMuscleData(sourceClip, originAvatar, out IGetMuscleData muscleData, out error))
             {
-                details = $"Ensure SOMA avatar failed: {somaError}";
                 return false;
             }
 
             try
             {
-                if (!TryBuildSomaMuscleClip(context.SourceSomaBoneClip, somaAnimator, out AnimationClip muscleClip, out string muscleError))
+                if (!TrySampleSourcePose(muscleData, sampleTime, out HumanPose sourcePose, out error))
                 {
-                    details = $"SOMA->Muscle failed: {muscleError}";
                     return false;
                 }
 
-                if (context.HadHumanoidAvatar)
+                if (!KimodoRetargetTools.TryCopyHumanPose(sourcePose, out HumanPose copiedSourcePose))
                 {
-                    OverwriteClipCurves(playableClip.clip, muscleClip);
-                    mode = KimodoRetargetResultMode.HumanoidMuscle;
-                    details = $"Retarget ok (Avatar={context.AvatarSource}, Mode=HumanoidMuscle).";
-                    return true;
-                }
-
-                if (!TryBuildTargetBoneClipFromMuscle(
-                        context,
-                        muscleClip,
-                        out AnimationClip targetBoneClip,
-                        out string toBoneError))
-                {
-                    details = $"Muscle->TargetBone failed: {toBoneError}";
+                    error = "Failed to copy source pose.";
                     return false;
                 }
 
-                OverwriteClipCurves(playableClip.clip, targetBoneClip);
-                mode = KimodoRetargetResultMode.TargetBone;
-                details = $"Retarget ok (Avatar={context.AvatarSource}, Mode=TargetBone).";
+                var constantSource = new ConstantPoseMuscleData(copiedSourcePose);
+                if (!KimodoRetargetTools.TryRetarget(
+                        constantSource,
+                        targetAvatar,
+                        sourceClip != null && sourceClip.frameRate > 0f ? sourceClip.frameRate : 30f,
+                        sourceClip != null ? sourceClip.length : 0f,
+                        out KimodoRetargetTools.RetargetResult result,
+                        out error))
+                {
+                    return false;
+                }
+
+                if (result == null || result.frames == null || result.frames.Length == 0 || result.poses == null || result.poses.Length == 0)
+                {
+                    error = "Preview retarget result is empty.";
+                    return false;
+                }
+
+                preview = new KimodoRetargetPreviewFrame
+                {
+                    sourcePose = copiedSourcePose,
+                    targetPose = result.poses[0],
+                    targetBoneFrame = result.frames[0],
+                    boneNames = result.boneNames
+                };
                 return true;
             }
-            catch (Exception e)
-            {
-                details = $"Retarget exception: {e.Message}";
-                return false;
-            }
             finally
             {
-                if (somaTempRoot != null)
+                if (muscleData is IDisposable disposable)
                 {
-                    UnityEngine.Object.DestroyImmediate(somaTempRoot);
+                    disposable.Dispose();
                 }
             }
         }
 
-        private static bool TryPrepareRetargetContext(
-            KimodoPlayableClip playableClip,
-            TimelineClip timelineClip,
-            Avatar explicitAvatar,
-            out RetargetContext context,
-            out KimodoRetargetResultMode mode,
-            out string details)
-        {
-            context = default;
-            mode = KimodoRetargetResultMode.SomaFallback;
-            details = string.Empty;
-
-            if (playableClip == null || playableClip.clip == null)
-            {
-                details = "PlayableClip or animation clip is null.";
-                return false;
-            }
-
-            if (explicitAvatar == null || !explicitAvatar.isValid || !explicitAvatar.isHuman)
-            {
-                details = "Explicit retarget avatar is null or invalid humanoid avatar.";
-                return false;
-            }
-
-            bool hadHumanoidAvatar = false;
-            string avatarSource = "ExplicitAvatar";
-            context = new RetargetContext(playableClip.clip, null, explicitAvatar, avatarSource, hadHumanoidAvatar);
-            return true;
-        }
-
-        private static bool TryBuildSomaMuscleClip(
-            AnimationClip sourceSomaBoneClip,
-            Animator somaAnimator,
-            out AnimationClip muscleClip,
+        public static bool TryCreateRetargetDebugContext(
+            AnimationClip sourceClip,
+            Avatar originAvatar,
+            Avatar targetAvatar,
+            out KimodoRetargetDebugContext context,
             out string error)
         {
-            muscleClip = new AnimationClip
-            {
-                name = $"{sourceSomaBoneClip.name}_Muscle",
-                legacy = false,
-                frameRate = sourceSomaBoneClip.frameRate > 0f ? sourceSomaBoneClip.frameRate : 30f
-            };
-
-            return TryConvertBoneClipToMuscleByAvatar(
-                sourceSomaBoneClip,
-                somaAnimator,
-                muscleClip,
-                out error,
-                sourceSomaBoneClip.frameRate);
-        }
-
-        private static bool TryBuildTargetBoneClipFromMuscle(
-            RetargetContext context,
-            AnimationClip muscleClip,
-            out AnimationClip targetBoneClip,
-            out string error)
-        {
-            targetBoneClip = new AnimationClip
-            {
-                name = $"{context.SourceSomaBoneClip.name}_TargetBone",
-                legacy = false,
-                frameRate = context.SourceSomaBoneClip.frameRate > 0f ? context.SourceSomaBoneClip.frameRate : 30f
-            };
-
+            context = null;
             error = string.Empty;
-            Animator targetSamplingAnimator = CreateTempAnimatorForAvatarObject(context.EnsuredAvatar, out GameObject targetTempRoot);
-            if (targetSamplingAnimator == null)
+
+            if (!TryBuildSourceMuscleData(sourceClip, originAvatar, out IGetMuscleData muscleData, out error))
             {
-                error = "Failed to create target sampling animator.";
                 return false;
             }
 
             try
             {
-                return TryConvertMuscleToTargetBoneClip(
-                    muscleClip,
-                    targetSamplingAnimator,
-                    targetBoneClip,
-                    out error,
-                    context.SourceSomaBoneClip.frameRate);
+                bool isMuscleClip = IsMuscleAnimationClip(sourceClip);
+                KimodoRetargetStageCache originBone = null;
+                KimodoRetargetStageCache originMuscle = null;
+
+                if (!isMuscleClip && !TryBuildDebugStage(originAvatar, "OriginBone", out originBone, out error))
+                {
+                    return false;
+                }
+
+                if (!isMuscleClip && !TryBuildDebugStage(originAvatar, "OriginMuscle", out originMuscle, out error))
+                {
+                    return false;
+                }
+
+                if (!TryBuildDebugStage(targetAvatar, "TargetMuscle", out KimodoRetargetStageCache targetMuscle, out error))
+                {
+                    return false;
+                }
+
+                if (!TryBuildDebugStage(targetAvatar, "TargetBone", out KimodoRetargetStageCache targetBone, out error))
+                {
+                    return false;
+                }
+
+                context = new KimodoRetargetDebugContext
+                {
+                    sourceMuscleData = muscleData,
+                    originBone = originBone,
+                    originMuscle = originMuscle,
+                    targetMuscle = targetMuscle,
+                    targetBone = targetBone
+                };
+
+                muscleData = null;
+                return true;
             }
             finally
             {
-                if (targetTempRoot != null)
+                if (muscleData is IDisposable disposable)
                 {
-                    UnityEngine.Object.DestroyImmediate(targetTempRoot);
+                    disposable.Dispose();
                 }
             }
         }
-
-
-        private static bool TryResolveBoundAnimator(TimelineClip timelineClip, out Animator animator, out string error)
+        
+        public static bool TryUpdateRetargetDebugFrame(
+            KimodoRetargetDebugContext context,
+            AnimationClip sourceClip,
+            Avatar targetAvatar,
+            float sampleTime,
+            out KimodoRetargetDebugFrame frame,
+            out string error)
         {
-            animator = null;
+            frame = null;
             error = string.Empty;
 
-            if (timelineClip == null)
+            if (context == null || context.sourceMuscleData == null)
             {
-                error = "Timeline clip is null.";
+                error = "Debug context is null.";
                 return false;
             }
 
-            TrackAsset track = timelineClip.GetParentTrack();
-            if (track == null)
+            if (!TrySampleSourcePose(context.sourceMuscleData, sampleTime, out HumanPose sourcePose, out error))
             {
-                error = "Timeline parent track not found.";
                 return false;
             }
 
-            PlayableDirector director = TimelineEditor.inspectedDirector;
-            if (director == null)
+            if (!KimodoRetargetTools.TryCopyHumanPose(sourcePose, out HumanPose copiedSourcePose))
             {
-                error = "Timeline inspected director is null.";
+                error = "Failed to copy source pose.";
                 return false;
             }
 
-            TrackAsset currentTrack = track;
-            while (currentTrack != null)
+            bool isMuscleClip = IsMuscleAnimationClip(sourceClip);
+
+            KimodoRetargetTools.BoneFrame originBoneFrame = null;
+            KimodoRetargetTools.BoneFrame originMuscleFrame = null;
+            if (!isMuscleClip)
             {
-                animator = director.GetGenericBinding(currentTrack) as Animator;
-                if (animator != null)
+                if (context.originBone != null && !ApplyPoseToStage(context.originBone, copiedSourcePose, out originBoneFrame, out error))
                 {
-                    return true;
+                    return false;
                 }
 
-                currentTrack = currentTrack.parent as TrackAsset;
+                if (context.originMuscle != null && !ApplyPoseToStage(context.originMuscle, copiedSourcePose, out originMuscleFrame, out error))
+                {
+                    return false;
+                }
             }
 
+            HumanPose targetPose = copiedSourcePose;
+            KimodoRetargetTools.BoneFrame targetMuscleFrame = null;
+            KimodoRetargetTools.BoneFrame targetBoneFrame = null;
+            
+            if (isMuscleClip)
+            {
+                if (!ApplyPoseToStage(context.targetMuscle, targetPose, out targetMuscleFrame, out error))
+                {
+                    return false;
+                }
+
+                if (!TryReadPoseFromStage(context.targetMuscle, out targetPose, out error))
+                {
+                    return false;
+                }
+
+                if (!ApplyPoseToStage(context.targetBone, targetPose, out targetBoneFrame, out error))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (!KimodoRetargetTools.TryRetargetPose(copiedSourcePose, targetAvatar, out KimodoRetargetTools.RetargetResult retargetResult, out error))
+                {
+                    return false;
+                }
+
+                if (retargetResult == null || retargetResult.poses == null || retargetResult.poses.Length == 0)
+                {
+                    error = "Retarget result is empty.";
+                    return false;
+                }
+
+                targetPose = retargetResult.poses[0];
+                if (!ApplyPoseToStage(context.targetMuscle, targetPose, out targetMuscleFrame, out error))
+                {
+                    return false;
+                }
+
+                if (!ApplyPoseToStage(context.targetBone, targetPose, out targetBoneFrame, out error))
+                {
+                    return false;
+                }
+            }
+
+            frame = new KimodoRetargetDebugFrame
+            {
+                sourcePose = copiedSourcePose,
+                originBonePose = context.originBone != null ? copiedSourcePose : default,
+                originMusclePose = context.originMuscle != null ? copiedSourcePose : default,
+                targetMusclePose = targetPose,
+                targetBonePose = targetPose,
+                originBoneFrame = originBoneFrame,
+                originMuscleFrame = originMuscleFrame,
+                targetMuscleFrame = targetMuscleFrame,
+                targetBoneFrame = targetBoneFrame
+            };
+            return true;
+        }
+
+        public static void DestroyRetargetDebugContext(KimodoRetargetDebugContext context)
+        {
+            if (context == null)
+            {
+                return;
+            }
+
+            if (context.sourceMuscleData is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+
+            context.sourceMuscleData = null;
+            DestroyStage(context.originBone);
+            DestroyStage(context.originMuscle);
+            DestroyStage(context.targetMuscle);
+            DestroyStage(context.targetBone);
+        }
+
+        private static bool TryBuildSourceMuscleData(
+            AnimationClip sourceClip,
+            Avatar originAvatar,
+            out IGetMuscleData muscleData,
+            out string error)
+        {
+            muscleData = null;
+            error = string.Empty;
+
+            if (sourceClip == null)
+            {
+                error = "Source clip is null.";
+                return false;
+            }
+
+            if (!IsValidHumanoidAvatar(originAvatar))
+            {
+                error = "Origin avatar is null/invalid/non-humanoid.";
+                return false;
+            }
+
+            muscleData = new ClipMuscleData(sourceClip, originAvatar);
+            return true;
+        }
+
+        private static bool TrySampleSourcePose(IGetMuscleData sourceMuscleData, float sampleTime, out HumanPose pose, out string error)
+        {
+            pose = new HumanPose();
+            error = string.Empty;
+            return sourceMuscleData != null && sourceMuscleData.TryGetPose(sampleTime, ref pose, out error);
+        }
+
+        private static bool TryBuildDebugStage(Avatar avatar, string stageName, out KimodoRetargetStageCache cache, out string error)
+        {
+            cache = new KimodoRetargetStageCache();
+            error = string.Empty;
+
+            if (!IsValidHumanoidAvatar(avatar))
+            {
+                error = $"Avatar is null/invalid/non-humanoid for stage '{stageName}'.";
+                return false;
+            }
+
+            GameObject root = new GameObject(stageName);
+            root.hideFlags = HideFlags.None;
+            root.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            root.transform.localScale = Vector3.one;
+
+            if (!KimodoRuntimeAvatarSkeletonBuilder.TryBuildHierarchyFromAvatarSkeleton(avatar, root.transform, out error))
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                return false;
+            }
+
+            string skeletonRootName = KimodoRuntimeAvatarSkeletonBuilder.ResolveSkeletonRootName(avatar);
+            Transform skeletonRoot = FindTransformByName(root.transform, skeletonRootName);
+            if (skeletonRoot == null)
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                error = $"Failed to resolve skeleton root for stage '{stageName}'.";
+                return false;
+            }
+
+            SetHierarchyHideFlags(root.transform, HideFlags.None);
+
+            Animator animator = root.GetComponent<Animator>();
             if (animator == null)
             {
-                error = "Animation track has no Animator binding.";
-                return false;
+                animator = root.AddComponent<Animator>();
             }
 
-            return true;
-        }
-
-        private static bool TryCreateSomaSamplingAnimator(KimodoPlayableClip playableClip, out Animator animator, out GameObject tempRoot, out string error)
-        {
-            animator = null;
-            tempRoot = null;
-            error = string.Empty;
-
-            string modelName = playableClip != null ? playableClip.bridgeModelName : string.Empty;
-            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar runtimeAvatar, out string loadError))
-            {
-                error = loadError;
-                return false;
-            }
-            string avatarResourceName = KimodoRuntimeAvatarSkeletonBuilder.ResolveAvatarResourceName(modelName);
-
-            tempRoot = new GameObject($"KimodoSomaSampling_{avatarResourceName}");
-            tempRoot.hideFlags = HideFlags.HideAndDontSave;
-            tempRoot.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-            tempRoot.transform.localScale = Vector3.one;
-
-            if (!KimodoRuntimeAvatarSkeletonBuilder.TryBuildHierarchyFromAvatarSkeleton(runtimeAvatar, tempRoot.transform, out string hierarchyError))
-            {
-                UnityEngine.Object.DestroyImmediate(tempRoot);
-                tempRoot = null;
-                error = hierarchyError;
-                return false;
-            }
-
-            Transform samplingRoot = ResolveBuiltAvatarSkeletonRoot(tempRoot.transform, runtimeAvatar);
-            if (samplingRoot == null)
-            {
-                UnityEngine.Object.DestroyImmediate(tempRoot);
-                tempRoot = null;
-                error = "Failed to resolve built avatar skeleton root.";
-                return false;
-            }
-
-            animator = samplingRoot.gameObject.AddComponent<Animator>();
-            animator.avatar = runtimeAvatar;
-
-            animator.enabled = false;
+            animator.avatar = avatar;
+            animator.runtimeAnimatorController = null;
             animator.applyRootMotion = false;
+            animator.enabled = false;
             animator.Rebind();
             animator.Update(0f);
+
+            root.transform.position = GetStageWorldOffset(stageName);
+
+            cache.root = root;
+            cache.avatar = avatar;
+            cache.poseHandler = new HumanPoseHandler(avatar, skeletonRoot);
+            var gizmo = root.AddComponent<KimodoTransformGizmoVisualizer>();
+            gizmo.pointRadius = 0.015f;
+            gizmo.drawNames = false;
+            gizmo.drawOnlyWhenSelected = false;
+            cache.bonePaths = BuildBonePaths(root.transform);
+            cache.boneTransforms = BuildBoneTransforms(root.transform, cache.bonePaths);
+            cache.boneFrame = new KimodoRetargetTools.BoneFrame
+            {
+                boneNames = cache.bonePaths,
+                localPositions = new Vector3[cache.bonePaths.Length],
+                localRotations = new Quaternion[cache.bonePaths.Length]
+            };
             return true;
         }
 
-        private static Transform ResolveBuiltAvatarSkeletonRoot(Transform hierarchyRoot, Avatar avatar)
+        private static string[] BuildBonePaths(Transform root)
         {
-            if (hierarchyRoot == null)
+            Transform[] all = root != null ? root.GetComponentsInChildren<Transform>(true) : Array.Empty<Transform>();
+            var names = new System.Collections.Generic.List<string>(all.Length);
+            for (int i = 0; i < all.Length; i++)
             {
-                return null;
-            }
-
-            string expectedRootName = KimodoRuntimeAvatarSkeletonBuilder.ResolveSkeletonRootName(avatar);
-            if (!string.IsNullOrWhiteSpace(expectedRootName))
-            {
-                if (string.Equals(hierarchyRoot.name, expectedRootName, StringComparison.Ordinal))
-                {
-                    return hierarchyRoot;
-                }
-
-                Transform directChild = hierarchyRoot.Find(expectedRootName);
-                if (directChild != null)
-                {
-                    return directChild;
-                }
-
-                Transform[] all = hierarchyRoot.GetComponentsInChildren<Transform>(true);
-                for (int i = 0; i < all.Length; i++)
-                {
-                    Transform t = all[i];
-                    if (t != null && string.Equals(t.name, expectedRootName, StringComparison.Ordinal))
-                    {
-                        return t;
-                    }
-                }
-            }
-
-            if (hierarchyRoot.childCount > 0)
-            {
-                return hierarchyRoot.GetChild(0);
-            }
-
-            return hierarchyRoot;
-        }
-
-        private static int CopyLocalPoseByPathForSampling(Transform sourceRoot, Transform dstRoot)
-        {
-            if (sourceRoot == null || dstRoot == null)
-            {
-                return 0;
-            }
-
-            var sourceByPath = new Dictionary<string, Transform>(StringComparer.Ordinal);
-            Transform[] sourceAll = sourceRoot.GetComponentsInChildren<Transform>(true);
-            for (int i = 0; i < sourceAll.Length; i++)
-            {
-                Transform t = sourceAll[i];
-                string path = AnimationUtility.CalculateTransformPath(t, sourceRoot) ?? string.Empty;
-                if (!sourceByPath.ContainsKey(path))
-                {
-                    sourceByPath[path] = t;
-                }
-            }
-
-            int copied = 0;
-            Transform[] dstAll = dstRoot.GetComponentsInChildren<Transform>(true);
-            for (int i = 0; i < dstAll.Length; i++)
-            {
-                Transform dst = dstAll[i];
-                string path = AnimationUtility.CalculateTransformPath(dst, dstRoot) ?? string.Empty;
-                if (!sourceByPath.TryGetValue(path, out Transform src) || src == null)
+                string path = AnimationUtility.CalculateTransformPath(all[i], root);
+                if (string.IsNullOrEmpty(path))
                 {
                     continue;
                 }
 
-                dst.localPosition = src.localPosition;
-                dst.localRotation = src.localRotation;
-                copied++;
+                names.Add(path);
             }
 
-            return copied;
+            return names.ToArray();
         }
 
-        private static Animator CreateTempAnimatorForAvatar(
-            Animator sourceAnimator,
-            Avatar avatar,
-            out GameObject tempRoot,
-            bool keepCurrentPose = false)
+        private static Transform[] BuildBoneTransforms(Transform root, string[] bonePaths)
         {
-            tempRoot = null;
-            if (sourceAnimator == null)
+            var transforms = new Transform[bonePaths.Length];
+            for (int i = 0; i < bonePaths.Length; i++)
             {
-                return null;
+                transforms[i] = FindByPath(root, bonePaths[i]);
             }
 
-            tempRoot = UnityEngine.Object.Instantiate(sourceAnimator.gameObject);
-            tempRoot.hideFlags = HideFlags.HideAndDontSave;
-            tempRoot.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-            tempRoot.transform.localScale = Vector3.one;
-
-            Animator tempAnimator = tempRoot.GetComponent<Animator>();
-            if (tempAnimator == null)
-            {
-                return null;
-            }
-
-            tempAnimator.avatar = avatar;
-            tempAnimator.enabled = false;
-            tempAnimator.applyRootMotion = false;
-            if (!keepCurrentPose)
-            {
-                tempAnimator.Rebind();
-                tempAnimator.Update(0f);
-            }
-            return tempAnimator;
+            return transforms;
         }
 
-        private static Animator CreateTempAnimatorForAvatarObject(Avatar avatar, out GameObject tempRoot)
+        private static void SetHierarchyHideFlags(Transform root, HideFlags hideFlags)
         {
-            tempRoot = null;
-            if (avatar == null || !avatar.isValid || !avatar.isHuman)
+            if (root == null)
             {
-                return null;
+                return;
             }
 
-            tempRoot = new GameObject("KimodoCustomAvatarSamplingRoot");
-            tempRoot.hideFlags = HideFlags.HideAndDontSave;
-            tempRoot.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-            tempRoot.transform.localScale = Vector3.one;
-
-            if (!KimodoRuntimeAvatarSkeletonBuilder.TryBuildHierarchyFromAvatarSkeleton(avatar, tempRoot.transform, out _))
+            Transform[] all = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < all.Length; i++)
             {
-                UnityEngine.Object.DestroyImmediate(tempRoot);
-                tempRoot = null;
-                return null;
+                GameObject go = all[i].gameObject;
+                if (go != null)
+                {
+                    go.hideFlags = hideFlags;
+                }
             }
-
-            Transform samplingRoot = ResolveBuiltAvatarSkeletonRoot(tempRoot.transform, avatar);
-            if (samplingRoot == null)
-            {
-                UnityEngine.Object.DestroyImmediate(tempRoot);
-                tempRoot = null;
-                return null;
-            }
-
-            Animator animator = samplingRoot.gameObject.AddComponent<Animator>();
-            animator.avatar = avatar;
-            animator.enabled = false;
-            animator.applyRootMotion = false;
-            animator.Rebind();
-            animator.Update(0f);
-            return animator;
         }
 
-        private static void OverwriteClipCurves(AnimationClip dst, AnimationClip src)
+        private static void DestroyStage(KimodoRetargetStageCache cache)
         {
-            dst.ClearCurves();
-
-            EditorCurveBinding[] floatBindings = AnimationUtility.GetCurveBindings(src);
-            for (int i = 0; i < floatBindings.Length; i++)
+            if (cache?.root != null)
             {
-                EditorCurveBinding b = floatBindings[i];
-                AnimationCurve c = AnimationUtility.GetEditorCurve(src, b);
-                dst.SetCurve(b.path, b.type, b.propertyName, c);
+                UnityEngine.Object.DestroyImmediate(cache.root);
+            }
+        }
+
+        private static bool ApplyPoseToStage(KimodoRetargetStageCache cache, HumanPose pose, out KimodoRetargetTools.BoneFrame frame, out string error)
+        {
+            frame = null;
+            error = string.Empty;
+
+            if (cache == null || cache.root == null || cache.poseHandler == null)
+            {
+                error = "Stage cache is not initialized.";
+                return false;
             }
 
-            EditorCurveBinding[] objectBindings = AnimationUtility.GetObjectReferenceCurveBindings(src);
-            for (int i = 0; i < objectBindings.Length; i++)
+            try
             {
-                EditorCurveBinding b = objectBindings[i];
-                ObjectReferenceKeyframe[] k = AnimationUtility.GetObjectReferenceCurve(src, b);
-                AnimationUtility.SetObjectReferenceCurve(dst, b, k);
+                cache.pose = pose;
+                cache.poseHandler.SetHumanPose(ref cache.pose);
+                frame = CaptureBoneFrame(cache);
+                cache.boneFrame = frame;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        private static bool TryReadPoseFromStage(KimodoRetargetStageCache cache, out HumanPose pose, out string error)
+        {
+            pose = new HumanPose();
+            error = string.Empty;
+
+            if (cache == null || cache.poseHandler == null)
+            {
+                error = "Stage cache is not initialized.";
+                return false;
             }
 
-            dst.frameRate = src.frameRate;
-            dst.legacy = false;
-            dst.EnsureQuaternionContinuity();
-            EditorUtility.SetDirty(dst);
+            try
+            {
+                cache.poseHandler.GetHumanPose(ref pose);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        private static KimodoRetargetTools.BoneFrame CaptureBoneFrame(KimodoRetargetStageCache cache)
+        {
+            var frame = new KimodoRetargetTools.BoneFrame
+            {
+                boneNames = cache.bonePaths,
+                localPositions = new Vector3[cache.bonePaths.Length],
+                localRotations = new Quaternion[cache.bonePaths.Length]
+            };
+
+            for (int i = 0; i < cache.boneTransforms.Length; i++)
+            {
+                Transform t = cache.boneTransforms[i];
+                if (t == null)
+                {
+                    continue;
+                }
+
+                frame.localPositions[i] = t.localPosition;
+                frame.localRotations[i] = t.localRotation;
+            }
+
+            return frame;
+        }
+
+        private static Transform FindByPath(Transform root, string path)
+        {
+            if (root == null || string.IsNullOrEmpty(path))
+            {
+                return null;
+            }
+
+            if (string.Equals(root.name, path, System.StringComparison.Ordinal))
+            {
+                return root;
+            }
+
+            string[] segments = path.Split('/');
+            Transform current = root;
+            for (int i = 0; i < segments.Length; i++)
+            {
+                if (current == null)
+                {
+                    return null;
+                }
+
+                if (i == 0 && string.Equals(current.name, segments[i], System.StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                current = current.Find(segments[i]);
+            }
+
+            return current;
+        }
+
+        private static Transform FindTransformByName(Transform root, string name)
+        {
+            if (root == null || string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            Transform[] all = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < all.Length; i++)
+            {
+                Transform candidate = all[i];
+                if (candidate != null && string.Equals(candidate.name, name, StringComparison.Ordinal))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        private static Vector3 GetStageWorldOffset(string stageName)
+        {
+            switch (stageName)
+            {
+                case "OriginBone":
+                    return new Vector3(-3f, 0f, 0f);
+                case "OriginMuscle":
+                    return new Vector3(-1f, 0f, 0f);
+                case "TargetMuscle":
+                    return new Vector3(1f, 0f, 0f);
+                case "TargetBone":
+                    return new Vector3(3f, 0f, 0f);
+                default:
+                    return Vector3.zero;
+            }
+        }
+
+        private static bool IsValidHumanoidAvatar(Avatar avatar)
+        {
+            return KimodoRetargetTools.IsValidHumanoid(avatar);
+        }
+
+        private static bool TryWriteRetargetResultToClip(KimodoRetargetTools.RetargetResult result, AnimationClip clip, out string error)
+        {
+            error = string.Empty;
+            if (result == null || result.frames == null || result.frames.Length == 0)
+            {
+                error = "Retarget result is empty.";
+                return false;
+            }
+
+            clip.ClearCurves();
+            string[] boneNames = result.boneNames ?? Array.Empty<string>();
+            for (int i = 0; i < boneNames.Length; i++)
+            {
+                string path = boneNames[i];
+                var posX = new AnimationCurve();
+                var posY = new AnimationCurve();
+                var posZ = new AnimationCurve();
+                var rotX = new AnimationCurve();
+                var rotY = new AnimationCurve();
+                var rotZ = new AnimationCurve();
+                var rotW = new AnimationCurve();
+
+                for (int frame = 0; frame < result.frames.Length; frame++)
+                {
+                    float t = clip.frameRate > 0f ? frame / clip.frameRate : frame / 30f;
+                    KimodoRetargetTools.BoneFrame f = result.frames[frame];
+                    if (f == null || f.localPositions == null || f.localRotations == null || i >= f.localPositions.Length || i >= f.localRotations.Length)
+                    {
+                        continue;
+                    }
+
+                    Vector3 lp = f.localPositions[i];
+                    Quaternion lr = f.localRotations[i];
+                    posX.AddKey(t, lp.x);
+                    posY.AddKey(t, lp.y);
+                    posZ.AddKey(t, lp.z);
+                    rotX.AddKey(t, lr.x);
+                    rotY.AddKey(t, lr.y);
+                    rotZ.AddKey(t, lr.z);
+                    rotW.AddKey(t, lr.w);
+                }
+
+                clip.SetCurve(path, typeof(Transform), "m_LocalPosition.x", posX);
+                clip.SetCurve(path, typeof(Transform), "m_LocalPosition.y", posY);
+                clip.SetCurve(path, typeof(Transform), "m_LocalPosition.z", posZ);
+                clip.SetCurve(path, typeof(Transform), "m_LocalRotation.x", rotX);
+                clip.SetCurve(path, typeof(Transform), "m_LocalRotation.y", rotY);
+                clip.SetCurve(path, typeof(Transform), "m_LocalRotation.z", rotZ);
+                clip.SetCurve(path, typeof(Transform), "m_LocalRotation.w", rotW);
+            }
+
+            clip.EnsureQuaternionContinuity();
+            return true;
+        }
+
+        private sealed class ClipMuscleData : IGetMuscleData
+        {
+            private readonly AnimationClip clip;
+            private readonly Avatar avatar;
+            private readonly GameObject tempRoot;
+            private readonly Transform skeletonRoot;
+            private readonly Animator animator;
+            private readonly PlayableGraph graph;
+            private readonly AnimationClipPlayable clipPlayable;
+            private readonly AnimationPlayableOutput output;
+            private HumanPoseHandler handler;
+            private bool disposed;
+
+            public ClipMuscleData(AnimationClip clip, Avatar avatar)
+            {
+                this.clip = clip;
+                this.avatar = avatar;
+                tempRoot = new GameObject("KimodoRetargetPipeline_ClipMuscleData");
+                tempRoot.hideFlags = HideFlags.HideAndDontSave;
+                tempRoot.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+                tempRoot.transform.localScale = Vector3.one;
+
+                if (KimodoRuntimeAvatarSkeletonBuilder.TryBuildHierarchyFromAvatarSkeleton(avatar, tempRoot.transform, out _))
+                {
+                    string skeletonRootName = KimodoRuntimeAvatarSkeletonBuilder.ResolveSkeletonRootName(avatar);
+                    skeletonRoot = FindTransformByName(tempRoot.transform, skeletonRootName);
+                    if (skeletonRoot == null)
+                    {
+                        return;
+                    }
+
+                    animator = tempRoot.AddComponent<Animator>();
+                    animator.avatar = avatar;
+                    animator.applyRootMotion = false;
+                    animator.enabled = true;
+                    animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                    animator.Rebind();
+                    animator.Update(0f);
+
+                    graph = PlayableGraph.Create("KimodoRetargetPipeline_ClipMuscleData");
+                    graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
+                    clipPlayable = AnimationClipPlayable.Create(graph, clip);
+                    clipPlayable.SetApplyFootIK(false);
+                    output = AnimationPlayableOutput.Create(graph, "KimodoRetargetPipeline_ClipMuscleDataOutput", animator);
+                    output.SetSourcePlayable(clipPlayable);
+                    graph.Play();
+                }
+            }
+
+            public bool TryGetPoseHandle(out HumanPoseHandler poseHandle, out string error)
+            {
+                error = string.Empty;
+                if (disposed)
+                {
+                    poseHandle = null;
+                    error = "Pose data provider disposed.";
+                    return false;
+                }
+
+                if (handler == null)
+                {
+                    if (animator == null || skeletonRoot == null)
+                    {
+                        poseHandle = null;
+                        error = "Pose handle is not initialized.";
+                        return false;
+                    }
+
+                    handler = new HumanPoseHandler(avatar, skeletonRoot);
+                }
+
+                poseHandle = handler;
+                return true;
+            }
+
+            public bool TryGetPose(float time, ref HumanPose pose, out string error)
+            {
+                error = string.Empty;
+                if (disposed)
+                {
+                    error = "Pose data provider disposed.";
+                    return false;
+                }
+
+                if (clip == null || tempRoot == null || animator == null || skeletonRoot == null)
+                {
+                    error = "Source clip or sampler rig is null.";
+                    return false;
+                }
+
+                try
+                {
+                    if (handler == null)
+                    {
+                        handler = new HumanPoseHandler(avatar, skeletonRoot);
+                    }
+
+                    if (!graph.IsValid())
+                    {
+                        error = "Playable graph is not initialized.";
+                        return false;
+                    }
+
+                    clipPlayable.SetTime(Mathf.Max(0f, time));
+                    graph.Evaluate(0);
+                    handler.GetHumanPose(ref pose);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                    return false;
+                }
+            }
+
+            public void Dispose()
+            {
+                if (disposed)
+                {
+                    return;
+                }
+
+                disposed = true;
+                if (graph.IsValid())
+                {
+                    graph.Destroy();
+                }
+
+                if (tempRoot != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(tempRoot);
+                }
+            }
+        }
+
+        private sealed class ConstantPoseMuscleData : IGetMuscleData
+        {
+            private readonly HumanPose pose;
+
+            public ConstantPoseMuscleData(HumanPose pose)
+            {
+                this.pose = pose;
+            }
+
+            public bool TryGetPoseHandle(out HumanPoseHandler poseHandle, out string error)
+            {
+                poseHandle = null;
+                error = "Constant pose provider does not expose a pose handle.";
+                return false;
+            }
+
+            public bool TryGetPose(float time, ref HumanPose output, out string error)
+            {
+                error = string.Empty;
+                output.bodyPosition = pose.bodyPosition;
+                output.bodyRotation = pose.bodyRotation;
+                output.muscles = pose.muscles != null ? (float[])pose.muscles.Clone() : Array.Empty<float>();
+                return true;
+            }
         }
     }
 }

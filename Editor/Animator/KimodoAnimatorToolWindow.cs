@@ -39,10 +39,12 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             previewPane.Initialize();
             editorPane = new KimodoAnimatorEditorPane();
             SubscribeManagerEvents();
+            EditorApplication.update += OnEditorUpdate;
         }
 
         private void OnDisable()
         {
+            EditorApplication.update -= OnEditorUpdate;
             UnsubscribeManagerEvents();
             previewPane?.Dispose();
             previewPane = null;
@@ -63,6 +65,12 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
                 lastPreviewRepaintTime = now;
                 Repaint();
             }
+        }
+
+        private void OnEditorUpdate()
+        {
+            previewPane?.Tick();
+            Repaint();
         }
 
         private void OnGUI()

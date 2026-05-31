@@ -15,12 +15,14 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
         private string activeStateName;
         private string activeInputKey = string.Empty;
         private bool restartRequested;
+        private float lastAppliedTime = float.NaN;
         private float preRollSeconds = 0.3f;
         private float postRollSeconds = 0.5f;
         private float windowStartTime = 0f;
         private float windowStopTime = 1f;
         private float transitionStartTime = 0f;
         private float transitionEndTime = 1f;
+        private bool transitionModeActive;
 
         public void Dispose()
         {
@@ -34,6 +36,8 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             activeClip = null;
             activeStateName = null;
             activeInputKey = string.Empty;
+            lastAppliedTime = float.NaN;
+            transitionModeActive = false;
 
             // Keep asset object intact; only drop runtime reference.
             previewController = null;
@@ -58,9 +62,10 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             EnsurePreviewController();
             string stateName = EnsureClipState(clip);
             activeStateName = stateName;
-            EnsureAvatarPreview(clip);
-
             activeInputKey = inputKey;
+            EnsureAvatarPreview(clip);
+            transitionModeActive = false;
+
             windowStartTime = 0f;
             windowStopTime = Mathf.Max(0.001f, clip.length);
             transitionStartTime = 0f;
@@ -88,9 +93,10 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             EnsurePreviewController();
             string fromStateName = EnsureTransitionGraph(fromClip, toClip, transition);
             activeStateName = fromStateName;
-            EnsureAvatarPreview(fromClip);
-
             activeInputKey = inputKey;
+            EnsureAvatarPreview(fromClip);
+            transitionModeActive = true;
+
             ComputeTransitionTimeWindow(fromClip, toClip, transition);
             ApplyTimeWindowToPreview();
             restartRequested = true;
@@ -101,18 +107,22 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             restartRequested = true;
         }
 
-        public void Draw(Rect rect)
+        public void SetTransitionWindowPadding(float preRoll, float postRoll)
         {
-            if (avatarPreview == null || activeClip == null)
+            preRollSeconds = Mathf.Max(0f, preRoll);
+            postRollSeconds = Mathf.Max(0f, postRoll);
+        }
+
+        public void Tick()
+        {
+            if (avatarPreview == null || activeClip == null || avatarPreview.timeControl == null)
             {
-                EditorGUI.DropShadowLabel(rect, "Preview not ready.");
                 return;
             }
 
             Animator renderAnimator = avatarPreview.Animator;
             if (renderAnimator == null)
             {
-                EditorGUI.DropShadowLabel(rect, "Preview animator not ready.");
                 return;
             }
 
@@ -129,7 +139,63 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
                     renderAnimator.Play(activeStateName, 0, normalized);
                     renderAnimator.Update(0f);
                 }
+                lastAppliedTime = avatarPreview.timeControl.currentTime;
                 restartRequested = false;
+            }
+
+            float previousTime = avatarPreview.timeControl.currentTime;
+            bool hasPendingManual = avatarPreview.timeControl.HasPendingManualTimeStep;
+            bool isScrubbing = avatarPreview.timeControl.IsScrubbing;
+            // Let timeControl.Update() compute deltaTime internally so playbackSpeed slider takes effect.
+            avatarPreview.timeControl.Update();
+
+            float currentTime = avatarPreview.timeControl.currentTime;
+            bool wrapped = avatarPreview.timeControl.playing && currentTime < previousTime;
+            bool timeChanged = float.IsNaN(lastAppliedTime) || !Mathf.Approximately(lastAppliedTime, currentTime);
+            if (!timeChanged || string.IsNullOrEmpty(activeStateName))
+            {
+                return;
+            }
+
+            if (transitionModeActive)
+            {
+                if (wrapped)
+                {
+                    AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(activeClip);
+                    float denom = Mathf.Max(0.0001f, settings.stopTime - settings.startTime);
+                    float normalizedStart = (windowStartTime - settings.startTime) / denom;
+                    normalizedStart = Mathf.Clamp01(normalizedStart);
+                    renderAnimator.Play(activeStateName, 0, normalizedStart);
+                    renderAnimator.Update(0f);
+                }
+                renderAnimator.Update(avatarPreview.timeControl.playing ? avatarPreview.timeControl.deltaTime : 0f);
+            }
+            else
+            {
+                AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(activeClip);
+                float denom = Mathf.Max(0.0001f, settings.stopTime - settings.startTime);
+                float normalized = (currentTime - settings.startTime) / denom;
+                normalized = Mathf.Clamp01(normalized);
+                renderAnimator.Play(activeStateName, 0, normalized);
+                renderAnimator.Update(avatarPreview.timeControl.playing ? avatarPreview.timeControl.deltaTime : 0f);
+            }
+
+            lastAppliedTime = currentTime;
+        }
+
+        public void Draw(Rect rect)
+        {
+            if (avatarPreview == null || activeClip == null)
+            {
+                EditorGUI.DropShadowLabel(rect, "Preview not ready.");
+                return;
+            }
+
+            Animator renderAnimator = avatarPreview.Animator;
+            if (renderAnimator == null)
+            {
+                EditorGUI.DropShadowLabel(rect, "Preview animator not ready.");
+                return;
             }
 
             avatarPreview.DoAvatarPreview(rect, KimodoPreviewConstants.PreviewBackgroundSolid);
@@ -194,7 +260,7 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             avatarPreview.timeControl.startTime = windowStartTime;
             avatarPreview.timeControl.stopTime = windowStopTime;
             avatarPreview.timeControl.currentTime = windowStartTime;
-            avatarPreview.timeControl.loop = false;
+            avatarPreview.timeControl.loop = true;
         }
 
         private void EnsurePreviewController()
@@ -220,6 +286,7 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             {
                 previewController.AddLayer("Base Layer");
             }
+            Debug.Log("[Kimodo][Preview] Created preview controller: " + previewControllerAssetPath);
         }
 
         private string EnsureClipState(AnimationClip clip)
@@ -290,7 +357,7 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
                 avatarPreview = null;
             }
 
-            Animator sourceAnimator = CreateSourceAnimatorWithController(previewController);
+            Animator sourceAnimator = CreateSourceAnimatorWithController(previewController, activeInputKey);
             if (sourceAnimator == null)
             {
                 return;
@@ -307,17 +374,23 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             ApplyTimeWindowToPreview();
         }
 
-        private static Animator CreateSourceAnimatorWithController(AnimatorController controller)
+        private static Animator CreateSourceAnimatorWithController(AnimatorController controller, string inputKey)
         {
-            GameObject fallback = EditorGUIUtility.Load("Avatar/DefaultAvatar.fbx") as GameObject;
-            if (fallback == null)
+            int rootId = ParseRootInstanceId(inputKey);
+            if (rootId == 0)
             {
                 return null;
             }
 
-            GameObject temp = UnityEngine.Object.Instantiate(fallback);
+            GameObject sourceRoot = EditorUtility.InstanceIDToObject(rootId) as GameObject;
+            if (sourceRoot == null)
+            {
+                return null;
+            }
+
+            GameObject temp = UnityEngine.Object.Instantiate(sourceRoot);
             temp.hideFlags = HideFlags.HideAndDontSave;
-            Animator animator = temp.GetComponent<Animator>();
+            Animator animator = temp.GetComponentInChildren<Animator>(true);
             if (animator == null)
             {
                 UnityEngine.Object.DestroyImmediate(temp);
@@ -330,6 +403,22 @@ namespace KimodoUnityMotionTools.ProjectEditor.AnimatorTooling
             animator.Rebind();
             animator.Update(0f);
             return animator;
+        }
+
+        private static int ParseRootInstanceId(string inputKey)
+        {
+            if (string.IsNullOrWhiteSpace(inputKey))
+            {
+                return 0;
+            }
+
+            string[] parts = inputKey.Split(':');
+            if (parts.Length < 3)
+            {
+                return 0;
+            }
+
+            return int.TryParse(parts[1], out int rootId) ? rootId : 0;
         }
 
         private static AnimatorState FindState(AnimatorStateMachine sm, string stateName)
