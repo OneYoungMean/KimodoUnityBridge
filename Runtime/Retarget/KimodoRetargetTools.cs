@@ -1227,6 +1227,7 @@ namespace KimodoUnityMotionTools
 
         private static void RestoreAnimatorAfterClipSampling(SkeletonCache cache, Avatar avatar)
         {
+
             if (cache?.animator == null)
             {
                 return;
@@ -1343,6 +1344,7 @@ namespace KimodoUnityMotionTools
             }
 
             int humanId = (int)bone;
+            float humanscaleLimit = (Mathf.Max(1e-6f, humanScale));
             Quaternion postRotation = AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(cache.avatar, humanId);
             Quaternion worldGoalRotation = transform.rotation * postRotation;
             Vector3 worldGoalPosition = transform.position;
@@ -1354,9 +1356,9 @@ namespace KimodoUnityMotionTools
             }
 
             Quaternion inverseBodyRotation = Quaternion.Inverse(bodyRotation);
-            goalPosition = inverseBodyRotation * (worldGoalPosition - bodyPosition);
+            goalPosition = inverseBodyRotation * (worldGoalPosition - bodyPosition* humanscaleLimit);
             goalRotation = inverseBodyRotation * worldGoalRotation;
-            goalPosition /= Mathf.Max(1e-6f, humanScale);
+            goalPosition /= humanscaleLimit ;
             return true;
         }
 

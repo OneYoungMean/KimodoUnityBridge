@@ -64,9 +64,9 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             clipWritebackService.CreateAndAssignNewAnimationClip(clip);
             clipWritebackService.ApplyMotionJsonToClip(clip, prompt, motionJson);
             Avatar originRetargetAvatar = ResolveOriginRetargetAvatar(clip);
-            Avatar targetRetargetAvatar = ResolveTargetRetargetAvatar(clip, explicitRetargetAvatar);
+            Avatar targetRetargetAvatar = ResolveTargetRetargetAvatar(clip, explicitRetargetAvatar,out bool hasBindingAvatar);
             bool hasValidRetargetAvatar =
-                originRetargetAvatar != null && originRetargetAvatar.isValid && originRetargetAvatar.isHuman &&
+                originRetargetAvatar != null && originRetargetAvatar.isValid && originRetargetAvatar.isHuman && hasBindingAvatar&&
                 targetRetargetAvatar != null && targetRetargetAvatar.isValid && targetRetargetAvatar.isHuman;
 
             progress?.Invoke(KimodoGeneratePipelineStage.Bake, "Baking animation...");
@@ -152,8 +152,9 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             return avatar != null && avatar.isValid && avatar.isHuman ? avatar : null;
         }
 
-        private Avatar ResolveTargetRetargetAvatar(KimodoPlayableClip clip, Avatar explicitRetargetAvatar)
+        private Avatar ResolveTargetRetargetAvatar(KimodoPlayableClip clip, Avatar explicitRetargetAvatar,out bool hasBindingAvatar)
         {
+            hasBindingAvatar = false;
             if (explicitRetargetAvatar != null && explicitRetargetAvatar.isValid && explicitRetargetAvatar.isHuman)
             {
                 return explicitRetargetAvatar;
@@ -165,6 +166,7 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
                 KimodoLocalAvatarUtility.AvatarResolveResult result = KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(bindingObject);
                 if (result.IsHumanoid && result.Avatar != null)
                 {
+                    hasBindingAvatar = bindingObject.GetComponent<Animator>().avatar!=null;
                     return result.Avatar;
                 }
             }
