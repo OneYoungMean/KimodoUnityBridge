@@ -16,8 +16,6 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
     internal sealed class KimodoEditorGeneratePipelineOrchestrator
     {
         private const float TargetFps = 30f;
-        private static readonly Dictionary<int, int> LastSubmittedSeedByClip = new Dictionary<int, int>();
-
         private readonly KimodoEditorConstraintProvider constraintProvider = new KimodoEditorConstraintProvider();
         private readonly KimodoEditorClipWritebackService clipWritebackService = new KimodoEditorClipWritebackService();
         public async Task<KimodoEditorGenerateResult> ExecuteGenerateAndBakeAsync(
@@ -70,10 +68,6 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
             bool hasValidRetargetAvatar =
                 originRetargetAvatar != null && originRetargetAvatar.isValid && originRetargetAvatar.isHuman &&
                 targetRetargetAvatar != null && targetRetargetAvatar.isValid && targetRetargetAvatar.isHuman;
-            if (!hasValidRetargetAvatar)
-            {
-                throw new InvalidOperationException("Retarget requires valid humanoid originAvatar and targetAvatar.");
-            }
 
             progress?.Invoke(KimodoGeneratePipelineStage.Bake, "Baking animation...");
             if (!clipWritebackService.BakeCurrentMotionData(clip, hasValidRetargetAvatar, out string bakeError))
@@ -81,16 +75,45 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(bakeError) ? "Bake failed." : bakeError);
             }
 
+            GameObject bindingObject = constraintProvider.FindTimelineBindingObjectForAsset(clip);
+            string directBindingError = null;
+            bool canSkipRetarget =
+                !hasValidRetargetAvatar &&
+                bindingObject != null &&
+                KimodoEditorClipUtility.CanApplyClipDirectlyToHierarchy(clip.clip, bindingObject, out  directBindingError);
+
+            if (!hasValidRetargetAvatar && !canSkipRetarget)
+            {
+                throw new InvalidOperationException("Retarget requires valid humanoid originAvatar and targetAvatar." +  $" Direct binding fallback failed: {directBindingError}");
+            }
+
+            if (canSkipRetarget)
+            {
+                progress?.Invoke(KimodoGeneratePipelineStage.Retarget, "Skipping retarget: binding hierarchy already matches clip bindings.");
+                clipWritebackService.TrimGeneratedClipsToLimit(clip);
+                onWritebackCompleted?.Invoke();
+                progress?.Invoke(KimodoGeneratePipelineStage.Completed, "Generation complete.");
+
+                return new KimodoEditorGenerateResult
+                {
+                    ConstraintsPath = constraintsPath,
+                    Prompt = prompt,
+                    Seed = effectiveSeed,
+                    GeneratedClip = clip.clip
+                };
+            }
+
             progress?.Invoke(KimodoGeneratePipelineStage.Retarget, "Retargeting...");
             bool isExportMuscle = TryResolveBindingAnimatorAvatar(clip, out _);
-            if (!KimodoRetargetTools.TryRetarget(clip.clip, originRetargetAvatar, targetRetargetAvatar, isExportMuscle, out KimodoRetargetTools.RetargetResult retargetResult, out string retargetError))
+            if (!KimodoRetargetTools.TryRetargetNew(clip.clip, originRetargetAvatar, targetRetargetAvatar, isExportMuscle, out AnimationClip retargetClip, out string retargetError))
             {
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(retargetError) ? "Retarget failed." : retargetError);
             }
 
-            if (!KimodoRetargetTools.TryWriteRetargetResultToClip(retargetResult, clip.clip, isExportMuscle, out retargetError))
+            clip.clip = retargetClip;
+            if (retargetClip != null)
             {
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(retargetError) ? "Retarget writeback failed." : retargetError);
+                EditorUtility.SetDirty(retargetClip);
             }
 
             //if (!KimodoRetargetToolsEditor.TryFilterClipInPlace(clip.clip, targetRetargetAvatar, clip.curveFilterOptions, out retargetError))
@@ -180,20 +203,9 @@ namespace KimodoUnityMotionTools.ProjectEditor.GenerationPipeline
 
         private static int ResolveEffectiveSeed(KimodoPlayableClip clip)
         {
-            int clipId = clip.GetInstanceID();
             int effectiveSeed = clip.randomSeed
                 ? Guid.NewGuid().GetHashCode() & int.MaxValue
                 : clip.seed;
-
-            if (LastSubmittedSeedByClip.TryGetValue(clipId, out int previous) && previous == effectiveSeed)
-            {
-                unchecked
-                {
-                    effectiveSeed += 1;
-                }
-            }
-
-            LastSubmittedSeedByClip[clipId] = effectiveSeed;
 
             if (clip.randomSeed || clip.seed != effectiveSeed)
             {

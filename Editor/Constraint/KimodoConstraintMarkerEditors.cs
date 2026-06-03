@@ -15,6 +15,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
         protected abstract string TypeLabel { get; }
         protected abstract string TipText { get; }
 
+        private void OnDisable()
+        {
+            KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(target as KimodoConstraintMarkerBase, keepIfOverrideWindowOpen: true);
+        }
+
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
@@ -133,6 +138,11 @@ namespace KimodoUnityMotionTools.ProjectEditor
     [CustomEditor(typeof(KimodoEndEffectorConstraintMarker), true)]
     internal sealed class KimodoEndEffectorConstraintMarkerEditor : UnityEditor.Editor
     {
+        private void OnDisable()
+        {
+            KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(target as KimodoConstraintMarkerBase, keepIfOverrideWindowOpen: true);
+        }
+
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
@@ -279,20 +289,20 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
-            // Prefer sampleData.sampleTime as stable ownership hint so marker can be pulled back
-            // even after user drags it across neighboring clips.
-            if (marker is KimodoConstraintMarkerBase kimodoMarker)
-            {
-                double hintedTime = kimodoMarker.SampleData != null ? kimodoMarker.SampleData.sampleTime : marker.time;
-                if (TryFindClipRangeByTime(marker, hintedTime, out clipRange))
-                {
-                    return true;
-                }
-            }
-
+            // Prefer current marker timeline position. If the marker is temporarily outside any clip,
+            // fall back to the last sampled time so preview/edit can still recover its previous owner clip.
             if (TryFindClipRangeByTime(marker, marker.time, out clipRange))
             {
                 return true;
+            }
+
+            if (marker is KimodoConstraintMarkerBase kimodoMarker)
+            {
+                double hintedTime = kimodoMarker.SampleData != null ? kimodoMarker.SampleData.sampleTime : marker.time;
+                if (Math.Abs(hintedTime - marker.time) > 1e-9 && TryFindClipRangeByTime(marker, hintedTime, out clipRange))
+                {
+                    return true;
+                }
             }
 
             return false;
@@ -435,6 +445,13 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return;
             }
 
+            if (marker is KimodoConstraintMarkerBase kimodoMarker)
+            {
+                KimodoConstraintPoseCache.DestroyEntriesForItemId(kimodoMarker.GetInstanceID().ToString());
+                kimodoMarker.time = globalTime;
+                kimodoMarker.SampleData.sampleTime = Math.Max(0.0, globalTime);
+            }
+
             UnityEngine.Object markerObject = marker as UnityEngine.Object;
             UnityEngine.Object parentTrackObject = marker.parent as UnityEngine.Object;
 
@@ -447,7 +464,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 Undo.RecordObject(parentTrackObject, "Move Kimodo Constraint Marker");
             }
 
-            marker.time = globalTime;
+
             if (markerObject != null)
             {
                 EditorUtility.SetDirty(markerObject);
@@ -493,12 +510,18 @@ namespace KimodoUnityMotionTools.ProjectEditor
             }
 
             double displayCurrent = Math.Round(sourceTime, 4, MidpointRounding.AwayFromZero);
+            double displaySampleTime = Math.Max(0.0, marker.time);
+            if (TryGetClipRangeForMarker(marker, out TimelineClip clipRange) && clipRange != null)
+            {
+                displaySampleTime = GetLocalSecondsInClip(clipRange, marker.time);
+            }
+            displaySampleTime = Math.Round(displaySampleTime, 4, MidpointRounding.AwayFromZero);
 
             double editedTime = EditorGUILayout.DoubleField(
-                new GUIContent("Sample Time (seconds)", "Stored in marker data and used by preview/edit. Allowed range: [0, +inf)."),
+                new GUIContent("Marker Time (seconds)", "Absolute timeline time stored in marker data and used by preview/edit. Allowed range: [0, +inf)."),
                 displayCurrent);
             double normalizedEdited = Math.Max(0.0, editedTime);
-            EditorGUILayout.LabelField($"Marker Time: {marker.time:F4}s", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField($"Sample Time: {displaySampleTime:F4}s", EditorStyles.miniLabel);
             if (Math.Abs(normalizedEdited - sourceTime) > 1e-9)
             {
                 MoveMarkerToTime(marker, normalizedEdited);
@@ -520,6 +543,22 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 EditorUtility.SetDirty(marker);
             }
 
+            SceneView.RepaintAll();
+        }
+
+        public static void ClearMarkerPoseCachePreview(KimodoConstraintMarkerBase marker, bool keepIfOverrideWindowOpen)
+        {
+            if (marker == null)
+            {
+                return;
+            }
+
+            if (keepIfOverrideWindowOpen && KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker))
+            {
+                return;
+            }
+
+            KimodoConstraintPoseCache.DestroyEntriesForItemId(marker.GetInstanceID().ToString());
             SceneView.RepaintAll();
         }
 
@@ -639,6 +678,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 return false;
             }
 
+            KimodoConstraintPoseCache.DestroyEntriesForItemId(marker.GetInstanceID().ToString(), context);
+
             if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(marker, marker.SampleData, out KimodoMarkerSampleResult sample, out error))
             {
                 return false;
@@ -676,6 +717,8 @@ namespace KimodoUnityMotionTools.ProjectEditor
                 {
                     continue;
                 }
+
+                KimodoConstraintPoseCache.DestroyEntriesForItemId(marker.GetInstanceID().ToString(), context);
 
                 if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(marker, marker.SampleData, out KimodoMarkerSampleResult sample, out string normalizeError))
                 {

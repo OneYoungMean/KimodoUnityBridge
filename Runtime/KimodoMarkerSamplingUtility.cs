@@ -224,60 +224,23 @@ namespace KimodoUnityMotionTools
                 return false;
             }
 
-            if (!KimodoRetargetTools.TryCreateSourceClipSampleContext(sourceClip, originAvatar, out KimodoRetargetTools.SourceClipSampleContext sourceSampleContext, out error))
+            if (!KimodoRetargetTools.TryRetargetNew(
+                    sourceClip,
+                    originAvatar,
+                    targetAvatar,
+                    (float)sampleTime,
+                    out BoneSample frame,
+                    out error))
             {
                 return false;
             }
 
-            bool isMuscleClip = IsMuscleClip(sourceClip);
-            try
+            if (!KimodoRetargetTools.TryRetargetNew(frame, targetAvatar, out MuscleSample muscleFrame, out error))
             {
-                if (!KimodoRetargetTools.TryCreateRetargetFrameContext(originAvatar, targetAvatar, isMuscleClip, false, out KimodoRetargetTools.RetargetFrameContext context, out error))
-                {
-                    return false;
-                }
-
-                try
-                {
-                    float time = Mathf.Max(0f, (float)sampleTime);
-                    bool frameOk;
-                    KimodoRetargetTools.FrameData frameData;
-                    if (isMuscleClip)
-                    {
-                        HumanPose sourcePose = new HumanPose();
-                        if (!sourceSampleContext.TryGetHumanPose(time, ref sourcePose, out error))
-                        {
-                            return false;
-                        }
-
-                        frameOk = KimodoRetargetTools.TryRetargetFrame(sourcePose, context, time, out frameData, out error);
-                    }
-                    else
-                    {
-                        if (!sourceSampleContext.TryGetBoneFrame(time, out KimodoRetargetTools.BoneFrame sourceBoneFrame, out error))
-                        {
-                            return false;
-                        }
-
-                        frameOk = KimodoRetargetTools.TryRetargetFrame(sourceBoneFrame, context, time, out frameData, out error);
-                    }
-
-                    if (!frameOk)
-                    {
-                        return false;
-                    }
-
-                    return TryBuildMarkerSampleResultFromFrameData(frameData, modelName, markerType, sampleTime, out result, out error);
-                }
-                finally
-                {
-                    KimodoRetargetTools.TryDestroyRetargetFrameContext(context);
-                }
+                return false;
             }
-            finally
-            {
-                sourceSampleContext.Dispose();
-            }
+
+            return TryBuildMarkerSampleResultFromRetargetFrame(frame, muscleFrame != null ? muscleFrame.pose : new HumanPose(), modelName, markerType, sampleTime, out result, out error);
         }
 
         private static AnimationClip ExtractAnimationClip(TimelineClip sourceClip)
@@ -288,16 +251,6 @@ namespace KimodoUnityMotionTools
             }
 
             return null;
-        }
-
-        private static bool IsMuscleClip(AnimationClip sourceClip)
-        {
-            if (sourceClip == null)
-            {
-                return false;
-            }
-
-            return sourceClip.isHumanMotion;
         }
 
         public static bool TrySampleMarkerRaw(
@@ -438,7 +391,7 @@ namespace KimodoUnityMotionTools
                 return byHuman;
             }
 
-            return FindTransformByName(searchRoot, jointName);
+            return KimodoRetargetAvatarUtility.FindTransformByName(searchRoot, jointName);
         }
 
         private static Transform TryResolveViaHumanBone(string jointName, Animator animator)
@@ -517,34 +470,9 @@ namespace KimodoUnityMotionTools
             }
         }
 
-        private static Transform FindTransformByName(Transform root, string name)
-        {
-            if (root == null || string.IsNullOrWhiteSpace(name))
-            {
-                return null;
-            }
-
-            var stack = new Stack<Transform>();
-            stack.Push(root);
-            while (stack.Count > 0)
-            {
-                Transform current = stack.Pop();
-                if (string.Equals(current.name, name, System.StringComparison.OrdinalIgnoreCase))
-                {
-                    return current;
-                }
-
-                for (int i = 0; i < current.childCount; i++)
-                {
-                    stack.Push(current.GetChild(i));
-                }
-            }
-
-            return null;
-        }
-
-        private static bool TryBuildMarkerSampleResultFromFrameData(
-            KimodoRetargetTools.FrameData frameData,
+        private static bool TryBuildMarkerSampleResultFromRetargetFrame(
+            BoneSample frame,
+            HumanPose pose,
             string modelName,
             string markerType,
             double sampleTime,
@@ -554,7 +482,7 @@ namespace KimodoUnityMotionTools
             result = null;
             error = string.Empty;
 
-            if (frameData == null || frameData.targetBoneFrame == null || frameData.targetBoneFrame.boneNames == null || frameData.targetBoneFrame.localRotations == null)
+            if (frame == null || frame.boneNames == null || frame.localRotations == null)
             {
                 error = "frame data is empty.";
                 return false;
@@ -567,7 +495,7 @@ namespace KimodoUnityMotionTools
                 return false;
             }
 
-            Dictionary<string, Quaternion> rotationMap = BuildLeafRotationMap(frameData.targetBoneFrame);
+            Dictionary<string, Quaternion> rotationMap = BuildLeafRotationMap(frame);
             if (rotationMap == null || rotationMap.Count == 0)
             {
                 error = "failed to build canonical joint rotation map.";
@@ -601,16 +529,16 @@ namespace KimodoUnityMotionTools
                 sampleTime = sampleTime,
                 rigType = rigType,
                 hasRootHeading = true,
-                rootPosition = frameData != null ? frameData.targetBonePose.bodyPosition : Vector3.zero,
+                rootPosition = pose.bodyPosition,
                 rootHeading = Vector2.right,
                 jointNames = new List<string>(jointNames),
                 localAxisAngles = localAxisAngles,
                 sampledJointIndices = sampledJointIndices
             };
 
-            if (frameData != null && frameData.targetBonePose.bodyRotation != Quaternion.identity)
+            if (pose.bodyRotation != Quaternion.identity)
             {
-                Vector3 forward = frameData.targetBonePose.bodyRotation * Vector3.forward;
+                Vector3 forward = pose.bodyRotation * Vector3.forward;
                 Vector2 heading = new Vector2(forward.x, forward.z);
                 result.rootHeading = heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.right;
             }
@@ -618,24 +546,24 @@ namespace KimodoUnityMotionTools
             return true;
         }
 
-        private static Dictionary<string, Quaternion> BuildLeafRotationMap(KimodoRetargetTools.BoneFrame boneFrame)
+        private static Dictionary<string, Quaternion> BuildLeafRotationMap(BoneSample BoneSample)
         {
-            if (boneFrame == null || boneFrame.boneNames == null || boneFrame.localRotations == null)
+            if (BoneSample == null || BoneSample.boneNames == null || BoneSample.localRotations == null)
             {
                 return null;
             }
 
             var map = new Dictionary<string, Quaternion>(StringComparer.OrdinalIgnoreCase);
-            int count = Mathf.Min(boneFrame.boneNames.Length, boneFrame.localRotations.Length);
+            int count = Mathf.Min(BoneSample.boneNames.Length, BoneSample.localRotations.Length);
             for (int i = 0; i < count; i++)
             {
-                string leaf = ExtractLeafName(boneFrame.boneNames[i]);
+                string leaf = ExtractLeafName(BoneSample.boneNames[i]);
                 if (string.IsNullOrWhiteSpace(leaf) || map.ContainsKey(leaf))
                 {
                     continue;
                 }
 
-                map[leaf.Trim()] = boneFrame.localRotations[i];
+                map[leaf.Trim()] = BoneSample.localRotations[i];
             }
 
             return map;

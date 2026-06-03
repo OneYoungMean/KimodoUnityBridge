@@ -19,15 +19,26 @@ namespace KimodoUnityMotionTools.Bridge
 
         public void Start(string logPath, Action<string> onLine, BridgeRuntimeSettings settings = null)
         {
+            Start(logPath, onLine, settings, null, null, null);
+        }
+
+        public void Start(
+            string logPath,
+            Action<string> onLine,
+            BridgeRuntimeSettings settings,
+            int? waitFileTimeoutMsOverride,
+            int? missingFilePollMinMsOverride,
+            int? missingFilePollMaxMsOverride)
+        {
             Stop();
             if (string.IsNullOrWhiteSpace(logPath) || onLine == null)
             {
                 return;
             }
 
-            int waitFileTimeoutMs = settings?.logPumpWaitFileTimeoutMs ?? BridgeRuntimeSettings.DefaultLogPumpWaitFileTimeoutMs;
-            int missingFilePollMinMs = settings?.logPumpMissingFilePollMinMs ?? BridgeRuntimeSettings.DefaultLogPumpMissingFilePollMinMs;
-            int missingFilePollMaxMs = settings?.logPumpMissingFilePollMaxMs ?? BridgeRuntimeSettings.DefaultLogPumpMissingFilePollMaxMs;
+            int waitFileTimeoutMs = waitFileTimeoutMsOverride ?? settings?.logPumpWaitFileTimeoutMs ?? BridgeRuntimeSettings.DefaultLogPumpWaitFileTimeoutMs;
+            int missingFilePollMinMs = missingFilePollMinMsOverride ?? settings?.logPumpMissingFilePollMinMs ?? BridgeRuntimeSettings.DefaultLogPumpMissingFilePollMinMs;
+            int missingFilePollMaxMs = missingFilePollMaxMsOverride ?? settings?.logPumpMissingFilePollMaxMs ?? BridgeRuntimeSettings.DefaultLogPumpMissingFilePollMaxMs;
             int idlePollMinMs = settings?.logPumpIdlePollMinMs ?? BridgeRuntimeSettings.DefaultLogPumpIdlePollMinMs;
             int idlePollMaxMs = settings?.logPumpIdlePollMaxMs ?? BridgeRuntimeSettings.DefaultLogPumpIdlePollMaxMs;
 

@@ -156,6 +156,54 @@ namespace KimodoUnityMotionTools.ProjectEditor
             SceneView.RepaintAll();
         }
 
+        internal static void DestroyEntriesForItemId(string entryId, PoseCacheRenderContext? keepContext = null)
+        {
+            if (string.IsNullOrWhiteSpace(entryId) || Entries.Count == 0)
+            {
+                return;
+            }
+
+            string normalizedEntryId = entryId.Trim();
+            string keepContextKey = keepContext.HasValue
+                ? BuildContextKey(keepContext.Value.ClipId, keepContext.Value.AnimatorId)
+                : null;
+            string entryKeySuffix = ":" + normalizedEntryId;
+            var keysToRemove = new List<string>();
+
+            foreach (KeyValuePair<string, PoseCacheEntry> kv in Entries)
+            {
+                if (!kv.Key.EndsWith(entryKeySuffix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(keepContextKey) &&
+                    string.Equals(kv.Value != null ? kv.Value.ContextKey : null, keepContextKey, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                keysToRemove.Add(kv.Key);
+            }
+
+            for (int i = 0; i < keysToRemove.Count; i++)
+            {
+                string key = keysToRemove[i];
+                if (!Entries.TryGetValue(key, out PoseCacheEntry entry))
+                {
+                    continue;
+                }
+
+                DestroyEntry(entry);
+                Entries.Remove(key);
+            }
+
+            if (keysToRemove.Count > 0)
+            {
+                SceneView.RepaintAll();
+            }
+        }
+
         internal static void DestroyAll()
         {
             foreach (KeyValuePair<string, PoseCacheEntry> kv in Entries)

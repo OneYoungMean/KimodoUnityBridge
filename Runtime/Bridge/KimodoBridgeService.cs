@@ -10,6 +10,9 @@ namespace KimodoUnityMotionTools.Bridge
 {
     public sealed class KimodoBridgeService : IDisposable
     {
+        private const int BridgeMessageLogPumpWaitFileTimeoutMs = 60000;
+        private const int BridgeMessageLogPumpMissingFilePollMs = 90;
+
         private readonly BridgeRuntimeSettings settings;
         private readonly BridgeProtocolClient protocolClient;
         private readonly BridgeProcessManager processManager;
@@ -325,7 +328,14 @@ namespace KimodoUnityMotionTools.Bridge
                 Debug.Log(msg);
             }, settings);
             StartSideLogPumpIfDifferent(Path.Combine(settings.runtimeRoot, "log", "bridge_server.log"), "[BridgeServer]", mainLogFullPath, progress);
-            StartSideLogPumpIfDifferent(Path.Combine(settings.runtimeRoot, "log", "bridge_message.log"), "[BridgeMessage]", mainLogFullPath, progress);
+            StartSideLogPumpIfDifferent(
+                Path.Combine(settings.runtimeRoot, "log", "bridge_message.log"),
+                "[BridgeMessage]",
+                mainLogFullPath,
+                progress,
+                BridgeMessageLogPumpWaitFileTimeoutMs,
+                BridgeMessageLogPumpMissingFilePollMs,
+                BridgeMessageLogPumpMissingFilePollMs);
             StartSideLogPumpIfDifferent(Path.Combine(settings.runtimeRoot, "log", "run_server.log"), "[RunServer]", mainLogFullPath, progress);
             StartSideLogPumpIfDifferent(Path.Combine(settings.runtimeRoot, "log", "setup.log"), "[Setup]", mainLogFullPath, progress);
             StartSideLogPumpIfDifferent(Path.Combine(settings.runtimeRoot, "log", "download_model.log"), "[Download]", mainLogFullPath, progress);
@@ -337,7 +347,13 @@ namespace KimodoUnityMotionTools.Bridge
             StopSideLogPumps();
         }
 
-        private void StartSideLogPump(string logPath, string tag, Action<string> progress)
+        private void StartSideLogPump(
+            string logPath,
+            string tag,
+            Action<string> progress,
+            int? waitFileTimeoutMsOverride = null,
+            int? missingFilePollMinMsOverride = null,
+            int? missingFilePollMaxMsOverride = null)
         {
             if (string.IsNullOrWhiteSpace(logPath))
             {
@@ -351,10 +367,17 @@ namespace KimodoUnityMotionTools.Bridge
                 string msg = $"{tag} {line}";
                 progress?.Invoke(msg);
                 Debug.Log(msg);
-            }, settings);
+            }, settings, waitFileTimeoutMsOverride, missingFilePollMinMsOverride, missingFilePollMaxMsOverride);
         }
 
-        private void StartSideLogPumpIfDifferent(string logPath, string tag, string mainLogFullPath, Action<string> progress)
+        private void StartSideLogPumpIfDifferent(
+            string logPath,
+            string tag,
+            string mainLogFullPath,
+            Action<string> progress,
+            int? waitFileTimeoutMsOverride = null,
+            int? missingFilePollMinMsOverride = null,
+            int? missingFilePollMaxMsOverride = null)
         {
             string sideLogFullPath = GetNormalizedPathOrEmpty(logPath);
             if (!string.IsNullOrWhiteSpace(mainLogFullPath) &&
@@ -364,7 +387,7 @@ namespace KimodoUnityMotionTools.Bridge
                 return;
             }
 
-            StartSideLogPump(logPath, tag, progress);
+            StartSideLogPump(logPath, tag, progress, waitFileTimeoutMsOverride, missingFilePollMinMsOverride, missingFilePollMaxMsOverride);
         }
 
         private static string GetNormalizedPathOrEmpty(string path)
