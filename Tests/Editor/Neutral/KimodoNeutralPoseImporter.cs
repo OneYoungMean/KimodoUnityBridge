@@ -49,7 +49,7 @@ namespace KimodoBridge.Editor
             public Transform Segment;
         }
 
-        [MenuItem("Kimodo/Import Neutral Pose JSON/Import Single JSON...")]
+        //[MenuItem("Kimodo/Import Neutral Pose JSON/Import Single JSON...")]
         private static void ImportSingleJson()
         {
             string startDir = Directory.Exists(DefaultExportFolder)
@@ -74,7 +74,7 @@ namespace KimodoBridge.Editor
             Debug.Log($"[Kimodo] Imported neutral pose: {path}");
         }
 
-        [MenuItem("Kimodo/Import Neutral Pose JSON/Import All From Default Folder")]
+        //[MenuItem("Kimodo/Import Neutral Pose JSON/Import All From Default Folder")]
         private static void ImportAllFromDefaultFolder()
         {
             if (!Directory.Exists(DefaultExportFolder))

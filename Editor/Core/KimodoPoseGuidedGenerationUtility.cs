@@ -12,8 +12,6 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoPoseGuidedGenerationUtility
     {
-        internal const float TargetFps = 30f;
-
         internal static async Task<KimodoGenerationResultDto> GenerateFromPromptWithOptionalBoundaryPosesAsync(
             string prompt,
             int frames,
@@ -53,7 +51,7 @@ namespace KimodoBridge.Editor
             var request = new KimodoGenerationRequestDto
             {
                 prompt = prompt,
-                duration = clampedFrames / TargetFps,
+                duration = clampedFrames / KimodoPlayableClip.FIXED_FRAME_RATE,
                 seed = seed,
                 steps = clampedSteps,
                 constraints_json = constraintsJson
@@ -104,11 +102,14 @@ namespace KimodoBridge.Editor
                 KimodoMarkerSampleResult pose = entries[i].pose;
                 KimodoMarkerSampleResult sample = pose.Clone();
                 sample.constraintType = "fullbody";
-                sample.sampleTime = frame / TargetFps;
+                sample.sampleTime = frame / KimodoPlayableClip.FIXED_FRAME_RATE;
                 samples.Add(sample);
             }
 
-            return KimodoConstraintJsonExporter.ToConstraintsJson(samples, clipStartSeconds: 0.0, clipDurationSeconds: clampedFrames / TargetFps);
+            return KimodoConstraintJsonExporter.ToConstraintsJson(
+                samples,
+                clipStartSeconds: 0.0,
+                clipDurationSeconds: clampedFrames / KimodoPlayableClip.FIXED_FRAME_RATE);
         }
 
         private static bool IsValidPose(KimodoMarkerSampleResult pose)

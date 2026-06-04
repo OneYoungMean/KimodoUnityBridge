@@ -12,7 +12,6 @@ namespace KimodoBridge.Editor
     [CustomEditor(typeof(KimodoPlayableClip))]
     public class KimodoPlayableClipEditor : UnityEditor.Editor
     {
-        private const float TargetFps = 30f;
         private const double RepaintIntervalSeconds = 0.2d;
 
         private SerializedProperty generationBackend;
@@ -27,7 +26,6 @@ namespace KimodoBridge.Editor
         private SerializedProperty seed;
         private SerializedProperty enableInbetweenInterpolation;
         private SerializedProperty showConstraint;
-        private SerializedProperty workflowJsonAsset;
 
         private SerializedProperty animationClipProp;
         private SerializedProperty footIKProp;
@@ -73,7 +71,6 @@ namespace KimodoBridge.Editor
             seed = serializedObject.FindProperty("seed");
             enableInbetweenInterpolation = serializedObject.FindProperty("enableInbetweenInterpolation");
             showConstraint = serializedObject.FindProperty("showConstraint");
-            workflowJsonAsset = serializedObject.FindProperty("workflowJsonAsset");
 
             animationClipProp = serializedObject.FindProperty("m_Clip");
             footIKProp = serializedObject.FindProperty("m_ApplyFootIK");
@@ -134,6 +131,7 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.LabelField("Generate Motion", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
+            DrawRootMotionButtonIfNeeded();
             if (generationBackend != null)
             {
                 EditorGUILayout.PropertyField(generationBackend, new GUIContent("Backend"));
@@ -170,7 +168,15 @@ namespace KimodoBridge.Editor
             motionPrompt.stringValue = EditorGUILayout.TextArea(motionPrompt.stringValue, GUILayout.Height(60));
 
             int oldFrames = generationFrames.intValue;
-            int newFrames = EditorGUILayout.IntSlider(new GUIContent("Duration (frames)", "Target generated clip length in frames (30 FPS). Also syncs timeline clip duration when changed."), oldFrames, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES);
+            float minDurationSeconds = FramesToSeconds(KimodoPlayableClip.MIN_FRAMES);
+            float maxDurationSeconds = FramesToSeconds(KimodoPlayableClip.MAX_FRAMES);
+            float oldDurationSeconds = FramesToSeconds(oldFrames);
+            float newDurationSeconds = EditorGUILayout.Slider(
+                new GUIContent("Duration (s)", "Target generated clip length in seconds. Internally uses the fixed Kimodo sample rate and also syncs timeline clip duration when changed."),
+                oldDurationSeconds,
+                minDurationSeconds,
+                maxDurationSeconds);
+            int newFrames = SecondsToFrames(newDurationSeconds);
             if (newFrames != oldFrames)
             {
                 generationFrames.intValue = newFrames;
@@ -199,7 +205,7 @@ namespace KimodoBridge.Editor
             }
             DrawConstraintPreviewIfNeeded();
 
-            float seconds = generationFrames.intValue / TargetFps;
+            float seconds = FramesToSeconds(generationFrames.intValue);
             EditorGUILayout.LabelField($"Duration: {seconds:F2}s", EditorStyles.miniLabel);
             DrawConstraintReferenceList();
 
@@ -251,6 +257,38 @@ namespace KimodoBridge.Editor
 
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
+        }
+
+        private void DrawRootMotionButtonIfNeeded()
+        {
+            if (clip == null || clip.clip == null || FootRootMotionClipBaker.HasMeaningfulRootMotion(clip.clip))
+            {
+                return;
+            }
+
+            if (!KimodoRootMotionEditorUtility.TryResolveAvatarForPlayableClip(clip, out Avatar avatar, out string avatarError))
+            {
+                EditorGUILayout.HelpBox($"Root motion conversion unavailable: {avatarError}", MessageType.Info);
+                return;
+            }
+
+            if (GUILayout.Button(new GUIContent("Convert To Root Motion", "Create a new root-motion version of the current animation clip and assign it to this playable clip."), GUILayout.Height(28f)))
+            {
+                if (!KimodoRootMotionEditorUtility.TryCreateRootMotionClipAsset(clip.clip, avatar, out AnimationClip outputClip, out string error))
+                {
+                    lastError = error;
+                    return;
+                }
+
+                Undo.RecordObject(clip, "Convert To Root Motion");
+                clip.clip = outputClip;
+                EditorUtility.SetDirty(clip);
+                EditorUtility.SetDirty(outputClip);
+                lastError = string.Empty;
+                lastStatus = $"Root motion clip created: {outputClip.name}";
+            }
+
+            EditorGUILayout.Space(4f);
         }
 
         private void DrawConstraintReferenceList()
@@ -656,7 +694,9 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.LabelField($"Prompt: {clip.lastGeneratedPrompt}", EditorStyles.miniLabel);
             }
-            EditorGUILayout.LabelField($"Frames: {clip.frameCount}, Joints: {clip.jointCount}, FPS: {clip.fps}", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField(
+                $"Duration: {FramesToSeconds(clip.frameCount):F2}s, Frames: {clip.frameCount}, Joints: {clip.jointCount}",
+                EditorStyles.miniLabel);
             if (!string.IsNullOrWhiteSpace(lastConstraintsPath))
             {
                 EditorGUILayout.LabelField($"Constraints: {lastConstraintsPath}", EditorStyles.miniLabel);
@@ -680,9 +720,24 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            float newDuration = frames / TargetFps;
+            float newDuration = FramesToSeconds(frames);
             UndoExtensions.RegisterClip(timelineClip, L10n.Tr("Modify Clip Duration"));
             timelineClip.duration = newDuration;
+        }
+
+        private static float FramesToSeconds(int frames)
+        {
+            return Mathf.Max(0, frames) / KimodoPlayableClip.FIXED_FRAME_RATE;
+        }
+
+        private static int SecondsToFrames(float durationSeconds)
+        {
+            float minDurationSeconds = KimodoPlayableClip.MIN_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
+            float maxDurationSeconds = KimodoPlayableClip.MAX_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
+            return Mathf.Clamp(
+                Mathf.RoundToInt(Mathf.Clamp(durationSeconds, minDurationSeconds, maxDurationSeconds) * KimodoPlayableClip.FIXED_FRAME_RATE),
+                KimodoPlayableClip.MIN_FRAMES,
+                KimodoPlayableClip.MAX_FRAMES);
         }
 
         private void DrawConstraintPreviewIfNeeded()
@@ -699,14 +754,14 @@ namespace KimodoBridge.Editor
 
             if (showConstraint == null || !showConstraint.boolValue)
             {
-                KimodoConstraintPoseCache.SetGroupState(context, visible: false, selectable: false);
+                KimodoConstraintPoseCache.DestroyContext(context);
                 return;
             }
 
             TrackAsset track = timelineClip != null ? timelineClip.GetParentTrack() : null;
             if (track == null)
             {
-                KimodoConstraintPoseCache.SetGroupState(context, visible: false, selectable: false);
+                KimodoConstraintPoseCache.DestroyContext(context);
                 return;
             }
 
@@ -785,7 +840,7 @@ namespace KimodoBridge.Editor
 
             if (!KimodoConstraintPoseCache.RenderBatch(context, renderItems, out _))
             {
-                KimodoConstraintPoseCache.SetGroupState(context, visible: false, selectable: false);
+                KimodoConstraintPoseCache.DestroyContext(context);
             }
         }
 
@@ -801,7 +856,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            KimodoConstraintPoseCache.SetGroupState(context, visible: false, selectable: false);
+            KimodoConstraintPoseCache.DestroyContext(context);
         }
 
     }

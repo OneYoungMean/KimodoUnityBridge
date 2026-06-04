@@ -1,58 +1,92 @@
-using KimodoBridge;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using TimelineInject;
 using UnityEngine;
+using UnityEngine.Animations;
+using UnityEngine.Playables;
 
 namespace KimodoBridge
 {
     public sealed class KimodoInfiniteMotionDemo : MonoBehaviour
     {
-        [Header("Target")]
-        public Animator targetAnimator;
-        public string prompt = "a person walks forward.";
-        public KimodoBackendType backendType = KimodoBackendType.Bridge;
-        public KimodoRuntimeGenerationSettings runtimeSettings;
+        [Header("Scene References")]
+        [SerializeField] private Animator somaAnimator;
+        [SerializeField] private Animator dancerAnimator;
+        [SerializeField] private Component promptTextSource;
+        [SerializeField] private Component statusTextTarget;
 
-        [Header("Loop")]
-        [Range(1f, 10f)]
-        public float segmentDurationSeconds = 4f;
-        [Range(0.25f, 2f)]
-        public float prefetchLeadSeconds = 1f;
-        [Range(1, 4)]
-        public int maxQueueSize = 2;
-        [Range(1, 300)]
-        public int diffusionSteps = 100;
-        public bool autoStart = true;
-        public bool loopHint = true;
+        [Header("Bridge Runtime")]
+        [SerializeField] private string runtimeRoot = @"C:\nvlab\KimodoUnityBridge\NvlabKimodoQuickServer~";
+        [SerializeField] private string modelsRoot = string.Empty;
+        [SerializeField] private string modelName = "Kimodo-SOMA-RP-v1";
+        [SerializeField] private bool highVram;
+        [SerializeField] private bool forceSetup;
 
-        [Header("UI")]
-        public bool showOverlay = true;
+        [Header("Generation")]
+        [SerializeField] private string defaultPrompt = "A person dancing with energetic rhythm.";
+        [SerializeField] [Min(1)] private int generationFrames = 150;
+        [SerializeField] [Min(1)] private int diffusionSteps = 100;
+        [SerializeField] private bool randomSeed = true;
+        [SerializeField] private int fixedSeed = 42;
+        [SerializeField] [Min(0.1f)] private float requestLeadSeconds = 1.5f;
+        [SerializeField] [Min(0.1f)] private float segmentIntervalSeconds = 5f;
+        [SerializeField] private bool loopHint = true;
 
-        private readonly Queue<MotionSegment> queuedSegments = new Queue<MotionSegment>();
+        [Header("Debug")]
+        [SerializeField] private bool autoStartOnEnable;
+        [SerializeField] private bool verboseLogging = true;
+
+        private const string FullBodyConstraintType = "fullbody";
+
+        private KimodoRuntimeGenerationService generationService;
         private CancellationTokenSource lifetimeCts;
-        private KimodoGeneratePipeline pipeline;
-        private MotionSegment currentSegment;
-        private Avatar sourceAvatar;
-        private string targetRootBoneName;
-        private Transform targetSkeletonRoot;
-        private Transform[] targetBoneTransforms;
-        private bool started;
+        private Task schedulerTask;
+        private bool running;
+        private bool startRequested;
+
+        private ClipPlayer somaPlayer;
+        private ClipPlayer dancerPlayer;
+
+        private readonly Queue<GeneratedSegment> pendingSegments = new Queue<GeneratedSegment>();
+        private readonly object queueGate = new object();
+
         private bool generationInFlight;
-        private string status = "idle";
-        private string error = string.Empty;
-        private float currentSegmentTime;
+        private int segmentIndex;
+        private KimodoMarkerSampleResult nextConstraintPose;
+
+        private Avatar somaAvatar;
+        private Avatar dancerAvatar;
 
         private void Awake()
         {
-            pipeline = new KimodoGeneratePipeline();
-            lifetimeCts = new CancellationTokenSource();
+            somaPlayer = new ClipPlayer("KimodoInfiniteMotionDemo_Soma");
+            dancerPlayer = new ClipPlayer("KimodoInfiniteMotionDemo_Dancer");
         }
 
-        private void Start()
+        private void OnEnable()
         {
-            if (autoStart)
+            if (ValidateConfiguration(out _))
+            {
+                try
+                {
+                    ResolveAvatars();
+                    UpdateStatus("Idle.");
+                }
+                catch (Exception ex)
+                {
+                    UpdateStatus($"Config warning: {ex.Message}");
+                }
+            }
+            else
+            {
+                UpdateStatus("Idle.");
+            }
+
+            if (autoStartOnEnable)
             {
                 _ = StartDemoAsync();
             }
@@ -60,79 +94,187 @@ namespace KimodoBridge
 
         private void OnDisable()
         {
-            StopDemo();
+            _ = StopDemoAsync();
+        }
+
+        private void Update()
+        {
+            somaPlayer.Update();
+            dancerPlayer.Update();
+            TryPromoteNextSegment();
         }
 
         private void OnDestroy()
         {
-            StopDemo();
+            somaPlayer.Dispose();
+            dancerPlayer.Dispose();
         }
 
         public async Task StartDemoAsync()
         {
-            if (started)
+            if (running || startRequested)
             {
                 return;
             }
 
-            if (targetAnimator == null)
+            startRequested = true;
+            try
             {
-                error = "Target Animator is not assigned.";
-                status = "failed";
-                return;
-            }
-
-            if (!TryInitializeRuntimeRetarget(out error))
-            {
-                status = "failed";
-                return;
-            }
-
-            started = true;
-            status = "starting";
-            error = string.Empty;
-
-            if (currentSegment == null)
-            {
-                currentSegment = await GenerateSegmentAsync(0, null, lifetimeCts.Token);
-                if (currentSegment == null)
+                if (!ValidateConfiguration(out string error))
                 {
-                    started = false;
-                    status = "failed";
+                    UpdateStatus(error);
+                    Debug.LogError($"[KimodoInfiniteMotionDemo] {error}");
                     return;
+                }
+
+                ResolveAvatars();
+                lifetimeCts?.Cancel();
+                lifetimeCts?.Dispose();
+                lifetimeCts = new CancellationTokenSource();
+
+                segmentIndex = 0;
+                nextConstraintPose = null;
+                generationInFlight = false;
+                ClearPendingSegments();
+
+                generationService?.Dispose();
+                generationService = new KimodoRuntimeGenerationService(BuildRuntimeGenerationSettings());
+
+                UpdateStatus("Starting Kimodo bridge...");
+                await generationService.StartAsync(KimodoBackendType.Bridge, OnProgress, lifetimeCts.Token);
+
+                running = true;
+                schedulerTask = RunSchedulerLoopAsync(lifetimeCts.Token);
+                UpdateStatus("Bridge ready.");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                UpdateStatus($"Start failed: {ex.Message}");
+                await StopDemoAsync();
+            }
+            finally
+            {
+                startRequested = false;
+            }
+        }
+
+        public async Task StopDemoAsync()
+        {
+            running = false;
+
+            CancellationTokenSource cts = lifetimeCts;
+            lifetimeCts = null;
+            if (cts != null)
+            {
+                try
+                {
+                    cts.Cancel();
+                }
+                catch
+                {
                 }
             }
 
-            currentSegmentTime = 0f;
-            _ = EnsureNextSegmentAsync();
-            status = "running";
-        }
+            Task task = schedulerTask;
+            schedulerTask = null;
+            if (task != null)
+            {
+                try
+                {
+                    await task;
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[KimodoInfiniteMotionDemo] Scheduler stop observed exception: {ex.Message}");
+                }
+            }
 
-        public void StopDemo()
-        {
-            started = false;
-            status = "stopped";
+            if (generationService != null)
+            {
+                try
+                {
+                    await generationService.StopAsync(KimodoBackendType.Bridge, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[KimodoInfiniteMotionDemo] Stop bridge failed: {ex.Message}");
+                }
 
-            lifetimeCts?.Cancel();
-            lifetimeCts?.Dispose();
-            lifetimeCts = new CancellationTokenSource();
+                generationService.Dispose();
+                generationService = null;
+            }
 
-            queuedSegments.Clear();
-            DestroySegmentClips();
-            currentSegment = null;
-            currentSegmentTime = 0f;
-            targetBoneTransforms = null;
+            if (cts != null)
+            {
+                cts.Dispose();
+            }
+
+            ClearPendingSegments();
             generationInFlight = false;
+            nextConstraintPose = null;
+            UpdateStatus("Stopped.");
         }
 
-        private async Task EnsureNextSegmentAsync()
+        private async Task RunSchedulerLoopAsync(CancellationToken token)
         {
-            if (!started || generationInFlight)
+            try
+            {
+                await GenerateNextSegmentAsync(token);
+
+                while (!token.IsCancellationRequested)
+                {
+                    MaybeQueueNextGeneration(token);
+                    await Task.Delay(100, token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                UpdateStatus($"Scheduler failed: {ex.Message}");
+                running = false;
+            }
+        }
+
+        private void MaybeQueueNextGeneration(CancellationToken token)
+        {
+            if (!running || generationInFlight || generationService == null)
             {
                 return;
             }
 
-            if (queuedSegments.Count >= maxQueueSize)
+            if (PendingSegmentCount > 0)
+            {
+                return;
+            }
+
+            bool shouldGenerate;
+            if (!somaPlayer.HasActiveClip)
+            {
+                shouldGenerate = PendingSegmentCount == 0;
+            }
+            else
+            {
+                shouldGenerate = somaPlayer.RemainingSeconds <= Mathf.Max(0.1f, requestLeadSeconds);
+            }
+
+            if (!shouldGenerate)
+            {
+                return;
+            }
+
+            _ = GenerateNextSegmentAsync(token);
+        }
+
+        private async Task GenerateNextSegmentAsync(CancellationToken token)
+        {
+            if (generationInFlight || generationService == null)
             {
                 return;
             }
@@ -140,12 +282,50 @@ namespace KimodoBridge
             generationInFlight = true;
             try
             {
-                int index = (currentSegment?.Index ?? -1) + 1 + queuedSegments.Count;
-                var segment = await GenerateSegmentAsync(index, CaptureBoundaryPose(), lifetimeCts.Token);
-                if (segment != null && started)
+                string prompt = ResolvePrompt();
+                string constraintsJson = BuildNextConstraintsJson();
+                var request = new KimodoGenerationRequestDto
                 {
-                    queuedSegments.Enqueue(segment);
-                }
+                    prompt = prompt,
+                    duration = Mathf.Max(segmentIntervalSeconds, generationFrames / KimodoPlayableClip.FIXED_FRAME_RATE),
+                    seed = randomSeed ? (int?)null : fixedSeed,
+                    steps = Mathf.Max(1, diffusionSteps),
+                    constraints_json = constraintsJson,
+                    boundary_pose_json = string.Empty,
+                    loop_hint = loopHint,
+                    segment_index = segmentIndex,
+                    transition_duration = 0f
+                };
+
+                OnProgress($"Generating segment {segmentIndex}...");
+                KimodoGenerationResultDto result = await generationService.GenerateAsync(
+                    request,
+                    KimodoBackendType.Bridge,
+                    OnProgress,
+                    token);
+
+                AnimationClip somaClip = BuildSomaClip(result.motionJsonCompact, segmentIndex);
+                AnimationClip dancerClip = BuildDancerClip(somaClip, segmentIndex);
+                KimodoMarkerSampleResult tailPose = BuildTailPoseSample(somaClip);
+
+                EnqueueSegment(new GeneratedSegment
+                {
+                    Index = segmentIndex,
+                    SomaClip = somaClip,
+                    DancerClip = dancerClip,
+                    TailPose = tailPose
+                });
+
+                segmentIndex++;
+                UpdateStatus($"Segment {segmentIndex - 1} ready.");
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                UpdateStatus($"Generate failed: {ex.Message}");
             }
             finally
             {
@@ -153,258 +333,426 @@ namespace KimodoBridge
             }
         }
 
-        private async Task<MotionSegment> GenerateSegmentAsync(int index, string boundaryPoseJson, CancellationToken token)
+        private AnimationClip BuildSomaClip(string motionJson, int index)
         {
-            if (pipeline == null)
+            var clip = new AnimationClip
             {
-                pipeline = new KimodoGeneratePipeline();
-            }
-
-            var request = new KimodoGeneratePipelineRequest
-            {
-                BackendType = backendType,
-                RuntimeSettings = runtimeSettings,
-                GenerationRequest = new KimodoGenerationRequestDto
-                {
-                    prompt = prompt ?? string.Empty,
-                    duration = Mathf.Max(0.25f, segmentDurationSeconds),
-                    seed = null,
-                    steps = Mathf.Max(1, diffusionSteps),
-                    constraints_json = string.Empty,
-                    boundary_pose_json = boundaryPoseJson ?? string.Empty,
-                    loop_hint = loopHint,
-                    segment_index = index,
-                    transition_duration = Mathf.Min(0.5f, prefetchLeadSeconds)
-                }
+                name = $"Kimodo_Soma_{index:D4}",
+                frameRate = KimodoPlayableClip.FIXED_FRAME_RATE,
+                legacy = true
             };
 
-            try
+            if (!KimodoRuntimeClipBaker.TryBake(clip, motionJson, out string error))
             {
-                status = $"generating #{index}";
-                var result = await pipeline.ExecuteAsync(
-                    request,
-                    (stage, message) => status = $"{stage}: {message}",
-                    token);
-
-                if (result == null || string.IsNullOrWhiteSpace(result.MotionJsonCompact))
-                {
-                    error = "Generation returned empty motion json.";
-                    status = "failed";
-                    return null;
-                }
-
-                if (!started)
-                {
-                    return null;
-                }
-
-                var clip = new AnimationClip
-                {
-                    name = $"KimodoSegment_{index}",
-                    legacy = true
-                };
-                if (!KimodoBridge.KimodoRuntimeClipBaker.TryBake(clip, result.MotionJsonCompact, out string bakeError))
-                {
-                    error = bakeError;
-                    status = "failed";
-                    return null;
-                }
-
-                return new MotionSegment(index, clip);
+                UnityEngine.Object.Destroy(clip);
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "SOMA clip bake failed." : error);
             }
-            catch (Exception ex)
+
+            return clip;
+        }
+
+        private AnimationClip BuildDancerClip(AnimationClip somaClip, int index)
+        {
+            if (dancerAvatar == null)
             {
-                error = ex.Message;
-                status = "failed";
+                throw new InvalidOperationException("Dancer avatar is null or invalid.");
+            }
+
+            AnimationClip dancerClip = UnityEngine.Object.Instantiate(somaClip);
+            dancerClip.name = $"Kimodo_Dancer_{index:D4}";
+
+            if (!KimodoRetargetTools.TryRetargetNew(
+                    dancerClip,
+                    somaAvatar,
+                    dancerAvatar,
+                    exportMuscleClip: true,
+                    out AnimationClip retargetedClip,
+                    out string error))
+            {
+                UnityEngine.Object.Destroy(dancerClip);
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "Dancer clip retarget failed." : error);
+            }
+
+            if (!ReferenceEquals(retargetedClip, dancerClip))
+            {
+                dancerClip = retargetedClip;
+                dancerClip.name = $"Kimodo_Dancer_{index:D4}";
+            }
+
+            return dancerClip;
+        }
+
+        private KimodoMarkerSampleResult BuildTailPoseSample(AnimationClip somaClip)
+        {
+            if (somaClip == null)
+            {
                 return null;
             }
+
+            double sampleTime = Math.Max(0.0, somaClip.length - (1.0 / KimodoPlayableClip.FIXED_FRAME_RATE));
+            if (!KimodoMarkerSamplingUtility.TrySampleMarkerFromClipWithRetargetCore(
+                    somaClip,
+                    FullBodyConstraintType,
+                    sampleTime,
+                    somaAvatar,
+                    somaAvatar,
+                    modelName,
+                    out KimodoMarkerSampleResult sample,
+                    out string error))
+            {
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "Tail pose sampling failed." : error);
+            }
+
+            sample.constraintType = FullBodyConstraintType;
+            sample.sampleTime = 0.0;
+            return sample;
         }
 
-        private bool TryInitializeRuntimeRetarget(out string initError)
+        private string BuildNextConstraintsJson()
         {
-            initError = string.Empty;
-            targetBoneTransforms = null;
-
-            Avatar targetAvatar = targetAnimator != null ? targetAnimator.avatar : null;
-            if (!KimodoRetargetTools.IsValidHumanoid(targetAvatar))
-            {
-                initError = "Target Animator avatar is null, invalid, or non-humanoid.";
-                return false;
-            }
-
-            string sourceModelName = runtimeSettings?.bridgeSettings != null
-                ? runtimeSettings.bridgeSettings.modelName
-                : string.Empty;
-            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(sourceModelName, out sourceAvatar, out string sourceAvatarError))
-            {
-                initError = $"Resolve source avatar failed: {sourceAvatarError}";
-                return false;
-            }
-
-            targetRootBoneName = KimodoRetargetAvatarUtility.ResolveSkeletonRootBoneName(targetAvatar);
-            targetSkeletonRoot = KimodoRetargetAvatarUtility.FindTransformByName(targetAnimator.transform, targetRootBoneName);
-            if (targetSkeletonRoot == null)
-            {
-                initError = $"Target skeleton root '{targetRootBoneName}' was not found under target Animator.";
-                return false;
-            }
-
-            return true;
-        }
-
-        private void Update()
-        {
-            if (!started || currentSegment == null || targetAnimator == null)
-            {
-                return;
-            }
-
-            if (!TrySampleAndApplyCurrentSegment(currentSegmentTime, out string sampleError))
-            {
-                error = sampleError;
-                status = "failed";
-                StopDemo();
-                return;
-            }
-
-            float currentLength = Mathf.Max(0.01f, currentSegment.Clip != null ? currentSegment.Clip.length : segmentDurationSeconds);
-            float remaining = currentLength - currentSegmentTime;
-
-            if (remaining <= prefetchLeadSeconds)
-            {
-                _ = EnsureNextSegmentAsync();
-            }
-
-            currentSegmentTime += Time.deltaTime;
-            if (currentSegmentTime < currentLength)
-            {
-                return;
-            }
-
-            if (queuedSegments.Count == 0)
-            {
-                currentSegmentTime = Mathf.Repeat(currentSegmentTime, currentLength);
-                return;
-            }
-
-            MotionSegment previous = currentSegment;
-            currentSegment = queuedSegments.Dequeue();
-            currentSegmentTime = 0f;
-            if (previous?.Clip != null)
-            {
-                Destroy(previous.Clip);
-            }
-        }
-
-        private bool TrySampleAndApplyCurrentSegment(float sampleTime, out string sampleError)
-        {
-            sampleError = string.Empty;
-
-            if (currentSegment?.Clip == null)
-            {
-                sampleError = "Current segment clip is missing.";
-                return false;
-            }
-
-            if (!KimodoRetargetTools.TryRetargetNew(currentSegment.Clip, sourceAvatar, targetAnimator.avatar, sampleTime, out BoneSample targetSample, out sampleError))
-            {
-                return false;
-            }
-
-            return TryApplyBoneSampleToTarget(targetSample, out sampleError);
-        }
-
-        private bool TryApplyBoneSampleToTarget(BoneSample sample, out string applyError)
-        {
-            applyError = string.Empty;
-
-            if (targetSkeletonRoot == null)
-            {
-                applyError = "Target skeleton root is missing.";
-                return false;
-            }
-
-            return KimodoRetargetAvatarUtility.TryApplyBoneSample(
-                sample,
-                targetSkeletonRoot,
-                targetRootBoneName,
-                ref targetBoneTransforms,
-                out applyError);
-        }
-
-        private string CaptureBoundaryPose()
-        {
-            if (targetAnimator == null)
+            if (nextConstraintPose == null)
             {
                 return string.Empty;
             }
 
-            var root = targetAnimator.transform;
-            var hips = targetAnimator.GetBoneTransform(HumanBodyBones.Hips) ?? root;
-            var data = new KimodoBoundaryPoseDto
-            {
-                rootPosition = hips.position,
-                rootRotation = hips.rotation
-            };
-            return JsonUtility.ToJson(data);
+            KimodoMarkerSampleResult sample = nextConstraintPose.Clone();
+            sample.constraintType = FullBodyConstraintType;
+            sample.sampleTime = 0.0;
+            return KimodoConstraintJsonExporter.ToConstraintsJson(
+                new List<KimodoMarkerSampleResult> { sample },
+                0.0,
+                Mathf.Max(segmentIntervalSeconds, generationFrames / KimodoPlayableClip.FIXED_FRAME_RATE));
         }
 
-        private void OnGUI()
+        private void TryPromoteNextSegment()
         {
-            if (!showOverlay)
+            if (!running)
             {
                 return;
             }
 
-            GUILayout.BeginArea(new Rect(10, 10, 360, 220), GUI.skin.box);
-            GUILayout.Label($"Status: {status}");
-            GUILayout.Label($"Error: {error}");
-            GUILayout.Label($"Queue: {queuedSegments.Count}");
-            GUILayout.Label($"Current: {(currentSegment != null ? currentSegment.Index.ToString() : "-")}");
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Start"))
+            if (somaPlayer.IsPlaying)
             {
-                _ = StartDemoAsync();
-            }
-            if (GUILayout.Button("Stop"))
-            {
-                StopDemo();
-            }
-            GUILayout.EndHorizontal();
-            GUILayout.Space(8f);
-            GUILayout.Label("Prompt");
-            prompt = GUILayout.TextField(prompt ?? string.Empty);
-            GUILayout.EndArea();
-        }
-
-        private sealed class MotionSegment
-        {
-            public MotionSegment(int index, AnimationClip clip)
-            {
-                Index = index;
-                Clip = clip;
-                Duration = clip != null ? clip.length : 0f;
+                return;
             }
 
-            public int Index { get; }
-            public AnimationClip Clip { get; }
-            public float Duration { get; }
-        }
-
-        private void DestroySegmentClips()
-        {
-            if (currentSegment?.Clip != null)
+            GeneratedSegment next;
+            lock (queueGate)
             {
-                Destroy(currentSegment.Clip);
-            }
-
-            while (queuedSegments.Count > 0)
-            {
-                MotionSegment segment = queuedSegments.Dequeue();
-                if (segment?.Clip != null)
+                if (pendingSegments.Count == 0)
                 {
-                    Destroy(segment.Clip);
+                    return;
                 }
+
+                next = pendingSegments.Dequeue();
+            }
+
+            somaPlayer.Play(somaAnimator, next.SomaClip, destroyClipOnDispose: true);
+            dancerPlayer.Play(dancerAnimator, next.DancerClip, destroyClipOnDispose: true);
+            nextConstraintPose = next.TailPose;
+            UpdateStatus($"Playing segment {next.Index}.");
+        }
+
+        private void EnqueueSegment(GeneratedSegment segment)
+        {
+            lock (queueGate)
+            {
+                pendingSegments.Enqueue(segment);
+            }
+        }
+
+        private int PendingSegmentCount
+        {
+            get
+            {
+                lock (queueGate)
+                {
+                    return pendingSegments.Count;
+                }
+            }
+        }
+
+        private void ClearPendingSegments()
+        {
+            lock (queueGate)
+            {
+                while (pendingSegments.Count > 0)
+                {
+                    GeneratedSegment segment = pendingSegments.Dequeue();
+                    if (segment?.SomaClip != null)
+                    {
+                        UnityEngine.Object.Destroy(segment.SomaClip);
+                    }
+
+                    if (segment?.DancerClip != null)
+                    {
+                        UnityEngine.Object.Destroy(segment.DancerClip);
+                    }
+                }
+            }
+        }
+
+        private KimodoRuntimeGenerationSettings BuildRuntimeGenerationSettings()
+        {
+            string resolvedRuntimeRoot = Path.GetFullPath(runtimeRoot);
+            string launcherPath = BridgeLauncherResolver.ResolveStartScript(resolvedRuntimeRoot);
+            if (string.IsNullOrWhiteSpace(launcherPath))
+            {
+                throw new FileNotFoundException($"Cannot resolve bridge launcher under '{resolvedRuntimeRoot}'.");
+            }
+
+            return new KimodoRuntimeGenerationSettings
+            {
+                bridgeSettings = new BridgeRuntimeSettings
+                {
+                    runtimeRoot = resolvedRuntimeRoot,
+                    launcherPath = launcherPath,
+                    modelName = modelName,
+                    highVram = highVram,
+                    forceSetup = forceSetup,
+                    modelsRoot = string.IsNullOrWhiteSpace(modelsRoot) ? null : Path.GetFullPath(modelsRoot)
+                }
+            };
+        }
+
+        private void ResolveAvatars()
+        {
+            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out somaAvatar, out string somaError))
+            {
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(somaError) ? "Failed to load SOMA avatar." : somaError);
+            }
+
+            dancerAvatar = dancerAnimator != null ? dancerAnimator.avatar : null;
+            if (!KimodoRetargetTools.IsValidHumanoid(dancerAvatar))
+            {
+                throw new InvalidOperationException("Dancer animator avatar is null, invalid, or not humanoid.");
+            }
+        }
+
+        private bool ValidateConfiguration(out string error)
+        {
+            if (somaAnimator == null)
+            {
+                error = "SOMA animator is not assigned.";
+                return false;
+            }
+
+            if (dancerAnimator == null)
+            {
+                error = "Dancer animator is not assigned.";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(runtimeRoot))
+            {
+                error = "Runtime root is empty.";
+                return false;
+            }
+
+            if (!Directory.Exists(runtimeRoot))
+            {
+                error = $"Runtime root does not exist: {runtimeRoot}";
+                return false;
+            }
+
+            error = string.Empty;
+            return true;
+        }
+
+        private string ResolvePrompt()
+        {
+            string prompt = ReadTextProperty(promptTextSource);
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                prompt = defaultPrompt;
+            }
+
+            return string.IsNullOrWhiteSpace(prompt) ? "A person dancing." : prompt.Trim();
+        }
+
+        public void StartDemo()
+        {
+            _ = StartDemoAsync();
+        }
+
+        public void StopDemo()
+        {
+            _ = StopDemoAsync();
+        }
+
+        private void OnProgress(string message)
+        {
+            if (verboseLogging && !string.IsNullOrWhiteSpace(message))
+            {
+                Debug.Log($"[KimodoInfiniteMotionDemo] {message}");
+            }
+
+            UpdateStatus(message);
+        }
+
+        private void UpdateStatus(string message)
+        {
+            WriteTextProperty(statusTextTarget, string.IsNullOrWhiteSpace(message) ? " " : message);
+        }
+
+        private static string ReadTextProperty(Component component)
+        {
+            if (component == null)
+            {
+                return string.Empty;
+            }
+
+            PropertyInfo property = component.GetType().GetProperty("text", BindingFlags.Instance | BindingFlags.Public);
+            if (property == null || property.PropertyType != typeof(string) || !property.CanRead)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return property.GetValue(component) as string ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static void WriteTextProperty(Component component, string value)
+        {
+            if (component == null)
+            {
+                return;
+            }
+
+            PropertyInfo property = component.GetType().GetProperty("text", BindingFlags.Instance | BindingFlags.Public);
+            if (property == null || property.PropertyType != typeof(string) || !property.CanWrite)
+            {
+                return;
+            }
+
+            try
+            {
+                property.SetValue(component, value ?? string.Empty);
+            }
+            catch
+            {
+            }
+        }
+
+        private sealed class GeneratedSegment
+        {
+            public int Index;
+            public AnimationClip SomaClip;
+            public AnimationClip DancerClip;
+            public KimodoMarkerSampleResult TailPose;
+        }
+
+        private sealed class ClipPlayer : IDisposable
+        {
+            private readonly string graphName;
+            private PlayableGraph graph;
+            private AnimationClipPlayable clipPlayable;
+            private AnimationPlayableOutput output;
+            private AnimationClip activeClip;
+            private Animator targetAnimator;
+            private bool destroyClipOnDispose;
+            private bool playing;
+
+            public ClipPlayer(string graphName)
+            {
+                this.graphName = string.IsNullOrWhiteSpace(graphName) ? "KimodoClipPlayer" : graphName;
+            }
+
+            public bool IsPlaying => playing;
+            public bool HasActiveClip => activeClip != null;
+
+            public float RemainingSeconds
+            {
+                get
+                {
+                    if (!playing || activeClip == null || !clipPlayable.IsValid())
+                    {
+                        return 0f;
+                    }
+
+                    double duration = Math.Max(0.0, activeClip.length);
+                    double time = clipPlayable.GetTime();
+                    if (duration <= 0.0)
+                    {
+                        return 0f;
+                    }
+
+                    return Mathf.Max(0f, (float)(duration - time));
+                }
+            }
+
+            public void Play(Animator animator, AnimationClip clip, bool destroyClipOnDispose = false)
+            {
+                if (animator == null)
+                {
+                    throw new ArgumentNullException(nameof(animator));
+                }
+
+                if (clip == null)
+                {
+                    throw new ArgumentNullException(nameof(clip));
+                }
+
+                DisposeGraph();
+
+                targetAnimator = animator;
+                activeClip = clip;
+                this.destroyClipOnDispose = destroyClipOnDispose;
+                graph = PlayableGraph.Create(graphName);
+                graph.SetTimeUpdateMode(DirectorUpdateMode.GameTime);
+                clipPlayable = AnimationClipPlayable.Create(graph, clip);
+                clipPlayable.SetTime(0.0);
+                output = AnimationPlayableOutput.Create(graph, graphName + "_Output", animator);
+                output.SetSourcePlayable(clipPlayable);
+                graph.Play();
+                playing = true;
+            }
+
+            public void Update()
+            {
+                if (!playing || activeClip == null || !clipPlayable.IsValid())
+                {
+                    return;
+                }
+
+                double duration = clipPlayable.GetDuration();
+                double time = clipPlayable.GetTime();
+                if (duration > 0.0 && time >= duration)
+                {
+                    playing = false;
+                }
+            }
+
+            public void Dispose()
+            {
+                DisposeGraph();
+            }
+
+            private void DisposeGraph()
+            {
+                if (graph.IsValid())
+                {
+                    graph.Destroy();
+                }
+
+                if (destroyClipOnDispose && activeClip != null)
+                {
+                    UnityEngine.Object.Destroy(activeClip);
+                }
+
+                graph = default;
+                clipPlayable = default;
+                output = default;
+                targetAnimator = null;
+                activeClip = null;
+                destroyClipOnDispose = false;
+                playing = false;
             }
         }
     }

@@ -283,7 +283,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!TryCreateTransientMuscleClip(new[] { sourceSample }, 30f, out AnimationClip tempClip, out error))
+            if (!TryCreateTransientMuscleClip(new[] { sourceSample }, KimodoPlayableClip.FIXED_FRAME_RATE, out AnimationClip tempClip, out error))
             {
                 return false;
             }
@@ -465,7 +465,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            float frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : 30f;
+            float frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
             float duration = Mathf.Max(0f, sourceClip.length);
             int frameCount = ResolveFrameCount(duration, frameRate);
 
@@ -728,7 +728,12 @@ namespace KimodoBridge
                 return false;
             }
 
-            return TryCollectBoneSamplesFromMuscleSamples(sourceMuscleSamples, targetCache, sourceClip.frameRate > 0f ? sourceClip.frameRate : 30f, out targetBoneSamples, out error);
+            return TryCollectBoneSamplesFromMuscleSamples(
+                sourceMuscleSamples,
+                targetCache,
+                sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE,
+                out targetBoneSamples,
+                out error);
         }
 
 
@@ -878,7 +883,7 @@ namespace KimodoBridge
             {
                 name = "KimodoRetargetTools_TempMuscleClip",
                 legacy = false,
-                frameRate = frameRate > 0f ? frameRate : 30f
+                frameRate = frameRate > 0f ? frameRate : KimodoPlayableClip.FIXED_FRAME_RATE
             };
 
             if (WriteMuscleSampleToMuscleClip(samples, clip, out error))
@@ -1041,7 +1046,7 @@ namespace KimodoBridge
                 muscleCurves[i] = new AnimationCurve();
             }
 
-            float frameRate = clip.frameRate > 0f ? clip.frameRate : 30f;
+            float frameRate = clip.frameRate > 0f ? clip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
             for (int frame = 0; frame < samples.Count; frame++)
             {
                 MuscleSample sample = samples[frame];
@@ -1132,7 +1137,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            float frameRate = clip.frameRate > 0f ? clip.frameRate : 30f;
+            float frameRate = clip.frameRate > 0f ? clip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
             string[] boneNames = first.boneNames;
             AnimationCurve rootTx = new AnimationCurve();
             AnimationCurve rootTy = new AnimationCurve();

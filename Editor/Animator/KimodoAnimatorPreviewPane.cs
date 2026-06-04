@@ -1,6 +1,7 @@
 ﻿
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Animations;
@@ -13,6 +14,7 @@ namespace KimodoBridge.Editor
     {
         private const float MinLeftWidth = 360f;
         private const string DefaultBridgeModelName = "Kimodo-SOMA-RP-v1";
+        private const string BlendTreeUnsupportedMessage = "TODO: will support BlendTree on future.";
 
         private enum PreviewMode
         {
@@ -25,10 +27,12 @@ namespace KimodoBridge.Editor
         private int generatedPreviewIndex = -1;
         private AnimationClip generatedClipForPreview;
         private AnimationClip originalClipForPreview;
+        private AnimationClip overrideSourceClipForGeneration;
+        private int overrideSourceSelectionInstanceId;
         private Avatar retargetAvatarForPreview;
-        private GameObject previewSourceTemplate;
-        private GameObject originalPreviewInstance;
-        private GameObject generatedPreviewInstance;
+        private bool retargetAvatarDependsOnBridgeModel;
+        private string retargetAvatarBridgeModelName = string.Empty;
+        private GameObject previewRootInstance;
         private KimodoAvatarPreviewCore avatarPreviewCore;
         private float transitionPreRollSeconds = 0.3f;
         private float transitionPostRollSeconds = 0.5f;
@@ -40,23 +44,20 @@ namespace KimodoBridge.Editor
         private AnimatorState selectedFromState;
         private AnimatorController selectedController;
         private AnimatorStateMachine selectedStateMachine;
+        private bool HasGeneratedResult => generatedClipForPreview != null || generatedPreviewHistory.Count > 0;
 
         public void Initialize()
         {
             avatarPreviewCore = new KimodoAvatarPreviewCore();
             avatarPreviewCore.SetTransitionWindowPadding(transitionPreRollSeconds, transitionPostRollSeconds);
-            TryCaptureSelectionIfNeeded();
+            TryCaptureSelectionFromActiveObject(lockSelection: false);
             RefreshPreviewSource();
         }
 
         public void Dispose()
         {
-            DestroyPreviewInstances();
-            if (previewSourceTemplate != null)
-            {
-                UnityEngine.Object.DestroyImmediate(previewSourceTemplate);
-                previewSourceTemplate = null;
-            }
+            DestroyPreviewRootInstance();
+            ClearResolvedPreviewSource();
             avatarPreviewCore?.Dispose();
             avatarPreviewCore = null;
         }
@@ -68,23 +69,24 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (TryCaptureSelectionIfNeeded())
-            {
-                RefreshPreviewSource();
-            }
+            TryCaptureSelectionFromActiveObject(lockSelection: false);
+            RefreshPreviewSource();
         }
 
         public bool HasSelection => selectedTransition != null || selectedState != null;
+        public bool HasUnsupportedBlendTreeSelection => TryGetBlendTreeSelectionWarning(out _);
         public AnimationClip GeneratedClipForPreview => generatedClipForPreview;
+        public AnimationClip OriginalClipForPreview => originalClipForPreview;
         public Avatar RetargetAvatarForPreview => retargetAvatarForPreview;
+        public GameObject PreviewAvatarRoot => previewRootInstance;
         public AnimatorStateTransition SelectedTransition => selectedTransition;
         public AnimatorState SelectedState => selectedState;
         public AnimatorState SelectedFromState => selectedFromState;
         public AnimatorStateMachine SelectedStateMachine => selectedStateMachine;
 
-        public void Tick()
+        public bool Tick()
         {
-            avatarPreviewCore?.Tick();
+            return avatarPreviewCore != null && avatarPreviewCore.Tick();
         }
 
         public void DrawToolbar(ref string lastStatus, ref string lastError, Action onResetAll)
@@ -161,7 +163,11 @@ namespace KimodoBridge.Editor
 
             if (previewMode == PreviewMode.Generated)
             {
-                avatarPreviewCore.SetClipPreview(generatedPreviewInstance, generatedClipForPreview, generatedClipForPreview == null ? "No generated animation." : "Generated preview unavailable.");
+                avatarPreviewCore.SetClipPreview(previewRootInstance, generatedClipForPreview, generatedClipForPreview == null ? "No generated animation." : "Generated preview unavailable.");
+            }
+            else if (TryGetBlendTreeSelectionWarning(out string warning))
+            {
+                avatarPreviewCore.SetClipPreview(previewRootInstance, null, warning);
             }
             else if (selectedTransition != null)
             {
@@ -169,16 +175,16 @@ namespace KimodoBridge.Editor
                 AnimationClip toClip = selectedTransition.destinationState != null ? selectedTransition.destinationState.motion as AnimationClip : null;
                 if (fromClip != null && toClip != null)
                 {
-                    avatarPreviewCore.SetTransitionPreview(originalPreviewInstance, fromClip, toClip, selectedTransition, "No transition animation.");
+                    avatarPreviewCore.SetTransitionPreview(previewRootInstance, fromClip, toClip, selectedTransition, "No transition animation.");
                 }
                 else
                 {
-                    avatarPreviewCore.SetClipPreview(originalPreviewInstance, null, "Transition preview requires clips.");
+                    avatarPreviewCore.SetClipPreview(previewRootInstance, null, "Transition preview requires AnimationClip motions.");
                 }
             }
             else
             {
-                avatarPreviewCore.SetClipPreview(originalPreviewInstance, originalClipForPreview, originalClipForPreview == null ? "No original animation." : "Original preview unavailable.");
+                avatarPreviewCore.SetClipPreview(previewRootInstance, originalClipForPreview, originalClipForPreview == null ? "No original animation." : "Original preview unavailable.");
             }
 
             avatarPreviewCore.Draw(renderRect);
@@ -192,14 +198,16 @@ namespace KimodoBridge.Editor
                 generatedPreviewHistory.Add(clip);
                 generatedPreviewIndex = generatedPreviewHistory.Count - 1;
             }
+
+            LockCurrentSelection();
             previewMode = PreviewMode.Generated;
-            BuildOrRefreshPreviewInstances();
             avatarPreviewCore?.RestartFromZeroAndPlay();
         }
 
         public void OnGenerateFailedOrCanceled()
         {
             generatedClipForPreview = null;
+            ReleaseSelectionLockIfNoGeneratedResult();
         }
 
         public void ResetGeneratedOnly()
@@ -208,29 +216,34 @@ namespace KimodoBridge.Editor
             generatedPreviewHistory.Clear();
             generatedPreviewIndex = -1;
             previewMode = PreviewMode.Original;
+            ReleaseSelectionLockIfNoGeneratedResult();
         }
 
         public void ResetAll()
         {
             ResetGeneratedOnly();
             ClearSelectionLatch();
-            DestroyPreviewInstances();
+            DestroyPreviewRootInstance();
             avatarPreviewCore?.Dispose();
             avatarPreviewCore = new KimodoAvatarPreviewCore();
             avatarPreviewCore.SetTransitionWindowPadding(transitionPreRollSeconds, transitionPostRollSeconds);
-            originalClipForPreview = null;
-            retargetAvatarForPreview = null;
+            ClearResolvedPreviewSource();
 
-            if (TryCaptureSelectionIfNeeded())
-            {
-                RefreshPreviewSource();
-            }
+            TryCaptureSelectionFromActiveObject(lockSelection: false);
+            RefreshPreviewSource();
         }
 
         public void DrawSelectionInfo()
         {
             EditorGUILayout.LabelField("Selection Context", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
+            if (selectionLatched)
+            {
+                EditorGUILayout.HelpBox(
+                    $"Selection is locked to instance {latchedSelectionInstanceId}. Click Reselect to capture the current Animator State/Transition.",
+                    MessageType.Info);
+            }
+
             if (selectedTransition != null)
             {
                 EditorGUILayout.LabelField("Mode: Transition");
@@ -247,10 +260,102 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.HelpBox("Select AnimatorStateTransition or AnimatorState.", MessageType.Warning);
             }
+
+            if (TryGetBlendTreeSelectionWarning(out string warning))
+            {
+                EditorGUILayout.HelpBox(warning, MessageType.Info);
+            }
             EditorGUILayout.EndVertical();
         }
 
-        public bool TryBuildExternalConstraints(string bridgeModelName, int generationFrames, out string constraintsJson, out string error)
+        public bool TryEnsureGenerationSourceReady(string bridgeModelName, out string error)
+        {
+            return TryResolveAvatarAndMotionForSampling(bridgeModelName, preparePreviewRoot: true, out _, out _, out error);
+        }
+
+        public bool TryResolveCurrentSourceClipAndAvatar(
+            string bridgeModelName,
+            out AnimationClip sourceClip,
+            out Avatar avatar,
+            out string error)
+        {
+            sourceClip = null;
+            avatar = null;
+            if (!TryResolveAvatarAndMotionForSampling(bridgeModelName, preparePreviewRoot: true, out avatar, out sourceClip, out error))
+            {
+                return false;
+            }
+
+            return sourceClip != null && avatar != null;
+        }
+
+        public void OverrideOriginalClipForPreview(AnimationClip clip, string bridgeModelName)
+        {
+            if (clip == null)
+            {
+                return;
+            }
+
+            ClearResolvedPreviewSource();
+            overrideSourceClipForGeneration = clip;
+            overrideSourceSelectionInstanceId = GetSelectedTargetInstanceId();
+            originalClipForPreview = clip;
+            generatedClipForPreview = null;
+            generatedPreviewHistory.Clear();
+            generatedPreviewIndex = -1;
+            previewMode = PreviewMode.Original;
+            retargetAvatarBridgeModelName = NormalizeBridgeModelName(bridgeModelName);
+            avatarPreviewCore?.RestartFromZeroAndPlay();
+        }
+
+        public string GetSuggestedPrompt()
+        {
+            if (selectedState != null)
+            {
+                return ResolvePromptFromState(selectedState);
+            }
+
+            if (selectedTransition != null)
+            {
+                return ResolvePromptFromTransition(selectedTransition, selectedFromState);
+            }
+
+            AnimationClip clip = originalClipForPreview;
+            if (clip == null)
+            {
+                TryResolveSelectedSourceClip(out clip, out _);
+            }
+
+            return clip != null && !string.IsNullOrWhiteSpace(clip.name)
+                ? clip.name.Trim()
+                : string.Empty;
+        }
+
+        public float GetSuggestedDurationSeconds()
+        {
+            if (selectedTransition != null)
+            {
+                AnimationClip fromClip = selectedFromState != null ? selectedFromState.motion as AnimationClip : null;
+                float fromLength = Mathf.Max(0.001f, fromClip != null ? fromClip.length : 0.001f);
+                float transitionDuration = selectedTransition.hasFixedDuration
+                    ? Mathf.Max(0.001f, selectedTransition.duration)
+                    : Mathf.Max(0.001f, selectedTransition.duration * fromLength);
+                return Mathf.Max(1f / KimodoPlayableClip.FIXED_FRAME_RATE, transitionDuration);
+            }
+
+            AnimationClip clip = originalClipForPreview;
+            if (clip == null)
+            {
+                TryResolveSelectedSourceClip(out clip, out _);
+            }
+
+            float defaultDuration = KimodoPlayableClip.DEFAULT_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
+            return clip == null
+                ? defaultDuration
+                : Mathf.Max(1f / KimodoPlayableClip.FIXED_FRAME_RATE, clip.length);
+        }
+
+        public bool TryBuildExternalConstraints(string bridgeModelName, float generationDurationSeconds, bool isLoop, out string constraintsJson, out string error)
         {
             constraintsJson = string.Empty;
             error = string.Empty;
@@ -260,13 +365,37 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            string modelName = string.IsNullOrWhiteSpace(bridgeModelName) ? "Kimodo-SOMA-RP-v1" : bridgeModelName.Trim();
+            string modelName = NormalizeBridgeModelName(bridgeModelName);
+            AnimationClip beginClip = sourceClip;
+            AnimationClip endClip = sourceClip;
+            double beginNormalizedTime = 0.0;
+            double endNormalizedTime = 1.0;
+            if (selectedTransition != null)
+            {
+                AnimationClip destinationClip = selectedTransition.destinationState != null
+                    ? selectedTransition.destinationState.motion as AnimationClip
+                    : null;
+                if (destinationClip == null)
+                {
+                    error = "Transition preview requires from/to clips.";
+                    return false;
+                }
+
+                beginNormalizedTime = 1.0;
+                endNormalizedTime = 0.0;
+                endClip = destinationClip;
+            }
+
+            int generatedFrameCount = ResolveConstraintFrameCount(generationDurationSeconds);
+            double generatedClipDurationSeconds = ResolveConstraintClipDurationSeconds(generatedFrameCount);
+            double endConstraintTime = ResolveConstraintEndSampleTimeSeconds(generatedFrameCount);
+
             var samples = new List<KimodoMarkerSampleResult>(2);
-            if (!TrySampleAtNormalizedTime(avatar, sourceClip, modelName, 0.0, out KimodoMarkerSampleResult begin, out error))
+            if (!TrySampleAtNormalizedTime(avatar, beginClip, modelName, beginNormalizedTime, out KimodoMarkerSampleResult begin, out error))
             {
                 return false;
             }
-            if (!TrySampleAtNormalizedTime(avatar, sourceClip, modelName, 1.0, out KimodoMarkerSampleResult end, out error))
+            if (!TrySampleAtNormalizedTime(avatar, endClip, modelName, endNormalizedTime, out KimodoMarkerSampleResult end, out error))
             {
                 return false;
             }
@@ -274,20 +403,83 @@ namespace KimodoBridge.Editor
             begin.constraintType = "fullbody";
             end.constraintType = "fullbody";
             begin.sampleTime = 0.0;
-            end.sampleTime = Mathf.Max(1, generationFrames) / 30.0;
+            end.sampleTime = endConstraintTime;
+            if (isLoop)
+            {
+                OverwriteLoopEndPoseAxes(begin, end);
+            }
+
             samples.Add(begin);
-            samples.Add(end);
-            constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(samples, 0.0, end.sampleTime);
+            if (generatedFrameCount > 1)
+            {
+                samples.Add(end);
+            }
+
+            constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(samples, 0.0, generatedClipDurationSeconds);
             return true;
         }
 
-        private bool TryCaptureSelectionIfNeeded()
+        private static void OverwriteLoopEndPoseAxes(KimodoMarkerSampleResult begin, KimodoMarkerSampleResult end)
         {
-            if (selectionLatched)
+            if (begin == null || end == null)
             {
-                return false;
+                return;
             }
 
+            end.localAxisAngles = begin.localAxisAngles != null
+                ? new List<Vector3>(begin.localAxisAngles)
+                : new List<Vector3>();
+            end.sampledJointIndices = begin.sampledJointIndices != null
+                ? new List<int>(begin.sampledJointIndices)
+                : new List<int>();
+            end.jointNames = begin.jointNames != null
+                ? new List<string>(begin.jointNames)
+                : new List<string>();
+        }
+
+        public void LockCurrentSelection()
+        {
+            int selectionId = GetSelectedTargetInstanceId();
+            if (selectionId == 0)
+            {
+                return;
+            }
+
+            selectionLatched = true;
+            latchedSelectionInstanceId = selectionId;
+        }
+
+        private void ReleaseSelectionLockIfNoGeneratedResult()
+        {
+            if (HasGeneratedResult)
+            {
+                return;
+            }
+
+            selectionLatched = false;
+            latchedSelectionInstanceId = 0;
+            TryCaptureSelectionFromActiveObject(lockSelection: false);
+            RefreshPreviewSource();
+        }
+
+        private int GetSelectedTargetInstanceId()
+        {
+            if (selectedTransition != null)
+            {
+                return selectedTransition.GetInstanceID();
+            }
+
+            if (selectedState != null)
+            {
+                return selectedState.GetInstanceID();
+            }
+
+            return 0;
+        }
+
+        private bool TryCaptureSelectionFromActiveObject(bool lockSelection)
+        {
+            ClearSelectionLatch();
             UnityEngine.Object obj = Selection.activeObject;
             if (obj == null)
             {
@@ -300,8 +492,8 @@ namespace KimodoBridge.Editor
                 selectedState = null;
                 selectedController = FindControllerForObject(transition);
                 selectedStateMachine = FindStateMachineForTransition(selectedController, transition, out selectedFromState);
-                selectionLatched = true;
-                latchedSelectionInstanceId = obj.GetInstanceID();
+                selectionLatched = lockSelection;
+                latchedSelectionInstanceId = lockSelection ? obj.GetInstanceID() : 0;
                 return true;
             }
 
@@ -312,8 +504,8 @@ namespace KimodoBridge.Editor
                 selectedFromState = null;
                 selectedController = FindControllerForObject(state);
                 selectedStateMachine = FindStateMachineForState(selectedController, state);
-                selectionLatched = true;
-                latchedSelectionInstanceId = obj.GetInstanceID();
+                selectionLatched = lockSelection;
+                latchedSelectionInstanceId = lockSelection ? obj.GetInstanceID() : 0;
                 return true;
             }
 
@@ -335,25 +527,77 @@ namespace KimodoBridge.Editor
         {
             if (!HasSelection)
             {
-                DestroyPreviewInstances();
+                DestroyPreviewRootInstance();
+                ClearResolvedPreviewSource();
                 return;
             }
 
-            if (TryResolveAvatarAndMotionForSampling(DefaultBridgeModelName, out _, out _, out _))
+            if (!TryResolveAvatarAndMotionForSampling(DefaultBridgeModelName, preparePreviewRoot: true, out _, out _, out _))
             {
-                BuildOrRefreshPreviewInstances();
-            }
-            else
-            {
-                DestroyPreviewInstances();
+                DestroyPreviewRootInstance();
+                ClearResolvedPreviewSource();
             }
         }
 
         private bool TryResolveAvatarAndMotionForSampling(string bridgeModelName, out Avatar avatar, out AnimationClip sourceClip, out string error)
         {
+            return TryResolveAvatarAndMotionForSampling(bridgeModelName, preparePreviewRoot: false, out avatar, out sourceClip, out error);
+        }
+
+        private bool TryResolveAvatarAndMotionForSampling(
+            string bridgeModelName,
+            bool preparePreviewRoot,
+            out Avatar avatar,
+            out AnimationClip sourceClip,
+            out string error)
+        {
             avatar = null;
             sourceClip = null;
             error = string.Empty;
+            string modelName = NormalizeBridgeModelName(bridgeModelName);
+
+            if (!TryResolveSelectedSourceClip(out sourceClip, out error))
+            {
+                return false;
+            }
+
+            if (!preparePreviewRoot && IsResolvedPreviewSourceCacheValid(sourceClip, modelName))
+            {
+                avatar = retargetAvatarForPreview;
+                return true;
+            }
+
+            bool avatarDependsOnBridgeModel;
+            if (preparePreviewRoot)
+            {
+                if (!TryPreparePreviewSource(sourceClip, modelName, out avatar, out avatarDependsOnBridgeModel, out error))
+                {
+                    return false;
+                }
+            }
+            else if (!TryResolveAvatarWithoutPreviewRoot(sourceClip, modelName, out avatar, out avatarDependsOnBridgeModel, out error))
+            {
+                return false;
+            }
+
+            CacheResolvedPreviewSource(sourceClip, avatar, avatarDependsOnBridgeModel, modelName);
+            return true;
+        }
+
+        private bool TryResolveSelectedSourceClip(out AnimationClip sourceClip, out string error)
+        {
+            sourceClip = null;
+            error = string.Empty;
+            if (TryGetBlendTreeSelectionWarning(out error))
+            {
+                return false;
+            }
+
+            if (overrideSourceClipForGeneration != null && IsOverrideSourceClipValidForCurrentSelection())
+            {
+                sourceClip = overrideSourceClipForGeneration;
+                return true;
+            }
 
             if (selectedState != null)
             {
@@ -363,12 +607,10 @@ namespace KimodoBridge.Editor
                     error = "State motion is not an AnimationClip.";
                     return false;
                 }
-                if (!TryPreparePreviewSource(sourceClip, bridgeModelName, out avatar, out error))
-                {
-                    return false;
-                }
+                return true;
             }
-            else if (selectedTransition != null)
+
+            if (selectedTransition != null)
             {
                 AnimatorState from = selectedFromState;
                 AnimatorState to = selectedTransition.destinationState;
@@ -380,15 +622,78 @@ namespace KimodoBridge.Editor
                     return false;
                 }
                 sourceClip = fromClip;
-                if (!TryPreparePreviewSource(sourceClip, bridgeModelName, out avatar, out error))
-                {
-                    return false;
-                }
+                return true;
             }
 
+            error = "No selected transition or state.";
+            return false;
+        }
+
+        private bool TryGetBlendTreeSelectionWarning(out string warning)
+        {
+            warning = string.Empty;
+
+            if (selectedState != null && selectedState.motion is BlendTree)
+            {
+                warning = BlendTreeUnsupportedMessage;
+                return true;
+            }
+
+            if (selectedFromState != null && selectedFromState.motion is BlendTree)
+            {
+                warning = BlendTreeUnsupportedMessage;
+                return true;
+            }
+
+            if (selectedTransition != null &&
+                selectedTransition.destinationState != null &&
+                selectedTransition.destinationState.motion is BlendTree)
+            {
+                warning = BlendTreeUnsupportedMessage;
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool IsResolvedPreviewSourceCacheValid(AnimationClip sourceClip, string modelName)
+        {
+            if (sourceClip == null ||
+                originalClipForPreview != sourceClip ||
+                retargetAvatarForPreview == null ||
+                !retargetAvatarForPreview.isValid ||
+                !retargetAvatarForPreview.isHuman)
+            {
+                return false;
+            }
+
+            return !retargetAvatarDependsOnBridgeModel ||
+                string.Equals(retargetAvatarBridgeModelName, modelName, StringComparison.Ordinal);
+        }
+
+        private bool IsOverrideSourceClipValidForCurrentSelection()
+        {
+            return overrideSourceClipForGeneration != null &&
+                overrideSourceSelectionInstanceId != 0 &&
+                overrideSourceSelectionInstanceId == GetSelectedTargetInstanceId();
+        }
+
+        private void CacheResolvedPreviewSource(AnimationClip sourceClip, Avatar avatar, bool avatarDependsOnBridgeModel, string bridgeModelName)
+        {
             originalClipForPreview = sourceClip;
             retargetAvatarForPreview = avatar;
-            return true;
+            retargetAvatarDependsOnBridgeModel = avatarDependsOnBridgeModel;
+            retargetAvatarBridgeModelName = avatarDependsOnBridgeModel ? bridgeModelName : string.Empty;
+        }
+
+        private void ClearResolvedPreviewSource()
+        {
+            overrideSourceClipForGeneration = null;
+            overrideSourceSelectionInstanceId = 0;
+            originalClipForPreview = null;
+            retargetAvatarForPreview = null;
+            retargetAvatarDependsOnBridgeModel = false;
+            retargetAvatarBridgeModelName = string.Empty;
         }
 
         private static bool TrySampleAtNormalizedTime(Avatar avatar, AnimationClip clip, string modelName, double normalizedTime, out KimodoMarkerSampleResult sample, out string error)
@@ -401,8 +706,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            double duration = Math.Max(0.001, clip.length);
-            double globalTime = Mathf.Clamp01((float)normalizedTime) * duration;
+            double globalTime = ResolveClipSampleTime(clip, normalizedTime);
 
             if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar targetAvatar, out string targetError))
             {
@@ -421,21 +725,57 @@ namespace KimodoBridge.Editor
                 out error);
         }
 
-        private void BuildOrRefreshPreviewInstances()
+        private static int ResolveConstraintFrameCount(float generationDurationSeconds)
         {
-            DestroyPreviewInstances();
-            if (previewSourceTemplate == null)
+            float minDuration = KimodoPlayableClip.MIN_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
+            float maxDuration = KimodoPlayableClip.MAX_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
+            float clampedDuration = Mathf.Clamp(generationDurationSeconds, minDuration, maxDuration);
+            return Mathf.Clamp(
+                Mathf.RoundToInt(clampedDuration * KimodoPlayableClip.FIXED_FRAME_RATE),
+                KimodoPlayableClip.MIN_FRAMES,
+                KimodoPlayableClip.MAX_FRAMES);
+        }
+
+        private static double ResolveConstraintClipDurationSeconds(int frameCount)
+        {
+            int clampedFrameCount = Mathf.Clamp(frameCount, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES);
+            return clampedFrameCount / KimodoPlayableClip.FIXED_FRAME_RATE;
+        }
+
+        private static double ResolveConstraintEndSampleTimeSeconds(int frameCount)
+        {
+            int clampedFrameCount = Mathf.Clamp(frameCount, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES);
+            return clampedFrameCount <= 1
+                ? 0.0
+                : (clampedFrameCount - 1.0) / KimodoPlayableClip.FIXED_FRAME_RATE;
+        }
+
+        private static double ResolveClipSampleTime(AnimationClip clip, double normalizedTime)
+        {
+            if (clip == null)
             {
-                return;
+                return 0.0;
             }
 
-            if (retargetAvatarForPreview == null || !retargetAvatarForPreview.isValid || !retargetAvatarForPreview.isHuman)
+            double duration = Math.Max(0.0, clip.length);
+            if (duration <= 0.0)
             {
-                return;
+                return 0.0;
             }
 
-            originalPreviewInstance = CreatePreviewInstance("KimodoPreviewOriginal");
-            generatedPreviewInstance = CreatePreviewInstance("KimodoPreviewGenerated");
+            double clampedNormalizedTime = Math.Max(0.0, Math.Min(1.0, normalizedTime));
+            if (clampedNormalizedTime <= 0.0)
+            {
+                return 0.0;
+            }
+
+            if (clampedNormalizedTime >= 1.0)
+            {
+                double epsilon = Math.Min(1e-3, duration * 0.5);
+                return Math.Max(0.0, duration - epsilon);
+            }
+
+            return clampedNormalizedTime * duration;
         }
 
         private void SetGeneratedPreviewByIndex()
@@ -449,69 +789,50 @@ namespace KimodoBridge.Editor
             generatedPreviewIndex = Mathf.Clamp(generatedPreviewIndex, 0, generatedPreviewHistory.Count - 1);
             generatedClipForPreview = generatedPreviewHistory[generatedPreviewIndex];
             previewMode = PreviewMode.Generated;
-            BuildOrRefreshPreviewInstances();
             avatarPreviewCore?.RestartFromZeroAndPlay();
-        }
-
-        private GameObject CreatePreviewInstance(string name)
-        {
-            if (previewSourceTemplate == null)
-            {
-                return null;
-            }
-
-            GameObject root = UnityEngine.Object.Instantiate(previewSourceTemplate);
-            root.name = name;
-            root.hideFlags = HideFlags.HideAndDontSave;
-            Animator animator = root.GetComponentInChildren<Animator>(true);
-            if (animator == null)
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-                return null;
-            }
-
-            animator.runtimeAnimatorController = null;
-            animator.avatar = retargetAvatarForPreview;
-            animator.enabled = false;
-            animator.applyRootMotion = false;
-            animator.Rebind();
-            animator.Update(0f);
-            return root;
         }
         
 
-        private bool TryPreparePreviewSource(AnimationClip sourceClip, string bridgeModelName, out Avatar avatar, out string error)
+        private bool TryPreparePreviewSource(
+            AnimationClip sourceClip,
+            string bridgeModelName,
+            out Avatar avatar,
+            out bool avatarDependsOnBridgeModel,
+            out string error)
         {
             avatar = null;
+            avatarDependsOnBridgeModel = false;
             error = string.Empty;
-            if (previewSourceTemplate != null)
-            {
-                UnityEngine.Object.DestroyImmediate(previewSourceTemplate);
-                previewSourceTemplate = null;
-            }
+            DestroyPreviewRootInstance();
 
-            GameObject sourceRoot = FindScenePreviewSourceByController(selectedController);
-            if (sourceRoot == null)
+            GameObject sourceRoot = null;
+            bool sourceRootOwned = false;
+            if (!TryResolveScenePreviewSourceByController(selectedController, out sourceRoot, out avatar))
             {
                 sourceRoot = LoadClipOwnerModelAsset(sourceClip);
-            }
-
-            if (sourceRoot == null)
-            {
-                string modelName = string.IsNullOrWhiteSpace(bridgeModelName) ? DefaultBridgeModelName : bridgeModelName.Trim();
-                if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar fallbackAvatar, out _)
-                    && fallbackAvatar != null && fallbackAvatar.isValid && fallbackAvatar.isHuman)
+                avatar = null;
+                if (sourceRoot == null)
                 {
-                    if (!KimodoRetargetTools.TryCreateTemporaryHumanoidRoot(
-                        fallbackAvatar,
-                        "KimodoPreviewSkeletonTemplate",
-                        animatorEnabled: false,
-                        applyRootMotion: false,
-                        out sourceRoot,
-                        out _,
-                        out _))
+                    string modelName = NormalizeBridgeModelName(bridgeModelName);
+                    if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar fallbackAvatar, out _)
+                        && fallbackAvatar != null && fallbackAvatar.isValid && fallbackAvatar.isHuman)
                     {
-                        sourceRoot = null;
+                        if (!KimodoRetargetTools.TryCreateTemporaryHumanoidRoot(
+                            fallbackAvatar,
+                            "KimodoPreviewSkeletonTemplate",
+                            animatorEnabled: false,
+                            applyRootMotion: true,
+                            out sourceRoot,
+                            out _,
+                            out _))
+                        {
+                            sourceRoot = null;
+                        }
+                        else
+                        {
+                            sourceRootOwned = true;
+                            avatarDependsOnBridgeModel = true;
+                        }
                     }
                 }
             }
@@ -522,29 +843,139 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            previewSourceTemplate = UnityEngine.Object.Instantiate(sourceRoot);
-            previewSourceTemplate.name = "KimodoPreviewTemplate";
-            previewSourceTemplate.hideFlags = HideFlags.HideAndDontSave;
+            previewRootInstance = sourceRootOwned
+                ? sourceRoot
+                : UnityEngine.Object.Instantiate(sourceRoot);
+            previewRootInstance.name = "KimodoPreviewRoot";
+            previewRootInstance.hideFlags = HideFlags.HideAndDontSave;
 
-            Animator animator = previewSourceTemplate.GetComponentInChildren<Animator>(true);
+            Animator animator = previewRootInstance.GetComponentInChildren<Animator>(true);
             if (animator == null)
             {
-                animator = previewSourceTemplate.AddComponent<Animator>();
+                animator = previewRootInstance.AddComponent<Animator>();
             }
 
-            if (!KimodoLocalAvatarUtility.TryEnsureHumanoidAvatar(previewSourceTemplate, out avatar, out _, out error))
+            if (avatar == null)
             {
-                UnityEngine.Object.DestroyImmediate(previewSourceTemplate);
-                previewSourceTemplate = null;
+                if (!KimodoLocalAvatarUtility.TryEnsureHumanoidAvatar(previewRootInstance, out avatar, out _, out error))
+                {
+                    DestroyPreviewRootInstance();
+                    return false;
+                }
+            }
+            else if (!KimodoLocalAvatarUtility.CheckAvatarValid(avatar, previewRootInstance))
+            {
+                DestroyPreviewRootInstance();
+                error = "Scene animator avatar is not compatible with preview template.";
                 return false;
             }
 
             animator.avatar = avatar;
             animator.enabled = false;
-            animator.applyRootMotion = false;
+            animator.applyRootMotion = true;
             animator.Rebind();
             animator.Update(0f);
-            return true;
+            return avatar != null && avatar.isValid && avatar.isHuman;
+        }
+
+        private bool TryResolveAvatarWithoutPreviewRoot(
+            AnimationClip sourceClip,
+            string bridgeModelName,
+            out Avatar avatar,
+            out bool avatarDependsOnBridgeModel,
+            out string error)
+        {
+            avatar = null;
+            avatarDependsOnBridgeModel = false;
+            error = string.Empty;
+
+            if (TryResolveScenePreviewSourceByController(selectedController, out _, out avatar))
+            {
+                return avatar != null && avatar.isValid && avatar.isHuman;
+            }
+
+            GameObject sourceRoot = LoadClipOwnerModelAsset(sourceClip);
+            if (sourceRoot != null)
+            {
+                return KimodoLocalAvatarUtility.TryEnsureHumanoidAvatar(sourceRoot, out avatar, out _, out error) &&
+                    avatar != null &&
+                    avatar.isValid &&
+                    avatar.isHuman;
+            }
+
+            if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(bridgeModelName, out avatar, out error) &&
+                avatar != null &&
+                avatar.isValid &&
+                avatar.isHuman)
+            {
+                avatarDependsOnBridgeModel = true;
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(error))
+            {
+                error = "Cannot resolve preview avatar.";
+            }
+            return false;
+        }
+
+        private static string NormalizeBridgeModelName(string bridgeModelName)
+        {
+            return string.IsNullOrWhiteSpace(bridgeModelName)
+                ? DefaultBridgeModelName
+                : bridgeModelName.Trim();
+        }
+
+        private static string ResolvePromptFromState(AnimatorState state)
+        {
+            if (state == null)
+            {
+                return string.Empty;
+            }
+
+            if (!string.IsNullOrWhiteSpace(state.name))
+            {
+                return state.name.Trim();
+            }
+
+            AnimationClip clip = state.motion as AnimationClip;
+            return clip != null && !string.IsNullOrWhiteSpace(clip.name)
+                ? clip.name.Trim()
+                : string.Empty;
+        }
+
+        private static string ResolvePromptFromTransition(AnimatorStateTransition transition, AnimatorState fromState)
+        {
+            if (transition == null)
+            {
+                return string.Empty;
+            }
+
+            string fromName = ResolvePromptFromState(fromState);
+            if (string.IsNullOrWhiteSpace(fromName))
+            {
+                fromName = "From";
+            }
+
+            string toName = ResolvePromptFromState(transition.destinationState);
+            if (string.IsNullOrWhiteSpace(toName))
+            {
+                if (transition.isExit)
+                {
+                    toName = "Exit";
+                }
+                else if (transition.destinationStateMachine != null &&
+                    !string.IsNullOrWhiteSpace(transition.destinationStateMachine.name))
+                {
+                    toName = transition.destinationStateMachine.name.Trim();
+                }
+                else
+                {
+                    toName = "To";
+                }
+            }
+
+            return $"transition {fromName} to {toName}";
         }
 
         private static AnimatorController FindControllerForObject(UnityEngine.Object target)
@@ -571,13 +1002,9 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < controller.layers.Length; i++)
             {
                 AnimatorStateMachine sm = controller.layers[i].stateMachine;
-                ChildAnimatorState[] states = sm.states;
-                for (int j = 0; j < states.Length; j++)
+                if (TryFindStateMachineForStateRecursive(sm, state, out AnimatorStateMachine owner))
                 {
-                    if (states[j].state == state)
-                    {
-                        return sm;
-                    }
+                    return owner;
                 }
             }
             return null;
@@ -594,53 +1021,200 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < controller.layers.Length; i++)
             {
                 AnimatorStateMachine sm = controller.layers[i].stateMachine;
-                ChildAnimatorState[] states = sm.states;
-                for (int j = 0; j < states.Length; j++)
+                if (TryFindStateMachineForTransitionRecursive(sm, transition, out AnimatorStateMachine owner, out fromState))
                 {
-                    AnimatorState s = states[j].state;
-                    AnimatorStateTransition[] transitions = s.transitions;
-                    for (int k = 0; k < transitions.Length; k++)
-                    {
-                        if (transitions[k] == transition)
-                        {
-                            fromState = s;
-                            return sm;
-                        }
-                    }
+                    return owner;
                 }
             }
             return null;
         }
 
-        private static GameObject FindScenePreviewSourceByController(AnimatorController controller)
+        private static bool TryFindStateMachineForStateRecursive(
+            AnimatorStateMachine stateMachine,
+            AnimatorState targetState,
+            out AnimatorStateMachine owner)
         {
-            if (controller == null)
+            owner = null;
+            if (stateMachine == null || targetState == null)
             {
-                return null;
+                return false;
             }
 
-            Animator[] animators = UnityEngine.Object.FindObjectsByType<Animator>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            for (int i = 0; i < animators.Length; i++)
+            ChildAnimatorState[] states = stateMachine.states;
+            for (int i = 0; i < states.Length; i++)
             {
-                Animator a = animators[i];
-                if (a == null || a.runtimeAnimatorController == null)
+                if (states[i].state == targetState)
+                {
+                    owner = stateMachine;
+                    return true;
+                }
+            }
+
+            ChildAnimatorStateMachine[] childStateMachines = stateMachine.stateMachines;
+            for (int i = 0; i < childStateMachines.Length; i++)
+            {
+                if (TryFindStateMachineForStateRecursive(childStateMachines[i].stateMachine, targetState, out owner))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryFindStateMachineForTransitionRecursive(
+            AnimatorStateMachine stateMachine,
+            AnimatorStateTransition transition,
+            out AnimatorStateMachine owner,
+            out AnimatorState fromState)
+        {
+            owner = null;
+            fromState = null;
+            if (stateMachine == null || transition == null)
+            {
+                return false;
+            }
+
+            ChildAnimatorState[] states = stateMachine.states;
+            for (int i = 0; i < states.Length; i++)
+            {
+                AnimatorState state = states[i].state;
+                if (state == null)
                 {
                     continue;
                 }
 
-                if (ReferenceEquals(a.runtimeAnimatorController, controller))
+                AnimatorStateTransition[] transitions = state.transitions;
+                for (int j = 0; j < transitions.Length; j++)
                 {
-                    return a.gameObject;
-                }
-
-                AnimatorOverrideController overrideController = a.runtimeAnimatorController as AnimatorOverrideController;
-                if (overrideController != null && ReferenceEquals(overrideController.runtimeAnimatorController, controller))
-                {
-                    return a.gameObject;
+                    if (transitions[j] == transition)
+                    {
+                        owner = stateMachine;
+                        fromState = state;
+                        return true;
+                    }
                 }
             }
 
-            return null;
+            ChildAnimatorStateMachine[] childStateMachines = stateMachine.stateMachines;
+            for (int i = 0; i < childStateMachines.Length; i++)
+            {
+                if (TryFindStateMachineForTransitionRecursive(
+                        childStateMachines[i].stateMachine,
+                        transition,
+                        out owner,
+                        out fromState))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveScenePreviewSourceByController(AnimatorController controller, out GameObject sourceRoot, out Avatar avatar)
+        {
+            sourceRoot = null;
+            avatar = null;
+            if (controller == null)
+            {
+                return false;
+            }
+
+            Animator[] animators = Resources.FindObjectsOfTypeAll<Animator>();
+            for (int i = 0; i < animators.Length; i++)
+            {
+                Animator a = animators[i];
+                if (!IsUsableSceneAnimator(a) || !IsControllerMatch(a, controller))
+                {
+                    continue;
+                }
+
+                GameObject candidateRoot = a.avatarRoot != null ? a.avatarRoot.gameObject : a.gameObject;
+                Avatar candidateAvatar = a.avatar;
+                if (candidateRoot == null || candidateAvatar == null || !candidateAvatar.isValid || !candidateAvatar.isHuman)
+                {
+                    continue;
+                }
+
+                if (!KimodoLocalAvatarUtility.CheckAvatarValid(candidateAvatar, candidateRoot))
+                {
+                    continue;
+                }
+
+                sourceRoot = candidateRoot;
+                avatar = candidateAvatar;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsUsableSceneAnimator(Animator animator)
+        {
+            if (animator == null)
+            {
+                return false;
+            }
+
+            GameObject gameObject = animator.gameObject;
+            if (gameObject == null || !gameObject.scene.IsValid())
+            {
+                return false;
+            }
+
+            if (EditorUtility.IsPersistent(animator) || EditorUtility.IsPersistent(gameObject))
+            {
+                return false;
+            }
+
+            if ((animator.hideFlags & HideFlags.HideAndDontSave) != 0 ||
+                (gameObject.hideFlags & HideFlags.HideAndDontSave) != 0)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsControllerMatch(Animator animator, AnimatorController controller)
+        {
+            if (animator == null || controller == null)
+            {
+                return false;
+            }
+
+            RuntimeAnimatorController runtimeController = ResolveAnimatorController(animator);
+            if (runtimeController == null)
+            {
+                return false;
+            }
+
+            if (ReferenceEquals(runtimeController, controller))
+            {
+                return true;
+            }
+
+            AnimatorOverrideController overrideController = runtimeController as AnimatorOverrideController;
+            return overrideController != null && ReferenceEquals(overrideController.runtimeAnimatorController, controller);
+        }
+
+        private static RuntimeAnimatorController ResolveAnimatorController(Animator animator)
+        {
+            if (animator == null)
+            {
+                return null;
+            }
+
+            if (animator.runtimeAnimatorController != null)
+            {
+                return animator.runtimeAnimatorController;
+            }
+
+            var serializedObject = new SerializedObject(animator);
+            var controllerProperty = serializedObject.FindProperty("m_Controller");
+            var controllerValue = controllerProperty != null ? controllerProperty.objectReferenceValue as RuntimeAnimatorController : null;
+            return controllerValue;
         }
 
         private static GameObject LoadClipOwnerModelAsset(AnimationClip clip)
@@ -658,18 +1232,14 @@ namespace KimodoBridge.Editor
             return AssetDatabase.LoadAssetAtPath<GameObject>(clipPath);
         }
 
-        private void DestroyPreviewInstances()
+        private void DestroyPreviewRootInstance()
         {
-            if (originalPreviewInstance != null)
+            if (previewRootInstance != null)
             {
-                UnityEngine.Object.DestroyImmediate(originalPreviewInstance);
+                UnityEngine.Object.DestroyImmediate(previewRootInstance);
             }
-            if (generatedPreviewInstance != null)
-            {
-                UnityEngine.Object.DestroyImmediate(generatedPreviewInstance);
-            }
-            originalPreviewInstance = null;
-            generatedPreviewInstance = null;
+
+            previewRootInstance = null;
         }
     }
 }

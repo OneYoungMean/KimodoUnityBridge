@@ -74,7 +74,7 @@ namespace KimodoBridge.Editor
 
             if (items == null || items.Count == 0)
             {
-                SetGroupState(context, visible: false, selectable: false);
+                DestroyContext(context);
                 return true;
             }
 
@@ -92,7 +92,7 @@ namespace KimodoBridge.Editor
 
             if (!hasVisible)
             {
-                SetGroupState(context, visible: false, selectable: false);
+                DestroyContext(context);
                 return true;
             }
 
@@ -125,6 +125,7 @@ namespace KimodoBridge.Editor
                 SetEntryVisible(entry, true);
             }
 
+            List<string> keysToRemove = null;
             foreach (KeyValuePair<string, PoseCacheEntry> kv in Entries)
             {
                 if (!kv.Key.StartsWith(contextKey + ":", StringComparison.Ordinal))
@@ -134,7 +135,17 @@ namespace KimodoBridge.Editor
 
                 if (!desiredKeys.Contains(kv.Key))
                 {
-                    ApplyEntryState(kv.Value, visible: false, selectable: false);
+                    DestroyEntry(kv.Value);
+                    keysToRemove ??= new List<string>();
+                    keysToRemove.Add(kv.Key);
+                }
+            }
+
+            if (keysToRemove != null)
+            {
+                for (int i = 0; i < keysToRemove.Count; i++)
+                {
+                    Entries.Remove(keysToRemove[i]);
                 }
             }
             SceneView.RepaintAll();
@@ -197,6 +208,41 @@ namespace KimodoBridge.Editor
 
                 DestroyEntry(entry);
                 Entries.Remove(key);
+            }
+
+            if (keysToRemove.Count > 0)
+            {
+                SceneView.RepaintAll();
+            }
+        }
+
+        internal static void DestroyContext(PoseCacheRenderContext context)
+        {
+            if (Entries.Count == 0)
+            {
+                return;
+            }
+
+            string contextKey = BuildContextKey(context.ClipId, context.AnimatorId);
+            var keysToRemove = new List<string>();
+            foreach (KeyValuePair<string, PoseCacheEntry> kv in Entries)
+            {
+                if (!kv.Key.StartsWith(contextKey + ":", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                keysToRemove.Add(kv.Key);
+            }
+
+            for (int i = 0; i < keysToRemove.Count; i++)
+            {
+                string key = keysToRemove[i];
+                if (Entries.TryGetValue(key, out PoseCacheEntry entry))
+                {
+                    DestroyEntry(entry);
+                    Entries.Remove(key);
+                }
             }
 
             if (keysToRemove.Count > 0)

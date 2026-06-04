@@ -65,6 +65,11 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            if (ReferenceEquals(sourceClip, targetClip))
+            {
+                return;
+            }
+
             targetClip.ClearCurves();
             targetClip.frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : targetClip.frameRate;
             if (forceNoLoopKeepY)
@@ -102,6 +107,12 @@ namespace KimodoBridge.Editor
                 {
                     AnimationUtility.SetObjectReferenceCurve(targetClip, binding, curve);
                 }
+            }
+
+            AnimationEvent[] events = AnimationUtility.GetAnimationEvents(sourceClip);
+            if (events != null)
+            {
+                AnimationUtility.SetAnimationEvents(targetClip, events);
             }
         }
 

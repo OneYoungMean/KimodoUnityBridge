@@ -582,9 +582,6 @@ namespace KimodoBridge.Editor
 
         public KimodoPreviewTimeControl timeControl;
 
-        // 60 is the default framerate for animations created inside Unity so as good a default as any.
-        public int fps = 60;
-
         private Material m_FloorMaterial;
         private Material m_FloorMaterialSmall;
         private Material m_ShadowMaskMaterial;
@@ -1374,14 +1371,11 @@ namespace KimodoBridge.Editor
             timeControl.DoTimeControl(timeControlRect);
             timeControl.playbackSpeed = PreviewSlider(sliderControlRect, timeControl.playbackSpeed, 0.03f);
 
-            // Show current time in seconds:frame and in percentage
+            // Show current time in seconds and normalized progress.
             rect.y = rect.yMax - 24;
             float time = timeControl.currentTime - timeControl.startTime;
             EditorGUI.DropShadowLabel(new Rect(rect.x, rect.y, rect.width, 20),
-                string.Format("{0,2}:{1:00} ({2:000.0%}) Frame {3}", (int)time,
-                    Repeat(Mathf.FloorToInt(time * fps), fps), timeControl.normalizedTime,
-                    Mathf.FloorToInt(timeControl.currentTime * fps))
-            );
+                string.Format("{0:F2}s ({1:000.0%})", time, timeControl.normalizedTime));
         }
 
         enum PreviewPopupOptions

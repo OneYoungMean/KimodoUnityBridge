@@ -252,9 +252,9 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < controller.layers.Length; i++)
             {
                 AnimatorStateMachine sm = controller.layers[i].stateMachine;
-                if (sm != null && string.Equals(sm.name, stateMachineName, StringComparison.Ordinal))
+                if (TryFindStateMachineByNameRecursive(sm, stateMachineName, out AnimatorStateMachine found))
                 {
-                    return sm;
+                    return found;
                 }
             }
 
@@ -278,7 +278,46 @@ namespace KimodoBridge.Editor
                 }
             }
 
+            ChildAnimatorStateMachine[] childStateMachines = sm.stateMachines;
+            for (int i = 0; i < childStateMachines.Length; i++)
+            {
+                AnimatorState found = FindStateByName(childStateMachines[i].stateMachine, stateName);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+
             return null;
+        }
+
+        private static bool TryFindStateMachineByNameRecursive(
+            AnimatorStateMachine stateMachine,
+            string stateMachineName,
+            out AnimatorStateMachine found)
+        {
+            found = null;
+            if (stateMachine == null || string.IsNullOrWhiteSpace(stateMachineName))
+            {
+                return false;
+            }
+
+            if (string.Equals(stateMachine.name, stateMachineName, StringComparison.Ordinal))
+            {
+                found = stateMachine;
+                return true;
+            }
+
+            ChildAnimatorStateMachine[] childStateMachines = stateMachine.stateMachines;
+            for (int i = 0; i < childStateMachines.Length; i++)
+            {
+                if (TryFindStateMachineByNameRecursive(childStateMachines[i].stateMachine, stateMachineName, out found))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static AnimatorStateTransition FindTransition(AnimatorState from, AnimatorState to)

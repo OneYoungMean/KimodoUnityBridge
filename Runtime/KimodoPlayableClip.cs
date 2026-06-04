@@ -55,18 +55,9 @@ namespace KimodoBridge
         public int comfyuiPort = 8188;
 
         [Header("Kimodo Bridge")]
-        [HideInInspector]
-        [Tooltip("Deprecated legacy field. Local bridge startup is managed by packaged offline launcher.")]
-        public string bridgePythonPath = "";
-        [HideInInspector]
-        [Tooltip("Deprecated legacy field. Local bridge startup is managed by packaged offline launcher.")]
-        public string bridgeLauncherPath = "";
         public string bridgeModelName = "Kimodo-SOMA-RP-v1";
         [Tooltip("Low: quantized encoder (~4G). High: full encoder (~16G). Kimodo base model ~2G.")]
         public KimodoBridgeVramMode bridgeVramMode = KimodoBridgeVramMode.Low;
-        [HideInInspector]
-        [Tooltip("Deprecated legacy field. Local bridge startup is managed by packaged offline launcher.")]
-        public string bridgeServerScriptPath = "";
 
         [TextArea(2, 6)]
         public string motionPrompt = "a man walk and say hello";
@@ -80,8 +71,6 @@ namespace KimodoBridge
         public bool enableInbetweenInterpolation = false;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
-        [Tooltip("If empty, use Resources/kimodo-unity-workflow.json")]
-        public TextAsset workflowJsonAsset;
 
         public bool isGenerated;
         public string lastGeneratedPrompt;
@@ -91,12 +80,10 @@ namespace KimodoBridge
         [SerializeField]
         public KimodoCurveFilterOptions curveFilterOptions = new KimodoCurveFilterOptions();
 
-        public string motionData;
         public int frameCount;
         public int jointCount;
-        public int fps;
-        public string[] jointNames;
-        public float[] motionPositions;
+        [HideInInspector]
+        public int fps = Mathf.RoundToInt(FIXED_FRAME_RATE);
 
         public KimodoBakeSkeletonType InferredSkeletonType
         {
@@ -128,6 +115,7 @@ namespace KimodoBridge
             set => customRetargetAvatar = value;
         }
 
+        public const float FIXED_FRAME_RATE = 30f;
         public const int MIN_FRAMES = 1;
         public const int MAX_FRAMES = 300;
         public const int DEFAULT_FRAMES = 150;
@@ -172,12 +160,9 @@ namespace KimodoBridge
         {
             isGenerated = false;
             lastGeneratedPrompt = "";
-            motionData = "";
             frameCount = 0;
             jointCount = 0;
-            fps = 0;
-            jointNames = null;
-            motionPositions = null;
+            fps = Mathf.RoundToInt(FIXED_FRAME_RATE);
         }
 
     }

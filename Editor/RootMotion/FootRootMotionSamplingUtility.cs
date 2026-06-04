@@ -1,3 +1,4 @@
+using KimodoBridge;
 using System;
 using UnityEngine;
 
@@ -7,8 +8,7 @@ namespace KimodoBridge.Editor
     {
         public static bool TrySampleClip(
             AnimationClip clip,
-            GameObject prefab,
-            FootRootMotionSolverSettings settings,
+            Avatar avatar,
             out FootRootMotionFrame[] frames,
             out string error)
         {
@@ -27,32 +27,26 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (prefab == null)
+            if (!KimodoRetargetTools.IsValidHumanoid(avatar))
             {
-                error = "Humanoid prefab is null.";
+                error = "Avatar is null/invalid/non-humanoid.";
                 return false;
             }
 
-            GameObject instance = null;
+            if (!KimodoRetargetTools.TryCreateTemporaryHumanoidRoot(
+                avatar,
+                "FootRootMotionSampler",
+                animatorEnabled: true,
+                applyRootMotion: true,
+                out GameObject instance,
+                out Animator animator,
+                out error))
+            {
+                return false;
+            }
+
             try
             {
-                instance = UnityEngine.Object.Instantiate(prefab);
-                instance.hideFlags = HideFlags.HideAndDontSave;
-                instance.name = prefab.name + "_FootRootMotionSampler";
-
-                Animator animator = instance.GetComponentInChildren<Animator>(true);
-                if (animator == null)
-                {
-                    error = "Prefab does not contain an Animator.";
-                    return false;
-                }
-
-                if (animator.avatar == null || !animator.avatar.isValid || !animator.avatar.isHuman)
-                {
-                    error = "Animator avatar is missing or not a valid humanoid avatar.";
-                    return false;
-                }
-
                 Transform leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
                 Transform rightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
                 Transform hips = animator.GetBoneTransform(HumanBodyBones.Hips);
@@ -62,31 +56,19 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                float fps = settings != null && settings.sampleRate > 0f
-                    ? settings.sampleRate
-                    : (clip.frameRate > 0f ? clip.frameRate : 60f);
-                fps = Mathf.Max(1f, fps);
-
-                int frameCount = Mathf.Max(2, Mathf.CeilToInt(clip.length * fps) + 1);
+                float sampleStepSeconds = FootRootMotionSolverSettings.FixedSamplingStepSeconds;
+                int frameCount = Mathf.Max(2, Mathf.CeilToInt(clip.length / sampleStepSeconds) + 1);
                 frames = new FootRootMotionFrame[frameCount];
                 for (int i = 0; i < frameCount; i++)
                 {
-                    float t = Mathf.Min(clip.length, i / fps);
+                    float t = Mathf.Min(clip.length, i * sampleStepSeconds);
                     clip.SampleAnimation(instance, t);
-
-                    Vector3 hipsForward = Vector3.ProjectOnPlane(hips.rotation * Vector3.forward, Vector3.up);
-                    if (hipsForward.sqrMagnitude < 1e-6f)
-                    {
-                        hipsForward = Vector3.forward;
-                    }
 
                     frames[i] = new FootRootMotionFrame
                     {
                         time = t,
                         leftFootWorld = leftFoot.position,
                         rightFootWorld = rightFoot.position,
-                        hipWorld = hips.position,
-                        rootYawRadians = Mathf.Atan2(hipsForward.x, hipsForward.z),
                         sampledRootWorld = instance.transform.position,
                         sampledRootRotation = instance.transform.rotation
                     };

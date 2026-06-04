@@ -9,6 +9,7 @@ namespace KimodoBridge.Editor
     internal sealed class KimodoAvatarPreviewCore : IDisposable
     {
         private KimodoAvatarPreview avatarPreview;
+        private GameObject sourcePreviewInstance;
         private AnimatorController previewController;
         private string previewControllerAssetPath;
         private AnimationClip activeClip;
@@ -23,9 +24,12 @@ namespace KimodoBridge.Editor
         private float transitionStartTime = 0f;
         private float transitionEndTime = 1f;
         private bool transitionModeActive;
+        private string previewUnavailableMessage = "Preview not ready.";
 
         public void Dispose()
         {
+            DestroySourcePreviewInstance();
+
             if (avatarPreview != null)
             {
                 avatarPreview.OnDisable();
@@ -38,6 +42,7 @@ namespace KimodoBridge.Editor
             activeInputKey = string.Empty;
             lastAppliedTime = float.NaN;
             transitionModeActive = false;
+            previewUnavailableMessage = "Preview not ready.";
 
             // Keep asset object intact; only drop runtime reference.
             previewController = null;
@@ -50,6 +55,7 @@ namespace KimodoBridge.Editor
                 activeClip = null;
                 activeStateName = null;
                 activeInputKey = string.Empty;
+                previewUnavailableMessage = string.IsNullOrWhiteSpace(emptyStateMessage) ? "Preview not ready." : emptyStateMessage;
                 return;
             }
 
@@ -63,6 +69,7 @@ namespace KimodoBridge.Editor
             string stateName = EnsureClipState(clip);
             activeStateName = stateName;
             activeInputKey = inputKey;
+            previewUnavailableMessage = string.Empty;
             EnsureAvatarPreview(clip);
             transitionModeActive = false;
 
@@ -81,6 +88,7 @@ namespace KimodoBridge.Editor
                 activeClip = null;
                 activeStateName = null;
                 activeInputKey = string.Empty;
+                previewUnavailableMessage = string.IsNullOrWhiteSpace(emptyStateMessage) ? "Preview not ready." : emptyStateMessage;
                 return;
             }
 
@@ -94,6 +102,7 @@ namespace KimodoBridge.Editor
             string fromStateName = EnsureTransitionGraph(fromClip, toClip, transition);
             activeStateName = fromStateName;
             activeInputKey = inputKey;
+            previewUnavailableMessage = string.Empty;
             EnsureAvatarPreview(fromClip);
             transitionModeActive = true;
 
@@ -113,19 +122,20 @@ namespace KimodoBridge.Editor
             postRollSeconds = Mathf.Max(0f, postRoll);
         }
 
-        public void Tick()
+        public bool Tick()
         {
             if (avatarPreview == null || activeClip == null || avatarPreview.timeControl == null)
             {
-                return;
+                return false;
             }
 
             Animator renderAnimator = avatarPreview.Animator;
             if (renderAnimator == null)
             {
-                return;
+                return false;
             }
 
+            bool needsRepaint = false;
             if (restartRequested)
             {
                 avatarPreview.timeControl.currentTime = windowStartTime;
@@ -141,6 +151,7 @@ namespace KimodoBridge.Editor
                 }
                 lastAppliedTime = avatarPreview.timeControl.currentTime;
                 restartRequested = false;
+                needsRepaint = true;
             }
 
             float previousTime = avatarPreview.timeControl.currentTime;
@@ -154,7 +165,7 @@ namespace KimodoBridge.Editor
             bool timeChanged = float.IsNaN(lastAppliedTime) || !Mathf.Approximately(lastAppliedTime, currentTime);
             if (!timeChanged || string.IsNullOrEmpty(activeStateName))
             {
-                return;
+                return needsRepaint || hasPendingManual || isScrubbing;
             }
 
             if (transitionModeActive)
@@ -181,13 +192,16 @@ namespace KimodoBridge.Editor
             }
 
             lastAppliedTime = currentTime;
+            return true;
         }
 
         public void Draw(Rect rect)
         {
             if (avatarPreview == null || activeClip == null)
             {
-                EditorGUI.DropShadowLabel(rect, "Preview not ready.");
+                EditorGUI.DropShadowLabel(
+                    rect,
+                    string.IsNullOrWhiteSpace(previewUnavailableMessage) ? "Preview not ready." : previewUnavailableMessage);
                 return;
             }
 
@@ -357,7 +371,9 @@ namespace KimodoBridge.Editor
                 avatarPreview = null;
             }
 
-            Animator sourceAnimator = CreateSourceAnimatorWithController(previewController, activeInputKey);
+            DestroySourcePreviewInstance();
+
+            Animator sourceAnimator = CreateSourceAnimatorWithController(previewController, activeInputKey, out sourcePreviewInstance);
             if (sourceAnimator == null)
             {
                 return;
@@ -365,7 +381,6 @@ namespace KimodoBridge.Editor
 
             avatarPreview = new KimodoAvatarPreview(sourceAnimator, clip);
             avatarPreview.ShowIKOnFeetButton = clip.isHumanMotion;
-            avatarPreview.fps = Mathf.RoundToInt(clip.frameRate);
             avatarPreview.ResetPreviewFocus();
             if (avatarPreview.timeControl.currentTime == Mathf.NegativeInfinity)
             {
@@ -374,8 +389,21 @@ namespace KimodoBridge.Editor
             ApplyTimeWindowToPreview();
         }
 
-        private static Animator CreateSourceAnimatorWithController(AnimatorController controller, string inputKey)
+        private void DestroySourcePreviewInstance()
         {
+            if (sourcePreviewInstance == null)
+            {
+                return;
+            }
+
+            UnityEngine.Object.DestroyImmediate(sourcePreviewInstance);
+            sourcePreviewInstance = null;
+        }
+
+        private static Animator CreateSourceAnimatorWithController(AnimatorController controller, string inputKey, out GameObject previewInstance)
+        {
+            previewInstance = null;
+
             int rootId = ParseRootInstanceId(inputKey);
             if (rootId == 0)
             {
@@ -399,9 +427,10 @@ namespace KimodoBridge.Editor
 
             animator.runtimeAnimatorController = controller;
             animator.enabled = true;
-            animator.applyRootMotion = false;
+            animator.applyRootMotion = true;
             animator.Rebind();
             animator.Update(0f);
+            previewInstance = temp;
             return animator;
         }
 

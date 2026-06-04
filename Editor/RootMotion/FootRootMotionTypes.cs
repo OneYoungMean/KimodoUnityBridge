@@ -3,26 +3,28 @@ using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
-    internal enum FootContactState
-    {
-        Air = 0,
-        CandidatePlant = 1,
-        Plant = 2,
-        CandidateRelease = 3
-    }
-
     [Serializable]
     internal sealed class FootRootMotionSolverSettings
     {
-        public float sampleRate = 60f;
-        public float plantVelocityThreshold = 0.08f;
-        public float plantHeightThreshold = 0.03f;
-        public int enterFrames = 2;
-        public int exitFrames = 3;
-        public float predictionDecayTime = 0.12f;
-        public float lateralDamping = 0.35f;
-        public float conflictDistanceThreshold = 0.08f;
-        public float deltaSmoothing = 0.2f;
+        public const float FixedSamplingStepSeconds = 1f / 30f;
+
+        public float keepTime = 0f;
+        public float airPrediction = 0f;
+        public float smoothing = 0f;
+
+        public float PlantKeepTimeSeconds => Mathf.Clamp(keepTime, 0f, 0.3f);
+        public float PredictionDecayTime => Mathf.Lerp(0.04f, 0.20f, Mathf.Clamp01(airPrediction));
+        public float DeltaSmoothing => Mathf.Clamp01(smoothing);
+
+        public static FootRootMotionSolverSettings CreateZero()
+        {
+            return new FootRootMotionSolverSettings
+            {
+                keepTime = 0f,
+                airPrediction = 0f,
+                smoothing = 0f
+            };
+        }
     }
 
     internal struct FootRootMotionFrame
@@ -30,30 +32,12 @@ namespace KimodoBridge.Editor
         public float time;
         public Vector3 leftFootWorld;
         public Vector3 rightFootWorld;
-        public Vector3 hipWorld;
-        public float rootYawRadians;
         public Vector3 sampledRootWorld;
         public Quaternion sampledRootRotation;
-    }
-
-    internal sealed class FootRootMotionDebugInfo
-    {
-        public Vector2[] leftAnchors;
-        public Vector2[] rightAnchors;
-        public float[] leftConfidence;
-        public float[] rightConfidence;
-        public float[] conflictError;
-        public bool[] usedPrediction;
-        public bool[] leftPlant;
-        public bool[] rightPlant;
     }
 
     internal sealed class FootRootMotionResult
     {
         public Vector2[] rootXZ;
-        public Vector2[] rootDeltaXZ;
-        public FootContactState[] leftContact;
-        public FootContactState[] rightContact;
-        public FootRootMotionDebugInfo debug;
     }
 }

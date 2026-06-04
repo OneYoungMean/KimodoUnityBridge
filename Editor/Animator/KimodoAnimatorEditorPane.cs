@@ -12,15 +12,21 @@ namespace KimodoBridge.Editor
 
         public void Draw(
             float windowWidth,
+            float windowHeight,
             KimodoAnimatorPreviewPane previewPane,
             ref KimodoGenerationBackend generationBackend,
             ref string bridgeModelName,
             ref KimodoBridgeVramMode bridgeVramMode,
             ref string motionPrompt,
-            ref int generationFrames,
+            ref bool autoDuration,
+            ref float customDurationSeconds,
+            float suggestedDurationSeconds,
             ref int diffusionSteps,
+            ref bool enableInbetweenConstraints,
+            ref bool isLoop,
             ref bool randomSeed,
             ref int seed,
+            bool hasUnsupportedBlendTreeSelection,
             bool isGenerating,
             Action startGenerate,
             Action cancelGenerate,
@@ -30,29 +36,42 @@ namespace KimodoBridge.Editor
             AnimationClip lastSuccessfulGeneratedClipForApply)
         {
             float width = Mathf.Max(420f, windowWidth * 0.46f);
-            using (var scroll = new EditorGUILayout.ScrollViewScope(rightScroll, GUILayout.Width(width)))
+            float panelHeight = Mathf.Max(260f, windowHeight - 92f);
+            float applySectionHeight = 86f;
+            float scrollHeight = Mathf.Max(160f, panelHeight - applySectionHeight);
+            using (new EditorGUILayout.VerticalScope(GUILayout.Width(width), GUILayout.Height(panelHeight)))
             {
-                rightScroll = scroll.scrollPosition;
-
-                if (previewPane != null)
+                using (var scroll = new EditorGUILayout.ScrollViewScope(rightScroll, GUILayout.Height(scrollHeight)))
                 {
-                    previewPane.DrawSelectionInfo();
+                    rightScroll = scroll.scrollPosition;
+
+                    if (previewPane != null)
+                    {
+                        previewPane.DrawSelectionInfo();
+                    }
+
+                    DrawGeneratePanel(
+                        previewPane != null && previewPane.HasSelection,
+                        ref generationBackend,
+                        ref bridgeModelName,
+                        ref bridgeVramMode,
+                        ref motionPrompt,
+                        ref autoDuration,
+                        ref customDurationSeconds,
+                        suggestedDurationSeconds,
+                        ref diffusionSteps,
+                        ref enableInbetweenConstraints,
+                        ref isLoop,
+                        ref randomSeed,
+                        ref seed,
+                        hasUnsupportedBlendTreeSelection,
+                        isGenerating,
+                        startGenerate,
+                        cancelGenerate);
+                    DrawResultPanel(generatedClipForPreview, resetGenerated);
                 }
 
-                DrawGeneratePanel(
-                    previewPane != null && previewPane.HasSelection,
-                    ref generationBackend,
-                    ref bridgeModelName,
-                    ref bridgeVramMode,
-                    ref motionPrompt,
-                    ref generationFrames,
-                    ref diffusionSteps,
-                    ref randomSeed,
-                    ref seed,
-                    isGenerating,
-                    startGenerate,
-                    cancelGenerate);
-                DrawResultPanel(generatedClipForPreview, resetGenerated);
+                GUILayout.FlexibleSpace();
                 DrawApplyPanel(
                     previewPane != null && previewPane.HasSelection,
                     isGenerating,
@@ -67,10 +86,15 @@ namespace KimodoBridge.Editor
             ref string bridgeModelName,
             ref KimodoBridgeVramMode bridgeVramMode,
             ref string motionPrompt,
-            ref int generationFrames,
+            ref bool autoDuration,
+            ref float customDurationSeconds,
+            float suggestedDurationSeconds,
             ref int diffusionSteps,
+            ref bool enableInbetweenConstraints,
+            ref bool isLoop,
             ref bool randomSeed,
             ref int seed,
+            bool hasUnsupportedBlendTreeSelection,
             bool isGenerating,
             Action startGenerate,
             Action cancelGenerate)
@@ -93,16 +117,44 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("Prompt", EditorStyles.miniBoldLabel);
             motionPrompt = EditorGUILayout.TextArea(motionPrompt ?? string.Empty, GUILayout.Height(60f));
 
-            generationFrames = EditorGUILayout.IntSlider(
-                new GUIContent("Duration (frames)"),
-                Mathf.Clamp(generationFrames, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES),
-                KimodoPlayableClip.MIN_FRAMES,
-                KimodoPlayableClip.MAX_FRAMES);
+            autoDuration = EditorGUILayout.ToggleLeft(
+                new GUIContent("Auto", "Use the original selected animation duration."),
+                autoDuration);
+
+            float minDuration = KimodoPlayableClip.MIN_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
+            float maxDuration = KimodoPlayableClip.MAX_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
+            if (autoDuration)
+            {
+                using (new EditorGUI.DisabledScope(true))
+                {
+                    EditorGUILayout.Slider(
+                        new GUIContent("Duration (s)"),
+                        suggestedDurationSeconds,
+                        minDuration,
+                        maxDuration);
+                }
+            }
+            else
+            {
+                customDurationSeconds = EditorGUILayout.Slider(
+                    new GUIContent("Custom Duration (s)"),
+                    Mathf.Clamp(customDurationSeconds, minDuration, maxDuration),
+                    minDuration,
+                    maxDuration);
+            }
 
             diffusionSteps = Mathf.Clamp(
                 EditorGUILayout.IntField(new GUIContent("Diffusion Steps"), diffusionSteps),
                 1,
                 1000);
+
+            enableInbetweenConstraints = EditorGUILayout.ToggleLeft(
+                new GUIContent("In-between Constraint", "Use boundary pose constraints for generation."),
+                enableInbetweenConstraints);
+
+            isLoop = EditorGUILayout.ToggleLeft(
+                new GUIContent("Is Loop", "Reuse the start fullbody pose axes for the end fullbody constraint while preserving end root motion."),
+                isLoop);
 
             EditorGUILayout.BeginHorizontal();
             randomSeed = EditorGUILayout.ToggleLeft(new GUIContent("Random"), randomSeed, GUILayout.Width(90f));
@@ -113,7 +165,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(6f);
-            bool canGenerate = !isGenerating && hasSelection;
+            bool canGenerate = !isGenerating && hasSelection && !hasUnsupportedBlendTreeSelection;
             EditorGUI.BeginDisabledGroup(!canGenerate);
             if (GUILayout.Button("Generate & Bake", GUILayout.Height(30f)))
             {
@@ -192,7 +244,6 @@ namespace KimodoBridge.Editor
             AnimationClip lastSuccessfulGeneratedClipForApply,
             Action applyGeneratedResult)
         {
-            EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField("Apply", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 

@@ -44,7 +44,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            float fps = data.fps > 0 ? data.fps : 30f;
+            float fps = data.fps > 0 ? data.fps : KimodoPlayableClip.FIXED_FRAME_RATE;
             int positionFrames = data.positions != null ? data.positions.Count : 0;
             int frameHint = data.num_frames > 0 ? data.num_frames : positionFrames;
             int frameCount = positionFrames > 0 ? Mathf.Min(frameHint, positionFrames) : Mathf.Max(2, frameHint);

@@ -21,9 +21,12 @@ namespace KimodoBridge.Editor
         private KimodoGenerationBackend generationBackend = KimodoGenerationBackend.KimodoBridge;
         private string bridgeModelName = "Kimodo-SOMA-RP-v1";
         private KimodoBridgeVramMode bridgeVramMode = KimodoBridgeVramMode.Low;
-        private string motionPrompt = "a man walk and say hello";
-        private int generationFrames = KimodoPlayableClip.DEFAULT_FRAMES;
+        private string motionPrompt = string.Empty;
+        private bool autoDuration = true;
+        private float customDurationSeconds = KimodoPlayableClip.DEFAULT_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
         private int diffusionSteps = 100;
+        private bool enableInbetweenConstraints = true;
+        private bool isLoop;
         private bool randomSeed;
         private int seed = 42;
         private AnimationClip lastSuccessfulGeneratedClipForApply;
@@ -32,26 +35,32 @@ namespace KimodoBridge.Editor
         private KimodoAnimatorPreviewPane previewPane;
         private KimodoAnimatorEditorPane editorPane;
         private CancellationTokenSource generationCancellationTokenSource;
-        private double lastPreviewRepaintTime;
+        private bool disposed;
+        private int generationRunId;
+        private string lastSuggestedPrompt = string.Empty;
 
         [MenuItem(MenuPath, priority = 110)]
         private static void OpenWindow()
         {
             KimodoAnimatorToolWindow window = GetWindow<KimodoAnimatorToolWindow>("Kimodo Animator Tool");
-            window.minSize = new Vector2(1100f, 640f);
+            window.minSize = new Vector2(600f, 320f);
             window.Show();
         }
 
         private void OnEnable()
         {
+            disposed = false;
             previewPane = new KimodoAnimatorPreviewPane();
             previewPane.Initialize();
             editorPane = new KimodoAnimatorEditorPane();
+            SyncSelectionDrivenDefaults(forcePromptUpdate: true);
             EditorApplication.update += OnEditorUpdate;
         }
 
         private void OnDisable()
         {
+            disposed = true;
+            generationRunId++;
             EditorApplication.update -= OnEditorUpdate;
             CancelGenerate();
             previewPane?.Dispose();
@@ -62,23 +71,16 @@ namespace KimodoBridge.Editor
         private void OnSelectionChange()
         {
             previewPane?.OnSelectionChange();
+            SyncSelectionDrivenDefaults(forcePromptUpdate: false);
             Repaint();
-        }
-
-        private void OnInspectorUpdate()
-        {
-            double now = EditorApplication.timeSinceStartup;
-            if (now - lastPreviewRepaintTime >= 0.2d)
-            {
-                lastPreviewRepaintTime = now;
-                Repaint();
-            }
         }
 
         private void OnEditorUpdate()
         {
-            previewPane?.Tick();
-            Repaint();
+            if (previewPane != null && previewPane.Tick())
+            {
+                Repaint();
+            }
         }
 
         private void OnGUI()
@@ -87,6 +89,7 @@ namespace KimodoBridge.Editor
             {
                 previewPane = new KimodoAnimatorPreviewPane();
                 previewPane.Initialize();
+                SyncSelectionDrivenDefaults(forcePromptUpdate: true);
             }
 
             if (editorPane == null)
@@ -96,20 +99,31 @@ namespace KimodoBridge.Editor
 
             previewPane.DrawToolbar(ref lastStatus, ref lastError, OnResetAll);
 
+            string previousBridgeModelName = bridgeModelName;
+            float suggestedDurationSeconds = previewPane != null
+                ? previewPane.GetSuggestedDurationSeconds()
+                : (KimodoPlayableClip.DEFAULT_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE);
+
             using (new EditorGUILayout.HorizontalScope())
             {
                 previewPane.DrawPreviewPane(position.height);
                 editorPane.Draw(
                     position.width,
+                    position.height,
                     previewPane,
                     ref generationBackend,
                     ref bridgeModelName,
                     ref bridgeVramMode,
                     ref motionPrompt,
-                    ref generationFrames,
+                    ref autoDuration,
+                    ref customDurationSeconds,
+                    suggestedDurationSeconds,
                     ref diffusionSteps,
+                    ref enableInbetweenConstraints,
+                    ref isLoop,
                     ref randomSeed,
                     ref seed,
+                    previewPane != null && previewPane.HasUnsupportedBlendTreeSelection,
                     isGenerating,
                     StartGenerate,
                     CancelGenerate,
@@ -117,6 +131,14 @@ namespace KimodoBridge.Editor
                     ResetGenerated,
                     previewPane.GeneratedClipForPreview,
                     lastSuccessfulGeneratedClipForApply);
+            }
+
+            if (!string.Equals(previousBridgeModelName, bridgeModelName, StringComparison.Ordinal) &&
+                previewPane != null &&
+                previewPane.HasSelection)
+            {
+                previewPane.TryEnsureGenerationSourceReady(bridgeModelName, out _);
+                Repaint();
             }
 
             if (!string.IsNullOrWhiteSpace(lastError))
@@ -132,6 +154,7 @@ namespace KimodoBridge.Editor
         private void OnResetAll()
         {
             lastSuccessfulGeneratedClipForApply = null;
+            SyncSelectionDrivenDefaults(forcePromptUpdate: false);
         }
 
         private void ResetGenerated()
@@ -155,7 +178,13 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (!previewPane.TryBuildExternalConstraints(bridgeModelName, generationFrames, out string constraintsJson, out string error))
+            if (!TryConvertCurrentSourceToRootMotionIfNeeded(out string rootMotionError))
+            {
+                lastError = rootMotionError;
+                return;
+            }
+
+            if (!previewPane.TryEnsureGenerationSourceReady(bridgeModelName, out string error))
             {
                 lastError = error;
                 return;
@@ -167,42 +196,100 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            float generationDurationSeconds = ResolveGenerationDurationSeconds();
+            int generationFrameCount = DurationSecondsToFrameCount(generationDurationSeconds);
+            int effectiveSeed = ResolveEffectiveSeedForRun();
+            string constraintsJson = string.Empty;
+            if (enableInbetweenConstraints &&
+                !previewPane.TryBuildExternalConstraints(bridgeModelName, generationDurationSeconds, isLoop, out constraintsJson, out error))
+            {
+                lastError = error;
+                return;
+            }
+
+            previewPane.LockCurrentSelection();
             DisposeGenerationCancellation();
+            int runId = ++generationRunId;
             generationCancellationTokenSource = new CancellationTokenSource();
             CancellationTokenSource runCts = generationCancellationTokenSource;
 
             isGenerating = true;
             lastError = string.Empty;
             lastStatus = "Generating and baking...";
-            _ = StartGenerateAsync(constraintsJson, previewPane.RetargetAvatarForPreview, runCts);
+            Repaint();
+            _ = StartGenerateAsync(
+                constraintsJson,
+                previewPane.RetargetAvatarForPreview,
+                generationFrameCount,
+                effectiveSeed,
+                runCts,
+                runId);
         }
 
-        private async Task StartGenerateAsync(string constraintsJson, Avatar explicitRetargetAvatar, CancellationTokenSource runCts)
+        private bool TryConvertCurrentSourceToRootMotionIfNeeded(out string error)
         {
-            KimodoPlayableClip tempClip = null;
+            error = string.Empty;
+            if (previewPane == null)
+            {
+                error = "Preview pane is not ready.";
+                return false;
+            }
+
+            if (!previewPane.TryResolveCurrentSourceClipAndAvatar(bridgeModelName, out AnimationClip sourceClip, out Avatar avatar, out error))
+            {
+                return false;
+            }
+
+            if (sourceClip == null || avatar == null || FootRootMotionClipBaker.HasMeaningfulRootMotion(sourceClip))
+            {
+                return true;
+            }
+
+            if (!KimodoRootMotionEditorUtility.TryCreateRootMotionClipAsset(sourceClip, avatar, out AnimationClip rootMotionClip, out error))
+            {
+                return false;
+            }
+
+            previewPane.OverrideOriginalClipForPreview(rootMotionClip, bridgeModelName);
+            return true;
+        }
+
+        private async Task StartGenerateAsync(
+            string constraintsJson,
+            Avatar explicitRetargetAvatar,
+            int generationFrameCount,
+            int effectiveSeed,
+            CancellationTokenSource runCts,
+            int runId)
+        {
             try
             {
-                tempClip = CreateTemporaryWorkingClip();
-                KimodoEditorGenerateResult result = await generatePipelineOrchestrator.ExecuteGenerateAndBakeAsync(
-                    tempClip,
-                    promptOverride: null,
+                KimodoEditorGenerateResult result = await generatePipelineOrchestrator.ExecuteAnimatorToolGenerateAndBakeAsync(
+                    motionPrompt,
+                    bridgeModelName,
+                    generationBackend,
+                    bridgeVramMode,
+                    generationFrameCount,
+                    diffusionSteps,
+                    effectiveSeed,
+                    constraintsJson,
+                    explicitRetargetAvatar,
+                    previewPane != null ? previewPane.PreviewAvatarRoot : null,
                     (stage, message) =>
                     {
-                        RunOnEditorThread(() =>
+                        RunOnEditorThread(runId, () =>
                         {
                             lastStatus = string.IsNullOrWhiteSpace(message) ? stage.ToString() : message;
                             Repaint();
                         });
                     },
                     KimodoTimelinePreviewRefreshUtility.RefreshIfPreviewing,
-                    constraintsJson,
-                    useExternalConstraints: true,
-                    explicitRetargetAvatar,
                     runCts.Token);
 
-                RunOnEditorThread(() =>
+                RunOnEditorThread(runId, () =>
                 {
                     isGenerating = false;
+                    seed = result.Seed;
                     previewPane?.OnGenerateSuccess(result.GeneratedClip);
                     lastSuccessfulGeneratedClipForApply = result.GeneratedClip;
                     lastStatus = "Generation complete.";
@@ -212,7 +299,7 @@ namespace KimodoBridge.Editor
             }
             catch (OperationCanceledException)
             {
-                RunOnEditorThread(() =>
+                RunOnEditorThread(runId, () =>
                 {
                     isGenerating = false;
                     previewPane?.OnGenerateFailedOrCanceled();
@@ -223,25 +310,21 @@ namespace KimodoBridge.Editor
             }
             catch (Exception ex)
             {
-                RunOnEditorThread(() =>
+                RunOnEditorThread(runId, () =>
                 {
                     isGenerating = false;
                     previewPane?.OnGenerateFailedOrCanceled();
                     lastError = ex.Message;
                     lastStatus = "Generation failed.";
                     Repaint();
-                    RethrowOnNextEditorTick(ex);
+                    RethrowOnNextEditorTick(runId, ex);
                 });
             }
             finally
             {
-                RunOnEditorThread(() =>
+                RunOnEditorThreadForCleanup(() =>
                 {
                     DisposeGenerationCancellation(runCts);
-                    if (tempClip != null)
-                    {
-                        DestroyImmediate(tempClip);
-                    }
                 });
             }
         }
@@ -325,22 +408,6 @@ namespace KimodoBridge.Editor
             lastStatus = "Apply completed.";
         }
 
-        private KimodoPlayableClip CreateTemporaryWorkingClip()
-        {
-            var clip = CreateInstance<KimodoPlayableClip>();
-            clip.name = "KimodoAnimatorTool_WorkingClip";
-            clip.generationBackend = generationBackend;
-            clip.bridgeModelName = bridgeModelName;
-            clip.bridgeVramMode = bridgeVramMode;
-            clip.motionPrompt = motionPrompt ?? string.Empty;
-            clip.generationFrames = Mathf.Clamp(generationFrames, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES);
-            clip.diffusionSteps = Mathf.Clamp(diffusionSteps, 1, 1000);
-            clip.randomSeed = randomSeed;
-            clip.seed = seed;
-            clip.hideFlags = HideFlags.HideAndDontSave;
-            return clip;
-        }
-
         private void DisposeGenerationCancellation()
         {
             DisposeGenerationCancellation(generationCancellationTokenSource);
@@ -361,7 +428,83 @@ namespace KimodoBridge.Editor
             cts.Dispose();
         }
 
-        private static void RunOnEditorThread(Action action)
+        private void SyncSelectionDrivenDefaults(bool forcePromptUpdate)
+        {
+            if (previewPane == null)
+            {
+                return;
+            }
+
+            string suggestedPrompt = previewPane.GetSuggestedPrompt();
+            if (forcePromptUpdate ||
+                string.IsNullOrWhiteSpace(motionPrompt) ||
+                string.Equals(motionPrompt, lastSuggestedPrompt, StringComparison.Ordinal))
+            {
+                motionPrompt = suggestedPrompt;
+            }
+
+            lastSuggestedPrompt = suggestedPrompt;
+            if (autoDuration)
+            {
+                customDurationSeconds = previewPane.GetSuggestedDurationSeconds();
+            }
+            else
+            {
+                customDurationSeconds = ClampDurationSeconds(customDurationSeconds);
+            }
+        }
+
+        private float ResolveGenerationDurationSeconds()
+        {
+            float durationSeconds = autoDuration && previewPane != null
+                ? previewPane.GetSuggestedDurationSeconds()
+                : customDurationSeconds;
+            return ClampDurationSeconds(durationSeconds);
+        }
+
+        private int ResolveEffectiveSeedForRun()
+        {
+            int effectiveSeed = randomSeed
+                ? Guid.NewGuid().GetHashCode() & int.MaxValue
+                : seed;
+            seed = effectiveSeed;
+            return effectiveSeed;
+        }
+
+        private static int DurationSecondsToFrameCount(float durationSeconds)
+        {
+            return Mathf.Clamp(
+                Mathf.RoundToInt(ClampDurationSeconds(durationSeconds) * KimodoPlayableClip.FIXED_FRAME_RATE),
+                KimodoPlayableClip.MIN_FRAMES,
+                KimodoPlayableClip.MAX_FRAMES);
+        }
+
+        private static float ClampDurationSeconds(float durationSeconds)
+        {
+            float minDuration = KimodoPlayableClip.MIN_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
+            float maxDuration = KimodoPlayableClip.MAX_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
+            return Mathf.Clamp(durationSeconds, minDuration, maxDuration);
+        }
+
+        private void RunOnEditorThread(int runId, Action action)
+        {
+            if (action == null)
+            {
+                return;
+            }
+
+            EditorApplication.delayCall += () =>
+            {
+                if (disposed || runId != generationRunId)
+                {
+                    return;
+                }
+
+                action();
+            };
+        }
+
+        private static void RunOnEditorThreadForCleanup(Action action)
         {
             if (action == null)
             {
@@ -371,7 +514,7 @@ namespace KimodoBridge.Editor
             EditorApplication.delayCall += () => action();
         }
 
-        private static void RethrowOnNextEditorTick(Exception exception)
+        private void RethrowOnNextEditorTick(int runId, Exception exception)
         {
             if (exception == null)
             {
@@ -379,7 +522,15 @@ namespace KimodoBridge.Editor
             }
 
             ExceptionDispatchInfo dispatchInfo = ExceptionDispatchInfo.Capture(exception);
-            EditorApplication.delayCall += () => dispatchInfo.Throw();
+            EditorApplication.delayCall += () =>
+            {
+                if (disposed || runId != generationRunId)
+                {
+                    return;
+                }
+
+                dispatchInfo.Throw();
+            };
         }
     }
 

@@ -12,7 +12,7 @@ namespace KimodoBridge.Editor
         private const string GeneratedClipFolder = "Assets/KimodoGeneratedClips";
         private const string GeneratedClipNamePrefix = "Kimodo_";
 
-        public void CreateAndAssignNewAnimationClip(KimodoPlayableClip clip)
+        public AnimationClip CreateGeneratedAnimationClipAsset()
         {
             var newAnimationClip = new AnimationClip
             {
@@ -27,10 +27,43 @@ namespace KimodoBridge.Editor
             string fileName = $"{newAnimationClip.name}.anim";
             string savePath = AssetDatabase.GenerateUniqueAssetPath($"{GeneratedClipFolder}/{fileName}");
             AssetDatabase.CreateAsset(newAnimationClip, savePath);
+            EditorUtility.SetDirty(newAnimationClip);
+            AssetDatabase.SaveAssets();
+            return newAnimationClip;
+        }
 
-            clip.clip = newAnimationClip;
+        public void CreateAndAssignNewAnimationClip(KimodoPlayableClip clip)
+        {
+            clip.clip = CreateGeneratedAnimationClipAsset();
             EditorUtility.SetDirty(clip);
             EditorUtility.SetDirty(clip.clip);
+            AssetDatabase.SaveAssets();
+        }
+
+        public void BakeMotionJsonToClip(AnimationClip targetClip, string motionJson, string modelName, out string error)
+        {
+            error = string.Empty;
+            if (targetClip == null || string.IsNullOrWhiteSpace(motionJson))
+            {
+                error = "Clip / motion json is missing.";
+                return;
+            }
+
+            bool ok = KimodoRetargetToolsEditor.BakeIntoClip(
+                targetClip: targetClip,
+                motionJson: motionJson,
+                skeletonType: KimodoPlayableClip.ResolveBakeSkeletonTypeFromModelName(modelName),
+                modelName: modelName,
+                curveFilterOptions: null,
+                out error);
+
+            if (!ok)
+            {
+                Debug.LogWarning($"[Kimodo] Bake failed: {error}");
+                return;
+            }
+
+            EditorUtility.SetDirty(targetClip);
             AssetDatabase.SaveAssets();
         }
 
@@ -92,50 +125,34 @@ namespace KimodoBridge.Editor
             return clipPath;
         }
 
-        public void ApplyMotionJsonToClip(KimodoPlayableClip clip, string prompt, string motionJson)
+        public bool BakeMotionJsonToPlayableClip(KimodoPlayableClip clip, string prompt, string motionJson, out string error)
         {
-            JObject obj = JObject.Parse(motionJson);
-
-            clip.motionData = motionJson;
-            clip.lastGeneratedPrompt = prompt ?? string.Empty;
-            clip.isGenerated = true;
-
-            clip.frameCount = obj.Value<int?>("num_frames") ?? 0;
-            clip.jointCount = obj.Value<int?>("num_joints") ?? 0;
-            clip.fps = obj.Value<int?>("fps") ?? 30;
-
-            if (obj["joint_names"] is JArray names)
+            error = string.Empty;
+            if (clip == null || clip.clip == null || string.IsNullOrWhiteSpace(motionJson))
             {
-                string[] arr = new string[names.Count];
-                for (int i = 0; i < names.Count; i++)
-                {
-                    arr[i] = names[i]?.ToString();
-                }
-
-                clip.jointNames = arr;
-            }
-            else
-            {
-                clip.jointNames = null;
+                error = "Clip / motion json is missing.";
+                return false;
             }
 
-            if (obj["joints"] is JArray joints)
-            {
-                float[] arr = new float[joints.Count];
-                for (int i = 0; i < joints.Count; i++)
-                {
-                    arr[i] = joints[i] != null ? joints[i].Value<float>() : 0f;
-                }
+            ApplyGeneratedMetadata(clip, prompt, motionJson);
+            bool ok = KimodoRetargetToolsEditor.BakeIntoClip(
+                targetClip: clip.clip,
+                motionJson: motionJson,
+                skeletonType: clip.InferredSkeletonType,
+                modelName: clip.bridgeModelName,
+                curveFilterOptions: null,
+                out error);
 
-                clip.motionPositions = arr;
-            }
-            else
+            if (!ok)
             {
-                clip.motionPositions = null;
+                Debug.LogWarning($"[Kimodo] Bake failed: {error}");
+                return false;
             }
 
             EditorUtility.SetDirty(clip);
+            EditorUtility.SetDirty(clip.clip);
             AssetDatabase.SaveAssets();
+            return true;
         }
 
         public void TrimGeneratedClipsToLimit(KimodoPlayableClip clip)
@@ -205,79 +222,14 @@ namespace KimodoBridge.Editor
             }
         }
 
-        // NOTE: Legacy implementation kept for cleanup reference:
-        // public bool BakeCurrentMotionData(KimodoPlayableClip clip, bool hasValidRetargetAvatar, out string error)
-        // {
-        //     error = string.Empty;
-        //     if (clip == null || clip.clip == null || string.IsNullOrWhiteSpace(clip.motionData))
-        //     {
-        //         error = "Clip / motionData is missing.";
-        //         return false;
-        //     }
-        //
-        //     bool willRetargetPipeline = hasValidRetargetAvatar;
-        //     KimodoCurveFilterOptions bakeFilterOptions = clip.curveFilterOptions;
-        //     if (willRetargetPipeline && clip.curveFilterOptions != null)
-        //     {
-        //         bakeFilterOptions = new KimodoCurveFilterOptions
-        //         {
-        //             enabled = clip.curveFilterOptions.enabled,
-        //             positionError = 0f,
-        //             rotationError = 0f,
-        //             floatError = 0f,
-        //             ensureQuaternionContinuity = false
-        //         };
-        //     }
-        //
-        //     bool ok = KimodoRetargetToolsEditor.BakeIntoClip(
-        //         targetClip: clip.clip,
-        //         motionJson: clip.motionData,
-        //         skeletonType: clip.InferredSkeletonType,
-        //         modelName: clip.bridgeModelName,
-        //         curveFilterOptions: bakeFilterOptions,
-        //         out error);
-        //
-        //     if (!ok)
-        //     {
-        //         Debug.LogWarning($"[Kimodo] Bake failed: {error}");
-        //         return false;
-        //     }
-        //
-        //     clip.isGenerated = true;
-        //     EditorUtility.SetDirty(clip);
-        //     EditorUtility.SetDirty(clip.clip);
-        //     AssetDatabase.SaveAssets();
-        //     return true;
-        // }
-        public bool BakeCurrentMotionData(KimodoPlayableClip clip, bool hasValidRetargetAvatar, out string error)
+        private static void ApplyGeneratedMetadata(KimodoPlayableClip clip, string prompt, string motionJson)
         {
-            error = string.Empty;
-            if (clip == null || clip.clip == null || string.IsNullOrWhiteSpace(clip.motionData))
-            {
-                error = "Clip / motionData is missing.";
-                return false;
-            }
-
-            _ = hasValidRetargetAvatar;
-            bool ok = KimodoRetargetToolsEditor.BakeIntoClip(
-                targetClip: clip.clip,
-                motionJson: clip.motionData,
-                skeletonType: clip.InferredSkeletonType,
-                modelName: clip.bridgeModelName,
-                curveFilterOptions: null,
-                out error);
-
-            if (!ok)
-            {
-                Debug.LogWarning($"[Kimodo] Bake failed: {error}");
-                return false;
-            }
-
+            JObject obj = JObject.Parse(motionJson);
+            clip.lastGeneratedPrompt = prompt ?? string.Empty;
             clip.isGenerated = true;
-            EditorUtility.SetDirty(clip);
-            EditorUtility.SetDirty(clip.clip);
-            AssetDatabase.SaveAssets();
-            return true;
+            clip.frameCount = obj.Value<int?>("num_frames") ?? 0;
+            clip.jointCount = obj.Value<int?>("num_joints") ?? 0;
+            clip.fps = Mathf.RoundToInt(KimodoPlayableClip.FIXED_FRAME_RATE);
         }
 
         private static int CompareGeneratedClipPathsByAgeOldestFirst(string leftPath, string rightPath)
