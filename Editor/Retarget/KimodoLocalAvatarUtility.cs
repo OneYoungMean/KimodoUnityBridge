@@ -7,8 +7,6 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoLocalAvatarUtility
     {
-        private static readonly KimodoEditorClipWritebackService ClipWritebackService = new KimodoEditorClipWritebackService();
-
         public readonly struct AvatarResolveResult
         {
             public AvatarResolveResult(Avatar avatar, bool isHumanoid, string source, string error)
@@ -68,7 +66,7 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            if (ClipWritebackService.TryLoadGeneratedAvatarCache(avatarRoot, out Avatar cached, out _))
+            if (KimodoEditorClipWritebackService.TryLoadGeneratedAvatarCache(avatarRoot, out Avatar cached, out _))
             {
                 if (IsValidHumanoid(cached) && CheckAvatarValid(cached, avatarRoot))
                 {
@@ -95,7 +93,7 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            if (ClipWritebackService.TrySaveGeneratedAvatarCache(avatarRoot, generated, out Avatar saved, out string saveError))
+            if (KimodoEditorClipWritebackService.TrySaveGeneratedAvatarCache(avatarRoot, generated, out Avatar saved, out string saveError))
             {
                 if (IsValidHumanoid(saved))
                 {

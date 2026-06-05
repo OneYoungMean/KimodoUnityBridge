@@ -14,7 +14,6 @@ namespace KimodoBridge.Editor
     internal static class KimodoPlayableClipGenerationHostService
     {
         private static readonly KimodoEditorConstraintProvider ConstraintProvider = new KimodoEditorConstraintProvider();
-        private static readonly KimodoEditorClipWritebackService ClipWritebackService = new KimodoEditorClipWritebackService();
 
         public static KimodoEditorGenerateRequest BuildRequest(
             KimodoPlayableClip clip,
@@ -37,7 +36,8 @@ namespace KimodoBridge.Editor
                 constraintsJson = ConstraintProvider.BuildConstraintsJsonOrThrow(clip);
             }
 
-            EnsureTargetClip(clip);
+            AnimationClip previousClip = clip.clip;
+            AnimationClip targetClip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset();
 
             string resolvedModelName = string.IsNullOrWhiteSpace(clip.bridgeModelName) ? "Kimodo-SOMA-RP-v1" : clip.bridgeModelName.Trim();
             Avatar originRetargetAvatar = ResolveOriginRetargetAvatar(resolvedModelName);
@@ -70,7 +70,8 @@ namespace KimodoBridge.Editor
                 ComfyHost = clip.comfyuiIP,
                 ComfyPort = clip.comfyuiPort,
                 GenerationTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance.GenerationTimeoutSeconds,
-                TargetClip = clip.clip,
+                TargetClip = targetClip,
+                PreviousClip = previousClip,
                 Token = token
             };
         }
@@ -87,27 +88,30 @@ namespace KimodoBridge.Editor
 
             clip.clip = result.GeneratedClip;
             ApplyGeneratedMetadata(clip, result.Prompt, result.MotionJsonCompact);
-            TrimGeneratedClipsToLimit(clip);
             EditorUtility.SetDirty(clip);
             EditorUtility.SetDirty(result.GeneratedClip);
             result.ConstraintsPath = string.IsNullOrWhiteSpace(request.ConstraintsJson) ? "(none)" : "(inline-json)";
             HandleGeneratedClipWritebackCompleted(clip);
         }
 
-        public static IReadOnlyList<KimodoConstraintMarkerBase> GetLatestConstraintMarkers()
+        public static void CleanupFailedGeneration(KimodoEditorGenerateRequest request)
         {
-            return KimodoEditorConstraintProvider.LatestMarkers;
-        }
-
-        private static void EnsureTargetClip(KimodoPlayableClip clip)
-        {
-            if (clip == null || clip.clip != null)
+            if (request == null || request.TargetClip == null)
             {
                 return;
             }
 
-            clip.clip = ClipWritebackService.CreateGeneratedAnimationClipAsset();
-            ClipWritebackService.SaveDirtyAssets(clip, clip.clip);
+            if (ReferenceEquals(request.TargetClip, request.PreviousClip))
+            {
+                return;
+            }
+
+            KimodoEditorClipWritebackService.TryDeleteGeneratedAnimationClipAsset(request.TargetClip);
+        }
+
+        public static IReadOnlyList<KimodoConstraintMarkerBase> GetLatestConstraintMarkers()
+        {
+            return KimodoEditorConstraintProvider.LatestMarkers;
         }
 
         private static void ApplyGeneratedMetadata(KimodoPlayableClip clip, string prompt, string motionJson)
@@ -123,16 +127,6 @@ namespace KimodoBridge.Editor
             clip.frameCount = obj.Value<int?>("num_frames") ?? 0;
             clip.jointCount = obj.Value<int?>("num_joints") ?? 0;
             clip.fps = Mathf.RoundToInt(KimodoPlayableClip.FIXED_FRAME_RATE);
-        }
-
-        private static void TrimGeneratedClipsToLimit(KimodoPlayableClip clip)
-        {
-            int maxCount = Mathf.Clamp(
-                KimodoPlayableClipGenerationSettings.instance.MaxGeneratedClips,
-                KimodoPlayableClipGenerationSettings.MinGeneratedClipsLimit,
-                KimodoPlayableClipGenerationSettings.MaxGeneratedClipsLimit);
-
-            ClipWritebackService.TrimGeneratedClipsToLimit(clip != null ? clip.clip : null, maxCount);
         }
 
         private static void HandleGeneratedClipWritebackCompleted(KimodoPlayableClip playableClip)

@@ -230,7 +230,7 @@ namespace KimodoBridge.Editor
         {
             try
             {
-                AnimationClip targetClip = new KimodoEditorClipWritebackService().CreateGeneratedAnimationClipAsset();
+                AnimationClip targetClip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset();
                 KimodoEditorGenerateRequest request = BuildAnimatorGenerateRequest(
                     constraintsJson,
                     explicitRetargetAvatar,

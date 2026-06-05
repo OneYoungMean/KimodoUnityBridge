@@ -95,6 +95,64 @@ namespace KimodoBridge.Editor
             return true;
         }
 
+        public static bool TryBakeMuscleClipCacheToClip(
+            AnimationClip sourceClip,
+            Avatar sourceAvatar,
+            AnimationClip targetClip,
+            out string error)
+        {
+            error = string.Empty;
+            if (sourceClip == null || targetClip == null)
+            {
+                error = "Source clip or target clip is null.";
+                return false;
+            }
+
+            if (!KimodoRetargetTools.IsValidHumanoid(sourceAvatar))
+            {
+                error = "Source avatar is null/invalid/non-humanoid.";
+                return false;
+            }
+
+            if (!KimodoRetargetTools.TryBuildSkeletonCache(sourceAvatar, "KimodoRetargetToolsEditor_SourceMuscleCache", out SkeletonCache sourceCache, out error))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!KimodoRetargetTools.TryBuildMuscleClipCache(sourceClip, sourceCache, out MuscleClipCache muscleClipCache, out error))
+                {
+                    return false;
+                }
+
+                try
+                {
+                    targetClip.legacy = false;
+                    targetClip.frameRate = muscleClipCache.frameRate > 0f
+                        ? muscleClipCache.frameRate
+                        : (sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE);
+
+                    if (!KimodoRetargetTools.WriteMuscleSampleToMuscleClip(muscleClipCache.samples, targetClip, out error))
+                    {
+                        return false;
+                    }
+
+                    EditorUtility.SetDirty(targetClip);
+                    AssetDatabase.SaveAssets();
+                    return true;
+                }
+                finally
+                {
+                    KimodoRetargetTools.DestroyMuscleClipCache(muscleClipCache, destroyMuscleClip: true);
+                }
+            }
+            finally
+            {
+                KimodoRetargetTools.DestroySkeletonCache(sourceCache);
+            }
+        }
+
         public static bool TryApplyCurveFilterToClip(
             AnimationClip sourceClip,
             AnimationClip targetClip,

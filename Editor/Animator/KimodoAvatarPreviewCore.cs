@@ -31,7 +31,6 @@ namespace KimodoBridge.Editor
         }
 
         private KimodoAvatarPreview avatarPreview;
-        private readonly KimodoEditorClipWritebackService clipWritebackService = new KimodoEditorClipWritebackService();
         private GameObject sourcePreviewInstance;
         private AnimatorController previewController;
         private string previewControllerAssetPath;
@@ -325,7 +324,7 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            if (!clipWritebackService.TryCreateGeneratedPreviewAnimatorControllerAsset(
+            if (!KimodoEditorClipWritebackService.TryCreateGeneratedPreviewAnimatorControllerAsset(
                     out previewController,
                     out previewControllerAssetPath,
                     out string error))

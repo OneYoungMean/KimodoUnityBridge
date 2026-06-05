@@ -256,13 +256,59 @@ namespace KimodoBridge.Editor
     {
         public const double KimodoFps = 30.0;
         private static readonly Dictionary<int, AutoSampleCacheEntry> AutoSampleCache = new Dictionary<int, AutoSampleCacheEntry>();
-        private static readonly Dictionary<int, string> PoseRenderSignatures = new Dictionary<int, string>();
+        private static readonly Dictionary<int, PoseRenderCacheEntry> PoseRenderSignatures = new Dictionary<int, PoseRenderCacheEntry>();
+        private static readonly Dictionary<int, string> CachedIntStrings = new Dictionary<int, string>();
 
         private sealed class AutoSampleCacheEntry
         {
-            public string Signature;
+            public AutoSampleSignatureSnapshot Snapshot;
             public bool Success;
             public string Error;
+        }
+
+        private sealed class PoseRenderCacheEntry
+        {
+            public PoseRenderSignatureSnapshot Snapshot;
+            public bool Success;
+            public string Error;
+        }
+
+        private struct AutoSampleSignatureSnapshot
+        {
+            public string ConstraintType;
+            public double GlobalTime;
+            public double LocalTime;
+            public string ModelName;
+            public int TrackId;
+            public int AnimatorId;
+            public int SourceClipId;
+            public int ClipAssetId;
+            public int SourceAvatarId;
+            public int TargetAvatarId;
+            public double ClipStart;
+            public double ClipDuration;
+            public double ClipIn;
+            public double TimeScale;
+            public float SourceClipLength;
+            public float SourceClipFrameRate;
+            public bool HasRootHeading;
+            public string[] JointNames;
+        }
+
+        private struct PoseRenderSignatureSnapshot
+        {
+            public string ConstraintType;
+            public double SampleTime;
+            public int ClipId;
+            public int AnimatorId;
+            public string ModelName;
+            public KimodoConstraintRigType RigType;
+            public bool HasRootHeading;
+            public Vector3 RootPosition;
+            public Vector2 RootHeading;
+            public string[] JointNames;
+            public Vector3[] LocalAxisAngles;
+            public int[] SampledJointIndices;
         }
 
         private struct MarkerSamplingContext
@@ -274,6 +320,17 @@ namespace KimodoBridge.Editor
             public Avatar SourceAvatar;
             public Avatar TargetAvatar;
             public string ModelName;
+        }
+
+        internal static string GetCachedIntString(int value)
+        {
+            if (!CachedIntStrings.TryGetValue(value, out string cached))
+            {
+                cached = value.ToString(CultureInfo.InvariantCulture);
+                CachedIntStrings[value] = cached;
+            }
+
+            return cached;
         }
 
         public static double GetLocalSecondsInClip(TimelineClip clipRange, double globalTime)
@@ -365,6 +422,7 @@ namespace KimodoBridge.Editor
 
             double sampleTime = marker.time;
             double localSampleTime = GetLocalSecondsInClip(context.ClipRange, sampleTime);
+
             if (!KimodoMarkerSamplingUtility.TrySampleMarkerFromClipWithRetargetCore(
                     context.SourceClip,
                     marker.ConstraintType,
@@ -398,24 +456,24 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!TryBuildAutoSampleSignature(marker, out string signature, out error))
+            if (!TryBuildMarkerSamplingContext(marker, out MarkerSamplingContext context, out error))
             {
                 return false;
             }
 
             int id = marker.GetInstanceID();
             if (AutoSampleCache.TryGetValue(id, out AutoSampleCacheEntry cached) &&
-                string.Equals(cached.Signature, signature, StringComparison.Ordinal))
+                AutoSampleSnapshotMatches(marker, context, cached.Snapshot))
             {
                 error = cached.Error ?? string.Empty;
                 return cached.Success;
             }
 
-            if (!TrySampleMarkerDataFromMarker(marker, out KimodoMarkerSampleResult preview, out error))
+            if (!TrySampleMarkerDataFromMarker(marker, context, out KimodoMarkerSampleResult preview, out error))
             {
                 AutoSampleCache[id] = new AutoSampleCacheEntry
                 {
-                    Signature = signature,
+                    Snapshot = BuildAutoSampleSnapshot(marker, context, marker.SampleData),
                     Success = false,
                     Error = error ?? string.Empty
                 };
@@ -426,7 +484,7 @@ namespace KimodoBridge.Editor
             {
                 AutoSampleCache[id] = new AutoSampleCacheEntry
                 {
-                    Signature = signature,
+                    Snapshot = BuildAutoSampleSnapshot(marker, context, marker.SampleData),
                     Success = false,
                     Error = error ?? string.Empty
                 };
@@ -435,7 +493,7 @@ namespace KimodoBridge.Editor
 
             AutoSampleCache[id] = new AutoSampleCacheEntry
             {
-                Signature = signature,
+                Snapshot = BuildAutoSampleSnapshot(marker, context, preview),
                 Success = true,
                 Error = string.Empty
             };
@@ -519,39 +577,103 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        private static bool TryBuildAutoSampleSignature(KimodoConstraintMarkerBase marker, out string signature, out string error)
+        private static bool TrySampleMarkerDataFromMarker(
+            KimodoConstraintMarkerBase marker,
+            MarkerSamplingContext context,
+            out KimodoMarkerSampleResult sampledData,
+            out string error)
         {
-            signature = string.Empty;
-            if (!TryBuildMarkerSamplingContext(marker, out MarkerSamplingContext context, out error))
+            sampledData = null;
+            error = string.Empty;
+
+            double sampleTime = marker.time;
+            double localSampleTime = GetLocalSecondsInClip(context.ClipRange, sampleTime);
+
+            if (!KimodoMarkerSamplingUtility.TrySampleMarkerFromClipWithRetargetCore(
+                    context.SourceClip,
+                    marker.ConstraintType,
+                    localSampleTime,
+                    context.SourceAvatar,
+                    context.TargetAvatar,
+                    context.ModelName,
+                    out KimodoMarkerSampleResult sample,
+                    out error))
             {
                 return false;
             }
 
-            double globalTime = Math.Max(0.0, marker.time);
-            double localTime = GetLocalSecondsInClip(context.ClipRange, globalTime);
-            KimodoMarkerSampleResult sampleData = marker.SampleData;
-            int clipAssetId = context.ClipRange.asset is UnityEngine.Object clipAsset ? clipAsset.GetInstanceID() : 0;
-            signature = string.Join("|",
-                marker.GetInstanceID().ToString(CultureInfo.InvariantCulture),
-                marker.ConstraintType ?? string.Empty,
-                FormatDouble(globalTime),
-                FormatDouble(localTime),
-                context.ModelName ?? string.Empty,
-                context.Track != null ? context.Track.GetInstanceID().ToString(CultureInfo.InvariantCulture) : "0",
-                context.Animator != null ? context.Animator.GetInstanceID().ToString(CultureInfo.InvariantCulture) : "0",
-                context.SourceClip != null ? context.SourceClip.GetInstanceID().ToString(CultureInfo.InvariantCulture) : "0",
-                clipAssetId.ToString(CultureInfo.InvariantCulture),
-                context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID().ToString(CultureInfo.InvariantCulture) : "0",
-                context.TargetAvatar != null ? context.TargetAvatar.GetInstanceID().ToString(CultureInfo.InvariantCulture) : "0",
-                FormatDouble(context.ClipRange.start),
-                FormatDouble(context.ClipRange.duration),
-                FormatDouble(context.ClipRange.clipIn),
-                FormatDouble(context.ClipRange.timeScale),
-                context.SourceClip != null ? FormatFloat(context.SourceClip.length) : "0",
-                context.SourceClip != null ? FormatFloat(context.SourceClip.frameRate) : "0",
-                sampleData != null && sampleData.hasRootHeading ? "1" : "0",
-                BuildStringListSignature(sampleData != null ? sampleData.jointNames : null));
+            sample.sampleTime = sampleTime;
+            sampledData = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sample);
+            if (sampledData == null)
+            {
+                error = "failed to build marker sample";
+                return false;
+            }
+
             return true;
+        }
+
+        private static AutoSampleSignatureSnapshot BuildAutoSampleSnapshot(
+            KimodoConstraintMarkerBase marker,
+            MarkerSamplingContext context,
+            KimodoMarkerSampleResult sample = null)
+        {
+            KimodoMarkerSampleResult source = sample ?? marker?.SampleData;
+            int clipAssetId = context.ClipRange != null && context.ClipRange.asset is UnityEngine.Object clipAsset
+                ? clipAsset.GetInstanceID()
+                : 0;
+            double globalTime = marker != null ? Math.Max(0.0, marker.time) : 0.0;
+            return new AutoSampleSignatureSnapshot
+            {
+                ConstraintType = marker != null ? marker.ConstraintType ?? string.Empty : string.Empty,
+                GlobalTime = globalTime,
+                LocalTime = GetLocalSecondsInClip(context.ClipRange, globalTime),
+                ModelName = context.ModelName ?? string.Empty,
+                TrackId = context.Track != null ? context.Track.GetInstanceID() : 0,
+                AnimatorId = context.Animator != null ? context.Animator.GetInstanceID() : 0,
+                SourceClipId = context.SourceClip != null ? context.SourceClip.GetInstanceID() : 0,
+                ClipAssetId = clipAssetId,
+                SourceAvatarId = context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0,
+                TargetAvatarId = context.TargetAvatar != null ? context.TargetAvatar.GetInstanceID() : 0,
+                ClipStart = context.ClipRange != null ? context.ClipRange.start : 0.0,
+                ClipDuration = context.ClipRange != null ? context.ClipRange.duration : 0.0,
+                ClipIn = context.ClipRange != null ? context.ClipRange.clipIn : 0.0,
+                TimeScale = context.ClipRange != null ? context.ClipRange.timeScale : 0.0,
+                SourceClipLength = context.SourceClip != null ? context.SourceClip.length : 0f,
+                SourceClipFrameRate = context.SourceClip != null ? context.SourceClip.frameRate : 0f,
+                HasRootHeading = source != null && source.hasRootHeading,
+                JointNames = CopyStringArray(source != null ? source.jointNames : null)
+            };
+        }
+
+        private static bool AutoSampleSnapshotMatches(
+            KimodoConstraintMarkerBase marker,
+            MarkerSamplingContext context,
+            AutoSampleSignatureSnapshot snapshot)
+        {
+            KimodoMarkerSampleResult sample = marker != null ? marker.SampleData : null;
+            int clipAssetId = context.ClipRange != null && context.ClipRange.asset is UnityEngine.Object clipAsset
+                ? clipAsset.GetInstanceID()
+                : 0;
+            double globalTime = marker != null ? Math.Max(0.0, marker.time) : 0.0;
+            return string.Equals(snapshot.ConstraintType ?? string.Empty, marker != null ? marker.ConstraintType ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
+                Math.Abs(snapshot.GlobalTime - globalTime) <= 1e-9 &&
+                Math.Abs(snapshot.LocalTime - GetLocalSecondsInClip(context.ClipRange, globalTime)) <= 1e-9 &&
+                string.Equals(snapshot.ModelName ?? string.Empty, context.ModelName ?? string.Empty, StringComparison.Ordinal) &&
+                snapshot.TrackId == (context.Track != null ? context.Track.GetInstanceID() : 0) &&
+                snapshot.AnimatorId == (context.Animator != null ? context.Animator.GetInstanceID() : 0) &&
+                snapshot.SourceClipId == (context.SourceClip != null ? context.SourceClip.GetInstanceID() : 0) &&
+                snapshot.ClipAssetId == clipAssetId &&
+                snapshot.SourceAvatarId == (context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0) &&
+                snapshot.TargetAvatarId == (context.TargetAvatar != null ? context.TargetAvatar.GetInstanceID() : 0) &&
+                Math.Abs(snapshot.ClipStart - (context.ClipRange != null ? context.ClipRange.start : 0.0)) <= 1e-9 &&
+                Math.Abs(snapshot.ClipDuration - (context.ClipRange != null ? context.ClipRange.duration : 0.0)) <= 1e-9 &&
+                Math.Abs(snapshot.ClipIn - (context.ClipRange != null ? context.ClipRange.clipIn : 0.0)) <= 1e-9 &&
+                Math.Abs(snapshot.TimeScale - (context.ClipRange != null ? context.ClipRange.timeScale : 0.0)) <= 1e-9 &&
+                Mathf.Abs(snapshot.SourceClipLength - (context.SourceClip != null ? context.SourceClip.length : 0f)) <= 1e-6f &&
+                Mathf.Abs(snapshot.SourceClipFrameRate - (context.SourceClip != null ? context.SourceClip.frameRate : 0f)) <= 1e-6f &&
+                snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&
+                StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null);
         }
 
         public static void MoveMarkerToTime(IMarker marker, double globalTime)
@@ -564,7 +686,7 @@ namespace KimodoBridge.Editor
             if (marker is KimodoConstraintMarkerBase kimodoMarker)
             {
                 ClearMarkerEditorCaches(kimodoMarker);
-                KimodoConstraintPoseCache.DestroyEntriesForItemId(kimodoMarker.GetInstanceID().ToString());
+                KimodoConstraintPoseCache.DestroyEntriesForItemId(GetMarkerEntryId(kimodoMarker));
                 kimodoMarker.time = globalTime;
                 kimodoMarker.SampleData.sampleTime = Math.Max(0.0, globalTime);
             }
@@ -678,7 +800,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            KimodoConstraintPoseCache.DestroyEntriesForItemId(marker.GetInstanceID().ToString());
+            KimodoConstraintPoseCache.DestroyEntriesForItemId(GetMarkerEntryId(marker));
             SceneView.RepaintAll();
         }
 
@@ -734,30 +856,6 @@ namespace KimodoBridge.Editor
         public static bool TryRenderMarkerToPoseCacheIfNeeded(KimodoConstraintMarkerBase marker, out string error)
         {
             error = string.Empty;
-            if (!TryBuildMarkerRenderSignature(marker, out string signature, out error))
-            {
-                return false;
-            }
-
-            int id = marker.GetInstanceID();
-            if (PoseRenderSignatures.TryGetValue(id, out string cached) &&
-                string.Equals(cached, signature, StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            if (!TryRenderMarkerToPoseCache(marker, out error))
-            {
-                return false;
-            }
-
-            PoseRenderSignatures[id] = signature;
-            return true;
-        }
-
-        private static bool TryBuildMarkerRenderSignature(KimodoConstraintMarkerBase marker, out string signature, out string error)
-        {
-            signature = string.Empty;
             if (marker == null)
             {
                 error = "marker is null";
@@ -769,18 +867,31 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(marker, marker.SampleData, out KimodoMarkerSampleResult sample, out error))
+            int id = marker.GetInstanceID();
+            if (PoseRenderSignatures.TryGetValue(id, out PoseRenderCacheEntry cached) &&
+                RenderSnapshotMatches(marker, context, cached.Snapshot))
             {
+                error = cached.Error ?? string.Empty;
+                return cached.Success;
+            }
+
+            if (!TryRenderMarkerToPoseCache(marker, context, out KimodoMarkerSampleResult sample, out error))
+            {
+                PoseRenderSignatures[id] = new PoseRenderCacheEntry
+                {
+                    Snapshot = BuildRenderSnapshot(marker, context, marker.SampleData),
+                    Success = false,
+                    Error = error ?? string.Empty
+                };
                 return false;
             }
 
-            signature = string.Join("|",
-                marker.GetInstanceID().ToString(CultureInfo.InvariantCulture),
-                context.ClipId.ToString(CultureInfo.InvariantCulture),
-                context.AnimatorId.ToString(CultureInfo.InvariantCulture),
-                context.ModelName ?? string.Empty,
-                context.RigType.ToString(),
-                BuildSampleSignature(sample));
+            PoseRenderSignatures[id] = new PoseRenderCacheEntry
+            {
+                Snapshot = BuildRenderSnapshot(marker, context, sample),
+                Success = true,
+                Error = string.Empty
+            };
             return true;
         }
 
@@ -849,23 +960,42 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            KimodoConstraintPoseCache.DestroyEntriesForItemId(marker.GetInstanceID().ToString(), context);
+            return TryRenderMarkerToPoseCache(marker, context, out _, out error);
+        }
 
-            if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(marker, marker.SampleData, out KimodoMarkerSampleResult sample, out error))
+        private static bool TryRenderMarkerToPoseCache(
+            KimodoConstraintMarkerBase marker,
+            PoseCacheRenderContext context,
+            out KimodoMarkerSampleResult sample,
+            out string error)
+        {
+            sample = null;
+            error = string.Empty;
+            string entryId = GetMarkerEntryId(marker);
+            KimodoConstraintPoseCache.DestroyEntriesForItemId(entryId, context);
+
+            if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(marker, marker.SampleData, out KimodoMarkerSampleResult normalizedSample, out error))
             {
                 return false;
             }
 
+            sample = normalizedSample;
+
             var item = new PoseCacheRenderItem
             {
-                EntryId = marker.GetInstanceID().ToString(),
-                SampleData = sample,
+                EntryId = entryId,
+                SampleData = normalizedSample,
                 ConstraintType = marker.ConstraintType,
                 HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
                 Visible = true
             };
             var batch = new List<PoseCacheRenderItem>(1) { item };
-            return KimodoConstraintPoseCache.RenderBatch(context, batch, out error);
+            if (!KimodoConstraintPoseCache.RenderBatch(context, batch, out error))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         public static bool TryRenderMarkersBatchToPoseCache(
@@ -889,7 +1019,8 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                KimodoConstraintPoseCache.DestroyEntriesForItemId(marker.GetInstanceID().ToString(), context);
+                string entryId = GetMarkerEntryId(marker);
+                KimodoConstraintPoseCache.DestroyEntriesForItemId(entryId, context);
 
                 if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(marker, marker.SampleData, out KimodoMarkerSampleResult sample, out string normalizeError))
                 {
@@ -899,7 +1030,7 @@ namespace KimodoBridge.Editor
 
                 items.Add(new PoseCacheRenderItem
                 {
-                    EntryId = marker.GetInstanceID().ToString(),
+                    EntryId = entryId,
                     SampleData = sample,
                     ConstraintType = marker.ConstraintType,
                     HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
@@ -954,6 +1085,54 @@ namespace KimodoBridge.Editor
             int id = marker.GetInstanceID();
             AutoSampleCache.Remove(id);
             PoseRenderSignatures.Remove(id);
+        }
+
+        private static string GetMarkerEntryId(KimodoConstraintMarkerBase marker)
+        {
+            return marker == null ? string.Empty : GetCachedIntString(marker.GetInstanceID());
+        }
+
+        private static PoseRenderSignatureSnapshot BuildRenderSnapshot(
+            KimodoConstraintMarkerBase marker,
+            PoseCacheRenderContext context,
+            KimodoMarkerSampleResult sample)
+        {
+            KimodoMarkerSampleResult source = sample ?? marker?.SampleData;
+            return new PoseRenderSignatureSnapshot
+            {
+                ConstraintType = marker != null ? marker.ConstraintType ?? string.Empty : string.Empty,
+                SampleTime = source != null ? source.sampleTime : 0.0,
+                ClipId = context.ClipId,
+                AnimatorId = context.AnimatorId,
+                ModelName = context.ModelName ?? string.Empty,
+                RigType = context.RigType,
+                HasRootHeading = source != null && source.hasRootHeading,
+                RootPosition = source != null ? source.rootPosition : default,
+                RootHeading = source != null ? source.rootHeading : default,
+                JointNames = CopyStringArray(source != null ? source.jointNames : null),
+                LocalAxisAngles = CopyVector3Array(source != null ? source.localAxisAngles : null),
+                SampledJointIndices = CopyIntArray(source != null ? source.sampledJointIndices : null)
+            };
+        }
+
+        private static bool RenderSnapshotMatches(
+            KimodoConstraintMarkerBase marker,
+            PoseCacheRenderContext context,
+            PoseRenderSignatureSnapshot snapshot)
+        {
+            KimodoMarkerSampleResult sample = marker != null ? marker.SampleData : null;
+            return string.Equals(snapshot.ConstraintType ?? string.Empty, marker != null ? marker.ConstraintType ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
+                Math.Abs(snapshot.SampleTime - (sample != null ? sample.sampleTime : 0.0)) <= 1e-9 &&
+                snapshot.ClipId == context.ClipId &&
+                snapshot.AnimatorId == context.AnimatorId &&
+                string.Equals(snapshot.ModelName ?? string.Empty, context.ModelName ?? string.Empty, StringComparison.Ordinal) &&
+                snapshot.RigType == context.RigType &&
+                snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&
+                Vector3Approximately(snapshot.RootPosition, sample != null ? sample.rootPosition : default) &&
+                Vector2Approximately(snapshot.RootHeading, sample != null ? sample.rootHeading : default) &&
+                StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null) &&
+                Vector3ArrayEquals(snapshot.LocalAxisAngles, sample != null ? sample.localAxisAngles : null) &&
+                IntArrayEquals(snapshot.SampledJointIndices, sample != null ? sample.sampledJointIndices : null);
         }
 
         private static string BuildSampleSignature(KimodoMarkerSampleResult sample)
@@ -1035,6 +1214,127 @@ namespace KimodoBridge.Editor
         private static string FormatFloat(float value)
         {
             return value.ToString("R", CultureInfo.InvariantCulture);
+        }
+
+        private static string[] CopyStringArray(IReadOnlyList<string> values)
+        {
+            int count = values != null ? values.Count : 0;
+            if (count == 0)
+            {
+                return Array.Empty<string>();
+            }
+
+            var result = new string[count];
+            for (int i = 0; i < count; i++)
+            {
+                result[i] = values[i] ?? string.Empty;
+            }
+
+            return result;
+        }
+
+        private static Vector3[] CopyVector3Array(IReadOnlyList<Vector3> values)
+        {
+            int count = values != null ? values.Count : 0;
+            if (count == 0)
+            {
+                return Array.Empty<Vector3>();
+            }
+
+            var result = new Vector3[count];
+            for (int i = 0; i < count; i++)
+            {
+                result[i] = values[i];
+            }
+
+            return result;
+        }
+
+        private static int[] CopyIntArray(IReadOnlyList<int> values)
+        {
+            int count = values != null ? values.Count : 0;
+            if (count == 0)
+            {
+                return Array.Empty<int>();
+            }
+
+            var result = new int[count];
+            for (int i = 0; i < count; i++)
+            {
+                result[i] = values[i];
+            }
+
+            return result;
+        }
+
+        private static bool StringArrayEquals(string[] left, IReadOnlyList<string> right)
+        {
+            int leftCount = left != null ? left.Length : 0;
+            int rightCount = right != null ? right.Count : 0;
+            if (leftCount != rightCount)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < leftCount; i++)
+            {
+                if (!string.Equals(left[i] ?? string.Empty, right[i] ?? string.Empty, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool Vector3ArrayEquals(Vector3[] left, IReadOnlyList<Vector3> right)
+        {
+            int leftCount = left != null ? left.Length : 0;
+            int rightCount = right != null ? right.Count : 0;
+            if (leftCount != rightCount)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < leftCount; i++)
+            {
+                if (!Vector3Approximately(left[i], right[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool IntArrayEquals(int[] left, IReadOnlyList<int> right)
+        {
+            int leftCount = left != null ? left.Length : 0;
+            int rightCount = right != null ? right.Count : 0;
+            if (leftCount != rightCount)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < leftCount; i++)
+            {
+                if (left[i] != right[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool Vector2Approximately(Vector2 left, Vector2 right)
+        {
+            return (left - right).sqrMagnitude <= 1e-10f;
+        }
+
+        private static bool Vector3Approximately(Vector3 left, Vector3 right)
+        {
+            return (left - right).sqrMagnitude <= 1e-10f;
         }
     }
 }

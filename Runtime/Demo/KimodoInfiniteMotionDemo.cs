@@ -57,6 +57,8 @@ namespace KimodoBridge
         private bool generationInFlight;
         private int segmentIndex;
         private KimodoMarkerSampleResult nextConstraintPose;
+        private bool manualSendRequested;
+        private string promptDraft;
 
         private Avatar somaAvatar;
         private Avatar dancerAvatar;
@@ -65,6 +67,7 @@ namespace KimodoBridge
         {
             somaPlayer = new ClipPlayer("KimodoInfiniteMotionDemo_Soma");
             dancerPlayer = new ClipPlayer("KimodoInfiniteMotionDemo_Dancer");
+            promptDraft = ResolveInitialPrompt();
         }
 
         private void OnEnable()
@@ -74,6 +77,7 @@ namespace KimodoBridge
                 try
                 {
                     ResolveAvatars();
+                    EnsurePromptDraftInitialized();
                     UpdateStatus("Idle.");
                 }
                 catch (Exception ex)
@@ -83,6 +87,7 @@ namespace KimodoBridge
             }
             else
             {
+                EnsurePromptDraftInitialized();
                 UpdateStatus("Idle.");
             }
 
@@ -102,6 +107,11 @@ namespace KimodoBridge
             somaPlayer.Update();
             dancerPlayer.Update();
             TryPromoteNextSegment();
+        }
+
+        private void OnGUI()
+        {
+            DrawPromptBar();
         }
 
         private void OnDestroy()
@@ -135,6 +145,7 @@ namespace KimodoBridge
                 segmentIndex = 0;
                 nextConstraintPose = null;
                 generationInFlight = false;
+                manualSendRequested = false;
                 ClearPendingSegments();
 
                 generationService?.Dispose();
@@ -249,13 +260,18 @@ namespace KimodoBridge
                 return;
             }
 
-            if (PendingSegmentCount > 0)
+            bool manualTrigger = manualSendRequested;
+            if (!manualTrigger && PendingSegmentCount > 0)
             {
                 return;
             }
 
             bool shouldGenerate;
-            if (!somaPlayer.HasActiveClip)
+            if (manualTrigger)
+            {
+                shouldGenerate = true;
+            }
+            else if (!somaPlayer.HasActiveClip)
             {
                 shouldGenerate = PendingSegmentCount == 0;
             }
@@ -269,6 +285,7 @@ namespace KimodoBridge
                 return;
             }
 
+            manualSendRequested = false;
             _ = GenerateNextSegmentAsync(token);
         }
 
@@ -561,7 +578,11 @@ namespace KimodoBridge
 
         private string ResolvePrompt()
         {
-            string prompt = ReadTextProperty(promptTextSource);
+            string prompt = promptDraft;
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                prompt = ReadTextProperty(promptTextSource);
+            }
             if (string.IsNullOrWhiteSpace(prompt))
             {
                 prompt = defaultPrompt;
@@ -578,6 +599,61 @@ namespace KimodoBridge
         public void StopDemo()
         {
             _ = StopDemoAsync();
+        }
+
+        private void DrawPromptBar()
+        {
+            const float margin = 12f;
+            const float panelHeight = 74f;
+            const float buttonWidth = 110f;
+            const float fieldHeight = 28f;
+
+            Rect panelRect = new Rect(
+                margin,
+                Mathf.Max(margin, Screen.height - panelHeight - margin),
+                Mathf.Max(0f, Screen.width - margin * 2f),
+                panelHeight);
+
+            GUI.Box(panelRect, GUIContent.none);
+
+            Rect fieldRect = new Rect(
+                panelRect.x + 12f,
+                panelRect.y + 14f,
+                Mathf.Max(0f, panelRect.width - buttonWidth - 32f),
+                fieldHeight);
+
+            Rect buttonRect = new Rect(
+                panelRect.xMax - buttonWidth - 12f,
+                fieldRect.y,
+                buttonWidth,
+                fieldHeight);
+
+            GUI.SetNextControlName("KimodoPromptInput");
+            promptDraft = GUI.TextField(fieldRect, promptDraft ?? string.Empty);
+
+            if (Event.current.type == EventType.KeyDown &&
+                GUI.GetNameOfFocusedControl() == "KimodoPromptInput" &&
+                (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter))
+            {
+                Event.current.Use();
+                RequestManualSend();
+            }
+
+            if (GUI.Button(buttonRect, "Send"))
+            {
+                RequestManualSend();
+            }
+        }
+
+        private void RequestManualSend()
+        {
+            manualSendRequested = true;
+            if (!running || generationService == null || generationInFlight)
+            {
+                return;
+            }
+
+            MaybeQueueNextGeneration(lifetimeCts != null ? lifetimeCts.Token : CancellationToken.None);
         }
 
         private void OnProgress(string message)
@@ -637,6 +713,25 @@ namespace KimodoBridge
             }
             catch
             {
+            }
+        }
+
+        private string ResolveInitialPrompt()
+        {
+            string prompt = ReadTextProperty(promptTextSource);
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                prompt = defaultPrompt;
+            }
+
+            return string.IsNullOrWhiteSpace(prompt) ? "A person dancing." : prompt.Trim();
+        }
+
+        private void EnsurePromptDraftInitialized()
+        {
+            if (string.IsNullOrWhiteSpace(promptDraft))
+            {
+                promptDraft = ResolveInitialPrompt();
             }
         }
 

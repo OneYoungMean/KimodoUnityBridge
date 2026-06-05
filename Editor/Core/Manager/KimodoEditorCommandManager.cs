@@ -175,13 +175,20 @@ namespace KimodoBridge.Editor
                 prompt,
                 externalConstraint,
                 state.Token);
+            try
+            {
+                request.Progress = (stage, message) => EmitProgress(eventCommand, message, stage);
 
-            request.Progress = (stage, message) => EmitProgress(eventCommand, message, stage);
+                KimodoEditorGenerateResult result = await GeneratePipelineOrchestrator.ExecuteAsync(request);
+                KimodoPlayableClipGenerationHostService.FinalizeGeneration(clip, request, result);
 
-            KimodoEditorGenerateResult result = await GeneratePipelineOrchestrator.ExecuteAsync(request);
-            KimodoPlayableClipGenerationHostService.FinalizeGeneration(clip, request, result);
-
-            EmitCompleted(eventCommand, result);
+                EmitCompleted(eventCommand, result);
+            }
+            catch
+            {
+                KimodoPlayableClipGenerationHostService.CleanupFailedGeneration(request);
+                throw;
+            }
         }
 
         private static async Task HandleBridgeControlAsync(RunningCommandState state, BridgeControlCommand command)

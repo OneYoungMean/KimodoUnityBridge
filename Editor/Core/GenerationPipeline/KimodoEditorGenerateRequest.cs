@@ -23,6 +23,7 @@ namespace KimodoBridge.Editor
         public int ComfyPort = 8188;
         public float GenerationTimeoutSeconds = 120f;
         public AnimationClip TargetClip;
+        public AnimationClip PreviousClip;
         public Action<KimodoGeneratePipelineStage, string> Progress;
         public CancellationToken Token;
     }

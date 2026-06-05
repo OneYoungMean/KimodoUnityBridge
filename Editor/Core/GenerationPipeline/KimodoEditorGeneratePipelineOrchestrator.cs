@@ -10,7 +10,6 @@ namespace KimodoBridge.Editor
     internal sealed class KimodoEditorGeneratePipelineOrchestrator
     {
         private const string DefaultModelName = "Kimodo-SOMA-RP-v1";
-        private readonly KimodoEditorClipWritebackService clipWritebackService = new KimodoEditorClipWritebackService();
 
         public async Task<KimodoEditorGenerateResult> ExecuteAsync(KimodoEditorGenerateRequest request)
         {
@@ -39,10 +38,19 @@ namespace KimodoBridge.Editor
             }
 
             request.Progress?.Invoke(KimodoGeneratePipelineStage.Bake, "Baking animation...");
-            if (!clipWritebackService.BakeMotionJsonToClip(request.TargetClip, motionJson, modelName, out string bakeError))
+            if (!KimodoRetargetToolsEditor.BakeIntoClip(
+                    request.TargetClip,
+                    motionJson,
+                    KimodoPlayableClip.ResolveBakeSkeletonTypeFromModelName(modelName),
+                    modelName,
+                    null,
+                    out string bakeError))
             {
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(bakeError) ? "Bake failed." : bakeError);
             }
+
+            EditorUtility.SetDirty(request.TargetClip);
+            AssetDatabase.SaveAssets();
 
             if (request.CanSkipRetarget != null && request.CanSkipRetarget(request.TargetClip))
             {
@@ -56,10 +64,20 @@ namespace KimodoBridge.Editor
             }
 
             request.Progress?.Invoke(KimodoGeneratePipelineStage.Retarget, "Retargeting...");
-            if (!clipWritebackService.TryGetOrCreateMuscleClipCache(
+            if (!KimodoEditorClipWritebackService.TryGetOrCreateClipCache(
+                    request.TargetClip,
+                    out AnimationClip cachedMuscleClip,
+                    out string clipCacheError))
+            {
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(clipCacheError)
+                    ? "Get clip cache failed."
+                    : clipCacheError);
+            }
+
+            if (!KimodoRetargetToolsEditor.TryBakeMuscleClipCacheToClip(
                     request.TargetClip,
                     request.OriginRetargetAvatar,
-                    out AnimationClip cachedMuscleClip,
+                    cachedMuscleClip,
                     out string muscleCacheError))
             {
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(muscleCacheError)
@@ -69,12 +87,10 @@ namespace KimodoBridge.Editor
 
             if (request.ExportMuscleClip)
             {
-                if (!clipWritebackService.WriteMuscleClipCacheToClip(request.TargetClip, cachedMuscleClip, out string writeCacheError))
-                {
-                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(writeCacheError)
-                        ? "Write cached muscle clip failed."
-                        : writeCacheError);
-                }
+                KimodoEditorClipUtility.CopyClipData(cachedMuscleClip, request.TargetClip);
+                request.TargetClip.EnsureQuaternionContinuity();
+                EditorUtility.SetDirty(request.TargetClip);
+                AssetDatabase.SaveAssets();
 
                 return Complete(request, prompt, motionJson, request.TargetClip);
             }
@@ -97,6 +113,7 @@ namespace KimodoBridge.Editor
             {
                 request.TargetClip = retargetClip;
                 EditorUtility.SetDirty(retargetClip);
+                AssetDatabase.SaveAssets();
             }
 
             return Complete(request, prompt, motionJson, request.TargetClip);

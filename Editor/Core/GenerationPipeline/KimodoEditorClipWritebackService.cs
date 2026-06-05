@@ -2,13 +2,14 @@ using KimodoBridge;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
-    internal sealed class KimodoEditorClipWritebackService
+    internal static class KimodoEditorClipWritebackService
     {
         internal const string GeneratedClipFolder = "Assets/KimodoGeneratedClips";
         internal const string GeneratedClipNamePrefix = "Kimodo_";
@@ -18,7 +19,10 @@ namespace KimodoBridge.Editor
         private const string GeneratedAvatarFolder = GeneratedClipFolder + "/Avatars";
         private const string GeneratedPreviewControllerFolder = GeneratedClipFolder + "/PreviewControllers";
 
-        public AnimationClip CreateGeneratedAnimationClipAsset()
+        private static readonly HashSet<string> PendingProtectedClipPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static bool generatedClipTrimScheduled;
+
+        public static AnimationClip CreateGeneratedAnimationClipAsset()
         {
             var newAnimationClip = new AnimationClip
             {
@@ -32,10 +36,11 @@ namespace KimodoBridge.Editor
             AssetDatabase.CreateAsset(newAnimationClip, savePath);
             EditorUtility.SetDirty(newAnimationClip);
             AssetDatabase.SaveAssets();
+            ScheduleGeneratedClipTrim(newAnimationClip);
             return newAnimationClip;
         }
 
-        public bool CreateGeneratedAnimationClipAsset(
+        public static bool CreateGeneratedAnimationClipAsset(
             AnimationClip clip,
             string assetName,
             out AnimationClip savedClip,
@@ -61,6 +66,7 @@ namespace KimodoBridge.Editor
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
                 savedClip = clip;
+                ScheduleGeneratedClipTrim(savedClip);
                 return true;
             }
             catch (Exception ex)
@@ -70,51 +76,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        public bool BakeMotionJsonToClip(AnimationClip targetClip, string motionJson, string modelName, out string error)
-        {
-            error = string.Empty;
-            if (targetClip == null || string.IsNullOrWhiteSpace(motionJson))
-            {
-                error = "Clip / motion json is missing.";
-                return false;
-            }
-
-            bool ok = KimodoRetargetToolsEditor.BakeIntoClip(
-                targetClip: targetClip,
-                motionJson: motionJson,
-                skeletonType: KimodoPlayableClip.ResolveBakeSkeletonTypeFromModelName(modelName),
-                modelName: modelName,
-                curveFilterOptions: null,
-                out error);
-
-            if (!ok)
-            {
-                Debug.LogWarning($"[Kimodo] Bake failed: {error}");
-                return false;
-            }
-
-            EditorUtility.SetDirty(targetClip);
-            AssetDatabase.SaveAssets();
-            return true;
-        }
-
-        public bool WriteMuscleClipCacheToClip(AnimationClip targetClip, AnimationClip cachedMuscleClip, out string error)
-        {
-            error = string.Empty;
-            if (targetClip == null || cachedMuscleClip == null)
-            {
-                error = "Target clip / cached muscle clip is null.";
-                return false;
-            }
-
-            KimodoEditorClipUtility.CopyClipData(cachedMuscleClip, targetClip);
-            targetClip.EnsureQuaternionContinuity();
-            EditorUtility.SetDirty(targetClip);
-            AssetDatabase.SaveAssets();
-            return true;
-        }
-
-        public void SaveDirtyAssets(params UnityEngine.Object[] assets)
+        public static void SaveDirtyAssets(params UnityEngine.Object[] assets)
         {
             if (assets != null)
             {
@@ -130,7 +92,29 @@ namespace KimodoBridge.Editor
             AssetDatabase.SaveAssets();
         }
 
-        public bool TryCreateGeneratedPreviewAnimatorControllerAsset(
+        public static bool TryDeleteGeneratedAnimationClipAsset(AnimationClip clip)
+        {
+            if (clip == null)
+            {
+                return false;
+            }
+
+            string assetPath = AssetDatabase.GetAssetPath(clip);
+            if (!IsGeneratedAnimationClipAssetPath(assetPath))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(assetPath) && AssetDatabase.DeleteAsset(assetPath))
+            {
+                AssetDatabase.SaveAssets();
+                return true;
+            }
+
+            return false;
+        }
+
+        public static bool TryCreateGeneratedPreviewAnimatorControllerAsset(
             out AnimatorController controller,
             out string assetPath,
             out string error)
@@ -164,7 +148,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        public bool TryLoadGeneratedAvatarCache(GameObject avatarRoot, out Avatar avatar, out string cachePath)
+        public static bool TryLoadGeneratedAvatarCache(GameObject avatarRoot, out Avatar avatar, out string cachePath)
         {
             avatar = null;
             cachePath = BuildAvatarCachePath(avatarRoot);
@@ -177,7 +161,7 @@ namespace KimodoBridge.Editor
             return avatar != null;
         }
 
-        public bool TrySaveGeneratedAvatarCache(GameObject avatarRoot, Avatar generatedAvatar, out Avatar savedAvatar, out string error)
+        public static bool TrySaveGeneratedAvatarCache(GameObject avatarRoot, Avatar generatedAvatar, out Avatar savedAvatar, out string error)
         {
             savedAvatar = null;
             error = string.Empty;
@@ -227,7 +211,66 @@ namespace KimodoBridge.Editor
             }
         }
 
-        public void TrimGeneratedClipsToLimit(AnimationClip activeClip, int maxCount)
+        public static bool TryGetOrCreateClipCache(AnimationClip targetClip, out AnimationClip cachedClip, out string error)
+        {
+            cachedClip = null;
+            error = string.Empty;
+
+            if (targetClip == null)
+            {
+                error = "Target clip is null.";
+                return false;
+            }
+
+            if (TryFindClipCache(targetClip, out cachedClip))
+            {
+                return true;
+            }
+
+            string cachePath = BuildMuscleCacheClipPath(targetClip);
+            string cacheName = BuildMuscleCacheClipName(targetClip);
+            if (string.IsNullOrWhiteSpace(cachePath) || string.IsNullOrWhiteSpace(cacheName))
+            {
+                error = "Cache clip path is empty.";
+                return false;
+            }
+
+            try
+            {
+                EnsureFolderExists(GeneratedClipFolder);
+                RemoveLegacyEmbeddedMuscleCache(targetClip);
+
+                cachedClip = new AnimationClip
+                {
+                    name = cacheName,
+                    legacy = false,
+                    frameRate = targetClip.frameRate > 0f ? targetClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE
+                };
+
+                AssetDatabase.CreateAsset(cachedClip, cachePath);
+                EditorUtility.SetDirty(cachedClip);
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+
+                cachedClip = AssetDatabase.LoadAssetAtPath<AnimationClip>(cachePath) ?? cachedClip;
+                EnsureClipNameMatchesFileName(cachedClip, cacheName);
+                ScheduleGeneratedClipTrim(cachedClip);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (cachedClip != null && string.IsNullOrWhiteSpace(AssetDatabase.GetAssetPath(cachedClip)))
+                {
+                    UnityEngine.Object.DestroyImmediate(cachedClip);
+                }
+
+                cachedClip = null;
+                error = $"Create clip cache failed: {ex.Message}";
+                return false;
+            }
+        }
+
+        private static void TrimGeneratedClipsToLimit(IReadOnlyCollection<string> protectedPaths, int maxCount)
         {
             maxCount = Mathf.Max(1, maxCount);
             if (!AssetDatabase.IsValidFolder(GeneratedClipFolder))
@@ -260,13 +303,11 @@ namespace KimodoBridge.Editor
             }
 
             clipPaths.Sort(CompareGeneratedClipPathsByAgeOldestFirst);
-            string activeClipPath = activeClip != null ? AssetDatabase.GetAssetPath(activeClip) : string.Empty;
             bool deletedAny = false;
             for (int i = 0; i < clipPaths.Count && clipPaths.Count > maxCount; i++)
             {
                 string candidatePath = clipPaths[i];
-                if (!string.IsNullOrWhiteSpace(activeClipPath) &&
-                    string.Equals(candidatePath, activeClipPath, StringComparison.OrdinalIgnoreCase))
+                if (protectedPaths != null && protectedPaths.Contains(candidatePath))
                 {
                     continue;
                 }
@@ -291,181 +332,26 @@ namespace KimodoBridge.Editor
             }
         }
 
-        public bool TryGetOrCreateMuscleClipCache(AnimationClip targetClip, Avatar sourceAvatar, out AnimationClip cachedMuscleClip, out string error)
+        private static bool TryFindClipCache(AnimationClip targetClip, out AnimationClip cachedClip)
         {
-            cachedMuscleClip = null;
-            error = string.Empty;
-
-            if (targetClip == null)
-            {
-                error = "Target clip is null.";
-                return false;
-            }
-
-            int expectedFrameCount = ResolveAnimationClipFrameCount(targetClip);
-            if (TryFindMuscleClipCache(targetClip, expectedFrameCount, out cachedMuscleClip))
-            {
-                return true;
-            }
-
-            if (!KimodoRetargetTools.IsValidHumanoid(sourceAvatar))
-            {
-                error = "Source avatar is null/invalid/non-humanoid.";
-                return false;
-            }
-
-            if (!KimodoRetargetTools.TryBuildSkeletonCache(sourceAvatar, "KimodoWritebackMuscleCache_Source", out SkeletonCache sourceCache, out error))
+            cachedClip = null;
+            string cachePath = BuildMuscleCacheClipPath(targetClip);
+            if (string.IsNullOrWhiteSpace(cachePath))
             {
                 return false;
             }
 
-            try
+            cachedClip = AssetDatabase.LoadAssetAtPath<AnimationClip>(cachePath);
+            if (cachedClip == null)
             {
-                if (!KimodoRetargetTools.TryBuildMuscleClipCache(targetClip, sourceCache, out MuscleClipCache muscleClipCache, out error))
-                {
-                    return false;
-                }
-
-                try
-                {
-                    string cacheName = BuildMuscleCacheClipName(targetClip);
-                    if (!TryCreateMuscleClipFromCacheData(muscleClipCache, cacheName, out cachedMuscleClip, out error))
-                    {
-                        return false;
-                    }
-
-                    cachedMuscleClip.hideFlags = HideFlags.HideInHierarchy;
-                    RemoveMuscleClipCaches(targetClip);
-                    if (!PersistMuscleClipCache(targetClip, cachedMuscleClip, out error))
-                    {
-                        return false;
-                    }
-
-                    return true;
-                }
-                finally
-                {
-                    KimodoRetargetTools.DestroyMuscleClipCache(muscleClipCache, destroyMuscleClip: true);
-                }
+                return false;
             }
-            finally
-            {
-                KimodoRetargetTools.DestroySkeletonCache(sourceCache);
-            }
+
+            EnsureClipNameMatchesFileName(cachedClip, BuildMuscleCacheClipName(targetClip));
+            return true;
         }
 
-        private static bool TryCreateMuscleClipFromCacheData(
-            MuscleClipCache muscleClipCache,
-            string cacheName,
-            out AnimationClip cachedMuscleClip,
-            out string error)
-        {
-            cachedMuscleClip = null;
-            error = string.Empty;
-            if (muscleClipCache == null || muscleClipCache.samples == null || muscleClipCache.samples.Length == 0)
-            {
-                error = "Muscle cache sample data is empty.";
-                return false;
-            }
-
-            cachedMuscleClip = new AnimationClip
-            {
-                name = cacheName,
-                legacy = false,
-                frameRate = muscleClipCache.frameRate > 0f ? muscleClipCache.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE
-            };
-
-            if (KimodoRetargetTools.WriteMuscleSampleToMuscleClip(muscleClipCache.samples, cachedMuscleClip, out error))
-            {
-                cachedMuscleClip.name = cacheName;
-                return true;
-            }
-
-            UnityEngine.Object.DestroyImmediate(cachedMuscleClip);
-            cachedMuscleClip = null;
-            return false;
-        }
-
-        private static bool TryFindMuscleClipCache(AnimationClip targetClip, int expectedFrameCount, out AnimationClip cachedMuscleClip)
-        {
-            cachedMuscleClip = null;
-            string expectedCacheName = BuildMuscleCacheClipName(targetClip);
-            if (string.IsNullOrWhiteSpace(expectedCacheName))
-            {
-                return false;
-            }
-
-            var searchedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            string targetPath = AssetDatabase.GetAssetPath(targetClip);
-            if (TryFindMuscleClipCacheInAssetPath(targetPath, targetClip, expectedCacheName, expectedFrameCount, searchedPaths, out cachedMuscleClip))
-            {
-                return true;
-            }
-
-            if (!AssetDatabase.IsValidFolder(GeneratedClipFolder))
-            {
-                return false;
-            }
-
-            string[] guids = AssetDatabase.FindAssets("t:AnimationClip", new[] { GeneratedClipFolder });
-            if (guids == null)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < guids.Length; i++)
-            {
-                string path = AssetDatabase.GUIDToAssetPath(guids[i]);
-                if (TryFindMuscleClipCacheInAssetPath(path, targetClip, expectedCacheName, expectedFrameCount, searchedPaths, out cachedMuscleClip))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static bool TryFindMuscleClipCacheInAssetPath(
-            string assetPath,
-            AnimationClip targetClip,
-            string expectedCacheName,
-            int expectedFrameCount,
-            HashSet<string> searchedPaths,
-            out AnimationClip cachedMuscleClip)
-        {
-            cachedMuscleClip = null;
-            if (string.IsNullOrWhiteSpace(assetPath) || searchedPaths == null || !searchedPaths.Add(assetPath))
-            {
-                return false;
-            }
-
-            UnityEngine.Object[] assets = AssetDatabase.LoadAllAssetsAtPath(assetPath);
-            for (int i = 0; i < assets.Length; i++)
-            {
-                AnimationClip cacheClip = assets[i] as AnimationClip;
-                if (cacheClip == null || cacheClip == targetClip)
-                {
-                    continue;
-                }
-
-                if (!string.Equals(cacheClip.name, expectedCacheName, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                if (ResolveAnimationClipFrameCount(cacheClip) != expectedFrameCount)
-                {
-                    continue;
-                }
-
-                cachedMuscleClip = cacheClip;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static void RemoveMuscleClipCaches(AnimationClip targetClip)
+        private static void RemoveLegacyEmbeddedMuscleCache(AnimationClip targetClip)
         {
             string clipPath = AssetDatabase.GetAssetPath(targetClip);
             if (!IsGeneratedAnimationClipAssetPath(clipPath))
@@ -493,64 +379,45 @@ namespace KimodoBridge.Editor
             DestroyCacheObjects(clipPath, objectsToRemove);
         }
 
-        private static bool PersistMuscleClipCache(AnimationClip targetClip, AnimationClip cachedMuscleClip, out string error)
+        private static void EnsureClipNameMatchesFileName(AnimationClip clip, string expectedName)
         {
-            error = string.Empty;
-            string clipPath = AssetDatabase.GetAssetPath(targetClip);
-            if (string.IsNullOrWhiteSpace(clipPath))
+            if (clip == null || string.IsNullOrWhiteSpace(expectedName) || string.Equals(clip.name, expectedName, StringComparison.Ordinal))
             {
-                error = "Target clip asset path is empty.";
-                return false;
+                return;
             }
 
-            if (!IsGeneratedAnimationClipAssetPath(clipPath))
-            {
-                return PersistMuscleClipCacheAsGeneratedAsset(targetClip, cachedMuscleClip, out error);
-            }
-
-            AssetDatabase.AddObjectToAsset(cachedMuscleClip, clipPath);
-            EditorUtility.SetDirty(cachedMuscleClip);
-            EditorUtility.SetDirty(targetClip);
-            AssetDatabase.ImportAsset(clipPath);
+            clip.name = expectedName;
+            EditorUtility.SetDirty(clip);
             AssetDatabase.SaveAssets();
-            return true;
         }
 
-        private static bool PersistMuscleClipCacheAsGeneratedAsset(
-            AnimationClip targetClip,
-            AnimationClip cachedMuscleClip,
-            out string error)
+        private static string BuildGeneratedAnimationAssetName(string assetName)
         {
-            error = string.Empty;
-            if (cachedMuscleClip == null)
+            string safeName = KimodoRuntimeUtility.SanitizeName(assetName, "KimodoClip");
+            if (safeName.StartsWith(GeneratedClipNamePrefix, StringComparison.Ordinal))
             {
-                error = "Cached muscle clip is null.";
-                return false;
+                return safeName;
             }
 
-            try
-            {
-                EnsureFolderExists(GeneratedClipFolder);
-                string cacheName = BuildMuscleCacheClipName(targetClip);
-                cachedMuscleClip.name = cacheName;
-                string cachePath = $"{GeneratedClipFolder}/{cacheName}.anim";
-                if (AssetDatabase.LoadAssetAtPath<AnimationClip>(cachePath) != null)
-                {
-                    AssetDatabase.DeleteAsset(cachePath);
-                }
+            return $"{GeneratedClipNamePrefix}{safeName}";
+        }
 
-                AssetDatabase.CreateAsset(cachedMuscleClip, cachePath);
-                cachedMuscleClip.name = cacheName;
-                EditorUtility.SetDirty(cachedMuscleClip);
-                AssetDatabase.SaveAssets();
-                AssetDatabase.Refresh();
-                return true;
-            }
-            catch (Exception ex)
+        private static bool IsGeneratedAnimationClipAssetPath(string assetPath)
+        {
+            return !string.IsNullOrWhiteSpace(assetPath) &&
+                assetPath.EndsWith(".anim", StringComparison.OrdinalIgnoreCase) &&
+                assetPath.StartsWith(GeneratedClipFolder + "/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string BuildMuscleCacheClipPath(AnimationClip targetClip)
+        {
+            string cacheName = BuildMuscleCacheClipName(targetClip);
+            if (string.IsNullOrWhiteSpace(cacheName))
             {
-                error = $"Persist generated muscle clip cache failed: {ex.Message}";
-                return false;
+                return string.Empty;
             }
+
+            return $"{GeneratedClipFolder}/{cacheName}.anim";
         }
 
         private static bool IsMuscleCacheClipName(string name)
@@ -577,24 +444,6 @@ namespace KimodoBridge.Editor
             }
 
             return string.IsNullOrWhiteSpace(safeName) ? defaultName : safeName;
-        }
-
-        private static string BuildGeneratedAnimationAssetName(string assetName)
-        {
-            string safeName = KimodoRuntimeUtility.SanitizeName(assetName, "KimodoClip");
-            if (safeName.StartsWith(GeneratedClipNamePrefix, StringComparison.Ordinal))
-            {
-                return safeName;
-            }
-
-            return $"{GeneratedClipNamePrefix}{safeName}";
-        }
-
-        private static bool IsGeneratedAnimationClipAssetPath(string assetPath)
-        {
-            return !string.IsNullOrWhiteSpace(assetPath) &&
-                assetPath.EndsWith(".anim", StringComparison.OrdinalIgnoreCase) &&
-                assetPath.StartsWith(GeneratedClipFolder + "/", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string BuildGeneratedPreviewControllerName()
@@ -686,15 +535,40 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static int ResolveAnimationClipFrameCount(AnimationClip clip)
+        private static void ScheduleGeneratedClipTrim(AnimationClip protectedClip)
         {
-            if (clip == null)
+            string protectedPath = protectedClip != null ? AssetDatabase.GetAssetPath(protectedClip) : string.Empty;
+            if (!string.IsNullOrWhiteSpace(protectedPath))
             {
-                return 0;
+                PendingProtectedClipPaths.Add(protectedPath);
             }
 
-            float frameRate = clip.frameRate > 0f ? clip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
-            return Mathf.Max(2, Mathf.RoundToInt(Mathf.Max(0f, clip.length) * Mathf.Max(1f, frameRate)) + 1);
+            if (generatedClipTrimScheduled)
+            {
+                return;
+            }
+
+            generatedClipTrimScheduled = true;
+            EditorApplication.update += OnGeneratedClipTrimEditorUpdate;
+        }
+
+        private static void OnGeneratedClipTrimEditorUpdate()
+        {
+            EditorApplication.update -= OnGeneratedClipTrimEditorUpdate;
+            generatedClipTrimScheduled = false;
+
+            try
+            {
+                int maxCount = Mathf.Clamp(
+                    KimodoPlayableClipGenerationSettings.instance.MaxGeneratedClips,
+                    KimodoPlayableClipGenerationSettings.MinGeneratedClipsLimit,
+                    KimodoPlayableClipGenerationSettings.MaxGeneratedClipsLimit);
+                TrimGeneratedClipsToLimit(PendingProtectedClipPaths, maxCount);
+            }
+            finally
+            {
+                PendingProtectedClipPaths.Clear();
+            }
         }
 
         private static void AddDestroyObject(List<UnityEngine.Object> objects, UnityEngine.Object value, AnimationClip targetClip)

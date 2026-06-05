@@ -265,32 +265,22 @@ namespace KimodoBridge
                 return false;
             }
 
-            SkeletonCache sourceCache = null;
             SkeletonCache profileCache = null;
-            MuscleClipCache muscleClipCache = null;
             try
             {
-                if (!KimodoRetargetTools.TryBuildSkeletonCache(originAvatar, "KimodoMarkerSampling_SourceMuscleCache", out sourceCache, out error))
-                {
-                    return false;
-                }
-
                 if (!KimodoRetargetTools.TryBuildSkeletonCache(targetAvatar, "KimodoMarkerSampling_ProfileSkeleton", out profileCache, out error))
                 {
                     return false;
                 }
 
-                if (!KimodoRetargetTools.TryBuildMuscleClipCache(sourceClip, sourceCache, out muscleClipCache, out error))
-                {
-                    return false;
-                }
-
-                if (!KimodoRetargetTools.TrySampleMuscleClipCache(muscleClipCache, (float)sampleTime, out MuscleSample sourceMuscleSample, out error))
-                {
-                    return false;
-                }
-
-                if (!KimodoRetargetTools.ApplyMuscleSampleToSkeletonCache(sourceMuscleSample, profileCache, out _, out error))
+                if (!KimodoRetargetTools.TryRetargetNew(
+                        sourceClip,
+                        originAvatar,
+                        profileCache,
+                        (float)sampleTime,
+                        out _,
+                        out _,
+                        out error))
                 {
                     return false;
                 }
@@ -320,9 +310,7 @@ namespace KimodoBridge
             }
             finally
             {
-                KimodoRetargetTools.DestroyMuscleClipCache(muscleClipCache);
                 KimodoRetargetTools.DestroySkeletonCache(profileCache);
-                KimodoRetargetTools.DestroySkeletonCache(sourceCache);
             }
         }
 

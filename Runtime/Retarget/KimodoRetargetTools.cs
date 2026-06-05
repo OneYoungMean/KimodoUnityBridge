@@ -605,7 +605,25 @@ namespace KimodoBridge
         public static bool TryRetargetNew(
             AnimationClip sourceClip,
             Avatar sourceAvatar,
-            Avatar targetAvatar,
+            SkeletonCache targetCache,
+            float sampleTime,
+            out BoneSample targetSample,
+            out string error)
+        {
+            return TryRetargetNew(
+                sourceClip,
+                sourceAvatar,
+                targetCache,
+                sampleTime,
+                out targetSample,
+                out _,
+                out error);
+        }
+
+        public static bool TryRetargetNew(
+            AnimationClip sourceClip,
+            Avatar sourceAvatar,
+            SkeletonCache targetCache,
             float sampleTime,
             out BoneSample targetSample,
             out MuscleSample targetMuscleSample,
@@ -627,9 +645,8 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!IsValidHumanoid(targetAvatar))
+            if (!ValidateRetargetCache(targetCache, out error))
             {
-                error = "Target avatar is null/invalid/non-humanoid.";
                 return false;
             }
 
@@ -637,12 +654,6 @@ namespace KimodoBridge
             if (!sourceClip.isHumanMotion &&
                 !TryBuildSkeletonCache(sourceAvatar, "KimodoRetargetTools_SourceClipSample", out sourceCache, out error))
             {
-                return false;
-            }
-
-            if (!TryBuildSkeletonCache(targetAvatar, "KimodoRetargetTools_TargetClipSample", out SkeletonCache targetCache, out error))
-            {
-                DestroySkeletonCache(sourceCache);
                 return false;
             }
 
@@ -671,7 +682,6 @@ namespace KimodoBridge
                 }
                 finally
                 {
-                    DestroySkeletonCache(targetCache);
                     DestroySkeletonCache(sourceCache);
                 }
             }
@@ -692,8 +702,53 @@ namespace KimodoBridge
             }
             finally
             {
-                DestroySkeletonCache(targetCache);
                 DestroySkeletonCache(sourceCache);
+            }
+        }
+
+        public static bool TryRetargetNew(
+            AnimationClip sourceClip,
+            Avatar sourceAvatar,
+            Avatar targetAvatar,
+            float sampleTime,
+            out BoneSample targetSample,
+            out MuscleSample targetMuscleSample,
+            out string error)
+        {
+            targetSample = null;
+            targetMuscleSample = null;
+            error = string.Empty;
+
+            if (sourceClip == null)
+            {
+                error = "Source clip is null.";
+                return false;
+            }
+
+            if (!IsValidHumanoid(sourceAvatar))
+            {
+                error = "Source avatar is null/invalid/non-humanoid.";
+                return false;
+            }
+
+            if (!IsValidHumanoid(targetAvatar))
+            {
+                error = "Target avatar is null/invalid/non-humanoid.";
+                return false;
+            }
+
+            if (!TryBuildSkeletonCache(targetAvatar, "KimodoRetargetTools_TargetClipSample", out SkeletonCache targetCache, out error))
+            {
+                return false;
+            }
+
+            try
+            {
+                return TryRetargetNew(sourceClip, sourceAvatar, targetCache, sampleTime, out targetSample, out targetMuscleSample, out error);
+            }
+            finally
+            {
+                DestroySkeletonCache(targetCache);
             }
         }
 
