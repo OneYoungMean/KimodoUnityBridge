@@ -50,12 +50,12 @@ namespace KimodoBridge.Editor
             }
 
             EditorUtility.SetDirty(request.TargetClip);
-            AssetDatabase.SaveAssets();
 
             AnimationClip rawBoneClip = CreateRawBoneWritebackClip(request.TargetClip);
 
             if (request.CanSkipRetarget != null && request.CanSkipRetarget(request.TargetClip))
             {
+                KimodoEditorClipWritebackService.FlushWritebackAssets();
                 request.Progress?.Invoke(KimodoGeneratePipelineStage.Retarget, "Skipping retarget: binding hierarchy already matches clip bindings.");
                 return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
             }
@@ -81,7 +81,7 @@ namespace KimodoBridge.Editor
             {
                 request.TargetClip.EnsureQuaternionContinuity();
                 EditorUtility.SetDirty(request.TargetClip);
-                AssetDatabase.SaveAssets();
+                KimodoEditorClipWritebackService.FlushWritebackAssets();
 
                 return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
             }
@@ -104,8 +104,9 @@ namespace KimodoBridge.Editor
             {
                 request.TargetClip = retargetClip;
                 EditorUtility.SetDirty(retargetClip);
-                AssetDatabase.SaveAssets();
             }
+
+            KimodoEditorClipWritebackService.FlushWritebackAssets();
 
             return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
         }
@@ -144,7 +145,6 @@ namespace KimodoBridge.Editor
             rawBoneClip.legacy = sourceClip.legacy;
             rawBoneClip.frameRate = sourceClip.frameRate;
             EditorUtility.SetDirty(rawBoneClip);
-            AssetDatabase.SaveAssets();
             Debug.Log($"[Kimodo][Generate] Wrote raw Kimodo bone clip: '{AssetDatabase.GetAssetPath(rawBoneClip)}'.");
             return rawBoneClip;
         }

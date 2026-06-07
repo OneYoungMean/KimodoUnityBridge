@@ -14,6 +14,9 @@ namespace KimodoBridge.Editor
         internal const string GeneratedClipFolder = "Assets/KimodoGeneratedClips";
         internal const string GeneratedClipNamePrefix = "Kimodo_";
         internal const string InvalidCachePrefix = "invalid_";
+        private const string MuscleCacheNameSuffix = "-muscle-cache";
+        private const string BoneCacheNameMarker = "-bone-";
+        private const string CacheNameSuffix = "-cache";
         private const string GeneratedAvatarFolder = GeneratedClipFolder + "/Avatars";
         private const string GeneratedPreviewControllerFolder = GeneratedClipFolder + "/PreviewControllers";
 
@@ -38,7 +41,7 @@ namespace KimodoBridge.Editor
             string savePath = AssetDatabase.GenerateUniqueAssetPath($"{GeneratedClipFolder}/{fileName}");
             AssetDatabase.CreateAsset(newAnimationClip, savePath);
             EditorUtility.SetDirty(newAnimationClip);
-            AssetDatabase.SaveAssets();
+            FlushWritebackAssets();
             ScheduleGeneratedClipTrim(newAnimationClip);
             return newAnimationClip;
         }
@@ -58,7 +61,7 @@ namespace KimodoBridge.Editor
 
             if (!string.IsNullOrWhiteSpace(assetPath) && AssetDatabase.DeleteAsset(assetPath))
             {
-                AssetDatabase.SaveAssets();
+                FlushWritebackAssets();
                 return true;
             }
 
@@ -87,7 +90,7 @@ namespace KimodoBridge.Editor
                 }
 
                 EditorUtility.SetDirty(controller);
-                AssetDatabase.SaveAssets();
+                FlushWritebackAssets();
                 return true;
             }
             catch (Exception ex)
@@ -145,7 +148,7 @@ namespace KimodoBridge.Editor
                 }
 
                 AssetDatabase.CreateAsset(generatedAvatar, cachePath);
-                AssetDatabase.SaveAssets();
+                FlushWritebackAssets();
                 savedAvatar = AssetDatabase.LoadAssetAtPath<Avatar>(cachePath);
                 if (savedAvatar == null)
                 {
@@ -230,7 +233,7 @@ namespace KimodoBridge.Editor
 
                     AssetDatabase.CreateAsset(cachedClip, cachePath);
                     EditorUtility.SetDirty(cachedClip);
-                    AssetDatabase.SaveAssets();
+                    FlushWritebackAssets();
                     AssetDatabase.Refresh();
                 }
 
@@ -239,7 +242,6 @@ namespace KimodoBridge.Editor
                 {
                     cachedClip.frameRate = frameRate;
                     EditorUtility.SetDirty(cachedClip);
-                    AssetDatabase.SaveAssets();
                 }
 
                 EnsureClipNameMatchesFileName(cachedClip, safeCacheName);
@@ -289,7 +291,6 @@ namespace KimodoBridge.Editor
             {
                 movedClip.name = invalidName;
                 EditorUtility.SetDirty(movedClip);
-                AssetDatabase.SaveAssets();
             }
 
             return true;
@@ -313,7 +314,7 @@ namespace KimodoBridge.Editor
             foreach (string guid in clipGuids)
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
-                if (string.IsNullOrWhiteSpace(path) || !path.EndsWith(".anim", StringComparison.OrdinalIgnoreCase))
+                if (!IsTrimmableNamedCacheClipAssetPath(path))
                 {
                     continue;
                 }
@@ -337,12 +338,6 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                if (IsAssetReferencedByOtherAssets(candidatePath))
-                {
-                    Debug.Log($"[Kimodo] Generated clip cleanup skipped referenced clip: {candidatePath}");
-                    continue;
-                }
-
                 if (AssetDatabase.DeleteAsset(candidatePath))
                 {
                     deletedAny = true;
@@ -353,8 +348,13 @@ namespace KimodoBridge.Editor
 
             if (deletedAny)
             {
-                AssetDatabase.SaveAssets();
+                FlushWritebackAssets();
             }
+        }
+
+        internal static void FlushWritebackAssets()
+        {
+            AssetDatabase.SaveAssets();
         }
 
         private static void EnsureClipNameMatchesFileName(AnimationClip clip, string expectedName)
@@ -366,7 +366,6 @@ namespace KimodoBridge.Editor
 
             clip.name = expectedName;
             EditorUtility.SetDirty(clip);
-            AssetDatabase.SaveAssets();
         }
 
         private static string BuildGeneratedAnimationAssetName(string assetName)
@@ -385,6 +384,48 @@ namespace KimodoBridge.Editor
             return !string.IsNullOrWhiteSpace(assetPath) &&
                 assetPath.EndsWith(".anim", StringComparison.OrdinalIgnoreCase) &&
                 assetPath.StartsWith(GeneratedClipFolder + "/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsTrimmableNamedCacheClipAssetPath(string assetPath)
+        {
+            if (string.IsNullOrWhiteSpace(assetPath) ||
+                !assetPath.EndsWith(".anim", StringComparison.OrdinalIgnoreCase) ||
+                !assetPath.StartsWith(GeneratedClipFolder + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            int lastSlashIndex = assetPath.LastIndexOf('/');
+            if (lastSlashIndex <= 0)
+            {
+                return false;
+            }
+
+            string parentFolder = assetPath.Substring(0, lastSlashIndex);
+            if (!string.Equals(parentFolder, GeneratedClipFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string clipName = Path.GetFileNameWithoutExtension(assetPath) ?? string.Empty;
+            return IsValidNamedClipCacheName(clipName);
+        }
+
+        private static bool IsValidNamedClipCacheName(string clipName)
+        {
+            if (string.IsNullOrWhiteSpace(clipName) ||
+                clipName.StartsWith(InvalidCachePrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (clipName.EndsWith(MuscleCacheNameSuffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return clipName.Length > MuscleCacheNameSuffix.Length;
+            }
+
+            return clipName.EndsWith(CacheNameSuffix, StringComparison.OrdinalIgnoreCase) &&
+                clipName.Contains(BoneCacheNameMarker);
         }
 
         private static string SanitizeAssetFileName(string value, string defaultName)
@@ -422,45 +463,6 @@ namespace KimodoBridge.Editor
                 ? rightName.Substring(GeneratedClipNamePrefix.Length)
                 : rightName;
             return string.Compare(leftStamp, rightStamp, StringComparison.Ordinal);
-        }
-
-        private static bool IsAssetReferencedByOtherAssets(string assetPath)
-        {
-            if (string.IsNullOrWhiteSpace(assetPath))
-            {
-                return false;
-            }
-
-            string[] allAssets = AssetDatabase.GetAllAssetPaths();
-            foreach (string path in allAssets)
-            {
-                if (string.IsNullOrWhiteSpace(path) ||
-                    string.Equals(path, assetPath, StringComparison.OrdinalIgnoreCase) ||
-                    !path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                string[] dependencies;
-                try
-                {
-                    dependencies = AssetDatabase.GetDependencies(path, false);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                for (int i = 0; i < dependencies.Length; i++)
-                {
-                    if (string.Equals(dependencies[i], assetPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
         }
 
         private static int ComputeHierarchyHash(Transform root)

@@ -105,7 +105,6 @@ namespace KimodoBridge.Editor
             if (marker != null && marker.useOverride)
             {
                 EditorUtility.SetDirty(marker);
-                AssetDatabase.SaveAssets();
             }
 
             if (currentWindow == this)
@@ -234,7 +233,6 @@ namespace KimodoBridge.Editor
             if (GUILayout.Button(new GUIContent("Close", "Close the edit window and keep current marker data."), GUILayout.Height(30f)))
             {
                 EditorUtility.SetDirty(marker);
-                AssetDatabase.SaveAssets();
                 Close();
             }
         }

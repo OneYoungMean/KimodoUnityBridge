@@ -132,7 +132,6 @@ namespace KimodoBridge.Editor
                     : (sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE);
 
                 EditorUtility.SetDirty(targetClip);
-                AssetDatabase.SaveAssets();
                 return true;
             }
 
@@ -235,7 +234,6 @@ namespace KimodoBridge.Editor
             boneCacheClip = writableClip;
             boneCacheClip.name = cacheName;
             EditorUtility.SetDirty(boneCacheClip);
-            AssetDatabase.SaveAssets();
             Debug.Log($"[Kimodo][RetargetCache] Generated bone cache animation: cache='{cacheName}', source='{sourceClip.name}', targetAvatar='{targetAvatar.name}'.");
             return true;
         }
@@ -408,7 +406,6 @@ namespace KimodoBridge.Editor
 
                 writableClip.name = cacheName;
                 EditorUtility.SetDirty(writableClip);
-                AssetDatabase.SaveAssets();
                 Debug.Log($"[Kimodo][RetargetCache] Generated muscle cache animation: cache='{cacheName}', source='{sourceClip.name}'.");
 
                 muscleClip = writableClip;
