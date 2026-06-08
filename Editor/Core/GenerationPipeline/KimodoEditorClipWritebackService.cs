@@ -22,11 +22,6 @@ namespace KimodoBridge.Editor
         private static readonly HashSet<string> PendingProtectedClipPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static bool generatedClipTrimScheduled;
 
-        public static AnimationClip CreateGeneratedAnimationClipAsset()
-        {
-            return CreateGeneratedAnimationClipAsset($"{DateTime.Now:yyyyMMdd_HHmmss_fff}");
-        }
-
         public static AnimationClip CreateGeneratedAnimationClipAsset(string assetName)
         {
             var newAnimationClip = new AnimationClip

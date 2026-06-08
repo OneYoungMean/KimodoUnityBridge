@@ -188,6 +188,8 @@ namespace KimodoBridge.Editor
                         forceSetup = false,
                         modelsRoot = string.Empty,
                         startupTimeoutMs = BridgeRuntimeSettings.DefaultStartupTimeoutMs,
+                        preserveProcessOnCancellation = KimodoPlayableClipGenerationSettings.instance != null &&
+                            KimodoPlayableClipGenerationSettings.instance.AlwaysKeepServerExperimental,
                         idleTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance != null
                             ? KimodoPlayableClipGenerationSettings.instance.ServerIdleShutdownSeconds
                             : 0

@@ -79,16 +79,114 @@ namespace KimodoBridge
             SkeletonCache targetCache = null;
             try
             {
-                return TryRetargetClip(
-                    sourceClip,
-                    sourceAvatar,
-                    ref sourceCache,
-                    targetAvatar,
-                    ref targetCache,
-                    exportMuscleClip,
-                    providedSourceHumanoidClip,
-                    out targetClip,
-                    out error);
+                targetClip = sourceClip;
+                error = string.Empty;
+
+                if (sourceClip == null)
+                {
+                    error = "Source clip is null.";
+                    return false;
+                }
+
+                if (exportMuscleClip && sourceClip.isHumanMotion)
+                {
+                    return true;
+                }
+
+                if (!IsValidHumanoid(sourceAvatar))
+                {
+                    error = "Source avatar is null/invalid/non-humanoid.";
+                    return false;
+                }
+
+                if (!IsValidHumanoid(targetAvatar))
+                {
+                    error = "Target avatar is null/invalid/non-humanoid.";
+                    return false;
+                }
+
+                float frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+                float duration = Mathf.Max(0f, sourceClip.length);
+                int frameCount = KimodoRetargetSamplingUtility.ResolveFrameCount(duration, frameRate);
+                bool needsSourceCache = exportMuscleClip && !sourceClip.isHumanMotion;
+                bool needsTargetCache = !exportMuscleClip;
+
+                if (needsSourceCache && !KimodoRetargetAvatarUtility.ValidateRetargetCache(sourceCache, out _))
+                {
+                    sourceCache = null;
+                    if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(sourceAvatar, "KimodoRetargetTools_SourceClipBatch", out sourceCache, out error))
+                    {
+                        return false;
+                    }
+                }
+
+                if (needsTargetCache && !KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out _))
+                {
+                    targetCache = null;
+                    if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(targetAvatar, "KimodoRetargetTools_TargetClipBatch", out targetCache, out error))
+                    {
+                        return false;
+                    }
+                }
+
+                if (targetClip != null)
+                {
+                    targetClip.frameRate = frameRate;
+                }
+
+                if (exportMuscleClip)
+                {
+                    if (!KimodoRetargetSamplingUtility.TryCollectMuscleSamplesFromClip(
+                            sourceClip,
+                            sourceCache,
+                            frameCount,
+                            duration,
+                            KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(sourceClip),
+                            out MuscleSample[] targetMuscleSamples,
+                            out error))
+                    {
+                        return false;
+                    }
+
+                    return WriteMuscleSampleToMuscleClip(targetMuscleSamples, targetClip, out error);
+                }
+
+                if (!KimodoRetargetSamplingUtility.TryResolveSourceHumanoidClip(
+                        sourceClip,
+                        sourceAvatar,
+                        "KimodoRetargetTools_SourceClipBatch",
+                        providedSourceHumanoidClip,
+                        ref sourceCache,
+                        out AnimationClip sourceHumanoidClip,
+                        out error))
+                {
+                    return false;
+                }
+
+                try
+                {
+                    if (!KimodoRetargetSamplingUtility.TryCollectBoneSamplesFromClip(
+                            sourceHumanoidClip,
+                            targetCache,
+                            frameCount,
+                            duration,
+                            KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                            out BoneSample[] targetBoneSamples,
+                            out error))
+                    {
+                        return false;
+                    }
+
+                    return WriteBoneSampleToBoneClip(targetBoneSamples, targetClip, out error);
+                }
+                finally
+                {
+                    if (!ReferenceEquals(sourceHumanoidClip, sourceClip) &&
+                        !ReferenceEquals(sourceHumanoidClip, providedSourceHumanoidClip))
+                    {
+                        UnityEngine.Object.DestroyImmediate(sourceHumanoidClip);
+                    }
+                }
             }
             finally
             {
@@ -96,154 +194,6 @@ namespace KimodoBridge
                 sourceCache?.Dispose();
             }
         }
-
-        internal static bool TryRetargetClip(
-            AnimationClip sourceClip,
-            Avatar sourceAvatar,
-            ref SkeletonCache sourceCache,
-            Avatar targetAvatar,
-            ref SkeletonCache targetCache,
-            bool exportMuscleClip,
-            AnimationClip providedSourceHumanoidClip,
-            out AnimationClip targetClip,
-            out string error)
-        {
-            targetClip = sourceClip;
-            error = string.Empty;
-
-            if (sourceClip == null)
-            {
-                error = "Source clip is null.";
-                return false;
-            }
-
-            if (exportMuscleClip && sourceClip.isHumanMotion)
-            {
-                return true;
-            }
-
-            if (!IsValidHumanoid(sourceAvatar))
-            {
-                error = "Source avatar is null/invalid/non-humanoid.";
-                return false;
-            }
-
-            if (!IsValidHumanoid(targetAvatar))
-            {
-                error = "Target avatar is null/invalid/non-humanoid.";
-                return false;
-            }
-
-            float frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
-            float duration = Mathf.Max(0f, sourceClip.length);
-            int frameCount = KimodoRetargetSamplingUtility.ResolveFrameCount(duration, frameRate);
-            bool needsSourceCache = exportMuscleClip && !sourceClip.isHumanMotion;
-            bool needsTargetCache = !exportMuscleClip;
-
-            if (needsSourceCache && !KimodoRetargetAvatarUtility.ValidateRetargetCache(sourceCache, out _))
-            {
-                sourceCache = null;
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(sourceAvatar, "KimodoRetargetTools_SourceClipBatch", out sourceCache, out error))
-                {
-                    return false;
-                }
-            }
-
-            if (needsTargetCache && !KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out _))
-            {
-                targetCache = null;
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(targetAvatar, "KimodoRetargetTools_TargetClipBatch", out targetCache, out error))
-                {
-                    return false;
-                }
-            }
-
-            if (targetClip != null)
-            {
-                targetClip.frameRate = frameRate;
-            }
-
-            if (exportMuscleClip)
-            {
-                if (sourceClip.isHumanMotion)
-                {
-                    return true;
-                }
-
-                if (!KimodoRetargetSamplingUtility.TryCollectMuscleSamplesFromClip(
-                        sourceClip,
-                        sourceCache,
-                        frameCount,
-                        duration,
-                        KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(sourceClip),
-                        out MuscleSample[] targetMuscleSamples,
-                        out error))
-                {
-                    return false;
-                }
-
-                return WriteMuscleSampleToMuscleClip(targetMuscleSamples, targetClip, out error);
-            }
-
-            if (!KimodoRetargetSamplingUtility.TryResolveSourceHumanoidClip(
-                    sourceClip,
-                    sourceAvatar,
-                    "KimodoRetargetTools_SourceClipBatch",
-                    providedSourceHumanoidClip,
-                    ref sourceCache,
-                    out AnimationClip sourceHumanoidClip,
-                    out error))
-            {
-                return false;
-            }
-
-            try
-            {
-                if (!KimodoRetargetSamplingUtility.TryCollectBoneSamplesFromClip(
-                        sourceHumanoidClip,
-                        targetCache,
-                        frameCount,
-                        duration,
-                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
-                        out BoneSample[] targetBoneSamples,
-                        out error))
-                {
-                    return false;
-                }
-
-                return WriteBoneSampleToBoneClip(targetBoneSamples, targetClip, out error);
-            }
-            finally
-            {
-                if (!ReferenceEquals(sourceHumanoidClip, sourceClip) &&
-                    !ReferenceEquals(sourceHumanoidClip, providedSourceHumanoidClip))
-                {
-                    UnityEngine.Object.DestroyImmediate(sourceHumanoidClip);
-                }
-            }
-        }
     }
 
-    public static class KimodoRetargetTools
-    {
-        public static bool TryRetargetNew(
-            AnimationClip sourceClip,
-            Avatar sourceAvatar,
-            Avatar targetAvatar,
-            bool exportMuscleClip,
-            out AnimationClip targetClip,
-            out string error,
-            AnimationClip providedSourceHumanoidClip = null)
-        {
-            return KimodoRetargetCoreUtility.TryRetargetClip(
-                sourceClip,
-                sourceAvatar,
-                targetAvatar,
-                exportMuscleClip,
-                providedSourceHumanoidClip,
-                out targetClip,
-                out error);
-        }
-
-    }
 }

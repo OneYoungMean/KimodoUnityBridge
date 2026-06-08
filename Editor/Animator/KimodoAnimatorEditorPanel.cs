@@ -4,14 +4,14 @@ using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
-    internal sealed class KimodoAnimatorEditorPane
+    internal sealed class KimodoAnimatorEditorPanel
     {
         private Vector2 rightScroll;
 
         public void Draw(
             float windowWidth,
             float windowHeight,
-            KimodoAnimatorPreviewPane previewPane,
+            KimodoAnimatorPreviewPanel previewPanel,
             ref KimodoGenerationBackend generationBackend,
             ref string bridgeModelName,
             ref KimodoBridgeVramMode bridgeVramMode,
@@ -43,13 +43,13 @@ namespace KimodoBridge.Editor
                 {
                     rightScroll = scroll.scrollPosition;
 
-                    if (previewPane != null)
+                    if (previewPanel != null)
                     {
-                        previewPane.DrawSelectionInfo();
+                        previewPanel.DrawSelectionInfo();
                     }
 
                     DrawGeneratePanel(
-                        previewPane != null && previewPane.HasSelection,
+                        previewPanel != null && previewPanel.HasSelection,
                         ref generationBackend,
                         ref bridgeModelName,
                         ref bridgeVramMode,
@@ -71,7 +71,7 @@ namespace KimodoBridge.Editor
 
                 GUILayout.FlexibleSpace();
                 DrawApplyPanel(
-                    previewPane != null && previewPane.HasSelection,
+                    previewPanel != null && previewPanel.HasSelection,
                     isGenerating,
                     lastSuccessfulGeneratedClipForApply,
                     applyGeneratedResult);

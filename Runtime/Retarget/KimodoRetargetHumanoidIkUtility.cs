@@ -76,7 +76,7 @@ namespace KimodoBridge
             }
 
             Quaternion inverseBodyRotation = Quaternion.Inverse(bodyRotation);
-            goalPosition = inverseBodyRotation * (worldGoalPosition - bodyPosition * humanScaleLimit);
+            goalPosition = inverseBodyRotation * (worldGoalPosition - bodyPosition);
             goalRotation = inverseBodyRotation * worldGoalRotation;
             goalPosition /= humanScaleLimit;
             return true;

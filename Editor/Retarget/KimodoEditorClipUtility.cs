@@ -39,7 +39,7 @@ namespace KimodoBridge.Editor
 
             var animator = bindingObject.GetComponent<Animator>();
             var avatar = animator == null ? null : animator.avatar;
-            if (avatar != null && avatar.isHuman && !clip.isHumanMotion)
+            if (avatar != null && avatar.isHuman)
             {
                 return false;
             }

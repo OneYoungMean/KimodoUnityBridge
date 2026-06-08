@@ -76,7 +76,13 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            Avatar generated = GenerateHumanoidAvatar(avatarRoot, out string generateError);
+            Avatar generated = KimodoHumanoidAvatarBuilderUtility.GenerateHumanoidAvatar(
+                avatarRoot,
+                includeExtendedNameAliases: true,
+                normalizeSourceTransformBeforeClone: true,
+                forceUnitScaleOnClone: false,
+                avatarNameSuffix: "Humanoid",
+                out string generateError);
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(generated) || !CheckAvatarValid(generated, avatarRoot))
             {
                 error = string.IsNullOrWhiteSpace(generateError)
@@ -176,17 +182,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
             return true;
-        }
-
-        private static Avatar GenerateHumanoidAvatar(GameObject gameObject, out string error)
-        {
-            return KimodoHumanoidAvatarBuilderUtility.GenerateHumanoidAvatar(
-                gameObject,
-                includeExtendedNameAliases: true,
-                normalizeSourceTransformBeforeClone: true,
-                forceUnitScaleOnClone: false,
-                avatarNameSuffix: "Humanoid",
-                out error);
         }
 
     }

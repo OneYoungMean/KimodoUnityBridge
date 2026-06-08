@@ -29,8 +29,8 @@ namespace KimodoBridge.Editor
         private int seed = 42;
         private AnimationClip lastSuccessfulGeneratedClipForApply;
         private readonly KimodoAnimatorApplyService applyService = new KimodoAnimatorApplyService();
-        private KimodoAnimatorPreviewPane previewPane;
-        private KimodoAnimatorEditorPane editorPane;
+        private KimodoAnimatorPreviewPanel previewPanel;
+        private KimodoAnimatorEditorPanel editorPanel;
         private CancellationTokenSource generationCancellationTokenSource;
         private bool disposed;
         private int generationRunId;
@@ -47,9 +47,9 @@ namespace KimodoBridge.Editor
         private void OnEnable()
         {
             disposed = false;
-            previewPane = new KimodoAnimatorPreviewPane();
-            previewPane.Initialize();
-            editorPane = new KimodoAnimatorEditorPane();
+            previewPanel = new KimodoAnimatorPreviewPanel();
+            previewPanel.Initialize();
+            editorPanel = new KimodoAnimatorEditorPanel();
             SyncSelectionDrivenDefaults(forcePromptUpdate: true);
             EditorApplication.update += OnEditorUpdate;
         }
@@ -60,21 +60,21 @@ namespace KimodoBridge.Editor
             generationRunId++;
             EditorApplication.update -= OnEditorUpdate;
             CancelGenerate();
-            previewPane?.Dispose();
-            previewPane = null;
-            editorPane = null;
+            previewPanel?.Dispose();
+            previewPanel = null;
+            editorPanel = null;
         }
 
         private void OnSelectionChange()
         {
-            previewPane?.OnSelectionChange();
+            previewPanel?.OnSelectionChange();
             SyncSelectionDrivenDefaults(forcePromptUpdate: false);
             Repaint();
         }
 
         private void OnEditorUpdate()
         {
-            if (previewPane != null && previewPane.Tick())
+            if (previewPanel != null && previewPanel.Tick())
             {
                 Repaint();
             }
@@ -82,32 +82,32 @@ namespace KimodoBridge.Editor
 
         private void OnGUI()
         {
-            if (previewPane == null)
+            if (previewPanel == null)
             {
-                previewPane = new KimodoAnimatorPreviewPane();
-                previewPane.Initialize();
+                previewPanel = new KimodoAnimatorPreviewPanel();
+                previewPanel.Initialize();
                 SyncSelectionDrivenDefaults(forcePromptUpdate: true);
             }
 
-            if (editorPane == null)
+            if (editorPanel == null)
             {
-                editorPane = new KimodoAnimatorEditorPane();
+                editorPanel = new KimodoAnimatorEditorPanel();
             }
 
-            previewPane.DrawToolbar(ref lastStatus, ref lastError, OnResetAll);
+            previewPanel.DrawToolbar(ref lastStatus, ref lastError, OnResetAll);
 
             string previousBridgeModelName = bridgeModelName;
-            float suggestedDurationSeconds = previewPane != null
-                ? previewPane.GetSuggestedDurationSeconds()
+            float suggestedDurationSeconds = previewPanel != null
+                ? previewPanel.GetSuggestedDurationSeconds()
                 : (KimodoPlayableClip.DEFAULT_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE);
 
             using (new EditorGUILayout.HorizontalScope())
             {
-                previewPane.DrawPreviewPane(position.height);
-                editorPane.Draw(
+                previewPanel.DrawPreviewPanel(position.height);
+                editorPanel.Draw(
                     position.width,
                     position.height,
-                    previewPane,
+                    previewPanel,
                     ref generationBackend,
                     ref bridgeModelName,
                     ref bridgeVramMode,
@@ -120,21 +120,21 @@ namespace KimodoBridge.Editor
                     ref isLoop,
                     ref randomSeed,
                     ref seed,
-                    previewPane != null && previewPane.HasUnsupportedBlendTreeSelection,
+                    previewPanel != null && previewPanel.HasUnsupportedBlendTreeSelection,
                     isGenerating,
                     StartGenerate,
                     CancelGenerate,
                     ApplyGeneratedResult,
                     ResetGenerated,
-                    previewPane.GeneratedClipForPreview,
+                    previewPanel.GeneratedClipForPreview,
                     lastSuccessfulGeneratedClipForApply);
             }
 
             if (!string.Equals(previousBridgeModelName, bridgeModelName, StringComparison.Ordinal) &&
-                previewPane != null &&
-                previewPane.HasSelection)
+                previewPanel != null &&
+                previewPanel.HasSelection)
             {
-                previewPane.TryEnsureGenerationSourceReady(bridgeModelName, out _);
+                previewPanel.TryEnsureGenerationSourceReady(bridgeModelName, out _);
                 Repaint();
             }
 
@@ -156,7 +156,7 @@ namespace KimodoBridge.Editor
 
         private void ResetGenerated()
         {
-            previewPane?.ResetGeneratedOnly();
+            previewPanel?.ResetGeneratedOnly();
             lastSuccessfulGeneratedClipForApply = null;
             lastStatus = "Generated preview cleared.";
             lastError = string.Empty;
@@ -164,9 +164,9 @@ namespace KimodoBridge.Editor
 
         private void StartGenerate()
         {
-            if (previewPane == null)
+            if (previewPanel == null)
             {
-                lastError = "Preview pane is not ready.";
+                lastError = "Preview panel is not ready.";
                 return;
             }
 
@@ -175,13 +175,13 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (!previewPane.TryEnsureGenerationSourceReady(bridgeModelName, out string error))
+            if (!previewPanel.TryEnsureGenerationSourceReady(bridgeModelName, out string error))
             {
                 lastError = error;
                 return;
             }
 
-            if (previewPane.RetargetAvatarForPreview == null)
+            if (previewPanel.RetargetAvatarForPreview == null)
             {
                 lastError = "Preview retarget avatar is not ready.";
                 return;
@@ -192,13 +192,13 @@ namespace KimodoBridge.Editor
             int effectiveSeed = ResolveEffectiveSeedForRun();
             string constraintsJson = string.Empty;
             if (enableInbetweenConstraints &&
-                !previewPane.TryBuildExternalConstraints(bridgeModelName, generationDurationSeconds, isLoop, out constraintsJson, out error))
+                !previewPanel.TryBuildExternalConstraints(bridgeModelName, generationDurationSeconds, isLoop, out constraintsJson, out error))
             {
                 lastError = error;
                 return;
             }
 
-            previewPane.LockCurrentSelection();
+            previewPanel.LockCurrentSelection();
             DisposeGenerationCancellation();
             int runId = ++generationRunId;
             generationCancellationTokenSource = new CancellationTokenSource();
@@ -210,7 +210,7 @@ namespace KimodoBridge.Editor
             Repaint();
             _ = StartGenerateAsync(
                 constraintsJson,
-                previewPane.RetargetAvatarForPreview,
+                previewPanel.RetargetAvatarForPreview,
                 generationFrameCount,
                 effectiveSeed,
                 runCts,
@@ -227,7 +227,8 @@ namespace KimodoBridge.Editor
         {
             try
             {
-                AnimationClip targetClip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset();
+                AnimationClip targetClip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
+                    $"Kimodo_Animator_{DateTime.Now:yyyyMMdd_HHmmss_fff}");
                 KimodoEditorGenerateRequest request = BuildAnimatorGenerateRequest(
                     constraintsJson,
                     explicitRetargetAvatar,
@@ -250,7 +251,7 @@ namespace KimodoBridge.Editor
                 {
                     isGenerating = false;
                     seed = result.Seed;
-                    previewPane?.OnGenerateSuccess(result.GeneratedClip);
+                    previewPanel?.OnGenerateSuccess(result.GeneratedClip);
                     lastSuccessfulGeneratedClipForApply = result.GeneratedClip;
                     lastStatus = "Generation complete.";
                     lastError = string.Empty;
@@ -263,7 +264,7 @@ namespace KimodoBridge.Editor
                 RunOnEditorThread(runId, () =>
                 {
                     isGenerating = false;
-                    previewPane?.OnGenerateFailedOrCanceled();
+                    previewPanel?.OnGenerateFailedOrCanceled();
                     lastStatus = "Generation canceled.";
                     lastError = string.Empty;
                     Repaint();
@@ -274,7 +275,7 @@ namespace KimodoBridge.Editor
                 RunOnEditorThread(runId, () =>
                 {
                     isGenerating = false;
-                    previewPane?.OnGenerateFailedOrCanceled();
+                    previewPanel?.OnGenerateFailedOrCanceled();
                     lastError = ex.Message;
                     lastStatus = "Generation failed.";
                     Repaint();
@@ -313,7 +314,7 @@ namespace KimodoBridge.Editor
 
         private void ApplyGeneratedResult()
         {
-            if (previewPane == null || lastSuccessfulGeneratedClipForApply == null)
+            if (previewPanel == null || lastSuccessfulGeneratedClipForApply == null)
             {
                 lastError = "No generated clip available to apply.";
                 return;
@@ -321,34 +322,34 @@ namespace KimodoBridge.Editor
 
             bool success;
             string error;
-            if (previewPane.SelectedTransition != null)
+            if (previewPanel.SelectedTransition != null)
             {
-                AnimatorState toState = previewPane.SelectedTransition.destinationState;
+                AnimatorState toState = previewPanel.SelectedTransition.destinationState;
                 string suggestedStateName = string.Format(
                     "{0}_{1}_KimodoInsert",
-                    previewPane.SelectedFromState != null ? previewPane.SelectedFromState.name : "From",
+                    previewPanel.SelectedFromState != null ? previewPanel.SelectedFromState.name : "From",
                     toState != null ? toState.name : "To");
 
                 success = applyService.TryApplyTransition(
                     new KimodoAnimatorApplyService.TransitionApplyContext
                     {
-                        Controller = KimodoAnimatorSelectionResolver.FindControllerForObject(previewPane.SelectedTransition),
-                        StateMachine = previewPane.SelectedStateMachine,
-                        FromState = previewPane.SelectedFromState,
+                        Controller = KimodoAnimatorSelectionResolver.FindControllerForObject(previewPanel.SelectedTransition),
+                        StateMachine = previewPanel.SelectedStateMachine,
+                        FromState = previewPanel.SelectedFromState,
                         ToState = toState,
-                        OriginalTransition = previewPane.SelectedTransition,
+                        OriginalTransition = previewPanel.SelectedTransition,
                         GeneratedClip = lastSuccessfulGeneratedClipForApply,
                         NewStateName = suggestedStateName
                     },
                     out error);
             }
-            else if (previewPane.SelectedState != null)
+            else if (previewPanel.SelectedState != null)
             {
                 success = applyService.TryApplyState(
                     new KimodoAnimatorApplyService.StateApplyContext
                     {
-                        Controller = KimodoAnimatorSelectionResolver.FindControllerForObject(previewPane.SelectedState),
-                        State = previewPane.SelectedState,
+                        Controller = KimodoAnimatorSelectionResolver.FindControllerForObject(previewPanel.SelectedState),
+                        State = previewPanel.SelectedState,
                         GeneratedClip = lastSuccessfulGeneratedClipForApply
                     },
                     out error);
@@ -391,12 +392,12 @@ namespace KimodoBridge.Editor
 
         private void SyncSelectionDrivenDefaults(bool forcePromptUpdate)
         {
-            if (previewPane == null)
+            if (previewPanel == null)
             {
                 return;
             }
 
-            string suggestedPrompt = previewPane.GetSuggestedPrompt();
+            string suggestedPrompt = previewPanel.GetSuggestedPrompt();
             if (forcePromptUpdate ||
                 string.IsNullOrWhiteSpace(motionPrompt) ||
                 string.Equals(motionPrompt, lastSuggestedPrompt, StringComparison.Ordinal))
@@ -407,7 +408,7 @@ namespace KimodoBridge.Editor
             lastSuggestedPrompt = suggestedPrompt;
             if (autoDuration)
             {
-                customDurationSeconds = previewPane.GetSuggestedDurationSeconds();
+                customDurationSeconds = previewPanel.GetSuggestedDurationSeconds();
             }
             else
             {
@@ -417,8 +418,8 @@ namespace KimodoBridge.Editor
 
         private float ResolveGenerationDurationSeconds()
         {
-            float durationSeconds = autoDuration && previewPane != null
-                ? previewPane.GetSuggestedDurationSeconds()
+            float durationSeconds = autoDuration && previewPanel != null
+                ? previewPanel.GetSuggestedDurationSeconds()
                 : customDurationSeconds;
             return ClampDurationSeconds(durationSeconds);
         }
@@ -471,11 +472,11 @@ namespace KimodoBridge.Editor
                 ExportMuscleClip = true,
                 CurveFilterOptions = null,
                 CanSkipRetarget = generatedClip =>
-                    previewPane != null &&
-                    previewPane.PreviewAvatarRoot != null &&
+                    previewPanel != null &&
+                    previewPanel.PreviewAvatarRoot != null &&
                     KimodoEditorClipUtility.CanApplyClipDirectlyToProfileSkeleton(
                         generatedClip,
-                        previewPane.PreviewAvatarRoot,
+                        previewPanel.PreviewAvatarRoot,
                         resolvedModelName,
                         out _),
                 ModelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim() ?? string.Empty,

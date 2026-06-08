@@ -36,6 +36,7 @@ namespace KimodoBridge
         public int statusConnectTimeoutMs = DefaultStatusConnectTimeoutMs;
         public int statusIoTimeoutMs = DefaultStatusIoTimeoutMs;
         public int idleTimeoutSeconds = 0;
+        public bool preserveProcessOnCancellation;
         public int logPumpWaitFileTimeoutMs = DefaultLogPumpWaitFileTimeoutMs;
         public int logPumpMissingFilePollMinMs = DefaultLogPumpMissingFilePollMinMs;
         public int logPumpMissingFilePollMaxMs = DefaultLogPumpMissingFilePollMaxMs;

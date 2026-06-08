@@ -11,7 +11,6 @@ namespace KimodoBridge.Editor
 {
     public static class KimodoRetargetToolsEditor
     {
-        private const string DefaultBridgeModelName = "Kimodo-SOMA-RP-v1";
         private const string MuscleCacheType = "muscle";
         private const string BoneCacheType = "bone";
         [Serializable]
@@ -88,7 +87,7 @@ namespace KimodoBridge.Editor
                 frameRate = fps
             };
 
-            BakeMotionCurvesDirect(rawClip, data, fps, frameCount);
+            BakeMotionCurvesDirect(rawClip, data, fps, frameCount, ResolveProfileAvatarForBake(modelName));
             KimodoEditorClipUtility.CopyClipData(rawClip, targetClip, forceNoLoopKeepY: true);
             UnityEngine.Object.DestroyImmediate(rawClip);
 
@@ -237,83 +236,6 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        internal static bool TrySampleMarkerFromClipWithEditorCache(
-            AnimationClip sourceClip,
-            string markerType,
-            double sampleTime,
-            Avatar sourceAvatar,
-            Avatar explicitTargetAvatar,
-            Animator fallbackAnimator,
-            string modelName,
-            bool forceRefresh,
-            out KimodoMarkerSampleResult sample,
-            out string error)
-        {
-            sample = null;
-            error = string.Empty;
-
-            if (sourceClip == null)
-            {
-                error = "Source clip is null.";
-                return false;
-            }
-
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
-            {
-                error = "Source avatar is null/invalid/non-humanoid.";
-                return false;
-            }
-
-            if (!TryResolveEditorTargetAvatar(explicitTargetAvatar, fallbackAnimator, modelName, out Avatar targetAvatar, out error))
-            {
-                return false;
-            }
-
-            if (!TryGetOrCreateEditorBoneClip(
-                    sourceClip,
-                    sourceAvatar,
-                    targetAvatar,
-                    forceRefresh,
-                    out AnimationClip boneCacheClip,
-                    out _,
-                    out error))
-            {
-                return false;
-            }
-
-            SkeletonCache targetCache = null;
-            try
-            {
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(targetAvatar, "KimodoMarkerEditorBoneCacheSample", out targetCache, out error))
-                {
-                    return false;
-                }
-
-                if (!KimodoRetargetSamplingUtility.SampleBoneClipToBoneSample(
-                        boneCacheClip,
-                        targetCache,
-                        (float)Math.Max(0.0, sampleTime),
-                        out BoneSample targetSample,
-                        out error))
-                {
-                    return false;
-                }
-
-                return TryBuildMarkerSampleResultFromBoneSample(
-                    targetSample,
-                    targetCache,
-                    modelName,
-                    markerType,
-                    sampleTime,
-                    out sample,
-                    out error);
-            }
-            finally
-            {
-                targetCache?.Dispose();
-            }
-        }
-
         internal static bool TrySampleMarkerForClip(
             AnimationClip sourceClip,
             string markerType,
@@ -369,16 +291,16 @@ namespace KimodoBridge.Editor
                 if (!KimodoRetargetSamplingUtility.SampleBoneClipToBoneSample(
                         targetClip,
                         targetCache,
-                        (float)Math.Max(0.0, sampleTime),
+                        (float)sampleTime,
                         out BoneSample targetSample,
                         out error))
                 {
                     return false;
                 }
 
-
-                return TryBuildMarkerSampleResultFromBoneSampleDirect(
+                return TryBuildMarkerSampleResultFromBoneSample(
                     targetSample,
+                    targetCache,
                     modelName,
                     markerType,
                     sampleTime,
@@ -555,7 +477,7 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(NormalizeModelName(modelName), out Avatar resolvedAvatar, out string targetError) &&
+            if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim(), out Avatar resolvedAvatar, out string targetError) &&
                 KimodoRetargetCoreUtility.IsValidHumanoid(resolvedAvatar))
             {
                 targetAvatar = resolvedAvatar;
@@ -613,158 +535,6 @@ namespace KimodoBridge.Editor
                 jointTransforms,
                 out result,
                 out error);
-        }
-
-        private static bool TryBuildMarkerSampleResultFromBoneSampleDirect(
-            BoneSample sample,
-            string modelName,
-            string markerType,
-            double sampleTime,
-            out KimodoMarkerSampleResult result,
-            out string error)
-        {
-            result = null;
-            error = string.Empty;
-
-            if (sample == null || !sample.IsValid)
-            {
-                error = "Bone sample is invalid.";
-                return false;
-            }
-
-            KimodoRigProfileDatabase.ResolveProfile(modelName, out KimodoConstraintRigType rigType, out string[] jointNames, out int[] parentIndices);
-            if (jointNames == null || parentIndices == null || jointNames.Length == 0 || jointNames.Length != parentIndices.Length)
-            {
-                error = $"Profile joint layout not found for '{modelName}'.";
-                return false;
-            }
-
-            if (sample.boneNames == null || sample.localPositions == null || sample.localRotations == null)
-            {
-                error = "Bone sample payload is incomplete.";
-                return false;
-            }
-
-            var boneIndexByName = new Dictionary<string, int>(sample.boneNames.Length, StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < sample.boneNames.Length; i++)
-            {
-                string bonePath = sample.boneNames[i];
-                string boneName = ExtractBoneNameFromPath(bonePath);
-                if (string.IsNullOrWhiteSpace(boneName))
-                {
-                    continue;
-                }
-
-                if (boneIndexByName.ContainsKey(boneName))
-                {
-                    error = $"Duplicate sampled bone name '{boneName}' was found while building marker sample result.";
-                    return false;
-                }
-
-                boneIndexByName.Add(boneName, i);
-            }
-
-            if (!boneIndexByName.TryGetValue(jointNames[0], out int rootIndex))
-            {
-                error = $"Profile root joint '{jointNames[0]}' was not found in sampled bone data.";
-                return false;
-            }
-
-            int sampleRootIndex = 0;
-            if (sample.localPositions.Length <= sampleRootIndex || sample.localRotations.Length <= sampleRootIndex)
-            {
-                error = "Bone sample root transform is missing.";
-                return false;
-            }
-
-            int jointCount = jointNames.Length;
-            var worldRotations = new Quaternion[jointCount];
-            var worldPositions = new Vector3[jointCount];
-            var localAxisAngles = new List<Vector3>(jointCount);
-            var sampledJointIndices = new List<int>(jointCount);
-
-            Quaternion profileRootWorldRotation =
-                sample.localRotations[sampleRootIndex] *
-                sample.localRotations[rootIndex];
-            Vector3 profileRootWorldPosition =
-                sample.localPositions[sampleRootIndex] +
-                sample.localRotations[sampleRootIndex] * sample.localPositions[rootIndex];
-
-            Vector3 rootPosition = profileRootWorldPosition;
-            Vector3 forward = profileRootWorldRotation * Vector3.forward;
-            Vector2 rootHeading = new Vector2(forward.x, forward.z);
-            if (rootHeading.sqrMagnitude <= 1e-8f)
-            {
-                rootHeading = Vector2.right;
-            }
-            else
-            {
-                rootHeading.Normalize();
-            }
-
-            for (int i = 0; i < jointCount; i++)
-            {
-                string jointName = jointNames[i];
-                if (!boneIndexByName.TryGetValue(jointName, out int boneIndex))
-                {
-                    error = $"Profile joint '{jointName}' was not found in sampled bone data.";
-                    return false;
-                }
-
-                Quaternion localRotation = sample.localRotations[boneIndex];
-                Vector3 localPosition = sample.localPositions[boneIndex];
-                int parentIndex = parentIndices[i];
-                if (i == 0)
-                {
-                    worldRotations[i] = profileRootWorldRotation;
-                    worldPositions[i] = profileRootWorldPosition;
-                }
-                else
-                {
-                    worldRotations[i] = worldRotations[parentIndex] * localRotation;
-                    worldPositions[i] = worldPositions[parentIndex] + worldRotations[parentIndex] * localPosition;
-                }
-
-                Quaternion profileLocalRotation = parentIndex < 0
-                    ? worldRotations[i]
-                    : Quaternion.Inverse(worldRotations[parentIndex]) * worldRotations[i];
-                localAxisAngles.Add(KimodoRuntimeUtility.QuaternionToAxisAngleVector(profileLocalRotation));
-                sampledJointIndices.Add(i);
-            }
-
-            result = new KimodoMarkerSampleResult
-            {
-                constraintType = markerType ?? string.Empty,
-                sampleTime = sampleTime,
-                rigType = rigType,
-                hasRootHeading = true,
-                rootPosition = rootPosition,
-                rootHeading = rootHeading,
-                jointNames = new List<string>(jointNames),
-                localAxisAngles = localAxisAngles,
-                sampledJointIndices = sampledJointIndices
-            };
-            return true;
-        }
-
-        private static string ExtractBoneNameFromPath(string bonePath)
-        {
-            if (string.IsNullOrWhiteSpace(bonePath))
-            {
-                return string.Empty;
-            }
-
-            int separatorIndex = bonePath.LastIndexOf('/');
-            return separatorIndex >= 0 && separatorIndex + 1 < bonePath.Length
-                ? bonePath.Substring(separatorIndex + 1)
-                : bonePath;
-        }
-
-        private static string NormalizeModelName(string modelName)
-        {
-            return string.IsNullOrWhiteSpace(modelName)
-                ? DefaultBridgeModelName
-                : modelName.Trim();
         }
 
         public static bool TryApplyCurveFilterToClip(
@@ -1332,7 +1102,7 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        private static void BakeMotionCurvesDirect(AnimationClip targetClip, MotionJsonData data, float fps, int frameCount)
+        private static void BakeMotionCurvesDirect(AnimationClip targetClip, MotionJsonData data, float fps, int frameCount, Avatar profileAvatar)
         {
             int jointCount = Mathf.Min(data.joint_names.Length, data.num_joints > 0 ? data.num_joints : data.joint_names.Length);
             bool hasPositions = data.positions != null && data.positions.Count > 0;
@@ -1347,6 +1117,7 @@ namespace KimodoBridge.Editor
 
             int rootJoint = FindRootJointIndex(data, jointCount);
             string[] jointPaths = BuildJointPaths(data, jointCount);
+            Vector3 pelvisPosition = ResolveProfilePelvisPosition(profileAvatar);
 
             for (int joint = 0; joint < jointCount; joint++)
             {
@@ -1357,6 +1128,10 @@ namespace KimodoBridge.Editor
                     AnimationCurve px = new AnimationCurve();
                     AnimationCurve py = new AnimationCurve();
                     AnimationCurve pz = new AnimationCurve();
+                    float seedTime = -1f / Mathf.Max(1f, fps);
+                    px.AddKey(seedTime, pelvisPosition.x);
+                    py.AddKey(seedTime, pelvisPosition.y);
+                    pz.AddKey(seedTime, pelvisPosition.z);
 
                     for (int f = 0; f < frameCount; f++)
                     {
@@ -1378,6 +1153,11 @@ namespace KimodoBridge.Editor
                     AnimationCurve qy = new AnimationCurve();
                     AnimationCurve qz = new AnimationCurve();
                     AnimationCurve qw = new AnimationCurve();
+                    float seedTime = -1f / Mathf.Max(1f, fps);
+                    qx.AddKey(seedTime, 0f);
+                    qy.AddKey(seedTime, 0f);
+                    qz.AddKey(seedTime, 0f);
+                    qw.AddKey(seedTime, 1f);
 
                     for (int f = 0; f < frameCount; f++)
                     {
@@ -1395,6 +1175,41 @@ namespace KimodoBridge.Editor
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalRotation.w", qw);
                 }
             }
+        }
+
+        private static Avatar ResolveProfileAvatarForBake(string modelName)
+        {
+            if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar avatar, out _))
+            {
+                return avatar;
+            }
+
+            return null;
+        }
+
+        private static Vector3 ResolveProfilePelvisPosition(Avatar profileAvatar)
+        {
+            if (profileAvatar == null || !profileAvatar.isValid || !profileAvatar.isHuman)
+            {
+                return Vector3.zero;
+            }
+
+            SkeletonBone[] skeleton = profileAvatar.humanDescription.skeleton;
+            if (skeleton == null || skeleton.Length == 0)
+            {
+                return Vector3.zero;
+            }
+
+            for (int i = 0; i < skeleton.Length; i++)
+            {
+                if (string.Equals(skeleton[i].name, "Hips", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(skeleton[i].name, "pelvis", StringComparison.OrdinalIgnoreCase))
+                {
+                    return skeleton[i].position;
+                }
+            }
+
+            return skeleton[0].position;
         }
 
         private static Vector3 ReadPos(MotionJsonData data, int frame, int joint)

@@ -175,10 +175,6 @@ namespace KimodoBridge.Editor
                 }
 
                 Transform tr = renderer.transform;
-                if (tr != null)
-                {
-                    tr.localScale *= 1.1f;
-                }
 
                 Material[] shared = renderer.sharedMaterials;
                 if (shared == null || shared.Length == 0)

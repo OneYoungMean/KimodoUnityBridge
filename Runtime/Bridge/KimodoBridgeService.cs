@@ -133,6 +133,19 @@ namespace KimodoBridge
                 currentPort = port;
                 return $"Ready - {settings.modelName} on {host}:{port}";
             }
+            catch (OperationCanceledException)
+            {
+                await InvalidateCurrentEndpointAsync();
+                if (settings.preserveProcessOnCancellation)
+                {
+                    await DetachAsync(CancellationToken.None);
+                }
+                else
+                {
+                    await StopAsync(CancellationToken.None);
+                }
+                throw;
+            }
             catch
             {
                 await InvalidateCurrentEndpointAsync();

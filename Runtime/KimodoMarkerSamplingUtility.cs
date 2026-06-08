@@ -8,16 +8,6 @@ namespace KimodoBridge
 {
     public static class KimodoMarkerSamplingUtility
     {
-        public static string[] GetJointNamesForModel(string modelName)
-        {
-            return KimodoRigProfileDatabase.GetJointNamesForModel(modelName);
-        }
-
-        public static string GetRootJointNameForModel(string modelName)
-        {
-            return KimodoRigProfileDatabase.GetRootJointNameForModel(modelName);
-        }
-
         public static KimodoMarkerSampleResult NormalizeConstraintMarkerSample(
             KimodoConstraintMarkerBase marker,
             KimodoMarkerSampleResult sample)
@@ -91,7 +81,7 @@ namespace KimodoBridge
             string modelName)
         {
             var output = new List<string>();
-            string root = GetRootJointNameForModel(modelName);
+            string root = KimodoRigProfileDatabase.GetRootJointNameForModel(modelName);
             if (!string.IsNullOrWhiteSpace(root))
             {
                 output.Add(root);
@@ -104,7 +94,7 @@ namespace KimodoBridge
 
             if (string.Equals(constraintType, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
-                string[] modelJointNames = GetJointNamesForModel(modelName);
+                string[] modelJointNames = KimodoRigProfileDatabase.GetJointNamesForModel(modelName);
                 if (modelJointNames != null)
                 {
                     for (int i = 0; i < modelJointNames.Length; i++)
@@ -188,73 +178,7 @@ namespace KimodoBridge
             return localSampleTime;
         }
 
-        public static bool TrySampleMarkerFromProfileSkeleton(
-            SkeletonCache profileCache,
-            string modelName,
-            string markerType,
-            double sampleTime,
-            out KimodoMarkerSampleResult result,
-            out string error)
-        {
-            result = null;
-            error = string.Empty;
-
-            if (profileCache == null || !profileCache.IsReady)
-            {
-                error = "Profile skeleton cache is not initialized.";
-                return false;
-            }
-
-            if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                    modelName,
-                    profileCache.skeletonRoot,
-                    out string[] jointNames,
-                    out int[] parentIndices,
-                    out Transform[] jointTransforms,
-                    out error))
-            {
-                return false;
-            }
-
-            return TrySampleMarkerRaw(
-                profileCache.animator,
-                profileCache.skeletonRoot,
-                modelName,
-                sampleTime,
-                markerType,
-                jointNames,
-                parentIndices,
-                jointTransforms,
-                out result,
-                out error);
-        }
-
         internal static bool TrySampleMarkerFromProfileSkeletonRaw(
-            Animator animator,
-            Transform skeletonRoot,
-            string modelName,
-            double globalTime,
-            string markerType,
-            string[] jointNamesOverride,
-            int[] parentIndicesOverride,
-            Transform[] jointsOverride,
-            out KimodoMarkerSampleResult result,
-            out string error)
-        {
-            return TrySampleMarkerRaw(
-                animator,
-                skeletonRoot,
-                modelName,
-                globalTime,
-                markerType,
-                jointNamesOverride,
-                parentIndicesOverride,
-                jointsOverride,
-                out result,
-                out error);
-        }
-
-        private static bool TrySampleMarkerRaw(
             Animator animator,
             Transform skeletonRoot,
             string modelName,

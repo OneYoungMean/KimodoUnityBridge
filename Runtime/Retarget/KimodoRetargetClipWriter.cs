@@ -60,7 +60,7 @@ namespace KimodoBridge
                     continue;
                 }
 
-                float time = frame / frameRate;
+                float time = (frame - 1f) / frameRate;
                 HumanPose pose = sample.pose;
                 EnsureHumanPoseMuscles(ref pose);
 
@@ -91,39 +91,6 @@ namespace KimodoBridge
                     float value = muscle < pose.muscles.Length ? pose.muscles[muscle] : 0f;
                     muscleCurves[muscle].AddKey(time, value);
                 }
-            }
-
-            if (samples.Count == 1 && samples[0] != null)
-            {
-                HumanPose pose = samples[0].pose;
-                EnsureHumanPoseMuscles(ref pose);
-                AddSingleFrameMuscleCurvePadding(
-                    1f,
-                    samples[0],
-                    pose,
-                    muscleCount,
-                    rootTx,
-                    rootTy,
-                    rootTz,
-                    rootQx,
-                    rootQy,
-                    rootQz,
-                    rootQw,
-                    leftFootTx,
-                    leftFootTy,
-                    leftFootTz,
-                    leftFootQx,
-                    leftFootQy,
-                    leftFootQz,
-                    leftFootQw,
-                    rightFootTx,
-                    rightFootTy,
-                    rightFootTz,
-                    rightFootQx,
-                    rightFootQy,
-                    rightFootQz,
-                    rightFootQw,
-                    muscleCurves);
             }
 
             SetFloatCurve(clip, "RootT.x", rootTx);
@@ -197,7 +164,7 @@ namespace KimodoBridge
                             continue;
                         }
 
-                        float time = frame / frameRate;
+                        float time = (frame - 1f) / frameRate;
                         Vector3 rootPosition = sample.localPositions[0];
                         Quaternion rootRotation = sample.localRotations[0];
                         rootTx.AddKey(time, rootPosition.x);
@@ -228,7 +195,7 @@ namespace KimodoBridge
                         continue;
                     }
 
-                    float time = frame / frameRate;
+                    float time = (frame - 1f) / frameRate;
                     Vector3 localPosition = sample.localPositions[i];
                     Quaternion localRotation = sample.localRotations[i];
                     posX.AddKey(time, localPosition.x);
@@ -264,63 +231,6 @@ namespace KimodoBridge
         internal static void SetFloatCurve(AnimationClip clip, string propertyName, AnimationCurve curve)
         {
             clip.SetCurve(string.Empty, typeof(Animator), propertyName, curve);
-        }
-
-        internal static void AddSingleFrameMuscleCurvePadding(
-            float time,
-            MuscleSample sample,
-            HumanPose pose,
-            int muscleCount,
-            AnimationCurve rootTx,
-            AnimationCurve rootTy,
-            AnimationCurve rootTz,
-            AnimationCurve rootQx,
-            AnimationCurve rootQy,
-            AnimationCurve rootQz,
-            AnimationCurve rootQw,
-            AnimationCurve leftFootTx,
-            AnimationCurve leftFootTy,
-            AnimationCurve leftFootTz,
-            AnimationCurve leftFootQx,
-            AnimationCurve leftFootQy,
-            AnimationCurve leftFootQz,
-            AnimationCurve leftFootQw,
-            AnimationCurve rightFootTx,
-            AnimationCurve rightFootTy,
-            AnimationCurve rightFootTz,
-            AnimationCurve rightFootQx,
-            AnimationCurve rightFootQy,
-            AnimationCurve rightFootQz,
-            AnimationCurve rightFootQw,
-            AnimationCurve[] muscleCurves)
-        {
-            rootTx.AddKey(time, pose.bodyPosition.x);
-            rootTy.AddKey(time, pose.bodyPosition.y);
-            rootTz.AddKey(time, pose.bodyPosition.z);
-            rootQx.AddKey(time, pose.bodyRotation.x);
-            rootQy.AddKey(time, pose.bodyRotation.y);
-            rootQz.AddKey(time, pose.bodyRotation.z);
-            rootQw.AddKey(time, pose.bodyRotation.w);
-            leftFootTx.AddKey(time, sample.leftFootPosition.x);
-            leftFootTy.AddKey(time, sample.leftFootPosition.y);
-            leftFootTz.AddKey(time, sample.leftFootPosition.z);
-            leftFootQx.AddKey(time, sample.leftFootRotation.x);
-            leftFootQy.AddKey(time, sample.leftFootRotation.y);
-            leftFootQz.AddKey(time, sample.leftFootRotation.z);
-            leftFootQw.AddKey(time, sample.leftFootRotation.w);
-            rightFootTx.AddKey(time, sample.rightFootPosition.x);
-            rightFootTy.AddKey(time, sample.rightFootPosition.y);
-            rightFootTz.AddKey(time, sample.rightFootPosition.z);
-            rightFootQx.AddKey(time, sample.rightFootRotation.x);
-            rightFootQy.AddKey(time, sample.rightFootRotation.y);
-            rightFootQz.AddKey(time, sample.rightFootRotation.z);
-            rightFootQw.AddKey(time, sample.rightFootRotation.w);
-
-            for (int muscle = 0; muscle < muscleCount; muscle++)
-            {
-                float value = muscle < pose.muscles.Length ? pose.muscles[muscle] : 0f;
-                muscleCurves[muscle].AddKey(time, value);
-            }
         }
 
         internal static string GetAnimatorMusclePropertyName(string muscleName)

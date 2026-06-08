@@ -23,6 +23,7 @@ namespace KimodoBridge
             public Avatar originalAnimatorAvatar;
             public float evaluatedTime;
             public bool hasEvaluatedTime;
+            public float frameRate;
 
             public bool IsReady =>
                 cache != null &&
@@ -119,6 +120,18 @@ namespace KimodoBridge
                 : ClipSamplingMode.RawTransform;
         }
 
+        internal static float ResolveFrameRate(AnimationClip clip)
+        {
+            return clip != null && clip.frameRate > 0f
+                ? clip.frameRate
+                : KimodoPlayableClip.FIXED_FRAME_RATE;
+        }
+
+        internal static float ResolvePreRollSeconds(float frameRate)
+        {
+            return 1f / Mathf.Max(1f, frameRate);
+        }
+
         internal static bool TryBuildClipSamplingContext(
             AnimationClip clip,
             SkeletonCache cache,
@@ -158,7 +171,12 @@ namespace KimodoBridge
                 clipPlayable.SetApplyPlayableIK(true);
                 AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, rootName + "Output", cache.animator);
                 output.SetSourcePlayable(clipPlayable);
+
+                float seedTime = ResolveSeedTime(clip);
+                clipPlayable.SetTime(seedTime);
                 graph.Play();
+
+                graph.Evaluate(0f);
 
                 context = new ClipSamplingContext
                 {
@@ -167,8 +185,9 @@ namespace KimodoBridge
                     clipPlayable = clipPlayable,
                     restoreAnimatorAvatar = restoreAnimatorAvatar,
                     originalAnimatorAvatar = originalAnimatorAvatar,
-                    evaluatedTime = 0f,
-                    hasEvaluatedTime = false
+                    evaluatedTime = seedTime,
+                    hasEvaluatedTime = true,
+                    frameRate = ResolveFrameRate(clip)
                 };
                 return true;
             }
@@ -207,42 +226,9 @@ namespace KimodoBridge
             }
         }
 
-        internal static void PrepareClipSamplingContext(ClipSamplingContext context)
+        internal static float ResolveSeedTime(AnimationClip clip)
         {
-            if (context == null)
-            {
-                return;
-            }
-
-            ResetSkeletonCachePose(context.cache);
-            context.evaluatedTime = 0f;
-            context.hasEvaluatedTime = false;
-        }
-
-        internal static bool TryBuildPreparedClipSamplingContext(
-            AnimationClip clip,
-            SkeletonCache cache,
-            string rootName,
-            ClipSamplingMode samplingMode,
-            out ClipSamplingContext context,
-            out string error)
-        {
-            context = null;
-            error = string.Empty;
-
-            if (!TryBuildClipSamplingContext(
-                    clip,
-                    cache,
-                    rootName,
-                    samplingMode,
-                    out context,
-                    out error))
-            {
-                return false;
-            }
-
-            PrepareClipSamplingContext(context);
-            return true;
+            return -ResolvePreRollSeconds(ResolveFrameRate(clip));
         }
 
         internal static bool TryEvaluateClipSamplingContext(ClipSamplingContext context, float sampleTime, out string error)
@@ -257,7 +243,7 @@ namespace KimodoBridge
 
             try
             {
-                float targetTime = Mathf.Max(0f, sampleTime);
+                float targetTime = sampleTime;
                 if (context.hasEvaluatedTime && targetTime < context.evaluatedTime)
                 {
                     error = $"Clip sampling context does not support backward evaluation: previous={context.evaluatedTime:F6}, target={targetTime:F6}. Rebuild the context before sampling an earlier time.";
@@ -314,7 +300,6 @@ namespace KimodoBridge
             animator.enabled = true;
             animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             animator.Rebind();
-            animator.Update(0f);
 
             if (desiredAvatar != null)
             {
@@ -338,7 +323,6 @@ namespace KimodoBridge
             animator.enabled = true;
             animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             animator.Rebind();
-            animator.Update(0f);
 
             if (avatar != null)
             {
@@ -368,24 +352,6 @@ namespace KimodoBridge
                 "KimodoRetargetTools_SourceBoneSampler",
                 KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(clip),
                 TrySampleBoneClipToBoneSampleInternal,
-                out sample,
-                out error);
-        }
-
-        internal static bool SampleMuscleClipToMuscleSample(
-            AnimationClip clip,
-            SkeletonCache cache,
-            float sampleTime,
-            out MuscleSample sample,
-            out string error)
-        {
-            return TrySampleFromClip(
-                clip,
-                cache,
-                sampleTime,
-                "KimodoRetargetTools_SourceMuscleSampler",
-                KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(clip),
-                TrySampleMuscleClipToMuscleSampleInternal,
                 out sample,
                 out error);
         }
@@ -443,33 +409,6 @@ namespace KimodoBridge
 
             sourceHumanoidClip.name = BuildTransientHumanoidClipName(sourceClip);
             return true;
-        }
-
-        internal static bool RetargetBoneSampleToMuscleSample(
-            BoneSample sourceSample,
-            SkeletonCache sourceCache,
-            out MuscleSample targetSample,
-            out string error)
-        {
-            targetSample = null;
-            error = string.Empty;
-
-            if (!ValidateBoneSample(sourceSample, out error))
-            {
-                return false;
-            }
-
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(sourceCache, out error))
-            {
-                return false;
-            }
-
-            if (!TryApplyBoneSampleToSkeletonCache(sourceSample, sourceCache, out error))
-            {
-                return false;
-            }
-
-            return TryCaptureMuscleSample(sourceCache, out targetSample, out error);
         }
 
         internal static bool TryCollectBoneSamplesFromClip(
@@ -539,7 +478,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoRetargetClipSamplingUtility.TryBuildPreparedClipSamplingContext(
+            if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
                     sourceHumanoidClip,
                     targetCache,
                     "KimodoRetargetTools_TargetHumanoidSample",
@@ -613,8 +552,6 @@ namespace KimodoBridge
                 transform.localPosition = sample.localPositions[i];
                 transform.localRotation = sample.localRotations[i];
             }
-
-            cache.animator.Update(0f);
             return true;
         }
 
@@ -721,7 +658,7 @@ namespace KimodoBridge
             sample = default;
             error = string.Empty;
 
-            if (!KimodoRetargetClipSamplingUtility.TryBuildPreparedClipSamplingContext(
+            if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
                     clip,
                     cache,
                     rootName,
@@ -757,7 +694,7 @@ namespace KimodoBridge
             samples = null;
             error = string.Empty;
 
-            if (!KimodoRetargetClipSamplingUtility.TryBuildPreparedClipSamplingContext(
+            if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
                     clip,
                     cache,
                     rootName,
@@ -770,7 +707,14 @@ namespace KimodoBridge
 
             try
             {
-                samples = new TSample[frameCount];
+                samples = new TSample[frameCount + 1];
+                if (!sampleCallback(context, KimodoRetargetClipSamplingUtility.ResolveSeedTime(clip), out TSample seedSample, out error))
+                {
+                    return false;
+                }
+
+                samples[0] = cloneSample(seedSample);
+
                 for (int frame = 0; frame < frameCount; frame++)
                 {
                     float time = FrameToTime(frame, frameCount, duration);
@@ -779,7 +723,7 @@ namespace KimodoBridge
                         return false;
                     }
 
-                    samples[frame] = cloneSample(sample);
+                    samples[frame + 1] = cloneSample(sample);
                 }
 
                 return true;
@@ -825,7 +769,7 @@ namespace KimodoBridge
             return TryCaptureMuscleSample(context.cache, out sample, out error);
         }
 
-        private static BoneSample CaptureBoneSample(SkeletonCache cache)
+        internal static BoneSample CaptureBoneSample(SkeletonCache cache)
         {
             var sample = new BoneSample
             {
@@ -901,45 +845,6 @@ namespace KimodoBridge
             };
         }
 
-        private static MuscleSample LerpMuscleSample(MuscleSample a, MuscleSample b, float t)
-        {
-            if (a == null || b == null)
-            {
-                return null;
-            }
-
-            HumanPose poseA = a.pose;
-            HumanPose poseB = b.pose;
-            KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref poseA);
-            KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref poseB);
-
-            var pose = new HumanPose
-            {
-                bodyPosition = Vector3.Lerp(poseA.bodyPosition, poseB.bodyPosition, t),
-                bodyRotation = Quaternion.Slerp(poseA.bodyRotation, poseB.bodyRotation, t),
-                muscles = new float[HumanTrait.MuscleCount]
-            };
-
-            for (int i = 0; i < pose.muscles.Length; i++)
-            {
-                float muscleA = i < poseA.muscles.Length ? poseA.muscles[i] : 0f;
-                float muscleB = i < poseB.muscles.Length ? poseB.muscles[i] : 0f;
-                pose.muscles[i] = Mathf.Lerp(muscleA, muscleB, t);
-            }
-
-            return new MuscleSample
-            {
-                pose = pose,
-                leftFootPosition = Vector3.Lerp(a.leftFootPosition, b.leftFootPosition, t),
-                leftFootRotation = Quaternion.Slerp(a.leftFootRotation, b.leftFootRotation, t),
-                rightFootPosition = Vector3.Lerp(a.rightFootPosition, b.rightFootPosition, t),
-                rightFootRotation = Quaternion.Slerp(a.rightFootRotation, b.rightFootRotation, t),
-                leftHandPosition = Vector3.Lerp(a.leftHandPosition, b.leftHandPosition, t),
-                leftHandRotation = Quaternion.Slerp(a.leftHandRotation, b.leftHandRotation, t),
-                rightHandPosition = Vector3.Lerp(a.rightHandPosition, b.rightHandPosition, t),
-                rightHandRotation = Quaternion.Slerp(a.rightHandRotation, b.rightHandRotation, t)
-            };
-        }
 
         private static float FrameToTime(int frame, int frameCount, float duration)
         {

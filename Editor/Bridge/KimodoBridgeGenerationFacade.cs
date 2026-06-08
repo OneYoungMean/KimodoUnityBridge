@@ -196,7 +196,8 @@ namespace KimodoBridge.Editor
                 modelLoadingPollIntervalMs = BridgeRuntimeSettings.DefaultModelLoadingPollIntervalMs,
                 statusConnectTimeoutMs = BridgeRuntimeSettings.DefaultStatusConnectTimeoutMs,
                 statusIoTimeoutMs = BridgeRuntimeSettings.DefaultStatusIoTimeoutMs,
-                idleTimeoutSeconds = editorSettings != null ? editorSettings.ServerIdleShutdownSeconds : 0
+                idleTimeoutSeconds = editorSettings != null ? editorSettings.ServerIdleShutdownSeconds : 0,
+                preserveProcessOnCancellation = editorSettings != null && editorSettings.AlwaysKeepServerExperimental
             };
         }
 

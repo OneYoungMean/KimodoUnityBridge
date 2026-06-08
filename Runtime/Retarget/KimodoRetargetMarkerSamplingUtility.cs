@@ -63,7 +63,7 @@ namespace KimodoBridge
                     if (!KimodoRetargetSamplingUtility.TrySampleTargetFromHumanoidClip(
                             sourceHumanoidClip,
                             targetCache,
-                            (float)Math.Max(0.0, sampleTime),
+                            (float)sampleTime,
                             out BoneSample targetSample,
                             out _,
                             out error))

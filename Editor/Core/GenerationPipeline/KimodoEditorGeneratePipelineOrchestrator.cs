@@ -23,7 +23,7 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("Prompt is empty.");
             }
 
-            string modelName = NormalizeModelName(request.ModelName);
+            string modelName = string.IsNullOrWhiteSpace(request.ModelName) ? DefaultModelName : request.ModelName.Trim();
             request.Progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Generating motion...");
             string motionJson = await GenerateMotionJsonAsync(request, prompt, modelName);
             if (string.IsNullOrWhiteSpace(motionJson))
@@ -86,14 +86,14 @@ namespace KimodoBridge.Editor
                 return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
             }
 
-            if (!KimodoRetargetTools.TryRetargetNew(
+            if (!KimodoRetargetCoreUtility.TryRetargetClip(
                     request.TargetClip,
                     request.OriginRetargetAvatar,
                     request.TargetRetargetAvatar,
                     request.ExportMuscleClip,
+                    providedSourceHumanoidClip: request.TargetClip,
                     out AnimationClip retargetClip,
-                    out string retargetError,
-                    providedSourceHumanoidClip: request.TargetClip))
+                    out string retargetError))
             {
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(retargetError)
                     ? "Retarget failed."
@@ -222,6 +222,8 @@ namespace KimodoBridge.Editor
                     highVram = highVram,
                     modelsRoot = modelsRoot,
                     startupTimeoutMs = ComputeBridgeStartupTimeoutMs(kimodoRootPath, highVram, modelName, request.GenerationTimeoutSeconds),
+                    preserveProcessOnCancellation = KimodoPlayableClipGenerationSettings.instance != null &&
+                        KimodoPlayableClipGenerationSettings.instance.AlwaysKeepServerExperimental,
                     idleTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance != null
                         ? KimodoPlayableClipGenerationSettings.instance.ServerIdleShutdownSeconds
                         : 0
@@ -264,9 +266,5 @@ namespace KimodoBridge.Editor
             return timeoutMs;
         }
 
-        private static string NormalizeModelName(string modelName)
-        {
-            return string.IsNullOrWhiteSpace(modelName) ? DefaultModelName : modelName.Trim();
-        }
     }
 }

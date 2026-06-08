@@ -37,7 +37,8 @@ namespace KimodoBridge.Editor
             }
 
             AnimationClip previousClip = clip.clip;
-            AnimationClip targetClip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset();
+            AnimationClip targetClip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
+                $"Kimodo_Playable_{DateTime.Now:yyyyMMdd_HHmmss_fff}");
 
             string resolvedModelName = string.IsNullOrWhiteSpace(clip.bridgeModelName) ? "Kimodo-SOMA-RP-v1" : clip.bridgeModelName.Trim();
             Avatar originRetargetAvatar = ResolveOriginRetargetAvatar(resolvedModelName);

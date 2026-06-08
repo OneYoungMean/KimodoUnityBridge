@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
-    internal sealed class KimodoAnimatorPreviewPane : IDisposable
+    internal sealed class KimodoAnimatorPreviewPanel : IDisposable
     {
         private const float MinLeftWidth = 360f;
         private const string DefaultBridgeModelName = "Kimodo-SOMA-RP-v1";
@@ -143,7 +143,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        public void DrawPreviewPane(float windowHeight)
+        public void DrawPreviewPanel(float windowHeight)
         {
             Rect leftRect = EditorGUILayout.GetControlRect(false, windowHeight - 70f, GUILayout.MinWidth(MinLeftWidth), GUILayout.ExpandWidth(true));
             GUI.Box(leftRect, GUIContent.none);
@@ -358,7 +358,7 @@ namespace KimodoBridge.Editor
             constraintsJson = string.Empty;
             error = string.Empty;
 
-            if (!TryResolveAvatarAndMotionForSampling(bridgeModelName, out Avatar avatar, out AnimationClip sourceClip, out error))
+            if (!TryResolveAvatarAndMotionForSampling(bridgeModelName, preparePreviewRoot: true, out Avatar avatar, out AnimationClip sourceClip, out error))
             {
                 return false;
             }
@@ -583,11 +583,6 @@ namespace KimodoBridge.Editor
                 DestroyPreviewRootInstance();
                 ClearResolvedPreviewSource();
             }
-        }
-
-        private bool TryResolveAvatarAndMotionForSampling(string bridgeModelName, out Avatar avatar, out AnimationClip sourceClip, out string error)
-        {
-            return TryResolveAvatarAndMotionForSampling(bridgeModelName, preparePreviewRoot: false, out avatar, out sourceClip, out error);
         }
 
         private bool TryResolveAvatarAndMotionForSampling(

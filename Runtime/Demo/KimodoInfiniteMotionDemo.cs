@@ -378,14 +378,14 @@ namespace KimodoBridge
             AnimationClip dancerClip = UnityEngine.Object.Instantiate(somaClip);
             dancerClip.name = $"Kimodo_Dancer_{index:D4}";
 
-            if (!KimodoRetargetTools.TryRetargetNew(
+            if (!KimodoRetargetCoreUtility.TryRetargetClip(
                     dancerClip,
                     somaAvatar,
                     dancerAvatar,
                     exportMuscleClip: true,
+                    providedSourceHumanoidClip: dancerClip,
                     out AnimationClip retargetedClip,
-                    out string error,
-                    providedSourceHumanoidClip: dancerClip))
+                    out string error))
             {
                 UnityEngine.Object.Destroy(dancerClip);
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "Dancer clip retarget failed." : error);

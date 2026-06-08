@@ -35,49 +35,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (TryApplyTransitionToController(context, context.Controller, out error))
-            {
-                return true;
-            }
-
-            string copyPath = EditorUtility.SaveFilePanelInProject(
-                "Select Controller Copy Path",
-                $"{context.Controller.name}_KimodoCopy",
-                "controller",
-                "Apply failed on original controller. Select a path to create a copy and retry.");
-            if (string.IsNullOrWhiteSpace(copyPath))
-            {
-                error = "Apply canceled: no controller copy path selected.";
-                return false;
-            }
-
-            string sourcePath = AssetDatabase.GetAssetPath(context.Controller);
-            if (string.IsNullOrWhiteSpace(sourcePath))
-            {
-                error = "Cannot resolve source controller asset path.";
-                return false;
-            }
-
-            if (!AssetDatabase.CopyAsset(sourcePath, copyPath))
-            {
-                error = $"Failed to copy controller to '{copyPath}'.";
-                return false;
-            }
-
-            AnimatorController copied = AssetDatabase.LoadAssetAtPath<AnimatorController>(copyPath);
-            if (copied == null)
-            {
-                error = $"Failed to load copied controller at '{copyPath}'.";
-                return false;
-            }
-
-            var copiedContext = BuildContextForCopiedController(context, copied, out error);
-            if (copiedContext == null)
-            {
-                return false;
-            }
-
-            return TryApplyTransitionToController(copiedContext, copied, out error);
+            return TryApplyTransitionToController(context, context.Controller, out error);
         }
 
         public bool TryApplyState(StateApplyContext context, out string error)
@@ -116,46 +74,6 @@ namespace KimodoBridge.Editor
             }
 
             return true;
-        }
-
-        private static TransitionApplyContext BuildContextForCopiedController(
-            TransitionApplyContext source,
-            AnimatorController copiedController,
-            out string error)
-        {
-            error = string.Empty;
-            AnimatorStateMachine copiedSm = FindStateMachineByName(copiedController, source.StateMachine.name);
-            if (copiedSm == null)
-            {
-                error = $"Cannot find copied state machine '{source.StateMachine.name}'.";
-                return null;
-            }
-
-            AnimatorState copiedFrom = FindStateByName(copiedSm, source.FromState.name);
-            AnimatorState copiedTo = FindStateByName(copiedSm, source.ToState.name);
-            if (copiedFrom == null || copiedTo == null)
-            {
-                error = "Cannot resolve copied from/to states.";
-                return null;
-            }
-
-            AnimatorStateTransition copiedOriginal = FindTransition(copiedFrom, copiedTo);
-            if (copiedOriginal == null)
-            {
-                error = "Cannot resolve original transition in copied controller.";
-                return null;
-            }
-
-            return new TransitionApplyContext
-            {
-                Controller = copiedController,
-                StateMachine = copiedSm,
-                FromState = copiedFrom,
-                ToState = copiedTo,
-                OriginalTransition = copiedOriginal,
-                GeneratedClip = source.GeneratedClip,
-                NewStateName = source.NewStateName
-            };
         }
 
         private static bool TryApplyTransitionToController(
@@ -290,25 +208,6 @@ namespace KimodoBridge.Editor
             return name;
         }
 
-        private static AnimatorStateMachine FindStateMachineByName(AnimatorController controller, string stateMachineName)
-        {
-            if (controller == null || string.IsNullOrWhiteSpace(stateMachineName))
-            {
-                return null;
-            }
-
-            for (int i = 0; i < controller.layers.Length; i++)
-            {
-                AnimatorStateMachine sm = controller.layers[i].stateMachine;
-                if (TryFindStateMachineByNameRecursive(sm, stateMachineName, out AnimatorStateMachine found))
-                {
-                    return found;
-                }
-            }
-
-            return null;
-        }
-
         private static AnimatorState FindStateByName(AnimatorStateMachine sm, string stateName)
         {
             if (sm == null || string.IsNullOrWhiteSpace(stateName))
@@ -339,52 +238,5 @@ namespace KimodoBridge.Editor
             return null;
         }
 
-        private static bool TryFindStateMachineByNameRecursive(
-            AnimatorStateMachine stateMachine,
-            string stateMachineName,
-            out AnimatorStateMachine found)
-        {
-            found = null;
-            if (stateMachine == null || string.IsNullOrWhiteSpace(stateMachineName))
-            {
-                return false;
-            }
-
-            if (string.Equals(stateMachine.name, stateMachineName, StringComparison.Ordinal))
-            {
-                found = stateMachine;
-                return true;
-            }
-
-            ChildAnimatorStateMachine[] childStateMachines = stateMachine.stateMachines;
-            for (int i = 0; i < childStateMachines.Length; i++)
-            {
-                if (TryFindStateMachineByNameRecursive(childStateMachines[i].stateMachine, stateMachineName, out found))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static AnimatorStateTransition FindTransition(AnimatorState from, AnimatorState to)
-        {
-            if (from == null || to == null)
-            {
-                return null;
-            }
-
-            AnimatorStateTransition[] transitions = from.transitions;
-            for (int i = 0; i < transitions.Length; i++)
-            {
-                if (transitions[i] != null && transitions[i].destinationState == to)
-                {
-                    return transitions[i];
-                }
-            }
-
-            return null;
-        }
     }
 }

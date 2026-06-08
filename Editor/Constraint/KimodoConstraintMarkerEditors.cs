@@ -10,48 +10,6 @@ using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
-    internal static class KimodoMarkerRetargetEditorFacade
-    {
-        internal static bool TrySampleMarkerFromClip(
-            AnimationClip sourceClip,
-            string markerType,
-            double sampleTime,
-            Avatar sourceAvatar,
-            Avatar explicitTargetAvatar,
-            Animator fallbackAnimator,
-            string modelName,
-            bool forceRefresh,
-            out KimodoMarkerSampleResult sample,
-            out string error)
-        {
-            sample = null;
-            error = string.Empty;
-            if (sourceClip == null)
-            {
-                error = "Source clip is null.";
-                return false;
-            }
-
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
-            {
-                error = "Source avatar is null/invalid/non-humanoid.";
-                return false;
-            }
-
-            return KimodoRetargetToolsEditor.TrySampleMarkerFromClipWithEditorCache(
-                sourceClip,
-                markerType,
-                sampleTime,
-                sourceAvatar,
-                explicitTargetAvatar,
-                fallbackAnimator,
-                modelName,
-                forceRefresh,
-                out sample,
-                out error);
-        }
-    }
-
     [InitializeOnLoad]
     internal static class KimodoConstraintMarkerSelectionPreviewCleanup
     {
@@ -393,23 +351,7 @@ namespace KimodoBridge.Editor
             return cached;
         }
 
-        public static double GetLocalSecondsInClip(TimelineClip clipRange, double globalTime)
-        {
-            return KimodoMarkerSamplingUtility.ClampLocalSampleTime(clipRange, globalTime);
-        }
-
         public static bool TryGetClipRangeForMarker(IMarker marker, out TimelineClip clipRange)
-        {
-            clipRange = null;
-            if (marker == null || marker.parent == null || TimelineEditor.inspectedAsset == null)
-            {
-                return false;
-            }
-
-            return TryFindClipRangeByTime(marker, marker.time, out clipRange);
-        }
-
-        private static bool TryFindClipRangeByTime(IMarker marker, double time, out TimelineClip clipRange)
         {
             clipRange = null;
             if (marker == null || marker.parent == null || TimelineEditor.inspectedAsset == null)
@@ -426,7 +368,7 @@ namespace KimodoBridge.Editor
 
                 foreach (TimelineClip clip in track.GetClips())
                 {
-                    if (clip.asset is AnimationPlayableAsset && time >= clip.start && time <= clip.end)
+                    if (clip.asset is AnimationPlayableAsset && marker.time >= clip.start && marker.time <= clip.end)
                     {
                         clipRange = clip;
                         return true;
@@ -449,171 +391,6 @@ namespace KimodoBridge.Editor
             if (!TryGetClipRangeForMarker(marker, out TimelineClip clipRange) || clipRange == null)
             {
                 error = $"clip range not found at marker time {marker.time.ToString("F4", CultureInfo.InvariantCulture)}";
-                return false;
-            }
-
-            if (!TryBuildMarkerSamplingContext(marker, clipRange, out MarkerSamplingContext context, out error))
-            {
-                return false;
-            }
-
-            int id = marker.GetInstanceID();
-            if (AutoSampleCache.TryGetValue(id, out AutoSampleCacheEntry cached) &&
-                AutoSampleSnapshotMatches(marker, context, cached.Snapshot))
-            {
-                error = cached.Error ?? string.Empty;
-                return cached.Success;
-            }
-
-            if (!TrySampleMarkerDataFromMarker(marker, context, out KimodoMarkerSampleResult preview, out error))
-            {
-                AutoSampleCache[id] = new AutoSampleCacheEntry
-                {
-                    Snapshot = BuildAutoSampleSnapshot(marker, context, marker.SampleData),
-                    Success = false,
-                    Error = error ?? string.Empty
-                };
-                return false;
-            }
-
-            if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(marker, preview, keepOverrideEnabled: false, out error))
-            {
-                AutoSampleCache[id] = new AutoSampleCacheEntry
-                {
-                    Snapshot = BuildAutoSampleSnapshot(marker, context, marker.SampleData),
-                    Success = false,
-                    Error = error ?? string.Empty
-                };
-                return false;
-            }
-
-            AutoSampleCache[id] = new AutoSampleCacheEntry
-            {
-                Snapshot = BuildAutoSampleSnapshot(marker, context, preview),
-                Success = true,
-                Error = string.Empty
-            };
-            PoseRenderSignatures.Remove(id);
-            return true;
-        }
-
-        private static bool TrySampleMarkerDataFromMarker(
-            KimodoConstraintMarkerBase marker,
-            MarkerSamplingContext context,
-            out KimodoMarkerSampleResult sampledData,
-            out string error)
-        {
-            sampledData = null;
-            error = string.Empty;
-
-            double sampleTime = marker.time;
-            double localSampleTime = KimodoMarkerSamplingUtility.ClampLocalSampleTime(context.ClipRange, sampleTime);
-
-            if (!KimodoRetargetToolsEditor.TrySampleMarkerForClip(
-                    context.SourceClip,
-                    marker.ConstraintType,
-                    localSampleTime,
-                    context.SourceAvatar,
-                    null,
-                    context.Animator,
-                    context.ModelName,
-                    forceRefresh: false,
-                    out KimodoMarkerSampleResult sample,
-                    out error))
-            {
-                return false;
-            }
-
-            sample.sampleTime = sampleTime;
-            sampledData = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sample);
-            if (sampledData == null)
-            {
-                error = "failed to build marker sample";
-                return false;
-            }
-
-            return true;
-        }
-
-        private static AutoSampleSignatureSnapshot BuildAutoSampleSnapshot(
-            KimodoConstraintMarkerBase marker,
-            MarkerSamplingContext context,
-            KimodoMarkerSampleResult sample = null)
-        {
-            KimodoMarkerSampleResult source = sample ?? marker?.SampleData;
-            int clipAssetId = context.ClipRange != null && context.ClipRange.asset is UnityEngine.Object clipAsset
-                ? clipAsset.GetInstanceID()
-                : 0;
-            double globalTime = marker != null ? Math.Max(0.0, marker.time) : 0.0;
-            return new AutoSampleSignatureSnapshot
-            {
-                ConstraintType = marker != null ? marker.ConstraintType ?? string.Empty : string.Empty,
-                GlobalTime = globalTime,
-                LocalTime = GetLocalSecondsInClip(context.ClipRange, globalTime),
-                ModelName = context.ModelName ?? string.Empty,
-                TrackId = context.Track != null ? context.Track.GetInstanceID() : 0,
-                AnimatorId = context.Animator != null ? context.Animator.GetInstanceID() : 0,
-                SourceClipId = context.SourceClip != null ? context.SourceClip.GetInstanceID() : 0,
-                ClipAssetId = clipAssetId,
-                SourceAvatarId = context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0,
-                ClipStart = context.ClipRange != null ? context.ClipRange.start : 0.0,
-                ClipDuration = context.ClipRange != null ? context.ClipRange.duration : 0.0,
-                ClipIn = context.ClipRange != null ? context.ClipRange.clipIn : 0.0,
-                TimeScale = context.ClipRange != null ? context.ClipRange.timeScale : 0.0,
-                SourceClipLength = context.SourceClip != null ? context.SourceClip.length : 0f,
-                SourceClipFrameRate = context.SourceClip != null ? context.SourceClip.frameRate : 0f,
-                HasRootHeading = source != null && source.hasRootHeading,
-                JointNames = CopyStringArray(source != null ? source.jointNames : null)
-            };
-        }
-
-        private static bool AutoSampleSnapshotMatches(
-            KimodoConstraintMarkerBase marker,
-            MarkerSamplingContext context,
-            AutoSampleSignatureSnapshot snapshot)
-        {
-            KimodoMarkerSampleResult sample = marker != null ? marker.SampleData : null;
-            int clipAssetId = context.ClipRange != null && context.ClipRange.asset is UnityEngine.Object clipAsset
-                ? clipAsset.GetInstanceID()
-                : 0;
-            double globalTime = marker != null ? Math.Max(0.0, marker.time) : 0.0;
-            return string.Equals(snapshot.ConstraintType ?? string.Empty, marker != null ? marker.ConstraintType ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
-                Math.Abs(snapshot.GlobalTime - globalTime) <= 1e-9 &&
-                Math.Abs(snapshot.LocalTime - GetLocalSecondsInClip(context.ClipRange, globalTime)) <= 1e-9 &&
-                string.Equals(snapshot.ModelName ?? string.Empty, context.ModelName ?? string.Empty, StringComparison.Ordinal) &&
-                snapshot.TrackId == (context.Track != null ? context.Track.GetInstanceID() : 0) &&
-                snapshot.AnimatorId == (context.Animator != null ? context.Animator.GetInstanceID() : 0) &&
-                snapshot.SourceClipId == (context.SourceClip != null ? context.SourceClip.GetInstanceID() : 0) &&
-                snapshot.ClipAssetId == clipAssetId &&
-                snapshot.SourceAvatarId == (context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0) &&
-                Math.Abs(snapshot.ClipStart - (context.ClipRange != null ? context.ClipRange.start : 0.0)) <= 1e-9 &&
-                Math.Abs(snapshot.ClipDuration - (context.ClipRange != null ? context.ClipRange.duration : 0.0)) <= 1e-9 &&
-                Math.Abs(snapshot.ClipIn - (context.ClipRange != null ? context.ClipRange.clipIn : 0.0)) <= 1e-9 &&
-                Math.Abs(snapshot.TimeScale - (context.ClipRange != null ? context.ClipRange.timeScale : 0.0)) <= 1e-9 &&
-                Mathf.Abs(snapshot.SourceClipLength - (context.SourceClip != null ? context.SourceClip.length : 0f)) <= 1e-6f &&
-                Mathf.Abs(snapshot.SourceClipFrameRate - (context.SourceClip != null ? context.SourceClip.frameRate : 0f)) <= 1e-6f &&
-                snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&
-                StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null);
-        }
-
-        private static bool TryBuildMarkerSamplingContext(
-            KimodoConstraintMarkerBase marker,
-            TimelineClip clipRange,
-            out MarkerSamplingContext context,
-            out string error)
-        {
-            context = default;
-            error = string.Empty;
-
-            if (marker == null)
-            {
-                error = "marker is null";
-                return false;
-            }
-
-            if (clipRange == null)
-            {
-                error = "clip range is null";
                 return false;
             }
 
@@ -651,7 +428,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            context = new MarkerSamplingContext
+            MarkerSamplingContext context = new MarkerSamplingContext
             {
                 ClipRange = clipRange,
                 Track = track,
@@ -660,7 +437,132 @@ namespace KimodoBridge.Editor
                 SourceAvatar = sourceAvatar,
                 ModelName = ResolveModelName(clipRange)
             };
+
+            int id = marker.GetInstanceID();
+            if (AutoSampleCache.TryGetValue(id, out AutoSampleCacheEntry cached) &&
+                AutoSampleSnapshotMatches(marker, context, cached.Snapshot))
+            {
+                error = cached.Error ?? string.Empty;
+                return cached.Success;
+            }
+
+            double sampleTime = marker.time;
+            double localSampleTime = KimodoMarkerSamplingUtility.ClampLocalSampleTime(clipRange, sampleTime);
+            if (!KimodoRetargetToolsEditor.TrySampleMarkerForClip(
+                    sourceClip,
+                    marker.ConstraintType,
+                    localSampleTime,
+                    sourceAvatar,
+                    null,
+                    animator,
+                    context.ModelName,
+                    forceRefresh: false,
+                    out KimodoMarkerSampleResult sample,
+                    out error))
+            {
+                AutoSampleCache[id] = new AutoSampleCacheEntry
+                {
+                    Snapshot = BuildAutoSampleSnapshot(marker, context, marker.SampleData),
+                    Success = false,
+                    Error = error ?? string.Empty
+                };
+                return false;
+            }
+
+            sample.sampleTime = sampleTime;
+            KimodoMarkerSampleResult preview = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sample);
+            if (preview == null)
+            {
+                error = "failed to build marker sample";
+                AutoSampleCache[id] = new AutoSampleCacheEntry
+                {
+                    Snapshot = BuildAutoSampleSnapshot(marker, context, marker.SampleData),
+                    Success = false,
+                    Error = error
+                };
+                return false;
+            }
+
+            if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(marker, preview, keepOverrideEnabled: false, out error))
+            {
+                AutoSampleCache[id] = new AutoSampleCacheEntry
+                {
+                    Snapshot = BuildAutoSampleSnapshot(marker, context, marker.SampleData),
+                    Success = false,
+                    Error = error ?? string.Empty
+                };
+                return false;
+            }
+
+            AutoSampleCache[id] = new AutoSampleCacheEntry
+            {
+                Snapshot = BuildAutoSampleSnapshot(marker, context, preview),
+                Success = true,
+                Error = string.Empty
+            };
+            PoseRenderSignatures.Remove(id);
             return true;
+        }
+
+        private static AutoSampleSignatureSnapshot BuildAutoSampleSnapshot(
+            KimodoConstraintMarkerBase marker,
+            MarkerSamplingContext context,
+            KimodoMarkerSampleResult sample = null)
+        {
+            KimodoMarkerSampleResult source = sample ?? marker?.SampleData;
+            int clipAssetId = context.ClipRange != null && context.ClipRange.asset is UnityEngine.Object clipAsset
+                ? clipAsset.GetInstanceID()
+                : 0;
+            double globalTime = marker != null ? Math.Max(0.0, marker.time) : 0.0;
+            return new AutoSampleSignatureSnapshot
+            {
+                ConstraintType = marker != null ? marker.ConstraintType ?? string.Empty : string.Empty,
+                GlobalTime = globalTime,
+                LocalTime = KimodoMarkerSamplingUtility.ClampLocalSampleTime(context.ClipRange, globalTime),
+                ModelName = context.ModelName ?? string.Empty,
+                TrackId = context.Track != null ? context.Track.GetInstanceID() : 0,
+                AnimatorId = context.Animator != null ? context.Animator.GetInstanceID() : 0,
+                SourceClipId = context.SourceClip != null ? context.SourceClip.GetInstanceID() : 0,
+                ClipAssetId = clipAssetId,
+                SourceAvatarId = context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0,
+                ClipStart = context.ClipRange != null ? context.ClipRange.start : 0.0,
+                ClipDuration = context.ClipRange != null ? context.ClipRange.duration : 0.0,
+                ClipIn = context.ClipRange != null ? context.ClipRange.clipIn : 0.0,
+                TimeScale = context.ClipRange != null ? context.ClipRange.timeScale : 0.0,
+                SourceClipLength = context.SourceClip != null ? context.SourceClip.length : 0f,
+                SourceClipFrameRate = context.SourceClip != null ? context.SourceClip.frameRate : 0f,
+                HasRootHeading = source != null && source.hasRootHeading,
+                JointNames = CopyStringArray(source != null ? source.jointNames : null)
+            };
+        }
+
+        private static bool AutoSampleSnapshotMatches(
+            KimodoConstraintMarkerBase marker,
+            MarkerSamplingContext context,
+            AutoSampleSignatureSnapshot snapshot)
+        {
+            KimodoMarkerSampleResult sample = marker != null ? marker.SampleData : null;
+            int clipAssetId = context.ClipRange != null && context.ClipRange.asset is UnityEngine.Object clipAsset
+                ? clipAsset.GetInstanceID()
+                : 0;
+            double globalTime = marker != null ? Math.Max(0.0, marker.time) : 0.0;
+            return string.Equals(snapshot.ConstraintType ?? string.Empty, marker != null ? marker.ConstraintType ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
+                Math.Abs(snapshot.GlobalTime - globalTime) <= 1e-9 &&
+                Math.Abs(snapshot.LocalTime - KimodoMarkerSamplingUtility.ClampLocalSampleTime(context.ClipRange, globalTime)) <= 1e-9 &&
+                string.Equals(snapshot.ModelName ?? string.Empty, context.ModelName ?? string.Empty, StringComparison.Ordinal) &&
+                snapshot.TrackId == (context.Track != null ? context.Track.GetInstanceID() : 0) &&
+                snapshot.AnimatorId == (context.Animator != null ? context.Animator.GetInstanceID() : 0) &&
+                snapshot.SourceClipId == (context.SourceClip != null ? context.SourceClip.GetInstanceID() : 0) &&
+                snapshot.ClipAssetId == clipAssetId &&
+                snapshot.SourceAvatarId == (context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0) &&
+                Math.Abs(snapshot.ClipStart - (context.ClipRange != null ? context.ClipRange.start : 0.0)) <= 1e-9 &&
+                Math.Abs(snapshot.ClipDuration - (context.ClipRange != null ? context.ClipRange.duration : 0.0)) <= 1e-9 &&
+                Math.Abs(snapshot.ClipIn - (context.ClipRange != null ? context.ClipRange.clipIn : 0.0)) <= 1e-9 &&
+                Math.Abs(snapshot.TimeScale - (context.ClipRange != null ? context.ClipRange.timeScale : 0.0)) <= 1e-9 &&
+                Mathf.Abs(snapshot.SourceClipLength - (context.SourceClip != null ? context.SourceClip.length : 0f)) <= 1e-6f &&
+                Mathf.Abs(snapshot.SourceClipFrameRate - (context.SourceClip != null ? context.SourceClip.frameRate : 0f)) <= 1e-6f &&
+                snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&
+                StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null);
         }
 
         private static string ResolveModelName(TimelineClip clipRange)
@@ -747,7 +649,7 @@ namespace KimodoBridge.Editor
             double displaySampleTime = Math.Max(0.0, marker.time);
             if (TryGetClipRangeForMarker(marker, out TimelineClip clipRange) && clipRange != null)
             {
-                displaySampleTime = GetLocalSecondsInClip(clipRange, marker.time);
+                displaySampleTime = KimodoMarkerSamplingUtility.ClampLocalSampleTime(clipRange, marker.time);
             }
             displaySampleTime = Math.Round(displaySampleTime, 4, MidpointRounding.AwayFromZero);
 
