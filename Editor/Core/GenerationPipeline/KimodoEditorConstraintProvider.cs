@@ -28,6 +28,8 @@ namespace KimodoBridge.Editor
             bool ok = KimodoInbetweenConstraintUtility.TryBuildConstraintsJson(
                 sourceClip,
                 clip.enableInbetweenInterpolation,
+                clip.normalizeConstraintOrigin,
+                clip.enableInClipRootMotionCompensation,
                 clip.generationFrames,
                 out string constraintsJson,
                 out string error);

@@ -25,6 +25,8 @@ namespace KimodoBridge.Editor
         private SerializedProperty seed;
         private SerializedProperty enableInbetweenInterpolation;
         private SerializedProperty showConstraint;
+        private SerializedProperty normalizeConstraintOrigin;
+        private SerializedProperty enableInClipRootMotionCompensation;
 
         private SerializedProperty animationClipProp;
         private SerializedProperty footIKProp;
@@ -70,6 +72,8 @@ namespace KimodoBridge.Editor
             seed = serializedObject.FindProperty("seed");
             enableInbetweenInterpolation = serializedObject.FindProperty("enableInbetweenInterpolation");
             showConstraint = serializedObject.FindProperty("showConstraint");
+            normalizeConstraintOrigin = serializedObject.FindProperty("normalizeConstraintOrigin");
+            enableInClipRootMotionCompensation = serializedObject.FindProperty("enableInClipRootMotionCompensation");
 
             animationClipProp = serializedObject.FindProperty("m_Clip");
             footIKProp = serializedObject.FindProperty("m_ApplyFootIK");
@@ -200,6 +204,18 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.PropertyField(
                     showConstraint,
                     new GUIContent("Show Constraint", "Show constraint previews for this clip when selected."));
+            }
+            if (normalizeConstraintOrigin != null)
+            {
+                EditorGUILayout.PropertyField(
+                    normalizeConstraintOrigin,
+                    new GUIContent("Normalize Constraint Origin", "Use the first available boundary constraint as the local origin before export."));
+            }
+            if (enableInClipRootMotionCompensation != null)
+            {
+                EditorGUILayout.PropertyField(
+                    enableInClipRootMotionCompensation,
+                    new GUIContent("In-clip Root Motion Compensation", "Compensate clustered constraints inside the same clip by accumulating inferred foot motion."));
             }
             DrawConstraintPreviewIfNeeded();
 

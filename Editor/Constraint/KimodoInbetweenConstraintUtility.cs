@@ -12,10 +12,22 @@ namespace KimodoBridge.Editor
     {
         private const string LogPrefix = "[Kimodo][InbetweenConstraint]";
         private const double NeighborSampleDeltaSeconds = 1.0 / 60.0;
+        private const float PelvisCompensationThreshold = 0.1f;
+        private const int FootSwitchFrameThreshold = 5;
+        private const float InClipClusterThreshold = 0.1f;
+
+        private enum SupportFootSide
+        {
+            Unknown = 0,
+            Left = 1,
+            Right = 2
+        }
 
         public static bool TryBuildConstraintsJson(
             TimelineClip sourceClip,
             bool enableInbetweenInterpolation,
+            bool normalizeConstraintOrigin,
+            bool enableInClipRootMotionCompensation,
             int generationFrames,
             out string constraintsJson,
             out string error)
@@ -28,6 +40,19 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            if (enableInClipRootMotionCompensation)
+            {
+                if (!TryApplyInClipRootMotionCompensation(samples, sourceClip, out string compensationWarning, out error))
+                {
+                    return false;
+                }
+
+                if (!string.IsNullOrWhiteSpace(compensationWarning))
+                {
+                    Debug.LogWarning($"{LogPrefix} {compensationWarning}");
+                }
+            }
+
             if (enableInbetweenInterpolation)
             {
                 if (!TryAddAutoInbetweenSamples(sourceClip, Mathf.Max(1, generationFrames), samples, out string warning))
@@ -37,6 +62,11 @@ namespace KimodoBridge.Editor
                         Debug.LogWarning($"{LogPrefix} {warning}");
                     }
                 }
+            }
+
+            if (normalizeConstraintOrigin)
+            {
+                NormalizeConstraintOrigin(samples);
             }
 
             constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
@@ -175,6 +205,211 @@ namespace KimodoBridge.Editor
             sample.constraintType = markerType ?? string.Empty;
             sample.sampleTime = timelineTime;
             return true;
+        }
+
+        private static bool TryApplyInClipRootMotionCompensation(
+            List<KimodoMarkerSampleResult> samples,
+            TimelineClip sourceClip,
+            out string warning,
+            out string error)
+        {
+            warning = string.Empty;
+            error = string.Empty;
+
+            if (sourceClip == null)
+            {
+                error = "source clip is null.";
+                return false;
+            }
+
+            if (samples == null || samples.Count == 0)
+            {
+                return true;
+            }
+
+            string modelName = string.IsNullOrWhiteSpace(((KimodoPlayableClip)sourceClip.asset)?.bridgeModelName)
+                ? "Kimodo-SOMA-RP-v1"
+                : ((KimodoPlayableClip)sourceClip.asset).bridgeModelName.Trim();
+
+            if (!TryBuildPoseRigRootMotionCompensation(
+                    samples,
+                    modelName,
+                    out Vector3[] compensatedRootPositions,
+                    out warning,
+                    out error))
+            {
+                return false;
+            }
+
+            if (compensatedRootPositions == null || compensatedRootPositions.Length == 0)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < samples.Count && i < compensatedRootPositions.Length; i++)
+            {
+                KimodoMarkerSampleResult sample = samples[i];
+                if (sample == null)
+                {
+                    continue;
+                }
+
+                sample.rootPosition = compensatedRootPositions[i];
+            }
+
+            return true;
+        }
+
+        private static bool TryBuildPoseRigRootMotionCompensation(
+            List<KimodoMarkerSampleResult> samples,
+            string modelName,
+            out Vector3[] compensatedRootPositions,
+            out string warning,
+            out string error)
+        {
+            compensatedRootPositions = null;
+            warning = string.Empty;
+            error = string.Empty;
+
+            if (samples == null || samples.Count == 0)
+            {
+                return true;
+            }
+
+            int anchorIndex = ResolveConstraintOriginAnchorIndex(samples);
+            if (anchorIndex < 0 || anchorIndex >= samples.Count || samples[anchorIndex] == null)
+            {
+                return true;
+            }
+
+            Vector3 anchorRoot = samples[anchorIndex].rootPosition;
+            float maxDistanceSq = 0f;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                KimodoMarkerSampleResult sample = samples[i];
+                if (sample == null)
+                {
+                    continue;
+                }
+
+                Vector3 delta = sample.rootPosition - anchorRoot;
+                delta.y = 0f;
+                maxDistanceSq = Mathf.Max(maxDistanceSq, delta.sqrMagnitude);
+            }
+
+            if (maxDistanceSq > InClipClusterThreshold * InClipClusterThreshold)
+            {
+                return true;
+            }
+
+            KimodoConstraintPoseRigFactory.PoseRigInstance rigInstance = null;
+            try
+            {
+                if (!KimodoConstraintPoseRigFactory.TryCreatePoseRig(modelName, 0, 0, out rigInstance, out error))
+                {
+                    return false;
+                }
+
+                compensatedRootPositions = new Vector3[samples.Count];
+                Vector3 cumulativeDelta = Vector3.zero;
+                SupportFootSide activeFoot = SupportFootSide.Unknown;
+                SupportFootSide pendingFoot = SupportFootSide.Unknown;
+                int pendingFootFrames = 0;
+                Vector3 previousFootWorldPosition = Vector3.zero;
+                bool hasPreviousFootWorldPosition = false;
+
+                for (int i = 0; i < samples.Count; i++)
+                {
+                    KimodoMarkerSampleResult sample = samples[i];
+                    if (sample == null)
+                    {
+                        compensatedRootPositions[i] = Vector3.zero;
+                        continue;
+                    }
+
+                    if (!KimodoConstraintPoseRigFactory.TryApplySampleToPoseRig(sample, modelName, rigInstance, out error))
+                    {
+                        return false;
+                    }
+
+                    if (!KimodoConstraintPoseRigFactory.TryResolveFootWorldPositions(
+                            rigInstance,
+                            modelName,
+                            out Vector3 leftFootPosition,
+                            out Vector3 rightFootPosition,
+                            out error))
+                    {
+                        return false;
+                    }
+
+                    float leftHeight = leftFootPosition.y;
+                    float rightHeight = rightFootPosition.y;
+                    SupportFootSide candidateFoot = ResolveHigherFootSide(leftHeight, rightHeight, activeFoot);
+
+                    if (activeFoot == SupportFootSide.Unknown)
+                    {
+                        activeFoot = candidateFoot;
+                        pendingFoot = SupportFootSide.Unknown;
+                        pendingFootFrames = 0;
+                        hasPreviousFootWorldPosition = false;
+                    }
+                    else if (candidateFoot != activeFoot)
+                    {
+                        if (pendingFoot == candidateFoot)
+                        {
+                            pendingFootFrames++;
+                        }
+                        else
+                        {
+                            pendingFoot = candidateFoot;
+                            pendingFootFrames = 1;
+                        }
+
+                        if (pendingFootFrames >= FootSwitchFrameThreshold)
+                        {
+                            activeFoot = candidateFoot;
+                            pendingFoot = SupportFootSide.Unknown;
+                            pendingFootFrames = 0;
+                            hasPreviousFootWorldPosition = false;
+                            previousFootWorldPosition = Vector3.zero;
+                            compensatedRootPositions[i] = sample.rootPosition + cumulativeDelta;
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        pendingFoot = SupportFootSide.Unknown;
+                        pendingFootFrames = 0;
+                    }
+
+                    Vector3 currentFootWorldPosition = activeFoot == SupportFootSide.Left
+                        ? leftFootPosition
+                        : rightFootPosition;
+                    if (currentFootWorldPosition == Vector3.zero)
+                    {
+                        compensatedRootPositions[i] = sample.rootPosition + cumulativeDelta;
+                        continue;
+                    }
+
+                    if (hasPreviousFootWorldPosition)
+                    {
+                        Vector3 delta = currentFootWorldPosition - previousFootWorldPosition;
+                        delta.y = 0f;
+                        cumulativeDelta += delta;
+                    }
+
+                    previousFootWorldPosition = currentFootWorldPosition;
+                    hasPreviousFootWorldPosition = true;
+                    compensatedRootPositions[i] = sample.rootPosition + cumulativeDelta;
+                }
+
+                warning = string.Empty;
+                return true;
+            }
+            finally
+            {
+                KimodoConstraintPoseRigFactory.DestroyPoseRig(rigInstance);
+            }
         }
 
         private static bool TryBuildMarkerSample(
@@ -340,6 +575,24 @@ namespace KimodoBridge.Editor
             }
         }
 
+        private static SupportFootSide ResolveHigherFootSide(float leftHeight, float rightHeight, SupportFootSide activeFoot)
+        {
+            float epsilon = 1e-4f;
+            if (leftHeight > rightHeight + epsilon)
+            {
+                return SupportFootSide.Left;
+            }
+
+            if (rightHeight > leftHeight + epsilon)
+            {
+                return SupportFootSide.Right;
+            }
+
+            return activeFoot != SupportFootSide.Unknown
+                ? activeFoot
+                : SupportFootSide.Left;
+        }
+
         private static List<KimodoConstraintMarkerBase> GatherKimodoMarkers(TrackAsset track, TimelineClip clipRange)
         {
             var markers = new List<KimodoConstraintMarkerBase>();
@@ -396,6 +649,92 @@ namespace KimodoBridge.Editor
                     }
                 }
             }
+        }
+
+        private static void NormalizeConstraintOrigin(List<KimodoMarkerSampleResult> samples)
+        {
+            if (samples == null || samples.Count == 0)
+            {
+                return;
+            }
+
+            int anchorIndex = ResolveConstraintOriginAnchorIndex(samples);
+            if (anchorIndex < 0 || anchorIndex >= samples.Count || samples[anchorIndex] == null)
+            {
+                return;
+            }
+
+            KimodoMarkerSampleResult anchor = samples[anchorIndex];
+            Vector3 anchorRootPosition = anchor.rootPosition;
+            Quaternion anchorYaw = GetRootYaw(anchor);
+
+            for (int i = 0; i < samples.Count; i++)
+            {
+                KimodoMarkerSampleResult sample = samples[i];
+                if (sample == null)
+                {
+                    continue;
+                }
+
+                Vector3 localPosition = sample.rootPosition - anchorRootPosition;
+                sample.rootPosition = new Vector3(localPosition.x, sample.rootPosition.y, localPosition.z);
+
+                if (sample.localAxisAngles != null && sample.localAxisAngles.Count > 0)
+                {
+                    Quaternion rootRot = AxisAngleToQuaternion(sample.localAxisAngles[0]);
+                    Quaternion normalizedRootRot = Quaternion.Inverse(anchorYaw) * rootRot;
+                    sample.localAxisAngles[0] = KimodoRuntimeUtility.QuaternionToAxisAngleVector(normalizedRootRot);
+                }
+            }
+        }
+
+        private static Quaternion GetRootYaw(KimodoMarkerSampleResult sample)
+        {
+            if (sample == null || sample.localAxisAngles == null || sample.localAxisAngles.Count == 0)
+            {
+                return Quaternion.identity;
+            }
+
+            Quaternion rootRot = AxisAngleToQuaternion(sample.localAxisAngles[0]);
+            Vector3 flatForward = Vector3.ProjectOnPlane(rootRot * Vector3.forward, Vector3.up);
+            if (flatForward.sqrMagnitude <= 1e-8f)
+            {
+                return Quaternion.identity;
+            }
+
+            return Quaternion.LookRotation(flatForward.normalized, Vector3.up);
+        }
+
+        private static Quaternion AxisAngleToQuaternion(Vector3 axisAngle)
+        {
+            float angleRad = axisAngle.magnitude;
+            if (angleRad <= 1e-8f)
+            {
+                return Quaternion.identity;
+            }
+
+            Vector3 axis = axisAngle / angleRad;
+            return Quaternion.AngleAxis(angleRad * Mathf.Rad2Deg, axis);
+        }
+
+        private static int ResolveConstraintOriginAnchorIndex(List<KimodoMarkerSampleResult> samples)
+        {
+            if (samples == null || samples.Count == 0)
+            {
+                return -1;
+            }
+
+            int earliest = -1;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (samples[i] != null)
+                {
+                    earliest = i;
+                    break;
+                }
+            }
+
+            return earliest;
         }
 
         internal static bool TryBuildNeighborBoundarySamplesForPreview(
@@ -465,6 +804,21 @@ namespace KimodoBridge.Editor
                     if (!TryCapturePoseAtTime(rightNeighbor, director, animator, evalTime, "fullbody", out rightNeighborStartPose, out string rightError))
                     {
                         Debug.LogWarning($"{LogPrefix} Failed to sample right neighbor start pose for preview: {rightError}");
+                    }
+                    else if (leftNeighborEndPose != null &&
+                             TryBuildPoseRigRootMotionCompensation(
+                                 new List<KimodoMarkerSampleResult> { leftNeighborEndPose, rightNeighborStartPose },
+                                 string.IsNullOrWhiteSpace(((KimodoPlayableClip)sourceClip.asset)?.bridgeModelName)
+                                     ? "Kimodo-SOMA-RP-v1"
+                                     : ((KimodoPlayableClip)sourceClip.asset).bridgeModelName.Trim(),
+                                 out Vector3[] previewCompensated,
+                                 out _,
+                                 out _)
+                             && previewCompensated != null &&
+                             previewCompensated.Length > 1)
+                    {
+                        rightNeighborStartPose = rightNeighborStartPose.Clone();
+                        rightNeighborStartPose.rootPosition = previewCompensated[1];
                     }
                 }
             }

@@ -69,6 +69,10 @@ namespace KimodoBridge
         public bool enableInbetweenInterpolation = false;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
+        [Tooltip("Normalize constraint root positions around the first available origin anchor before export.")]
+        public bool normalizeConstraintOrigin = false;
+        [Tooltip("Compensate in-clip root motion when marker constraints stay clustered within the same clip.")]
+        public bool enableInClipRootMotionCompensation = false;
 
         public bool isGenerated;
         public string lastGeneratedPrompt;

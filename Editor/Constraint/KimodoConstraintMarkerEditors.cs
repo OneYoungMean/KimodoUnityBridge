@@ -66,7 +66,7 @@ namespace KimodoBridge.Editor
 
             if (!useOverride && !windowOpen)
             {
-                if (!KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(markerTarget, out string error))
+                if (!KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(markerTarget, forceRefresh: false, out string error))
                 {
                     EditorGUILayout.HelpBox($"Auto preview unavailable: {error}", MessageType.Warning);
                 }
@@ -197,7 +197,7 @@ namespace KimodoBridge.Editor
 
             if (!useOverride && !windowOpen)
             {
-                if (!KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(markerTarget, out string error))
+                if (!KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(markerTarget, forceRefresh: false, out string error))
                 {
                     EditorGUILayout.HelpBox($"Auto preview unavailable: {error}", MessageType.Warning);
                 }
@@ -379,7 +379,7 @@ namespace KimodoBridge.Editor
             return false;
         }
 
-        public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarkerBase marker, out string error)
+        public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarkerBase marker, bool forceRefresh, out string error)
         {
             error = string.Empty;
             if (marker == null)
@@ -439,7 +439,8 @@ namespace KimodoBridge.Editor
             };
 
             int id = marker.GetInstanceID();
-            if (AutoSampleCache.TryGetValue(id, out AutoSampleCacheEntry cached) &&
+            if (!forceRefresh &&
+                AutoSampleCache.TryGetValue(id, out AutoSampleCacheEntry cached) &&
                 AutoSampleSnapshotMatches(marker, context, cached.Snapshot))
             {
                 error = cached.Error ?? string.Empty;
@@ -456,7 +457,7 @@ namespace KimodoBridge.Editor
                     null,
                     animator,
                     context.ModelName,
-                    forceRefresh: false,
+                    forceRefresh,
                     out KimodoMarkerSampleResult sample,
                     out error))
             {
@@ -501,6 +502,28 @@ namespace KimodoBridge.Editor
                 Error = string.Empty
             };
             PoseRenderSignatures.Remove(id);
+            return true;
+        }
+
+        public static bool TryRefreshMarkerCache(KimodoConstraintMarkerBase marker, out string error)
+        {
+            error = string.Empty;
+            if (!TryUpdateAutoSampleMarkerData(marker, forceRefresh: true, out error))
+            {
+                return false;
+            }
+
+            if (!TryRenderMarkerToPoseCache(marker, out string poseError))
+            {
+                error = string.IsNullOrWhiteSpace(error)
+                    ? poseError
+                    : string.IsNullOrWhiteSpace(poseError)
+                        ? error
+                        : $"{error}; {poseError}";
+                return false;
+            }
+
+            SceneView.RepaintAll();
             return true;
         }
 
@@ -981,20 +1004,31 @@ namespace KimodoBridge.Editor
             }
 
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker);
-            string label = windowOpen ? "Reopen Edit" : "Edit";
-            if (GUILayout.Button(new GUIContent(label, "Open pose edit window. This enables useOverride automatically if needed."), GUILayout.Height(22f)))
+            using (new EditorGUILayout.HorizontalScope())
             {
-                SerializedProperty overrideProp = so.FindProperty("useOverride");
-                if (overrideProp != null && !overrideProp.boolValue)
+                if (GUILayout.Button(new GUIContent("Refresh Cache", "Force re-sample the marker pose and rebuild the preview cache."), GUILayout.Height(22f)))
                 {
-                    overrideProp.boolValue = true;
-                    so.ApplyModifiedProperties();
-                    ClearMarkerEditorCaches(marker);
+                    if (!TryRefreshMarkerCache(marker, out string refreshError))
+                    {
+                        Debug.LogWarning($"[Kimodo][ConstraintMarker] Refresh cache failed: {refreshError}");
+                    }
                 }
 
-                if (marker.useOverride)
+                string label = windowOpen ? "Reopen Edit" : "Edit";
+                if (GUILayout.Button(new GUIContent(label, "Open pose edit window. This enables useOverride automatically if needed."), GUILayout.Height(22f)))
                 {
-                    KimodoConstraintOverrideEditWindow.ShowWindow(marker);
+                    SerializedProperty overrideProp = so.FindProperty("useOverride");
+                    if (overrideProp != null && !overrideProp.boolValue)
+                    {
+                        overrideProp.boolValue = true;
+                        so.ApplyModifiedProperties();
+                        ClearMarkerEditorCaches(marker);
+                    }
+
+                    if (marker.useOverride)
+                    {
+                        KimodoConstraintOverrideEditWindow.ShowWindow(marker);
+                    }
                 }
             }
         }

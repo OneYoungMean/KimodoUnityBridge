@@ -91,6 +91,173 @@ namespace KimodoBridge.Editor
             }
         }
 
+        internal static void DestroyPoseRig(PoseRigInstance instance)
+        {
+            if (instance == null)
+            {
+                return;
+            }
+
+            if (instance.Root != null)
+            {
+                UnityEngine.Object.DestroyImmediate(instance.Root);
+            }
+
+            if (instance.GeneratedMaterials != null)
+            {
+                for (int i = 0; i < instance.GeneratedMaterials.Count; i++)
+                {
+                    Material material = instance.GeneratedMaterials[i];
+                    if (material != null)
+                    {
+                        UnityEngine.Object.DestroyImmediate(material);
+                    }
+                }
+            }
+        }
+
+        internal static bool TryApplySampleToPoseRig(
+            KimodoMarkerSampleResult sample,
+            string modelName,
+            PoseRigInstance instance,
+            out string error)
+        {
+            error = string.Empty;
+            if (sample == null || instance == null || instance.Root == null || instance.NameMap == null)
+            {
+                error = "invalid sample or pose rig instance";
+                return false;
+            }
+
+            string[] modelJointNames = KimodoRigProfileDatabase.GetJointNamesForModel(modelName);
+            if (modelJointNames == null || modelJointNames.Length == 0)
+            {
+                error = $"model joint layout not found for '{modelName}'";
+                return false;
+            }
+
+            int count = sample.localAxisAngles != null ? sample.localAxisAngles.Count : 0;
+            int applyCount = Mathf.Min(modelJointNames.Length, count);
+            for (int i = 0; i < applyCount; i++)
+            {
+                string jointName = modelJointNames[i];
+                if (!instance.NameMap.TryGetValue(jointName, out Transform t) || t == null)
+                {
+                    error = $"joint '{jointName}' missing on pose rig";
+                    return false;
+                }
+
+                t.localRotation = AxisAngleToQuaternion(sample.localAxisAngles[i]);
+            }
+
+            string rootJointName = KimodoRigProfileDatabase.GetRootJointNameForModel(modelName);
+            if (!string.IsNullOrWhiteSpace(rootJointName) &&
+                instance.NameMap.TryGetValue(rootJointName, out Transform rootJoint) &&
+                rootJoint != null)
+            {
+                rootJoint.position = sample.rootPosition;
+            }
+            else
+            {
+                instance.Root.transform.position = sample.rootPosition;
+            }
+
+            return true;
+        }
+
+        internal static bool TryResolveFootWorldPositions(
+            PoseRigInstance instance,
+            string modelName,
+            out Vector3 leftFootPosition,
+            out Vector3 rightFootPosition,
+            out string error)
+        {
+            leftFootPosition = Vector3.zero;
+            rightFootPosition = Vector3.zero;
+            error = string.Empty;
+
+            if (instance == null || instance.Root == null || instance.NameMap == null)
+            {
+                error = "invalid pose rig instance";
+                return false;
+            }
+
+            if (!TryResolveFootTransform(instance, modelName, left: true, out Transform leftFoot, out error))
+            {
+                return false;
+            }
+
+            if (!TryResolveFootTransform(instance, modelName, left: false, out Transform rightFoot, out error))
+            {
+                return false;
+            }
+
+            leftFootPosition = leftFoot != null ? leftFoot.position : instance.Root.transform.position;
+            rightFootPosition = rightFoot != null ? rightFoot.position : instance.Root.transform.position;
+            return true;
+        }
+
+        private static bool TryResolveFootTransform(
+            PoseRigInstance instance,
+            string modelName,
+            bool left,
+            out Transform foot,
+            out string error)
+        {
+            foot = null;
+            error = string.Empty;
+
+            string[] candidates = ResolveFootCandidates(modelName, left);
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                string candidate = candidates[i];
+                if (!string.IsNullOrWhiteSpace(candidate) &&
+                    instance.NameMap.TryGetValue(candidate, out foot) &&
+                    foot != null)
+                {
+                    return true;
+                }
+            }
+
+            error = left
+                ? $"left foot transform not found for model '{modelName}'"
+                : $"right foot transform not found for model '{modelName}'";
+            return false;
+        }
+
+        private static string[] ResolveFootCandidates(string modelName, bool left)
+        {
+            KimodoConstraintRigType rigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName);
+            switch (rigType)
+            {
+                case KimodoConstraintRigType.G1:
+                    return left
+                        ? new[] { "left_ankle_roll_skel", "left_toe_base", "left_ankle_pitch_skel" }
+                        : new[] { "right_ankle_roll_skel", "right_toe_base", "right_ankle_pitch_skel" };
+                case KimodoConstraintRigType.Smplx:
+                    return left
+                        ? new[] { "left_foot", "left_ankle" }
+                        : new[] { "right_foot", "right_ankle" };
+                case KimodoConstraintRigType.Soma30:
+                default:
+                    return left
+                        ? new[] { "LeftFoot", "LeftToeBase", "LeftShin" }
+                        : new[] { "RightFoot", "RightToeBase", "RightShin" };
+            }
+        }
+
+        private static Quaternion AxisAngleToQuaternion(Vector3 axisAngle)
+        {
+            float angleRad = axisAngle.magnitude;
+            if (angleRad <= 1e-8f)
+            {
+                return Quaternion.identity;
+            }
+
+            Vector3 axis = axisAngle / angleRad;
+            return Quaternion.AngleAxis(angleRad * Mathf.Rad2Deg, axis);
+        }
+
         private static GameObject LoadRigPrefab(KimodoConstraintRigType rigType)
         {
             string path = ResolveRigModelPath(rigType);

@@ -94,6 +94,25 @@ namespace KimodoBridge.Editor
             EditorUtility.SetDirty(result.GeneratedClip);
             result.ConstraintsPath = string.IsNullOrWhiteSpace(request.ConstraintsJson) ? "(none)" : "(inline-json)";
             HandleGeneratedClipWritebackCompleted(clip);
+
+            if (!KimodoEditorClipWritebackService.TryMaterializeGeneratedClipCache(
+                    result.GeneratedClip,
+                    request.ExportMuscleClip,
+                    request.TargetRetargetAvatar,
+                    forceRefresh: false,
+                    out AnimationClip generatedCacheClip,
+                    out string cacheError))
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(cacheError)
+                        ? "Materialize generated clip cache failed."
+                        : cacheError);
+            }
+
+            if (generatedCacheClip != null)
+            {
+                EditorUtility.SetDirty(generatedCacheClip);
+            }
         }
 
         public static void CleanupFailedGeneration(KimodoEditorGenerateRequest request)

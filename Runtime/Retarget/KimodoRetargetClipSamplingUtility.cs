@@ -708,7 +708,7 @@ namespace KimodoBridge
             try
             {
                 samples = new TSample[frameCount + 1];
-                if (!sampleCallback(context, KimodoRetargetClipSamplingUtility.ResolveSeedTime(clip), out TSample seedSample, out error))
+                if (!TryBuildSeedSample(context, out TSample seedSample, out error))
                 {
                     return false;
                 }
@@ -731,6 +731,71 @@ namespace KimodoBridge
             finally
             {
                 KimodoRetargetClipSamplingUtility.DestroyClipSamplingContext(context);
+            }
+        }
+
+        private static bool TryBuildSeedSample<TSample>(
+            KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
+            out TSample seedSample,
+            out string error)
+        {
+            seedSample = default;
+            error = string.Empty;
+
+            if (context == null || context.cache == null)
+            {
+                error = "Seed sample context is not initialized.";
+                return false;
+            }
+
+            if (typeof(TSample) == typeof(BoneSample))
+            {
+                BoneSample boneSeed = CaptureBoneSample(context.cache);
+                if (boneSeed == null)
+                {
+                    error = "Failed to capture seed bone sample.";
+                    return false;
+                }
+
+                seedSample = (TSample)(object)boneSeed;
+                return true;
+            }
+
+            if (typeof(TSample) != typeof(MuscleSample))
+            {
+                error = "Unsupported seed sample type.";
+                return false;
+            }
+
+            if (TryCaptureMuscleSample(context.cache, out MuscleSample muscleSeed, out error))
+            {
+                seedSample = (TSample)(object)muscleSeed;
+                return true;
+            }
+
+            string firstError = error;
+            try
+            {
+                KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(context.cache);
+                if (TryCaptureMuscleSample(context.cache, out muscleSeed, out error))
+                {
+                    seedSample = (TSample)(object)muscleSeed;
+                    return true;
+                }
+
+                error = string.IsNullOrWhiteSpace(firstError)
+                    ? error
+                    : string.IsNullOrWhiteSpace(error)
+                        ? firstError
+                        : $"{firstError}; {error}";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                error = string.IsNullOrWhiteSpace(error)
+                    ? $"Seed sample fallback failed: {ex.Message}"
+                    : $"{error}; seed sample fallback failed: {ex.Message}";
+                return false;
             }
         }
 

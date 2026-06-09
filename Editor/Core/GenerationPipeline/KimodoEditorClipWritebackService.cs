@@ -290,6 +290,74 @@ namespace KimodoBridge.Editor
             return true;
         }
 
+        public static string BuildMuscleClipCacheName(AnimationClip sourceClip)
+        {
+            return BuildNamedClipCacheName(sourceClip, isMuscleClip: true, targetAvatar: null);
+        }
+
+        public static string BuildBoneClipCacheName(AnimationClip sourceClip, Avatar targetAvatar)
+        {
+            return BuildNamedClipCacheName(sourceClip, isMuscleClip: false, targetAvatar);
+        }
+
+        public static bool TryMaterializeGeneratedClipCache(
+            AnimationClip sourceClip,
+            bool exportMuscleClip,
+            Avatar targetAvatar,
+            bool forceRefresh,
+            out AnimationClip cachedClip,
+            out string error)
+        {
+            cachedClip = null;
+            error = string.Empty;
+
+            if (sourceClip == null)
+            {
+                error = "Source clip is null.";
+                return false;
+            }
+
+            if (!HasClipContent(sourceClip))
+            {
+                error = "Source clip has no curve content.";
+                return false;
+            }
+
+            string cacheName = exportMuscleClip
+                ? BuildMuscleClipCacheName(sourceClip)
+                : BuildBoneClipCacheName(sourceClip, targetAvatar);
+            if (string.IsNullOrWhiteSpace(cacheName))
+            {
+                error = "Cache clip name is empty.";
+                return false;
+            }
+
+            if (forceRefresh && !TryInvalidateNamedClipCache(cacheName, out error))
+            {
+                return false;
+            }
+
+            float frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+            if (!TryGetOrCreateNamedClipCache(cacheName, frameRate, out cachedClip, out error))
+            {
+                return false;
+            }
+
+            try
+            {
+                KimodoEditorClipUtility.CopyClipData(sourceClip, cachedClip, forceNoLoopKeepY: false);
+                cachedClip.legacy = sourceClip.legacy;
+                EditorUtility.SetDirty(cachedClip);
+                FlushWritebackAssets();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = $"Materialize generated clip cache failed: {ex.Message}";
+                return false;
+            }
+        }
+
         private static void TrimGeneratedClipsToLimit(IReadOnlyCollection<string> protectedPaths, int maxCount)
         {
             maxCount = Mathf.Max(1, maxCount);
@@ -344,6 +412,29 @@ namespace KimodoBridge.Editor
             {
                 FlushWritebackAssets();
             }
+        }
+
+        private static bool HasClipContent(AnimationClip clip)
+        {
+            if (clip == null)
+            {
+                return false;
+            }
+
+            return AnimationUtility.GetCurveBindings(clip).Length > 0 ||
+                AnimationUtility.GetObjectReferenceCurveBindings(clip).Length > 0;
+        }
+
+        private static string BuildNamedClipCacheName(AnimationClip sourceClip, bool isMuscleClip, Avatar targetAvatar)
+        {
+            string sourceName = SanitizeAssetFileName(sourceClip != null ? sourceClip.name : "Clip", "Clip");
+            if (isMuscleClip)
+            {
+                return $"{sourceName}{MuscleCacheNameSuffix}";
+            }
+
+            string avatarName = SanitizeAssetFileName(targetAvatar != null ? targetAvatar.name : "Avatar", "Avatar");
+            return $"{sourceName}{BoneCacheNameMarker}{avatarName}{CacheNameSuffix}";
         }
 
         internal static void FlushWritebackAssets()
