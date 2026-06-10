@@ -6,6 +6,52 @@ namespace KimodoBridge.Editor
     internal static class KimodoConstraintPoseRigFootUtility
     {
         internal static bool TryResolveFootWorldPositions(
+            SkeletonCache cache,
+            out Vector3 leftFootPosition,
+            out Vector3 rightFootPosition,
+            out string error)
+        {
+            leftFootPosition = Vector3.zero;
+            rightFootPosition = Vector3.zero;
+            error = string.Empty;
+
+            if (cache == null || cache.animator == null)
+            {
+                error = "invalid skeleton cache";
+                return false;
+            }
+
+            Transform leftFoot = cache.animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            Transform rightFoot = cache.animator.GetBoneTransform(HumanBodyBones.RightFoot);
+
+            if (leftFoot == null)
+            {
+                leftFoot = cache.animator.GetBoneTransform(HumanBodyBones.LeftToes);
+            }
+
+            if (rightFoot == null)
+            {
+                rightFoot = cache.animator.GetBoneTransform(HumanBodyBones.RightToes);
+            }
+
+            if (leftFoot == null)
+            {
+                error = "left foot transform not found on skeleton cache";
+                return false;
+            }
+
+            if (rightFoot == null)
+            {
+                error = "right foot transform not found on skeleton cache";
+                return false;
+            }
+
+            leftFootPosition = leftFoot.position;
+            rightFootPosition = rightFoot.position;
+            return true;
+        }
+
+        internal static bool TryResolveFootWorldPositions(
             KimodoConstraintPoseRigFactory.PoseRigInstance instance,
             string modelName,
             out Vector3 leftFootPosition,

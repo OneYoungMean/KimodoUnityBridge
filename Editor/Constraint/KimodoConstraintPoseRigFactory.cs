@@ -118,20 +118,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        internal static bool TryApplySampleToPoseRig(
-            KimodoMarkerSampleResult sample,
-            string modelName,
-            PoseRigInstance instance,
-            out string error)
-        {
-            return KimodoRetargetAvatarUtility.TryApplyMarkerSampleToTransformMap(
-                sample,
-                modelName,
-                instance != null ? instance.Root != null ? instance.Root.transform : null : null,
-                instance != null ? instance.NameMap : null,
-                out error);
-        }
-
         private static GameObject LoadRigPrefab(KimodoConstraintRigType rigType)
         {
             string path = ResolveRigModelPath(rigType);

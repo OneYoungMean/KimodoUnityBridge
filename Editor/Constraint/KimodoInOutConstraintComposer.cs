@@ -6,8 +6,6 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoInOutConstraintComposer
     {
-        private const float AutomaticInsideRootMotionThreshold = 0.01f;
-
         internal static bool TryBuild(
             KimodoInOutConstraintRequest request,
             out KimodoInOutConstraintResult result,
@@ -52,16 +50,6 @@ namespace KimodoBridge.Editor
                 built.CombinedSamples.Add(endSample);
             }
 
-            if (ShouldAutomaticallyApplyInClipRootMotionCompensation(request, beginSample, endSample) &&
-                !KimodoInOutConstraintSamplePostProcessor.TryApplyInClipRootMotionCompensation(
-                    built.CombinedSamples,
-                    request.ModelName,
-                    out warning,
-                    out error))
-            {
-                return false;
-            }
-
             if (request.NormalizeConstraintOrigin)
             {
                 KimodoInOutConstraintSamplePostProcessor.NormalizeConstraintOrigin(built.CombinedSamples);
@@ -76,24 +64,6 @@ namespace KimodoBridge.Editor
 
             result = built;
             return true;
-        }
-
-        private static bool ShouldAutomaticallyApplyInClipRootMotionCompensation(
-            KimodoInOutConstraintRequest request,
-            KimodoMarkerSampleResult beginSample,
-            KimodoMarkerSampleResult endSample)
-        {
-            if (request == null ||
-                request.Mode != KimodoInOutConstraintMode.Inside ||
-                beginSample == null ||
-                endSample == null)
-            {
-                return false;
-            }
-
-            Vector3 delta = endSample.kimodoRootPosition - beginSample.kimodoRootPosition;
-            delta.y = 0f;
-            return delta.sqrMagnitude < (AutomaticInsideRootMotionThreshold * AutomaticInsideRootMotionThreshold);
         }
 
         private static void AppendManualSamples(

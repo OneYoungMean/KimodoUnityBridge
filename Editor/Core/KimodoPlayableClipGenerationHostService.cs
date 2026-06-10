@@ -50,8 +50,8 @@ namespace KimodoBridge.Editor
                 DiffusionSteps = Mathf.Clamp(clip.diffusionSteps, 1, 1000),
                 EffectiveSeed = effectiveSeed,
                 ConstraintsJson = constraintsJson,
-                PrepareTargetClipPlan = modelName => PrepareTimelineTargetClipPlan(clip, modelName),
-                PreparePostBakePlan = (generatedClip, modelName) => PrepareTimelinePostBakePlan(
+                CreateTargetClip = () => CreateTimelineTargetClip(clip),
+                ResolveOutputPlan = (generatedClip, modelName) => ResolveTimelineOutputPlan(
                     clip,
                     generatedClip,
                     externalConstraint?.RetargetAvatar,
@@ -221,25 +221,18 @@ namespace KimodoBridge.Editor
             return KimodoRetargetCoreUtility.IsValidHumanoid(avatar) ? avatar : null;
         }
 
-        private static KimodoEditorGenerateTargetClipPlan PrepareTimelineTargetClipPlan(
-            KimodoPlayableClip clip,
-            string modelName)
+        private static AnimationClip CreateTimelineTargetClip(KimodoPlayableClip clip)
         {
             if (clip == null)
             {
                 throw new InvalidOperationException("Playable clip is null.");
             }
 
-            AnimationClip targetClip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
+            return KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
                 $"Kimodo_Playable_{DateTime.Now:yyyyMMdd_HHmmss_fff}");
-
-            return new KimodoEditorGenerateTargetClipPlan
-            {
-                TargetClip = targetClip
-            };
         }
 
-        private static KimodoEditorGeneratePostBakePlan PrepareTimelinePostBakePlan(
+        private static KimodoEditorGenerateOutputPlan ResolveTimelineOutputPlan(
             KimodoPlayableClip clip,
             AnimationClip generatedClip,
             Avatar explicitRetargetAvatar,
@@ -262,13 +255,13 @@ namespace KimodoBridge.Editor
                 bindingObject != null &&
                 KimodoEditorClipUtility.CanApplyClipDirectlyToProfileSkeleton(generatedClip, bindingObject, resolvedModelName, out _);
 
-            return new KimodoEditorGeneratePostBakePlan
+            return new KimodoEditorGenerateOutputPlan
             {
                 OriginRetargetAvatar = originRetargetAvatar,
                 TargetRetargetAvatar = targetRetargetAvatar,
                 ExportMuscleClip = hasValidRetargetAvatar && TryResolveBindingAnimatorAvatar(clip, out _),
                 CurveFilterOptions = clip.curveFilterOptions,
-                CanSkipRetarget = canSkipRetarget
+                SkipRetarget = canSkipRetarget
             };
         }
 

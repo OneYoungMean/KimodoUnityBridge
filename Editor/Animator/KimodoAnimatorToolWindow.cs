@@ -454,8 +454,8 @@ namespace KimodoBridge.Editor
                 DiffusionSteps = diffusionSteps,
                 EffectiveSeed = effectiveSeed,
                 ConstraintsJson = constraintsJson ?? string.Empty,
-                PrepareTargetClipPlan = modelName => PrepareAnimatorTargetClipPlan(modelName),
-                PreparePostBakePlan = (generatedClip, modelName) => PrepareAnimatorPostBakePlan(
+                CreateTargetClip = CreateAnimatorTargetClip,
+                ResolveOutputPlan = (generatedClip, modelName) => ResolveAnimatorOutputPlan(
                     generatedClip,
                     explicitRetargetAvatar,
                     modelName),
@@ -468,16 +468,13 @@ namespace KimodoBridge.Editor
             };
         }
 
-        private static KimodoEditorGenerateTargetClipPlan PrepareAnimatorTargetClipPlan(string modelName)
+        private static AnimationClip CreateAnimatorTargetClip()
         {
-            return new KimodoEditorGenerateTargetClipPlan
-            {
-                TargetClip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
-                    $"Kimodo_Animator_{DateTime.Now:yyyyMMdd_HHmmss_fff}")
-            };
+            return KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
+                $"Kimodo_Animator_{DateTime.Now:yyyyMMdd_HHmmss_fff}");
         }
 
-        private KimodoEditorGeneratePostBakePlan PrepareAnimatorPostBakePlan(
+        private KimodoEditorGenerateOutputPlan ResolveAnimatorOutputPlan(
             AnimationClip generatedClip,
             Avatar explicitRetargetAvatar,
             string modelName)
@@ -493,9 +490,9 @@ namespace KimodoBridge.Editor
                     out _);
             if (canSkipRetarget)
             {
-                return new KimodoEditorGeneratePostBakePlan
+                return new KimodoEditorGenerateOutputPlan
                 {
-                    CanSkipRetarget = true
+                    SkipRetarget = true
                 };
             }
 
@@ -506,13 +503,13 @@ namespace KimodoBridge.Editor
                     ? explicitRetargetAvatar
                     : null;
 
-            return new KimodoEditorGeneratePostBakePlan
+            return new KimodoEditorGenerateOutputPlan
             {
                 OriginRetargetAvatar = ResolveOriginRetargetAvatar(resolvedModelName),
                 TargetRetargetAvatar = targetRetargetAvatar,
                 ExportMuscleClip = true,
                 CurveFilterOptions = null,
-                CanSkipRetarget = false
+                SkipRetarget = false
             };
         }
 
