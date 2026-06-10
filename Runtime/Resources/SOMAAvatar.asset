@@ -2649,7 +2649,7 @@ Avatar:
         m_UpperLegTwist: 0.5
         m_LegTwist: 0.5
         m_ArmStretch: 0.05
-        m_LegStretch: 0.05
+        m_LegStretch: 0
         m_FeetSpacing: 0
         m_HasLeftHand: 1
         m_HasRightHand: 1
@@ -4506,7 +4506,7 @@ Avatar:
     m_UpperLegTwist: 0.5
     m_LegTwist: 0.5
     m_ArmStretch: 0.05
-    m_LegStretch: 0.05
+    m_LegStretch: 0
     m_FeetSpacing: 0
     m_GlobalScale: 1
     m_RootMotionBoneName: 

@@ -1,6 +1,7 @@
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
+using UnityEngine.Timeline;
 
 namespace TimelineInject
 {
@@ -62,6 +63,22 @@ namespace TimelineInject
         public static int GetPreviewCullingLayer()
         {
             return Camera.PreviewCullingLayer;
+        }
+
+        public static bool TimelineMatchClipsToPrevious(TimelineClip clip,out string error)
+        {
+            error=string.Empty;
+            try
+            {
+                UnityEditor.Timeline.AnimationOffsetMenu.MatchClipsToPrevious(new TimelineClip[] { clip });
+            }
+            catch (System.Exception e)
+            {
+                error = e.Message;
+                return false;
+            }
+            return true;
+
         }
     }
 }

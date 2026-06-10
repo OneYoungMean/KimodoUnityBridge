@@ -8,6 +8,9 @@ namespace KimodoBridge
 {
     internal static class KimodoRetargetClipSamplingUtility
     {
+        internal const bool RetargetSamplingDefaultFootIk = true;
+        internal const bool RetargetSamplingDefaultPlayableIk = true;
+
         internal enum ClipSamplingMode
         {
             Humanoid = 0,
@@ -24,8 +27,6 @@ namespace KimodoBridge
             public float evaluatedTime;
             public bool hasEvaluatedTime;
             public float frameRate;
-            public bool applyFootIk;
-            public bool applyPlayableIk;
 
             public bool IsReady =>
                 cache != null &&
@@ -135,8 +136,6 @@ namespace KimodoBridge
             SkeletonCache cache,
             string rootName,
             ClipSamplingMode samplingMode,
-            bool applyFootIk,
-            bool applyPlayableIk,
             out ClipSamplingContext context,
             out string error)
         {
@@ -167,8 +166,8 @@ namespace KimodoBridge
                 graph = PlayableGraph.Create(rootName + "Graph");
                 graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
-                clipPlayable.SetApplyFootIK(applyFootIk);
-                clipPlayable.SetApplyPlayableIK(applyPlayableIk);
+                clipPlayable.SetApplyFootIK(RetargetSamplingDefaultFootIk);
+                clipPlayable.SetApplyPlayableIK(RetargetSamplingDefaultPlayableIk);
                 AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, rootName + "Output", cache.animator);
                 output.SetSourcePlayable(clipPlayable);
 
@@ -185,9 +184,7 @@ namespace KimodoBridge
                     originalAnimatorAvatar = originalAnimatorAvatar,
                     evaluatedTime = 0f,
                     hasEvaluatedTime = false,
-                    frameRate = ResolveFrameRate(clip),
-                    applyFootIk = applyFootIk,
-                    applyPlayableIk = applyPlayableIk
+                    frameRate = ResolveFrameRate(clip)
                 };
                 return true;
             }
@@ -371,8 +368,6 @@ namespace KimodoBridge
                 sampleTime,
                 "KimodoRetargetTools_SourceBoneSampler",
                 KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(clip),
-                false,
-                false,
                 TrySampleBoneClipToBoneSampleInternal,
                 out sample,
                 out error);
@@ -416,7 +411,6 @@ namespace KimodoBridge
                     sourceClip,
                     sourceCache,
                     frameCount,
-                    duration,
                     KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(sourceClip),
                     out MuscleSample[] samples,
                     out error))
@@ -437,7 +431,6 @@ namespace KimodoBridge
             AnimationClip clip,
             SkeletonCache cache,
             int frameCount,
-            float duration,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out BoneSample[] samples,
             out string error)
@@ -446,11 +439,8 @@ namespace KimodoBridge
                 clip,
                 cache,
                 frameCount,
-                duration,
                 "KimodoRetargetTools_BatchBoneSampler",
                 samplingMode,
-                false,
-                false,
                 TrySampleBoneClipToBoneSampleInternal,
                 CloneBoneSample,
                 out samples,
@@ -461,7 +451,6 @@ namespace KimodoBridge
             AnimationClip clip,
             SkeletonCache cache,
             int frameCount,
-            float duration,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out MuscleSample[] samples,
             out string error)
@@ -470,11 +459,8 @@ namespace KimodoBridge
                 clip,
                 cache,
                 frameCount,
-                duration,
                 "KimodoRetargetTools_BatchMuscleSampler",
                 samplingMode,
-                false,
-                false,
                 TrySampleMuscleClipToMuscleSampleInternal,
                 CloneMuscleSample,
                 out samples,
@@ -509,8 +495,6 @@ namespace KimodoBridge
                     targetCache,
                     "KimodoRetargetTools_TargetHumanoidSample",
                     KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
-                    false,
-                    false,
                     out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
                     out error))
             {
@@ -679,8 +663,6 @@ namespace KimodoBridge
             float sampleTime,
             string rootName,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
-            bool applyFootIk,
-            bool applyPlayableIk,
             ClipSampleCallback<TSample> sampleCallback,
             out TSample sample,
             out string error)
@@ -693,8 +675,6 @@ namespace KimodoBridge
                     cache,
                     rootName,
                     samplingMode,
-                    applyFootIk,
-                    applyPlayableIk,
                     out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
                     out error))
             {
@@ -715,11 +695,8 @@ namespace KimodoBridge
             AnimationClip clip,
             SkeletonCache cache,
             int frameCount,
-            float duration,
             string rootName,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
-            bool applyFootIk,
-            bool applyPlayableIk,
             ClipSampleCallback<TSample> sampleCallback,
             Func<TSample, TSample> cloneSample,
             out TSample[] samples,
@@ -733,8 +710,6 @@ namespace KimodoBridge
                     cache,
                     rootName,
                     samplingMode,
-                    applyFootIk,
-                    applyPlayableIk,
                     out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
                     out error))
             {

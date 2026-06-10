@@ -205,18 +205,6 @@ namespace KimodoBridge.Editor
                     showConstraint,
                     new GUIContent("Show Constraint", "Show constraint previews for this clip when selected."));
             }
-            if (normalizeConstraintOrigin != null)
-            {
-                EditorGUILayout.PropertyField(
-                    normalizeConstraintOrigin,
-                    new GUIContent("Normalize Constraint Origin", "Use the first available boundary constraint as the local origin before export."));
-            }
-            if (enableInClipRootMotionCompensation != null)
-            {
-                EditorGUILayout.PropertyField(
-                    enableInClipRootMotionCompensation,
-                    new GUIContent("In-clip Root Motion Compensation", "Compensate clustered constraints inside the same clip by accumulating inferred foot motion."));
-            }
             DrawConstraintPreviewIfNeeded();
 
             float seconds = FramesToSeconds(generationFrames.intValue);
@@ -588,7 +576,7 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.Space(4f);
-            bool newFoldout = EditorGUILayout.Foldout(showAdvancedFoldout, new GUIContent("Advanced", "Curve filtering and post-processing options for generated animation curves."), true);
+            bool newFoldout = EditorGUILayout.Foldout(showAdvancedFoldout, new GUIContent("Advanced", "Constraint normalization, motion compensation, and curve filtering options for generated animation curves."), true);
             if (newFoldout != showAdvancedFoldout)
             {
                 showAdvancedFoldout = newFoldout;
@@ -601,6 +589,23 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUI.indentLevel++;
+            EditorGUILayout.LabelField("Constraint Options", EditorStyles.boldLabel);
+
+            if (normalizeConstraintOrigin != null)
+            {
+                EditorGUILayout.PropertyField(
+                    normalizeConstraintOrigin,
+                    new GUIContent("Normalize Constraint Origin", "Use the first available boundary constraint as the local origin before export. When disabled, timeline Match Offsets to Previous Clip will also be skipped."));
+            }
+
+            if (enableInClipRootMotionCompensation != null)
+            {
+                EditorGUILayout.PropertyField(
+                    enableInClipRootMotionCompensation,
+                    new GUIContent("Motion Composition", "Compensate clustered constraints inside the same clip by accumulating inferred foot motion."));
+            }
+
+            EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField("Curve Filter Options", EditorStyles.boldLabel);
 
             SerializedProperty enabledProp = curveFilterOptionsProp.FindPropertyRelative("enabled");

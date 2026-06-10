@@ -895,7 +895,7 @@ Avatar:
         m_UpperLegTwist: 0.5
         m_LegTwist: 0.5
         m_ArmStretch: 0.05
-        m_LegStretch: 0.05
+        m_LegStretch: 0
         m_FeetSpacing: 0
         m_HasLeftHand: 0
         m_HasRightHand: 0
@@ -1163,13 +1163,13 @@ Avatar:
         m_Length: 0
         m_Modified: 0
     m_Skeleton:
-    - m_Name: SOMA_smplx22_neutral(Clone)
+    - m_Name: SMPLX(Clone)
       m_ParentName: 
       m_Position: {x: -0, y: 0, z: 0}
       m_Rotation: {x: 0, y: -0, z: -0, w: 1}
       m_Scale: {x: 1, y: 1, z: 1}
     - m_Name: pelvis
-      m_ParentName: SOMA_smplx22_neutral(Clone)
+      m_ParentName: SMPLX(Clone)
       m_Position: {x: -0.002253, y: 1.0421786, z: 0.012329}
       m_Rotation: {x: 0, y: -0, z: -0, w: 1}
       m_Scale: {x: 1, y: 1, z: 1}
@@ -1498,7 +1498,7 @@ Avatar:
     m_UpperLegTwist: 0.5
     m_LegTwist: 0.5
     m_ArmStretch: 0.05
-    m_LegStretch: 0.05
+    m_LegStretch: 0
     m_FeetSpacing: 0
     m_GlobalScale: 1
     m_RootMotionBoneName: 

@@ -213,7 +213,6 @@ namespace KimodoBridge.Editor
                         sourceHumanoidClip,
                         targetCache,
                         frameCount,
-                        duration,
                         KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(sourceHumanoidClip),
                         out BoneSample[] boneSamples,
                         out error))
@@ -390,7 +389,6 @@ namespace KimodoBridge.Editor
                         sourceClip,
                         sourceCache,
                         frameCount,
-                        duration,
                         KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(sourceClip),
                         out MuscleSample[] samples,
                         out error))

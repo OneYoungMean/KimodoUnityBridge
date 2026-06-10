@@ -1,6 +1,7 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Threading;
 using TimelineInject;
@@ -160,6 +161,7 @@ namespace KimodoBridge.Editor
         {
             if (playableClip == null ||
                 !playableClip.enableInbetweenInterpolation ||
+                !playableClip.normalizeConstraintOrigin ||
                 TimelineEditor.inspectedDirector == null)
             {
                 return;
@@ -176,7 +178,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (!TryInvokeTimelineMatchClipsToPrevious(timelineClip, out string error))
+            if (!KimodoTimelinePreviewRefreshUtility.TimelineMatchClipsToPrevious(timelineClip,out string error))
             {
                 throw new InvalidOperationException(
                     $"Match Offsets to Previous Clip failed for '{playableClip.name}': {error}");
@@ -224,42 +226,8 @@ namespace KimodoBridge.Editor
             return previousClip;
         }
 
-        private static bool TryInvokeTimelineMatchClipsToPrevious(TimelineClip clip, out string error)
-        {
-            error = string.Empty;
-            Type animationOffsetMenuType = typeof(TimelineEditor).Assembly.GetType("UnityEditor.Timeline.AnimationOffsetMenu");
-            if (animationOffsetMenuType == null)
-            {
-                error = "UnityEditor.Timeline.AnimationOffsetMenu not found.";
-                return false;
-            }
 
-            MethodInfo matchMethod = animationOffsetMenuType.GetMethod(
-                "MatchClipsToPrevious",
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            if (matchMethod == null)
-            {
-                error = "MatchClipsToPrevious method not found.";
-                return false;
-            }
-
-            try
-            {
-                matchMethod.Invoke(null, new object[] { new[] { clip } });
-                return true;
-            }
-            catch (TargetInvocationException ex)
-            {
-                Exception inner = ex.InnerException ?? ex;
-                error = inner.Message;
-                return false;
-            }
-            catch (Exception ex)
-            {
-                error = ex.Message;
-                return false;
-            }
-        }
+        
 
         private static Avatar ResolveOriginRetargetAvatar(string modelName)
         {
