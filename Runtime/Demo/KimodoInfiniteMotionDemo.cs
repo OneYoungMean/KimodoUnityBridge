@@ -14,7 +14,7 @@ namespace KimodoBridge
     {
         [Header("Scene References")]
         [SerializeField] private Transform profileSkeletonRoot;
-        [SerializeField] private Animator humanoidRetargetAnimator;
+        [SerializeField] private List<Animator> humanoidRetargetAnimators = new List<Animator>();
 
         [Header("Bridge Runtime")]
         [SerializeField] private string modelsRoot = string.Empty;
@@ -38,6 +38,8 @@ namespace KimodoBridge
 
         private const string FullBodyConstraintType = "fullbody";
         private const string KimodoFolderName = "NvlabKimodoQuickServer";
+        private const float MinGenerationDurationSeconds = 1f;
+        private const float MaxGenerationDurationSeconds = 10f;
 
         private KimodoRuntimeGenerationService generationService;
         private CancellationTokenSource lifetimeCts;
@@ -55,15 +57,37 @@ namespace KimodoBridge
         private int activePromptHash;
         private string promptDraft;
         private string statusMessage = "Idle.";
+        private TransformSnapshot initialProfileSnapshot;
+        private readonly List<TransformSnapshot> initialHumanoidSnapshots = new List<TransformSnapshot>();
+        private readonly QueueDebugState queueDebugState = new QueueDebugState();
+
+        private sealed class TransformSnapshot
+        {
+            public Transform Transform;
+            public Vector3 Position;
+            public Quaternion Rotation;
+            public Vector3 LocalScale;
+        }
+
+        private sealed class QueueDebugState
+        {
+            public int LastEnqueuedSegmentIndex = -1;
+            public int LastDequeuedSegmentIndex = -1;
+            public int LastPlayAttemptSegmentIndex = -1;
+            public int LastPlayStartedSegmentIndex = -1;
+        }
 
         private void Awake()
         {
             motionPlayer = new RawMotionPlayer();
             promptDraft = ResolveInitialPrompt();
+            SyncGenerationDurationFromCurrentSettings();
+            CacheInitialTransformSnapshots();
         }
 
         private void OnEnable()
         {
+            EnsureInitialTransformSnapshots();
             if (ValidateConfiguration(out _))
             {
                 try
@@ -99,8 +123,10 @@ namespace KimodoBridge
                 Time.deltaTime,
                 modelName,
                 profileSkeletonRoot,
-                humanoidRetargetAnimator,
+                humanoidRetargetAnimators,
                 allowPartialJoints,
+                verboseLogging,
+                queueDebugState,
                 out GeneratedSegment startedSegment,
                 out string playbackError);
             if (!string.IsNullOrWhiteSpace(playbackError))
@@ -385,7 +411,7 @@ namespace KimodoBridge
                     FirstRootPosition = metadata.FirstRootPosition,
                     LastRootPosition = metadata.LastRootPosition,
                     WorldAccumulatedOffset = Vector3.zero
-                });
+                }, verboseLogging, queueDebugState);
 
                 segmentIndex++;
                 UpdateStatus($"Segment {segmentIndex - 1} ready.");
@@ -501,12 +527,36 @@ namespace KimodoBridge
             _ = StopDemoAsync();
         }
 
+        public void ResetDemo()
+        {
+            _ = ResetDemoAsync();
+        }
+
+        public async Task ResetDemoAsync()
+        {
+            bool wasActive = running || startRequested || generationService != null;
+            if (wasActive)
+            {
+                await StopDemoAsync();
+            }
+
+            RestoreInitialTransformSnapshots();
+            UpdateStatus("Reset to initial transforms.");
+
+            if (wasActive)
+            {
+                await StartDemoAsync();
+            }
+        }
+
         private void DrawPromptBar()
         {
             const float margin = 12f;
-            const float panelHeight = 74f;
+            const float panelHeight = 118f;
             const float buttonWidth = 110f;
+            const float buttonSpacing = 10f;
             const float fieldHeight = 28f;
+            const float sliderHeight = 22f;
 
             DrawStatusPanel(margin);
 
@@ -521,17 +571,56 @@ namespace KimodoBridge
             Rect fieldRect = new Rect(
                 panelRect.x + 12f,
                 panelRect.y + 14f,
-                Mathf.Max(0f, panelRect.width - buttonWidth - 32f),
+                Mathf.Max(0f, panelRect.width - buttonWidth * 2f - buttonSpacing - 44f),
                 fieldHeight);
 
-            Rect buttonRect = new Rect(
+            Rect resetButtonRect = new Rect(
+                panelRect.xMax - buttonWidth * 2f - buttonSpacing - 12f,
+                fieldRect.y,
+                buttonWidth,
+                fieldHeight);
+
+            Rect sendButtonRect = new Rect(
                 panelRect.xMax - buttonWidth - 12f,
                 fieldRect.y,
                 buttonWidth,
                 fieldHeight);
 
+            Rect sliderLabelRect = new Rect(
+                fieldRect.x,
+                fieldRect.yMax + 10f,
+                160f,
+                sliderHeight);
+
+            Rect sliderRect = new Rect(
+                sliderLabelRect.xMax + 8f,
+                sliderLabelRect.y + 2f,
+                Mathf.Max(0f, panelRect.width - buttonWidth * 2f - buttonSpacing - 216f),
+                sliderHeight);
+
+            Rect sliderValueRect = new Rect(
+                sliderRect.xMax + 8f,
+                sliderLabelRect.y,
+                64f,
+                sliderHeight);
+
             GUI.SetNextControlName("KimodoPromptInput");
             promptDraft = GUI.TextField(fieldRect, promptDraft ?? string.Empty);
+
+            float currentDurationSeconds = GetGenerationDurationSeconds();
+            GUI.Label(sliderLabelRect, "Segment Length");
+            float nextDurationSeconds = GUI.HorizontalSlider(
+                sliderRect,
+                currentDurationSeconds,
+                MinGenerationDurationSeconds,
+                MaxGenerationDurationSeconds);
+            GUI.Label(sliderValueRect, $"{currentDurationSeconds:0.0}s");
+            if (!Mathf.Approximately(nextDurationSeconds, currentDurationSeconds))
+            {
+                ApplyGenerationDurationSeconds(nextDurationSeconds);
+                currentDurationSeconds = GetGenerationDurationSeconds();
+            }
+
             bool sendDisabled = IsSendDisabled();
 
             if (Event.current.type == EventType.KeyDown &&
@@ -544,8 +633,13 @@ namespace KimodoBridge
             }
 
             bool previousGuiEnabled = GUI.enabled;
+            if (GUI.Button(resetButtonRect, "Reset"))
+            {
+                ResetDemo();
+            }
+
             GUI.enabled = !sendDisabled;
-            if (GUI.Button(buttonRect, "Send"))
+            if (GUI.Button(sendButtonRect, "Send"))
             {
                 RequestManualSend();
             }
@@ -628,6 +722,118 @@ namespace KimodoBridge
             }
         }
 
+        private void SyncGenerationDurationFromCurrentSettings()
+        {
+            ApplyGenerationDurationSeconds(GetGenerationDurationSeconds());
+        }
+
+        private float GetGenerationDurationSeconds()
+        {
+            float frameDuration = generationFrames / KimodoPlayableClip.FIXED_FRAME_RATE;
+            return Mathf.Clamp(
+                Mathf.Max(segmentIntervalSeconds, frameDuration),
+                MinGenerationDurationSeconds,
+                MaxGenerationDurationSeconds);
+        }
+
+        private void ApplyGenerationDurationSeconds(float durationSeconds)
+        {
+            float clamped = Mathf.Clamp(durationSeconds, MinGenerationDurationSeconds, MaxGenerationDurationSeconds);
+            segmentIntervalSeconds = clamped;
+            generationFrames = Mathf.Max(1, Mathf.RoundToInt(clamped * KimodoPlayableClip.FIXED_FRAME_RATE));
+        }
+
+        private void CacheInitialTransformSnapshots()
+        {
+            initialProfileSnapshot = CreateSnapshot(profileSkeletonRoot);
+            initialHumanoidSnapshots.Clear();
+            if (humanoidRetargetAnimators == null)
+            {
+                return;
+            }
+
+            var seen = new HashSet<Transform>();
+            for (int i = 0; i < humanoidRetargetAnimators.Count; i++)
+            {
+                Animator animator = humanoidRetargetAnimators[i];
+                Transform targetTransform = animator != null ? animator.transform : null;
+                if (targetTransform == null || !seen.Add(targetTransform))
+                {
+                    continue;
+                }
+
+                TransformSnapshot snapshot = CreateSnapshot(targetTransform);
+                if (snapshot != null)
+                {
+                    initialHumanoidSnapshots.Add(snapshot);
+                }
+            }
+        }
+
+        private void EnsureInitialTransformSnapshots()
+        {
+            if (initialProfileSnapshot?.Transform == null && profileSkeletonRoot != null)
+            {
+                CacheInitialTransformSnapshots();
+                return;
+            }
+
+            if (humanoidRetargetAnimators == null || humanoidRetargetAnimators.Count == 0)
+            {
+                return;
+            }
+
+            int validAnimatorCount = 0;
+            for (int i = 0; i < humanoidRetargetAnimators.Count; i++)
+            {
+                if (humanoidRetargetAnimators[i] != null)
+                {
+                    validAnimatorCount++;
+                }
+            }
+
+            if (initialHumanoidSnapshots.Count < validAnimatorCount)
+            {
+                CacheInitialTransformSnapshots();
+            }
+        }
+
+        private void RestoreInitialTransformSnapshots()
+        {
+            RestoreSnapshot(initialProfileSnapshot);
+            for (int i = 0; i < initialHumanoidSnapshots.Count; i++)
+            {
+                RestoreSnapshot(initialHumanoidSnapshots[i]);
+            }
+        }
+
+        private static TransformSnapshot CreateSnapshot(Transform target)
+        {
+            if (target == null)
+            {
+                return null;
+            }
+
+            return new TransformSnapshot
+            {
+                Transform = target,
+                Position = target.position,
+                Rotation = target.rotation,
+                LocalScale = target.localScale
+            };
+        }
+
+        private static void RestoreSnapshot(TransformSnapshot snapshot)
+        {
+            if (snapshot?.Transform == null)
+            {
+                return;
+            }
+
+            snapshot.Transform.SetPositionAndRotation(snapshot.Position, snapshot.Rotation);
+            snapshot.Transform.localScale = snapshot.LocalScale;
+        }
+
         private static int ComputePromptHash(string prompt, int? seed)
         {
             string normalizedPrompt = string.IsNullOrWhiteSpace(prompt) ? string.Empty : prompt.Trim();
@@ -654,25 +860,45 @@ namespace KimodoBridge
             public Vector3 WorldAccumulatedOffset;
         }
 
-        private sealed class RawMotionPlayer
-        {
+            private sealed class RawMotionPlayer
+            {
             private readonly Queue<GeneratedSegment> queuedSegments = new Queue<GeneratedSegment>();
             private readonly object queueGate = new object();
+            private readonly List<TargetRetargetState> targetStates = new List<TargetRetargetState>();
 
             private KimodoRawMotionPlaybackBinding profileBinding;
             private KimodoRawMotionPlaybackBinding sourceBinding;
             private SkeletonCache sourceCache;
             private string sourceCacheModelName;
-            private HumanPoseHandler targetPoseHandler;
-            private Animator targetAnimator;
-            private bool restoreTargetAnimatorEnabled;
-            private bool targetAnimatorWasEnabled;
             private Transform profileRootJoint;
             private Vector3 currentSegmentRootBaseline;
             private Vector3 lastCompletedWorldOffset;
             private GeneratedSegment currentSegment;
             private float timeSeconds;
             private bool playing;
+
+            private sealed class TargetRetargetState : IDisposable
+            {
+                public Animator Animator;
+                public Avatar Avatar;
+                public HumanPoseHandler PoseHandler;
+                public bool AnimatorWasEnabled;
+                public bool AnimatorDisabledForRetarget;
+
+                public void Dispose()
+                {
+                    if (Animator != null && AnimatorDisabledForRetarget)
+                    {
+                        Animator.enabled = AnimatorWasEnabled;
+                    }
+
+                    Animator = null;
+                    Avatar = null;
+                    PoseHandler = null;
+                    AnimatorDisabledForRetarget = false;
+                    AnimatorWasEnabled = false;
+                }
+            }
 
             public bool IsPlaying => playing;
             public int LastCompletedSegmentIndex { get; private set; } = -1;
@@ -688,7 +914,7 @@ namespace KimodoBridge
                 }
             }
 
-            public void Enqueue(GeneratedSegment segment)
+            public void Enqueue(GeneratedSegment segment, bool verboseLogging, QueueDebugState debugState)
             {
                 if (segment == null)
                 {
@@ -698,6 +924,16 @@ namespace KimodoBridge
                 lock (queueGate)
                 {
                     queuedSegments.Enqueue(segment);
+                    if (debugState != null)
+                    {
+                        debugState.LastEnqueuedSegmentIndex = segment.Index;
+                    }
+
+                    if (verboseLogging)
+                    {
+                        Debug.Log(
+                            $"[KimodoInfiniteMotionDemo] Enqueue segment {segment.Index}. queueCount={queuedSegments.Count}");
+                    }
                 }
             }
 
@@ -719,8 +955,10 @@ namespace KimodoBridge
                 float deltaTime,
                 string modelName,
                 Transform profileSkeletonRoot,
-                Animator humanoidRetargetAnimator,
+                IReadOnlyList<Animator> humanoidRetargetAnimators,
                 bool allowPartialJoints,
+                bool verboseLogging,
+                QueueDebugState debugState,
                 out GeneratedSegment startedSegment,
                 out string error)
             {
@@ -738,13 +976,25 @@ namespace KimodoBridge
 
                 if (!playing && TryDequeue(out GeneratedSegment next))
                 {
+                    if (debugState != null)
+                    {
+                        debugState.LastDequeuedSegmentIndex = next.Index;
+                    }
+
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[KimodoInfiniteMotionDemo] Attempting to play dequeued segment {next.Index}.");
+                    }
+
                     if (!Play(
                             next,
                             modelName,
                             profileSkeletonRoot,
-                            humanoidRetargetAnimator,
+                            humanoidRetargetAnimators,
                             allowPartialJoints,
-                            out error))
+                            out error,
+                            verboseLogging,
+                            debugState))
                     {
                         return;
                     }
@@ -763,11 +1013,18 @@ namespace KimodoBridge
                 GeneratedSegment segment,
                 string modelName,
                 Transform profileSkeletonRoot,
-                Animator humanoidRetargetAnimator,
+                IReadOnlyList<Animator> humanoidRetargetAnimators,
                 bool allowPartialJoints,
-                out string error)
+                out string error,
+                bool verboseLogging,
+                QueueDebugState debugState)
             {
                 StopActiveMotion();
+                if (debugState != null)
+                {
+                    debugState.LastPlayAttemptSegmentIndex = segment != null ? segment.Index : -1;
+                }
+
                 if (!KimodoRawMotionUtility.TryCreatePlaybackBinding(
                         segment.Motion,
                         modelName,
@@ -776,15 +1033,26 @@ namespace KimodoBridge
                         out error,
                         allowPartialJoints))
                 {
+                    if (verboseLogging)
+                    {
+                        Debug.LogWarning(
+                            $"[KimodoInfiniteMotionDemo] Play segment {segment?.Index ?? -1} failed while creating profile binding: {error}");
+                    }
+
                     return false;
                 }
 
                 profileRootJoint = profileBinding.joints != null && profileBinding.joints.Length > 0
                     ? profileBinding.joints[0]
                     : null;
-                if (humanoidRetargetAnimator != null &&
-                    !TryCreateDirectRetargetBinding(segment.Motion, modelName, humanoidRetargetAnimator, allowPartialJoints, out error))
+                if (!TryCreateDirectRetargetBinding(segment.Motion, modelName, humanoidRetargetAnimators, allowPartialJoints, out error))
                 {
+                    if (verboseLogging)
+                    {
+                        Debug.LogWarning(
+                            $"[KimodoInfiniteMotionDemo] Play segment {segment?.Index ?? -1} failed while creating retarget binding: {error}");
+                    }
+
                     StopActiveMotion();
                     return false;
                 }
@@ -794,7 +1062,29 @@ namespace KimodoBridge
                 currentSegmentRootBaseline = segment.FirstRootPosition;
                 timeSeconds = 0f;
                 playing = true;
-                return TryApplyFrame(0, out error);
+                if (!TryApplyFrame(0, out error))
+                {
+                    if (verboseLogging)
+                    {
+                        Debug.LogWarning(
+                            $"[KimodoInfiniteMotionDemo] Play segment {segment?.Index ?? -1} failed while applying frame 0: {error}");
+                    }
+
+                    return false;
+                }
+
+                if (debugState != null)
+                {
+                    debugState.LastPlayStartedSegmentIndex = segment.Index;
+                }
+
+                if (verboseLogging)
+                {
+                    Debug.Log(
+                        $"[KimodoInfiniteMotionDemo] Play segment {segment.Index} started. worldOffset={currentSegment.WorldAccumulatedOffset}");
+                }
+
+                return true;
             }
 
             private void AdvanceCurrentMotion(float deltaTime, out string error)
@@ -846,10 +1136,11 @@ namespace KimodoBridge
                 if (currentSegment != null && currentSegment.Index > LastCompletedSegmentIndex)
                 {
                     LastCompletedSegmentIndex = currentSegment.Index;
+                    Vector3 completedDelta = currentSegment.LastRootPosition - currentSegment.FirstRootPosition;
                     lastCompletedWorldOffset = currentSegment.WorldAccumulatedOffset + new Vector3(
-                        currentSegment.LastRootPosition.x,
+                        completedDelta.x,
                         0f,
-                        currentSegment.LastRootPosition.z);
+                        completedDelta.z);
                 }
             }
 
@@ -857,15 +1148,7 @@ namespace KimodoBridge
             {
                 profileBinding = null;
                 sourceBinding = null;
-                if (targetAnimator != null && restoreTargetAnimatorEnabled)
-                {
-                    targetAnimator.enabled = targetAnimatorWasEnabled;
-                }
-
                 profileRootJoint = null;
-                targetAnimator = null;
-                restoreTargetAnimatorEnabled = false;
-                targetAnimatorWasEnabled = false;
                 currentSegment = null;
                 currentSegmentRootBaseline = Vector3.zero;
                 timeSeconds = 0f;
@@ -874,36 +1157,40 @@ namespace KimodoBridge
 
             private void DisposeRetargetCache()
             {
+                DisposeSourceRetargetCache();
+                DisposeTargetStates();
+            }
+
+            private void DisposeSourceRetargetCache()
+            {
                 sourceBinding = null;
                 sourceCache?.Dispose();
                 sourceCache = null;
                 sourceCacheModelName = null;
-                targetPoseHandler = null;
             }
 
             private Vector3 ResolveNextWorldOffset(Vector3 nextSegmentFirstRootPosition)
             {
-                return lastCompletedWorldOffset - new Vector3(nextSegmentFirstRootPosition.x, 0f, nextSegmentFirstRootPosition.z);
+                return lastCompletedWorldOffset;
             }
 
             private bool TryCreateDirectRetargetBinding(
                 KimodoRawMotionData motion,
                 string modelName,
-                Animator humanoidAnimator,
+                IReadOnlyList<Animator> humanoidAnimators,
                 bool allowPartialJoints,
                 out string error)
             {
                 error = string.Empty;
-                if (humanoidAnimator == null)
+                if (!TrySyncTargetStates(humanoidAnimators, out bool hasTargets, out error))
                 {
-                    return true;
+                    return false;
                 }
 
-                Avatar targetAvatar = humanoidAnimator.avatar;
-                if (!KimodoRetargetCoreUtility.IsValidHumanoid(targetAvatar))
+                if (!hasTargets)
                 {
-                    error = "Humanoid retarget animator avatar is null, invalid, or not humanoid.";
-                    return false;
+                    sourceBinding = null;
+                    return true;
                 }
 
                 if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar sourceAvatar, out error))
@@ -913,7 +1200,7 @@ namespace KimodoBridge
 
                 if (sourceCache == null || !string.Equals(sourceCacheModelName, modelName, StringComparison.OrdinalIgnoreCase))
                 {
-                    DisposeRetargetCache();
+                    DisposeSourceRetargetCache();
                     if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
                             sourceAvatar,
                             "KimodoInfiniteMotionDemo_SourceRetarget",
@@ -937,16 +1224,6 @@ namespace KimodoBridge
                     return false;
                 }
 
-                bool needsNewPoseHandler = targetPoseHandler == null || targetAnimator != humanoidAnimator;
-                targetAnimator = humanoidAnimator;
-                if (needsNewPoseHandler)
-                {
-                    targetPoseHandler = new HumanPoseHandler(targetAvatar, humanoidAnimator.transform);
-                }
-
-                targetAnimatorWasEnabled = humanoidAnimator.enabled;
-                restoreTargetAnimatorEnabled = true;
-                humanoidAnimator.enabled = false;
                 return true;
             }
 
@@ -1059,7 +1336,10 @@ namespace KimodoBridge
                 }
 
                 Vector3 delta = rootPosition - currentSegmentRootBaseline;
-                sourceBinding.joints[0].localPosition = new Vector3(delta.x, rootPosition.y, delta.z);
+                sourceBinding.joints[0].localPosition = new Vector3(
+                    currentSegment.WorldAccumulatedOffset.x + delta.x,
+                    rootPosition.y,
+                    currentSegment.WorldAccumulatedOffset.z + delta.z);
                 return true;
             }
 
@@ -1078,14 +1358,17 @@ namespace KimodoBridge
                 }
 
                 Vector3 delta = rootPosition - currentSegmentRootBaseline;
-                sourceBinding.joints[0].localPosition = new Vector3(delta.x, rootPosition.y, delta.z);
+                sourceBinding.joints[0].localPosition = new Vector3(
+                    currentSegment.WorldAccumulatedOffset.x + delta.x,
+                    rootPosition.y,
+                    currentSegment.WorldAccumulatedOffset.z + delta.z);
                 return true;
             }
 
             private bool TryApplyHumanoidPose(out string error)
             {
                 error = string.Empty;
-                if (sourceCache == null || targetPoseHandler == null)
+                if (sourceCache == null || targetStates.Count == 0)
                 {
                     return true;
                 }
@@ -1096,8 +1379,131 @@ namespace KimodoBridge
                 }
 
                 HumanPose pose = sample.pose;
-                targetPoseHandler.SetHumanPose(ref pose);
+                for (int i = 0; i < targetStates.Count; i++)
+                {
+                    HumanPoseHandler poseHandler = targetStates[i].PoseHandler;
+                    if (poseHandler == null)
+                    {
+                        continue;
+                    }
+
+                    poseHandler.SetHumanPose(ref pose);
+                }
+
                 return true;
+            }
+
+            private bool TrySyncTargetStates(
+                IReadOnlyList<Animator> humanoidAnimators,
+                out bool hasTargets,
+                out string error)
+            {
+                error = string.Empty;
+                hasTargets = false;
+
+                var desiredAnimators = new HashSet<Animator>();
+                if (humanoidAnimators != null)
+                {
+                    for (int i = 0; i < humanoidAnimators.Count; i++)
+                    {
+                        Animator animator = humanoidAnimators[i];
+                        if (animator == null || !desiredAnimators.Add(animator))
+                        {
+                            continue;
+                        }
+
+                        Avatar avatar = animator.avatar;
+                        if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar))
+                        {
+                            error = $"Humanoid retarget animator at index {i} has a null, invalid, or non-humanoid avatar.";
+                            return false;
+                        }
+
+                        hasTargets = true;
+                    }
+                }
+
+                for (int i = targetStates.Count - 1; i >= 0; i--)
+                {
+                    TargetRetargetState state = targetStates[i];
+                    if (state == null || state.Animator == null || !desiredAnimators.Contains(state.Animator))
+                    {
+                        state?.Dispose();
+                        targetStates.RemoveAt(i);
+                    }
+                }
+
+                foreach (Animator animator in desiredAnimators)
+                {
+                    if (!TryEnsureTargetState(animator, out error))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            private bool TryEnsureTargetState(Animator animator, out string error)
+            {
+                error = string.Empty;
+                if (animator == null)
+                {
+                    return true;
+                }
+
+                Avatar avatar = animator.avatar;
+                if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar))
+                {
+                    error = "Humanoid retarget animator avatar is null, invalid, or not humanoid.";
+                    return false;
+                }
+
+                TargetRetargetState state = null;
+                for (int i = 0; i < targetStates.Count; i++)
+                {
+                    if (ReferenceEquals(targetStates[i].Animator, animator))
+                    {
+                        state = targetStates[i];
+                        break;
+                    }
+                }
+
+                bool needsNewState = state == null;
+                bool needsNewPoseHandler = state == null || state.PoseHandler == null || !ReferenceEquals(state.Avatar, avatar);
+                if (needsNewState)
+                {
+                    state = new TargetRetargetState
+                    {
+                        Animator = animator
+                    };
+                    targetStates.Add(state);
+                }
+
+                if (needsNewPoseHandler)
+                {
+                    state.Avatar = avatar;
+                    state.PoseHandler = new HumanPoseHandler(avatar, animator.transform);
+                }
+
+                if (!state.AnimatorDisabledForRetarget)
+                {
+                    state.AnimatorWasEnabled = animator.enabled;
+                    state.AnimatorDisabledForRetarget = true;
+                }
+
+                animator.enabled = false;
+                return true;
+            }
+
+            private void DisposeTargetStates()
+            {
+                for (int i = targetStates.Count - 1; i >= 0; i--)
+                {
+                    targetStates[i]?.Dispose();
+                }
+
+                targetStates.Clear();
             }
         }
     }
