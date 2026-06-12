@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TimelineInject;
@@ -50,6 +52,7 @@ namespace KimodoBridge
         private int lastGenerationWaitStatusSegment = -1;
         private KimodoMarkerSampleResult nextConstraintPose;
         private bool manualSendRequested;
+        private int activePromptHash;
         private string promptDraft;
         private string statusMessage = "Idle.";
 
@@ -107,7 +110,8 @@ namespace KimodoBridge
 
             if (startedSegment != null)
             {
-                nextConstraintPose = startedSegment.TailPose;
+                nextConstraintPose = startedSegment.ConstraintTailPose;
+                activePromptHash = startedSegment.PromptHash;
                 UpdateStatus($"Playing segment {startedSegment.Index}.");
             }
         }
@@ -148,6 +152,7 @@ namespace KimodoBridge
                 nextConstraintPose = null;
                 generationInFlight = false;
                 manualSendRequested = false;
+                activePromptHash = 0;
                 motionPlayer.ResetCompletionState();
                 motionPlayer.ClearQueue();
 
@@ -230,6 +235,7 @@ namespace KimodoBridge
             generationInFlight = false;
             lastGenerationWaitStatusSegment = -1;
             nextConstraintPose = null;
+            activePromptHash = 0;
             motionPlayer.Stop();
             motionPlayer.ResetCompletionState();
             motionPlayer.ClearQueue();
@@ -326,6 +332,7 @@ namespace KimodoBridge
             try
             {
                 string prompt = ResolvePrompt();
+                int promptHash = ComputePromptHash(prompt, randomSeed ? null : fixedSeed);
                 string constraintsJson = BuildNextConstraintsJson();
                 var request = new KimodoGenerationRequestDto
                 {
@@ -347,28 +354,37 @@ namespace KimodoBridge
                     OnProgress,
                     token);
 
-                if (!KimodoRawMotionUtility.TryParse(result.motionJsonCompact, out KimodoRawMotionData motion, out string parseError))
+                KimodoRawMotionMetadata metadata = await Task.Run(() =>
                 {
-                    throw new InvalidOperationException(parseError);
-                }
+                    if (!KimodoRawMotionUtility.TryParseAndAnalyze(
+                            result.motionJsonCompact,
+                            modelName,
+                            out KimodoRawMotionMetadata parsedMetadata,
+                            out string parseError,
+                            FullBodyConstraintType,
+                            0.0,
+                            allowPartialJoints))
+                    {
+                        throw new InvalidOperationException(parseError);
+                    }
 
-                if (!KimodoRawMotionUtility.TryExtractTailMarkerSample(
-                        motion,
-                        modelName,
-                        out KimodoMarkerSampleResult tailPose,
-                        out string tailError,
-                        FullBodyConstraintType,
-                        0.0,
-                        allowPartialJoints))
-                {
-                    throw new InvalidOperationException(tailError);
-                }
+                    return parsedMetadata;
+                }, token);
+
+                KimodoMarkerSampleResult constraintTailPose = metadata.TailPose.Clone();
+                constraintTailPose.kimodoRootPosition = new Vector3(0f, constraintTailPose.kimodoRootPosition.y, 0f);
+                constraintTailPose.unityRootPos = constraintTailPose.kimodoRootPosition;
 
                 motionPlayer.Enqueue(new GeneratedSegment
                 {
                     Index = segmentIndex,
-                    Motion = motion,
-                    TailPose = tailPose
+                    PromptHash = promptHash,
+                    PromptText = prompt,
+                    Motion = metadata.Motion,
+                    ConstraintTailPose = constraintTailPose,
+                    FirstRootPosition = metadata.FirstRootPosition,
+                    LastRootPosition = metadata.LastRootPosition,
+                    WorldAccumulatedOffset = Vector3.zero
                 });
 
                 segmentIndex++;
@@ -398,6 +414,8 @@ namespace KimodoBridge
             KimodoMarkerSampleResult sample = nextConstraintPose.Clone();
             sample.constraintType = FullBodyConstraintType;
             sample.sampleTime = 0.0;
+            sample.kimodoRootPosition = new Vector3(0f, sample.kimodoRootPosition.y, 0f);
+            sample.unityRootPos = sample.kimodoRootPosition;
             return KimodoConstraintJsonExporter.ToConstraintsJson(
                 new List<KimodoMarkerSampleResult> { sample },
                 0.0,
@@ -514,19 +532,24 @@ namespace KimodoBridge
 
             GUI.SetNextControlName("KimodoPromptInput");
             promptDraft = GUI.TextField(fieldRect, promptDraft ?? string.Empty);
+            bool sendDisabled = IsSendDisabled();
 
             if (Event.current.type == EventType.KeyDown &&
                 GUI.GetNameOfFocusedControl() == "KimodoPromptInput" &&
-                (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter))
+                (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter) &&
+                !sendDisabled)
             {
                 Event.current.Use();
                 RequestManualSend();
             }
 
+            bool previousGuiEnabled = GUI.enabled;
+            GUI.enabled = !sendDisabled;
             if (GUI.Button(buttonRect, "Send"))
             {
                 RequestManualSend();
             }
+            GUI.enabled = previousGuiEnabled;
         }
 
         private void DrawStatusPanel(float margin)
@@ -551,6 +574,11 @@ namespace KimodoBridge
 
         private void RequestManualSend()
         {
+            if (IsSendDisabled())
+            {
+                return;
+            }
+
             manualSendRequested = true;
             if (!running || generationService == null || generationInFlight)
             {
@@ -558,6 +586,12 @@ namespace KimodoBridge
             }
 
             MaybeQueueNextGeneration(lifetimeCts != null ? lifetimeCts.Token : CancellationToken.None);
+        }
+
+        private bool IsSendDisabled()
+        {
+            string prompt = ResolvePrompt();
+            return !randomSeed && activePromptHash != 0 && ComputePromptHash(prompt, fixedSeed) == activePromptHash;
         }
 
         private void OnProgress(string message)
@@ -594,11 +628,30 @@ namespace KimodoBridge
             }
         }
 
+        private static int ComputePromptHash(string prompt, int? seed)
+        {
+            string normalizedPrompt = string.IsNullOrWhiteSpace(prompt) ? string.Empty : prompt.Trim();
+            string raw = seed.HasValue ? $"{normalizedPrompt}##{seed.Value}" : normalizedPrompt;
+            byte[] bytes = Encoding.UTF8.GetBytes(raw);
+            byte[] hash;
+            using (SHA256 sha = SHA256.Create())
+            {
+                hash = sha.ComputeHash(bytes);
+            }
+
+            return BitConverter.ToInt32(hash, 0);
+        }
+
         private sealed class GeneratedSegment
         {
             public int Index;
+            public int PromptHash;
+            public string PromptText;
             public KimodoRawMotionData Motion;
-            public KimodoMarkerSampleResult TailPose;
+            public KimodoMarkerSampleResult ConstraintTailPose;
+            public Vector3 FirstRootPosition;
+            public Vector3 LastRootPosition;
+            public Vector3 WorldAccumulatedOffset;
         }
 
         private sealed class RawMotionPlayer
@@ -609,10 +662,14 @@ namespace KimodoBridge
             private KimodoRawMotionPlaybackBinding profileBinding;
             private KimodoRawMotionPlaybackBinding sourceBinding;
             private SkeletonCache sourceCache;
+            private string sourceCacheModelName;
             private HumanPoseHandler targetPoseHandler;
             private Animator targetAnimator;
             private bool restoreTargetAnimatorEnabled;
             private bool targetAnimatorWasEnabled;
+            private Transform profileRootJoint;
+            private Vector3 currentSegmentRootBaseline;
+            private Vector3 lastCompletedWorldOffset;
             private GeneratedSegment currentSegment;
             private float timeSeconds;
             private bool playing;
@@ -655,6 +712,7 @@ namespace KimodoBridge
             public void ResetCompletionState()
             {
                 LastCompletedSegmentIndex = -1;
+                lastCompletedWorldOffset = Vector3.zero;
             }
 
             public void Update(
@@ -698,6 +756,7 @@ namespace KimodoBridge
             public void Stop()
             {
                 StopActiveMotion();
+                DisposeRetargetCache();
             }
 
             private bool Play(
@@ -720,6 +779,9 @@ namespace KimodoBridge
                     return false;
                 }
 
+                profileRootJoint = profileBinding.joints != null && profileBinding.joints.Length > 0
+                    ? profileBinding.joints[0]
+                    : null;
                 if (humanoidRetargetAnimator != null &&
                     !TryCreateDirectRetargetBinding(segment.Motion, modelName, humanoidRetargetAnimator, allowPartialJoints, out error))
                 {
@@ -728,6 +790,8 @@ namespace KimodoBridge
                 }
 
                 currentSegment = segment;
+                currentSegment.WorldAccumulatedOffset = ResolveNextWorldOffset(segment.FirstRootPosition);
+                currentSegmentRootBaseline = segment.FirstRootPosition;
                 timeSeconds = 0f;
                 playing = true;
                 return TryApplyFrame(0, out error);
@@ -782,6 +846,10 @@ namespace KimodoBridge
                 if (currentSegment != null && currentSegment.Index > LastCompletedSegmentIndex)
                 {
                     LastCompletedSegmentIndex = currentSegment.Index;
+                    lastCompletedWorldOffset = currentSegment.WorldAccumulatedOffset + new Vector3(
+                        currentSegment.LastRootPosition.x,
+                        0f,
+                        currentSegment.LastRootPosition.z);
                 }
             }
 
@@ -789,20 +857,33 @@ namespace KimodoBridge
             {
                 profileBinding = null;
                 sourceBinding = null;
-                sourceCache?.Dispose();
-                sourceCache = null;
-                targetPoseHandler = null;
                 if (targetAnimator != null && restoreTargetAnimatorEnabled)
                 {
                     targetAnimator.enabled = targetAnimatorWasEnabled;
                 }
 
+                profileRootJoint = null;
                 targetAnimator = null;
                 restoreTargetAnimatorEnabled = false;
                 targetAnimatorWasEnabled = false;
                 currentSegment = null;
+                currentSegmentRootBaseline = Vector3.zero;
                 timeSeconds = 0f;
                 playing = false;
+            }
+
+            private void DisposeRetargetCache()
+            {
+                sourceBinding = null;
+                sourceCache?.Dispose();
+                sourceCache = null;
+                sourceCacheModelName = null;
+                targetPoseHandler = null;
+            }
+
+            private Vector3 ResolveNextWorldOffset(Vector3 nextSegmentFirstRootPosition)
+            {
+                return lastCompletedWorldOffset - new Vector3(nextSegmentFirstRootPosition.x, 0f, nextSegmentFirstRootPosition.z);
             }
 
             private bool TryCreateDirectRetargetBinding(
@@ -830,13 +911,19 @@ namespace KimodoBridge
                     return false;
                 }
 
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
-                        sourceAvatar,
-                        "KimodoInfiniteMotionDemo_SourceRetarget",
-                        out sourceCache,
-                        out error))
+                if (sourceCache == null || !string.Equals(sourceCacheModelName, modelName, StringComparison.OrdinalIgnoreCase))
                 {
-                    return false;
+                    DisposeRetargetCache();
+                    if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                            sourceAvatar,
+                            "KimodoInfiniteMotionDemo_SourceRetarget",
+                            out sourceCache,
+                            out error))
+                    {
+                        return false;
+                    }
+
+                    sourceCacheModelName = modelName;
                 }
 
                 if (!KimodoRawMotionUtility.TryCreatePlaybackBinding(
@@ -850,8 +937,13 @@ namespace KimodoBridge
                     return false;
                 }
 
+                bool needsNewPoseHandler = targetPoseHandler == null || targetAnimator != humanoidAnimator;
                 targetAnimator = humanoidAnimator;
-                targetPoseHandler = new HumanPoseHandler(targetAvatar, humanoidAnimator.transform);
+                if (needsNewPoseHandler)
+                {
+                    targetPoseHandler = new HumanPoseHandler(targetAvatar, humanoidAnimator.transform);
+                }
+
                 targetAnimatorWasEnabled = humanoidAnimator.enabled;
                 restoreTargetAnimatorEnabled = true;
                 humanoidAnimator.enabled = false;
@@ -860,12 +952,22 @@ namespace KimodoBridge
 
             private bool TryApplyFrame(int frameIndex, out string error)
             {
-                if (!KimodoRawMotionUtility.TryApplyFrame(profileBinding, frameIndex, out error))
+                if (!KimodoRawMotionUtility.TryApplyFrame(profileBinding, frameIndex, out error, applyRootPosition: false))
                 {
                     return false;
                 }
 
-                if (sourceBinding != null && !KimodoRawMotionUtility.TryApplyFrame(sourceBinding, frameIndex, out error))
+                if (!TryApplyProfileDeltaRoot(frameIndex, out error))
+                {
+                    return false;
+                }
+
+                if (sourceBinding != null && !KimodoRawMotionUtility.TryApplyFrame(sourceBinding, frameIndex, out error, applyRootPosition: false))
+                {
+                    return false;
+                }
+
+                if (!TryApplySourceDeltaRoot(frameIndex, out error))
                 {
                     return false;
                 }
@@ -875,17 +977,109 @@ namespace KimodoBridge
 
             private bool TryApplyTime(float sampleTimeSeconds, out string error)
             {
-                if (!KimodoRawMotionUtility.TryApplyTime(profileBinding, sampleTimeSeconds, out error))
+                if (!KimodoRawMotionUtility.TryApplyTime(profileBinding, sampleTimeSeconds, out error, loop: false, applyRootPosition: false))
                 {
                     return false;
                 }
 
-                if (sourceBinding != null && !KimodoRawMotionUtility.TryApplyTime(sourceBinding, sampleTimeSeconds, out error))
+                if (!TryApplyProfileDeltaRoot(sampleTimeSeconds, out error))
+                {
+                    return false;
+                }
+
+                if (sourceBinding != null && !KimodoRawMotionUtility.TryApplyTime(sourceBinding, sampleTimeSeconds, out error, loop: false, applyRootPosition: false))
+                {
+                    return false;
+                }
+
+                if (!TryApplySourceDeltaRoot(sampleTimeSeconds, out error))
                 {
                     return false;
                 }
 
                 return TryApplyHumanoidPose(out error);
+            }
+
+            private bool TryApplyProfileDeltaRoot(int frameIndex, out string error)
+            {
+                error = string.Empty;
+                if (profileRootJoint == null || currentSegment == null)
+                {
+                    return true;
+                }
+
+                if (!currentSegment.Motion.TryReadUnityRootPosition(frameIndex, out Vector3 rootPosition))
+                {
+                    error = $"Failed to read profile root position for frame {frameIndex}.";
+                    return false;
+                }
+
+                Vector3 delta = rootPosition - currentSegmentRootBaseline;
+                profileRootJoint.localPosition = new Vector3(
+                    currentSegment.WorldAccumulatedOffset.x + delta.x,
+                    rootPosition.y,
+                    currentSegment.WorldAccumulatedOffset.z + delta.z);
+                return true;
+            }
+
+            private bool TryApplyProfileDeltaRoot(float sampleTimeSeconds, out string error)
+            {
+                error = string.Empty;
+                if (profileRootJoint == null || currentSegment == null)
+                {
+                    return true;
+                }
+
+                if (!KimodoRawMotionUtility.ResolveInterpolatedRootPosition(currentSegment.Motion, sampleTimeSeconds, false, out Vector3 rootPosition))
+                {
+                    error = $"Failed to sample profile root position at time {sampleTimeSeconds:0.###}.";
+                    return false;
+                }
+
+                Vector3 delta = rootPosition - currentSegmentRootBaseline;
+                profileRootJoint.localPosition = new Vector3(
+                    currentSegment.WorldAccumulatedOffset.x + delta.x,
+                    rootPosition.y,
+                    currentSegment.WorldAccumulatedOffset.z + delta.z);
+                return true;
+            }
+
+            private bool TryApplySourceDeltaRoot(int frameIndex, out string error)
+            {
+                error = string.Empty;
+                if (sourceBinding?.joints == null || sourceBinding.joints.Length == 0 || currentSegment == null)
+                {
+                    return true;
+                }
+
+                if (!currentSegment.Motion.TryReadUnityRootPosition(frameIndex, out Vector3 rootPosition))
+                {
+                    error = $"Failed to read source root position for frame {frameIndex}.";
+                    return false;
+                }
+
+                Vector3 delta = rootPosition - currentSegmentRootBaseline;
+                sourceBinding.joints[0].localPosition = new Vector3(delta.x, rootPosition.y, delta.z);
+                return true;
+            }
+
+            private bool TryApplySourceDeltaRoot(float sampleTimeSeconds, out string error)
+            {
+                error = string.Empty;
+                if (sourceBinding?.joints == null || sourceBinding.joints.Length == 0 || currentSegment == null)
+                {
+                    return true;
+                }
+
+                if (!KimodoRawMotionUtility.ResolveInterpolatedRootPosition(currentSegment.Motion, sampleTimeSeconds, false, out Vector3 rootPosition))
+                {
+                    error = $"Failed to sample source root position at time {sampleTimeSeconds:0.###}.";
+                    return false;
+                }
+
+                Vector3 delta = rootPosition - currentSegmentRootBaseline;
+                sourceBinding.joints[0].localPosition = new Vector3(delta.x, rootPosition.y, delta.z);
+                return true;
             }
 
             private bool TryApplyHumanoidPose(out string error)

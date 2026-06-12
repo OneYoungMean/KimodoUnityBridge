@@ -10,7 +10,7 @@ namespace KimodoBridge
     {
         internal readonly string[] jointNames;
         internal readonly int[] jointParents;
-        internal readonly List<float> joints;
+        internal readonly Vector3[] rootPositions;
         internal readonly List<float> localRotQuats;
         internal readonly int rootJointIndex;
 
@@ -20,7 +20,7 @@ namespace KimodoBridge
             float frameRate,
             string[] jointNames,
             int[] jointParents,
-            List<float> joints,
+            Vector3[] rootPositions,
             List<float> localRotQuats,
             int rootJointIndex)
         {
@@ -29,7 +29,7 @@ namespace KimodoBridge
             FrameRate = frameRate > 0f ? frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
             this.jointNames = jointNames ?? Array.Empty<string>();
             this.jointParents = jointParents ?? Array.Empty<int>();
-            this.joints = joints ?? new List<float>(0);
+            this.rootPositions = rootPositions ?? Array.Empty<Vector3>();
             this.localRotQuats = localRotQuats;
             this.rootJointIndex = Mathf.Clamp(rootJointIndex, 0, Mathf.Max(0, jointCount - 1));
         }
@@ -42,25 +42,17 @@ namespace KimodoBridge
         public int RootJointIndex => rootJointIndex;
         public IReadOnlyList<string> JointNames => jointNames;
 
-        internal bool TryReadUnityPosition(int frameIndex, int jointIndex, out Vector3 value)
+        internal bool TryReadUnityRootPosition(int frameIndex, out Vector3 value)
         {
             value = default;
-            if (joints == null ||
+            if (rootPositions == null ||
                 frameIndex < 0 ||
-                frameIndex >= FrameCount ||
-                jointIndex < 0 ||
-                jointIndex >= JointCount)
+                frameIndex >= rootPositions.Length)
             {
                 return false;
             }
 
-            int baseIndex = (frameIndex * JointCount + jointIndex) * 3;
-            if (baseIndex < 0 || baseIndex + 2 >= joints.Count)
-            {
-                return false;
-            }
-
-            value = new Vector3(-joints[baseIndex + 0], joints[baseIndex + 1], joints[baseIndex + 2]);
+            value = rootPositions[frameIndex];
             return true;
         }
 
@@ -113,6 +105,26 @@ namespace KimodoBridge
         public float DurationSeconds => motion != null ? motion.DurationSeconds : 0f;
     }
 
+    public sealed class KimodoRawMotionMetadata
+    {
+        internal KimodoRawMotionMetadata(
+            KimodoRawMotionData motion,
+            Vector3 firstRootPosition,
+            Vector3 lastRootPosition,
+            KimodoMarkerSampleResult tailPose)
+        {
+            Motion = motion;
+            FirstRootPosition = firstRootPosition;
+            LastRootPosition = lastRootPosition;
+            TailPose = tailPose;
+        }
+
+        public KimodoRawMotionData Motion { get; }
+        public Vector3 FirstRootPosition { get; }
+        public Vector3 LastRootPosition { get; }
+        public KimodoMarkerSampleResult TailPose { get; }
+    }
+
     public static class KimodoRawMotionUtility
     {
         private const string FullBodyConstraintType = "fullbody";
@@ -155,6 +167,11 @@ namespace KimodoBridge
             int rotationJointCount = ResolveRotationJointCount(data, frameCount, jointCount);
             jointCount = Mathf.Min(jointCount, rotationJointCount > 0 ? Mathf.Max(jointCount, rotationJointCount) : jointCount);
             int rootJoint = FindRootJointIndex(data, jointCount);
+            if (!TryBuildRootPositions(data.joints, frameCount, jointCount, rootJoint, out Vector3[] rootPositions, out error))
+            {
+                motion = null;
+                return false;
+            }
 
             motion = new KimodoRawMotionData(
                 frameCount,
@@ -162,9 +179,83 @@ namespace KimodoBridge
                 data.fps > 0 ? data.fps : KimodoPlayableClip.FIXED_FRAME_RATE,
                 data.joint_names,
                 data.joint_parents,
-                data.joints,
+                rootPositions,
                 data.local_rot_quats,
                 rootJoint);
+            return true;
+        }
+
+        public static bool TryParseAndAnalyze(
+            string motionJson,
+            string modelName,
+            out KimodoRawMotionMetadata metadata,
+            out string error,
+            string constraintType = FullBodyConstraintType,
+            double sampleTime = 0.0,
+            bool allowPartialJoints = false)
+        {
+            metadata = null;
+            if (!TryParse(motionJson, out KimodoRawMotionData motion, out error))
+            {
+                return false;
+            }
+
+            return TryAnalyze(
+                motion,
+                modelName,
+                out metadata,
+                out error,
+                constraintType,
+                sampleTime,
+                allowPartialJoints);
+        }
+
+        public static bool TryAnalyze(
+            KimodoRawMotionData motion,
+            string modelName,
+            out KimodoRawMotionMetadata metadata,
+            out string error,
+            string constraintType = FullBodyConstraintType,
+            double sampleTime = 0.0,
+            bool allowPartialJoints = false)
+        {
+            metadata = null;
+            error = string.Empty;
+            if (motion == null)
+            {
+                error = "Motion data is null.";
+                return false;
+            }
+
+            if (!motion.TryReadUnityRootPosition(0, out Vector3 firstRootPosition))
+            {
+                error = "Failed to read first root position from motion data.";
+                return false;
+            }
+
+            if (!motion.TryReadUnityRootPosition(Mathf.Max(0, motion.FrameCount - 1), out Vector3 lastRootPosition))
+            {
+                error = "Failed to read last root position from motion data.";
+                return false;
+            }
+
+            if (!TryExtractTailMarkerSample(
+                    motion,
+                    modelName,
+                    out KimodoMarkerSampleResult tailPose,
+                    out error,
+                    constraintType,
+                    sampleTime,
+                    allowPartialJoints))
+            {
+                return false;
+            }
+
+            metadata = new KimodoRawMotionMetadata(
+                motion,
+                firstRootPosition,
+                lastRootPosition,
+                tailPose);
             return true;
         }
 
@@ -253,10 +344,7 @@ namespace KimodoBridge
 
             if (applyRootPosition && binding.joints.Length > 0 && binding.joints[0] != null)
             {
-                int rootMotionJoint = binding.motionJointIndices.Length > 0 && binding.motionJointIndices[0] >= 0
-                    ? binding.motionJointIndices[0]
-                    : motion.RootJointIndex;
-                if (motion.TryReadUnityPosition(frame, rootMotionJoint, out Vector3 rootPosition))
+                if (motion.TryReadUnityRootPosition(frame, out Vector3 rootPosition))
                 {
                     binding.joints[0].localPosition = rootPosition;
                 }
@@ -307,12 +395,9 @@ namespace KimodoBridge
 
             if (applyRootPosition && binding.joints.Length > 0 && binding.joints[0] != null)
             {
-                int rootMotionJoint = binding.motionJointIndices.Length > 0 && binding.motionJointIndices[0] >= 0
-                    ? binding.motionJointIndices[0]
-                    : motion.RootJointIndex;
-                if (motion.TryReadUnityPosition(frame0, rootMotionJoint, out Vector3 p0))
+                if (motion.TryReadUnityRootPosition(frame0, out Vector3 p0))
                 {
-                    if (blend > 0f && motion.TryReadUnityPosition(frame1, rootMotionJoint, out Vector3 p1))
+                    if (blend > 0f && motion.TryReadUnityRootPosition(frame1, out Vector3 p1))
                     {
                         binding.joints[0].localPosition = Vector3.Lerp(p0, p1, blend);
                     }
@@ -321,6 +406,36 @@ namespace KimodoBridge
                         binding.joints[0].localPosition = p0;
                     }
                 }
+            }
+
+            return true;
+        }
+
+        public static bool ResolveInterpolatedRootPosition(
+            KimodoRawMotionData motion,
+            float timeSeconds,
+            bool loop,
+            out Vector3 rootPosition)
+        {
+            rootPosition = Vector3.zero;
+            if (motion == null)
+            {
+                return false;
+            }
+
+            ResolveSampleFrames(motion, timeSeconds, loop, out int frame0, out int frame1, out float blend);
+            if (!motion.TryReadUnityRootPosition(frame0, out Vector3 p0))
+            {
+                return false;
+            }
+
+            if (blend > 0f && motion.TryReadUnityRootPosition(frame1, out Vector3 p1))
+            {
+                rootPosition = Vector3.Lerp(p0, p1, blend);
+            }
+            else
+            {
+                rootPosition = p0;
             }
 
             return true;
@@ -415,14 +530,14 @@ namespace KimodoBridge
                 }
             }
 
-            int rootMotionJoint = motionJointIndices.Length > 0 && motionJointIndices[0] >= 0
-                ? motionJointIndices[0]
-                : motion.RootJointIndex;
             Vector3 rootPosition = Vector3.zero;
-            _ = motion.TryReadUnityPosition(frame, rootMotionJoint, out rootPosition);
+            _ = motion.TryReadUnityRootPosition(frame, out rootPosition);
 
             Vector2 heading = Vector2.right;
-            if (motion.TryReadUnityLocalRotation(frame, rootMotionJoint, rotationJointCount, out Quaternion rootRotation))
+            int rootRotationJoint = motionJointIndices.Length > 0 && motionJointIndices[0] >= 0
+                ? motionJointIndices[0]
+                : motion.RootJointIndex;
+            if (motion.TryReadUnityLocalRotation(frame, rootRotationJoint, rotationJointCount, out Quaternion rootRotation))
             {
                 Vector3 forward = rootRotation * Vector3.forward;
                 heading = new Vector2(forward.x, forward.z);
@@ -695,6 +810,54 @@ namespace KimodoBridge
             }
 
             return Mathf.Min(jointCount, data.local_rot_quats.Count / (frameCount * 4));
+        }
+
+        private static bool TryBuildRootPositions(
+            List<float> joints,
+            int frameCount,
+            int jointCount,
+            int rootJointIndex,
+            out Vector3[] rootPositions,
+            out string error)
+        {
+            rootPositions = null;
+            error = string.Empty;
+            if (joints == null)
+            {
+                error = "Compact joints data is null.";
+                return false;
+            }
+
+            if (frameCount <= 0 || jointCount <= 0)
+            {
+                error = "Frame count or joint count is invalid while building root positions.";
+                return false;
+            }
+
+            if (rootJointIndex < 0 || rootJointIndex >= jointCount)
+            {
+                error = $"Root joint index {rootJointIndex} is out of range for joint count {jointCount}.";
+                return false;
+            }
+
+            rootPositions = new Vector3[frameCount];
+            for (int frameIndex = 0; frameIndex < frameCount; frameIndex++)
+            {
+                int baseIndex = (frameIndex * jointCount + rootJointIndex) * 3;
+                if (baseIndex < 0 || baseIndex + 2 >= joints.Count)
+                {
+                    error = $"Compact joints data is truncated while reading root position for frame {frameIndex}.";
+                    rootPositions = null;
+                    return false;
+                }
+
+                rootPositions[frameIndex] = new Vector3(
+                    -joints[baseIndex + 0],
+                    joints[baseIndex + 1],
+                    joints[baseIndex + 2]);
+            }
+
+            return true;
         }
 
         private static int FindRootJointIndex(MotionJsonData data, int jointCount)
