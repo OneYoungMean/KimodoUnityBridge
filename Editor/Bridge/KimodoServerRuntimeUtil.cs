@@ -46,7 +46,7 @@ namespace KimodoBridge.Editor
             {
                 return Path.GetFullPath(RuntimeRootOverrideForTests);
             }
-            return Path.Combine(ResolveProjectRoot(), "NvlabKimodoQuickServer");
+            return Path.Combine(ResolveProjectRoot(), "NvlabKimodoQuickServer~");
         }
 
         internal static bool BootstrapRuntimeRootIfMissing()

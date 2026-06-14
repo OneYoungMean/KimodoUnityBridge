@@ -10,7 +10,7 @@ namespace KimodoBridge.Editor
     {
         private const string MenuPath = "Kimodo/Install Kimodo Runtime To StreamingAssets";
         private const string RuntimeSourceFolderName = "NvlabKimodoQuickServer~";
-        private const string RuntimeDestinationFolderName = "NvlabKimodoQuickServer";
+        private const string RuntimeDestinationFolderName = "NvlabKimodoQuickServer~";
 
         [MenuItem(MenuPath, priority = 112)]
         private static void InstallRuntimeToStreamingAssets()

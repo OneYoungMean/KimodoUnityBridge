@@ -18,6 +18,7 @@ namespace KimodoBridge
         private readonly BridgeProcessManager processManager;
         private readonly BridgeLogPump logPump;
         private readonly List<BridgeLogPump> sideLogPumps = new List<BridgeLogPump>(2);
+        private readonly SemaphoreSlim lifecycleGate = new SemaphoreSlim(1, 1);
 
         private string currentHost;
         private int currentPort = -1;
@@ -83,6 +84,19 @@ namespace KimodoBridge
         public async Task<string> StartAsync(Action<string> progress, CancellationToken token)
         {
             ThrowIfDisposed();
+            await lifecycleGate.WaitAsync(token);
+            try
+            {
+                return await StartCoreAsync(progress, token);
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+        }
+
+        private async Task<string> StartCoreAsync(Action<string> progress, CancellationToken token)
+        {
             ValidateRuntimeRootOrThrow();
             EnsureLauncherExists();
 
@@ -103,19 +117,24 @@ namespace KimodoBridge
             }
 
             await InvalidateCurrentEndpointAsync();
-            processManager.Start(
-                settings.launcherPath,
-                settings.modelName,
-                settings.highVram,
-                settings.forceSetup,
-                settings.modelsRoot,
-                settings.idleTimeoutSeconds);
-            progress?.Invoke("Bridge process launched.");
+            bool reusingExistingProcess = processManager.IsRunning;
+            if (!reusingExistingProcess)
+            {
+                processManager.Start(
+                    settings.launcherPath,
+                    settings.modelName,
+                    settings.highVram,
+                    settings.forceSetup,
+                    settings.modelsRoot,
+                    settings.idleTimeoutSeconds);
+                progress?.Invoke("Bridge process launched.");
+            }
+
             StartLogPump(BridgeEndpointResolver.ResolveAttachLogPath(settings.runtimeRoot), progress);
 
             try
             {
-                progress?.Invoke("Starting bridge...");
+                progress?.Invoke(reusingExistingProcess ? "Bridge process already exists, waiting for endpoint..." : "Starting bridge...");
                 await processManager.WaitUntilReadyAsync(
                     settings.runtimeRoot,
                     settings.hostFallback,
@@ -138,18 +157,18 @@ namespace KimodoBridge
                 await InvalidateCurrentEndpointAsync();
                 if (settings.preserveProcessOnCancellation)
                 {
-                    await DetachAsync(CancellationToken.None);
+                    await DetachCoreAsync();
                 }
                 else
                 {
-                    await StopAsync(CancellationToken.None);
+                    await StopCoreAsync(CancellationToken.None);
                 }
                 throw;
             }
             catch
             {
                 await InvalidateCurrentEndpointAsync();
-                await StopAsync(CancellationToken.None);
+                await StopCoreAsync(CancellationToken.None);
                 throw;
             }
         }
@@ -288,38 +307,43 @@ namespace KimodoBridge
         public async Task StopAsync(CancellationToken token)
         {
             ThrowIfDisposed();
-
-            StopLogPump();
-            await protocolClient.DetachAsync();
-
-            if (TryResolveCurrentEndpoint(out string host, out int port))
+            await lifecycleGate.WaitAsync(token);
+            try
             {
-                _ = await protocolClient.TrySendQuitAsync(host, port, token);
+                await StopCoreAsync(token);
             }
-
-            processManager.KillProcessTree();
-            TryDeleteServerPortFile();
-            currentPort = -1;
-            currentHost = settings.hostFallback;
+            finally
+            {
+                lifecycleGate.Release();
+            }
         }
 
         public async Task DetachAsync(CancellationToken token)
         {
             ThrowIfDisposed();
-            StopLogPump();
-            await protocolClient.DetachAsync();
-            processManager.DetachProcess();
+            await lifecycleGate.WaitAsync(token);
+            try
+            {
+                await DetachCoreAsync();
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
         }
 
         public async Task KillAsync(CancellationToken token)
         {
             ThrowIfDisposed();
-            StopLogPump();
-            await protocolClient.DetachAsync();
-            processManager.KillProcessTree();
-            TryDeleteServerPortFile();
-            currentPort = -1;
-            currentHost = settings.hostFallback;
+            await lifecycleGate.WaitAsync(token);
+            try
+            {
+                await KillCoreAsync();
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
         }
 
         public void Dispose()
@@ -335,6 +359,7 @@ namespace KimodoBridge
                 StopLogPump();
                 protocolClient?.Dispose();
                 processManager?.Dispose();
+                lifecycleGate?.Dispose();
             }
             catch
             {
@@ -391,6 +416,41 @@ namespace KimodoBridge
             progress?.Invoke("Bridge endpoint is unreachable, restarting bridge...");
             _ = await StartAsync(progress, token);
             await EnsureHealthyOrThrowAsync(token);
+        }
+
+        private async Task StopCoreAsync(CancellationToken token)
+        {
+            StopLogPump();
+            await protocolClient.DetachAsync();
+
+            if (TryResolveCurrentEndpoint(out string host, out int port))
+            {
+                _ = await protocolClient.TrySendQuitAsync(host, port, token);
+            }
+
+            processManager.KillProcessTree();
+            TryDeleteServerPortFile();
+            currentPort = -1;
+            currentHost = settings.hostFallback;
+        }
+
+        private async Task DetachCoreAsync()
+        {
+            StopLogPump();
+            await protocolClient.DetachAsync();
+            processManager.DetachProcess();
+            currentPort = -1;
+            currentHost = settings.hostFallback;
+        }
+
+        private async Task KillCoreAsync()
+        {
+            StopLogPump();
+            await protocolClient.DetachAsync();
+            processManager.KillProcessTree();
+            TryDeleteServerPortFile();
+            currentPort = -1;
+            currentHost = settings.hostFallback;
         }
 
         private static bool IsLikelyTransportFailure(Exception exception)
