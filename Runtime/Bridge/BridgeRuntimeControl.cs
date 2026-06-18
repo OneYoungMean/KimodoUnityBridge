@@ -12,17 +12,6 @@ namespace KimodoBridge
             return BridgeEndpointResolver.TryReadServerEndpoint(runtimeRoot, "127.0.0.1", out host, out port, out _);
         }
 
-        public static async Task<bool> IsServerResponsiveAsync(
-            string host,
-            int port,
-            int connectTimeoutMs = BridgeRuntimeSettings.DefaultStatusConnectTimeoutMs,
-            int ioTimeoutMs = BridgeRuntimeSettings.DefaultStatusIoTimeoutMs,
-            bool acceptLoading = true,
-            CancellationToken token = default)
-        {
-            using var client = new BridgeProtocolClient(connectTimeoutMs, ioTimeoutMs);
-            return await client.PingAsync(host, port, token, acceptLoading).ConfigureAwait(false);
-        }
 
         public static bool CanConnect(
             string host,

@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEditor;
+using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
@@ -337,6 +338,8 @@ namespace KimodoBridge.Editor
 
         private static void EmitFailed(IKimodoEditorCommand command, string message, Exception exception)
         {
+            Debug.LogException(exception);
+            //Debug.Log(message);
             CommandFailed?.Invoke(new KimodoEditorCommandFailedEvent(command, message, exception));
         }
 
