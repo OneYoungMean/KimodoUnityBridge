@@ -5,7 +5,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
-using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace KimodoBridge
 {
@@ -13,9 +12,6 @@ namespace KimodoBridge
     {
         private const int BridgeMessageLogPumpWaitFileTimeoutMs = 60000;
         private const int BridgeMessageLogPumpMissingFilePollMs = 90;
-        private const int StopPollIntervalMs = 150;
-        private const int StopWaitTimeoutMs = 3000;
-
         private readonly BridgeRuntimeSettings settings;
         private readonly BridgeProtocolClient protocolClient;
         private readonly BridgeProcessManager processManager;
@@ -193,7 +189,7 @@ namespace KimodoBridge
             catch
             {
                 await InvalidateCurrentEndpointAsync().ConfigureAwait(false);
-                await StopCoreAsync(CancellationToken.None, throwIfStillRunning: false).ConfigureAwait(false);
+                await StopCoreAsync(CancellationToken.None).ConfigureAwait(false);
                 throw;
             }
         }
@@ -341,7 +337,7 @@ namespace KimodoBridge
             await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                await StopCoreAsync(token, throwIfStillRunning: true).ConfigureAwait(false);
+                await StopCoreAsync(token).ConfigureAwait(false);
             }
             finally
             {
@@ -436,7 +432,7 @@ namespace KimodoBridge
             await EnsureHealthyOrThrowAsync(token).ConfigureAwait(false);
         }
 
-        private async Task StopCoreAsync(CancellationToken token, bool throwIfStillRunning)
+        private async Task StopCoreAsync(CancellationToken token)
         {
             StopLogPump();
             await protocolClient.DetachAsync().ConfigureAwait(false);
@@ -447,21 +443,9 @@ namespace KimodoBridge
                 _ = await protocolClient.TrySendQuitAsync(host, port, token).ConfigureAwait(false);
             }
 
-            bool stopped = true;
-            if (endpointResolved)
-            {
-                stopped = await WaitForEndpointToStopAsync(host, port, token).ConfigureAwait(false);
-            }
-
             processManager.DetachProcess();
             currentPort = -1;
             currentHost = settings.hostFallback;
-
-            if (throwIfStillRunning && !stopped)
-            {
-                throw new InvalidOperationException(
-                    $"Bridge server still responsive at {host}:{port} after quit request.");
-            }
         }
 
         private async Task DetachCoreAsync()
@@ -669,28 +653,6 @@ namespace KimodoBridge
                 }
             }
             sideLogPumps.Clear();
-        }
-
-        private async Task<bool> WaitForEndpointToStopAsync(string host, int port, CancellationToken token)
-        {
-            if (string.IsNullOrWhiteSpace(host) || port <= 0)
-            {
-                return true;
-            }
-
-            Stopwatch sw = Stopwatch.StartNew();
-            while (sw.ElapsedMilliseconds < StopWaitTimeoutMs)
-            {
-                token.ThrowIfCancellationRequested();
-                if (!await BridgeRuntimeControl.CanConnectAsync(host, port, settings.statusConnectTimeoutMs, token).ConfigureAwait(false))
-                {
-                    return true;
-                }
-
-                await Task.Delay(StopPollIntervalMs, token).ConfigureAwait(false);
-            }
-
-            return !await BridgeRuntimeControl.CanConnectAsync(host, port, settings.statusConnectTimeoutMs, token).ConfigureAwait(false);
         }
 
         private static IBridgePlatformProcess CreatePlatformProcess(BridgeRuntimeSettings settings)

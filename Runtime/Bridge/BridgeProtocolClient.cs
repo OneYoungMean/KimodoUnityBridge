@@ -136,11 +136,12 @@ namespace KimodoBridge
         {
             try
             {
-                _ = await SendAsync(host, port, new JObject { ["cmd"] = "quit" }, token).ConfigureAwait(false);
+                await SendWithoutReplyAsync(host, port, new JObject { ["cmd"] = "quit" }, token).ConfigureAwait(false);
                 return true;
             }
             catch
             {
+                CloseSharedConnectionSync();
                 return false;
             }
         }
@@ -162,9 +163,11 @@ namespace KimodoBridge
                 throw new ArgumentNullException(nameof(request));
             }
 
-            await ioLock.WaitAsync(token).ConfigureAwait(false);
+            bool lockTaken = false;
             try
             {
+                await ioLock.WaitAsync(token).ConfigureAwait(false);
+                lockTaken = true;
                 ThrowIfDisposed();
                 await EnsureSharedConnectionAsync(host, port, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
@@ -197,17 +200,66 @@ namespace KimodoBridge
             }
             catch (OperationCanceledException)
             {
-                CloseSharedConnectionSync();
+                if (lockTaken)
+                {
+                    CloseSharedConnectionSync();
+                }
                 throw;
             }
             catch
             {
-                CloseSharedConnectionSync();
+                if (lockTaken)
+                {
+                    CloseSharedConnectionSync();
+                }
                 throw;
             }
             finally
             {
-                ioLock.Release();
+                if (lockTaken)
+                {
+                    ioLock.Release();
+                }
+            }
+        }
+
+        private async Task SendWithoutReplyAsync(string host, int port, JObject request, CancellationToken token)
+        {
+            bool lockTaken = false;
+            try
+            {
+                await ioLock.WaitAsync(token).ConfigureAwait(false);
+                lockTaken = true;
+                ThrowIfDisposed();
+                await EnsureSharedConnectionAsync(host, port, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                string line = request.ToString(Formatting.None);
+                await sharedWriter.WriteLineAsync(line).ConfigureAwait(false);
+                await sharedWriter.FlushAsync().ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                if (lockTaken)
+                {
+                    CloseSharedConnectionSync();
+                }
+                throw;
+            }
+            catch
+            {
+                if (lockTaken)
+                {
+                    CloseSharedConnectionSync();
+                }
+                throw;
+            }
+            finally
+            {
+                if (lockTaken)
+                {
+                    CloseSharedConnectionSync();
+                    ioLock.Release();
+                }
             }
         }
 
