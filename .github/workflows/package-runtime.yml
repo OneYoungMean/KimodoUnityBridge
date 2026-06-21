@@ -1,0 +1,48 @@
+name: package-runtime
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      quickserver_ref:
+        description: Ref/branch/tag of OneYoungMean/NvlabKimodoQuickServer
+        required: false
+        default: main
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-zip:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enable long paths for git
+        shell: pwsh
+        run: git config --global core.longpaths true
+
+      - name: Build package zip
+        shell: pwsh
+        env:
+          QUICKSERVER_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.quickserver_ref || 'main' }}
+        run: .\.github\scripts\package-runtime.ps1 -QuickServerRef "$env:QUICKSERVER_REF" -OutputZip "${{ github.workspace }}\dist\KimodoUnityBridge.zip"
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KimodoUnityBridge-${{ github.run_number }}
+          path: dist/KimodoUnityBridge.zip
+          if-no-files-found: error
