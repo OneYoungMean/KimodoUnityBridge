@@ -10,7 +10,7 @@ namespace KimodoBridge.Editor
         internal const int MaxGeneratedClipsLimit = 1000;
         internal const int DefaultGeneratedClipsLimit = 400;
         internal const float MinGenerationTimeoutSeconds = 10f;
-        internal const float DefaultGenerationTimeoutSeconds = 120f;
+        internal const float DefaultGenerationTimeoutSeconds = 600f;
         internal const int MinServerIdleShutdownMinutes = 0;
         internal const int MaxServerIdleShutdownMinutes = 1440;
         internal const int DefaultServerIdleShutdownMinutes = 10;

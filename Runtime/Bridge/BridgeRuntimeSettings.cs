@@ -7,10 +7,10 @@ namespace KimodoBridge
     public sealed class BridgeRuntimeSettings
     {
         public const int DefaultStartupTimeoutMs = 600000;
-        public const int DefaultPollIntervalMs = 250;
+        public const int DefaultPollIntervalMs = 1000;
         public const int DefaultConnectTimeoutMs = 3000;
-        public const int DefaultIoTimeoutMs = 120000;
-        public const int DefaultModelLoadingTimeoutMs = 600000;
+        public const int DefaultIoTimeoutMs = 600000;
+        public const int DefaultModelLoadingTimeoutMs = 3600000;
         public const int DefaultModelLoadingPollIntervalMs = 1000;
         public const int DefaultStatusConnectTimeoutMs = 1500;
         public const int DefaultStatusIoTimeoutMs = 1200;

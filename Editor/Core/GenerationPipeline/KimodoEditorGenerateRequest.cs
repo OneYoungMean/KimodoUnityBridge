@@ -24,7 +24,7 @@ namespace KimodoBridge.Editor
         public string ModelsRoot = string.Empty;
         public string ComfyHost = "127.0.0.1";
         public int ComfyPort = 8188;
-        public float GenerationTimeoutSeconds = 120f;
+        public float GenerationTimeoutSeconds = 600f;
         public AnimationClip TargetClip;
         public AnimationClip RawBoneClip;
         public Action<KimodoGeneratePipelineStage, string> Progress;
