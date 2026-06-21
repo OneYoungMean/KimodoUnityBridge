@@ -15,12 +15,14 @@ namespace KimodoBridge.Editor
         internal const int MaxServerIdleShutdownMinutes = 1440;
         internal const int DefaultServerIdleShutdownMinutes = 10;
         private const string AlwaysKeepServerEditorPrefsKey = "KimodoBridge.AlwaysKeepServerExperimental";
+        private const string KeepCpuForceEditorPrefsKey = "KimodoBridge.KeepCpuForceExperimental";
 
         [SerializeField] private int maxGeneratedClips = DefaultGeneratedClipsLimit;
         [SerializeField] private string localModelsPath = string.Empty;
         [SerializeField] private float generationTimeoutSeconds = DefaultGenerationTimeoutSeconds;
         [SerializeField] private bool floatingUiEnabled = true;
         [SerializeField] private bool alwaysKeepServerExperimental;
+        [SerializeField] private bool keepCpuForceExperimental;
         [SerializeField] private int serverIdleShutdownMinutes = DefaultServerIdleShutdownMinutes;
         [SerializeField, HideInInspector] private bool advancedCurveFilterFoldout = true;
 
@@ -58,6 +60,16 @@ namespace KimodoBridge.Editor
             }
         }
 
+        internal bool KeepCpuForceExperimental
+        {
+            get => keepCpuForceExperimental || EditorPrefs.GetBool(KeepCpuForceEditorPrefsKey, false);
+            set
+            {
+                keepCpuForceExperimental = value;
+                EditorPrefs.SetBool(KeepCpuForceEditorPrefsKey, value);
+            }
+        }
+
         internal float GenerationTimeoutSeconds
         {
             get => Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);
@@ -87,12 +99,15 @@ namespace KimodoBridge.Editor
         internal void SaveSettings()
         {
             bool effectiveAlwaysKeepServer = AlwaysKeepServerExperimental;
+            bool effectiveKeepCpuForce = KeepCpuForceExperimental;
             maxGeneratedClips = Mathf.Clamp(maxGeneratedClips, MinGeneratedClipsLimit, MaxGeneratedClipsLimit);
             localModelsPath = localModelsPath ?? string.Empty;
             generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);
             serverIdleShutdownMinutes = Mathf.Clamp(serverIdleShutdownMinutes, MinServerIdleShutdownMinutes, MaxServerIdleShutdownMinutes);
             alwaysKeepServerExperimental = effectiveAlwaysKeepServer;
+            keepCpuForceExperimental = effectiveKeepCpuForce;
             EditorPrefs.SetBool(AlwaysKeepServerEditorPrefsKey, effectiveAlwaysKeepServer);
+            EditorPrefs.SetBool(KeepCpuForceEditorPrefsKey, effectiveKeepCpuForce);
             Save(true);
         }
     }

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using UnityEngine;
 
 namespace KimodoBridge
 {
@@ -9,34 +10,20 @@ namespace KimodoBridge
         {
             EnsureNoLegacyScripts(runtimeRoot);
 
-            string s1 = Path.Combine(runtimeRoot, "run_server.bat");
-            if (File.Exists(s1))
+            bool preferShellLauncher =
+                Application.platform == RuntimePlatform.LinuxEditor ||
+                Application.platform == RuntimePlatform.LinuxPlayer;
+
+            string primary = Path.Combine(runtimeRoot, preferShellLauncher ? "run_server.sh" : "run_server.bat");
+            if (File.Exists(primary))
             {
-                return s1;
+                return primary;
             }
 
-            string s2 = Path.Combine(runtimeRoot, "bash", "start_server.bat");
-            if (File.Exists(s2))
+            string fallback = Path.Combine(runtimeRoot, preferShellLauncher ? "run_server.bat" : "run_server.sh");
+            if (File.Exists(fallback))
             {
-                return s2;
-            }
-
-            string s2Root = Path.Combine(runtimeRoot, "start_server.bat");
-            if (File.Exists(s2Root))
-            {
-                return s2Root;
-            }
-
-            string s2Sh = Path.Combine(runtimeRoot, "bash", "start_server.sh");
-            if (File.Exists(s2Sh))
-            {
-                return s2Sh;
-            }
-
-            string s2RootSh = Path.Combine(runtimeRoot, "start_server.sh");
-            if (File.Exists(s2RootSh))
-            {
-                return s2RootSh;
+                return fallback;
             }
 
             return string.Empty;

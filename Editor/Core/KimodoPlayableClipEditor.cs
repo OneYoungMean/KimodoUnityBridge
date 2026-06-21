@@ -209,7 +209,10 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField($"Duration: {seconds:F2}s", EditorStyles.miniLabel);
             DrawConstraintReferenceList();
 
-            bool disableGenerate = isGenerating || KimodoBridgeController.IsRuntimeMaintenanceInProgress;
+            bool disableGenerate =
+                isGenerating ||
+                KimodoBridgeController.IsRuntimeMaintenanceInProgress ||
+                EditorCompilationStateGate.IsCompilingOrReloading;
             GUI.enabled = !disableGenerate;
             if (GUILayout.Button(new GUIContent("Generate & Bake", "Generate motion using current settings and bake result back into this playable clip."), GUILayout.Height(32)))
             {

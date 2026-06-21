@@ -22,6 +22,7 @@ namespace KimodoBridge.Editor
         private string currentServiceModelsRoot = string.Empty;
         private bool currentServiceHighVram;
         private bool currentServiceForceSetup;
+        private bool currentServiceForceCpu;
         private bool isClosing;
         private int shutdownTicket;
 
@@ -35,6 +36,8 @@ namespace KimodoBridge.Editor
             Action<string> progress,
             CancellationToken token)
         {
+            bool forceCpu = KimodoPlayableClipGenerationSettings.instance != null &&
+                KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental;
             float startupTimeoutSeconds = BridgeRuntimeSettings.DefaultStartupTimeoutMs / 1000f;
             int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(kimodoRootPath, highVram, modelName, modelsRoot);
             if (points > 0)
@@ -50,6 +53,7 @@ namespace KimodoBridge.Editor
                 highVram,
                 modelsRoot,
                 forceSetup,
+                forceCpu,
                 startupTimeoutMs: (int)Math.Round(startupTimeoutSeconds * 1000f));
             return await runtimeService.StartAsync(KimodoBackendType.Bridge, progress, token).ConfigureAwait(false);
         }
@@ -69,6 +73,8 @@ namespace KimodoBridge.Editor
                 throw new ArgumentNullException(nameof(request));
             }
 
+            bool forceCpu = KimodoPlayableClipGenerationSettings.instance != null &&
+                KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental;
             int startupTimeoutMs = BridgeRuntimeSettings.DefaultStartupTimeoutMs;
             int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(kimodoRootPath, highVram, modelName, modelsRoot);
             if (points > 0)
@@ -84,6 +90,7 @@ namespace KimodoBridge.Editor
                 highVram,
                 modelsRoot,
                 forceSetup: false,
+                forceCpu,
                 startupTimeoutMs: startupTimeoutMs);
 
             await runtimeService.StartAsync(KimodoBackendType.Bridge, progress, token).ConfigureAwait(false);
@@ -118,6 +125,7 @@ namespace KimodoBridge.Editor
             bool highVram,
             string modelsRoot,
             bool forceSetup = false,
+            bool forceCpu = false,
             int startupTimeoutMs = BridgeRuntimeSettings.DefaultStartupTimeoutMs)
         {
             string resolvedRuntimeRoot = Path.GetFullPath(runtimeRoot ?? string.Empty);
@@ -132,6 +140,7 @@ namespace KimodoBridge.Editor
                 string.Equals(currentServiceModelName, resolvedModelName, StringComparison.Ordinal) &&
                 currentServiceHighVram == highVram &&
                 currentServiceForceSetup == forceSetup &&
+                currentServiceForceCpu == forceCpu &&
                 string.Equals(currentServiceModelsRoot, resolvedModelsRoot, StringComparison.OrdinalIgnoreCase);
 
             if (reusable)
@@ -156,6 +165,7 @@ namespace KimodoBridge.Editor
                     modelName: resolvedModelName,
                     highVram: highVram,
                     forceSetup: forceSetup,
+                    forceCpu: forceCpu,
                     modelsRoot: resolvedModelsRoot,
                     startupTimeoutMs: Math.Max(30000, startupTimeoutMs)),
                 comfyWorkflowResourceName = "kimodo-unity-workflow"
@@ -167,6 +177,7 @@ namespace KimodoBridge.Editor
             currentServiceModelName = resolvedModelName;
             currentServiceHighVram = highVram;
             currentServiceForceSetup = forceSetup;
+            currentServiceForceCpu = forceCpu;
             currentServiceModelsRoot = resolvedModelsRoot;
             return sharedRuntimeGenerationService;
         }
@@ -177,6 +188,7 @@ namespace KimodoBridge.Editor
             string modelName,
             bool highVram,
             bool forceSetup,
+            bool forceCpu,
             string modelsRoot,
             int startupTimeoutMs)
         {
@@ -188,6 +200,7 @@ namespace KimodoBridge.Editor
                 modelName = modelName,
                 highVram = highVram,
                 forceSetup = forceSetup,
+                forceCpu = forceCpu,
                 modelsRoot = modelsRoot,
                 startupTimeoutMs = startupTimeoutMs,
                 connectTimeoutMs = BridgeRuntimeSettings.DefaultConnectTimeoutMs,
@@ -210,6 +223,7 @@ namespace KimodoBridge.Editor
             currentServiceModelsRoot = string.Empty;
             currentServiceHighVram = false;
             currentServiceForceSetup = false;
+            currentServiceForceCpu = false;
         }
 
         internal async Task ShutdownAsync(
@@ -292,15 +306,6 @@ namespace KimodoBridge.Editor
                     }
                 }
 
-                if (mode == ShutdownMode.StopAndDispose && endpointKnown)
-                {
-                    bool fullyStopped = await EnsureEndpointStoppedAfterShutdownAsync(endpointHost, endpointPort, token).ConfigureAwait(false);
-                    if (!fullyStopped)
-                    {
-                        throw new InvalidOperationException(
-                            $"Bridge server still responsive at {endpointHost}:{endpointPort} after shutdown attempt.");
-                    }
-                }
             }
             finally
             {
@@ -311,32 +316,6 @@ namespace KimodoBridge.Editor
 
                 UnityEngine.Debug.Log($"[Kimodo][BridgeShutdown] end mode={mode}, ticket={ticket}");
             }
-        }
-
-        private static async Task<bool> EnsureEndpointStoppedAfterShutdownAsync(string host, int port, CancellationToken token)
-        {
-            if (string.IsNullOrWhiteSpace(host) || port <= 0)
-            {
-                return true;
-            }
-
-            bool canConnect = await BridgeRuntimeControl.CanConnectAsync(
-                host,
-                port,
-                connectTimeoutMs: 500,
-                token: token).ConfigureAwait(false);
-            if (!canConnect)
-            {
-                return true;
-            }
-
-            await Task.Delay(700, CancellationToken.None).ConfigureAwait(false);
-
-            return !await BridgeRuntimeControl.CanConnectAsync(
-                host,
-                port,
-                connectTimeoutMs: 500,
-                token: token).ConfigureAwait(false);
         }
 
         public void Dispose()

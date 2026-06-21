@@ -25,6 +25,7 @@ namespace KimodoBridge
         public string modelName = "Kimodo-SOMA-RP-v1";
         public bool highVram;
         public bool forceSetup;
+        public bool forceCpu;
         public string modelsRoot;
         public string hostFallback = "127.0.0.1";
         public int startupTimeoutMs = DefaultStartupTimeoutMs;

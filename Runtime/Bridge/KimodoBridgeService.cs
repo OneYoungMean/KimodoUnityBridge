@@ -153,6 +153,7 @@ namespace KimodoBridge
                     settings.modelName,
                     settings.highVram,
                     settings.forceSetup,
+                    settings.forceCpu,
                     settings.modelsRoot,
                     settings.idleTimeoutSeconds,
                     settings.ownerProcessId);
@@ -237,27 +238,6 @@ namespace KimodoBridge
             {
                 await DetachCurrentConnectionAsync().ConfigureAwait(false);
                 throw;
-            }
-            catch (Exception ex) when (IsLikelyTransportFailure(ex))
-            {
-                EmitProgress(progress, $"Bridge connection lost, restarting bridge... {ex.Message}");
-                EmitDebugLog($"[KimodoBridge] Transport failure during generate. Restarting bridge once. {ex}");
-                await InvalidateCurrentEndpointAsync().ConfigureAwait(false);
-                TryDeleteServerPortFile();
-                _ = await StartAsync(progress, token).ConfigureAwait(false);
-                await EnsureHealthyOrThrowAsync(token).ConfigureAwait(false);
-                response = await SendGenerateRequestAsync(
-                    prompt,
-                    durationSeconds,
-                    seed,
-                    diffusionSteps,
-                    constraintsJson,
-                    boundaryPoseJson,
-                    loopHint,
-                    segmentIndex,
-                    transitionDurationSeconds,
-                    progress,
-                    token).ConfigureAwait(false);
             }
 
             string status = response?.Value<string>("status") ?? string.Empty;
@@ -462,34 +442,6 @@ namespace KimodoBridge
             await protocolClient.DetachAsync().ConfigureAwait(false);
         }
 
-        private static bool IsLikelyTransportFailure(Exception exception)
-        {
-            for (Exception current = exception; current != null; current = current.InnerException)
-            {
-                if (current is IOException ||
-                    current is ObjectDisposedException)
-                {
-                    return true;
-                }
-
-                string typeName = current.GetType().Name;
-                if (string.Equals(typeName, "SocketException", StringComparison.Ordinal))
-                {
-                    return true;
-                }
-
-                string message = current.Message ?? string.Empty;
-                if (message.IndexOf("Bridge connect timeout", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    message.IndexOf("Bridge read timeout", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    message.IndexOf("Empty bridge response", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
         private void TryDeleteServerPortFile()
         {
             string path = string.IsNullOrWhiteSpace(currentPortFilePath)
@@ -507,6 +459,7 @@ namespace KimodoBridge
                 // ignore cleanup failure
             }
         }
+
 
         private bool TryResolveCurrentEndpoint(out string host, out int port)
         {

@@ -220,6 +220,18 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUI.BeginChangeCheck();
+            bool keepCpuForceExperimental = EditorGUILayout.Toggle(
+                new GUIContent(
+                    "Keep CPU Force (Experimental)",
+                    "Force bridge startup to use CPU mode for testing. This is only intended for validating the CPU startup path."),
+                settings.KeepCpuForceExperimental);
+            if (EditorGUI.EndChangeCheck())
+            {
+                settings.KeepCpuForceExperimental = keepCpuForceExperimental;
+                settings.SaveSettings();
+            }
+
+            EditorGUI.BeginChangeCheck();
             int idleShutdownMinutes = EditorGUILayout.IntField(
                 new GUIContent(
                     "Idle Shutdown (min)",

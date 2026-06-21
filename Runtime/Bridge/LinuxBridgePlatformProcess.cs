@@ -12,7 +12,15 @@ namespace KimodoBridge
             return Application.platform == RuntimePlatform.LinuxEditor || Application.platform == RuntimePlatform.LinuxPlayer;
         }
 
-        public ProcessStartInfo BuildLauncherStartInfo(string launcherPath, string modelName, bool highVram, bool forceSetup, string modelsRoot, int idleTimeoutSeconds, int ownerProcessId)
+        public ProcessStartInfo BuildLauncherStartInfo(
+            string launcherPath,
+            string modelName,
+            bool highVram,
+            bool forceSetup,
+            bool forceCpu,
+            string modelsRoot,
+            int idleTimeoutSeconds,
+            int ownerProcessId)
         {
             string ext = Path.GetExtension(launcherPath)?.ToLowerInvariant() ?? string.Empty;
             if (ext != ".sh" && ext != ".bat")
@@ -25,9 +33,10 @@ namespace KimodoBridge
             string modelArg = $" --model \"{(string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim())}\"";
             string vramArg = highVram ? " --highvram" : string.Empty;
             string forceSetupArg = forceSetup ? " --force-setup" : string.Empty;
+            string forceCpuArg = forceCpu ? " --device cpu" : string.Empty;
             string modelsArg = string.IsNullOrWhiteSpace(modelsRoot) ? string.Empty : $" --models-root \"{modelsRoot.Trim()}\"";
             string outputArg = " --output file";
-            string args = modelArg + vramArg + forceSetupArg + modelsArg + outputArg;
+            string args = modelArg + vramArg + forceSetupArg + forceCpuArg + modelsArg + outputArg;
             string envPrefix = $"KIMODO_IDLE_TIMEOUT_SEC={Math.Max(0, idleTimeoutSeconds)}";
 
             return new ProcessStartInfo

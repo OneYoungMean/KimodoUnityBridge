@@ -296,14 +296,25 @@ namespace KimodoBridge.Editor
 
         internal static bool IsTextEncoderInstalled(string runtimeRoot, bool highVram)
         {
-            return IsTextEncoderInstalled(runtimeRoot, highVram, null);
+            return IsTextEncoderInstalled(runtimeRoot, highVram, IsKeepCpuForceEnabled(), null);
         }
 
         internal static bool IsTextEncoderInstalled(string runtimeRoot, bool highVram, string modelsRootOverride)
         {
+            return IsTextEncoderInstalled(runtimeRoot, highVram, IsKeepCpuForceEnabled(), modelsRootOverride);
+        }
+
+        internal static bool IsTextEncoderInstalled(string runtimeRoot, bool highVram, bool forceCpu, string modelsRootOverride)
+        {
             string modelsRoot = string.IsNullOrWhiteSpace(modelsRootOverride)
                 ? Path.Combine(runtimeRoot, "models")
                 : Path.GetFullPath(modelsRootOverride.Trim());
+
+            if (forceCpu)
+            {
+                string ggufDir = Path.Combine(modelsRoot, "KIMODO-Meta3_llm2vec_FP16-Q6_K");
+                return File.Exists(Path.Combine(ggufDir, "KIMODO-Meta3_llm2vec_FP16-Q6_K.gguf"));
+            }
 
             if (highVram)
             {
@@ -320,10 +331,20 @@ namespace KimodoBridge.Editor
 
         internal static int EstimateMissingConfigPoints(string runtimeRoot, bool highVram, string selectedModel)
         {
-            return EstimateMissingConfigPoints(runtimeRoot, highVram, selectedModel, null);
+            return EstimateMissingConfigPoints(runtimeRoot, highVram, IsKeepCpuForceEnabled(), selectedModel, null);
         }
 
         internal static int EstimateMissingConfigPoints(string runtimeRoot, bool highVram, string selectedModel, string modelsRootOverride)
+        {
+            return EstimateMissingConfigPoints(runtimeRoot, highVram, IsKeepCpuForceEnabled(), selectedModel, modelsRootOverride);
+        }
+
+        internal static int EstimateMissingConfigPoints(string runtimeRoot, bool highVram, bool forceCpu, string selectedModel)
+        {
+            return EstimateMissingConfigPoints(runtimeRoot, highVram, forceCpu, selectedModel, null);
+        }
+
+        internal static int EstimateMissingConfigPoints(string runtimeRoot, bool highVram, bool forceCpu, string selectedModel, string modelsRootOverride)
         {
             int points = 0;
             bool firstSetup = !File.Exists(Path.Combine(runtimeRoot, ".setup.complete"));
@@ -337,9 +358,9 @@ namespace KimodoBridge.Editor
                 points += 2; // Kimodo base model estimate
             }
 
-            if (!IsTextEncoderInstalled(runtimeRoot, highVram, modelsRootOverride))
+            if (!IsTextEncoderInstalled(runtimeRoot, highVram, forceCpu, modelsRootOverride))
             {
-                points += highVram ? 16 : 4;
+                points += (forceCpu || !highVram) ? 4 : 16;
             }
 
             return points;
@@ -420,6 +441,12 @@ namespace KimodoBridge.Editor
             return
                 Directory.Exists(Path.Combine(path, "Assets")) &&
                 Directory.Exists(Path.Combine(path, "ProjectSettings"));
+        }
+
+        private static bool IsKeepCpuForceEnabled()
+        {
+            return KimodoPlayableClipGenerationSettings.instance != null &&
+                   KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental;
         }
     }
 }

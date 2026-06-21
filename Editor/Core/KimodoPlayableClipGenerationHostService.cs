@@ -111,12 +111,26 @@ namespace KimodoBridge.Editor
 
         public static void CleanupFailedGeneration(KimodoEditorGenerateRequest request)
         {
-            if (request == null || request.TargetClip == null)
+            if (request == null)
             {
                 return;
             }
 
-            KimodoEditorClipWritebackService.TryDeleteGeneratedAnimationClipAsset(request.TargetClip);
+            TryCleanupGeneratedClip(request.TargetClip);
+            if (!ReferenceEquals(request.RawBoneClip, request.TargetClip))
+            {
+                TryCleanupGeneratedClip(request.RawBoneClip);
+            }
+        }
+
+        private static void TryCleanupGeneratedClip(AnimationClip clip)
+        {
+            if (clip == null)
+            {
+                return;
+            }
+
+            KimodoEditorClipWritebackService.TryDeleteGeneratedAnimationClipAsset(clip);
         }
 
         public static IReadOnlyList<KimodoConstraintMarkerBase> GetLatestConstraintMarkers()

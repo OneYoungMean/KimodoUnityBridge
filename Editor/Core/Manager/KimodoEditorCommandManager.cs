@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEditor;
+using UnityEditor.Compilation;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
@@ -22,6 +23,7 @@ namespace KimodoBridge.Editor
 
         static KimodoEditorCommandManager()
         {
+            CompilationPipeline.compilationStarted += OnCompilationStarted;
             AssemblyReloadEvents.beforeAssemblyReload += CancelAllRunning;
             EditorApplication.quitting += CancelAllRunning;
         }
@@ -38,12 +40,22 @@ namespace KimodoBridge.Editor
                 return Cancel(cancelClip.Clip == null ? cancelClip.TargetKey : "clip:" + cancelClip.Clip.GetInstanceID());
             }
 
+            if (command.Kind == KimodoEditorCommandKind.GeneratePlayableClip && EditorCompilationStateGate.IsCompilingOrReloading)
+            {
+                EmitFailed(
+                    command,
+                    "Editor is compiling or reloading scripts.",
+                    new InvalidOperationException("Editor is compiling or reloading scripts."));
+                return false;
+            }
+
             RunningCommandState state = new RunningCommandState(command);
             lock (Sync)
             {
                 if (RunningByTarget.ContainsKey(command.TargetKey))
                 {
-                    EmitFailed(command, $"A command is already running for target '{command.TargetKey}'.", null);
+                    string message = $"A command is already running for target '{command.TargetKey}'.";
+                    EmitFailed(command, message, new InvalidOperationException(message));
                     return false;
                 }
 
@@ -153,6 +165,7 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("Playable clip is null.");
             }
 
+            state.Token.ThrowIfCancellationRequested();
             EmitProgress(eventCommand, "Generating and baking...", KimodoGeneratePipelineStage.Validate);
 
             string prompt = string.IsNullOrWhiteSpace(promptOverride) ? (clip.motionPrompt ?? string.Empty) : promptOverride.Trim();
@@ -161,6 +174,7 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("Prompt is empty.");
             }
 
+            state.Token.ThrowIfCancellationRequested();
             if (!string.Equals(clip.motionPrompt, prompt, StringComparison.Ordinal))
             {
                 clip.motionPrompt = prompt;
@@ -177,6 +191,7 @@ namespace KimodoBridge.Editor
                 request.Progress = (stage, message) => EmitProgress(eventCommand, message, stage);
 
                 KimodoEditorGenerateResult result = await KimodoEditorGeneratePipelineOrchestrator.ExecuteAsync(request);
+                state.Token.ThrowIfCancellationRequested();
                 KimodoPlayableClipGenerationHostService.FinalizeGeneration(clip, request, result);
 
                 EmitCompleted(eventCommand, result);
@@ -298,15 +313,29 @@ namespace KimodoBridge.Editor
 
         private static void CancelAllRunning()
         {
+            CancelRunning(null);
+        }
+
+        private static void OnCompilationStarted(object _)
+        {
+            CancelRunning(state => state.Command.Kind == KimodoEditorCommandKind.GeneratePlayableClip);
+        }
+
+        private static void CancelRunning(Func<RunningCommandState, bool> predicate)
+        {
             RunningCommandState[] snapshot;
             lock (Sync)
             {
-                snapshot = new RunningCommandState[RunningByTarget.Count];
-                int index = 0;
+                List<RunningCommandState> states = new List<RunningCommandState>(RunningByTarget.Count);
                 foreach (KeyValuePair<string, RunningCommandState> kv in RunningByTarget)
                 {
-                    snapshot[index++] = kv.Value;
+                    if (predicate == null || predicate(kv.Value))
+                    {
+                        states.Add(kv.Value);
+                    }
                 }
+
+                snapshot = states.ToArray();
             }
 
             for (int i = 0; i < snapshot.Length; i++)
@@ -338,7 +367,14 @@ namespace KimodoBridge.Editor
 
         private static void EmitFailed(IKimodoEditorCommand command, string message, Exception exception)
         {
-            Debug.LogException(exception);
+            if (exception != null)
+            {
+                Debug.LogException(exception);
+            }
+            else
+            {
+                Debug.LogError(message);
+            }
             //Debug.Log(message);
             CommandFailed?.Invoke(new KimodoEditorCommandFailedEvent(command, message, exception));
         }

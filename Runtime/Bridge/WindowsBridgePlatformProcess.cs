@@ -12,7 +12,15 @@ namespace KimodoBridge
             return Application.platform == RuntimePlatform.WindowsEditor || Application.platform == RuntimePlatform.WindowsPlayer;
         }
 
-        public ProcessStartInfo BuildLauncherStartInfo(string launcherPath, string modelName, bool highVram, bool forceSetup, string modelsRoot, int idleTimeoutSeconds, int ownerProcessId)
+        public ProcessStartInfo BuildLauncherStartInfo(
+            string launcherPath,
+            string modelName,
+            bool highVram,
+            bool forceSetup,
+            bool forceCpu,
+            string modelsRoot,
+            int idleTimeoutSeconds,
+            int ownerProcessId)
         {
             string ext = Path.GetExtension(launcherPath)?.ToLowerInvariant() ?? string.Empty;
             if (ext != ".bat" && ext != ".cmd")
@@ -26,8 +34,9 @@ namespace KimodoBridge
                 ? string.Empty
                 : $" --models-root {QuoteForCmd(modelsRoot.Trim())}";
             string forceSetupArg = forceSetup ? " --force-setup" : string.Empty;
+            string forceCpuArg = forceCpu ? " --device cpu" : string.Empty;
             string watchPidArg = ownerProcessId > 0 ? $" --watchpid {ownerProcessId}" : string.Empty;
-            string args = $"--model {qModel}{(highVram ? " --highvram" : string.Empty)}{modelsArg}{forceSetupArg}{watchPidArg} --output file";
+            string args = $"--model {qModel}{(highVram ? " --highvram" : string.Empty)}{modelsArg}{forceSetupArg}{forceCpuArg}{watchPidArg} --output file";
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = "cmd.exe",

@@ -22,7 +22,7 @@ It contains two coupled parts:
 
 Only the new pipeline is supported:
 
-- Start server: `run_server.bat` (or compatibility wrapper `bash\start_server.bat` / `bash\start_server.sh`)
+- Start server: `run_server.bat` on Windows or `run_server.sh` on Linux
 - Example test: `example\example_run_server_tpose.bat`
 - Setup and model preparation are handled internally by the runtime entrypoint; Unity bridge does not call standalone setup/download scripts directly.
 
@@ -57,8 +57,7 @@ Unity bridge runtime behavior:
 2. If missing, it is bootstrapped from package template `NvlabKimodoQuickServer~`.
 3. Start script resolution uses new pipeline only:
 - `run_server.bat`
-- `bash\start_server.bat`
-- `bash\start_server.sh`
+- `run_server.sh`
 4. If a legacy offline script is detected in runtime root, code throws an exception.
 
 ## 5) Server Protocol

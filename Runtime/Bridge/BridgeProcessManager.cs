@@ -46,7 +46,15 @@ namespace KimodoBridge
 
         public int ProcessId => processId;
 
-        public Process Start(string launcherPath, string modelName, bool highVram, bool forceSetup, string modelsRoot, int idleTimeoutSeconds, int ownerProcessId)
+        public Process Start(
+            string launcherPath,
+            string modelName,
+            bool highVram,
+            bool forceSetup,
+            bool forceCpu,
+            string modelsRoot,
+            int idleTimeoutSeconds,
+            int ownerProcessId)
         {
             ThrowIfDisposed();
             if (IsRunning)
@@ -54,7 +62,15 @@ namespace KimodoBridge
                 throw new InvalidOperationException("Bridge process is already running.");
             }
 
-            Process proc = launcher.Start(launcherPath, modelName, highVram, forceSetup, modelsRoot, idleTimeoutSeconds, ownerProcessId);
+            Process proc = launcher.Start(
+                launcherPath,
+                modelName,
+                highVram,
+                forceSetup,
+                forceCpu,
+                modelsRoot,
+                idleTimeoutSeconds,
+                ownerProcessId);
             process = proc;
             processId = proc.Id;
             return proc;

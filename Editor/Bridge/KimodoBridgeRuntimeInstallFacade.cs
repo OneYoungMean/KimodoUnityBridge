@@ -43,7 +43,7 @@ namespace KimodoBridge.Editor
             }
 
             throw new FileNotFoundException(
-                $"Bridge launcher not found under runtime root: {runtimeRoot}. Expected new pipeline launcher: run_server.bat or bash/start_server.bat.");
+                $"Bridge launcher not found under runtime root: {runtimeRoot}. Expected new pipeline launcher: run_server.bat or run_server.sh.");
         }
 
         internal static ModelSetupStatus EvaluateModelSetupStatus(
