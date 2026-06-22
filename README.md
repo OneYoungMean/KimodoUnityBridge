@@ -20,7 +20,7 @@
 **开箱即用，完全运行在本地的免费 AI 人形动画生成系统**. 
 * 基于 https://github.com/nv-tlabs/kimodo 
 * 基于 https://github.com/OneYoungMean/NvlabKimodoQuickServer(感谢[Aero-Ex](https://gist.github.com/Aero-Ex) 他的文档解决了我很大问题)
-* 兼容CPU/GPU模式运行（CUDA大约5秒，CPU大约1一分钟）兼容Windows/Linux平台.
+* CPU/GPU模式自适应（CUDA大约5秒，CPU大约1一分钟）兼容Windows/Linux平台.
 * 完全本地部署，你无需为任何内容付任何费用（也不必为此感到自责）！
 * 一款开源AI插件, 可以根据提示词生成你想要的人物角色动画！
 
@@ -60,6 +60,17 @@
 ### 说明书
 
 施工中...
+
+### 已知问题
+CUDA平台生成clip的时候有小概率会走CPU生成管线.重启一下unity一般能解决问题.  
+第一次Generator有小概率会失败，重新生成可以解决一下问题.  
+Constraint Edit保存的的时候有概率没有写入成功.  
+
+### Bug Report
+由于项目较大且开发时间较短，bug难免有所疏漏，在这里提前给用户老爷抱歉啦，如果你很不幸（或者说很幸运）遇到了bug，请提交一下log，方便作者改进和维护，感激不尽：  
+如果你遇到的是unity报错：请提交[Editor.log](https://blog.csdn.net/codingriver/article/details/86551964)  
+如果你遇到的是server报错（例如server exit with code 1）请将项目路径\NvlabKimodoQuickServer~\log下的内容发送给我（Runtime在StreamingAseets目录下）  
+再次诚恳表示抱歉！Orz
 
 ### 最后,如果你喜欢本项目记得给本项目star!
 ```C#
