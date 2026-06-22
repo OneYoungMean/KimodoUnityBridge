@@ -25,9 +25,9 @@ namespace KimodoBridge.Editor
             try
             {
                 GameObject rootObject = sourceRoot;
-                if (sourceRoot.TryGetComponent(out Animator animator) && animator.avatarRoot != null)
+                if (sourceRoot.TryGetComponent(out Animator animator))
                 {
-                    rootObject = animator.avatarRoot.gameObject;
+                    rootObject = GetAnimatorAvatarRootGameObject(animator);
                 }
 
                 return AvatarSetupToolExtension.AutoGenerateHumanoidAvatarFromModelOrThrow(rootObject, forceReimport: true);
@@ -37,6 +37,22 @@ namespace KimodoBridge.Editor
                 error = $"GenerateHumanoidAvatar failed: {e.Message}";
                 return null;
             }
+        }
+
+        private static GameObject GetAnimatorAvatarRootGameObject(Animator animator)
+        {
+            if (animator == null)
+            {
+                return null;
+            }
+
+#if UNITY_2022_1_OR_NEWER
+            if (animator.avatarRoot != null)
+            {
+                return animator.avatarRoot.gameObject;
+            }
+#endif
+            return animator.gameObject;
         }
     }
 }

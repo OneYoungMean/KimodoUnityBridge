@@ -902,7 +902,7 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                GameObject candidateRoot = a.avatarRoot != null ? a.avatarRoot.gameObject : a.gameObject;
+                GameObject candidateRoot = GetAnimatorAvatarRootGameObject(a);
                 Avatar candidateAvatar = a.avatar;
                 if (candidateRoot == null || candidateAvatar == null || !candidateAvatar.isValid || !candidateAvatar.isHuman)
                 {
@@ -920,6 +920,22 @@ namespace KimodoBridge.Editor
             }
 
             return false;
+        }
+
+        private static GameObject GetAnimatorAvatarRootGameObject(Animator animator)
+        {
+            if (animator == null)
+            {
+                return null;
+            }
+
+#if UNITY_2022_1_OR_NEWER
+            if (animator.avatarRoot != null)
+            {
+                return animator.avatarRoot.gameObject;
+            }
+#endif
+            return animator.gameObject;
         }
 
         private static bool IsUsableSceneAnimator(Animator animator)
