@@ -98,14 +98,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ steps.package_version.outputs.tag }}"
-          $previousNativePreference = $PSNativeCommandUseErrorActionPreference
-          $PSNativeCommandUseErrorActionPreference = $false
-          try {
-            gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
-            $releaseExists = ($LASTEXITCODE -eq 0)
+          $releaseApiUrl = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$tag"
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "User-Agent" = "KimodoUnityBridge-release-runtime"
           }
-          finally {
-            $PSNativeCommandUseErrorActionPreference = $previousNativePreference
+
+          try {
+            Invoke-RestMethod -Uri $releaseApiUrl -Headers $headers | Out-Null
+            $releaseExists = $true
+          }
+          catch {
+            $response = $_.Exception.Response
+            if ($null -ne $response -and [int]$response.StatusCode -eq 404) {
+              $releaseExists = $false
+            }
+            else {
+              throw
+            }
           }
 
           if ($releaseExists) {
@@ -114,8 +125,6 @@ jobs:
           else {
             "exists=false" >> $env:GITHUB_OUTPUT
           }
-
-          $global:LASTEXITCODE = 0
 
       - name: Create GitHub Release
         if: steps.release_state.outputs.exists != 'true'
