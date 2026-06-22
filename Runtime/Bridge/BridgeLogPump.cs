@@ -173,59 +173,76 @@ namespace KimodoBridge
                     return;
                 }
 
-                using var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                if (fs.CanSeek && !readFromStart)
-                {
-                    fs.Seek(0, SeekOrigin.End);
-                }
-
-                using var reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                OpenReader(logPath, readFromStart, out FileStream fs, out StreamReader reader, out DateTime openedWriteTimeUtc, out long openedLength);
                 int idleDelayMs = idlePollMinMs;
-                while (!token.IsCancellationRequested)
+                try
                 {
-                    string line = await reader.ReadLineAsync().ConfigureAwait(false);
-                    if (line != null)
+                    while (!token.IsCancellationRequested)
                     {
-                        string trimmed = line.Trim();
-                        if (!string.IsNullOrWhiteSpace(trimmed))
+                        if (ShouldReopenForRotation(logPath, fs, openedWriteTimeUtc, openedLength))
                         {
-                            EmitLine(onLine, callbackContext, trimmed);
+                            try { reader.Dispose(); } catch { }
+                            try { fs.Dispose(); } catch { }
+                            OpenReader(logPath, readFromStart, out fs, out reader, out openedWriteTimeUtc, out openedLength);
+                            idleDelayMs = idlePollMinMs;
+                            continue;
                         }
 
-                        idleDelayMs = idlePollMinMs;
-                        continue;
-                    }
-
-                    if (fs.CanSeek && fs.Length < fs.Position)
-                    {
-                        fs.Seek(0, SeekOrigin.Begin);
-                        reader.DiscardBufferedData();
-                        idleDelayMs = idlePollMinMs;
-                        continue;
-                    }
-
-                    if (fs.Length > fs.Position)
-                    {
-                        string tailChunk = await reader.ReadToEndAsync().ConfigureAwait(false);
-                        if (!string.IsNullOrWhiteSpace(tailChunk))
+                        string line = await reader.ReadLineAsync().ConfigureAwait(false);
+                        if (line != null)
                         {
-                            string[] parts = tailChunk.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                            for (int i = 0; i < parts.Length; i++)
+                            string trimmed = line.Trim();
+                            if (!string.IsNullOrWhiteSpace(trimmed))
                             {
-                                string trimmed = parts[i].Trim();
-                                if (!string.IsNullOrWhiteSpace(trimmed))
+                                EmitLine(onLine, callbackContext, trimmed);
+                            }
+
+                            openedWriteTimeUtc = SafeGetLastWriteTimeUtc(logPath, openedWriteTimeUtc);
+                            openedLength = SafeGetLength(logPath, fs.Length);
+                            idleDelayMs = idlePollMinMs;
+                            continue;
+                        }
+
+                        if (fs.CanSeek && fs.Length < fs.Position)
+                        {
+                            fs.Seek(0, SeekOrigin.Begin);
+                            reader.DiscardBufferedData();
+                            openedWriteTimeUtc = SafeGetLastWriteTimeUtc(logPath, openedWriteTimeUtc);
+                            openedLength = SafeGetLength(logPath, fs.Length);
+                            idleDelayMs = idlePollMinMs;
+                            continue;
+                        }
+
+                        if (fs.Length > fs.Position)
+                        {
+                            string tailChunk = await reader.ReadToEndAsync().ConfigureAwait(false);
+                            if (!string.IsNullOrWhiteSpace(tailChunk))
+                            {
+                                string[] parts = tailChunk.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                                for (int i = 0; i < parts.Length; i++)
                                 {
-                                    EmitLine(onLine, callbackContext, trimmed);
+                                    string trimmed = parts[i].Trim();
+                                    if (!string.IsNullOrWhiteSpace(trimmed))
+                                    {
+                                        EmitLine(onLine, callbackContext, trimmed);
+                                    }
                                 }
                             }
+
+                            openedWriteTimeUtc = SafeGetLastWriteTimeUtc(logPath, openedWriteTimeUtc);
+                            openedLength = SafeGetLength(logPath, fs.Length);
+                            idleDelayMs = idlePollMinMs;
+                            continue;
                         }
 
-                        idleDelayMs = idlePollMinMs;
-                        continue;
+                        await Task.Delay(idleDelayMs, token).ConfigureAwait(false);
+                        idleDelayMs = Math.Min(idlePollMaxMs, idleDelayMs + idlePollMinMs);
                     }
-
-                    await Task.Delay(idleDelayMs, token).ConfigureAwait(false);
-                    idleDelayMs = Math.Min(idlePollMaxMs, idleDelayMs + idlePollMinMs);
+                }
+                finally
+                {
+                    try { reader.Dispose(); } catch { }
+                    try { fs.Dispose(); } catch { }
                 }
             }
             catch (OperationCanceledException)
@@ -235,6 +252,77 @@ namespace KimodoBridge
             catch (Exception e)
             {
                 EmitLine(onLine, callbackContext, $"[BridgeLogPump] stopped: {e.Message}");
+            }
+        }
+
+        private static void OpenReader(
+            string logPath,
+            bool readFromStart,
+            out FileStream fs,
+            out StreamReader reader,
+            out DateTime openedWriteTimeUtc,
+            out long openedLength)
+        {
+            fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (fs.CanSeek && !readFromStart)
+            {
+                fs.Seek(0, SeekOrigin.End);
+            }
+
+            reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            openedWriteTimeUtc = SafeGetLastWriteTimeUtc(logPath, DateTime.MinValue);
+            openedLength = SafeGetLength(logPath, fs.Length);
+        }
+
+        private static bool ShouldReopenForRotation(string logPath, FileStream fs, DateTime openedWriteTimeUtc, long openedLength)
+        {
+            if (fs == null || string.IsNullOrWhiteSpace(logPath) || !File.Exists(logPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                var info = new FileInfo(logPath);
+                if (!info.Exists)
+                {
+                    return false;
+                }
+
+                if (fs.CanSeek && fs.Position < fs.Length)
+                {
+                    return false;
+                }
+
+                return info.LastWriteTimeUtc != openedWriteTimeUtc || info.Length != openedLength;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static DateTime SafeGetLastWriteTimeUtc(string path, DateTime fallback)
+        {
+            try
+            {
+                return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        private static long SafeGetLength(string path, long fallback)
+        {
+            try
+            {
+                return File.Exists(path) ? new FileInfo(path).Length : fallback;
+            }
+            catch
+            {
+                return fallback;
             }
         }
 
