@@ -15,7 +15,7 @@
 
 
 # KimodoUnityBridge
-![[](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/Manual/Kimodo%20Unity%20Bridge_01.png)
+![](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/Manual/Kimodo%20Unity%20Bridge_01.png)
 
 **开箱即用，完全运行在本地的免费 AI 人形动画生成系统**. 
 * 基于 https://github.com/nv-tlabs/kimodo 
