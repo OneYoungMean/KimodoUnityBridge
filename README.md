@@ -62,14 +62,14 @@
 施工中...
 
 ### 已知问题
-CUDA平台生成clip的时候有小概率会走CPU生成管线
-第一次Generator有小概率会失败，一般重新启动即可
-Constraint Edit保存的的时候有概率没有写入成功
+CUDA平台生成clip的时候有小概率会走CPU生成管线.重启一下unity一般能解决问题.  
+第一次Generator有小概率会失败，重新生成可以解决一下问题.  
+Constraint Edit保存的的时候有概率没有写入成功.  
 
 ### Bug Report
-由于项目较大且开发时间较短，bug难免有所疏漏，在这里提前给用户老爷抱歉啦，如果你很不幸（或者说很幸运）遇到了bug，请提交一下log，方便作者改进和维护，感激不尽：
-如果你遇到的是unity报错：请提交[Editor.log](https://blog.csdn.net/codingriver/article/details/86551964)
-如果你遇到的是server报错（例如server exit with code 1）请将项目路径\NvlabKimodoQuickServer~\log下的内容发送给我（Runtime在StreamingAseets目录下）
+由于项目较大且开发时间较短，bug难免有所疏漏，在这里提前给用户老爷抱歉啦，如果你很不幸（或者说很幸运）遇到了bug，请提交一下log，方便作者改进和维护，感激不尽：  
+如果你遇到的是unity报错：请提交[Editor.log](https://blog.csdn.net/codingriver/article/details/86551964)  
+如果你遇到的是server报错（例如server exit with code 1）请将项目路径\NvlabKimodoQuickServer~\log下的内容发送给我（Runtime在StreamingAseets目录下）  
 再次诚恳表示抱歉！Orz
 
 ### 最后,如果你喜欢本项目记得给本项目star!
