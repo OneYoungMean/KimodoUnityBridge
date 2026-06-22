@@ -1,214 +1,84 @@
+# License
+[Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
+
+# 1.1.10更新点速览    
+* **Runtime支持，现在你可以将server打包进入runtime当中运行了**
+* **AnimatorTool 现在单独作为一个工具，你不必再timeline事先bake好动画再移植了**
+* **[完整的Demo](https://github.com/OneYoungMean/KimodoUnityBridge_FullDemo)，你不必再去看lightdemo了！**  
+* 修复了unity 2021 报错的问题.
+* 修复了在linux平台下显存不大于6G无法切换到CPU模式的问题.
+
+
+## 更新注意事项
+**你可能需要移除所有的KimodoAnimationCache，它们不再受支持，点击ProjectSetting/Kimodo Server Manager/Clear Clip Cache 来解决问题**.  
+**如果遇到卡顿问题,尝试将Max Cached Clip设置为 100**  
+
+
 # KimodoUnityBridge
+![](https://z3.ax1x.com/2021/09/29/44E1Gn.png) 
 
-在 Unity 里更轻松地体验 Kimodo 动作生成。
+**开箱即用，完全运行在本地的免费 AI 人形动画生成系统**. 
+* 基于 https://github.com/nv-tlabs/kimodo 
+* 基于 https://github.com/OneYoungMean/NvlabKimodoQuickServer(感谢[Aero-Ex](https://gist.github.com/Aero-Ex} 他的文档解决了我很大问题)
+* 兼容CPU/GPU模式运行（CUDA大约5秒，CPU大约1一分钟）兼容Windows/Linux平台.
+* 完全本地部署，你无需为任何内容付费（也不必为此感到自责）！
+* 一款开源AI插件, 可以根据提示词生成你想要的人物角色动画！
 
-如果你是第一次使用，可以把它理解成一个“从输入描述，到生成动作，再到预览结果”的上手工具。
+* ![](https://z3.ax1x.com/2021/09/29/45i1LF.gif)
+![](https://z3.ax1x.com/2021/09/29/44EJMV.gif)
+![](https://z3.ax1x.com/2021/09/29/44Kfn1.gif)  
 
-![预览图](./NvlabKimodoQuickServer~/kimodo/docs/source/_static/demo/panel.png)
+[更多演示视频](https://www.bilibili.com/video/BV1wP4y187xE/)  
 
----
+## 特性
 
-## Intro
+- **即开即用的设计** 你无需担心该项目需要安装各种前置依赖/环境配置/平台限制等问题,作者已经完整测试过了，你也不用担心安装导致本地环境被破坏或者残留文件，所有的内容都是即开即用/即删即走的！
 
-`KimodoUnityBridge` 面向希望快速体验动作生成的新手用户。
+- **完整的Kimodo特性** Kimodo仓库提供的提示词/Fullbody约束/2D平面约束等内容，我们都支持！不用担心你错过了任何内容！
 
-你不需要先理解复杂的技术细节，只需要知道它可以帮你完成这些事情：
+- **完整的Retarget支持** 产生的动画现在会根据你的角色自适应，如果你的角色是Generic的，那么它就只会给你骨骼动画，
 
-- 在 Unity 中生成角色动作
-- 预览生成结果
-- 反复修改描述并重新尝试
-- 用示例内容快速验证流程是否正常
+- **极其低的学习曲线!** 作者已经帮你们把门槛踏平了!无需任何复杂的添加与操作,通过关键词识别与humanoid识别,只需要三分钟学习就可以**一键生成**你想要的bone与collider!
 
-如果你的目标只是“先跑起来一次”，这份 README 就够用了。
+- **良好的报错系统!** 任何不正确的操作都会给出相关的提示,作者已经帮你们把能犯的错误犯过了!  
 
-![生成界面](./NvlabKimodoQuickServer~/kimodo/docs/source/_static/demo/generate_panel.png)
+- **适应runtime的脚本!** 无需复杂的操作,只要简单设置参数,就能允许你在runtime过程中生成整套的物理特性,是的,你甚至不需要任何操作就可以完整套物理的生成!  
 
----
+- **高度自由的物理与运行时保存系统!** 提供各种参数,可以自由的组合出你想要的的物理特性!你无需反复调试这些物理参数,因为你可以随时在runtime过程中修改并保存他们!  
 
-## Install
+- **独特的迭代与除颤机制!** 我们通过细分物体的运行轨迹,在一帧内同时计算多个细分位置的受力情况并加以综合,通常只需要四次你就能获得预期的效果,只要你迭代的足够多,你就能获得无限接近稳定的物理!  
 
-开始之前，先准备好下面几项：
+- **完整且高效的Collider系统!** 支持球体,胶囊体,立方体的碰撞;支持杆件/点与collider的碰撞;无需创建transfrom,你可以在交互界面实现偏移,旋转等效果!;同时,该脚本提供了一套完整的collider过滤机制与距离近似估计的算法,大大提高了碰撞的运行效率,一切都是为了让你尽可能的快!  
 
-- 已安装 Unity
-- 已拿到当前项目或对应包
-- 当前使用 Windows
+- **简洁的操作界面!** 是的,我们已经将大部分能够优化的操作界面已经优化掉了,现在不会再有多余的选项出现,并且你可以直接在inspector看到统计的数据.  
 
-如果你已经在本地拿到了项目，可以先进入目录：
+- **完整的内部源码!** 不打包dll,提供所有的运行细节以及大量的注释!你可以任意定修改某一部分,已获得想要的物理效果与特殊性质,并且大可不必担心随之而来的耦合问题!  
 
-```bat
-cd /d C:\nvlab\KimodoUnityBridge
+- **免费!** 以及作者被dynaimc bone坑走了15美刀.** 并且<s>作者是MMD模型白嫖怪</s>MMD友好程度**极高!**
+
+- **作者长期在线!** 有issue必回!包君满意!
+
+## 要求
+
+- Unity2018.4及以上,除webGL外所有支持unity jobs的平台.  
+***
+
+## 使用的项目
+* [UnityBVA](https://github.com/bilibili/UnityBVA)
+
+## 快速开始
+
+施工中...
+
+### 说明书
+
+施工中...
+
+### 最后,如果你喜欢本项目记得给本项目star!
+```C#
+[省略掉的吐槽很辛苦的话]
+[省略掉的吐槽自己真的很穷的话]
+[省略掉的小声BB的话]
+加油嗷~
 ```
 
-如果你需要启动本地服务，请进入：
-
-```bat
-cd /d C:\nvlab\KimodoUnityBridge\NvlabKimodoQuickServer~
-```
-
-然后运行：
-
-```bat
-run_server.bat --model Kimodo-SOMA-RP-v1 --output console
-```
-
-第一次启动可能会慢一点，属于正常情况。
-
-![模型选择](./NvlabKimodoQuickServer~/kimodo/docs/source/_static/demo/model_selection.png)
-
----
-
-## Quick Start
-
-第一次使用，建议你只做下面这几步。
-
-### 1. 启动本地服务
-
-```bat
-cd /d C:\nvlab\KimodoUnityBridge\NvlabKimodoQuickServer~
-run_server.bat --model Kimodo-SOMA-RP-v1 --output console
-```
-
-### 2. 打开 Unity 项目
-
-- 打开项目
-- 等待加载完成
-- 打开示例场景或示例内容
-
-### 3. 打开 Kimodo 面板
-
-- 找到对应工具入口
-- 选择角色
-- 输入一句简单描述
-
-第一次建议使用非常直接的描述，例如：
-
-```text
-角色向前走
-角色抬手挥手
-角色转身后站定
-```
-
-### 4. 点击生成并预览
-
-- 点击生成
-- 等待结果返回
-- 在预览区域查看效果
-- 满意后再应用
-
----
-
-## Example
-
-下面是几个最适合新手的使用方式。
-
-### 示例 1：先确认服务能启动
-
-```bat
-cd /d C:\nvlab\KimodoUnityBridge\NvlabKimodoQuickServer~
-run_server.bat --model Kimodo-SOMA-RP-v1 --output console
-```
-
-### 示例 2：运行自带示例脚本
-
-```bat
-cd /d C:\nvlab\KimodoUnityBridge\NvlabKimodoQuickServer~
-example\example_run_server_tpose.bat
-```
-
-### 示例 3：做一次最简单的文字生成
-
-你可以尝试：
-
-- 输入“角色向前走”
-- 点击生成
-- 观察动作结果
-
-### 示例 4：修改描述再次生成
-
-第一次成功后，可以继续尝试：
-
-- 把提示词改短一点
-- 把动作写得更具体一点
-- 连续生成几次进行对比
-
-![示例面板](./NvlabKimodoQuickServer~/kimodo/docs/source/_static/demo/examples_panel.png)
-
----
-
-## Manual
-
-这部分不是技术文档，只是给新手的使用建议。
-
-### 推荐使用顺序
-
-1. 先启动服务
-2. 再打开 Unity
-3. 再打开面板
-4. 再输入描述
-5. 最后预览和应用
-
-### 推荐的首次体验方式
-
-- 先使用示例场景
-- 先写最简单的动作描述
-- 先确认流程跑通
-- 再慢慢调整结果
-
-### 不知道怎么写提示词时
-
-可以从这些最基础的句子开始：
-
-```text
-角色站立
-角色向前走
-角色挥手
-角色向左转身
-```
-
-### 结果不理想时
-
-你可以优先尝试这些做法：
-
-- 把句子写短一点
-- 把动作写清楚一点
-- 一次只改一个条件
-- 多试几次再比较
-
-![编辑界面](./NvlabKimodoQuickServer~/kimodo/docs/source/_static/demo/constraints_panel.png)
-
----
-
-## KnowIssue
-
-下面是新手最常遇到的情况。
-
-### 1. 第一次启动比较慢
-
-通常是正常现象，先耐心等待，不要连续重复启动。
-
-### 2. 点击生成后没有反应
-
-先检查本地服务是否还在运行。
-
-### 3. Unity 中没有看到相关工具
-
-先确认项目已经正确打开，并等待 Unity 完成加载和编译。
-
-### 4. 生成结果和预期不同
-
-这很常见，建议先从更简单、更直接的动作描述开始。
-
-### 5. 不确定问题出在哪里
-
-最简单的排查顺序是：
-
-1. 先确认服务能正常启动
-2. 再确认示例脚本能运行
-3. 最后再回到 Unity 里检查
-
----
-
-如果你后面想继续完善这份 README，最值得补充的是两类内容：
-
-- 新手一步一步的截图
-- 一组开箱即用的提示词示例
