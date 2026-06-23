@@ -1,5 +1,5 @@
 [演示视频](https://www.bilibili.com/video/BV1HG7361Env)
-求start~求start~求start~
+求start！求start！求start！
 # License
 [Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
 
