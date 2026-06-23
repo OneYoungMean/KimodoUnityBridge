@@ -1,4 +1,4 @@
-[演示视频]https://www.bilibili.com/video/BV1HG7361Env/
+[演示视频](https://www.bilibili.com/video/BV1HG7361Env)
 
 # License
 [Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
