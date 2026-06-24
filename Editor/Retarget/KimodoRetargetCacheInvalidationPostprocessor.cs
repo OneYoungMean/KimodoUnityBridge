@@ -53,12 +53,12 @@ namespace KimodoBridge.Editor
 
         private static void InvalidateCachesContaining(string sourceClipName)
         {
-            if (string.IsNullOrWhiteSpace(sourceClipName) || !AssetDatabase.IsValidFolder(KimodoEditorClipWritebackService.GeneratedClipFolder))
+            if (string.IsNullOrWhiteSpace(sourceClipName) || !AssetDatabase.IsValidFolder(KimodoEditorClipWritebackService.CacheClipFolder))
             {
                 return;
             }
 
-            string[] guids = AssetDatabase.FindAssets("t:AnimationClip", new[] { KimodoEditorClipWritebackService.GeneratedClipFolder });
+            string[] guids = AssetDatabase.FindAssets("t:AnimationClip", new[] { KimodoEditorClipWritebackService.CacheClipFolder });
             foreach (string guid in guids)
             {
                 string assetPath = AssetDatabase.GUIDToAssetPath(guid);

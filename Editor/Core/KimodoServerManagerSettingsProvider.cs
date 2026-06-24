@@ -166,7 +166,7 @@ namespace KimodoBridge.Editor
             {
                 EditorGUI.BeginChangeCheck();
                 int newLimit = EditorGUILayout.IntSlider(
-                    new GUIContent("Max Cached Clip", "Maximum number of generated clips kept in runtime cache. Range: 1-1000."),
+                    new GUIContent("Max Cached Clip", "Maximum number of cache clip assets kept under Assets/KimodoGeneratedClips/Cache. Range: 1-1000."),
                     settings.MaxGeneratedClips,
                     KimodoPlayableClipGenerationSettings.MinGeneratedClipsLimit,
                     KimodoPlayableClipGenerationSettings.MaxGeneratedClipsLimit);
@@ -179,7 +179,7 @@ namespace KimodoBridge.Editor
                 using (new EditorGUI.DisabledScope(operationInProgress))
                 {
                     if (GUILayout.Button(
-                        new GUIContent("Clear Clip Cache", "Delete unreferenced Kimodo cache clips under Assets/KimodoGeneratedClips."),
+                        new GUIContent("Clear Clip Cache", "Delete unreferenced Kimodo cache/raw clips under Assets/KimodoGeneratedClips/Cache."),
                         GUILayout.Width(ClearClipCacheButtonWidth)))
                     {
                         TryClearUnreferencedClipCaches();
@@ -533,7 +533,7 @@ namespace KimodoBridge.Editor
         {
             const string title = "Clear Clip Cache";
             const string message =
-                "This will scan Kimodo animation clip caches and delete cache clips that have no scene reference and no object/asset reference.\n\n" +
+                "This will scan Kimodo animation cache/raw clips under Assets/KimodoGeneratedClips/Cache and delete clips that have no scene reference and no object/asset reference.\n\n" +
                 "This operation may take a while on large projects. Continue?";
 
             if (!EditorUtility.DisplayDialog(title, message, "Clear", "Cancel"))
@@ -549,10 +549,10 @@ namespace KimodoBridge.Editor
                 out string error))
             {
                 operationStatus =
-                    $"Clip cache cleanup complete. Scanned {summary.CandidateCount} cache clip(s), kept {summary.ReferencedCount}, deleted {summary.DeletedCount}.";
+                    $"Clip cache cleanup complete. Scanned {summary.CandidateCount} cache/raw clip(s), kept {summary.ReferencedCount}, deleted {summary.DeletedCount}.";
                 if (summary.FailedCount > 0)
                 {
-                    lastError = $"Some cache clips could not be deleted ({summary.FailedCount}).";
+                    lastError = $"Some cache/raw clips could not be deleted ({summary.FailedCount}).";
                 }
             }
             else

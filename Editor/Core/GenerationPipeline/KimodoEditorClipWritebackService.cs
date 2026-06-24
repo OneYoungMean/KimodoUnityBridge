@@ -14,6 +14,7 @@ namespace KimodoBridge.Editor
     internal static class KimodoEditorClipWritebackService
     {
         internal const string GeneratedClipFolder = "Assets/KimodoGeneratedClips";
+        internal const string CacheClipFolder = GeneratedClipFolder + "/Cache";
         internal const string GeneratedClipNamePrefix = "Kimodo_";
         internal const string InvalidCachePrefix = "invalid_";
         private const string MuscleCacheNameSuffix = "-muscle-cache";
@@ -42,20 +43,12 @@ namespace KimodoBridge.Editor
 
         public static AnimationClip CreateGeneratedAnimationClipAsset(string assetName)
         {
-            var newAnimationClip = new AnimationClip
-            {
-                name = BuildGeneratedAnimationAssetName(assetName)
-            };
+            return CreateAnimationClipAsset(assetName, GeneratedClipFolder, trackForTrim: false);
+        }
 
-            EnsureFolderExists(GeneratedClipFolder);
-
-            string fileName = $"{newAnimationClip.name}.anim";
-            string savePath = AssetDatabase.GenerateUniqueAssetPath($"{GeneratedClipFolder}/{fileName}");
-            AssetDatabase.CreateAsset(newAnimationClip, savePath);
-            EditorUtility.SetDirty(newAnimationClip);
-            FlushWritebackAssets();
-            ScheduleGeneratedClipTrim(newAnimationClip);
-            return newAnimationClip;
+        public static AnimationClip CreateGeneratedCacheAnimationClipAsset(string assetName)
+        {
+            return CreateAnimationClipAsset(assetName, CacheClipFolder, trackForTrim: true);
         }
 
         public static bool TryDeleteGeneratedAnimationClipAsset(AnimationClip clip)
@@ -132,7 +125,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            string cachePath = $"{GeneratedClipFolder}/{safeCacheName}.anim";
+            string cachePath = $"{CacheClipFolder}/{safeCacheName}.anim";
             cachedClip = AssetDatabase.LoadAssetAtPath<AnimationClip>(cachePath);
             if (cachedClip == null)
             {
@@ -166,10 +159,10 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            string cachePath = $"{GeneratedClipFolder}/{safeCacheName}.anim";
+            string cachePath = $"{CacheClipFolder}/{safeCacheName}.anim";
             try
             {
-                EnsureFolderExists(GeneratedClipFolder);
+                EnsureFolderExists(CacheClipFolder);
                 cachedClip = AssetDatabase.LoadAssetAtPath<AnimationClip>(cachePath);
                 if (cachedClip == null)
                 {
@@ -227,7 +220,7 @@ namespace KimodoBridge.Editor
             }
 
             string invalidName = SanitizeAssetFileName($"{InvalidCachePrefix}{cacheName}", "invalid_KimodoClip_cache");
-            string invalidPath = AssetDatabase.GenerateUniqueAssetPath($"{GeneratedClipFolder}/{invalidName}.anim");
+            string invalidPath = AssetDatabase.GenerateUniqueAssetPath($"{CacheClipFolder}/{invalidName}.anim");
             string moveError = AssetDatabase.MoveAsset(assetPath, invalidPath);
             if (!string.IsNullOrWhiteSpace(moveError))
             {
@@ -308,7 +301,7 @@ namespace KimodoBridge.Editor
             summary = new NamedClipCacheCleanupSummary(0, 0, 0, 0);
             error = string.Empty;
 
-            if (!AssetDatabase.IsValidFolder(GeneratedClipFolder))
+            if (!AssetDatabase.IsValidFolder(CacheClipFolder))
             {
                 return true;
             }
@@ -401,12 +394,12 @@ namespace KimodoBridge.Editor
         private static void TrimGeneratedClipsToLimit(IReadOnlyCollection<string> protectedPaths, int maxCount)
         {
             maxCount = Mathf.Max(1, maxCount);
-            if (!AssetDatabase.IsValidFolder(GeneratedClipFolder))
+            if (!AssetDatabase.IsValidFolder(CacheClipFolder))
             {
                 return;
             }
 
-            string[] clipGuids = AssetDatabase.FindAssets("t:AnimationClip", new[] { GeneratedClipFolder });
+            string[] clipGuids = AssetDatabase.FindAssets("t:AnimationClip", new[] { CacheClipFolder });
             if (clipGuids == null || clipGuids.Length == 0)
             {
                 return;
@@ -471,6 +464,28 @@ namespace KimodoBridge.Editor
             AssetDatabase.SaveAssets();
         }
 
+        private static AnimationClip CreateAnimationClipAsset(string assetName, string folderPath, bool trackForTrim)
+        {
+            var newAnimationClip = new AnimationClip
+            {
+                name = BuildGeneratedAnimationAssetName(assetName)
+            };
+
+            EnsureFolderExists(folderPath);
+
+            string fileName = $"{newAnimationClip.name}.anim";
+            string savePath = AssetDatabase.GenerateUniqueAssetPath($"{folderPath}/{fileName}");
+            AssetDatabase.CreateAsset(newAnimationClip, savePath);
+            EditorUtility.SetDirty(newAnimationClip);
+            FlushWritebackAssets();
+            if (trackForTrim)
+            {
+                ScheduleGeneratedClipTrim(newAnimationClip);
+            }
+
+            return newAnimationClip;
+        }
+
         private static void EnsureClipNameMatchesFileName(AnimationClip clip, string expectedName)
         {
             if (clip == null || string.IsNullOrWhiteSpace(expectedName) || string.Equals(clip.name, expectedName, StringComparison.Ordinal))
@@ -502,9 +517,7 @@ namespace KimodoBridge.Editor
 
         private static bool IsTrimmableNamedCacheClipAssetPath(string assetPath)
         {
-            if (string.IsNullOrWhiteSpace(assetPath) ||
-                !assetPath.EndsWith(".anim", StringComparison.OrdinalIgnoreCase) ||
-                !assetPath.StartsWith(GeneratedClipFolder + "/", StringComparison.OrdinalIgnoreCase))
+            if (!IsCacheClipAssetPath(assetPath))
             {
                 return false;
             }
@@ -516,7 +529,7 @@ namespace KimodoBridge.Editor
             }
 
             string parentFolder = assetPath.Substring(0, lastSlashIndex);
-            if (!string.Equals(parentFolder, GeneratedClipFolder, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(parentFolder, CacheClipFolder, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -528,7 +541,7 @@ namespace KimodoBridge.Editor
         private static List<string> CollectClearableKimodoGeneratedClipAssetPaths()
         {
             var clipPaths = new List<string>();
-            string[] clipGuids = AssetDatabase.FindAssets("t:AnimationClip", new[] { GeneratedClipFolder });
+            string[] clipGuids = AssetDatabase.FindAssets("t:AnimationClip", new[] { CacheClipFolder });
             if (clipGuids == null || clipGuids.Length == 0)
             {
                 return clipPaths;
@@ -590,7 +603,7 @@ namespace KimodoBridge.Editor
 
         private static bool IsClearableKimodoGeneratedClipAssetPath(string assetPath)
         {
-            if (!IsGeneratedAnimationClipAssetPath(assetPath))
+            if (!IsCacheClipAssetPath(assetPath))
             {
                 return false;
             }
@@ -602,13 +615,20 @@ namespace KimodoBridge.Editor
             }
 
             string parentFolder = assetPath.Substring(0, lastSlashIndex);
-            if (!string.Equals(parentFolder, GeneratedClipFolder, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(parentFolder, CacheClipFolder, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
 
             string clipName = Path.GetFileNameWithoutExtension(assetPath) ?? string.Empty;
             return clipName.StartsWith(GeneratedClipNamePrefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsCacheClipAssetPath(string assetPath)
+        {
+            return !string.IsNullOrWhiteSpace(assetPath) &&
+                assetPath.EndsWith(".anim", StringComparison.OrdinalIgnoreCase) &&
+                assetPath.StartsWith(CacheClipFolder + "/", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void CollectReferencedNamedClipCacheAssetPathsFromLoadedScenes(

@@ -206,7 +206,7 @@ namespace KimodoBridge.Editor
             }
 
             string sourceName = string.IsNullOrWhiteSpace(sourceClip.name) ? "KimodoRawBone" : sourceClip.name.Trim();
-            AnimationClip rawBoneClip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset($"{sourceName}_RawBone");
+            AnimationClip rawBoneClip = KimodoEditorClipWritebackService.CreateGeneratedCacheAnimationClipAsset($"{sourceName}_RawBone");
             KimodoEditorClipUtility.CopyClipData(sourceClip, rawBoneClip, forceNoLoopKeepY: true);
             rawBoneClip.legacy = sourceClip.legacy;
             rawBoneClip.frameRate = sourceClip.frameRate;
