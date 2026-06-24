@@ -146,6 +146,9 @@ jobs:
           if ("${{ github.event.inputs.prerelease }}" -eq "true") {
             $args += "--prerelease"
           }
+          else {
+            $args += "--latest"
+          }
           & gh @args
           if ($LASTEXITCODE -ne 0) {
             throw "gh release create failed with exit code $LASTEXITCODE"
@@ -164,7 +167,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "gh release upload failed with exit code $LASTEXITCODE"
           }
-          gh release edit $tag --repo $env:GITHUB_REPOSITORY --title $tag --notes-file "${{ steps.release_notes.outputs.path }}"
+          $editArgs = @(
+            "release", "edit", $tag,
+            "--repo", $env:GITHUB_REPOSITORY,
+            "--title", $tag,
+            "--notes-file", "${{ steps.release_notes.outputs.path }}"
+          )
+          if ("${{ github.event.inputs.prerelease }}" -ne "true") {
+            $editArgs += "--latest"
+          }
+          & gh @editArgs
           if ($LASTEXITCODE -ne 0) {
             throw "gh release edit failed with exit code $LASTEXITCODE"
           }
