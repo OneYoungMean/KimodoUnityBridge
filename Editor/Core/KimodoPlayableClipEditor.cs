@@ -433,13 +433,6 @@ namespace KimodoBridge.Editor
 
         private void OnManagerCommandCompleted(KimodoEditorCommandCompletedEvent evt)
         {
-            if (evt.Command.Kind == KimodoEditorCommandKind.BridgeStopServer)
-            {
-                PullBridgeStatusSnapshot(forceRefresh: true);
-                RequestThrottledRepaint();
-                return;
-            }
-
             if (!IsCommandForCurrentClip(evt.Command))
             {
                 return;

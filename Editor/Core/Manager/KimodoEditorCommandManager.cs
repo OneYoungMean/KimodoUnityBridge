@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEditor;
@@ -116,9 +115,6 @@ namespace KimodoBridge.Editor
                     case GenerateFromPromptCommand cmd:
                         await HandleGenerateFromPromptAsync(state, cmd);
                         break;
-                    case BridgeControlCommand cmd:
-                        await HandleBridgeControlAsync(state, cmd);
-                        break;
                     default:
                         throw new NotSupportedException($"Unsupported command type: {command.GetType().Name}");
                 }
@@ -190,7 +186,7 @@ namespace KimodoBridge.Editor
             {
                 request.Progress = (stage, message) => EmitProgress(eventCommand, message, stage);
 
-                KimodoEditorGenerateResult result = await KimodoEditorGeneratePipelineOrchestrator.ExecuteAsync(request);
+                KimodoEditorGenerateResult result = await KimodoEditorRuntimeGeneratePipeline.ExecuteAsync(request);
                 state.Token.ThrowIfCancellationRequested();
                 KimodoPlayableClipGenerationHostService.FinalizeGeneration(clip, request, result);
 
@@ -201,114 +197,6 @@ namespace KimodoBridge.Editor
                 KimodoPlayableClipGenerationHostService.CleanupFailedGeneration(request);
                 throw;
             }
-        }
-
-        private static async Task HandleBridgeControlAsync(RunningCommandState state, BridgeControlCommand command)
-        {
-            if (EditorCompilationStateGate.IsCompilingOrReloading)
-            {
-                throw new InvalidOperationException("Editor is compiling or reloading scripts.");
-            }
-
-            string runtimeRoot = string.IsNullOrWhiteSpace(command.RuntimeRoot)
-                ? KimodoBridgeController.GetRuntimeRootPath()
-                : command.RuntimeRoot;
-            string modelName = string.IsNullOrWhiteSpace(command.ModelName)
-                ? "Kimodo-SOMA-RP-v1"
-                : command.ModelName.Trim();
-            bool highVram = command.VramMode == KimodoBridgeVramMode.High;
-            string modelsRoot = command.ModelsRootOverride?.Trim() ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(modelsRoot))
-            {
-                modelsRoot = Path.GetFullPath(modelsRoot);
-            }
-
-            switch (command.Operation)
-            {
-                case KimodoBridgeOperation.Start:
-                    {
-                        EmitProgress(command, "Starting server...");
-                        string launcherPath = KimodoBridgeController.ResolveStartScriptOrThrow(runtimeRoot);
-                        await KimodoBridgeController.StartServerAsync(
-                            launcherPath,
-                            modelName,
-                            highVram,
-                            runtimeRoot,
-                            modelsRoot,
-                            forceSetup: false,
-                            progress => EmitProgress(command, progress),
-                            state.Token);
-                        break;
-                    }
-                case KimodoBridgeOperation.Stop:
-                    EmitProgress(command, "Stopping server...");
-                    await KimodoBridgeController.CloseServerAsync();
-                    break;
-                case KimodoBridgeOperation.TryFix:
-                    EmitProgress(command, "Running TryFix...");
-                    using (KimodoBridgeController.EnterRuntimeMaintenanceScope())
-                    {
-                        await KimodoBridgeController.CloseServerAsync();
-                        if (Directory.Exists(runtimeRoot))
-                        {
-                            Directory.Delete(runtimeRoot, recursive: true);
-                        }
-
-                        if (!KimodoBridgeController.BootstrapRuntimeRootIfMissing())
-                        {
-                            throw new InvalidOperationException("TryFix failed: cannot bootstrap runtime.");
-                        }
-
-                        string launcherPath = KimodoBridgeController.ResolveStartScriptOrThrow(runtimeRoot);
-                        await KimodoBridgeController.StartServerAsync(
-                            launcherPath,
-                            modelName,
-                            highVram,
-                            runtimeRoot,
-                            modelsRoot,
-                            forceSetup: true,
-                            progress => EmitProgress(command, progress),
-                            state.Token);
-                    }
-                    break;
-                case KimodoBridgeOperation.DeleteAllData:
-                    EmitProgress(command, "Deleting runtime data...");
-                    await KimodoBridgeController.CloseServerAsync();
-                    if (Directory.Exists(runtimeRoot))
-                    {
-                        Directory.Delete(runtimeRoot, recursive: true);
-                    }
-                    break;
-                case KimodoBridgeOperation.RefreshStatus:
-                    EmitProgress(command, "Refreshing bridge status...");
-                    break;
-                case KimodoBridgeOperation.EnsureRuntimeRoot:
-                    EmitProgress(command, "Creating runtime root...");
-                    if (!KimodoBridgeController.BootstrapRuntimeRootIfMissing())
-                    {
-                        throw new InvalidOperationException("Failed to create runtime root from package template.");
-                    }
-                    break;
-                default:
-                    throw new NotSupportedException($"Unsupported bridge operation: {command.Operation}");
-            }
-
-            ServerStatusSnapshot snapshot = KimodoBridgeController.GetServerStatusSnapshot();
-            if (command.Operation == KimodoBridgeOperation.Stop && snapshot.Running)
-            {
-                throw new InvalidOperationException(
-                    $"Bridge stop requested but server still running at {snapshot.Host}:{snapshot.Port}.");
-            }
-
-            EmitCompleted(command, new KimodoEditorBridgeOperationResult
-            {
-                Running = snapshot.Running,
-                HasPort = snapshot.HasPort,
-                Host = snapshot.Host,
-                Port = snapshot.Port,
-                Status = snapshot.Ready ? "Ready" : "Pending",
-                Error = string.Empty
-            });
         }
 
         private static void CancelAllRunning()

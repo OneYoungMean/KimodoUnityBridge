@@ -6,13 +6,7 @@ namespace KimodoBridge.Editor
     {
         Unknown = 0,
         GeneratePlayableClip = 1,
-        CancelPlayableClipGeneration = 2,
-        BridgeStartServer = 3,
-        BridgeStopServer = 4,
-        BridgeTryFix = 5,
-        BridgeDeleteAllData = 6,
-        BridgeRefreshStatus = 7,
-        BridgeEnsureRuntimeRoot = 8
+        CancelPlayableClipGeneration = 2
     }
 
     public interface IKimodoEditorCommand

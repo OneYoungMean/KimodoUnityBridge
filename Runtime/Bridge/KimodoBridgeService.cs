@@ -130,18 +130,21 @@ namespace KimodoBridge
             currentPortFilePath = BridgeEndpointResolver.GetServerPortFilePath(settings.runtimeRoot);
             if (File.Exists(currentPortFilePath))
             {
-                if (BridgeEndpointResolver.TryReadServerEndpoint(settings.runtimeRoot, settings.hostFallback, out string host, out int port, out _))
+                if (!BridgeEndpointResolver.TryReadServerEndpoint(settings.runtimeRoot, settings.hostFallback, out string host, out int port, out string endpointError))
                 {
-                    currentHost = host;
-                    currentPort = port;
-                    StartLogPump(BridgeEndpointResolver.ResolveAttachLogPath(settings.runtimeRoot), progress);
-                    return $"Ready - {settings.modelName} on {host}:{port}";
+                    throw new InvalidOperationException($"Bridge serverport is invalid. {endpointError}");
                 }
 
-                currentHost = settings.hostFallback;
-                currentPort = -1;
+                bool reachable = await protocolClient.PingAsync(host, port, token, acceptLoading: true).ConfigureAwait(false);
+                if (!reachable)
+                {
+                    throw new InvalidOperationException($"Bridge endpoint is unreachable: {host}:{port}");
+                }
+
+                currentHost = host;
+                currentPort = port;
                 StartLogPump(BridgeEndpointResolver.ResolveAttachLogPath(settings.runtimeRoot), progress);
-                return $"Ready - {settings.modelName} (serverport detected)";
+                return $"Ready - {settings.modelName} on {host}:{port}";
             }
 
             await InvalidateCurrentEndpointAsync().ConfigureAwait(false);
@@ -196,43 +199,29 @@ namespace KimodoBridge
         }
 
         public async Task<string> GenerateAsync(
-            string prompt,
-            float durationSeconds,
-            int? seed,
-            int diffusionSteps,
-            string constraintsJson,
-            string boundaryPoseJson,
-            bool loopHint,
-            int segmentIndex,
-            float transitionDurationSeconds,
+            KimodoGenerationRequestDto request,
             Action<string> progress,
             CancellationToken token)
         {
+            if (request == null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
             ThrowIfDisposed();
-            await EnsureHealthyOrStartAsync(progress, token).ConfigureAwait(false);
+            await EnsureHealthyOrThrowAsync(token).ConfigureAwait(false);
             EmitDebugLog(
                 $"[KimodoBridge] Generate request: host={currentHost}:{currentPort}, " +
-                $"promptLen={(prompt ?? string.Empty).Length}, duration={durationSeconds:F3}, " +
-                $"steps={diffusionSteps}, seed={(seed.HasValue ? seed.Value.ToString() : "null")}, " +
-                $"constraintsPath='{constraintsJson ?? string.Empty}', " +
-                $"loopHint={loopHint}, segmentIndex={segmentIndex}, transition={transitionDurationSeconds:F3}, " +
-                $"boundaryPoseLen={(boundaryPoseJson ?? string.Empty).Length}");
+                $"promptLen={(request.prompt ?? string.Empty).Length}, duration={request.duration:F3}, " +
+                $"steps={request.steps}, seed={(request.seed.HasValue ? request.seed.Value.ToString() : "null")}, " +
+                $"constraintsPath='{request.constraints_json ?? string.Empty}', " +
+                $"loopHint={request.loop_hint}, segmentIndex={request.segment_index}, transition={request.transition_duration:F3}, " +
+                $"boundaryPoseLen={(request.boundary_pose_json ?? string.Empty).Length}");
 
             JObject response;
             try
             {
-                response = await SendGenerateRequestAsync(
-                    prompt,
-                    durationSeconds,
-                    seed,
-                    diffusionSteps,
-                    constraintsJson,
-                    boundaryPoseJson,
-                    loopHint,
-                    segmentIndex,
-                    transitionDurationSeconds,
-                    progress,
-                    token).ConfigureAwait(false);
+                response = await SendGenerateRequestAsync(request, progress, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -261,15 +250,7 @@ namespace KimodoBridge
         }
 
         private Task<JObject> SendGenerateRequestAsync(
-            string prompt,
-            float durationSeconds,
-            int? seed,
-            int diffusionSteps,
-            string constraintsJson,
-            string boundaryPoseJson,
-            bool loopHint,
-            int segmentIndex,
-            float transitionDurationSeconds,
+            KimodoGenerationRequestDto request,
             Action<string> progress,
             CancellationToken token)
         {
@@ -277,15 +258,7 @@ namespace KimodoBridge
             return protocolClient.GenerateAsync(
                 currentHost,
                 currentPort,
-                prompt,
-                durationSeconds,
-                seed,
-                diffusionSteps,
-                constraintsJson,
-                boundaryPoseJson,
-                loopHint,
-                segmentIndex,
-                transitionDurationSeconds,
+                request,
                 marshaledProgress,
                 token);
         }
@@ -398,20 +371,6 @@ namespace KimodoBridge
             }
         }
 
-        private async Task EnsureHealthyOrStartAsync(Action<string> progress, CancellationToken token)
-        {
-            bool ok = await PingAsync(token, acceptLoading: true).ConfigureAwait(false);
-            if (ok)
-            {
-                return;
-            }
-
-            EmitProgress(progress, "Bridge endpoint is unreachable, restarting bridge...");
-            TryDeleteServerPortFile();
-            _ = await StartAsync(progress, token).ConfigureAwait(false);
-            await EnsureHealthyOrThrowAsync(token).ConfigureAwait(false);
-        }
-
         private async Task StopCoreAsync(CancellationToken token)
         {
             StopLogPump();
@@ -420,7 +379,11 @@ namespace KimodoBridge
             bool endpointResolved = TryResolveCurrentEndpoint(out string host, out int port);
             if (endpointResolved)
             {
-                _ = await protocolClient.TrySendQuitAsync(host, port, token).ConfigureAwait(false);
+                bool quitSent = await protocolClient.TrySendQuitAsync(host, port, token).ConfigureAwait(false);
+                if (!quitSent)
+                {
+                    throw new InvalidOperationException($"Bridge quit command failed: {host}:{port}");
+                }
             }
 
             processManager.DetachProcess();
@@ -441,25 +404,6 @@ namespace KimodoBridge
         {
             await protocolClient.DetachAsync().ConfigureAwait(false);
         }
-
-        private void TryDeleteServerPortFile()
-        {
-            string path = string.IsNullOrWhiteSpace(currentPortFilePath)
-                ? BridgeEndpointResolver.GetServerPortFilePath(settings.runtimeRoot)
-                : currentPortFilePath;
-            try
-            {
-                if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
-            }
-            catch
-            {
-                // ignore cleanup failure
-            }
-        }
-
 
         private bool TryResolveCurrentEndpoint(out string host, out int port)
         {

@@ -40,7 +40,8 @@ namespace KimodoBridge.Editor
 
             bool highVram = vramMode == KimodoBridgeVramMode.High;
 
-            string modelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim();
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            string modelsRoot = settings != null ? settings.LocalModelsPath?.Trim() : string.Empty;
             if (!string.IsNullOrWhiteSpace(modelsRoot))
             {
                 modelsRoot = Path.GetFullPath(modelsRoot);
@@ -55,15 +56,33 @@ namespace KimodoBridge.Editor
                 constraints_json = constraintsJson
             };
 
-            return await KimodoBridgeController.GenerateBridgeAsync(
-                launcherPath,
-                resolvedModelName,
-                highVram,
-                runtimeRoot,
-                modelsRoot,
-                request,
-                progress,
+            var pipelineRequest = new KimodoGeneratePipelineRequest
+            {
+                BackendType = KimodoBackendType.Bridge,
+                RuntimeSettings = KimodoEditorRuntimeGeneratePipeline.BuildRuntimeSettings(
+                    runtimeRoot,
+                    launcherPath,
+                    resolvedModelName,
+                    highVram ? KimodoBridgeVramMode.High : KimodoBridgeVramMode.Low,
+                    modelsRoot,
+                    settings != null ? settings.GenerationTimeoutSeconds : 120f,
+                    comfyHost: "127.0.0.1",
+                    comfyPort: 8188),
+                GenerationRequest = request
+            };
+
+            IKimodoGeneratePipeline pipeline = new KimodoGeneratePipeline();
+            KimodoGeneratePipelineResult result = await pipeline.ExecuteAsync(
+                pipelineRequest,
+                (_, message) => progress?.Invoke(message),
                 token);
+            return new KimodoGenerationResultDto
+            {
+                backendType = result.BackendType,
+                rawStatus = result.RawStatus,
+                message = result.Message,
+                motionJsonCompact = result.MotionJsonCompact
+            };
         }
 
         internal static string BuildBoundaryFullBodyConstraintsJson(

@@ -247,7 +247,7 @@ namespace KimodoBridge.Editor
                         });
                     });
 
-                KimodoEditorGenerateResult result = await KimodoEditorGeneratePipelineOrchestrator.ExecuteAsync(request);
+                KimodoEditorGenerateResult result = await KimodoEditorRuntimeGeneratePipeline.ExecuteAsync(request);
 
                 RunOnEditorThread(runId, () =>
                 {

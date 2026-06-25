@@ -7,7 +7,7 @@ using Process = System.Diagnostics.Process;
 
 namespace KimodoBridge.Editor
 {
-    internal static class KimodoEditorGeneratePipelineOrchestrator
+    internal static class KimodoEditorRuntimeGeneratePipeline
     {
         private const string DefaultModelName = "Kimodo-SOMA-RP-v1";
 
@@ -27,10 +27,12 @@ namespace KimodoBridge.Editor
             string modelName = string.IsNullOrWhiteSpace(request.ModelName) ? DefaultModelName : request.ModelName.Trim();
             ThrowIfCanceled(request);
             request.Progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Generating motion...");
-            string motionJson = await GenerateMotionJsonAsync(request, prompt, modelName);
+
+            KimodoGeneratePipelineResult runtimeResult = await ExecuteRuntimePipelineAsync(request, prompt, modelName);
+            string motionJson = runtimeResult.MotionJsonCompact;
             if (string.IsNullOrWhiteSpace(motionJson))
             {
-                throw new InvalidOperationException("No motion json found in workflow outputs.");
+                throw new InvalidOperationException("No motion json found in runtime generation result.");
             }
 
             ThrowIfCanceled(request);
@@ -93,7 +95,6 @@ namespace KimodoBridge.Editor
                 request.TargetClip.EnsureQuaternionContinuity();
                 EditorUtility.SetDirty(request.TargetClip);
                 KimodoEditorClipWritebackService.FlushWritebackAssets();
-
                 return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
             }
 
@@ -126,11 +127,99 @@ namespace KimodoBridge.Editor
 
             ThrowIfCanceled(request);
             TryFilterGeneratedBoneClip(request.TargetClip, request.TargetRetargetAvatar, request.CurveFilterOptions);
-
             KimodoEditorClipWritebackService.FlushWritebackAssets();
             ThrowIfCanceled(request);
 
             return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
+        }
+
+        internal static async Task<KimodoGeneratePipelineResult> ExecuteRuntimePipelineAsync(
+            KimodoEditorGenerateRequest request,
+            string prompt,
+            string modelName)
+        {
+            KimodoGeneratePipelineRequest pipelineRequest = CreateRuntimePipelineRequest(request, prompt, modelName);
+            IKimodoGeneratePipeline pipeline = new KimodoGeneratePipeline();
+            return await pipeline.ExecuteAsync(
+                pipelineRequest,
+                (stage, message) => request.Progress?.Invoke(stage, message),
+                request.Token);
+        }
+
+        internal static KimodoGeneratePipelineRequest CreateRuntimePipelineRequest(
+            KimodoEditorGenerateRequest request,
+            string prompt,
+            string modelName)
+        {
+            if (request == null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
+            string kimodoRootPath = KimodoBridgeController.ResolveRuntimeRootOrThrow();
+            string launcherPath = KimodoBridgeController.ResolveStartScriptOrThrow(kimodoRootPath);
+            string modelsRoot = string.IsNullOrWhiteSpace(request.ModelsRoot) ? string.Empty : Path.GetFullPath(request.ModelsRoot.Trim());
+
+            var generationRequest = new KimodoGenerationRequestDto
+            {
+                prompt = prompt ?? string.Empty,
+                duration = request.DurationSeconds,
+                seed = request.EffectiveSeed,
+                steps = request.DiffusionSteps,
+                constraints_json = request.ConstraintsJson ?? string.Empty
+            };
+
+            return new KimodoGeneratePipelineRequest
+            {
+                BackendType = request.GenerationBackend == KimodoGenerationBackend.KimodoBridge
+                    ? KimodoBackendType.Bridge
+                    : KimodoBackendType.ComfyUi,
+                RuntimeSettings = BuildRuntimeSettings(
+                    kimodoRootPath,
+                    launcherPath,
+                    modelName,
+                    request.BridgeVramMode,
+                    modelsRoot,
+                    request.GenerationTimeoutSeconds,
+                    request.ComfyHost,
+                    request.ComfyPort),
+                GenerationRequest = generationRequest
+            };
+        }
+
+        internal static KimodoRuntimeGenerationSettings BuildRuntimeSettings(
+            string kimodoRootPath,
+            string launcherPath,
+            string modelName,
+            KimodoBridgeVramMode bridgeVramMode,
+            string modelsRoot,
+            float generationTimeoutSeconds,
+            string comfyHost,
+            int comfyPort)
+        {
+            bool highVram = bridgeVramMode == KimodoBridgeVramMode.High;
+            return new KimodoRuntimeGenerationSettings
+            {
+                bridgeSettings = new BridgeRuntimeSettings
+                {
+                    runtimeRoot = kimodoRootPath,
+                    launcherPath = launcherPath,
+                    modelName = modelName,
+                    highVram = highVram,
+                    modelsRoot = modelsRoot,
+                    ownerProcessId = Process.GetCurrentProcess().Id,
+                    startupTimeoutMs = ComputeBridgeStartupTimeoutMs(kimodoRootPath, highVram, modelName, generationTimeoutSeconds),
+                    preserveProcessOnCancellation = KimodoPlayableClipGenerationSettings.instance != null &&
+                        KimodoPlayableClipGenerationSettings.instance.AlwaysKeepServerExperimental,
+                    idleTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance != null
+                        ? KimodoPlayableClipGenerationSettings.instance.ServerIdleShutdownSeconds
+                        : 0
+                },
+                comfyHost = string.IsNullOrWhiteSpace(comfyHost) ? "127.0.0.1" : comfyHost.Trim(),
+                comfyPort = comfyPort,
+                comfyTimeoutSeconds = generationTimeoutSeconds,
+                comfyWorkflowResourceName = "kimodo-unity-workflow"
+            };
         }
 
         private static KimodoEditorGenerateResult Complete(
@@ -240,79 +329,6 @@ namespace KimodoBridge.Editor
             EditorUtility.SetDirty(clip);
         }
 
-        private static async Task<string> GenerateMotionJsonAsync(KimodoEditorGenerateRequest request, string prompt, string modelName)
-        {
-            string kimodoRootPath = KimodoBridgeController.ResolveRuntimeRootOrThrow();
-            string launcherPath = KimodoBridgeController.ResolveStartScriptOrThrow(kimodoRootPath);
-            bool highVram = request.BridgeVramMode == KimodoBridgeVramMode.High;
-            string modelsRoot = string.IsNullOrWhiteSpace(request.ModelsRoot) ? string.Empty : Path.GetFullPath(request.ModelsRoot.Trim());
-
-            var generationRequest = new KimodoGenerationRequestDto
-            {
-                prompt = prompt,
-                duration = request.DurationSeconds,
-                seed = request.EffectiveSeed,
-                steps = request.DiffusionSteps,
-                constraints_json = request.ConstraintsJson ?? string.Empty
-            };
-
-            KimodoBackendType backendType = request.GenerationBackend == KimodoGenerationBackend.KimodoBridge
-                ? KimodoBackendType.Bridge
-                : KimodoBackendType.ComfyUi;
-
-            if (backendType == KimodoBackendType.Bridge)
-            {
-                KimodoGenerationResultDto bridgeResult = await KimodoBridgeController.GenerateBridgeAsync(
-                    launcherPath,
-                    modelName,
-                    highVram,
-                    kimodoRootPath,
-                    modelsRoot,
-                    generationRequest,
-                    msg => request.Progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, msg ?? string.Empty),
-                    request.Token);
-
-                return bridgeResult.motionJsonCompact;
-            }
-
-            var settings = new KimodoRuntimeGenerationSettings
-            {
-                bridgeSettings = new BridgeRuntimeSettings
-                {
-                    runtimeRoot = kimodoRootPath,
-                    launcherPath = launcherPath,
-                    modelName = modelName,
-                    highVram = highVram,
-                    modelsRoot = modelsRoot,
-                    ownerProcessId = Process.GetCurrentProcess().Id,
-                    startupTimeoutMs = ComputeBridgeStartupTimeoutMs(kimodoRootPath, highVram, modelName, request.GenerationTimeoutSeconds),
-                    preserveProcessOnCancellation = KimodoPlayableClipGenerationSettings.instance != null &&
-                        KimodoPlayableClipGenerationSettings.instance.AlwaysKeepServerExperimental,
-                    idleTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance != null
-                        ? KimodoPlayableClipGenerationSettings.instance.ServerIdleShutdownSeconds
-                        : 0
-                },
-                comfyHost = string.IsNullOrWhiteSpace(request.ComfyHost) ? "127.0.0.1" : request.ComfyHost.Trim(),
-                comfyPort = request.ComfyPort,
-                comfyTimeoutSeconds = request.GenerationTimeoutSeconds,
-                comfyWorkflowResourceName = "kimodo-unity-workflow"
-            };
-
-            var pipelineRequest = new KimodoGeneratePipelineRequest
-            {
-                BackendType = backendType,
-                RuntimeSettings = settings,
-                GenerationRequest = generationRequest
-            };
-
-            IKimodoGeneratePipeline pipeline = new KimodoGeneratePipeline();
-            KimodoGeneratePipelineResult pipelineResult = await pipeline.ExecuteAsync(
-                pipelineRequest,
-                (stage, message) => request.Progress?.Invoke(stage, message),
-                request.Token);
-            return pipelineResult.MotionJsonCompact;
-        }
-
         private static int ComputeBridgeStartupTimeoutMs(string runtimeRoot, bool highVram, string modelName, float generationTimeoutSeconds)
         {
             int requestedMs = Math.Max(30000, Mathf.RoundToInt(generationTimeoutSeconds * 1000f));
@@ -329,6 +345,5 @@ namespace KimodoBridge.Editor
 
             return timeoutMs;
         }
-
     }
 }

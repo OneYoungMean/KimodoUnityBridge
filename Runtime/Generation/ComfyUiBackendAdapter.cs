@@ -10,7 +10,7 @@ using UnityEngine.Networking;
 
 namespace KimodoBridge
 {
-    internal sealed class ComfyUiBackendAdapter : IGenerationBackendAdapter
+    internal sealed class ComfyUiBackendAdapter : IDisposable
     {
         private readonly string serverUrl;
         private readonly float timeoutSeconds;

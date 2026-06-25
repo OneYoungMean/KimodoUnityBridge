@@ -57,8 +57,23 @@ namespace KimodoBridge.Editor
     [InitializeOnLoad]
     internal static class KimodoBridgeController
     {
-        private static readonly KimodoBridgeGenerationFacade generationFacade = new KimodoBridgeGenerationFacade();
+        private enum ShutdownMode
+        {
+            DetachOnly = 0,
+            StopAndDispose = 1
+        }
+
+        private static KimodoBridgeService sharedBridgeService;
+        private static string currentServiceRuntimeRoot = string.Empty;
+        private static string currentServiceLauncherPath = string.Empty;
+        private static string currentServiceModelName = string.Empty;
+        private static string currentServiceModelsRoot = string.Empty;
+        private static bool currentServiceHighVram;
+        private static bool currentServiceForceSetup;
+        private static bool currentServiceForceCpu;
         private static bool isRecovering;
+        private static bool isClosing;
+        private static int shutdownTicket;
         private static int runtimeMaintenanceDepth;
 
         static KimodoBridgeController()
@@ -143,43 +158,12 @@ namespace KimodoBridge.Editor
             isRecovering = true;
             try
             {
-                string runtimeRoot = GetRuntimeRootPath();
-                if (!Directory.Exists(runtimeRoot))
+                KimodoBridgeService bridge = CreateDetachedBridgeServiceOrNull();
+                if (bridge == null)
                 {
                     return;
                 }
 
-                if (!BridgeRuntimeControl.TryReadServerEndpoint(runtimeRoot, out string host, out int port))
-                {
-                    return;
-                }
-
-                string launcherPath = ResolveStartScript(runtimeRoot);
-                if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
-                {
-                    return;
-                }
-
-                var settings = new KimodoRuntimeGenerationSettings
-                {
-                    bridgeSettings = new BridgeRuntimeSettings
-                    {
-                        runtimeRoot = runtimeRoot,
-                        launcherPath = launcherPath,
-                        modelName = "Kimodo-SOMA-RP-v1",
-                        highVram = false,
-                        forceSetup = false,
-                        modelsRoot = string.Empty,
-                        ownerProcessId = Process.GetCurrentProcess().Id,
-                        startupTimeoutMs = BridgeRuntimeSettings.DefaultStartupTimeoutMs,
-                        preserveProcessOnCancellation = KimodoPlayableClipGenerationSettings.instance != null &&
-                            KimodoPlayableClipGenerationSettings.instance.AlwaysKeepServerExperimental,
-                        idleTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance != null
-                            ? KimodoPlayableClipGenerationSettings.instance.ServerIdleShutdownSeconds
-                            : 0
-                    }
-                };
-                var bridge = new KimodoBridgeService(settings.bridgeSettings);
                 try
                 {
                     _ = await bridge.AttachAsync(message => UnityEngine.Debug.Log($"[KimodoBridge] {message}"), CancellationToken.None);
@@ -192,7 +176,7 @@ namespace KimodoBridge.Editor
             }
             catch
             {
-                // ignore recovery failures
+                // Recovery is best-effort and must not break editor startup.
             }
             finally
             {
@@ -210,63 +194,29 @@ namespace KimodoBridge.Editor
             Action<string> progress,
             CancellationToken token)
         {
-            return await generationFacade.StartServerAsync(
+            KimodoBridgeService bridgeService = GetOrCreateSharedBridgeService(
+                kimodoRootPath,
                 launcherPath,
                 modelName,
                 highVram,
-                kimodoRootPath,
                 modelsRoot,
-                forceSetup,
-                progress,
-                token);
+                forceSetup);
+            return await bridgeService.StartAsync(progress, token).ConfigureAwait(false);
         }
 
-        internal static async Task<KimodoGenerationResultDto> GenerateBridgeAsync(
-            string launcherPath,
-            string modelName,
-            bool highVram,
-            string kimodoRootPath,
-            string modelsRoot,
-            KimodoGenerationRequestDto request,
-            Action<string> progress,
-            CancellationToken token)
+        internal static async Task StopServerAsync(CancellationToken token)
         {
-            return await generationFacade.GenerateBridgeAsync(
-                launcherPath,
-                modelName,
-                highVram,
-                kimodoRootPath,
-                modelsRoot,
-                request,
-                progress,
-                token);
-        }
-
-        internal static async Task CloseServerAsync()
-        {
-            await generationFacade.CloseServerAsync(async () =>
-            {
-                string runtimeRoot = GetRuntimeRootPath();
-                if (!BridgeRuntimeControl.TryReadServerEndpoint(runtimeRoot, out string host, out int port))
-                {
-                    return (false, string.Empty, -1);
-                }
-
-                return await Task.FromResult((true, host, port));
-            });
+            await ShutdownAsync(ShutdownMode.StopAndDispose, token).ConfigureAwait(false);
         }
 
         private static void HandleBeforeAssemblyReload()
         {
             if (ShouldKeepServerAlive())
             {
-                                return;
+                return;
             }
 
-            _ = generationFacade.ShutdownAsync(
-                KimodoBridgeGenerationFacade.ShutdownMode.DetachOnly,
-                null,
-                CancellationToken.None);
+            _ = ShutdownAsync(ShutdownMode.DetachOnly, CancellationToken.None);
         }
 
         private static void HandlePlayModeStateChanged(PlayModeStateChange state)
@@ -282,12 +232,12 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            generationFacade.DetachSharedRuntimeGenerationService();
+            _ = ShutdownAsync(ShutdownMode.DetachOnly, CancellationToken.None);
         }
 
         private static void HandleEditorQuitting()
         {
-            generationFacade.DisposeSharedRuntimeGenerationService();
+            _ = ShutdownAsync(ShutdownMode.StopAndDispose, CancellationToken.None);
         }
 
         private static void HandleCompilationStateChanged(bool active)
@@ -298,6 +248,209 @@ namespace KimodoBridge.Editor
             }
 
             EditorApplication.delayCall += RecoverBridgeAfterDomainReload;
+        }
+
+        private static KimodoBridgeService GetOrCreateSharedBridgeService(
+            string runtimeRoot,
+            string launcherPath,
+            string modelName,
+            bool highVram,
+            string modelsRoot,
+            bool forceSetup)
+        {
+            bool forceCpu = KimodoPlayableClipGenerationSettings.instance != null &&
+                KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental;
+            int startupTimeoutMs = ComputeStartupTimeoutMs(runtimeRoot, highVram, modelName, modelsRoot);
+
+            string resolvedRuntimeRoot = Path.GetFullPath(runtimeRoot ?? string.Empty);
+            string resolvedLauncherPath = Path.GetFullPath(launcherPath ?? string.Empty);
+            string resolvedModelName = string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim();
+            string resolvedModelsRoot = string.IsNullOrWhiteSpace(modelsRoot) ? string.Empty : Path.GetFullPath(modelsRoot.Trim());
+
+            bool reusable =
+                sharedBridgeService != null &&
+                string.Equals(currentServiceRuntimeRoot, resolvedRuntimeRoot, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(currentServiceLauncherPath, resolvedLauncherPath, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(currentServiceModelName, resolvedModelName, StringComparison.Ordinal) &&
+                currentServiceHighVram == highVram &&
+                currentServiceForceSetup == forceSetup &&
+                currentServiceForceCpu == forceCpu &&
+                string.Equals(currentServiceModelsRoot, resolvedModelsRoot, StringComparison.OrdinalIgnoreCase);
+
+            if (reusable)
+            {
+                return sharedBridgeService;
+            }
+
+            try
+            {
+                sharedBridgeService?.Dispose();
+            }
+            catch
+            {
+                // Ignore dispose failure while replacing the shared service.
+            }
+
+            sharedBridgeService = new KimodoBridgeService(CreateBridgeSettings(
+                resolvedRuntimeRoot,
+                resolvedLauncherPath,
+                resolvedModelName,
+                highVram,
+                forceSetup,
+                forceCpu,
+                resolvedModelsRoot,
+                startupTimeoutMs));
+            currentServiceRuntimeRoot = resolvedRuntimeRoot;
+            currentServiceLauncherPath = resolvedLauncherPath;
+            currentServiceModelName = resolvedModelName;
+            currentServiceHighVram = highVram;
+            currentServiceForceSetup = forceSetup;
+            currentServiceForceCpu = forceCpu;
+            currentServiceModelsRoot = resolvedModelsRoot;
+            return sharedBridgeService;
+        }
+
+        private static int ComputeStartupTimeoutMs(string runtimeRoot, bool highVram, string modelName, string modelsRoot)
+        {
+            int startupTimeoutMs = BridgeRuntimeSettings.DefaultStartupTimeoutMs;
+            int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(runtimeRoot, highVram, modelName, modelsRoot);
+            if (points > 0)
+            {
+                int minutes = Math.Max(3, points * 3);
+                startupTimeoutMs = Math.Max(
+                    startupTimeoutMs,
+                    (int)Math.Round(Math.Max(BridgeRuntimeSettings.DefaultStartupTimeoutMs / 1000f, minutes * 60f) * 1000f));
+            }
+
+            return startupTimeoutMs;
+        }
+
+        private static BridgeRuntimeSettings CreateBridgeSettings(
+            string runtimeRoot,
+            string launcherPath,
+            string modelName,
+            bool highVram,
+            bool forceSetup,
+            bool forceCpu,
+            string modelsRoot,
+            int startupTimeoutMs)
+        {
+            KimodoPlayableClipGenerationSettings editorSettings = KimodoPlayableClipGenerationSettings.instance;
+            return new BridgeRuntimeSettings
+            {
+                runtimeRoot = runtimeRoot,
+                launcherPath = launcherPath,
+                modelName = modelName,
+                highVram = highVram,
+                forceSetup = forceSetup,
+                forceCpu = forceCpu,
+                modelsRoot = modelsRoot,
+                startupTimeoutMs = Math.Max(30000, startupTimeoutMs),
+                connectTimeoutMs = BridgeRuntimeSettings.DefaultConnectTimeoutMs,
+                ioTimeoutMs = BridgeRuntimeSettings.DefaultIoTimeoutMs,
+                modelLoadingTimeoutMs = BridgeRuntimeSettings.DefaultModelLoadingTimeoutMs,
+                modelLoadingPollIntervalMs = BridgeRuntimeSettings.DefaultModelLoadingPollIntervalMs,
+                statusConnectTimeoutMs = BridgeRuntimeSettings.DefaultStatusConnectTimeoutMs,
+                statusIoTimeoutMs = BridgeRuntimeSettings.DefaultStatusIoTimeoutMs,
+                idleTimeoutSeconds = editorSettings != null ? editorSettings.ServerIdleShutdownSeconds : 0,
+                ownerProcessId = Process.GetCurrentProcess().Id,
+                preserveProcessOnCancellation = editorSettings != null && editorSettings.AlwaysKeepServerExperimental
+            };
+        }
+
+        private static async Task ShutdownAsync(ShutdownMode mode, CancellationToken token)
+        {
+            int ticket = Interlocked.Increment(ref shutdownTicket);
+            if (isClosing)
+            {
+                UnityEngine.Debug.Log($"[Kimodo][BridgeShutdown] skip duplicate shutdown, mode={mode}, ticket={ticket}");
+                return;
+            }
+
+            isClosing = true;
+            UnityEngine.Debug.Log($"[Kimodo][BridgeShutdown] begin mode={mode}, ticket={ticket}");
+
+            KimodoBridgeService bridgeService = sharedBridgeService;
+            sharedBridgeService = null;
+            ResetSharedServiceState();
+
+            if (bridgeService == null && mode == ShutdownMode.StopAndDispose)
+            {
+                bridgeService = CreateDetachedBridgeServiceOrNull();
+            }
+
+            try
+            {
+                if (bridgeService == null)
+                {
+                    return;
+                }
+
+                if (mode == ShutdownMode.DetachOnly)
+                {
+                    await bridgeService.DetachAsync(token).ConfigureAwait(false);
+                    UnityEngine.Debug.Log("[Kimodo][BridgeShutdown] detached shared bridge service.");
+                }
+                else
+                {
+                    await bridgeService.StopAsync(token).ConfigureAwait(false);
+                    UnityEngine.Debug.Log("[Kimodo][BridgeShutdown] stopped shared bridge service.");
+                }
+            }
+            finally
+            {
+                try
+                {
+                    bridgeService?.Dispose();
+                }
+                catch
+                {
+                    // Ignore dispose failure during shutdown.
+                }
+
+                if (ticket == shutdownTicket)
+                {
+                    isClosing = false;
+                }
+
+                UnityEngine.Debug.Log($"[Kimodo][BridgeShutdown] end mode={mode}, ticket={ticket}");
+            }
+        }
+
+        private static KimodoBridgeService CreateDetachedBridgeServiceOrNull()
+        {
+            string runtimeRoot = GetRuntimeRootPath();
+            if (string.IsNullOrWhiteSpace(runtimeRoot) || !Directory.Exists(runtimeRoot))
+            {
+                return null;
+            }
+
+            string launcherPath = ResolveStartScript(runtimeRoot);
+            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
+            {
+                return null;
+            }
+
+            return new KimodoBridgeService(CreateBridgeSettings(
+                runtimeRoot: runtimeRoot,
+                launcherPath: launcherPath,
+                modelName: "Kimodo-SOMA-RP-v1",
+                highVram: false,
+                forceSetup: false,
+                forceCpu: false,
+                modelsRoot: string.Empty,
+                startupTimeoutMs: BridgeRuntimeSettings.DefaultStartupTimeoutMs));
+        }
+
+        private static void ResetSharedServiceState()
+        {
+            currentServiceRuntimeRoot = string.Empty;
+            currentServiceLauncherPath = string.Empty;
+            currentServiceModelName = string.Empty;
+            currentServiceModelsRoot = string.Empty;
+            currentServiceHighVram = false;
+            currentServiceForceSetup = false;
+            currentServiceForceCpu = false;
         }
 
         private static bool ShouldKeepServerAlive()

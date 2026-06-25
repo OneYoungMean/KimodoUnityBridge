@@ -81,7 +81,7 @@ namespace KimodoBridge
             "A person walks and briefly reaches out a hand."
         };
 
-        private KimodoRuntimeGenerationService generationService;
+        private KimodoBridgeService bridgeService;
         private CancellationTokenSource lifetimeCts;
         private Task schedulerTask;
         private bool running;
@@ -220,11 +220,11 @@ namespace KimodoBridge
                 motionPlayer.ResetCompletionState();
                 motionPlayer.ClearQueue();
 
-                generationService?.Dispose();
-                generationService = new KimodoRuntimeGenerationService(BuildRuntimeGenerationSettings());
+                bridgeService?.Dispose();
+                bridgeService = new KimodoBridgeService(BuildBridgeRuntimeSettings());
 
                 UpdateStatus("Starting Kimodo bridge...");
-                await generationService.StartAsync(KimodoBackendType.Bridge, OnProgress, lifetimeCts.Token);
+                await bridgeService.StartAsync(OnProgress, lifetimeCts.Token);
 
                 running = true;
                 schedulerTask = RunSchedulerLoopAsync(lifetimeCts.Token);
@@ -276,19 +276,19 @@ namespace KimodoBridge
                 }
             }
 
-            if (generationService != null)
+            if (bridgeService != null)
             {
                 try
                 {
-                    await generationService.StopAsync(KimodoBackendType.Bridge, CancellationToken.None);
+                    await bridgeService.StopAsync(CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
                     Debug.LogWarning($"[KimodoInfiniteMotionDemo] Stop bridge failed: {ex.Message}");
                 }
 
-                generationService.Dispose();
-                generationService = null;
+                bridgeService.Dispose();
+                bridgeService = null;
             }
 
             if (cts != null)
@@ -330,7 +330,7 @@ namespace KimodoBridge
 
         private void MaybeQueueNextGeneration(CancellationToken token)
         {
-            if (!running || generationInFlight || generationService == null)
+            if (!running || generationInFlight || bridgeService == null)
             {
                 return;
             }
@@ -369,7 +369,7 @@ namespace KimodoBridge
 
         private async Task GenerateNextSegmentAsync(CancellationToken token)
         {
-            if (generationInFlight || generationService == null)
+            if (generationInFlight || bridgeService == null)
             {
                 return;
             }
@@ -393,16 +393,12 @@ namespace KimodoBridge
                 };
 
                 OnProgress($"Generating segment {segmentIndex}...");
-                KimodoGenerationResultDto result = await generationService.GenerateAsync(
-                    request,
-                    KimodoBackendType.Bridge,
-                    OnProgress,
-                    token);
+                string motionJson = await bridgeService.GenerateAsync(request, OnProgress, token);
 
                 KimodoRawMotionMetadata metadata = await Task.Run(() =>
                 {
                     if (!KimodoRawMotionUtility.TryParseAndAnalyze(
-                            result.motionJsonCompact,
+                            motionJson,
                             modelName,
                             out KimodoRawMotionMetadata parsedMetadata,
                             out string parseError,
@@ -490,7 +486,7 @@ namespace KimodoBridge
                 Mathf.Max(segmentIntervalSeconds, generationFrames / KimodoPlayableClip.FIXED_FRAME_RATE));
         }
 
-        private KimodoRuntimeGenerationSettings BuildRuntimeGenerationSettings()
+        private BridgeRuntimeSettings BuildBridgeRuntimeSettings()
         {
             string resolvedRuntimeRoot = EnsureRuntimeRootReady();
             string launcherPath = BridgeLauncherResolver.ResolveStartScript(resolvedRuntimeRoot);
@@ -499,21 +495,18 @@ namespace KimodoBridge
                 throw new FileNotFoundException($"Cannot resolve bridge launcher under '{resolvedRuntimeRoot}'.");
             }
 
-            return new KimodoRuntimeGenerationSettings
+            return new BridgeRuntimeSettings
             {
-                bridgeSettings = new BridgeRuntimeSettings
-                {
-                    runtimeRoot = resolvedRuntimeRoot,
-                    launcherPath = launcherPath,
-                    modelName = modelName,
-                    highVram = highVram,
-                    forceSetup = forceSetup,
-                    modelsRoot = string.IsNullOrWhiteSpace(modelsRoot) ? null : Path.GetFullPath(modelsRoot),
-                    ownerProcessId = Process.GetCurrentProcess().Id,
-                    startupTimeoutMs = Mathf.Max(
-                        BridgeRuntimeSettings.DefaultStartupTimeoutMs,
-                        Mathf.RoundToInt(Mathf.Max(1f, startupTimeoutMinutes) * 60f * 1000f))
-                }
+                runtimeRoot = resolvedRuntimeRoot,
+                launcherPath = launcherPath,
+                modelName = modelName,
+                highVram = highVram,
+                forceSetup = forceSetup,
+                modelsRoot = string.IsNullOrWhiteSpace(modelsRoot) ? null : Path.GetFullPath(modelsRoot),
+                ownerProcessId = Process.GetCurrentProcess().Id,
+                startupTimeoutMs = Mathf.Max(
+                    BridgeRuntimeSettings.DefaultStartupTimeoutMs,
+                    Mathf.RoundToInt(Mathf.Max(1f, startupTimeoutMinutes) * 60f * 1000f))
             };
         }
 
@@ -585,7 +578,7 @@ namespace KimodoBridge
 
         public async Task ResetDemoAsync()
         {
-            bool wasActive = running || startRequested || generationService != null;
+            bool wasActive = running || startRequested || bridgeService != null;
             if (wasActive)
             {
                 await StopDemoAsync();

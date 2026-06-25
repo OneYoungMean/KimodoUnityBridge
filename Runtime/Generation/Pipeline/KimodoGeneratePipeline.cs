@@ -29,24 +29,7 @@ namespace KimodoBridge
             }
 
             token.ThrowIfCancellationRequested();
-
-            progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Starting generation backend...");
-
-            using var runtimeService = new KimodoRuntimeGenerationService(request.RuntimeSettings);
-            _ = await runtimeService.StartAsync(
-                request.BackendType,
-                message => progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, message ?? string.Empty),
-                token);
-
-            token.ThrowIfCancellationRequested();
-
-            progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Invoking generation backend...");
-
-            KimodoGenerationResultDto result = await runtimeService.GenerateAsync(
-                request.GenerationRequest,
-                request.BackendType,
-                message => progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, message ?? string.Empty),
-                token);
+            KimodoGenerationResultDto result = await ExecuteBackendAsync(request, progress, token);
 
             if (result == null)
             {
@@ -67,6 +50,82 @@ namespace KimodoBridge
                 Message = result.message ?? string.Empty,
                 RawStatus = result.rawStatus ?? string.Empty
             };
+        }
+
+        private static async Task<KimodoGenerationResultDto> ExecuteBackendAsync(
+            KimodoGeneratePipelineRequest request,
+            Action<KimodoGeneratePipelineStage, string> progress,
+            CancellationToken token)
+        {
+            switch (request.BackendType)
+            {
+                case KimodoBackendType.Bridge:
+                    return await ExecuteBridgeAsync(request, progress, token);
+                case KimodoBackendType.ComfyUi:
+                    return await ExecuteComfyUiAsync(request, progress, token);
+                default:
+                    throw new NotSupportedException($"Unsupported backend type: {request.BackendType}");
+            }
+        }
+
+        private static async Task<KimodoGenerationResultDto> ExecuteBridgeAsync(
+            KimodoGeneratePipelineRequest request,
+            Action<KimodoGeneratePipelineStage, string> progress,
+            CancellationToken token)
+        {
+            if (request.RuntimeSettings.bridgeSettings == null)
+            {
+                throw new InvalidOperationException("Bridge runtime settings are required.");
+            }
+
+            progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Starting generation backend...");
+
+            using var bridgeService = new KimodoBridgeService(request.RuntimeSettings.bridgeSettings);
+            _ = await bridgeService.StartAsync(
+                message => progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, message ?? string.Empty),
+                token);
+
+            token.ThrowIfCancellationRequested();
+            progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Invoking generation backend...");
+
+            string motionJson = await bridgeService.GenerateAsync(
+                request.GenerationRequest,
+                message => progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, message ?? string.Empty),
+                token);
+
+            return new KimodoGenerationResultDto
+            {
+                backendType = KimodoBackendType.Bridge,
+                rawStatus = "done",
+                message = "Bridge generation complete.",
+                motionJsonCompact = motionJson
+            };
+        }
+
+        private static async Task<KimodoGenerationResultDto> ExecuteComfyUiAsync(
+            KimodoGeneratePipelineRequest request,
+            Action<KimodoGeneratePipelineStage, string> progress,
+            CancellationToken token)
+        {
+            progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Starting generation backend...");
+
+            using var comfyUi = new ComfyUiBackendAdapter(
+                request.RuntimeSettings.comfyHost,
+                request.RuntimeSettings.comfyPort,
+                request.RuntimeSettings.comfyTimeoutSeconds,
+                1f,
+                request.RuntimeSettings.comfyWorkflowResourceName);
+            _ = await comfyUi.StartAsync(
+                message => progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, message ?? string.Empty),
+                token);
+
+            token.ThrowIfCancellationRequested();
+            progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, "Invoking generation backend...");
+
+            return await comfyUi.GenerateAsync(
+                request.GenerationRequest,
+                message => progress?.Invoke(KimodoGeneratePipelineStage.InvokeBackend, message ?? string.Empty),
+                token);
         }
     }
 }
