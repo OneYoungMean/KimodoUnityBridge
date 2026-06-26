@@ -25,7 +25,7 @@ namespace KimodoBridge.Editor
             var built = new KimodoInOutConstraintResult();
             AppendManualSamples(request.ManualSamples, built.CombinedSamples);
 
-            if (!KimodoInOutConstraintClipSampler.TrySampleBoundaryPair(
+            if (!KimodoInOutConstraintTools.TrySampleBoundaryPair(
                     request,
                     out KimodoMarkerSampleResult beginSample,
                     out KimodoMarkerSampleResult endSample,
@@ -44,7 +44,7 @@ namespace KimodoBridge.Editor
             }
 
             if (endSample != null &&
-                KimodoInOutConstraintTimingUtility.ClampFrameCount(request.GenerationFrames) > 1 &&
+                KimodoInOutConstraintAdapter.ClampFrameCount(request.GenerationFrames) > 1 &&
                 !ContainsSampleTime(request.ManualSamples, endSample.sampleTime))
             {
                 built.CombinedSamples.Add(endSample);
@@ -55,11 +55,10 @@ namespace KimodoBridge.Editor
                 KimodoInOutConstraintSamplePostProcessor.NormalizeConstraintOrigin(built.CombinedSamples);
             }
 
-            double clipDurationSeconds = request.ExportClipDurationSeconds ??
-                KimodoInOutConstraintTimingUtility.ResolveConstraintClipDurationSeconds(request.GenerationFrames);
+            double clipDurationSeconds = KimodoInOutConstraintAdapter.ResolveConstraintClipDurationSeconds(request.GenerationFrames);
             built.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                 built.CombinedSamples,
-                clipStartSeconds: request.ExportClipStartSeconds,
+                clipStartSeconds: 0.0,
                 clipDurationSeconds: clipDurationSeconds);
 
             result = built;

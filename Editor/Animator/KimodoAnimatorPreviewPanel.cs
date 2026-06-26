@@ -80,6 +80,7 @@ namespace KimodoBridge.Editor
         public AnimatorState SelectedState => selectedState;
         public AnimatorState SelectedFromState => selectedFromState;
         public AnimatorStateMachine SelectedStateMachine => selectedStateMachine;
+        public UnityEngine.Object RequestTargetObject => (UnityEngine.Object)selectedTransition ?? selectedState;
 
         public bool Tick()
         {
@@ -380,12 +381,17 @@ namespace KimodoBridge.Editor
             }
 
             string modelName = KimodoPlayableClip.NormalizeBridgeModelName(bridgeModelName);
-            AnimationClip previousClip = null;
-            AnimationClip currentClip = sourceClip;
-            AnimationClip nextClip = null;
+            KimodoInOutConstraintClipSegment beginSegment;
+            KimodoInOutConstraintClipSegment endSegment;
+            bool enableBegin;
+            bool enableEnd;
             switch (mode)
             {
                 case KimodoInOutConstraintMode.Inside:
+                    beginSegment = BuildFullClipSegment(sourceClip);
+                    endSegment = BuildFullClipSegment(sourceClip);
+                    enableBegin = beginSegment != null;
+                    enableEnd = endSegment != null;
                     break;
 
                 case KimodoInOutConstraintMode.Outside:
@@ -405,9 +411,10 @@ namespace KimodoBridge.Editor
                         return false;
                     }
 
-                    previousClip = sourceClip;
-                    currentClip = null;
-                    nextClip = destinationClip;
+                    beginSegment = BuildFullClipSegment(sourceClip);
+                    endSegment = BuildFullClipSegment(destinationClip);
+                    enableBegin = beginSegment != null;
+                    enableEnd = endSegment != null;
                     break;
                 }
 
@@ -416,13 +423,14 @@ namespace KimodoBridge.Editor
                     return false;
             }
 
-            int generatedFrameCount = KimodoInOutConstraintTimingUtility.DurationSecondsToFrameCount(generationDurationSeconds);
+            int generatedFrameCount = KimodoInOutConstraintAdapter.DurationSecondsToFrameCount(generationDurationSeconds);
             var request = new KimodoInOutConstraintRequest
             {
                 Mode = mode,
-                PreviousClip = previousClip,
-                CurrentClip = currentClip,
-                NextClip = nextClip,
+                BeginSegment = beginSegment,
+                EndSegment = endSegment,
+                EnableBegin = enableBegin,
+                EnableEnd = enableEnd,
                 SourceAvatar = avatar,
                 ModelName = modelName,
                 GenerationFrames = generatedFrameCount,
@@ -440,6 +448,22 @@ namespace KimodoBridge.Editor
 
             constraintsJson = result != null ? result.ConstraintsJson ?? string.Empty : string.Empty;
             return true;
+        }
+
+        private static KimodoInOutConstraintClipSegment BuildFullClipSegment(AnimationClip clip)
+        {
+            if (clip == null)
+            {
+                return null;
+            }
+
+            return new KimodoInOutConstraintClipSegment
+            {
+                Clip = clip,
+                StartSeconds = 0.0,
+                DurationSeconds = clip.length,
+                Speed = 1f
+            };
         }
 
         public void LockCurrentSelection()

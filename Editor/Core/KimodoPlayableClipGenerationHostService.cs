@@ -1,8 +1,6 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Reflection;
 using System.Threading;
 using TimelineInject;
 using UnityEditor;
@@ -44,7 +42,6 @@ namespace KimodoBridge.Editor
             {
                 Prompt = prompt,
                 ModelName = resolvedModelName,
-                GenerationBackend = clip.generationBackend,
                 BridgeVramMode = clip.bridgeVramMode,
                 DurationSeconds = Mathf.Clamp(clip.generationFrames, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES) / KimodoPlayableClip.FIXED_FRAME_RATE,
                 DiffusionSteps = Mathf.Clamp(clip.diffusionSteps, 1, 1000),
@@ -57,8 +54,6 @@ namespace KimodoBridge.Editor
                     externalConstraint?.RetargetAvatar,
                     modelName),
                 ModelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim() ?? string.Empty,
-                ComfyHost = clip.comfyuiIP,
-                ComfyPort = clip.comfyuiPort,
                 GenerationTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance.GenerationTimeoutSeconds,
                 Token = token
             };
@@ -86,8 +81,8 @@ namespace KimodoBridge.Editor
 
                 if (!KimodoEditorClipWritebackService.TryMaterializeGeneratedClipCache(
                         result.GeneratedClip,
-                        request.ExportMuscleClip,
-                        request.TargetRetargetAvatar,
+                        request.OutputPlan != null && request.OutputPlan.ExportMuscleClip,
+                        request.OutputPlan != null ? request.OutputPlan.TargetRetargetAvatar : null,
                         forceRefresh: false,
                         out AnimationClip generatedCacheClip,
                         out string cacheError))
@@ -166,24 +161,19 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            if (TimelineEditor.inspectedDirector == null)
+            {
+                Debug.LogWarning($"[Kimodo][TimelineOffset] skipped for '{playableClip.name}': Timeline inspected director is null.");
+                return;
+            }
+
             if (timelineClip == null)
             {
                 Debug.LogWarning($"[Kimodo][TimelineOffset] skipped for '{playableClip.name}': timeline clip not found.");
                 return;
             }
 
-            TrackAsset track = timelineClip.GetParentTrack();
-            if (!KimodoTimelineInOutConstraintContextUtility.TryResolveDirector(
-                    timelineClip,
-                    track,
-                    out _,
-                    out string directorError))
-            {
-                Debug.LogWarning($"[Kimodo][TimelineOffset] skipped for '{playableClip.name}': {directorError}");
-                return;
-            }
-
-            if (!KimodoTimelineInOutConstraintContextUtility.HasPreviousNeighbor(timelineClip))
+            if (!KimodoInOutConstraintAdapter.HasPreviousNeighbor(timelineClip))
             {
                 Debug.LogWarning($"[Kimodo][TimelineOffset] skipped for '{playableClip.name}': no previous neighbor clip.");
                 return;

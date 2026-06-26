@@ -8,7 +8,6 @@ namespace KimodoBridge.Editor
     {
         public string Prompt;
         public string ModelName;
-        public KimodoGenerationBackend GenerationBackend;
         public KimodoBridgeVramMode BridgeVramMode;
         public float DurationSeconds;
         public int DiffusionSteps;
@@ -16,18 +15,12 @@ namespace KimodoBridge.Editor
         public string ConstraintsJson;
         public Func<AnimationClip> CreateTargetClip;
         public Func<AnimationClip, string, KimodoEditorGenerateOutputPlan> ResolveOutputPlan;
-        public Avatar OriginRetargetAvatar;
-        public Avatar TargetRetargetAvatar;
-        public bool ExportMuscleClip;
-        public KimodoCurveFilterOptions CurveFilterOptions;
-        public bool SkipRetarget;
+        public KimodoEditorGenerateOutputPlan OutputPlan;
         public string ModelsRoot = string.Empty;
-        public string ComfyHost = "127.0.0.1";
-        public int ComfyPort = 8188;
         public float GenerationTimeoutSeconds = 600f;
         public AnimationClip TargetClip;
         public AnimationClip RawBoneClip;
-        public Action<KimodoGeneratePipelineStage, string> Progress;
+        public Action<KimodoBridgeCommandStage, string> Progress;
         public CancellationToken Token;
     }
 

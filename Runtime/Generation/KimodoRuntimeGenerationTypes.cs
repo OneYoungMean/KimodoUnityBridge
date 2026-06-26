@@ -3,12 +3,6 @@ using UnityEngine;
 
 namespace KimodoBridge
 {
-    public enum KimodoBackendType
-    {
-        Bridge = 0,
-        ComfyUi = 1
-    }
-
     [Serializable]
     public sealed class KimodoGenerationRequestDto
     {
@@ -38,7 +32,6 @@ namespace KimodoBridge
     public sealed class KimodoGenerationResultDto
     {
         public string motionJsonCompact;
-        public KimodoBackendType backendType;
         public string rawStatus;
         public string message;
     }
@@ -47,9 +40,5 @@ namespace KimodoBridge
     public sealed class KimodoRuntimeGenerationSettings
     {
         public BridgeRuntimeSettings bridgeSettings;
-        public string comfyHost = "127.0.0.1";
-        public int comfyPort = 8188;
-        public float comfyTimeoutSeconds = 120f;
-        public string comfyWorkflowResourceName = "kimodo-unity-workflow";
     }
 }

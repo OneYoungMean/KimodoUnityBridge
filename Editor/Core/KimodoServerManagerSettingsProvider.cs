@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
@@ -45,20 +46,9 @@ namespace KimodoBridge.Editor
         private string operationStatus = string.Empty;
         private string lastError = string.Empty;
         private string modelError = string.Empty;
-        private PendingServerOperation pendingOperation = PendingServerOperation.None;
-        private bool managerSubscribed;
 
         private string selectedModel = "Kimodo-SOMA-RP-v1";
         private KimodoBridgeVramMode selectedVramMode = KimodoBridgeVramMode.Low;
-
-        private enum PendingServerOperation
-        {
-            None = 0,
-            Start = 1,
-            Stop = 2,
-            TryFix = 3,
-            DeleteAllData = 4
-        }
 
         private KimodoServerManagerSettingsProvider(string path, SettingsScope scope) : base(path, scope) { }
 
@@ -73,14 +63,12 @@ namespace KimodoBridge.Editor
 
         public override void OnActivate(string searchContext, VisualElement rootElement)
         {
-            SubscribeManagerEvents();
             Refresh();
             detectHintUntilTime = EditorApplication.timeSinceStartup + 2.0;
         }
 
         public override void OnDeactivate()
         {
-            UnsubscribeManagerEvents();
             base.OnDeactivate();
         }
 
@@ -88,11 +76,10 @@ namespace KimodoBridge.Editor
         {
             if (string.IsNullOrWhiteSpace(runtimeRoot))
             {
-                runtimeRoot = KimodoBridgeController.GetRuntimeRootPath();
+                runtimeRoot = KimodoBridgePipeline.GetRuntimeRootPath();
             }
 
             PullServerStatusFromController(forceRefresh: false);
-            TryRunPendingOperationAfterCompile();
 
             EditorGUILayout.LabelField("Kimodo Server Manager", EditorStyles.boldLabel);
             EditorGUILayout.Space(4f);
@@ -102,14 +89,14 @@ namespace KimodoBridge.Editor
             if (GUILayout.Button(new GUIContent("Refresh", "Rescan runtime/model folders and request latest bridge server status."), GUILayout.Width(100f)))
             {
                 Refresh();
-                DispatchBridgeCommand(KimodoBridgeOperation.RefreshStatus);
+                PullServerStatusFromController(forceRefresh: true);
             }
 
             if (!runtimeExists)
             {
                 if (GUILayout.Button(new GUIContent("Create Kimodo Server", "Bootstrap Kimodo runtime folder and required server files."), GUILayout.Width(180f)))
                 {
-                    DispatchBridgeCommand(KimodoBridgeOperation.EnsureRuntimeRoot);
+                    _ = EnsureRuntimeRootAsync();
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -147,7 +134,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("Startup", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
-            string[] options = KimodoBridgeController.SupportedModelNames;
+            string[] options = KimodoBridgePipeline.SupportedModelNames;
             int idx = Array.IndexOf(options, selectedModel);
             if (idx < 0)
             {
@@ -291,7 +278,7 @@ namespace KimodoBridge.Editor
                 $"Estimated VRAM for selected mode: ~{totalVramGb} GB (core 2 GB + encoder {encoderVramGb} GB).",
                 MessageType.Info);
 
-            if (KimodoBridgeController.TryGetModelMissingSetupMinutes(
+            if (KimodoBridgePipeline.TryGetModelMissingSetupMinutes(
                 runtimeRoot,
                 selectedVramMode == KimodoBridgeVramMode.High,
                 selectedModel,
@@ -329,7 +316,7 @@ namespace KimodoBridge.Editor
             else
             {
                 EditorGUILayout.HelpBox("Server is not running.", MessageType.None);
-                ServerStatusSnapshot staleSnapshot = KimodoBridgeController.GetServerStatusSnapshot();
+                ServerStatusSnapshot staleSnapshot = KimodoBridgePipeline.GetServerStatusSnapshot();
                 if (staleSnapshot.HasPort)
                 {
                     EditorGUILayout.HelpBox("Detected stale endpoint file (serverport). Process is not alive.", MessageType.None);
@@ -344,21 +331,21 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.LabelField("Status", serverState == ServerState.Enabled ? "enable" : "disable", EditorStyles.miniLabel);
             }
 
-            bool inMaintenance = KimodoBridgeController.IsRuntimeMaintenanceInProgress;
+            bool inMaintenance = KimodoBridgePipeline.IsRuntimeMaintenanceInProgress;
             bool stopMode = serverState == ServerState.Enabled;
             string buttonLabel = (operationInProgress || inMaintenance) ? "Processing..." : (stopMode ? "Stop Server" : "Start Server");
 
-            using (new EditorGUI.DisabledScope(operationInProgress || inMaintenance))
+            using (new EditorGUI.DisabledScope(operationInProgress || inMaintenance || compileGate))
             {
                 if (GUILayout.Button(new GUIContent(buttonLabel, "Start or stop Kimodo bridge server with current startup model and VRAM mode settings."), GUILayout.Width(140f)))
                 {
                     if (stopMode)
                     {
-                        EnqueueOrRun(PendingServerOperation.Stop, () => DispatchBridgeCommand(KimodoBridgeOperation.Stop));
+                        _ = StopServerAsync();
                     }
                     else
                     {
-                        EnqueueOrRun(PendingServerOperation.Start, () => DispatchBridgeCommand(KimodoBridgeOperation.Start));
+                        _ = StartServerAsync();
                     }
                 }
             }
@@ -447,60 +434,23 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("Actions", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
-            using (new EditorGUI.DisabledScope(operationInProgress))
+            using (new EditorGUI.DisabledScope(operationInProgress || EditorCompilationStateGate.IsCompilingOrReloading))
             {
                 if (GUILayout.Button(new GUIContent("Try Fix (delete and reconfigure)", "Run bridge self-repair flow: clean broken parts and reconfigure runtime."), GUILayout.Height(24f)))
                 {
-                    EnqueueOrRun(PendingServerOperation.TryFix, () => DispatchBridgeCommand(KimodoBridgeOperation.TryFix));
+                    _ = TryFixRuntimeAsync();
                 }
 
                 if (GUILayout.Button(new GUIContent("Delete All Data", "Delete the full Kimodo runtime folder including downloaded models and cache."), GUILayout.Height(24f)))
                 {
                     if (EditorUtility.DisplayDialog("Delete All Data", "Delete entire Kimodo runtime folder? This cannot be undone.", "Delete", "Cancel"))
                     {
-                        EnqueueOrRun(PendingServerOperation.DeleteAllData, () => DispatchBridgeCommand(KimodoBridgeOperation.DeleteAllData));
+                        _ = DeleteAllDataAsync();
                     }
                 }
             }
 
             EditorGUILayout.EndVertical();
-        }
-
-        private Task DispatchBridgeCommand(KimodoBridgeOperation operation)
-        {
-            if (operationInProgress && operation != KimodoBridgeOperation.RefreshStatus)
-            {
-                return Task.CompletedTask;
-            }
-
-            operationInProgress = operation != KimodoBridgeOperation.RefreshStatus;
-            lastError = string.Empty;
-            operationStatus = operation switch
-            {
-                KimodoBridgeOperation.Start => "Starting server...",
-                KimodoBridgeOperation.Stop => "Stopping server...",
-                KimodoBridgeOperation.TryFix => "TryFix running...",
-                KimodoBridgeOperation.DeleteAllData => "Deleting runtime data...",
-                KimodoBridgeOperation.EnsureRuntimeRoot => "Creating runtime root...",
-                _ => "Refreshing..."
-            };
-
-            string modelsRoot = ResolveModelsRootForServer();
-            bool accepted = KimodoEditorCommandManager.Dispatch(
-                new BridgeControlCommand(
-                    operation,
-                    runtimeRoot,
-                    selectedModel,
-                    selectedVramMode,
-                    modelsRoot));
-
-            if (!accepted && operation != KimodoBridgeOperation.RefreshStatus)
-            {
-                operationInProgress = false;
-                operationStatus = "Command rejected.";
-            }
-
-            return Task.CompletedTask;
         }
 
         private void TryDeleteModelDirectory(string path, string modelName)
@@ -568,7 +518,7 @@ namespace KimodoBridge.Editor
 
         private void Refresh()
         {
-            runtimeRoot = KimodoBridgeController.GetRuntimeRootPath();
+            runtimeRoot = KimodoBridgePipeline.GetRuntimeRootPath();
             runtimeExists = Directory.Exists(runtimeRoot);
             setupProfile = "unknown";
             if (runtimeExists && KimodoServerRuntimeUtil.TryReadSetupProfile(runtimeRoot, out string profile))
@@ -612,7 +562,7 @@ namespace KimodoBridge.Editor
             try
             {
                 List<ModelDirectoryInfo> source =
-                    KimodoBridgeController.QueryDisplayableModelDirectories(resolvedModelsRoot);
+                    KimodoBridgePipeline.QueryDisplayableModelDirectories(resolvedModelsRoot);
                 for (int i = 0; i < source.Count; i++)
                 {
                     ModelDirectoryInfo item = source[i];
@@ -649,158 +599,186 @@ namespace KimodoBridge.Editor
             }
 
             _ = forceRefresh;
-            ServerStatusSnapshot snapshot = KimodoBridgeController.GetServerStatusSnapshot();
+            ServerStatusSnapshot snapshot = KimodoBridgePipeline.GetServerStatusSnapshot();
             serverHost = snapshot.Host;
             serverPort = snapshot.Port;
             serverState = snapshot.Running ? ServerState.Enabled : ServerState.Disabled;
         }
 
-        private void EnqueueOrRun(PendingServerOperation op, Func<Task> action)
+        private Task EnsureRuntimeRootAsync()
         {
+            return RunOperationAsync(
+                initialStatus: "Creating runtime root...",
+                successStatus: "Runtime root ready.",
+                async _ =>
+                {
+                    if (!KimodoBridgePipeline.BootstrapRuntimeRootIfMissing())
+                    {
+                        throw new InvalidOperationException("Failed to create runtime root from package template.");
+                    }
+
+                    await Task.CompletedTask;
+                });
+        }
+
+        private Task StartServerAsync()
+        {
+            return RunOperationAsync(
+                initialStatus: "Starting server...",
+                successStatus: null,
+                progress =>
+                {
+                    string runtimeRootPath = runtimeRoot;
+                    string launcherPath = KimodoBridgePipeline.ResolveStartScriptOrThrow(runtimeRootPath);
+                    string modelName = string.IsNullOrWhiteSpace(selectedModel) ? "Kimodo-SOMA-RP-v1" : selectedModel.Trim();
+                    bool highVram = selectedVramMode == KimodoBridgeVramMode.High;
+                    string modelsRoot = ResolveModelsRootForServer();
+                    return KimodoBridgePipeline.StartServerAsync(
+                        launcherPath,
+                        modelName,
+                        highVram,
+                        runtimeRootPath,
+                        modelsRoot,
+                        forceSetup: false,
+                        progress,
+                        CancellationToken.None);
+                },
+                onSuccess: () =>
+                {
+                    PullServerStatusFromController(forceRefresh: true);
+                    operationStatus = serverState == ServerState.Enabled
+                        ? $"Running at {serverHost}:{serverPort}"
+                        : "Start completed.";
+                });
+        }
+
+        private Task StopServerAsync()
+        {
+            return RunOperationAsync(
+                initialStatus: "Stopping server...",
+                successStatus: "Server stopped.",
+                async _ => await KimodoBridgePipeline.StopServerAsync(CancellationToken.None));
+        }
+
+        private Task TryFixRuntimeAsync()
+        {
+            return RunOperationAsync(
+                initialStatus: "TryFix running...",
+                successStatus: "TryFix completed.",
+                async progress =>
+                {
+                    string runtimeRootPath = runtimeRoot;
+                    string launcherPath = KimodoBridgePipeline.ResolveStartScriptOrThrow(runtimeRootPath);
+                    string modelName = string.IsNullOrWhiteSpace(selectedModel) ? "Kimodo-SOMA-RP-v1" : selectedModel.Trim();
+                    bool highVram = selectedVramMode == KimodoBridgeVramMode.High;
+                    string modelsRoot = ResolveModelsRootForServer();
+
+                    using (KimodoBridgePipeline.EnterRuntimeMaintenanceScope())
+                    {
+                        await KimodoBridgePipeline.StopServerAsync(CancellationToken.None);
+                        if (!Directory.Exists(runtimeRootPath))
+                        {
+                            throw new DirectoryNotFoundException($"Runtime root not found: {runtimeRootPath}");
+                        }
+
+                        Directory.Delete(runtimeRootPath, recursive: true);
+                        if (!KimodoBridgePipeline.BootstrapRuntimeRootIfMissing())
+                        {
+                            throw new InvalidOperationException("TryFix failed: cannot bootstrap runtime.");
+                        }
+
+                        await KimodoBridgePipeline.StartServerAsync(
+                            launcherPath,
+                            modelName,
+                            highVram,
+                            runtimeRootPath,
+                            modelsRoot,
+                            forceSetup: true,
+                            progress,
+                            CancellationToken.None);
+                    }
+                });
+        }
+
+        private Task DeleteAllDataAsync()
+        {
+            string runtimeRootPath = runtimeRoot;
+            return RunOperationAsync(
+                initialStatus: "Deleting runtime data...",
+                successStatus: "Runtime data deleted.",
+                async _ =>
+                {
+                    using (KimodoBridgePipeline.EnterRuntimeMaintenanceScope())
+                    {
+                        await KimodoBridgePipeline.StopServerAsync(CancellationToken.None);
+                        if (!Directory.Exists(runtimeRootPath))
+                        {
+                            throw new DirectoryNotFoundException($"Runtime root not found: {runtimeRootPath}");
+                        }
+
+                        Directory.Delete(runtimeRootPath, recursive: true);
+                    }
+                });
+        }
+
+        private async Task RunOperationAsync(
+            string initialStatus,
+            string successStatus,
+            Func<Action<string>, Task> action,
+            Action onSuccess = null)
+        {
+            if (operationInProgress)
+            {
+                lastError = "Another server operation is already running.";
+                operationStatus = "Failed.";
+                return;
+            }
+
             if (EditorCompilationStateGate.IsCompilingOrReloading)
             {
-                pendingOperation = op;
-                operationStatus = $"Queued '{op}' until compile completes.";
-                Debug.Log($"[Kimodo][CompileGate] queued operation: {op}");
+                lastError = "Editor is compiling or reloading scripts.";
+                operationStatus = "Failed.";
                 return;
             }
 
-            _ = action();
-        }
-
-        private void TryRunPendingOperationAfterCompile()
-        {
-            if (pendingOperation == PendingServerOperation.None)
-            {
-                return;
-            }
-
-            if (EditorCompilationStateGate.IsCompilingOrReloading || operationInProgress)
-            {
-                return;
-            }
-
-            PendingServerOperation op = pendingOperation;
-            pendingOperation = PendingServerOperation.None;
-            Debug.Log($"[Kimodo][CompileGate] running queued operation: {op}");
-            switch (op)
-            {
-                case PendingServerOperation.Start:
-                    _ = DispatchBridgeCommand(KimodoBridgeOperation.Start);
-                    break;
-                case PendingServerOperation.Stop:
-                    _ = DispatchBridgeCommand(KimodoBridgeOperation.Stop);
-                    break;
-                case PendingServerOperation.TryFix:
-                    _ = DispatchBridgeCommand(KimodoBridgeOperation.TryFix);
-                    break;
-                case PendingServerOperation.DeleteAllData:
-                    _ = DispatchBridgeCommand(KimodoBridgeOperation.DeleteAllData);
-                    break;
-            }
-        }
-
-        private void SubscribeManagerEvents()
-        {
-            if (managerSubscribed)
-            {
-                return;
-            }
-
-            KimodoEditorCommandManager.CommandProgress += OnManagerCommandProgress;
-            KimodoEditorCommandManager.CommandCompleted += OnManagerCommandCompleted;
-            KimodoEditorCommandManager.CommandFailed += OnManagerCommandFailed;
-            KimodoEditorCommandManager.CommandCanceled += OnManagerCommandCanceled;
-            managerSubscribed = true;
-        }
-
-        private void UnsubscribeManagerEvents()
-        {
-            if (!managerSubscribed)
-            {
-                return;
-            }
-
-            KimodoEditorCommandManager.CommandProgress -= OnManagerCommandProgress;
-            KimodoEditorCommandManager.CommandCompleted -= OnManagerCommandCompleted;
-            KimodoEditorCommandManager.CommandFailed -= OnManagerCommandFailed;
-            KimodoEditorCommandManager.CommandCanceled -= OnManagerCommandCanceled;
-            managerSubscribed = false;
-        }
-
-        private static bool IsBridgeCommand(IKimodoEditorCommand command)
-        {
-            if (command == null)
-            {
-                return false;
-            }
-
-            return command.Kind == KimodoEditorCommandKind.BridgeStartServer
-                || command.Kind == KimodoEditorCommandKind.BridgeStopServer
-                || command.Kind == KimodoEditorCommandKind.BridgeTryFix
-                || command.Kind == KimodoEditorCommandKind.BridgeDeleteAllData
-                || command.Kind == KimodoEditorCommandKind.BridgeRefreshStatus
-                || command.Kind == KimodoEditorCommandKind.BridgeEnsureRuntimeRoot;
-        }
-
-        private void OnManagerCommandProgress(KimodoEditorCommandProgressEvent evt)
-        {
-            if (!IsBridgeCommand(evt.Command))
-            {
-                return;
-            }
-
-            operationStatus = evt.Message;
-        }
-
-        private void OnManagerCommandCompleted(KimodoEditorCommandCompletedEvent evt)
-        {
-            if (!IsBridgeCommand(evt.Command))
-            {
-                return;
-            }
-
-            operationInProgress = false;
+            operationInProgress = true;
             lastError = string.Empty;
+            operationStatus = initialStatus ?? string.Empty;
 
-            if (evt.Payload is KimodoEditorBridgeOperationResult result)
+            try
             {
-                serverHost = result.Host;
-                serverPort = result.Port;
-                serverState = result.Running ? ServerState.Enabled : ServerState.Disabled;
-                operationStatus = string.IsNullOrWhiteSpace(result.Status) ? "Done." : result.Status;
+                await action(message =>
+                {
+                    if (!string.IsNullOrWhiteSpace(message))
+                    {
+                        operationStatus = message;
+                    }
+                });
+
+                Refresh();
+                PullServerStatusFromController(forceRefresh: true);
+                onSuccess?.Invoke();
+                if (!string.IsNullOrWhiteSpace(successStatus))
+                {
+                    operationStatus = successStatus;
+                }
+                else if (string.IsNullOrWhiteSpace(operationStatus))
+                {
+                    operationStatus = "Done.";
+                }
             }
-            else
+            catch (Exception ex)
             {
-                operationStatus = "Done.";
+                Debug.LogException(ex);
+                lastError = ex.Message;
+                operationStatus = "Failed.";
+                Refresh();
+                PullServerStatusFromController(forceRefresh: true);
             }
-
-            Refresh();
-            PullServerStatusFromController(forceRefresh: true);
-        }
-
-        private void OnManagerCommandFailed(KimodoEditorCommandFailedEvent evt)
-        {
-            if (!IsBridgeCommand(evt.Command))
+            finally
             {
-                return;
+                operationInProgress = false;
             }
-
-            operationInProgress = false;
-            lastError = evt.Message;
-            operationStatus = "Failed.";
-            PullServerStatusFromController(forceRefresh: true);
-        }
-
-        private void OnManagerCommandCanceled(KimodoEditorCommandCanceledEvent evt)
-        {
-            if (!IsBridgeCommand(evt.Command))
-            {
-                return;
-            }
-
-            operationInProgress = false;
-            operationStatus = "Canceled.";
         }
     }
 }

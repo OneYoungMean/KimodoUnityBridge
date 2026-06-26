@@ -31,8 +31,8 @@ namespace KimodoBridge.Editor
             int clampedSteps = Mathf.Clamp(steps, 1, 1000);
             string constraintsJson = BuildBoundaryFullBodyConstraintsJson(startPose, endPose, clampedFrames);
 
-            string runtimeRoot = KimodoBridgeController.ResolveRuntimeRootOrThrow();
-            string launcherPath = KimodoBridgeController.ResolveStartScriptOrThrow(runtimeRoot);
+            string runtimeRoot = KimodoBridgePipeline.ResolveRuntimeRootOrThrow();
+            string launcherPath = KimodoBridgePipeline.ResolveStartScriptOrThrow(runtimeRoot);
 
             string resolvedModelName = string.IsNullOrWhiteSpace(modelName)
                 ? "Kimodo-SOMA-RP-v1"
@@ -40,7 +40,8 @@ namespace KimodoBridge.Editor
 
             bool highVram = vramMode == KimodoBridgeVramMode.High;
 
-            string modelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim();
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            string modelsRoot = settings != null ? settings.LocalModelsPath?.Trim() : string.Empty;
             if (!string.IsNullOrWhiteSpace(modelsRoot))
             {
                 modelsRoot = Path.GetFullPath(modelsRoot);
@@ -55,15 +56,29 @@ namespace KimodoBridge.Editor
                 constraints_json = constraintsJson
             };
 
-            return await KimodoBridgeController.GenerateBridgeAsync(
-                launcherPath,
-                resolvedModelName,
-                highVram,
-                runtimeRoot,
-                modelsRoot,
-                request,
-                progress,
+            var pipelineRequest = new KimodoBridgeCommandRequest
+            {
+                RuntimeSettings = KimodoEditorRuntimeGeneratePipeline.BuildRuntimeSettings(
+                    runtimeRoot,
+                    launcherPath,
+                    resolvedModelName,
+                    highVram ? KimodoBridgeVramMode.High : KimodoBridgeVramMode.Low,
+                    modelsRoot,
+                    settings != null ? settings.GenerationTimeoutSeconds : 120f),
+                GenerationRequest = request
+            };
+
+            IKimodoGeneratePipeline pipeline = new KimodoBridgeCommand();
+            KimodoBridgeCommandResult result = await pipeline.ExecuteAsync(
+                pipelineRequest,
+                (_, message) => progress?.Invoke(message),
                 token);
+            return new KimodoGenerationResultDto
+            {
+                rawStatus = result.RawStatus,
+                message = result.Message,
+                motionJsonCompact = result.MotionJsonCompact
+            };
         }
 
         internal static string BuildBoundaryFullBodyConstraintsJson(

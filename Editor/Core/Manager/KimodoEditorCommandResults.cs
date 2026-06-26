@@ -15,16 +15,6 @@ namespace KimodoBridge.Editor
         }
     }
 
-    public sealed class KimodoEditorBridgeOperationResult : IKimodoEditorCommandResult
-    {
-        public bool Running;
-        public bool HasPort;
-        public string Host;
-        public int Port;
-        public string Status;
-        public string Error;
-    }
-
     public sealed class KimodoEditorGenerateResult : IKimodoEditorCommandResult
     {
         public string ConstraintsPath;

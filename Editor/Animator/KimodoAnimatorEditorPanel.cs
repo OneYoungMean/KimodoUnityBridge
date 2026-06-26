@@ -12,7 +12,6 @@ namespace KimodoBridge.Editor
             float windowWidth,
             float windowHeight,
             KimodoAnimatorPreviewPanel previewPanel,
-            ref KimodoGenerationBackend generationBackend,
             ref string bridgeModelName,
             ref KimodoBridgeVramMode bridgeVramMode,
             ref string motionPrompt,
@@ -50,7 +49,6 @@ namespace KimodoBridge.Editor
 
                     DrawGeneratePanel(
                         previewPanel != null && previewPanel.HasSelection,
-                        ref generationBackend,
                         ref bridgeModelName,
                         ref bridgeVramMode,
                         ref motionPrompt,
@@ -80,7 +78,6 @@ namespace KimodoBridge.Editor
 
         private static void DrawGeneratePanel(
             bool hasSelection,
-            ref KimodoGenerationBackend generationBackend,
             ref string bridgeModelName,
             ref KimodoBridgeVramMode bridgeVramMode,
             ref string motionPrompt,
@@ -100,16 +97,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("Generate", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
-            generationBackend = (KimodoGenerationBackend)EditorGUILayout.EnumPopup(new GUIContent("Backend"), generationBackend);
-
-            if (generationBackend == KimodoGenerationBackend.KimodoBridge)
-            {
-                DrawBridgePanel(ref bridgeModelName, ref bridgeVramMode);
-            }
-            else
-            {
-                EditorGUILayout.HelpBox("ComfyUI backend uses existing clip defaults for host, port, and workflow.", MessageType.Info);
-            }
+            DrawBridgePanel(ref bridgeModelName, ref bridgeVramMode);
 
             EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField("Prompt", EditorStyles.miniBoldLabel);
@@ -194,7 +182,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("Kimodo Bridge", EditorStyles.miniBoldLabel);
             EditorGUILayout.BeginVertical("box");
 
-            string[] options = KimodoBridgeController.SupportedModelNames;
+            string[] options = KimodoBridgePipeline.SupportedModelNames;
             if (options != null && options.Length > 0)
             {
                 string current = string.IsNullOrWhiteSpace(bridgeModelName) ? options[0] : bridgeModelName.Trim();

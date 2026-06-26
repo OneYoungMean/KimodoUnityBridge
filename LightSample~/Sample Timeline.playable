@@ -22,9 +22,6 @@ MonoBehaviour:
   m_Loop: 0
   m_Version: 1
   m_Rotation: {x: 0, y: 0, z: 0, w: 1}
-  generationBackend: 1
-  comfyuiIP: 127.0.0.1
-  comfyuiPort: 8188
   bridgeModelName: Kimodo-SOMA-RP-v1
   bridgeVramMode: 0
   motionPrompt: a woman walk and say hello
@@ -787,9 +784,6 @@ MonoBehaviour:
   m_Loop: 0
   m_Version: 1
   m_Rotation: {x: 0, y: 0, z: 0, w: 1}
-  generationBackend: 1
-  comfyuiIP: 127.0.0.1
-  comfyuiPort: 8188
   bridgeModelName: Kimodo-SOMA-RP-v1
   bridgeVramMode: 0
   motionPrompt: Walk back, look to the right, and turn around into a martial arts
@@ -859,9 +853,6 @@ MonoBehaviour:
   m_Loop: 0
   m_Version: 1
   m_Rotation: {x: 0, y: 0, z: 0, w: 1}
-  generationBackend: 1
-  comfyuiIP: 127.0.0.1
-  comfyuiPort: 8188
   bridgeModelName: Kimodo-SOMA-RP-v1
   bridgeVramMode: 0
   motionPrompt: punch hit and  kick
@@ -1102,9 +1093,6 @@ MonoBehaviour:
   m_Loop: 0
   m_Version: 1
   m_Rotation: {x: 0, y: 0, z: 0, w: 1}
-  generationBackend: 1
-  comfyuiIP: 127.0.0.1
-  comfyuiPort: 8188
   bridgeModelName: Kimodo-SOMA-RP-v1
   bridgeVramMode: 0
   motionPrompt: punch hit and  kick
@@ -1150,9 +1138,6 @@ MonoBehaviour:
   m_Loop: 0
   m_Version: 1
   m_Rotation: {x: 0, y: 0, z: 0, w: 1}
-  generationBackend: 1
-  comfyuiIP: 127.0.0.1
-  comfyuiPort: 8188
   bridgeModelName: Kimodo-SOMA-RP-v1
   bridgeVramMode: 0
   motionPrompt: Walk back, look to the right, and turn around into a martial arts
@@ -1200,9 +1185,6 @@ MonoBehaviour:
   m_Loop: 0
   m_Version: 1
   m_Rotation: {x: 0, y: 0, z: 0, w: 1}
-  generationBackend: 1
-  comfyuiIP: 127.0.0.1
-  comfyuiPort: 8188
   bridgeModelName: Kimodo-SOMA-RP-v1
   bridgeVramMode: 0
   motionPrompt: a woman walk and say hello

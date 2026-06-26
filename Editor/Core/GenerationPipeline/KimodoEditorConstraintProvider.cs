@@ -25,7 +25,7 @@ namespace KimodoBridge.Editor
 
             UpdateConstraintReferences(sourceClip);
 
-            bool ok = KimodoTimelineInOutConstraintAdapter.TryBuildConstraintsJson(
+            bool ok = KimodoInOutConstraintAdapter.TryBuildConstraintsJson(
                 sourceClip,
                 clip.inOutConstraintMode,
                 clip.normalizeConstraintOrigin,

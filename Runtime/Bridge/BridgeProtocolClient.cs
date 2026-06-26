@@ -65,37 +65,34 @@ namespace KimodoBridge
         public async Task<JObject> GenerateAsync(
             string host,
             int port,
-            string prompt,
-            float durationSeconds,
-            int? seed,
-            int diffusionSteps,
-            string constraintsJson,
-            string boundaryPoseJson,
-            bool loopHint,
-            int segmentIndex,
-            float transitionDurationSeconds,
+            KimodoGenerationRequestDto request,
             Action<string> progress,
             CancellationToken token)
         {
-            var request = new JObject
+            if (request == null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
+            var payload = new JObject
             {
                 ["cmd"] = "generate",
-                ["prompt"] = prompt ?? string.Empty,
-                ["duration"] = durationSeconds,
+                ["prompt"] = request.prompt ?? string.Empty,
+                ["duration"] = request.duration,
                 ["output_format"] = "json_compact",
-                ["diffusion_steps"] = diffusionSteps,
-                ["constraints_json"] = constraintsJson ?? string.Empty
+                ["diffusion_steps"] = request.steps,
+                ["constraints_json"] = request.constraints_json ?? string.Empty
             };
-            request["seed"] = seed.HasValue ? seed.Value : null;
-            request["boundary_pose_json"] = boundaryPoseJson ?? string.Empty;
-            request["loop_hint"] = loopHint;
-            request["segment_index"] = segmentIndex;
-            request["transition_duration"] = transitionDurationSeconds;
+            payload["seed"] = request.seed.HasValue ? request.seed.Value : null;
+            payload["boundary_pose_json"] = request.boundary_pose_json ?? string.Empty;
+            payload["loop_hint"] = request.loop_hint;
+            payload["segment_index"] = request.segment_index;
+            payload["transition_duration"] = request.transition_duration;
 
             await WaitUntilModelReadyAsync(host, port, progress, token).ConfigureAwait(false);
             progress?.Invoke(
-                $"Bridge generate request sent: duration={durationSeconds:F3}s, steps={diffusionSteps}, seed={(seed.HasValue ? seed.Value.ToString() : "null")}.");
-            JObject response = await SendAsync(host, port, request, token).ConfigureAwait(false);
+                $"Bridge generate request sent: duration={request.duration:F3}s, steps={request.steps}, seed={(request.seed.HasValue ? request.seed.Value.ToString() : "null")}.");
+            JObject response = await SendAsync(host, port, payload, token).ConfigureAwait(false);
             string status = response?.Value<string>("status") ?? string.Empty;
             string message = response?.Value<string>("message") ?? string.Empty;
             progress?.Invoke($"Bridge generate response status={status}{(string.IsNullOrWhiteSpace(message) ? string.Empty : $", message={message}")}");

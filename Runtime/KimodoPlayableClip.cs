@@ -10,12 +10,6 @@ namespace KimodoBridge
         High = 1
     }
 
-    public enum KimodoGenerationBackend
-    {
-        ComfyUI = 0,
-        KimodoBridge = 1
-    }
-
     public enum KimodoBakeSkeletonType
     {
         SOMA = 0,
@@ -52,13 +46,6 @@ namespace KimodoBridge
     [System.Serializable]
     public class KimodoPlayableClip : AnimationPlayableAsset
     {
-        [Header("Generation Backend")]
-        public KimodoGenerationBackend generationBackend = KimodoGenerationBackend.KimodoBridge;
-
-        [Header("ComfyUI")]
-        public string comfyuiIP = "127.0.0.1";
-        public int comfyuiPort = 8188;
-
         [Header("Kimodo Bridge")]
         public string bridgeModelName = DefaultBridgeModelName;
         [Tooltip("Low: quantized encoder (~4G). High: full encoder (~16G). Kimodo base model ~2G.")]
