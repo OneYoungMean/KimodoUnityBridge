@@ -11,6 +11,8 @@ namespace KimodoBridge
             EnsureNoLegacyScripts(runtimeRoot);
 
             bool preferShellLauncher =
+                Application.platform == RuntimePlatform.OSXEditor ||
+                Application.platform == RuntimePlatform.OSXPlayer ||
                 Application.platform == RuntimePlatform.LinuxEditor ||
                 Application.platform == RuntimePlatform.LinuxPlayer;
 

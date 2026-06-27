@@ -510,6 +510,16 @@ namespace KimodoBridge
                 return new WindowsBridgePlatformProcess();
             }
 
+            if (p == RuntimePlatform.OSXEditor || p == RuntimePlatform.OSXPlayer)
+            {
+                if (!settings.enableMac)
+                {
+                    throw new PlatformNotSupportedException("Bridge macOS platform disabled.");
+                }
+
+                return new MacBridgePlatformProcess();
+            }
+
             if (p == RuntimePlatform.LinuxEditor || p == RuntimePlatform.LinuxPlayer)
             {
                 if (!settings.enableLinux)
