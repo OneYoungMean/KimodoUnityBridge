@@ -123,6 +123,17 @@ namespace KimodoBridge
                 throw new Exception(errorMessage);
             }
 
+            if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new OperationCanceledException(
+                    string.IsNullOrWhiteSpace(message) ? "Bridge generation cancelled." : message);
+            }
+
+            if (string.Equals(status, "busy", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new Exception(string.IsNullOrWhiteSpace(message) ? "Bridge is busy." : message);
+            }
+
             return response;
         }
 
@@ -136,6 +147,45 @@ namespace KimodoBridge
             catch
             {
                 CloseSharedConnectionSync();
+                return false;
+            }
+        }
+
+        public async Task<bool> TryCancelGenerateAsync(string host, int port, CancellationToken token)
+        {
+            if (string.IsNullOrWhiteSpace(host) || port <= 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                using var client = new TcpClient();
+                using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                connectCts.CancelAfter(connectTimeoutMs);
+                Task connectTask = client.ConnectAsync(host, port);
+                Task timeoutTask = Task.Delay(Timeout.Infinite, connectCts.Token);
+                Task completed = await Task.WhenAny(connectTask, timeoutTask).ConfigureAwait(false);
+                if (completed != connectTask)
+                {
+                    token.ThrowIfCancellationRequested();
+                    return false;
+                }
+
+                await connectTask.ConfigureAwait(false);
+                client.ReceiveTimeout = ioTimeoutMs;
+                client.SendTimeout = ioTimeoutMs;
+
+                using NetworkStream stream = client.GetStream();
+                await WriteJsonLineAsync(stream, new JObject { ["cmd"] = "cancel" }, token).ConfigureAwait(false);
+                JObject response = await ReadJsonLineAsync(stream, token).ConfigureAwait(false);
+                string status = response?.Value<string>("status") ?? string.Empty;
+                return string.Equals(status, "cancelling", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(status, "idle", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
                 return false;
             }
         }

@@ -239,6 +239,7 @@ namespace KimodoBridge
             }
             catch (OperationCanceledException)
             {
+                await TryCancelActiveGenerateAsync().ConfigureAwait(false);
                 await DetachCurrentConnectionAsync().ConfigureAwait(false);
                 throw;
             }
@@ -306,6 +307,24 @@ namespace KimodoBridge
                 request,
                 marshaledProgress,
                 token);
+        }
+
+        private async Task TryCancelActiveGenerateAsync()
+        {
+            if (!TryResolveCurrentEndpoint(out string host, out int port))
+            {
+                return;
+            }
+
+            using var cancelCts = new CancellationTokenSource(Math.Max(500, settings.ioTimeoutMs));
+            try
+            {
+                await protocolClient.TryCancelGenerateAsync(host, port, cancelCts.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                // best effort only
+            }
         }
 
         public async Task<bool> PingAsync(CancellationToken token, bool acceptLoading = true)
@@ -427,7 +446,11 @@ namespace KimodoBridge
                 bool quitSent = await protocolClient.TrySendQuitAsync(host, port, token).ConfigureAwait(false);
                 if (!quitSent)
                 {
-                    throw new InvalidOperationException($"Bridge quit command failed: {host}:{port}");
+                    bool stillReachable = await protocolClient.PingAsync(host, port, token, acceptLoading: true).ConfigureAwait(false);
+                    if (stillReachable)
+                    {
+                        throw new InvalidOperationException($"Bridge quit command failed: {host}:{port}");
+                    }
                 }
             }
 

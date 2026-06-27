@@ -17,6 +17,11 @@ namespace KimodoBridge.Editor
             return KimodoServerRuntimeUtil.BootstrapRuntimeRootIfMissing();
         }
 
+        internal static bool ReinstallRuntimeRoot()
+        {
+            return KimodoServerRuntimeUtil.ReinstallRuntimeRoot();
+        }
+
         internal static string ResolveStartScript(string runtimeRoot)
         {
             return BridgeLauncherResolver.ResolveStartScript(runtimeRoot);

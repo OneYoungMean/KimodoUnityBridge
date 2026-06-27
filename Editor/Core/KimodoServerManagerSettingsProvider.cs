@@ -92,12 +92,15 @@ namespace KimodoBridge.Editor
                 PullServerStatusFromController(forceRefresh: true);
             }
 
-            if (!runtimeExists)
+            if (GUILayout.Button(
+                new GUIContent(
+                    runtimeExists ? "Reinstall Kimodo Server" : "Create Kimodo Server",
+                    runtimeExists
+                        ? "Delete the current Kimodo runtime folder and reinstall it from the packaged template."
+                        : "Bootstrap Kimodo runtime folder and required server files."),
+                GUILayout.Width(180f)))
             {
-                if (GUILayout.Button(new GUIContent("Create Kimodo Server", "Bootstrap Kimodo runtime folder and required server files."), GUILayout.Width(180f)))
-                {
-                    _ = EnsureRuntimeRootAsync();
-                }
+                _ = EnsureRuntimeRootAsync();
             }
             EditorGUILayout.EndHorizontal();
 
@@ -575,13 +578,18 @@ namespace KimodoBridge.Editor
         private Task EnsureRuntimeRootAsync()
         {
             return RunOperationAsync(
-                initialStatus: "Creating runtime root...",
-                successStatus: "Runtime root ready.",
+                initialStatus: runtimeExists ? "Reinstalling runtime root..." : "Creating runtime root...",
+                successStatus: runtimeExists ? "Runtime root reinstalled." : "Runtime root ready.",
                 async _ =>
                 {
-                    if (!KimodoBridgeServerManage.BootstrapRuntimeRootIfMissing())
+                    using (KimodoBridgeServerManage.EnterRuntimeMaintenanceScope())
                     {
-                        throw new InvalidOperationException("Failed to create runtime root from package template.");
+                        await KimodoBridgeServerManage.StopServerAsync(CancellationToken.None);
+
+                        if (!KimodoBridgeServerManage.ReinstallRuntimeRoot())
+                        {
+                            throw new InvalidOperationException("Failed to reinstall runtime root from package template.");
+                        }
                     }
 
                     await Task.CompletedTask;

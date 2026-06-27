@@ -101,6 +101,11 @@ namespace KimodoBridge.Editor
             return KimodoBridgeRuntimeInstallFacade.BootstrapRuntimeRootIfMissing();
         }
 
+        internal static bool ReinstallRuntimeRoot()
+        {
+            return KimodoBridgeRuntimeInstallFacade.ReinstallRuntimeRoot();
+        }
+
         internal static string ResolveStartScript(string runtimeRoot)
         {
             return KimodoBridgeRuntimeInstallFacade.ResolveStartScript(runtimeRoot);
@@ -417,9 +422,15 @@ namespace KimodoBridge.Editor
                     port: -1);
             }
 
+            bool reachable = BridgeRuntimeControl.CanConnect(
+                host,
+                port,
+                BridgeRuntimeSettings.DefaultStatusConnectTimeoutMs,
+                CancellationToken.None);
+
             return new ServerStatusSnapshot(
                 ready: true,
-                running: true,
+                running: reachable,
                 hasPort: true,
                 queryInFlight: false,
                 host: host,
