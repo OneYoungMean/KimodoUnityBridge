@@ -1,4 +1,4 @@
-[演示视频](https://www.bilibili.com/video/BV1HG7361Env) . [完整的Demo](https://github.com/OneYoungMean/KimodoUnityBridge_FullDemo)
+[演示视频](https://www.bilibili.com/video/BV1HG7361Env) . [完整的Demo](https://github.com/OneYoungMean/KimodoUnityBridge_FullDemo) . [使用说明](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/Manual/README.md)
 
 # License
 [Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
@@ -81,11 +81,6 @@
 - **完整的内部源码!** 不打包dll,提供所有的运行细节以及大量的注释!你可以任意定修改某一部分,已获得想要的物理效果与特殊性质,并且大可不必担心随之而来的耦合问题!  
 
 - **免费!以及作者长期在线!** 作者只想让更多的Unity开发者能够用上便宜好用的动画！ 有issue必回!包君满意!
-
-### 说明书
-
-[使用说明](https://github.com/OneYoungMean/KimodoUnityBridge/tree/main/Manual)
-目前施工进度50%
 
 ### 已知问题
 
