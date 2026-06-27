@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -10,6 +11,12 @@ namespace KimodoBridge
     public sealed class BridgeLogPump : IDisposable
     {
         private const int StopWaitTimeoutMs = 1500;
+        private const int BridgeMessageLogPumpWaitFileTimeoutMs = 60000;
+        private const int BridgeMessageLogPumpMissingFilePollMs = 90;
+        private const int MaxBufferedLines = 200;
+
+        private static readonly object SharedGate = new object();
+        private static readonly Dictionary<string, SharedRuntimeState> SharedStates = new Dictionary<string, SharedRuntimeState>(StringComparer.OrdinalIgnoreCase);
 
         private readonly object gate = new object();
         private CancellationTokenSource cts;
@@ -117,6 +124,68 @@ namespace KimodoBridge
 
             disposed = true;
             Stop();
+        }
+
+        internal static IDisposable SubscribeShared(string runtimeRoot, BridgeRuntimeSettings settings, Action<string> onLine)
+        {
+            if (string.IsNullOrWhiteSpace(runtimeRoot) || onLine == null)
+            {
+                return NoopDisposable.Instance;
+            }
+
+            string key = NormalizeRuntimeRoot(runtimeRoot);
+            SharedRuntimeState state;
+            SharedSubscription subscription;
+            List<string> replayLines;
+            lock (SharedGate)
+            {
+                if (!SharedStates.TryGetValue(key, out state))
+                {
+                    state = new SharedRuntimeState(key, settings);
+                    SharedStates[key] = state;
+                }
+
+                subscription = new SharedSubscription(state, onLine);
+                state.Subscriptions.Add(subscription);
+                replayLines = state.BufferedLines.Count > 0 ? new List<string>(state.BufferedLines) : null;
+                if (!state.Started)
+                {
+                    StartSharedState(state);
+                }
+            }
+
+            if (replayLines != null)
+            {
+                for (int i = 0; i < replayLines.Count; i++)
+                {
+                    subscription.Emit(replayLines[i]);
+                }
+            }
+
+            return subscription;
+        }
+
+        internal static void StopSharedRuntime(string runtimeRoot)
+        {
+            if (string.IsNullOrWhiteSpace(runtimeRoot))
+            {
+                return;
+            }
+
+            SharedRuntimeState state = null;
+            lock (SharedGate)
+            {
+                string key = NormalizeRuntimeRoot(runtimeRoot);
+                if (!SharedStates.TryGetValue(key, out state))
+                {
+                    return;
+                }
+
+                SharedStates.Remove(key);
+                state.Subscriptions.Clear();
+            }
+
+            StopSharedState(state);
         }
 
         private static async Task ObserveStopAsync(Task currentPumpTask, CancellationTokenSource currentCts, int timeoutMs, CancellationToken token)
@@ -356,6 +425,265 @@ namespace KimodoBridge
             catch
             {
                 // ignore callback failures
+            }
+        }
+
+        private static void UnsubscribeShared(SharedSubscription subscription)
+        {
+            SharedRuntimeState state = subscription?.State;
+            if (state == null)
+            {
+                return;
+            }
+
+            bool shouldStop = false;
+            lock (SharedGate)
+            {
+                state.Subscriptions.Remove(subscription);
+                if (state.Subscriptions.Count == 0)
+                {
+                    SharedStates.Remove(state.RuntimeRoot);
+                    shouldStop = true;
+                }
+            }
+
+            if (shouldStop)
+            {
+                StopSharedState(state);
+            }
+        }
+
+        private static void StartSharedState(SharedRuntimeState state)
+        {
+            state.Started = true;
+            string mainLogPath = BridgeEndpointResolver.ResolveAttachLogPath(state.RuntimeRoot);
+            string mainLogFullPath = GetNormalizedPathOrEmpty(mainLogPath);
+            state.MainPump = new BridgeLogPump();
+            state.MainPump.Start(mainLogPath, line => PublishShared(state, $"[Bridge] {line}"), state.Settings);
+
+            StartSharedSidePumpIfDifferent(
+                state,
+                Path.Combine(state.RuntimeRoot, "log", "bridge_server.log"),
+                "[BridgeServer]",
+                mainLogFullPath);
+            StartSharedSidePumpIfDifferent(
+                state,
+                Path.Combine(state.RuntimeRoot, "log", "bridge_message.log"),
+                "[BridgeMessage]",
+                mainLogFullPath,
+                BridgeMessageLogPumpWaitFileTimeoutMs,
+                BridgeMessageLogPumpMissingFilePollMs,
+                BridgeMessageLogPumpMissingFilePollMs);
+            StartSharedSidePumpIfDifferent(
+                state,
+                Path.Combine(state.RuntimeRoot, "log", "run_server.log"),
+                "[RunServer]",
+                mainLogFullPath);
+            StartSharedSidePumpIfDifferent(
+                state,
+                Path.Combine(state.RuntimeRoot, "log", "setup.log"),
+                "[Setup]",
+                mainLogFullPath);
+        }
+
+        private static void StopSharedState(SharedRuntimeState state)
+        {
+            try
+            {
+                state.MainPump?.Stop();
+                state.MainPump?.Dispose();
+            }
+            catch
+            {
+                // ignore
+            }
+
+            if (state.SidePumps.Count > 0)
+            {
+                for (int i = 0; i < state.SidePumps.Count; i++)
+                {
+                    try
+                    {
+                        state.SidePumps[i]?.Stop();
+                        state.SidePumps[i]?.Dispose();
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+                state.SidePumps.Clear();
+            }
+        }
+
+        private static void StartSharedSidePumpIfDifferent(
+            SharedRuntimeState state,
+            string logPath,
+            string tag,
+            string mainLogFullPath,
+            int? waitFileTimeoutMsOverride = null,
+            int? missingFilePollMinMsOverride = null,
+            int? missingFilePollMaxMsOverride = null,
+            bool? readFromStartOverride = null)
+        {
+            string sideLogFullPath = GetNormalizedPathOrEmpty(logPath);
+            if (!string.IsNullOrWhiteSpace(mainLogFullPath) &&
+                !string.IsNullOrWhiteSpace(sideLogFullPath) &&
+                string.Equals(mainLogFullPath, sideLogFullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var pump = new BridgeLogPump();
+            state.SidePumps.Add(pump);
+            pump.Start(
+                logPath,
+                line => PublishShared(state, $"{tag} {line}"),
+                state.Settings,
+                waitFileTimeoutMsOverride,
+                missingFilePollMinMsOverride,
+                missingFilePollMaxMsOverride,
+                readFromStartOverride);
+        }
+
+        private static void PublishShared(SharedRuntimeState state, string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
+
+            SharedSubscription[] subscribers;
+            lock (SharedGate)
+            {
+                state.BufferedLines.Add(message);
+                if (state.BufferedLines.Count > MaxBufferedLines)
+                {
+                    state.BufferedLines.RemoveAt(0);
+                }
+                subscribers = state.Subscriptions.ToArray();
+            }
+
+            Debug.Log(message);
+            for (int i = 0; i < subscribers.Length; i++)
+            {
+                subscribers[i].Emit(message);
+            }
+        }
+
+        private static string NormalizeRuntimeRoot(string runtimeRoot)
+        {
+            try
+            {
+                return Path.GetFullPath(runtimeRoot.Trim());
+            }
+            catch
+            {
+                return runtimeRoot.Trim();
+            }
+        }
+
+        private static string GetNormalizedPathOrEmpty(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return Path.GetFullPath(path.Trim());
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private sealed class SharedRuntimeState
+        {
+            internal SharedRuntimeState(string runtimeRoot, BridgeRuntimeSettings settings)
+            {
+                RuntimeRoot = runtimeRoot;
+                Settings = settings;
+            }
+
+            internal string RuntimeRoot { get; }
+            internal BridgeRuntimeSettings Settings { get; }
+            internal BridgeLogPump MainPump { get; set; }
+            internal List<BridgeLogPump> SidePumps { get; } = new List<BridgeLogPump>(3);
+            internal List<SharedSubscription> Subscriptions { get; } = new List<SharedSubscription>(2);
+            internal List<string> BufferedLines { get; } = new List<string>(MaxBufferedLines);
+            internal bool Started { get; set; }
+        }
+
+        private sealed class SharedSubscription : IDisposable
+        {
+            private readonly Action<string> onLine;
+            private readonly SynchronizationContext sharedCallbackContext;
+            private bool sharedDisposed;
+
+            internal SharedSubscription(SharedRuntimeState state, Action<string> onLine)
+            {
+                State = state;
+                this.onLine = onLine;
+                sharedCallbackContext = SynchronizationContext.Current;
+            }
+
+            internal SharedRuntimeState State { get; }
+
+            internal void Emit(string line)
+            {
+                if (sharedDisposed || string.IsNullOrWhiteSpace(line))
+                {
+                    return;
+                }
+
+                if (sharedCallbackContext != null)
+                {
+                    sharedCallbackContext.Post(_ =>
+                    {
+                        if (!sharedDisposed)
+                        {
+                            SafeInvokeShared(line);
+                        }
+                    }, null);
+                    return;
+                }
+
+                SafeInvokeShared(line);
+            }
+
+            public void Dispose()
+            {
+                if (sharedDisposed)
+                {
+                    return;
+                }
+
+                sharedDisposed = true;
+                UnsubscribeShared(this);
+            }
+
+            private void SafeInvokeShared(string line)
+            {
+                try
+                {
+                    onLine?.Invoke(line);
+                }
+                catch
+                {
+                    // ignore callback failures
+                }
+            }
+        }
+
+        private sealed class NoopDisposable : IDisposable
+        {
+            internal static readonly NoopDisposable Instance = new NoopDisposable();
+
+            public void Dispose()
+            {
             }
         }
     }
