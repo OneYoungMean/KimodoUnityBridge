@@ -46,8 +46,9 @@
 3. 在Project当中找到刚导入的lightSample场景并打开  
 4. 在场景中找到Timeline游戏对象，打开上面挂载的PlayableDirector脚本当中的timeline资产  
 5. 在timeline 窗口当中选择一个timeline clip  
-6. 在inspector面板中点击生成(建议勾选一下random，不然动画会和原来一样）  
-7. 运行查看效果  
+6. 在inspector面板中点击生成(建议勾选一下random，不然动画会和原来一样）
+   a.目前第一次生成需要下载模型/环境(约10G),时间较长(30-60分钟),偶遇网络波动可能会导致启动失败,届时重新生成一下即可. 
+8. 运行查看效果  
 <img width="3840" height="2064" alt="微信图片_20260623111822_83_24" src="https://github.com/user-attachments/assets/3d01af83-712c-45a9-99f6-8f33fa8dba6e" />  
 ***
 
@@ -83,11 +84,11 @@
 
 ### 说明书
 
-施工中...
+[使用说明](https://github.com/OneYoungMean/KimodoUnityBridge/tree/main/Manual)
+目前施工进度50%
 
 ### 已知问题
-CUDA平台生成clip的时候有小概率会走CPU生成管线.重启一下unity一般能解决问题.  
-第一次Generator有小概率会失败，重新生成可以解决一下问题.  
+
 Constraint Edit保存的的时候有概率没有写入成功.  
 
 ### Bug Report
