@@ -31,7 +31,7 @@
    c. 等待完成，如果一切正常，你会在菜单栏看到kimodo的菜单.   
    <img width="1061" height="526" alt="Unity_uAULwLfP7W" src="https://github.com/user-attachments/assets/5f18b33e-4a21-42cf-8acd-57c0e548d44d" />  
 2. 通过安装包安装：  
-   a. 下载https://github.com/OneYoungMean/KimodoUnityBridge/releases/latest   
+   a. 下载https://github.com/OneYoungMean/KimodoUnityBridge/releases/latest的第一个压缩包
    b. 解压到项目/Packages目录下面  
    c. 切换回unity等待完成，如果一切正常，你会在菜单栏看到kimodo的菜单.  
 3. 下载FullDemo  
