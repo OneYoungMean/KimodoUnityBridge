@@ -11,7 +11,7 @@
 
 
 ## 更新注意事项
-**老用户请删除项目目录\NvlabKimodoQuickServer~,否则运行会报错!**
+**老用户请删除项目目录\NvlabKimodoQuickServer~并重新运行，代码会自动拉取最新的包！否则运行会报错!**
 ***
 
 # KimodoUnityBridge
