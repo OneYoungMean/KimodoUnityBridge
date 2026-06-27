@@ -41,8 +41,18 @@ namespace KimodoBridge.Editor
         public readonly bool QueryInFlight;
         public readonly string Host;
         public readonly int Port;
+        public readonly BridgePingStatus PingStatus;
+        public readonly string Message;
 
-        public ServerStatusSnapshot(bool ready, bool running, bool hasPort, bool queryInFlight, string host, int port)
+        public ServerStatusSnapshot(
+            bool ready,
+            bool running,
+            bool hasPort,
+            bool queryInFlight,
+            string host,
+            int port,
+            BridgePingStatus pingStatus = BridgePingStatus.Unknown,
+            string message = "")
         {
             Ready = ready;
             Running = running;
@@ -50,6 +60,8 @@ namespace KimodoBridge.Editor
             QueryInFlight = queryInFlight;
             Host = host ?? "127.0.0.1";
             Port = port;
+            PingStatus = pingStatus;
+            Message = message ?? string.Empty;
         }
     }
 
@@ -410,13 +422,17 @@ namespace KimodoBridge.Editor
                     port: -1);
             }
 
+            BridgePingResult ping = BridgeRuntimeControl.QueryPing(host, port);
+            bool running = ping.Status == BridgePingStatus.Ready || ping.Status == BridgePingStatus.Loading;
             return new ServerStatusSnapshot(
                 ready: true,
-                running: true,
+                running: running,
                 hasPort: true,
                 queryInFlight: false,
                 host: host,
-                port: port);
+                port: port,
+                pingStatus: ping.Status,
+                message: ping.Message);
         }
 
         private sealed class RuntimeMaintenanceScope : IDisposable

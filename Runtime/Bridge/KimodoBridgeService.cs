@@ -146,16 +146,29 @@ namespace KimodoBridge
                 }
                 else
                 {
-                    bool reachable = await protocolClient.PingAsync(host, port, token, acceptLoading: true).ConfigureAwait(false);
-                    if (reachable)
+                    BridgePingResult ping = await BridgeRuntimeControl.QueryPingAsync(
+                        host,
+                        port,
+                        settings.statusConnectTimeoutMs,
+                        settings.statusIoTimeoutMs,
+                        token).ConfigureAwait(false);
+                    if (ping.IsHealthy(acceptLoading: true))
                     {
                         currentHost = host;
                         currentPort = port;
                         canReuseExistingEndpoint = true;
                     }
+                    else if (ping.IsError)
+                    {
+                        EmitProgress(
+                            progress,
+                            $"Bridge endpoint reports error, starting server to recover: {ping.Endpoint}. {SummarizeBridgeMessage(ping.Message)}");
+                    }
                     else
                     {
-                        EmitProgress(progress, $"Bridge endpoint is unreachable, starting server to recover: {host}:{port}");
+                        EmitProgress(
+                            progress,
+                            $"Bridge endpoint is unreachable, starting server to recover: {host}:{port}. {SummarizeBridgeMessage(ping.Message)}");
                     }
                 }
             }
@@ -322,8 +335,13 @@ namespace KimodoBridge
                 return false;
             }
 
-            bool ok = await protocolClient.PingAsync(host, port, token, acceptLoading).ConfigureAwait(false);
-            if (!ok)
+            BridgePingResult ping = await BridgeRuntimeControl.QueryPingAsync(
+                host,
+                port,
+                settings.statusConnectTimeoutMs,
+                settings.statusIoTimeoutMs,
+                token).ConfigureAwait(false);
+            if (!ping.IsHealthy(acceptLoading))
             {
                 await InvalidateCurrentEndpointAsync().ConfigureAwait(false);
                 return false;
@@ -414,11 +432,47 @@ namespace KimodoBridge
             string endpointBeforePing = TryResolveCurrentEndpoint(out string host, out int port)
                 ? $"{host}:{port}"
                 : "(none)";
-            bool ok = await PingAsync(token, acceptLoading: true).ConfigureAwait(false);
-            if (!ok)
+            if (port <= 0)
             {
                 throw new Exception($"Bridge port is unreachable. endpoint={endpointBeforePing}");
             }
+
+            BridgePingResult ping = await BridgeRuntimeControl.QueryPingAsync(
+                host,
+                port,
+                settings.statusConnectTimeoutMs,
+                settings.statusIoTimeoutMs,
+                token).ConfigureAwait(false);
+            if (ping.IsHealthy(acceptLoading: true))
+            {
+                currentHost = host;
+                currentPort = port;
+                return;
+            }
+
+            await InvalidateCurrentEndpointAsync().ConfigureAwait(false);
+            if (ping.IsError)
+            {
+                throw new Exception($"Bridge reported error. endpoint={ping.Endpoint}. {SummarizeBridgeMessage(ping.Message)}");
+            }
+
+            throw new Exception($"Bridge port is unreachable. endpoint={endpointBeforePing}. {SummarizeBridgeMessage(ping.Message)}");
+        }
+
+        private static string SummarizeBridgeMessage(string message, int maxLength = 500)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return string.Empty;
+            }
+
+            string normalized = string.Join(" ", message.Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)).Trim();
+            if (normalized.Length <= maxLength)
+            {
+                return normalized;
+            }
+
+            return normalized.Substring(0, maxLength) + "...";
         }
 
         private async Task StopCoreAsync(CancellationToken token)

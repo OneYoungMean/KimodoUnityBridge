@@ -40,6 +40,8 @@ namespace KimodoBridge.Editor
         private bool bridgeRunningCached;
         private bool bridgePortDiscoveredCached;
         private bool bridgeStatusReady;
+        private BridgePingStatus bridgePingStatus;
+        private string bridgeStatusMessage = string.Empty;
         private bool showAdvancedFoldout = true;
         private double lastRepaintTime;
         private bool repaintQueued;
@@ -250,7 +252,17 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.LabelField("Bridge status: checking...", EditorStyles.miniLabel);
             }
 
-            if (!bridgeRunningCached && bridgePortDiscoveredCached)
+            if (bridgePingStatus == BridgePingStatus.Error)
+            {
+                EditorGUILayout.HelpBox(
+                    "Bridge reports an error. " + SummarizeForUi(bridgeStatusMessage),
+                    MessageType.Error);
+            }
+            else if (bridgePingStatus == BridgePingStatus.Loading && !string.IsNullOrWhiteSpace(bridgeStatusMessage))
+            {
+                EditorGUILayout.LabelField("Bridge status: " + SummarizeForUi(bridgeStatusMessage), EditorStyles.miniLabel);
+            }
+            else if (!bridgeRunningCached && bridgePortDiscoveredCached)
             {
                 EditorGUILayout.HelpBox(
                     "Bridge process is not running, but endpoint file still exists. This is usually a stale serverport record.",
@@ -307,6 +319,24 @@ namespace KimodoBridge.Editor
             bridgeStatusReady = snapshot.Ready;
             bridgeRunningCached = snapshot.Running;
             bridgePortDiscoveredCached = snapshot.HasPort;
+            bridgePingStatus = snapshot.PingStatus;
+            bridgeStatusMessage = snapshot.Message;
+        }
+
+        private static string SummarizeForUi(string message, int maxLength = 320)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return string.Empty;
+            }
+
+            string normalized = string.Join(" ", message.Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)).Trim();
+            if (normalized.Length <= maxLength)
+            {
+                return normalized;
+            }
+
+            return normalized.Substring(0, maxLength) + "...";
         }
 
         private void DrawAnimationClipSection()

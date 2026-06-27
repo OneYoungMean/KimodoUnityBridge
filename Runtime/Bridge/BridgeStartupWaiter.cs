@@ -30,14 +30,20 @@ namespace KimodoBridge
                 waitToken.ThrowIfCancellationRequested();
                 if (BridgeEndpointResolver.TryReadServerEndpoint(runtimeRoot, hostFallback, out string host, out int port, out _))
                 {
-                    bool canConnect = await BridgeRuntimeControl.CanConnectAsync(
+                    BridgePingResult ping = await BridgeRuntimeControl.QueryPingAsync(
                         host,
                         port,
                         BridgeRuntimeSettings.DefaultStatusConnectTimeoutMs,
+                        BridgeRuntimeSettings.DefaultStatusIoTimeoutMs,
                         waitToken).ConfigureAwait(false);
-                    if (canConnect)
+                    if (ping.IsHealthy(acceptLoading: true))
                     {
                         return;
+                    }
+
+                    if (ping.IsError)
+                    {
+                        throw new Exception($"Bridge startup failed: {SummarizeBridgeMessage(ping.Message)}");
                     }
                 }
 
@@ -49,6 +55,22 @@ namespace KimodoBridge
 
                 await Task.Delay(Math.Max(BridgeRuntimeSettings.DefaultPollIntervalMs / 2, pollIntervalMs), waitToken).ConfigureAwait(false);
             }
+        }
+
+        private static string SummarizeBridgeMessage(string message, int maxLength = 500)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return string.Empty;
+            }
+
+            string normalized = string.Join(" ", message.Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)).Trim();
+            if (normalized.Length <= maxLength)
+            {
+                return normalized;
+            }
+
+            return normalized.Substring(0, maxLength) + "...";
         }
     }
 }
