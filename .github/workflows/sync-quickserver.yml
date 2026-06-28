@@ -1,9 +1,6 @@
 name: sync-quickserver
 
 on:
-  repository_dispatch:
-    types:
-      - sync-quickserver
   workflow_dispatch:
     inputs:
       quickserver_ref:
@@ -34,10 +31,7 @@ jobs:
         id: quickserver_ref
         shell: pwsh
         run: |
-          $ref = "${{ github.event.client_payload.quickserver_ref }}"
-          if ([string]::IsNullOrWhiteSpace($ref)) {
-            $ref = "${{ github.event.inputs.quickserver_ref }}"
-          }
+          $ref = "${{ github.event.inputs.quickserver_ref }}"
           if ([string]::IsNullOrWhiteSpace($ref)) {
             $ref = "main"
           }
