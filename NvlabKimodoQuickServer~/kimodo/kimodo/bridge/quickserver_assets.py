@@ -927,7 +927,7 @@ def build_runtime_env(
     return env
 
 
-def build_offline_cache_env(root_dir: str | os.PathLike[str]) -> dict[str, str]:
+def build_runtime_cache_env(root_dir: str | os.PathLike[str]) -> dict[str, str]:
     root = Path(root_dir).resolve()
     hf_home = root / "hf_cache"
     return {
@@ -935,8 +935,5 @@ def build_offline_cache_env(root_dir: str | os.PathLike[str]) -> dict[str, str]:
         "TRANSFORMERS_CACHE": str(hf_home / "transformers"),
         "HF_HUB_CACHE": str(hf_home / "hub"),
         "HUGGINGFACE_HUB_CACHE": str(hf_home / "hub"),
-        "TRANSFORMERS_OFFLINE": "1",
-        "HF_HUB_OFFLINE": "1",
-        "HF_DATASETS_OFFLINE": "1",
         "PYTHONUNBUFFERED": "1",
     }

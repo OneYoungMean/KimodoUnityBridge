@@ -852,7 +852,7 @@ def main():
         try:
             import torch
             _log("[bridge] load stage: torch imported.")
-            from kimodo import load_model
+            from kimodo.bridge.bridge_load_model import load_bridge_model
             _log("[bridge] load stage: kimodo imported.")
         except Exception as exc:
             with state_lock:
@@ -914,7 +914,11 @@ def main():
         _out({"status": "loading", "message": f"Loading {resolved_model_name} on {device}..."})
         _log(f"[bridge] load stage: load_model start model={resolved_model_name} device={device}")
         try:
-            model = load_model(resolved_model_name, device=device)
+            model = load_bridge_model(
+                resolved_model_name,
+                models_root=provision_plan.models_root,
+                device=device,
+            )
         except Exception as exc:
             with state_lock:
                 state["error"] = f"Model load failed: {exc}\n{traceback.format_exc()}"

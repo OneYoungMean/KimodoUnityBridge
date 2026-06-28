@@ -308,7 +308,7 @@ def _launch_bridge(paths: ProjectPaths, args: argparse.Namespace, logger: SetupL
         encoder_route=encoder_route,
         encoder_layout_id=encoder_layout.layout_id,
     )
-    runtime_env.update(assets.build_offline_cache_env(paths.root_dir))
+    runtime_env.update(assets.build_runtime_cache_env(paths.root_dir))
     runtime_env["KIMODO_IDLE_TIMEOUT_SEC"] = os.environ.get("KIMODO_IDLE_TIMEOUT_SEC", "600")
 
     for cache_dir in (
