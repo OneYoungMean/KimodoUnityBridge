@@ -4,6 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT_DIR="${SCRIPT_DIR}"
 UV_INSTALL_TIMEOUT_SEC=600
+UV_PROBE_TIMEOUT_SEC=1
+UV_VERSION="0.11.25"
+UV_SELECTED_NAME=""
+UV_SELECTED_URL=""
+UV_SELECTED_MS=""
 
 resolve_uv_bin() {
   if [[ -n "${KIMODO_UV_BIN:-}" ]]; then
@@ -21,36 +26,82 @@ resolve_uv_bin() {
 
 install_uv_locally() {
   local uv_dir="${ROOT_DIR}/program/exe/uv"
-  local selected_name=""
-  local selected_script=""
-  local selected_github_base=""
-  local best_ms=""
+  local artifact=""
+  local github_url=""
+  local ustc_url=""
+  local tmp_dir=""
   mkdir -p "${uv_dir}"
-  probe_uv_candidate "official" "https://astral.sh/uv/install.sh" ""
-  probe_uv_candidate "release-mirror" "https://releases.astral.sh/github/uv/releases/latest/download/uv-installer.sh" "https://releases.astral.sh/github"
-  if [[ -z "${selected_script}" ]]; then
-    echo "[ERROR] Failed to choose a uv installer source."
+  UV_SELECTED_NAME=""
+  UV_SELECTED_URL=""
+  UV_SELECTED_MS=""
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "[ERROR] Could not auto-install uv: curl is required."
     return 1
   fi
-  echo "[INFO] Selected uv source: ${selected_name}"
-  if command -v curl >/dev/null 2>&1; then
-    if [[ -n "${selected_github_base}" ]]; then
-      run_with_timeout "${UV_INSTALL_TIMEOUT_SEC}" sh -c "curl -LsSf \"${selected_script}\" | env UV_UNMANAGED_INSTALL=\"${uv_dir}\" UV_INSTALLER_GITHUB_BASE_URL=\"${selected_github_base}\" sh" || return 1
-    else
-      run_with_timeout "${UV_INSTALL_TIMEOUT_SEC}" sh -c "curl -LsSf \"${selected_script}\" | env UV_UNMANAGED_INSTALL=\"${uv_dir}\" sh" || return 1
-    fi
-    return
+  artifact="$(resolve_uv_artifact)" || return 1
+  github_url="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${artifact}"
+  ustc_url="https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/${UV_VERSION}/${artifact}"
+  probe_uv_candidate "github" "${github_url}"
+  probe_uv_candidate "ustc" "${ustc_url}"
+  if [[ -z "${UV_SELECTED_URL}" ]]; then
+    echo "[ERROR] Failed to choose a uv download source."
+    return 1
   fi
-  if command -v wget >/dev/null 2>&1; then
-    if [[ -n "${selected_github_base}" ]]; then
-      run_with_timeout "${UV_INSTALL_TIMEOUT_SEC}" sh -c "wget -qO- \"${selected_script}\" | env UV_UNMANAGED_INSTALL=\"${uv_dir}\" UV_INSTALLER_GITHUB_BASE_URL=\"${selected_github_base}\" sh" || return 1
-    else
-      run_with_timeout "${UV_INSTALL_TIMEOUT_SEC}" sh -c "wget -qO- \"${selected_script}\" | env UV_UNMANAGED_INSTALL=\"${uv_dir}\" sh" || return 1
+  echo "[INFO] Selected uv source: ${UV_SELECTED_NAME}"
+  tmp_dir="$(mktemp -d 2>/dev/null || mktemp -d -t kimodo-uv)"
+  trap 'rm -rf "${tmp_dir}"' RETURN
+  run_with_timeout "${UV_INSTALL_TIMEOUT_SEC}" curl -L --fail --silent --show-error --output "${tmp_dir}/${artifact}" "${UV_SELECTED_URL}" || return 1
+  if [[ "${artifact}" == *.zip ]]; then
+    if ! command -v unzip >/dev/null 2>&1; then
+      echo "[ERROR] unzip is required to install uv from ${artifact}."
+      return 1
     fi
-    return
+    unzip -oq "${tmp_dir}/${artifact}" -d "${tmp_dir}" >/dev/null
+  else
+    tar -xzf "${tmp_dir}/${artifact}" -C "${tmp_dir}"
   fi
-  echo "[ERROR] Could not auto-install uv: curl or wget is required."
-  return 1
+  if [[ -f "${tmp_dir}/uv" ]]; then
+    cp -f "${tmp_dir}/uv" "${uv_dir}/uv"
+    chmod +x "${uv_dir}/uv"
+  fi
+  if [[ -f "${tmp_dir}/uvx" ]]; then
+    cp -f "${tmp_dir}/uvx" "${uv_dir}/uvx"
+    chmod +x "${uv_dir}/uvx"
+  fi
+  if [[ -f "${tmp_dir}/uvw" ]]; then
+    cp -f "${tmp_dir}/uvw" "${uv_dir}/uvw"
+    chmod +x "${uv_dir}/uvw"
+  fi
+  trap - RETURN
+  rm -rf "${tmp_dir}"
+  echo "[INFO] Download uv complete."
+}
+
+resolve_uv_artifact() {
+  local os_name=""
+  local arch_name=""
+  os_name="$(uname -s)"
+  arch_name="$(uname -m)"
+  case "${os_name}" in
+    Darwin)
+      case "${arch_name}" in
+        arm64|aarch64) echo "uv-aarch64-apple-darwin.tar.gz" ;;
+        x86_64) echo "uv-x86_64-apple-darwin.tar.gz" ;;
+        *) echo "[ERROR] Unsupported macOS architecture: ${arch_name}" ; return 1 ;;
+      esac
+      ;;
+    Linux)
+      case "${arch_name}" in
+        aarch64|arm64) echo "uv-aarch64-unknown-linux-gnu.tar.gz" ;;
+        x86_64|amd64) echo "uv-x86_64-unknown-linux-gnu.tar.gz" ;;
+        *) echo "[ERROR] Unsupported Linux architecture: ${arch_name}" ; return 1 ;;
+      esac
+      ;;
+    *)
+      echo "[ERROR] Unsupported platform for uv auto-install: ${os_name}"
+      return 1
+      ;;
+  esac
 }
 
 run_with_timeout() {
@@ -88,42 +139,25 @@ run_with_timeout() {
 
 probe_uv_candidate() {
   local name="$1"
-  local script_url="$2"
-  local github_base="$3"
+  local url="$2"
   local code=""
   local elapsed_ms=""
-  local started_s=""
-  local ended_s=""
-
-  if command -v curl >/dev/null 2>&1; then
-    started_s="$(date +%s)"
-    code="$(curl -I -L -sS -o /dev/null -w '%{http_code}' --max-time 3 "${script_url}" || true)"
-    ended_s="$(date +%s)"
-    elapsed_ms="$(( (ended_s - started_s) * 1000 ))"
-  elif command -v wget >/dev/null 2>&1; then
-    started_s="$(date +%s)"
-    if wget -q --spider --server-response --timeout=3 "${script_url}" >/dev/null 2>&1; then
-      code="200"
-    else
-      code="000"
-    fi
-    ended_s="$(date +%s)"
-    elapsed_ms="$(( (ended_s - started_s) * 1000 ))"
-  else
-    echo "[ERROR] Could not probe uv source: curl or wget is required."
-    return
-  fi
+  local time_total=""
+  local probe_result=""
+  probe_result="$(curl -I -L -sS -o /dev/null -w '%{http_code} %{time_total}' --max-time "${UV_PROBE_TIMEOUT_SEC}" "${url}" || true)"
+  code="$(awk '{print $1}' <<<"${probe_result}")"
+  time_total="$(awk '{print $2}' <<<"${probe_result}")"
+  elapsed_ms="$(awk -v t="${time_total:-0}" 'BEGIN { printf "%d", t * 1000 + 0.5 }')"
 
   if [[ "${code}" == 2* || "${code}" == 3* ]]; then
-    echo "[PROBE] uv ${name}: ok, ${elapsed_ms} ms, ${script_url}"
-    if [[ -z "${selected_script}" || -z "${best_ms}" || "${elapsed_ms}" -lt "${best_ms}" ]]; then
-      selected_name="${name}"
-      selected_script="${script_url}"
-      selected_github_base="${github_base}"
-      best_ms="${elapsed_ms}"
+    echo "[PROBE] uv ${name}: ok, ${elapsed_ms} ms, ${url}"
+    if [[ -z "${UV_SELECTED_URL}" || -z "${UV_SELECTED_MS}" || "${elapsed_ms}" -lt "${UV_SELECTED_MS}" ]]; then
+      UV_SELECTED_NAME="${name}"
+      UV_SELECTED_URL="${url}"
+      UV_SELECTED_MS="${elapsed_ms}"
     fi
   else
-    echo "[PROBE] uv ${name}: failed, ${elapsed_ms} ms, status=${code}, ${script_url}"
+    echo "[PROBE] uv ${name}: failed, ${elapsed_ms} ms, status=${code:-000}, ${url}"
   fi
 }
 
