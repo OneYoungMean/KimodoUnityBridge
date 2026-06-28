@@ -69,6 +69,18 @@ namespace KimodoBridge.Editor
             return TryBootstrapRuntimeRootFromPackage(ResolveProjectRoot(), runtimeRoot);
         }
 
+        internal static bool ReinstallRuntimeRoot()
+        {
+            string runtimeRoot = GetRuntimeRootPath();
+            string projectRoot = ResolveProjectRoot();
+
+            if (Directory.Exists(runtimeRoot))
+            {
+                ClearRuntimeRootExceptModels(runtimeRoot);
+            }
+            return TryBootstrapRuntimeRootFromPackage(projectRoot, runtimeRoot);
+        }
+
         internal static bool TryBootstrapRuntimeRootFromPackage(string projectRoot, string runtimeRoot)
         {
             string packageResolvedPath = string.Empty;
@@ -102,7 +114,10 @@ namespace KimodoBridge.Editor
             }
 
             Directory.CreateDirectory(runtimeRoot);
-            CopyDirectoryRecursive(templateRoot, runtimeRoot);
+            CopyDirectoryRecursive(
+                templateRoot,
+                runtimeRoot,
+                skipTopLevelDirectoryName: Directory.Exists(Path.Combine(runtimeRoot, "models")) ? "models" : null);
             return true;
         }
 
@@ -154,7 +169,10 @@ namespace KimodoBridge.Editor
                 }
 
                 Directory.CreateDirectory(runtimeRoot);
-                CopyDirectoryRecursive(extractedRoot, runtimeRoot);
+                CopyDirectoryRecursive(
+                    extractedRoot,
+                    runtimeRoot,
+                    skipTopLevelDirectoryName: Directory.Exists(Path.Combine(runtimeRoot, "models")) ? "models" : null);
                 return true;
             }
             catch (Exception ex)
@@ -259,7 +277,31 @@ namespace KimodoBridge.Editor
             }
         }
 
-        internal static void CopyDirectoryRecursive(string sourceDir, string destinationDir)
+        private static void ClearRuntimeRootExceptModels(string runtimeRoot)
+        {
+            if (!Directory.Exists(runtimeRoot))
+            {
+                return;
+            }
+
+            foreach (string file in Directory.GetFiles(runtimeRoot))
+            {
+                TryDeleteFileQuiet(file);
+            }
+
+            foreach (string dir in Directory.GetDirectories(runtimeRoot))
+            {
+                string dirName = Path.GetFileName(dir);
+                if (string.Equals(dirName, "models", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                TryDeleteDirectoryQuiet(dir);
+            }
+        }
+
+        internal static void CopyDirectoryRecursive(string sourceDir, string destinationDir, string skipTopLevelDirectoryName = null)
         {
             Directory.CreateDirectory(destinationDir);
 
@@ -273,6 +315,11 @@ namespace KimodoBridge.Editor
             {
                 string dirName = Path.GetFileName(dir);
                 if (string.Equals(dirName, ".git", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (!string.IsNullOrWhiteSpace(skipTopLevelDirectoryName) &&
+                    string.Equals(dirName, skipTopLevelDirectoryName, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }

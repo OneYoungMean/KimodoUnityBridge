@@ -3,10 +3,6 @@ name: release-runtime
 on:
   workflow_dispatch:
     inputs:
-      quickserver_ref:
-        description: Ref/branch/tag of OneYoungMean/NvlabKimodoQuickServer
-        required: false
-        default: main
       prerelease:
         description: Mark this GitHub Release as a prerelease
         required: false
@@ -56,7 +52,6 @@ jobs:
         shell: pwsh
         env:
           INPUT_RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
-          INPUT_QUICKSERVER_REF: ${{ github.event.inputs.quickserver_ref || 'main' }}
         run: |
           $notesPath = Join-Path $env:GITHUB_WORKSPACE "release-notes.md"
           $tag = "${{ steps.package_version.outputs.tag }}"
@@ -68,7 +63,6 @@ jobs:
               ""
               "- Package version: $version"
               "- Source branch: $env:GITHUB_REF_NAME"
-              "- QuickServer ref: $env:INPUT_QUICKSERVER_REF"
               "- Workflow run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
             ) | Set-Content -Path $notesPath -Encoding utf8
           }
@@ -80,9 +74,7 @@ jobs:
 
       - name: Build release zip
         shell: pwsh
-        env:
-          QUICKSERVER_REF: ${{ github.event.inputs.quickserver_ref || 'main' }}
-        run: .\.github\scripts\package-runtime.ps1 -QuickServerRef "$env:QUICKSERVER_REF" -OutputZip "${{ github.workspace }}\dist\${{ steps.package_version.outputs.asset_name }}"
+        run: .\.github\scripts\package-runtime.ps1 -OutputZip "${{ github.workspace }}\dist\${{ steps.package_version.outputs.asset_name }}"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4

@@ -5,11 +5,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      quickserver_ref:
-        description: Ref/branch/tag of OneYoungMean/NvlabKimodoQuickServer
-        required: false
-        default: main
   schedule:
     - cron: "0 2 * * *"
 
@@ -62,9 +57,7 @@ jobs:
 
       - name: Build package zip
         shell: pwsh
-        env:
-          QUICKSERVER_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.quickserver_ref || 'main' }}
-        run: .\.github\scripts\package-runtime.ps1 -QuickServerRef "$env:QUICKSERVER_REF" -OutputZip "${{ github.workspace }}\dist\KimodoUnityBridge.zip"
+        run: .\.github\scripts\package-runtime.ps1 -OutputZip "${{ github.workspace }}\dist\KimodoUnityBridge.zip"
 
       - name: Upload zip artifact
         uses: actions/upload-artifact@v4

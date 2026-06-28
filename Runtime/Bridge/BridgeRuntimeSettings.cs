@@ -44,6 +44,7 @@ namespace KimodoBridge
         public int logPumpIdlePollMinMs = DefaultLogPumpIdlePollMinMs;
         public int logPumpIdlePollMaxMs = DefaultLogPumpIdlePollMaxMs;
         public bool enableWindows = true;
+        public bool enableMac = true;
         public bool enableLinux = true;
         public int ownerProcessId;
 
@@ -59,7 +60,7 @@ namespace KimodoBridge
                 throw new InvalidOperationException("launcherPath is empty.");
             }
 
-            if (!enableWindows && !enableLinux)
+            if (!enableWindows && !enableMac && !enableLinux)
             {
                 throw new InvalidOperationException("All runtime platforms are disabled.");
             }
@@ -86,6 +87,13 @@ namespace KimodoBridge
                 if (!enableWindows)
                 {
                     throw new PlatformNotSupportedException("Windows runtime is disabled in BridgeRuntimeSettings.");
+                }
+            }
+            else if (platform == RuntimePlatform.OSXEditor || platform == RuntimePlatform.OSXPlayer)
+            {
+                if (!enableMac)
+                {
+                    throw new PlatformNotSupportedException("macOS runtime is disabled in BridgeRuntimeSettings.");
                 }
             }
             else if (platform == RuntimePlatform.LinuxEditor || platform == RuntimePlatform.LinuxPlayer)

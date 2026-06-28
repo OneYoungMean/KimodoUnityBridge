@@ -1,0 +1,7 @@
+# Local offline model assets (do not commit)
+/models/Kimodo-SOMA-RP-v1/
+/models/KIMODO-Meta3_llm2vec_NF4/
+/models/Meta-Llama-3-8B-Instruct/
+/models/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised/
+/models/Kimodo-SMPLX-RP-v1/
+/models/Kimodo-G1-RP-v1/

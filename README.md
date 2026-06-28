@@ -1,62 +1,37 @@
-[演示视频](https://www.bilibili.com/video/BV1HG7361Env) . [完整的Demo](https://github.com/OneYoungMean/KimodoUnityBridge_FullDemo)
+[演示视频](https://www.bilibili.com/video/BV1HG7361Env) . [完整的Demo](https://github.com/OneYoungMean/KimodoUnityBridge_FullDemo) .[快速开始](FastBegin.md) . [使用说明](Manual/README.md)
 
 # License
 [Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
 
-# 1.1.33更新点速览    
+# 1.2.0更新点速览    
+* **支持amd显卡，xpu显卡支持（Experimental）**
+* **增加Mac 平台支持，现在Linux，windows，mac 都可以正常工作了（Experimental）**
+* **大幅优化服务器体积**
+* **更完整的报错，更流畅的反馈机制**
 * **大幅度优化Generate pipe不稳定的问题**
 * **小幅度优化Quick Server性能,使用FaltPatten优化QickServer与Bridge通讯机制**
 * 修复了若干前后动画不匹配的问题.
 * 增加了RuntimeDemo新的api,方便用户调用.
-
+* 完善了说明书.
 
 ## 更新注意事项
 **老用户请删除项目目录\NvlabKimodoQuickServer~并重新运行，代码会自动拉取最新的包！否则运行会报错!**
 ***
 
 # KimodoUnityBridge
-![](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/Manual/Kimodo%20Unity%20Bridge_01.png)
-
-**开箱即用，完全运行在本地的免费 AI 人形动画生成系统**. 
+![](Manual/Kimodo%20Unity%20Bridge_01.png)
+**开箱即用，完全运行在本地的免费 AI 人形动画生成系统**[快速开始](FastBegin.md) .   
 * 基于 https://github.com/nv-tlabs/kimodo 
 * 基于 https://github.com/OneYoungMean/NvlabKimodoQuickServer (感谢[Aero-Ex](https://gist.github.com/Aero-Ex) 他的文档解决了我很大问题)
 * CPU/GPU模式自适应（CUDA大约5秒，CPU大约1一分钟）兼容Windows/Linux平台.
 * 完全本地部署，你无需为任何内容付任何费用（也不必为此感到自责）！
 * 一款开源AI插件, 可以根据提示词生成你想要的人物角色动画！
 
-## 安装
-1. 通过Unity Package Manager 安装:
-   a. 复制https://github.com/OneYoungMean/KimodoUnityBridge.git   
-   b. 打开项目中的packagemanager，点击add package from git url...并填入  
-   c. 等待完成，如果一切正常，你会在菜单栏看到kimodo的菜单.   
-   <img width="1061" height="526" alt="Unity_uAULwLfP7W" src="https://github.com/user-attachments/assets/5f18b33e-4a21-42cf-8acd-57c0e548d44d" />  
-2. 通过安装包安装：  
-   a. 下载https://github.com/OneYoungMean/KimodoUnityBridge/releases/latest的第一个压缩包
-   b. 解压到项目/Packages目录下面  
-   c. 切换回unity等待完成，如果一切正常，你会在菜单栏看到kimodo的菜单.  
-3. 下载FullDemo  
-   a.下载https://github.com/OneYoungMean/KimodoUnityBridge_FullDemo 项目(Download Zip就可以）  
-   b.运行项目查看效果  
-   c.项目组件放在KimodoUnityBridge_FullDemo/Packages目录下  
-   
-## 快速开始  
-**首次运行生成动画，脚本会自己下载模型+配置环境（大概需要10G），请耐心等待，如遇报错（一般是网络波动造成的),请重新生成即可解决**  
-1. 点击Packge Manager 转到Kimdo Unity Animation Tool界面  
-2. 点击sample一栏，并点击箭头指向的import按钮  
-3. 在Project当中找到刚导入的lightSample场景并打开  
-4. 在场景中找到Timeline游戏对象，打开上面挂载的PlayableDirector脚本当中的timeline资产  
-5. 在timeline 窗口当中选择一个timeline clip  
-6. 在inspector面板中点击生成(建议勾选一下random，不然动画会和原来一样）  
-   a.目前第一次生成需要下载模型/环境(约10G),时间较长(30-60分钟),偶遇网络波动可能会导致启动失败,届时重新生成一下即可.   
-8. 运行查看效果  
-<img width="3840" height="2064" alt="微信图片_20260623111822_83_24" src="https://github.com/user-attachments/assets/3d01af83-712c-45a9-99f6-8f33fa8dba6e" />  
-***
-
 ## 要求
 - Unity2021+（更低的平台尚未测试），Windows和Linux 平台。
-- 内存>=8G,硬盘空间>=10G
-- (Nvidia 显卡内存>=6G 可运行CUDA版本，这里不做强制限制）
-
+- 内存>=8G,硬盘空间>=16G
+- Windows,Mac,Linux平台
+- 对部分平台（Nvidia10系以上， AMD7000以上，部分XPU）会启动CUDA加速
 
 ## 特性
 
@@ -82,11 +57,6 @@
 
 - **免费!以及作者长期在线!** 作者只想让更多的Unity开发者能够用上便宜好用的动画！ 有issue必回!包君满意!
 
-### 说明书
-
-[使用说明](https://github.com/OneYoungMean/KimodoUnityBridge/tree/main/Manual)
-目前施工进度50%
-
 ### 已知问题
 
 Constraint Edit保存的的时候有概率没有写入成功.  
@@ -104,4 +74,6 @@ Constraint Edit保存的的时候有概率没有写入成功.
 [省略掉的小声BB的话]
 肴核既尽，不知东方之既白
 ```
-
+## 致谢 
+感谢以下人员对本项目的付出！
+[AkiKurisu](https://github.com/AkiKurisu )   

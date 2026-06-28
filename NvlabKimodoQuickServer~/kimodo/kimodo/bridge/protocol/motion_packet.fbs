@@ -1,0 +1,14 @@
+table MotionPacket {
+  version:uint = 1;
+  fps:float;
+  num_frames:uint;
+  num_joints:uint;
+  joint_names:[string];
+  joint_parents:[int];
+  root_positions:[float];
+  local_rot_quats:[float];
+  model_name:string;
+}
+
+root_type MotionPacket;
+file_identifier "KMB1";

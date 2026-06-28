@@ -1,0 +1,49 @@
+#
+# Human-maintained direct dependencies (top-level).
+# Use `uv` to compile this into a fully pinned `requirements.txt` lockfile.
+#
+# IMPORTANT:
+# - We intentionally do NOT list `torch` here because the Docker image base
+#   (`nvcr.io/nvidia/pytorch`) already provides it. Installing torch via pip
+#   during image build is slow and can lead to ABI/CUDA mismatches.
+# - If you are NOT using Docker, install an appropriate PyTorch build separately.
+#
+
+# Config / wiring
+hydra-core>=1.3
+omegaconf>=2.3
+
+# Core numerics
+numpy>=1.23,<2
+scipy>=1.10,<2
+
+# Model / embeddings
+# NOTE: `kimodo/model/llm2vec` is has only been tested with transformers==5.1.0
+transformers==5.1.0
+urllib3>=2.6.3
+boto3
+peft>=0.12
+einops>=0.7
+
+# Misc
+tqdm>=4.0
+packaging>=21.0
+pydantic>=2.0
+
+# UI / client
+filelock>=3.20.3
+gradio>=6.8.0
+gradio_client>=1.0
+
+# Visualization
+trimesh>=3.21.7
+scenepic>=1.1.0
+pillow>=9.0
+av>=16.1.0
+
+py-soma-x @ git+https://github.com/NVlabs/SOMA-X.git
+
+# Local packages (editable installs for viser and kimodo; MotionCorrection non-editable)
+./MotionCorrection
+-e .
+-e ./kimodo-viser

@@ -2,7 +2,7 @@
 
 ## 概述
 
-前面几份说明书讲的都是在编辑器里生成动画。从 1.1.10 起，Kimodo 也能打包进 Runtime——也就是说，你可以让发布出去的游戏在运行时实时生成人形动画，而不必提前烤好。
+前面几份说明书讲的都是在编辑器里生成动画。Kimodo 同样可以打包进 Runtime——也就是说，你可以让发布出去的游戏在运行时实时生成人形动画，而不必提前烤好。
 
 要看懂运行时怎么用，最好的样板是插件自带的 **KimodoInfiniteMotionDemo**（无限动作 Demo）。它挂在一个角色对象上，运行后会不停地生成新动作、首尾相接地播放，形成永不重复的连续表演。本文以它为线索，讲清楚运行时需要配置什么、以及可以从代码里调用哪些接口。
 
@@ -57,6 +57,7 @@
 | **Random Seed / Fixed Seed** | 勾选 Random 每段都不同；取消勾选则用固定 Seed 复现。 |
 | **Segment Interval Seconds** | 每一段的目标时长（秒）。 |
 | **Loop Hint** | 提示后端这是连续/循环生成，有助于段与段之间更连贯。 |
+| **Overlap Constraint Samples** | 段与段衔接时，从上一段尾部取多少帧姿势作为下一段的约束，范围 1–10。值越大衔接越平滑。 |
 | **Allow Partial Joints** | 允许动作数据只包含部分关节。 |
 | **Trim Segment Tail / Segment Tail Trim Percent** | 是否裁掉每段尾部一小段、以及裁掉的比例。裁掉容易出问题的收尾帧，能让段间衔接更干净。 |
 
@@ -106,6 +107,10 @@ demo.StopDemo();                           // 停止
 demo.ResetDemo();                          // 用当前提示词重新开始
 demo.SetPrompt("a person waves hello");    // 更新提示词
 demo.SetAnimationDurationSeconds(4f);       // 设置每段时长（秒）
+demo.SetLoop(true);                        // 开关循环衔接
+demo.GetLoop();                            // 查询循环衔接是否开启
+demo.SetOverlap(4);                        // 设置段间衔接取多少帧（1–10）
+demo.GetOverlap();                         // 查询当前衔接帧数
 demo.SwitchToNextCharacter();              // 切换到下一个角色
 ```
 

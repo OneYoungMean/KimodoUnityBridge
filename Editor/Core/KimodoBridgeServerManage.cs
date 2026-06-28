@@ -86,7 +86,7 @@ namespace KimodoBridge.Editor
         private static bool isClosing;
         private static int shutdownTicket;
         private static int runtimeMaintenanceDepth;
-
+        private static readonly object sharedServiceGate = new object();
         static KimodoBridgeServerManage()
         {
             EditorApplication.delayCall += RecoverBridgeAfterDomainReload;
@@ -110,6 +110,11 @@ namespace KimodoBridge.Editor
         internal static bool BootstrapRuntimeRootIfMissing()
         {
             return KimodoBridgeRuntimeInstallFacade.BootstrapRuntimeRootIfMissing();
+        }
+
+        internal static bool ReinstallRuntimeRoot()
+        {
+            return KimodoBridgeRuntimeInstallFacade.ReinstallRuntimeRoot();
         }
 
         internal static string ResolveStartScript(string runtimeRoot)
@@ -243,48 +248,50 @@ namespace KimodoBridge.Editor
             string resolvedLauncherPath = Path.GetFullPath(launcherPath ?? string.Empty);
             string resolvedModelName = string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim();
             string resolvedModelsRoot = string.IsNullOrWhiteSpace(modelsRoot) ? string.Empty : Path.GetFullPath(modelsRoot.Trim());
-
-            bool reusable =
-                sharedBridgeService != null &&
-                string.Equals(currentServiceRuntimeRoot, resolvedRuntimeRoot, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(currentServiceLauncherPath, resolvedLauncherPath, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(currentServiceModelName, resolvedModelName, StringComparison.Ordinal) &&
-                currentServiceHighVram == highVram &&
-                currentServiceForceSetup == forceSetup &&
-                currentServiceForceCpu == forceCpu &&
-                string.Equals(currentServiceModelsRoot, resolvedModelsRoot, StringComparison.OrdinalIgnoreCase);
-
-            if (reusable)
+            lock (sharedServiceGate)
             {
+                bool reusable =
+                    sharedBridgeService != null &&
+                    string.Equals(currentServiceRuntimeRoot, resolvedRuntimeRoot, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(currentServiceLauncherPath, resolvedLauncherPath, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(currentServiceModelName, resolvedModelName, StringComparison.Ordinal) &&
+                    currentServiceHighVram == highVram &&
+                    currentServiceForceSetup == forceSetup &&
+                    currentServiceForceCpu == forceCpu &&
+                    string.Equals(currentServiceModelsRoot, resolvedModelsRoot, StringComparison.OrdinalIgnoreCase);
+
+                if (reusable)
+                {
+                    return sharedBridgeService;
+                }
+
+                try
+                {
+                    sharedBridgeService?.Dispose();
+                }
+                catch
+                {
+                    // Ignore dispose failure while replacing the shared service.
+                }
+
+                sharedBridgeService = new KimodoBridgeService(BridgeRuntimeSettingsFactory.Create(
+                    resolvedRuntimeRoot,
+                    resolvedLauncherPath,
+                    resolvedModelName,
+                    highVram,
+                    forceSetup,
+                    forceCpu,
+                    resolvedModelsRoot,
+                    startupTimeoutMs));
+                currentServiceRuntimeRoot = resolvedRuntimeRoot;
+                currentServiceLauncherPath = resolvedLauncherPath;
+                currentServiceModelName = resolvedModelName;
+                currentServiceHighVram = highVram;
+                currentServiceForceSetup = forceSetup;
+                currentServiceForceCpu = forceCpu;
+                currentServiceModelsRoot = resolvedModelsRoot;
                 return sharedBridgeService;
             }
-
-            try
-            {
-                sharedBridgeService?.Dispose();
-            }
-            catch
-            {
-                // Ignore dispose failure while replacing the shared service.
-            }
-
-            sharedBridgeService = new KimodoBridgeService(BridgeRuntimeSettingsFactory.Create(
-                resolvedRuntimeRoot,
-                resolvedLauncherPath,
-                resolvedModelName,
-                highVram,
-                forceSetup,
-                forceCpu,
-                resolvedModelsRoot,
-                startupTimeoutMs));
-            currentServiceRuntimeRoot = resolvedRuntimeRoot;
-            currentServiceLauncherPath = resolvedLauncherPath;
-            currentServiceModelName = resolvedModelName;
-            currentServiceHighVram = highVram;
-            currentServiceForceSetup = forceSetup;
-            currentServiceForceCpu = forceCpu;
-            currentServiceModelsRoot = resolvedModelsRoot;
-            return sharedBridgeService;
         }
 
         private static int ComputeStartupTimeoutMs(string runtimeRoot, bool highVram, string modelName, string modelsRoot)
@@ -314,9 +321,13 @@ namespace KimodoBridge.Editor
             isClosing = true;
             UnityEngine.Debug.Log($"[Kimodo][BridgeShutdown] begin mode={mode}, ticket={ticket}");
 
-            KimodoBridgeService bridgeService = sharedBridgeService;
-            sharedBridgeService = null;
-            ResetSharedServiceState();
+            KimodoBridgeService bridgeService;
+            lock (sharedServiceGate)
+            {
+                bridgeService = sharedBridgeService;
+                sharedBridgeService = null;
+                ResetSharedServiceState();
+            }
 
             if (bridgeService == null && mode == ShutdownMode.StopAndDispose)
             {
