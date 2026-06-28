@@ -24,7 +24,7 @@ eggs/
 parts/
 sdist/
 var/
-models/
+/models/
 kimodo-viser/
 wheels/
 pip-wheel-metadata/
