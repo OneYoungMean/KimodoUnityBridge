@@ -3,7 +3,8 @@
 # License
 [Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
 
-# 1.2.0更新点速览    
+# 1.2.13更新点速览    
+* 修复了大部分已知问题  
 * **支持amd显卡，xpu显卡支持（Experimental）**
 * **增加Mac 平台支持，现在Linux，windows，mac 都可以正常工作了（Experimental）**
 * **大幅优化服务器体积**
@@ -59,7 +60,6 @@
 
 ### 已知问题
 
-Constraint Edit保存的的时候有概率没有写入成功.  
 
 ### Bug Report
 由于项目较大且开发时间较短，bug难免有所疏漏，在这里提前给用户老爷抱歉啦，如果你很不幸（或者说很幸运）遇到了bug，请提交一下log，方便作者改进和维护，感激不尽：  
