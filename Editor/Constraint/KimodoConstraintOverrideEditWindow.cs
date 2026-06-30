@@ -10,6 +10,11 @@ namespace KimodoBridge.Editor
         private static KimodoConstraintMarkerBase lastKnownMarker;
         private static UnityEngine.Object selectionBeforeOpen;
         private KimodoConstraintMarkerBase marker;
+        private PoseCacheRenderContext editContext;
+        private bool hasEditContext;
+        private string editEntryId;
+        private bool timelineLockCaptured;
+        private bool previousTimelineLockState;
         private Vector2 scroll;
         private string lastError;
 
@@ -25,11 +30,12 @@ namespace KimodoBridge.Editor
             var window = GetWindow<KimodoConstraintOverrideEditWindow>(true, "Kimodo Constraint Override Edit");
             window.minSize = new Vector2(420f, 260f);
             window.marker = marker;
+            window.lastError = string.Empty;
+            window.ConfigureEditSession(marker);
             if (marker != null)
             {
                 lastKnownMarker = marker;
             }
-            window.lastError = string.Empty;
             window.Show();
             window.Focus();
             if (marker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out _))
@@ -88,12 +94,18 @@ namespace KimodoBridge.Editor
             if (marker != null)
             {
                 lastKnownMarker = marker;
-                if (KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out _))
+                if (!hasEditContext)
+                {
+                    ConfigureEditSession(marker);
+                }
+
+                if (TryGetEditContext(out PoseCacheRenderContext context, out _))
                 {
                     KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
                     KimodoConstraintPoseCache.ClearTransformChanges(context);
                 }
             }
+            LockTimelineWindow();
             EditorApplication.update += OnEditorUpdate;
         }
 
@@ -102,20 +114,29 @@ namespace KimodoBridge.Editor
             KimodoConstraintMarkerBase restoreMarker = marker != null ? marker : lastKnownMarker;
             UnityEngine.Object restoreSelection = selectionBeforeOpen != null ? selectionBeforeOpen : restoreMarker as UnityEngine.Object;
 
-            if (marker != null && marker.useOverride)
-            {
-                EditorUtility.SetDirty(marker);
-            }
+            CommitPoseChangesFromCache();
 
             if (currentWindow == this)
             {
                 currentWindow = null;
             }
             EditorApplication.update -= OnEditorUpdate;
-            if (restoreMarker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(restoreMarker, out PoseCacheRenderContext restoreContext, out _))
+            if (hasEditContext)
             {
-                KimodoConstraintPoseCache.SetGroupState(restoreContext, visible: false, selectable: false);
+                if (!string.IsNullOrWhiteSpace(editEntryId))
+                {
+                    KimodoConstraintPoseCache.DestroyEntry(editContext, editEntryId);
+                }
+                else
+                {
+                    KimodoConstraintPoseCache.DestroyContext(editContext);
+                }
             }
+            else if (restoreMarker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(restoreMarker, out PoseCacheRenderContext restoreContext, out _))
+            {
+                KimodoConstraintPoseCache.DestroyContext(restoreContext);
+            }
+            RestoreTimelineWindowLock();
             SceneView.RepaintAll();
 
             if (restoreSelection != null)
@@ -137,6 +158,8 @@ namespace KimodoBridge.Editor
             }
 
             selectionBeforeOpen = null;
+            hasEditContext = false;
+            editEntryId = string.Empty;
         }
 
         private void OnEditorUpdate()
@@ -151,12 +174,13 @@ namespace KimodoBridge.Editor
             {
                 lastError = "override is disabled.";
             }
-            else if (KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out _))
+            else if (TryGetEditContext(out PoseCacheRenderContext context, out _))
             {
                 if (KimodoConstraintPoseCache.HasAnyTransformChanges(context))
                 {
                     if (!KimodoConstraintPoseCache.TryBuildSampleFromContext(
                             context,
+                            editEntryId,
                             marker.ConstraintType,
                             marker.time,
                             out KimodoMarkerSampleResult sample,
@@ -172,7 +196,7 @@ namespace KimodoBridge.Editor
                     {
                         lastError = string.IsNullOrWhiteSpace(writeError) ? "marker writeback failed." : writeError;
                     }
-                    else if (!KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, out string poseError))
+                    else if (!KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out string poseError))
                     {
                         lastError = string.IsNullOrWhiteSpace(poseError) ? "pose cache update failed." : poseError;
                     }
@@ -242,7 +266,10 @@ namespace KimodoBridge.Editor
             if (so.ApplyModifiedProperties())
             {
                 EditorUtility.SetDirty(marker);
-                if (KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, out string poseError))
+                string poseError = string.Empty;
+                bool rendered = TryGetEditContext(out PoseCacheRenderContext context, out poseError) &&
+                    KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out poseError);
+                if (rendered)
                 {
                     lastError = string.Empty;
                 }
@@ -265,9 +292,135 @@ namespace KimodoBridge.Editor
             EditorGUILayout.Space(6f);
             if (GUILayout.Button(new GUIContent("Close", "Close the edit window and keep current marker data."), GUILayout.Height(30f)))
             {
-                EditorUtility.SetDirty(marker);
+                CommitPoseChangesFromCache();
                 Close();
             }
+        }
+
+        private void ConfigureEditSession(KimodoConstraintMarkerBase target)
+        {
+            hasEditContext = false;
+            editEntryId = string.Empty;
+            if (target == null)
+            {
+                return;
+            }
+
+            editEntryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(target);
+            if (!KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(target, out editContext, out string contextError))
+            {
+                lastError = contextError;
+                return;
+            }
+
+            hasEditContext = true;
+            if (!KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(target, editContext, out string renderError))
+            {
+                lastError = renderError;
+                return;
+            }
+
+            KimodoConstraintPoseCache.SetGroupState(editContext, visible: true, selectable: true);
+        }
+
+        private bool TryGetEditContext(out PoseCacheRenderContext context, out string error)
+        {
+            error = string.Empty;
+            string contextError = string.Empty;
+            if (hasEditContext)
+            {
+                context = editContext;
+                return true;
+            }
+
+            if (marker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out context, out contextError))
+            {
+                editContext = context;
+                editEntryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker);
+                hasEditContext = true;
+                return true;
+            }
+
+            context = default;
+            error = contextError;
+            error = string.IsNullOrWhiteSpace(error) ? "edit context is unavailable." : error;
+            return false;
+        }
+
+        private void CommitPoseChangesFromCache()
+        {
+            if (marker == null || !marker.useOverride)
+            {
+                return;
+            }
+
+            string sampleError = string.Empty;
+            if (TryGetEditContext(out PoseCacheRenderContext context, out _) &&
+                KimodoConstraintPoseCache.TryBuildSampleFromContext(
+                    context,
+                    editEntryId,
+                    marker.ConstraintType,
+                    marker.time,
+                    out KimodoMarkerSampleResult sample,
+                    out sampleError))
+            {
+                if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
+                        marker,
+                        sample,
+                        keepOverrideEnabled: true,
+                        out string writeError))
+                {
+                    lastError = string.IsNullOrWhiteSpace(writeError) ? "marker writeback failed." : writeError;
+                }
+                else
+                {
+                    lastError = string.Empty;
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(sampleError))
+            {
+                lastError = sampleError;
+            }
+
+            EditorUtility.SetDirty(marker);
+        }
+
+        private void LockTimelineWindow()
+        {
+            if (timelineLockCaptured)
+            {
+                return;
+            }
+
+            try
+            {
+                previousTimelineLockState = KimodoTimelinePreviewRefreshUtility.GetTImelineWindowLockState();
+                KimodoTimelinePreviewRefreshUtility.SetTimelineWindowLockState(true);
+                timelineLockCaptured = true;
+            }
+            catch
+            {
+                timelineLockCaptured = false;
+            }
+        }
+
+        private void RestoreTimelineWindowLock()
+        {
+            if (!timelineLockCaptured)
+            {
+                return;
+            }
+
+            try
+            {
+                KimodoTimelinePreviewRefreshUtility.SetTimelineWindowLockState(previousTimelineLockState);
+            }
+            catch
+            {
+                // Timeline window may already be closed during editor shutdown.
+            }
+
+            timelineLockCaptured = false;
         }
 
         private static void DrawPropertyIfExists(SerializedObject so, string name)
@@ -283,5 +436,6 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.PropertyField(prop, true);
             }
         }
+
     }
 }

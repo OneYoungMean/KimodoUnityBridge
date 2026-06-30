@@ -80,5 +80,15 @@ namespace TimelineInject
             return true;
 
         }
+
+        public static bool GetTImelineWindowLockState()
+        {
+            return TimelineEditor.window.locked;
+        }
+
+        public static void SetTimelineWindowLockState(bool locked)
+        {
+            TimelineEditor.window.locked = locked;
+        }
     }
 }

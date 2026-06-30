@@ -923,6 +923,14 @@ namespace KimodoBridge.Editor
             return TryRenderMarkerToPoseCache(marker, context, out _, out error);
         }
 
+        internal static bool TryRenderMarkerToPoseCache(
+            KimodoConstraintMarkerBase marker,
+            PoseCacheRenderContext context,
+            out string error)
+        {
+            return TryRenderMarkerToPoseCache(marker, context, out _, out error);
+        }
+
         private static bool TryRenderMarkerToPoseCache(
             KimodoConstraintMarkerBase marker,
             PoseCacheRenderContext context,
@@ -1056,7 +1064,7 @@ namespace KimodoBridge.Editor
             PoseRenderSignatures.Remove(id);
         }
 
-        private static string GetMarkerEntryId(KimodoConstraintMarkerBase marker)
+        internal static string GetMarkerEntryId(KimodoConstraintMarkerBase marker)
         {
             return marker == null ? string.Empty : GetCachedIntString(marker.GetInstanceID());
         }

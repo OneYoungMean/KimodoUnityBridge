@@ -1,5 +1,6 @@
 using TimelineInject;
 using UnityEditor;
+using UnityEditor.Timeline;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
@@ -47,8 +48,30 @@ namespace KimodoBridge.Editor
                 marker.useOverride = true;
             }
 
-            EditorUtility.SetDirty(marker);
+            MarkConstraintMarkerDirty(marker);
             return true;
+        }
+
+        private static void MarkConstraintMarkerDirty(KimodoConstraintMarkerBase marker)
+        {
+            if (marker == null)
+            {
+                return;
+            }
+
+            EditorUtility.SetDirty(marker);
+
+            if (marker.parent is UnityEngine.Object parentObject)
+            {
+                EditorUtility.SetDirty(parentObject);
+            }
+
+            if (TimelineEditor.inspectedAsset != null)
+            {
+                EditorUtility.SetDirty(TimelineEditor.inspectedAsset);
+            }
+
+            TimelineEditor.Refresh(RefreshReason.ContentsModified);
         }
 
         private static bool AreSamplesEquivalent(KimodoMarkerSampleResult left, KimodoMarkerSampleResult right)

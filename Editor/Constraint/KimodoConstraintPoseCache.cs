@@ -218,10 +218,32 @@ namespace KimodoBridge.Editor
             out KimodoMarkerSampleResult sample,
             out string error)
         {
+            return TryBuildSampleFromContext(context, null, markerType, sampleTime, out sample, out error);
+        }
+
+        internal static bool TryBuildSampleFromContext(
+            PoseCacheRenderContext context,
+            string entryId,
+            string markerType,
+            double sampleTime,
+            out KimodoMarkerSampleResult sample,
+            out string error)
+        {
             sample = null;
             error = string.Empty;
 
-            if (!TryGetFirstEntryForContext(context, out PoseCacheEntry entry) || entry?.Root == null)
+            PoseCacheEntry entry;
+            if (!string.IsNullOrWhiteSpace(entryId))
+            {
+                string key = BuildEntryKey(context.ContextKey, entryId.Trim());
+                Entries.TryGetValue(key, out entry);
+            }
+            else
+            {
+                TryGetFirstEntryForContext(context, out entry);
+            }
+
+            if (entry?.Root == null)
             {
                 error = "pose cache context has no active entry.";
                 return false;
@@ -249,6 +271,24 @@ namespace KimodoBridge.Editor
                 jointsOverride: jointTransforms,
                 out sample,
                 out error);
+        }
+
+        internal static void DestroyEntry(PoseCacheRenderContext context, string entryId)
+        {
+            if (string.IsNullOrWhiteSpace(entryId) || Entries.Count == 0)
+            {
+                return;
+            }
+
+            string key = BuildEntryKey(context.ContextKey, entryId.Trim());
+            if (!Entries.TryGetValue(key, out PoseCacheEntry entry))
+            {
+                return;
+            }
+
+            DestroyEntry(entry);
+            Entries.Remove(key);
+            SceneView.RepaintAll();
         }
 
         internal static void DestroyEntriesForItemId(string entryId, PoseCacheRenderContext? keepContext = null)
