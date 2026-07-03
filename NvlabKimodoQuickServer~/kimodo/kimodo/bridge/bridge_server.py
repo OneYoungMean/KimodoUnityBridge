@@ -95,12 +95,24 @@ def _out(obj):
     sys.stdout.flush()
 
 
+_PING_LOG_THROTTLE_SECONDS = 60.0
+_last_ping_log_time = 0.0
+_ping_log_lock = threading.Lock()
+
+
 def _log(msg: str):
+    global _last_ping_log_time
     line = str(msg)
     verbose_network_log = os.environ.get("KIMODO_BRIDGE_VERBOSE_NETWORK_LOG", "").strip() == "1"
     if not verbose_network_log:
-        if line.startswith("[bridge] accept ") or line == "[bridge] cmd=ping":
+        if line.startswith("[bridge] accept "):
             return
+        if line == "[bridge] cmd=ping":
+            now = time.monotonic()
+            with _ping_log_lock:
+                if now - _last_ping_log_time < _PING_LOG_THROTTLE_SECONDS:
+                    return
+                _last_ping_log_time = now
     log_path = os.environ.get("KIMODO_BRIDGE_LOG", "")
     direct_only = os.environ.get("KIMODO_BRIDGE_LOG_DIRECT_ONLY", "").strip() == "1"
     sys.stderr.write(line + "\n")

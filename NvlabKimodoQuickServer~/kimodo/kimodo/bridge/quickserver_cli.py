@@ -407,7 +407,7 @@ def _run_watchdog(
     startup_interval = int(os.environ.get("KIMODO_WATCHDOG_STARTUP_INTERVAL_SEC", "1"))
     startup_max_fails = int(os.environ.get("KIMODO_WATCHDOG_STARTUP_MAX_FAILS", "180"))
     runtime_interval = int(os.environ.get("KIMODO_WATCHDOG_RUNTIME_INTERVAL_SEC", "1"))
-    idle_no_log_max = int(os.environ.get("KIMODO_WATCHDOG_IDLE_NOLOG_MAX", "300"))
+    idle_no_log_max = int(os.environ.get("KIMODO_WATCHDOG_IDLE_NOLOG_MAX", "600"))
     watchdog_log_path = paths.log_dir / WATCHDOG_LOG_NAME
     watchdog_log_path.parent.mkdir(parents=True, exist_ok=True)
     last_mtime = 0
@@ -495,7 +495,7 @@ def _run_watchdog(
         if now_mtime == last_mtime:
             idle_no_log_max -= 1
         else:
-            idle_no_log_max = int(os.environ.get("KIMODO_WATCHDOG_IDLE_NOLOG_MAX", "300"))
+            idle_no_log_max = int(os.environ.get("KIMODO_WATCHDOG_IDLE_NOLOG_MAX", "600"))
             last_mtime = now_mtime
         if idle_no_log_max <= 0:
             _write_watchdog(f"[INFO] No bridge log update for runtime window. Killing pid={bridge_pid}")
