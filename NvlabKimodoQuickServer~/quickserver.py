@@ -12,7 +12,7 @@ import time
 from typing import Sequence
 
 
-SUBCOMMANDS = {"setup", "run"}
+SUBCOMMANDS = {"setup", "run", "watchdog"}
 RUN_WAIT_TIMEOUT_SEC = 60 * 60
 RUN_WAIT_POLL_SEC = 1
 RUN_LOCK_HELD_ENV = "KIMODO_RUN_LOCK_HELD"
@@ -69,9 +69,10 @@ def _outer_parser() -> argparse.ArgumentParser:
 
 
 def _print_help() -> int:
-    print("Usage: python quickserver.py [setup|run] [options]")
+    print("Usage: python quickserver.py [setup|run|watchdog] [options]")
     print("  setup           build or reuse the venv")
     print("  run             setup + launch bridge (bridge provisions models on demand)")
+    print("  watchdog        monitor the bridge runtime in a detached process")
     return 0
 
 
@@ -215,6 +216,9 @@ def _run_outer(normalized_args: Sequence[str]) -> int:
         )
         result = setup_mod.run_setup_cli(root_dir=str(root_dir), options=options)
         return 0 if result.ok else int(result.exit_code)
+
+    if action == "watchdog":
+        return _run_inner(normalized_args)
 
     if parsed.venv:
         venv_python = setup_mod.resolve_venv_python_arg(parsed.venv, root_dir=str(root_dir))

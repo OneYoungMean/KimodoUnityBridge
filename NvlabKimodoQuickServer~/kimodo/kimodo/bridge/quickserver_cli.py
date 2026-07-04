@@ -40,6 +40,9 @@ def _build_parser() -> argparse.ArgumentParser:
         run_parser.add_argument("--force", action="store_true")
 
     add_common(subparsers.add_parser("run"))
+    watchdog_parser = subparsers.add_parser("watchdog")
+    watchdog_parser.add_argument("--watchpid")
+    watchdog_parser.add_argument("--log")
     return parser
 
 
@@ -113,6 +116,15 @@ def _read_key_value_file(path: Path) -> dict[str, str]:
     return data
 
 
+def _read_pid_file(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        return int(path.read_text(encoding="utf-8", errors="replace").strip() or "0")
+    except Exception:
+        return 0
+
+
 def _pid_is_running(pid: int) -> bool:
     if pid <= 0:
         return False
@@ -130,6 +142,21 @@ def _pid_is_running(pid: int) -> bool:
         finally:
             ctypes.windll.kernel32.CloseHandle(handle)
     return Path(f"/proc/{pid}").exists()
+
+
+def _try_claim_singleton_pid_file(path: Path) -> tuple[bool, int]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing_pid = _read_pid_file(path)
+    if existing_pid > 0 and _pid_is_running(existing_pid):
+        return False, existing_pid
+
+    try:
+        path.write_text(f"{os.getpid()}\n", encoding="utf-8", newline="\n")
+    except Exception:
+        return False, existing_pid
+
+    current_pid = _read_pid_file(path)
+    return current_pid == os.getpid(), current_pid
 
 
 def _allow_multi_server() -> bool:
@@ -263,6 +290,56 @@ def _wait_for_existing_server(paths: ProjectPaths, signature: str, logger: Setup
     return None
 
 
+def _wait_for_bridge_startup(
+    paths: ProjectPaths,
+    bridge_pid: int,
+    port_file: Path,
+    bridge_log_path: Path,
+    logger: SetupLogger,
+    *,
+    on_started=None,
+) -> int:
+    startup_interval = int(os.environ.get("KIMODO_WATCHDOG_STARTUP_INTERVAL_SEC", "1"))
+    startup_max_fails = int(os.environ.get("KIMODO_WATCHDOG_STARTUP_MAX_FAILS", "180"))
+    startup_fails = 0
+
+    while True:
+        if not _pid_is_running(bridge_pid):
+            logger.log(f"[ERROR] Bridge exited before readiness. pid={bridge_pid}")
+            return 1
+
+        port_info = _try_read_port_file(port_file)
+        if port_info is not None and _probe_server(*port_info):
+            if on_started is not None:
+                on_started()
+            try:
+                bridge_log_path.touch(exist_ok=True)
+            except Exception:
+                pass
+            logger.log(f"[INFO] Bridge is ready. pid={bridge_pid}")
+            return 0
+
+        startup_fails += 1
+        if startup_fails >= startup_max_fails:
+            logger.log(f"[ERROR] server not ready within {startup_max_fails} checks. Killing pid={bridge_pid}")
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(bridge_pid), "/T", "/F"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                try:
+                    os.kill(bridge_pid, signal.SIGTERM)
+                except Exception:
+                    pass
+            try:
+                if port_file.exists():
+                    port_file.unlink()
+            except Exception:
+                pass
+            return 1
+
+        logger.log(f"[INFO] Waiting server readiness ({startup_fails}/{startup_max_fails})")
+        time.sleep(startup_interval)
+
+
 def _launch_bridge(paths: ProjectPaths, args: argparse.Namespace, logger: SetupLogger) -> int:
     bridge_log_path = logger.log_path
     watchdog_log_path = paths.log_dir / WATCHDOG_LOG_NAME
@@ -369,8 +446,14 @@ def _launch_bridge(paths: ProjectPaths, args: argparse.Namespace, logger: SetupL
                 if runtime_env["KIMODO_LLM2VEC_PEFT_DIR"]:
                     logger.log(f"[INFO] Text encoder PEFT dir: {runtime_env['KIMODO_LLM2VEC_PEFT_DIR']}")
                 logger.log(f"[INFO] Bridge PID: {launch_proc.pid}")
-                watchdog_rc = _run_watchdog(paths, launch_proc.pid, port_file, bridge_log_path, launch_env, args.watchpid, on_started=_release_run_lock_after_startup)
-                launch_proc.poll()
+                return _wait_for_bridge_startup(
+                    paths,
+                    launch_proc.pid,
+                    port_file,
+                    bridge_log_path,
+                    logger,
+                    on_started=_release_run_lock_after_startup,
+                )
         else:
             launch_proc = subprocess.Popen(command, **popen_kwargs)
             bridge_pid_file.write_text(f"{launch_proc.pid}\n", encoding="utf-8", newline="\n")
@@ -386,33 +469,44 @@ def _launch_bridge(paths: ProjectPaths, args: argparse.Namespace, logger: SetupL
             if runtime_env["KIMODO_LLM2VEC_PEFT_DIR"]:
                 logger.log(f"[INFO] Text encoder PEFT dir: {runtime_env['KIMODO_LLM2VEC_PEFT_DIR']}")
             logger.log(f"[INFO] Bridge PID: {launch_proc.pid}")
-            watchdog_rc = _run_watchdog(paths, launch_proc.pid, port_file, bridge_log_path, launch_env, args.watchpid, on_started=_release_run_lock_after_startup)
-            launch_proc.poll()
-        return watchdog_rc
+            return _wait_for_bridge_startup(
+                paths,
+                launch_proc.pid,
+                port_file,
+                bridge_log_path,
+                logger,
+                on_started=_release_run_lock_after_startup,
+            )
     finally:
-        archive_path(bridge_pid_file, paths.recycle_dir)
         if not allow_multi_server:
             archive_path(paths.run_lock, paths.recycle_dir)
 
 
 def _run_watchdog(
     paths: ProjectPaths,
-    bridge_pid: int,
-    port_file: Path,
-    bridge_log_path: Path,
-    launch_env: dict[str, str],
     watchpid: str | None,
-    on_started=None,
+    logger: SetupLogger,
 ) -> int:
     startup_interval = int(os.environ.get("KIMODO_WATCHDOG_STARTUP_INTERVAL_SEC", "1"))
-    startup_max_fails = int(os.environ.get("KIMODO_WATCHDOG_STARTUP_MAX_FAILS", "180"))
     runtime_interval = int(os.environ.get("KIMODO_WATCHDOG_RUNTIME_INTERVAL_SEC", "1"))
     idle_no_log_max = int(os.environ.get("KIMODO_WATCHDOG_IDLE_NOLOG_MAX", "600"))
     watchdog_log_path = paths.log_dir / WATCHDOG_LOG_NAME
     watchdog_log_path.parent.mkdir(parents=True, exist_ok=True)
+    bridge_pid_file = paths.root_dir / ".bridge.pid"
+    watchdog_pid_file = paths.root_dir / ".watchdog.pid"
+    port_file = paths.root_dir / "serverport"
+    bridge_log_path = paths.log_dir / BRIDGE_LOG_NAME
+    claimed, owner_pid = _try_claim_singleton_pid_file(watchdog_pid_file)
+    if not claimed:
+        logger.log(f"[INFO] Watchdog already running. pid={owner_pid}")
+        return 0
+
     last_mtime = 0
-    startup_fails = 0
-    started_ok = False
+    remaining_idle_budget = idle_no_log_max
+    runtime_active = False
+    waiting_on_run_lock_logged = False
+    idle_without_target_max = int(os.environ.get("KIMODO_WATCHDOG_IDLE_NO_TARGET_MAX", "30"))
+    idle_without_target_count = 0
 
     def _log_mtime_ns(path: Path) -> int:
         try:
@@ -431,7 +525,7 @@ def _run_watchdog(
     def _is_running(pid: int) -> bool:
         return _pid_is_running(pid)
 
-    def _kill_bridge() -> None:
+    def _kill_bridge(bridge_pid: int) -> None:
         if os.name == "nt":
             subprocess.run(["taskkill", "/PID", str(bridge_pid), "/T", "/F"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
@@ -440,13 +534,14 @@ def _run_watchdog(
             except Exception:
                 pass
 
-    def _kill_bridge_and_cleanup_endpoint() -> None:
-        _kill_bridge()
+    def _kill_bridge_and_cleanup_endpoint(bridge_pid: int) -> None:
+        _kill_bridge(bridge_pid)
         for _ in range(50):
             if not _is_running(bridge_pid):
                 break
             time.sleep(0.1)
         _cleanup_endpoint_file()
+        archive_path(bridge_pid_file, paths.recycle_dir)
 
     def _cleanup_endpoint_file() -> None:
         try:
@@ -456,52 +551,74 @@ def _run_watchdog(
         except Exception as exc:
             _write_watchdog(f"[WARN] Failed to remove stale endpoint file {port_file}: {exc}")
 
-    _write_watchdog(f"[INFO] Bridge watchdog started. pid={bridge_pid} startup_interval={startup_interval}s startup_max_fails={startup_max_fails} runtime_interval={runtime_interval}s idle_nolog_max={idle_no_log_max}")
+    _write_watchdog(
+        f"[INFO] Bridge watchdog started. pid={os.getpid()} runtime_interval={runtime_interval}s idle_nolog_max={idle_no_log_max}"
+    )
 
-    while True:
-        if not _is_running(bridge_pid):
-            return 0 if started_ok else 1
+    try:
+        while True:
+            if watchpid and os.name == "nt":
+                try:
+                    owner_bridge_pid = int(watchpid)
+                except Exception:
+                    owner_bridge_pid = 0
+                if owner_bridge_pid > 0 and not _is_running(owner_bridge_pid):
+                    _write_watchdog(f"[WARN] Owner pid missing. owner_pid={watchpid}")
+                    return 0
 
-        if not started_ok:
-            port_info = _try_read_port_file(port_file)
-            if port_info is not None and _probe_server(*port_info):
-                started_ok = True
-                if on_started is not None:
-                    try:
-                        on_started()
-                    except Exception:
-                        pass
-                last_mtime = _log_mtime_ns(bridge_log_path)
+            if paths.run_lock.exists():
+                if not waiting_on_run_lock_logged:
+                    _write_watchdog(f"[INFO] Waiting for run lock release: {paths.run_lock}")
+                    waiting_on_run_lock_logged = True
+                runtime_active = False
+                remaining_idle_budget = idle_no_log_max
+                idle_without_target_count = 0
+                time.sleep(startup_interval)
+                continue
+
+            waiting_on_run_lock_logged = False
+            bridge_pid = _read_pid_file(bridge_pid_file)
+            if bridge_pid <= 0:
+                idle_without_target_count += 1
+                if not runtime_active and idle_without_target_count >= idle_without_target_max:
+                    _write_watchdog("[INFO] No bridge target appeared after watchdog startup. Exiting.")
+                    return 0
+                if runtime_active:
+                    _cleanup_endpoint_file()
+                    return 0
                 time.sleep(runtime_interval)
                 continue
-            startup_fails += 1
-            if startup_fails >= startup_max_fails:
-                _write_watchdog(f"[ERROR] server not ready within {startup_max_fails} checks. Killing pid={bridge_pid}")
-                _kill_bridge_and_cleanup_endpoint()
-                return 1
-            _write_watchdog(f"[INFO] Waiting server readiness ({startup_fails}/{startup_max_fails})")
-            time.sleep(startup_interval)
-            continue
 
-        if watchpid and os.name == "nt":
-            if not _is_running(int(watchpid)):
-                _write_watchdog(f"[WARN] Owner pid missing. owner_pid={watchpid} bridge_pid={bridge_pid}")
-                _kill_bridge_and_cleanup_endpoint()
+            idle_without_target_count = 0
+            if not _is_running(bridge_pid):
+                _write_watchdog(f"[INFO] Bridge pid no longer running. pid={bridge_pid}")
+                archive_path(bridge_pid_file, paths.recycle_dir)
+                _cleanup_endpoint_file()
                 return 0
 
-        now_mtime = _log_mtime_ns(bridge_log_path)
-        if now_mtime <= 0:
-            now_mtime = last_mtime
-        if now_mtime == last_mtime:
-            idle_no_log_max -= 1
-        else:
-            idle_no_log_max = int(os.environ.get("KIMODO_WATCHDOG_IDLE_NOLOG_MAX", "600"))
-            last_mtime = now_mtime
-        if idle_no_log_max <= 0:
-            _write_watchdog(f"[INFO] No bridge log update for runtime window. Killing pid={bridge_pid}")
-            _kill_bridge_and_cleanup_endpoint()
-            return 0
-        time.sleep(runtime_interval)
+            if not runtime_active:
+                runtime_active = True
+                last_mtime = _log_mtime_ns(bridge_log_path)
+                remaining_idle_budget = idle_no_log_max
+                _write_watchdog(f"[INFO] Runtime watchdog active. bridge_pid={bridge_pid}")
+
+            now_mtime = _log_mtime_ns(bridge_log_path)
+            if now_mtime <= 0:
+                now_mtime = last_mtime
+            if now_mtime == last_mtime:
+                remaining_idle_budget -= 1
+            else:
+                remaining_idle_budget = idle_no_log_max
+                last_mtime = now_mtime
+            if remaining_idle_budget <= 0:
+                _write_watchdog(f"[INFO] No bridge log update for runtime window. Killing pid={bridge_pid}")
+                _kill_bridge_and_cleanup_endpoint(bridge_pid)
+                return 0
+            time.sleep(runtime_interval)
+    finally:
+        current_owner = _read_pid_file(watchdog_pid_file)
+        if current_owner == os.getpid():
+            archive_path(watchdog_pid_file, paths.recycle_dir)
 
 
 def main(argv: Sequence[str] | None = None, *, root_dir: str | None = None, source_root: str | None = None) -> int:
@@ -512,15 +629,21 @@ def main(argv: Sequence[str] | None = None, *, root_dir: str | None = None, sour
         return 0
     args = parser.parse_args(raw_args)
     paths = _project_paths(root_dir or str(Path(__file__).resolve().parents[3]))
-    bridge_log_path = Path(args.log).resolve() if getattr(args, "log", None) else paths.log_dir / BRIDGE_LOG_NAME
+    default_log_name = WATCHDOG_LOG_NAME if args.action == "watchdog" else BRIDGE_LOG_NAME
+    bridge_log_path = Path(args.log).resolve() if getattr(args, "log", None) else paths.log_dir / default_log_name
     watchdog_log_path = paths.log_dir / WATCHDOG_LOG_NAME
 
-    if args.output == "file":
+    if getattr(args, "output", None) == "file":
         archive_path(bridge_log_path, paths.recycle_dir)
         archive_path(watchdog_log_path, paths.recycle_dir)
 
-    with _prepare_logger(paths, args.output, args.log, BRIDGE_LOG_NAME, append=False) as run_logger:
+    append_logs = args.action == "watchdog"
+    logger_name = WATCHDOG_LOG_NAME if args.action == "watchdog" else BRIDGE_LOG_NAME
+    output_mode = getattr(args, "output", None) or "file"
+    with _prepare_logger(paths, output_mode, args.log, logger_name, append=append_logs) as run_logger:
         try:
+            if args.action == "watchdog":
+                return _run_watchdog(paths, args.watchpid, run_logger)
             run_logger.log("[STEP] Preflight runtime import check...")
             _runtime_import_preflight(run_logger)
             run_logger.log("[STEP] Bridge will provision required model assets on demand.")
