@@ -18,7 +18,8 @@ namespace KimodoBridge.Editor
             settings.keepOriginalOrientation = true;
             settings.keepOriginalPositionY = true;
             settings.keepOriginalPositionXZ = true;
-            settings.loopBlendPositionY = true;
+            settings.heightFromFeet = true;
+            //settings.loopBlendPositionY = true;
             AnimationUtility.SetAnimationClipSettings(clip, settings);
         }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using TimelineInject;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
@@ -22,6 +23,9 @@ namespace KimodoBridge.Editor
         public AnimationClip RawBoneClip;
         public Action<KimodoBridgeCommandStage, string> Progress;
         public CancellationToken Token;
+        public bool NormalizeConstraintOriginApplied;
+        public KimodoConstraintNormalizationAnchorKind NormalizationAnchorKind;
+        public KimodoMarkerSampleResult NormalizationAnchorSample;
     }
 
     internal sealed class KimodoEditorGenerateOutputPlan

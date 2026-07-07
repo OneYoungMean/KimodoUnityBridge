@@ -52,7 +52,32 @@ namespace KimodoBridge.Editor
 
             if (request.NormalizeConstraintOrigin)
             {
-                KimodoInOutConstraintSamplePostProcessor.NormalizeConstraintOrigin(built.CombinedSamples);
+                KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
+                    built.CombinedSamples,
+                    new[] { beginSample, endSample },
+                    out KimodoConstraintNormalizationInfo normalizationInfo,
+                    out string normalizeWarning);
+                built.NormalizationInfo = normalizationInfo ?? new KimodoConstraintNormalizationInfo();
+                if (!string.IsNullOrWhiteSpace(normalizeWarning))
+                {
+                    warning = string.IsNullOrWhiteSpace(warning)
+                        ? normalizeWarning
+                        : $"{warning}\n{normalizeWarning}";
+                }
+            }
+
+            if (built.NormalizationInfo != null && built.NormalizationInfo.Applied && built.NormalizationInfo.AnchorSample != null)
+            {
+                Debug.Log(
+                    $"[Kimodo][ConstraintNormalize] applied=true anchorKind={built.NormalizationInfo.AnchorKind} " +
+                    $"anchorType='{built.NormalizationInfo.AnchorSample.constraintType}' " +
+                    $"anchorTime={built.NormalizationInfo.AnchorSample.sampleTime:F3} " +
+                    $"anchorRoot={built.NormalizationInfo.AnchorSample.unityRootPos} " +
+                    $"anchorHeading={(built.NormalizationInfo.AnchorSample.hasRootHeading ? built.NormalizationInfo.AnchorSample.rootHeading.ToString() : "(none)")}");
+            }
+            else
+            {
+                Debug.Log("[Kimodo][ConstraintNormalize] applied=false anchorKind=None");
             }
 
             double clipDurationSeconds = KimodoInOutConstraintAdapter.ResolveConstraintClipDurationSeconds(request.GenerationFrames);

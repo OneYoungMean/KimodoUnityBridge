@@ -37,6 +37,30 @@ namespace KimodoBridge.Editor
             out string error)
         {
             constraintsJson = string.Empty;
+            if (!TryBuildConstraints(
+                    sourceClip,
+                    mode,
+                    normalizeConstraintOrigin,
+                    generationFrames,
+                    out KimodoInOutConstraintResult result,
+                    out error))
+            {
+                return false;
+            }
+
+            constraintsJson = result != null ? result.ConstraintsJson ?? string.Empty : string.Empty;
+            return true;
+        }
+
+        internal static bool TryBuildConstraints(
+            TimelineClip sourceClip,
+            KimodoInOutConstraintMode mode,
+            bool normalizeConstraintOrigin,
+            int generationFrames,
+            out KimodoInOutConstraintResult result,
+            out string error)
+        {
+            result = null;
             error = string.Empty;
 
             if (!TryResolveTimelineContext(sourceClip, out KimodoTimelineInOutConstraintContext context, out error))
@@ -60,13 +84,13 @@ namespace KimodoBridge.Editor
                 manualSamples);
             if (request == null)
             {
-                constraintsJson = string.Empty;
+                result = new KimodoInOutConstraintResult();
                 return true;
             }
 
             if (!KimodoInOutConstraintComposer.TryBuild(
                     request,
-                    out KimodoInOutConstraintResult result,
+                    out result,
                     out string warning,
                     out error))
             {
@@ -74,7 +98,6 @@ namespace KimodoBridge.Editor
             }
 
             EmitNeighborWarningsIfNeeded(context, mode, warning);
-            constraintsJson = result != null ? result.ConstraintsJson ?? string.Empty : string.Empty;
             return true;
         }
 

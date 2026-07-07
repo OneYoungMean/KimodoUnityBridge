@@ -290,6 +290,31 @@ def _wait_for_existing_server(paths: ProjectPaths, signature: str, logger: Setup
     return None
 
 
+def _spawn_runtime_watchdog(paths: ProjectPaths, watchpid: str | None) -> None:
+    command = [sys.executable, str(paths.root_dir / "quickserver.py"), "__inner__", "watchdog"]
+    if str(watchpid or "").strip():
+        command.extend(["--watchpid", watchpid.strip()])
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(paths.source_root)
+    creationflags = 0
+    if os.name == "nt":
+        creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+        creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    with open(os.devnull, "rb") as stdin_stream, open(os.devnull, "ab") as output_stream:
+        subprocess.Popen(
+            command,
+            cwd=str(paths.root_dir),
+            env=env,
+            stdin=stdin_stream,
+            stdout=output_stream,
+            stderr=output_stream,
+            creationflags=creationflags,
+            close_fds=(os.name != "nt"),
+        )
+
+
 def _wait_for_bridge_startup(
     paths: ProjectPaths,
     bridge_pid: int,
@@ -409,6 +434,8 @@ def _launch_bridge(paths: ProjectPaths, args: argparse.Namespace, logger: SetupL
         runtime_hints.normalized_device,
         force_hf_download=bool(args.force_hf_download),
     )
+
+    _spawn_runtime_watchdog(paths, args.watchpid)
 
     logger.log("[STEP] Launching bridge...")
     popen_kwargs = {

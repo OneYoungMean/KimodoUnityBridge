@@ -195,6 +195,10 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
+                Debug.Log(
+                    $"[Kimodo][ConstraintExport] marker='{marker.ConstraintType}' time={marker.time:F3} mode=override " +
+                    $"jointNames=[{string.Join(", ", sample.jointNames ?? new List<string>())}] hasHeading={sample.hasRootHeading}");
+
                 return true;
             }
 
@@ -219,6 +223,10 @@ namespace KimodoBridge.Editor
                 error = "failed to map sampled pose to marker sample data";
                 return false;
             }
+
+            Debug.Log(
+                $"[Kimodo][ConstraintExport] marker='{marker.ConstraintType}' time={marker.time:F3} mode=sampled " +
+                $"jointNames=[{string.Join(", ", sample.jointNames ?? new List<string>())}] hasHeading={sample.hasRootHeading}");
 
             return true;
         }

@@ -27,6 +27,11 @@ namespace KimodoBridge.Editor
         private SerializedProperty animationClipProp;
         private SerializedProperty footIKProp;
         private SerializedProperty loopProp;
+        private SerializedProperty clipTransformOffsetPositionProp;
+        private SerializedProperty clipTransformOffsetRotationProp;
+        private SerializedProperty useTrackMatchFieldsProp;
+        private SerializedProperty matchTargetFieldsProp;
+        private SerializedProperty removeStartOffsetProp;
         private SerializedProperty autoRetargetOnBindingProp;
         private SerializedProperty customRetargetAvatarProp;
         private SerializedProperty curveFilterOptionsProp;
@@ -71,6 +76,11 @@ namespace KimodoBridge.Editor
             animationClipProp = serializedObject.FindProperty("m_Clip");
             footIKProp = serializedObject.FindProperty("m_ApplyFootIK");
             loopProp = serializedObject.FindProperty("m_Loop");
+            clipTransformOffsetPositionProp = serializedObject.FindProperty("m_Position");
+            clipTransformOffsetRotationProp = serializedObject.FindProperty("m_EulerAngles");
+            useTrackMatchFieldsProp = serializedObject.FindProperty("m_UseTrackMatchFields");
+            matchTargetFieldsProp = serializedObject.FindProperty("m_MatchTargetFields");
+            removeStartOffsetProp = serializedObject.FindProperty("m_RemoveStartOffset");
             autoRetargetOnBindingProp = serializedObject.FindProperty("autoRetargetOnBinding");
             customRetargetAvatarProp = serializedObject.FindProperty("customRetargetAvatar");
             curveFilterOptionsProp = serializedObject.FindProperty("curveFilterOptions");
@@ -195,36 +205,8 @@ namespace KimodoBridge.Editor
             GUI.enabled = !disableGenerate;
             if (GUILayout.Button(new GUIContent("Generate & Bake", "Generate motion using current settings and bake result back into this playable clip."), GUILayout.Height(32)))
             {
-                bool accepted = EditorGenerateSessionRunner.Start(
+                bool accepted = KimodoPlayableClipGenerationExecutionService.TryStartGenerate(
                     clip,
-                    $"clip:{clip.GetInstanceID()}",
-                    KimodoEditorCommandKind.GeneratePlayableClip,
-                    async (session, token) =>
-                    {
-                        string prompt = clip.motionPrompt ?? string.Empty;
-                        KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
-                            clip,
-                            prompt,
-                            externalConstraint: null,
-                            token);
-                        try
-                        {
-                            request.Progress = (stage, message) =>
-                            {
-                                EditorGenerateSessionRunner.UpdateProgress(clip, session.RequestId, stage, message);
-                            };
-
-                            KimodoEditorGenerateResult result = await KimodoEditorGeneratePipeline.ExecuteAsync(request);
-                            token.ThrowIfCancellationRequested();
-                            KimodoPlayableClipGenerationHostService.FinalizeGeneration(clip, request, result);
-                            return (IKimodoEditorCommandResult)result;
-                        }
-                        catch
-                        {
-                            KimodoPlayableClipGenerationHostService.CleanupFailedGeneration(request);
-                            throw;
-                        }
-                    },
                     out _,
                     out string error);
                 if (accepted)
@@ -361,6 +343,13 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.PropertyField(loopProp, new GUIContent("Loop", "Loop this clip when timeline playback exceeds clip duration."));
             }
+
+            KimodoTimelinePreviewRefreshUtility.DrawAnimationPlayableAssetClipOffsetSettings(
+                clipTransformOffsetPositionProp,
+                clipTransformOffsetRotationProp,
+                useTrackMatchFieldsProp,
+                matchTargetFieldsProp,
+                removeStartOffsetProp);
 
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();

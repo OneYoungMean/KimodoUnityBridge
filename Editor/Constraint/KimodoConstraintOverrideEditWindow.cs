@@ -220,6 +220,14 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            KimodoConstraintMarkerEditorUtility.HandleDeleteCommand(marker);
+            if (marker == null || marker.parent == null)
+            {
+                Close();
+                GUIUtility.ExitGUI();
+                return;
+            }
+
             DrawHeader();
             scroll = EditorGUILayout.BeginScrollView(scroll);
             DrawMarkerPayload();
@@ -258,7 +266,12 @@ namespace KimodoBridge.Editor
                     EditorGUILayout.PropertyField(includeHeadingProp);
                     if (includeHeadingProp.boolValue)
                     {
-                        EditorGUILayout.PropertyField(so.FindProperty("sampleData.rootHeading"), true);
+                        SerializedProperty headingProp = so.FindProperty("sampleData.rootHeading");
+                        EditorGUILayout.PropertyField(headingProp, true);
+                        if (headingProp != null)
+                        {
+                            KimodoConstraintHeadingPreviewGUI.Draw(headingProp.vector2Value, enabled: true);
+                        }
                     }
                 }
             }

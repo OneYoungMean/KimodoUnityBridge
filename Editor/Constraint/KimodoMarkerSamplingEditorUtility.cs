@@ -26,10 +26,12 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            KimodoMarkerSampleResult normalized = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sample);
-            if (normalized == null)
+            if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(
+                    marker,
+                    sample,
+                    out KimodoMarkerSampleResult normalized,
+                    out error))
             {
-                error = "failed to normalize sample";
                 return false;
             }
 

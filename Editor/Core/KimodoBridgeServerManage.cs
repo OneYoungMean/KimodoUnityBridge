@@ -66,7 +66,7 @@ namespace KimodoBridge.Editor
     }
 
     [InitializeOnLoad]
-    internal static class KimodoBridgeServerManage
+    public static class KimodoBridgeServerManage
     {
         private enum ShutdownMode
         {
@@ -100,7 +100,7 @@ namespace KimodoBridge.Editor
             return GetServerStatusSnapshotCore();
         }
 
-        internal static string[] SupportedModelNames => KimodoBridgeRuntimeInstallFacade.SupportedModelNames;
+        public static string[] SupportedModelNames => KimodoBridgeRuntimeInstallFacade.SupportedModelNames;
 
         internal static string GetRuntimeRootPath()
         {

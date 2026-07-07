@@ -39,12 +39,14 @@ namespace KimodoBridge
             }
             else if (marker is KimodoEndEffectorConstraintMarker)
             {
-                List<string> configured = marker.SampleData != null && marker.SampleData.jointNames != null
-                    ? marker.SampleData.jointNames
+                List<string> configured = sample.jointNames != null && sample.jointNames.Count > 0
+                    ? sample.jointNames
+                    : marker.SampleData != null && marker.SampleData.jointNames != null
+                        ? marker.SampleData.jointNames
                     : null;
                 if (configured == null || configured.Count == 0)
                 {
-                    configured = new List<string> { "LeftHand" };
+                    return null;
                 }
 
                 cloned.jointNames = new List<string>(configured);
@@ -71,7 +73,9 @@ namespace KimodoBridge
                 return true;
             }
 
-            error = "failed to normalize sample";
+            error = marker is KimodoEndEffectorConstraintMarker
+                ? $"failed to normalize sample: end-effector marker '{marker.ConstraintType}' is missing jointNames"
+                : "failed to normalize sample";
             return false;
         }
 

@@ -225,16 +225,6 @@ namespace KimodoBridge
             return GetCurrentPromptInternal(out isIdle);
         }
 
-        public void LockPrompt()
-        {
-            PromptLocked = true;
-        }
-
-        public void UnlockPrompt()
-        {
-            PromptLocked = false;
-        }
-
         public void SetAnimationDurationSeconds(float seconds)
         {
             ApplyGenerationDurationSeconds(seconds);

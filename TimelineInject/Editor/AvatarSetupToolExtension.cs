@@ -225,5 +225,10 @@ namespace TimelineInject
 
             return false;
         }
+        // HandleUtility.IntersectRayMesh 
+        public static bool IntersectRayMesh(Ray ray, Mesh mesh, Matrix4x4 matrix, out RaycastHit hit)
+        {
+           return  HandleUtility.IntersectRayMesh(ray, mesh, matrix, out hit);
+        }
     }
 }

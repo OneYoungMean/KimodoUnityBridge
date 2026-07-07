@@ -1,3 +1,4 @@
+using TimelineInject;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
@@ -7,5 +8,8 @@ namespace KimodoBridge.Editor
         public string ConstraintsJson;
         public bool Enabled;
         public Avatar RetargetAvatar;
+        public bool NormalizeConstraintOriginApplied;
+        public KimodoConstraintNormalizationAnchorKind NormalizationAnchorKind;
+        public KimodoMarkerSampleResult NormalizationAnchorSample;
     }
 }

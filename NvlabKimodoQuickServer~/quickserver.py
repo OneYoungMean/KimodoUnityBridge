@@ -86,6 +86,7 @@ def _invoke_inner(root_dir: Path, normalized_args: Sequence[str], python_path: s
     return int(completed.returncode)
 
 
+
 def _read_key_value_file(path: Path) -> dict[str, str]:
     data: dict[str, str] = {}
     if not path.exists():

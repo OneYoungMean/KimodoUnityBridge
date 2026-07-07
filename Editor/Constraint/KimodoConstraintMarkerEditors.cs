@@ -42,6 +42,7 @@ namespace KimodoBridge.Editor
 
         public override void OnInspectorGUI()
         {
+            KimodoConstraintMarkerEditorUtility.HandleDeleteCommand(target as KimodoConstraintMarkerBase);
             serializedObject.Update();
 
             EditorGUILayout.HelpBox(TipText, MessageType.Info);
@@ -145,7 +146,12 @@ namespace KimodoBridge.Editor
             SerializedProperty includeGlobalHeadingProp = serializedObject.FindProperty("sampleData.hasRootHeading");
             if (includeGlobalHeadingProp != null && includeGlobalHeadingProp.boolValue)
             {
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.rootHeading"));
+                SerializedProperty headingProp = serializedObject.FindProperty("sampleData.rootHeading");
+                EditorGUILayout.PropertyField(headingProp);
+                if (headingProp != null)
+                {
+                    KimodoConstraintHeadingPreviewGUI.Draw(headingProp.vector2Value, enabled: true);
+                }
             }
             EditorGUI.EndDisabledGroup();
         }
@@ -161,6 +167,7 @@ namespace KimodoBridge.Editor
 
         public override void OnInspectorGUI()
         {
+            KimodoConstraintMarkerEditorUtility.HandleDeleteCommand(target as KimodoConstraintMarkerBase);
             serializedObject.Update();
 
             string typeName = (target as KimodoEndEffectorConstraintMarker)?.ConstraintType ?? "end-effector";
@@ -1062,6 +1069,99 @@ namespace KimodoBridge.Editor
             int id = marker.GetInstanceID();
             AutoSampleCache.Remove(id);
             PoseRenderSignatures.Remove(id);
+        }
+
+        public static void HandleDeleteCommand(KimodoConstraintMarkerBase marker)
+        {
+            if (marker == null)
+            {
+                return;
+            }
+
+            Event currentEvent = Event.current;
+            if (currentEvent == null)
+            {
+                return;
+            }
+
+            bool isDeleteCommand =
+                string.Equals(currentEvent.commandName, "Delete", StringComparison.Ordinal) ||
+                string.Equals(currentEvent.commandName, "SoftDelete", StringComparison.Ordinal);
+            if (!isDeleteCommand)
+            {
+                return;
+            }
+
+            if (currentEvent.type == EventType.ValidateCommand)
+            {
+                currentEvent.Use();
+                return;
+            }
+
+            if (currentEvent.type != EventType.ExecuteCommand)
+            {
+                return;
+            }
+
+            if (TryDeleteMarkerWithUndo(marker, out string error))
+            {
+                currentEvent.Use();
+            }
+            else if (!string.IsNullOrWhiteSpace(error))
+            {
+                Debug.LogWarning($"[Kimodo][ConstraintMarker] Delete failed: {error}");
+            }
+        }
+
+        public static bool TryDeleteMarkerWithUndo(KimodoConstraintMarkerBase marker, out string error)
+        {
+            error = string.Empty;
+            if (marker == null)
+            {
+                error = "marker is null";
+                return false;
+            }
+
+            if (!(marker.parent is TrackAsset track))
+            {
+                error = "marker parent track not found";
+                return false;
+            }
+
+            UnityEngine.Object markerObject = marker;
+            UnityEngine.Object inspectedAsset = TimelineEditor.inspectedAsset;
+
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Delete Kimodo Constraint Marker");
+
+            if (inspectedAsset != null)
+            {
+                Undo.RegisterCompleteObjectUndo(new UnityEngine.Object[] { track, inspectedAsset }, "Delete Kimodo Constraint Marker");
+            }
+            else
+            {
+                Undo.RegisterCompleteObjectUndo(track, "Delete Kimodo Constraint Marker");
+            }
+
+            ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
+            track.DeleteMarker(marker);
+
+            if (markerObject != null)
+            {
+                EditorUtility.SetDirty(markerObject);
+            }
+
+            EditorUtility.SetDirty(track);
+            if (inspectedAsset != null)
+            {
+                EditorUtility.SetDirty(inspectedAsset);
+            }
+
+            TimelineEditor.Refresh(RefreshReason.ContentsModified | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+            SceneView.RepaintAll();
+            Undo.CollapseUndoOperations(undoGroup);
+            return true;
         }
 
         internal static string GetMarkerEntryId(KimodoConstraintMarkerBase marker)

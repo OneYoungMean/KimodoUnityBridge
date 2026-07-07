@@ -16,21 +16,26 @@ namespace KimodoBridge.Editor
 
         public string BuildConstraintsJsonOrThrow(KimodoPlayableClip clip)
         {
+            return BuildConstraintDataOrThrow(clip).ConstraintsJson ?? string.Empty;
+        }
+
+        public KimodoInOutConstraintResult BuildConstraintDataOrThrow(KimodoPlayableClip clip)
+        {
             TimelineClip sourceClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
             if (sourceClip == null)
             {
                 UpdateConstraintReferences(null);
-                return string.Empty;
+                return new KimodoInOutConstraintResult();
             }
 
             UpdateConstraintReferences(sourceClip);
 
-            bool ok = KimodoInOutConstraintAdapter.TryBuildConstraintsJson(
+            bool ok = KimodoInOutConstraintAdapter.TryBuildConstraints(
                 sourceClip,
                 clip.inOutConstraintMode,
                 clip.normalizeConstraintOrigin,
                 clip.generationFrames,
-                out string constraintsJson,
+                out KimodoInOutConstraintResult result,
                 out string error);
 
             if (!ok)
@@ -38,7 +43,7 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException($"Build constraints failed: {error}");
             }
 
-            return constraintsJson ?? string.Empty;
+            return result ?? new KimodoInOutConstraintResult();
         }
 
         public TimelineClip FindTimelineClipForAsset(PlayableAsset asset)

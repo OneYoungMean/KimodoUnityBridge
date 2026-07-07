@@ -48,9 +48,6 @@ if not defined UV_BIN (
 
 set "ARGS="
 set "HAS_VENV_ARG="
-set "START_WATCHDOG=1"
-if /I "%~1"=="setup" set "START_WATCHDOG="
-if /I "%~1"=="watchdog" set "START_WATCHDOG="
 :collect_args
 if "%~1"=="" goto launch
 set "NEXT=%~1"
@@ -70,9 +67,6 @@ if defined VENV_OVERRIDE if not defined HAS_VENV_ARG (
   ) else (
     set "ARGS="--venv" "%VENV_OVERRIDE%""
   )
-)
-if defined START_WATCHDOG (
-  start "" /b "%UV_BIN%" run --python 3.12 --no-project python "%ROOT_DIR%\quickserver.py" watchdog >nul 2>nul
 )
 "%UV_BIN%" run --python 3.12 --no-project python "%ROOT_DIR%\quickserver.py" !ARGS!
 exit /b %ERRORLEVEL%

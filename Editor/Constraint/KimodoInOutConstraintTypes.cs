@@ -4,6 +4,22 @@ using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
+    public enum KimodoConstraintNormalizationAnchorKind
+    {
+        None = 0,
+        InOut = 1,
+        FullBody = 2,
+        Root2D = 3,
+        Foot = 4
+    }
+
+    internal sealed class KimodoConstraintNormalizationInfo
+    {
+        public bool Applied;
+        public KimodoConstraintNormalizationAnchorKind AnchorKind = KimodoConstraintNormalizationAnchorKind.None;
+        public KimodoMarkerSampleResult AnchorSample;
+    }
+
     internal sealed class KimodoInOutConstraintClipSegment
     {
         public AnimationClip Clip;
@@ -33,5 +49,6 @@ namespace KimodoBridge.Editor
         public KimodoMarkerSampleResult EndSample;
         public List<KimodoMarkerSampleResult> CombinedSamples = new List<KimodoMarkerSampleResult>();
         public string ConstraintsJson = string.Empty;
+        public KimodoConstraintNormalizationInfo NormalizationInfo = new KimodoConstraintNormalizationInfo();
     }
 }
