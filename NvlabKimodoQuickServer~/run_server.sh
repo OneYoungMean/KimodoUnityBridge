@@ -80,7 +80,6 @@ install_uv_locally() {
   local uv_dir="${ROOT_DIR}/program/exe/uv"
   local artifact=""
   local github_url=""
-  local ustc_url=""
   local tmp_dir=""
   mkdir -p "${uv_dir}"
   UV_SELECTED_NAME=""
@@ -92,9 +91,7 @@ install_uv_locally() {
   fi
   artifact="$(resolve_uv_artifact)" || return 1
   github_url="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${artifact}"
-  ustc_url="https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/${UV_VERSION}/${artifact}"
   probe_uv_candidate "github" "${github_url}"
-  probe_uv_candidate "ustc" "${ustc_url}"
   if [[ -z "${UV_SELECTED_URL}" ]]; then
     echo "[ERROR] Failed to choose a uv download source."
     return 1

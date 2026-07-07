@@ -146,6 +146,7 @@ def _list_cases() -> list[TestCase]:
         TestCase("T43", "No Shared Env", ("env", "setup"), "basic", {"share_env": False}),
         TestCase("T44", "Use Shared Env", ("env", "shared"), "basic", {"share_env": True}),
         TestCase("T45", "Use Shared Models", ("models", "shared"), "basic", {"share_models": True}),
+        TestCase("T46", "Download Source Health Probe", ("probe", "network", "manual"), "download_probe"),
     ]
     return cases
 
@@ -473,6 +474,41 @@ def _post_recovery_generate(ctx: TestContext, params: dict[str, Any]) -> None:
     _stop_server(host, port)
 
 
+def _run_download_probe(ctx: TestContext) -> dict[str, Any]:
+    probe_script = ctx.runtime_root / "kimodo" / "kimodo" / "bridge" / "download_health_probe.py"
+    probe_output_dir = ctx.run_root / "download_probe"
+    command = [
+        ctx.python_host,
+        str(probe_script),
+        "--runtime-root",
+        str(ctx.runtime_root),
+        "--output-dir",
+        str(probe_output_dir),
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=str(ctx.runtime_root),
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=TEST_TIMEOUT_SEC * 3,
+    )
+    summary_path = probe_output_dir / "summary.json"
+    summary: dict[str, Any] = {}
+    if summary_path.exists():
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "Download probe failed: "
+            + (summary_path.read_text(encoding="utf-8", errors="replace") if summary_path.exists() else (completed.stderr or completed.stdout or "unknown error"))
+        )
+    return {
+        "status": "passed",
+        "summary_path": str(summary_path),
+        "probe_results": summary.get("results", []),
+    }
+
+
 def _start_phase_driver(
     ctx: TestContext,
     phase: str,
@@ -759,6 +795,8 @@ def _run_case(ctx: TestContext) -> dict[str, Any]:
         return _run_owner_kill_recovery(ctx)
     if kind == "cli_kill":
         return _run_cli_kill(ctx, params["phase"])
+    if kind == "download_probe":
+        return _run_download_probe(ctx)
     if kind == "skip_placeholder":
         return {"status": "skipped", "reason": "Not represented cleanly in the new lifecycle yet."}
     raise RuntimeError(f"Unsupported test kind: {kind}")
@@ -773,7 +811,7 @@ def _select_cases(case_ids: list[str], tag: str | None, full: bool, case_range: 
     if sum(1 for enabled in (full, bool(case_ids), bool(tag), bool(case_range)) if enabled) > 1:
         raise RuntimeError("Use only one selector among --full, --case/--cases, --tag, or --range.")
     if full:
-        return [case for case in cases if "hf" not in case.tags]
+        return [case for case in cases if "hf" not in case.tags and "probe" not in case.tags]
     if case_ids:
         case_map = {case.case_id.lower(): case for case in cases}
         selected: list[TestCase] = []
