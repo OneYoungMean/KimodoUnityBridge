@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -147,6 +148,13 @@ def _list_cases() -> list[TestCase]:
         TestCase("T45", "Use Shared Models", ("models", "shared"), "basic", {"share_models": True}),
     ]
     return cases
+
+
+def _case_sort_key(case_id: str) -> int:
+    match = re.fullmatch(r"[Tt](\d+)", case_id.strip())
+    if not match:
+        raise RuntimeError(f"Invalid test id: {case_id}")
+    return int(match.group(1))
 
 
 def _find_host_python() -> str:
@@ -705,14 +713,33 @@ def _write_summary(ctx: TestContext, result: dict[str, Any]) -> None:
     ctx.summary_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
 
-def _select_cases(case_id: str | None, tag: str | None, full: bool) -> list[TestCase]:
+def _select_cases(case_ids: list[str], tag: str | None, full: bool, case_range: tuple[str, str] | None) -> list[TestCase]:
     cases = _list_cases()
+    if sum(1 for enabled in (full, bool(case_ids), bool(tag), bool(case_range)) if enabled) > 1:
+        raise RuntimeError("Use only one selector among --full, --case/--cases, --tag, or --range.")
     if full:
         return cases
-    if case_id:
-        selected = [case for case in cases if case.case_id.lower() == case_id.lower()]
+    if case_ids:
+        case_map = {case.case_id.lower(): case for case in cases}
+        selected: list[TestCase] = []
+        seen: set[str] = set()
+        for case_id in case_ids:
+            key = case_id.lower()
+            if key not in case_map:
+                raise RuntimeError(f"Unknown test id: {case_id}")
+            if key in seen:
+                continue
+            selected.append(case_map[key])
+            seen.add(key)
+        return selected
+    if case_range:
+        start_key = _case_sort_key(case_range[0])
+        end_key = _case_sort_key(case_range[1])
+        if start_key > end_key:
+            start_key, end_key = end_key, start_key
+        selected = [case for case in cases if start_key <= _case_sort_key(case.case_id) <= end_key]
         if not selected:
-            raise RuntimeError(f"Unknown test id: {case_id}")
+            raise RuntimeError(f"Empty test range: {case_range[0]}..{case_range[1]}")
         return selected
     if tag:
         selected = [case for case in cases if tag in case.tags]
@@ -735,7 +762,9 @@ def _archive_legacy_tests(repo_root: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Kimodo QuickServer integration test suite")
     parser.add_argument("--list", action="store_true")
-    parser.add_argument("--case")
+    parser.add_argument("--case", action="append", default=[])
+    parser.add_argument("--cases", default="")
+    parser.add_argument("--range", nargs=2, metavar=("START", "END"))
     parser.add_argument("--tag")
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--archive-legacy", action="store_true")
@@ -752,7 +781,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{case.case_id}\t{case.name}\t[{', '.join(case.tags)}]")
         return 0
 
-    selected = _select_cases(args.case, args.tag, args.full)
+    case_ids = list(args.case or [])
+    if args.cases:
+        case_ids.extend([part.strip() for part in re.split(r"[\s,]+", args.cases) if part.strip()])
+
+    selected = _select_cases(case_ids, args.tag, args.full, tuple(args.range) if args.range else None)
     suite_results: list[dict[str, Any]] = []
     overall_ok = True
     for case in selected:

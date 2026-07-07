@@ -21,6 +21,7 @@ if defined KIMODO_AUTO_INSTALL_UV set "UV_AUTO_INSTALL=%KIMODO_AUTO_INSTALL_UV%"
 set "SETUP_ARGS=setup --output file"
 set "CLI_ARGS=run --output file"
 set "EXPLICIT_VENV=%KIMODO_VENV_PATH%"
+set "HOLD_CLI="
 
 call :acquire_bootstrap_lock
 if errorlevel 1 exit /b 1
@@ -40,6 +41,11 @@ if "%~1"=="" goto after_parse
 if /I "%~1"=="--force-setup" (
   set "SETUP_ARGS=%SETUP_ARGS% --force-setup"
   set "CLI_ARGS=%CLI_ARGS% --force-setup"
+  shift
+  goto parse_args
+)
+if /I "%~1"=="--hold-cli" (
+  set "HOLD_CLI=1"
   shift
   goto parse_args
 )
@@ -84,6 +90,9 @@ if not exist "%ROOT_DIR%\log" mkdir "%ROOT_DIR%\log" >nul 2>nul
   echo VENV_PYTHON=%VENV_PYTHON%
   echo SOURCE_ROOT=%SOURCE_ROOT%
   echo CLI_ARGS=%CLI_ARGS%
+)
+if defined HOLD_CLI (
+  echo [INFO] Holding batch until quickserver_cli exits...
 )
 "%VENV_PYTHON%" -m kimodo.bridge.quickserver_cli %CLI_ARGS%
 >> "%ROOT_DIR%\log\run_server_cli_launch.log" echo CLI_RC=%ERRORLEVEL%

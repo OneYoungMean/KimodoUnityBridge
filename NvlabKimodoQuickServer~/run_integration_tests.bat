@@ -24,7 +24,7 @@ echo ====================================
 echo.
 "%PYTHON_EXE%" %PYTHON_ARGS% "%SCRIPT%" --list
 echo.
-set /p TEST_SELECTION=Select a test id, tag:<name>, or testfull (empty = testfull): 
+set /p TEST_SELECTION=Select test id(s), range:T15-T20, tag:<name>, or testfull (empty = testfull): 
 if "%TEST_SELECTION%"=="" set "TEST_SELECTION=testfull"
 
 if /I "%TEST_SELECTION%"=="testfull" (
@@ -32,10 +32,25 @@ if /I "%TEST_SELECTION%"=="testfull" (
   exit /b %ERRORLEVEL%
 )
 
+echo %TEST_SELECTION% | findstr /B /C:"range:" >nul
+if not errorlevel 1 (
+  set "RANGE_VALUE=%TEST_SELECTION:range:=%"
+  for /f "tokens=1,2 delims=-" %%A in ("%RANGE_VALUE%") do (
+    "%PYTHON_EXE%" %PYTHON_ARGS% "%SCRIPT%" --range "%%~A" "%%~B"
+    exit /b !ERRORLEVEL!
+  )
+)
+
 echo %TEST_SELECTION% | findstr /B /C:"tag:" >nul
 if not errorlevel 1 (
   set "TAG_NAME=%TEST_SELECTION:tag:=%"
   "%PYTHON_EXE%" %PYTHON_ARGS% "%SCRIPT%" --tag "%TAG_NAME%"
+  exit /b %ERRORLEVEL%
+)
+
+echo %TEST_SELECTION% | findstr /C:"," >nul
+if not errorlevel 1 (
+  "%PYTHON_EXE%" %PYTHON_ARGS% "%SCRIPT%" --cases "%TEST_SELECTION%"
   exit /b %ERRORLEVEL%
 )
 
