@@ -708,12 +708,15 @@ def _run_cli_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
         time.sleep(1)
     data = _read_serverport(ctx.serverport_path)
     pid = int(data.get("pid") or "0")
-    if pid <= 0:
-        raise RuntimeError("CLI pid missing from serverport.")
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if pid > 0:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            os.kill(pid, 9)
     else:
-        os.kill(pid, 9)
+        if ctx.launcher_proc is None:
+            raise RuntimeError("CLI pid missing from serverport and launcher process is unavailable.")
+        _terminate_process_tree(ctx.launcher_proc, timeout_sec=30)
     _wait_for_server_shutdown(ctx, timeout_sec=120)
     if phase_thread is not None:
         phase_thread.join(timeout=30)
