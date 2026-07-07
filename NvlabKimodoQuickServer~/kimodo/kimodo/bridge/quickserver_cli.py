@@ -1,77 +1,46 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
+import gc
+import json
 import os
-import signal
+from collections import deque
 from pathlib import Path
 import socket
-import subprocess
-import sys
+import threading
 import time
-from typing import Sequence
+from typing import Any
 
+from . import bridge_server as bridge_impl
 from . import quickserver_assets as assets
-from .quickserver_setup import ProjectPaths, SetupLogger, archive_path, discover_project_paths
+from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 
 
 BRIDGE_LOG_NAME = "bridge_server.log"
-WATCHDOG_LOG_NAME = "watchdog.log"
-ALLOW_MULTI_SERVER_ENV_KEYS = ("KIMODO_ALLOW_MULTI_SERVER", "ALLOWMULTISERVER", "allowmultiserver")
-RUN_LOCK_HELD_ENV = "KIMODO_RUN_LOCK_HELD"
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Kimodo QuickServer unified Python entrypoint")
+    parser = argparse.ArgumentParser(description="Kimodo QuickServer supervisor")
     subparsers = parser.add_subparsers(dest="action", required=True)
 
-    def add_common(run_parser: argparse.ArgumentParser) -> None:
-        run_parser.add_argument("--model", default=assets.DEFAULT_MODEL_NAME)
-        run_parser.add_argument("--highvram", action="store_true")
-        run_parser.add_argument("--force-hf-download", action="store_true")
-        run_parser.add_argument("--output", choices=("console", "file"), default="console")
-        run_parser.add_argument("--log")
-        run_parser.add_argument("--models-root")
-        run_parser.add_argument("--venv")
-        run_parser.add_argument("--device")
-        run_parser.add_argument("--force-setup", action="store_true")
-        run_parser.add_argument("--watchpid")
-        run_parser.add_argument("--unlock-stale", action="store_true")
-        run_parser.add_argument("--force", action="store_true")
+    run_parser = subparsers.add_parser("run")
+    run_parser.add_argument("--output", choices=("console", "file"), default="console")
+    run_parser.add_argument("--log")
+    run_parser.add_argument("--watchpid", type=int, default=0)
+    run_parser.add_argument("--force-setup", action="store_true")
 
-    add_common(subparsers.add_parser("run"))
-    watchdog_parser = subparsers.add_parser("watchdog")
-    watchdog_parser.add_argument("--watchpid")
-    watchdog_parser.add_argument("--log")
+    # Legacy compatibility only. Runtime semantics now come from TCP start/generate requests.
+    run_parser.add_argument("--model", default=assets.DEFAULT_MODEL_NAME)
+    run_parser.add_argument("--highvram", action="store_true")
+    run_parser.add_argument("--models-root")
+    run_parser.add_argument("--device")
+    run_parser.add_argument("--force-hf-download", action="store_true")
+    run_parser.add_argument("--venv")
+    run_parser.add_argument("--unlock-stale", action="store_true")
+    run_parser.add_argument("--force", action="store_true")
+
+    subparsers.add_parser("watchdog")
     return parser
-
-
-def _build_bridge_command(
-    paths: ProjectPaths,
-    resolved_model: assets.ResolvedModel,
-    device: str | None,
-    *,
-    force_hf_download: bool,
-) -> list[str]:
-    command = [
-        sys.executable,
-        "-u",
-        "-m",
-        "kimodo.bridge.bridge_server",
-        "--model",
-        resolved_model.local_name,
-        "--kimodo-root",
-        str(paths.root_dir),
-    ]
-    if device:
-        command.extend(["--device", device])
-    if force_hf_download:
-        command.append("--force-hf-download")
-    return command
-
-
-def _project_paths(root_dir: str) -> ProjectPaths:
-    return discover_project_paths(root_dir)
 
 
 def _prepare_logger(
@@ -86,49 +55,11 @@ def _prepare_logger(
     return SetupLogger(output_mode, final_log_path, append=append)
 
 
-def _runtime_import_preflight(logger: SetupLogger) -> None:
-    import torch
-    import kimodo  # noqa: F401
-
-    logger.log(f"torch={torch.__version__}")
-    logger.log(f"cuda={torch.version.cuda}")
-    try:
-        import motion_correction  # noqa: F401
-
-        logger.log("motion_correction=available")
-    except Exception as exc:
-        logger.log(f"[WARN] motion_correction unavailable: {exc}")
-
-
-def _read_key_value_file(path: Path) -> dict[str, str]:
-    data: dict[str, str] = {}
-    if not path.exists():
-        return data
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except Exception:
-        return data
-    for line in lines:
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        data[key.strip()] = value.strip().strip('"')
-    return data
-
-
-def _read_pid_file(path: Path) -> int:
-    if not path.exists():
-        return 0
-    try:
-        return int(path.read_text(encoding="utf-8", errors="replace").strip() or "0")
-    except Exception:
-        return 0
-
-
 def _pid_is_running(pid: int) -> bool:
     if pid <= 0:
         return False
     if os.name == "nt":
+        import ctypes
         import ctypes.wintypes
 
         handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))
@@ -144,537 +75,495 @@ def _pid_is_running(pid: int) -> bool:
     return Path(f"/proc/{pid}").exists()
 
 
-def _try_claim_singleton_pid_file(path: Path) -> tuple[bool, int]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    existing_pid = _read_pid_file(path)
-    if existing_pid > 0 and _pid_is_running(existing_pid):
-        return False, existing_pid
+def _bool_value(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    return text in {"1", "true", "yes", "on"}
 
+
+def _remove_file(path: Path) -> None:
     try:
-        path.write_text(f"{os.getpid()}\n", encoding="utf-8", newline="\n")
+        if path.exists():
+            path.unlink()
     except Exception:
-        return False, existing_pid
-
-    current_pid = _read_pid_file(path)
-    return current_pid == os.getpid(), current_pid
+        pass
 
 
-def _allow_multi_server() -> bool:
-    for key in ALLOW_MULTI_SERVER_ENV_KEYS:
-        value = os.environ.get(key, "").strip().lower()
-        if value in {"1", "true", "yes", "on"}:
-            return True
-    return False
+def _write_serverport(path: Path, host: str, port: int) -> None:
+    bridge_impl._write_text_atomic(str(path), f"{host}:{port}\n")
 
 
-def _server_signature(resolved_model: assets.ResolvedModel, models_root: Path, runtime_hints: assets.RuntimeHints, highvram: bool) -> str:
+def _build_signature(config: dict[str, Any]) -> str:
     return "|".join(
         [
-            f"model={resolved_model.local_name}",
-            f"models_root={models_root.resolve()}",
-            f"device={runtime_hints.normalized_device or 'auto'}",
-            f"highvram={int(bool(highvram))}",
+            f"model={config['model']}",
+            f"highvram={int(bool(config['highvram']))}",
+            f"force_cpu={int(bool(config['force_cpu']))}",
+            f"models_root={config['models_root']}",
+            f"force_hf_download={int(bool(config['force_hf_download']))}",
         ]
     )
 
 
-def _try_read_port_file(port_file: Path) -> tuple[str, int] | None:
-    if not port_file.exists():
-        return None
-    try:
-        line = port_file.read_text(encoding="utf-8", errors="replace").splitlines()[0].strip()
-    except Exception:
-        return None
-    if ":" not in line:
-        return None
-    host, port_text = line.rsplit(":", 1)
-    host = host.strip()
-    try:
-        port = int(port_text.strip())
-    except Exception:
-        return None
-    if not host or port <= 0:
-        return None
-    return host, port
+def _normalize_runtime_config(req: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
+    model = str(req.get("model") or defaults.get("model") or assets.DEFAULT_MODEL_NAME).strip() or assets.DEFAULT_MODEL_NAME
+    models_root = str(req.get("models_root") or defaults.get("models_root") or "").strip()
+    raw_device = str(req.get("device") or defaults.get("device") or "").strip().lower()
+    force_cpu = _bool_value(req.get("force_cpu"), _bool_value(defaults.get("force_cpu")))
+    if raw_device == "cpu":
+        force_cpu = True
 
-
-def _probe_server(host: str, port: int, timeout_sec: float = 1.5) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout_sec) as sock:
-            sock.settimeout(timeout_sec)
-            sock.sendall(b'{"cmd":"ping"}\n')
-            response = sock.recv(4096)
-        return b'"pong"' in response or b'"ok"' in response
-    except Exception:
-        return False
-
-
-def _write_run_lock(paths: ProjectPaths, owner_pid: int, bridge_pid: int, signature: str) -> None:
-    paths.run_lock.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(paths.run_lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
-        stream.write(
-            "\n".join(
-                [
-                    f"started={time.strftime('%Y-%m-%d %H:%M:%S')}",
-                    f"started_epoch={int(time.time())}",
-                    f"owner_pid={owner_pid}",
-                    f"bridge_pid={bridge_pid}",
-                    f'signature="{signature}"',
-                    f'root="{paths.root_dir}"',
-                    "",
-                ]
-            )
-        )
-
-
-def _refresh_run_lock(paths: ProjectPaths, owner_pid: int, bridge_pid: int, signature: str) -> None:
-    paths.run_lock.write_text(
-        "\n".join(
-            [
-                f"started={time.strftime('%Y-%m-%d %H:%M:%S')}",
-                f"started_epoch={int(time.time())}",
-                f"owner_pid={owner_pid}",
-                f"bridge_pid={bridge_pid}",
-                f'signature="{signature}"',
-                f'root="{paths.root_dir}"',
-                "",
-            ]
-        ),
-        encoding="utf-8",
-        newline="\n",
-    )
-
-
-def _wait_for_existing_server(paths: ProjectPaths, signature: str, logger: SetupLogger) -> int | None:
-    startup_interval = max(1, int(os.environ.get("KIMODO_WATCHDOG_STARTUP_INTERVAL_SEC", "1")))
-    wait_timeout = startup_interval * max(10, int(os.environ.get("KIMODO_WATCHDOG_STARTUP_MAX_FAILS", "180")))
-    wait_until = time.time() + wait_timeout
-    while time.time() < wait_until:
-        metadata = _read_key_value_file(paths.run_lock)
-        lock_signature = metadata.get("signature", "")
-        owner_pid = int(metadata.get("owner_pid", "0") or "0")
-        bridge_pid = int(metadata.get("bridge_pid", "0") or "0")
-        if lock_signature and lock_signature != signature:
-            logger.log("[ERROR] Existing server is running with different params. Set KIMODO_ALLOW_MULTI_SERVER=1 to bypass the singleton lock.")
-            return 1
-
-        port_info = _try_read_port_file(paths.root_dir / "serverport")
-        if not paths.run_lock.exists():
-            if port_info is not None and _probe_server(*port_info):
-                logger.log("[INFO] Shared startup lock released and server is ready.")
-                return 0
-            return None
-
-        if owner_pid > 0 and not _pid_is_running(owner_pid):
-            logger.log(f"[WARN] Found stale run lock owned by pid={owner_pid}. Cleaning it up.")
-            archive_path(paths.run_lock, paths.recycle_dir)
-            return None
-
-        if bridge_pid > 0 and not _pid_is_running(bridge_pid) and port_info is None:
-            logger.log(f"[WARN] Found stale bridge pid={bridge_pid} without serverport. Cleaning run lock.")
-            archive_path(paths.run_lock, paths.recycle_dir)
-            return None
-
-        logger.log("[INFO] Another run_server launcher is bringing up the bridge. Waiting for the shared instance...")
-        time.sleep(startup_interval)
-
-    port_info = _try_read_port_file(paths.root_dir / "serverport")
-    if port_info is not None and _probe_server(*port_info):
-        logger.log("[WARN] Shared startup lock wait timed out, but server is already responding. Reusing shared instance.")
-        return 0
-
-    logger.log("[WARN] Existing server signature matches, but probe failed. Restarting...")
-    if paths.run_lock.exists():
-        archive_path(paths.run_lock, paths.recycle_dir)
-    return None
-
-
-def _spawn_runtime_watchdog(paths: ProjectPaths, watchpid: str | None) -> None:
-    command = [sys.executable, str(paths.root_dir / "quickserver.py"), "__inner__", "watchdog"]
-    if str(watchpid or "").strip():
-        command.extend(["--watchpid", watchpid.strip()])
-
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(paths.source_root)
-    creationflags = 0
-    if os.name == "nt":
-        creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
-        creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-    with open(os.devnull, "rb") as stdin_stream, open(os.devnull, "ab") as output_stream:
-        subprocess.Popen(
-            command,
-            cwd=str(paths.root_dir),
-            env=env,
-            stdin=stdin_stream,
-            stdout=output_stream,
-            stderr=output_stream,
-            creationflags=creationflags,
-            close_fds=(os.name != "nt"),
-        )
-
-
-def _wait_for_bridge_startup(
-    paths: ProjectPaths,
-    bridge_pid: int,
-    port_file: Path,
-    bridge_log_path: Path,
-    logger: SetupLogger,
-    *,
-    on_started=None,
-) -> int:
-    startup_interval = int(os.environ.get("KIMODO_WATCHDOG_STARTUP_INTERVAL_SEC", "1"))
-    startup_max_fails = int(os.environ.get("KIMODO_WATCHDOG_STARTUP_MAX_FAILS", "180"))
-    startup_fails = 0
-
-    while True:
-        if not _pid_is_running(bridge_pid):
-            logger.log(f"[ERROR] Bridge exited before readiness. pid={bridge_pid}")
-            return 1
-
-        port_info = _try_read_port_file(port_file)
-        if port_info is not None and _probe_server(*port_info):
-            if on_started is not None:
-                on_started()
-            try:
-                bridge_log_path.touch(exist_ok=True)
-            except Exception:
-                pass
-            logger.log(f"[INFO] Bridge is ready. pid={bridge_pid}")
-            return 0
-
-        startup_fails += 1
-        if startup_fails >= startup_max_fails:
-            logger.log(f"[ERROR] server not ready within {startup_max_fails} checks. Killing pid={bridge_pid}")
-            if os.name == "nt":
-                subprocess.run(["taskkill", "/PID", str(bridge_pid), "/T", "/F"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            else:
-                try:
-                    os.kill(bridge_pid, signal.SIGTERM)
-                except Exception:
-                    pass
-            try:
-                if port_file.exists():
-                    port_file.unlink()
-            except Exception:
-                pass
-            return 1
-
-        logger.log(f"[INFO] Waiting server readiness ({startup_fails}/{startup_max_fails})")
-        time.sleep(startup_interval)
-
-
-def _launch_bridge(paths: ProjectPaths, args: argparse.Namespace, logger: SetupLogger) -> int:
-    bridge_log_path = logger.log_path
-    watchdog_log_path = paths.log_dir / WATCHDOG_LOG_NAME
-    bridge_pid_file = paths.root_dir / ".bridge.pid"
-    port_file = paths.root_dir / "serverport"
-    allow_multi_server = _allow_multi_server()
-    run_lock_held_from_outer = os.environ.get(RUN_LOCK_HELD_ENV, "").strip() == "1"
-    resolved_model = assets.resolve_main_model(args.model)
-    models_root, _using_external_models = assets.resolve_models_root(paths.root_dir, args.models_root)
-    runtime_hints = assets.normalize_runtime_hints(args.device)
-    encoder_route = assets.choose_prepare_encoder_route(bool(args.highvram), runtime_hints)
-    encoder_layout = assets.select_text_encoder_layout_for_route(encoder_route, models_root)
-    signature = _server_signature(resolved_model, models_root, runtime_hints, bool(args.highvram))
-
-    if not allow_multi_server and not run_lock_held_from_outer:
-        existing_port = _try_read_port_file(port_file)
-        if existing_port is not None and _probe_server(*existing_port):
-            logger.log("[INFO] Existing server already responding. Reusing shared instance.")
-            return 0
-        existing_rc = _wait_for_existing_server(paths, signature, logger) if paths.run_lock.exists() else None
-        if existing_rc is not None:
-            return existing_rc
-        try:
-            _write_run_lock(paths, os.getpid(), 0, signature)
-        except FileExistsError:
-            existing_rc = _wait_for_existing_server(paths, signature, logger)
-            if existing_rc is not None:
-                return existing_rc
-            _write_run_lock(paths, os.getpid(), 0, signature)
-
-    archive_path(port_file, paths.recycle_dir)
-    archive_path(bridge_pid_file, paths.recycle_dir)
-    if args.output == "file":
-        archive_path(bridge_log_path, paths.recycle_dir)
-        archive_path(watchdog_log_path, paths.recycle_dir)
-
-    runtime_env = assets.build_runtime_env(
-        root_dir=paths.root_dir,
-        source_root=paths.source_root,
-        models_root=models_root,
-        highvram=bool(args.highvram),
-        hints=runtime_hints,
-        encoder_route=encoder_route,
-        encoder_layout_id=encoder_layout.layout_id,
-    )
-    runtime_env.update(assets.build_runtime_cache_env(paths.root_dir))
-    runtime_env["KIMODO_IDLE_TIMEOUT_SEC"] = os.environ.get("KIMODO_IDLE_TIMEOUT_SEC", "600")
-
-    for cache_dir in (
-        Path(runtime_env["HF_HOME"]),
-        Path(runtime_env["TRANSFORMERS_CACHE"]),
-        Path(runtime_env["HF_HUB_CACHE"]),
-    ):
-        cache_dir.mkdir(parents=True, exist_ok=True)
-
-    launch_env = os.environ.copy()
-    assets.scrub_removed_runtime_env(launch_env)
-    launch_env.update(runtime_env)
-    launch_env["KIMODO_BRIDGE_LOG"] = str(bridge_log_path)
-    launch_env["KIMODO_BRIDGE_LOG_DIRECT_ONLY"] = "1" if args.output == "file" else "0"
-    bridge_log_path.parent.mkdir(parents=True, exist_ok=True)
-    bridge_log_path.touch(exist_ok=True)
-
-    command = _build_bridge_command(
-        paths,
-        resolved_model,
-        runtime_hints.normalized_device,
-        force_hf_download=bool(args.force_hf_download),
-    )
-
-    _spawn_runtime_watchdog(paths, args.watchpid)
-
-    logger.log("[STEP] Launching bridge...")
-    popen_kwargs = {
-        "cwd": str(paths.root_dir),
-        "env": launch_env,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
+    return {
+        "model": model,
+        "highvram": _bool_value(req.get("highvram"), _bool_value(defaults.get("highvram"))),
+        "force_cpu": force_cpu,
+        "models_root": models_root,
+        "force_hf_download": _bool_value(req.get("force_hf_download"), _bool_value(defaults.get("force_hf_download"))),
     }
-    run_lock_released = False
 
-    def _release_run_lock_after_startup() -> None:
-        nonlocal run_lock_released
-        if allow_multi_server or run_lock_released:
-            return
-        archive_path(paths.run_lock, paths.recycle_dir)
-        run_lock_released = True
+
+def _release_runtime(state: dict[str, Any], logger: SetupLogger) -> None:
+    model = state.get("model")
+    if model is None:
+        return
+
+    logger.log("[INFO] Releasing current Kimodo runtime.")
+    state["model"] = None
+    state["fps"] = 30
+    state["runtime_signature"] = ""
+    state["runtime_config"] = None
+    state["resolved_model_name"] = ""
+    state["runtime_device"] = ""
 
     try:
-        if args.output == "file":
-            with bridge_log_path.open("a", encoding="utf-8", newline="\n") as bridge_log_stream:
-                popen_kwargs["stdout"] = bridge_log_stream
-                popen_kwargs["stderr"] = bridge_log_stream
-                launch_proc = subprocess.Popen(command, **popen_kwargs)
-                bridge_pid_file.write_text(f"{launch_proc.pid}\n", encoding="utf-8", newline="\n")
-                if not allow_multi_server:
-                    _refresh_run_lock(paths, os.getpid(), launch_proc.pid, signature)
-                logger.log(f"[INFO] Model: {resolved_model.local_name}")
-                logger.log(f"[INFO] Models root: {models_root}")
-                logger.log(f"[INFO] Runtime device: {runtime_hints.normalized_device or '<auto>'}")
-                logger.log(f"[INFO] Text encoder route: {encoder_route}")
-                logger.log(f"[INFO] Text encoder layout: {encoder_layout.layout_id}")
-                logger.log(f"[INFO] Force HF download: {bool(args.force_hf_download)}")
-                logger.log(f"[INFO] Text encoder dir: {runtime_env['KIMODO_LLM2VEC_DIR']}")
-                if runtime_env["KIMODO_LLM2VEC_PEFT_DIR"]:
-                    logger.log(f"[INFO] Text encoder PEFT dir: {runtime_env['KIMODO_LLM2VEC_PEFT_DIR']}")
-                logger.log(f"[INFO] Bridge PID: {launch_proc.pid}")
-                return _wait_for_bridge_startup(
-                    paths,
-                    launch_proc.pid,
-                    port_file,
-                    bridge_log_path,
-                    logger,
-                    on_started=_release_run_lock_after_startup,
-                )
-        else:
-            launch_proc = subprocess.Popen(command, **popen_kwargs)
-            bridge_pid_file.write_text(f"{launch_proc.pid}\n", encoding="utf-8", newline="\n")
-            if not allow_multi_server:
-                _refresh_run_lock(paths, os.getpid(), launch_proc.pid, signature)
-            logger.log(f"[INFO] Model: {resolved_model.local_name}")
-            logger.log(f"[INFO] Models root: {models_root}")
-            logger.log(f"[INFO] Runtime device: {runtime_hints.normalized_device or '<auto>'}")
-            logger.log(f"[INFO] Text encoder route: {encoder_route}")
-            logger.log(f"[INFO] Text encoder layout: {encoder_layout.layout_id}")
-            logger.log(f"[INFO] Force HF download: {bool(args.force_hf_download)}")
-            logger.log(f"[INFO] Text encoder dir: {runtime_env['KIMODO_LLM2VEC_DIR']}")
-            if runtime_env["KIMODO_LLM2VEC_PEFT_DIR"]:
-                logger.log(f"[INFO] Text encoder PEFT dir: {runtime_env['KIMODO_LLM2VEC_PEFT_DIR']}")
-            logger.log(f"[INFO] Bridge PID: {launch_proc.pid}")
-            return _wait_for_bridge_startup(
-                paths,
-                launch_proc.pid,
-                port_file,
-                bridge_log_path,
-                logger,
-                on_started=_release_run_lock_after_startup,
-            )
-    finally:
-        if not allow_multi_server:
-            archive_path(paths.run_lock, paths.recycle_dir)
+        del model
+    except Exception:
+        pass
+
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
-def _run_watchdog(
-    paths: ProjectPaths,
-    watchpid: str | None,
+def _ensure_runtime(
+    state: dict[str, Any],
+    config: dict[str, Any],
+    kimodo_root: str,
     logger: SetupLogger,
-) -> int:
-    startup_interval = int(os.environ.get("KIMODO_WATCHDOG_STARTUP_INTERVAL_SEC", "1"))
-    runtime_interval = int(os.environ.get("KIMODO_WATCHDOG_RUNTIME_INTERVAL_SEC", "1"))
-    idle_no_log_max = int(os.environ.get("KIMODO_WATCHDOG_IDLE_NOLOG_MAX", "600"))
-    watchdog_log_path = paths.log_dir / WATCHDOG_LOG_NAME
-    watchdog_log_path.parent.mkdir(parents=True, exist_ok=True)
-    bridge_pid_file = paths.root_dir / ".bridge.pid"
-    watchdog_pid_file = paths.root_dir / ".watchdog.pid"
-    port_file = paths.root_dir / "serverport"
-    bridge_log_path = paths.log_dir / BRIDGE_LOG_NAME
-    claimed, owner_pid = _try_claim_singleton_pid_file(watchdog_pid_file)
-    if not claimed:
-        logger.log(f"[INFO] Watchdog already running. pid={owner_pid}")
-        return 0
+) -> dict[str, Any]:
+    signature = _build_signature(config)
+    existing_signature = str(state.get("runtime_signature") or "")
+    if existing_signature == signature and state.get("model") is not None:
+        return {
+            "model": state["resolved_model_name"],
+            "device": state["runtime_device"],
+            "fps": int(state["fps"]),
+            "signature": signature,
+            "reused": True,
+        }
 
-    last_mtime = 0
-    remaining_idle_budget = idle_no_log_max
-    runtime_active = False
-    waiting_on_run_lock_logged = False
-    idle_without_target_max = int(os.environ.get("KIMODO_WATCHDOG_IDLE_NO_TARGET_MAX", "30"))
-    idle_without_target_count = 0
+    if state.get("model") is not None:
+        _release_runtime(state, logger)
 
-    def _log_mtime_ns(path: Path) -> int:
-        try:
-            return int(path.stat().st_mtime_ns)
-        except Exception:
-            try:
-                return int(path.stat().st_mtime * 1_000_000_000)
-            except Exception:
-                return 0
+    if config["highvram"]:
+        os.environ["KIMODO_HIGHVRAM"] = "1"
+    else:
+        os.environ.pop("KIMODO_HIGHVRAM", None)
 
-    def _write_watchdog(line: str) -> None:
-        with watchdog_log_path.open("a", encoding="utf-8", newline="\n") as stream:
-            stream.write(line + "\n")
-            stream.flush()
+    if config["models_root"]:
+        os.environ["KIMODO_MODELS_ROOT"] = config["models_root"]
+    else:
+        os.environ.pop("KIMODO_MODELS_ROOT", None)
 
-    def _is_running(pid: int) -> bool:
-        return _pid_is_running(pid)
+    requested_device = "cpu" if config["force_cpu"] else None
+    runtime_profile = bridge_impl._runtime_self_check(requested_device)
+    os.environ["KIMODO_RUNTIME_BACKEND_PROFILE"] = runtime_profile.backend_profile
+    os.environ["KIMODO_RUNTIME_DEVICE"] = runtime_profile.runtime_device
 
-    def _kill_bridge(bridge_pid: int) -> None:
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/PID", str(bridge_pid), "/T", "/F"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            try:
-                os.kill(bridge_pid, signal.SIGTERM)
-            except Exception:
-                pass
-
-    def _kill_bridge_and_cleanup_endpoint(bridge_pid: int) -> None:
-        _kill_bridge(bridge_pid)
-        for _ in range(50):
-            if not _is_running(bridge_pid):
-                break
-            time.sleep(0.1)
-        _cleanup_endpoint_file()
-        archive_path(bridge_pid_file, paths.recycle_dir)
-
-    def _cleanup_endpoint_file() -> None:
-        try:
-            if port_file.exists():
-                port_file.unlink()
-                _write_watchdog(f"[INFO] Removed stale endpoint file: {port_file}")
-        except Exception as exc:
-            _write_watchdog(f"[WARN] Failed to remove stale endpoint file {port_file}: {exc}")
-
-    _write_watchdog(
-        f"[INFO] Bridge watchdog started. pid={os.getpid()} runtime_interval={runtime_interval}s idle_nolog_max={idle_no_log_max}"
+    logger.log(
+        "[INFO] Preparing runtime: "
+        f"model={config['model']} highvram={config['highvram']} force_cpu={config['force_cpu']} "
+        f"models_root={config['models_root'] or '<default>'} device={runtime_profile.runtime_device}"
     )
+
+    force_download_site = assets.DownloadSite.HUGGINGFACE if config["force_hf_download"] else None
+    plan = bridge_impl._provision_bridge_assets(
+        kimodo_root,
+        config["model"],
+        runtime_profile=runtime_profile,
+        force_download_site=force_download_site,
+    )
+
+    from kimodo.bridge.bridge_load_model import load_bridge_model
+
+    resolved_model_name = plan.resolved_model.local_name
+    model = load_bridge_model(
+        resolved_model_name,
+        models_root=plan.models_root,
+        device=runtime_profile.runtime_device,
+    )
+
+    state["model"] = model
+    state["fps"] = int(model.fps)
+    state["runtime_signature"] = signature
+    state["runtime_config"] = dict(config)
+    state["resolved_model_name"] = resolved_model_name
+    state["runtime_device"] = runtime_profile.runtime_device
+    logger.log(
+        f"[INFO] Runtime ready: model={resolved_model_name} device={runtime_profile.runtime_device} fps={int(model.fps)}"
+    )
+    return {
+        "model": resolved_model_name,
+        "device": runtime_profile.runtime_device,
+        "fps": int(model.fps),
+        "signature": signature,
+        "reused": False,
+    }
+
+
+def _execute_generate(task_request: dict[str, Any], model: Any, cancel_event: threading.Event) -> tuple[dict[str, Any], bytes | None]:
+    from kimodo.tools import seed_everything
+
+    prompt = str(task_request.get("prompt", "A person walks forward.")).strip()
+    if not prompt.endswith("."):
+        prompt += "."
+
+    duration = float(task_request.get("duration", 5.0))
+    seed = task_request.get("seed")
+    diffusion_steps = int(task_request.get("diffusion_steps", 100))
+    constraints_json = task_request.get("constraints_json", "")
+
+    if seed is not None:
+        seed_everything(int(seed))
+
+    num_frames = max(1, int(duration * float(model.fps)))
+    constraints = bridge_impl._load_constraints(constraints_json, model)
+    progress_bar = bridge_impl._make_cancelable_progress_bar(cancel_event)
+
+    output = model(
+        [prompt],
+        [num_frames],
+        constraint_lst=constraints,
+        num_denoising_steps=diffusion_steps,
+        num_samples=1,
+        multi_prompt=True,
+        num_transition_frames=5,
+        post_processing=True,
+        return_numpy=True,
+        progress_bar=progress_bar,
+    )
+    if cancel_event.is_set():
+        raise bridge_impl.GenerateCancelledError("Generation canceled.")
+
+    output_format = bridge_impl._resolve_requested_output_format(task_request)
+    if output_format == "flatbuf_motion_v1":
+        payload = bridge_impl._build_generate_flatbuffer_payload(model, output, sample_index=0)
+        return {
+            "status": "done",
+            "output_format": "flatbuf_motion_v1",
+            "byte_length": len(payload),
+        }, payload
+
+    return bridge_impl._build_generate_response(model, output, prompt, sample_index=0), None
+
+
+def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger) -> int:
+    host = "127.0.0.1"
+    kimodo_root = str(Path(root_dir).resolve())
+    serverport_path = Path(kimodo_root) / "serverport"
+    idle_timeout_seconds = max(0, int(float(os.environ.get("KIMODO_IDLE_TIMEOUT_SEC", "600"))))
+
+    os.environ["KIMODO_ROOT_PATH"] = kimodo_root
+    os.environ["KIMODO_BRIDGE_LOG"] = str((Path(kimodo_root) / "log" / BRIDGE_LOG_NAME).resolve())
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((host, 0))
+    server.listen(16)
+    host, port = server.getsockname()
+    _write_serverport(serverport_path, host, int(port))
+    logger.log(f"[INFO] quickserver_cli listening on {host}:{port}")
+
+    state: dict[str, Any] = {
+        "shutdown": False,
+        "owner_pid": max(0, int(args.watchpid or 0)),
+        "last_activity": time.time(),
+        "default_config": {
+            "model": str(args.model or assets.DEFAULT_MODEL_NAME).strip() or assets.DEFAULT_MODEL_NAME,
+            "highvram": bool(args.highvram),
+            "force_cpu": str(args.device or "").strip().lower() == "cpu",
+            "models_root": str(args.models_root or "").strip(),
+            "force_hf_download": bool(args.force_hf_download),
+        },
+        "runtime_signature": "",
+        "runtime_config": None,
+        "resolved_model_name": "",
+        "runtime_device": "",
+        "model": None,
+        "fps": 30,
+        "queue": deque(),
+        "tasks": {},
+        "active_task_id": "",
+        "active_cancel_event": None,
+    }
+    state_lock = threading.Lock()
+    queue_changed = threading.Condition(state_lock)
+    runtime_gate = threading.Lock()
+
+    def touch_activity() -> None:
+        with state_lock:
+            state["last_activity"] = time.time()
+
+    def request_shutdown(reason: str) -> None:
+        logger.log(f"[INFO] Supervisor shutdown requested: {reason}")
+        with state_lock:
+            if state["shutdown"]:
+                return
+            state["shutdown"] = True
+            active_cancel_event = state.get("active_cancel_event")
+            if active_cancel_event is not None:
+                active_cancel_event.set()
+            pending_tasks = list(state["tasks"].values())
+            for task in pending_tasks:
+                task["response"] = {"status": "cancelled", "message": "Server shutting down."}
+                task["binary"] = None
+                task["event"].set()
+            state["tasks"].clear()
+            state["queue"].clear()
+            queue_changed.notify_all()
+
+        try:
+            server.close()
+        except Exception:
+            pass
+
+    def owner_watchdog() -> None:
+        while True:
+            time.sleep(1.0)
+            with state_lock:
+                if state["shutdown"]:
+                    return
+                owner_pid = int(state.get("owner_pid") or 0)
+                idle_seconds = time.time() - float(state.get("last_activity") or 0.0)
+                has_runtime = state.get("model") is not None
+                has_work = bool(state["queue"]) or bool(state.get("active_task_id"))
+
+            if owner_pid > 0 and not _pid_is_running(owner_pid):
+                request_shutdown(f"owner pid {owner_pid} exited")
+                return
+
+            if idle_timeout_seconds > 0 and not has_work and idle_seconds >= idle_timeout_seconds:
+                request_shutdown(f"idle timeout reached ({int(idle_seconds)}s)")
+                return
+
+            if not has_work and has_runtime and idle_seconds >= max(30, idle_timeout_seconds // 2 if idle_timeout_seconds > 0 else 300):
+                with runtime_gate:
+                    with state_lock:
+                        if state["model"] is not None and not state["queue"] and not state["active_task_id"]:
+                            _release_runtime(state, logger)
+
+    def worker_loop() -> None:
+        while True:
+            with queue_changed:
+                while not state["shutdown"] and not state["queue"]:
+                    queue_changed.wait(timeout=0.5)
+                if state["shutdown"]:
+                    return
+                task = state["queue"].popleft()
+                task_id = task["task_id"]
+                cancel_event = task["cancel_event"]
+                state["active_task_id"] = task_id
+                state["active_cancel_event"] = cancel_event
+
+            try:
+                with state_lock:
+                    runtime_config = dict(task["runtime_config"])
+                with runtime_gate:
+                    _ensure_runtime(state, runtime_config, kimodo_root, logger)
+                response, binary_payload = _execute_generate(task["request"], state["model"], cancel_event)
+            except bridge_impl.GenerateCancelledError as exc:
+                response = {"status": "cancelled", "message": str(exc)}
+                binary_payload = None
+            except Exception as exc:
+                response = {
+                    "status": "error",
+                    "message": str(exc),
+                }
+                binary_payload = None
+                logger.log(f"[ERROR] Generate task {task_id} failed: {exc}")
+            finally:
+                with queue_changed:
+                    task["response"] = response
+                    task["binary"] = binary_payload
+                    task["event"].set()
+                    state["tasks"].pop(task_id, None)
+                    state["active_task_id"] = ""
+                    state["active_cancel_event"] = None
+                    state["last_activity"] = time.time()
+                    queue_changed.notify_all()
+
+    threading.Thread(target=owner_watchdog, daemon=True).start()
+    threading.Thread(target=worker_loop, daemon=True).start()
+
+    def cancel_task(task_id: str) -> dict[str, Any]:
+        with queue_changed:
+            task = state["tasks"].get(task_id)
+            if task is None:
+                return {"status": "idle", "message": f"Task '{task_id}' not found."}
+
+            if state.get("active_task_id") == task_id:
+                task["cancel_event"].set()
+                return {"status": "cancelling", "message": f"Cancellation requested for '{task_id}'."}
+
+            try:
+                state["queue"].remove(task)
+            except ValueError:
+                pass
+            task["response"] = {"status": "cancelled", "message": f"Task '{task_id}' was removed from queue."}
+            task["binary"] = None
+            task["event"].set()
+            state["tasks"].pop(task_id, None)
+            return {"status": "cancelled", "message": f"Task '{task_id}' was removed from queue."}
+
+    def client_worker(conn: socket.socket, addr: tuple[str, int]) -> None:
+        with conn:
+            file = conn.makefile("rwb")
+            while True:
+                try:
+                    line = file.readline()
+                except (ConnectionResetError, BrokenPipeError, OSError):
+                    return
+                if not line:
+                    return
+
+                try:
+                    request = json.loads(line.decode("utf-8").strip())
+                except Exception as exc:
+                    bridge_impl._write_json_line(file, {"status": "error", "message": f"Bad JSON: {exc}"})
+                    continue
+
+                touch_activity()
+                cmd = str(request.get("cmd", "") or "").strip().lower()
+
+                try:
+                    if cmd == "start":
+                        runtime_config = _normalize_runtime_config(request, state["default_config"])
+                        with state_lock:
+                            if state.get("active_task_id"):
+                                bridge_impl._write_json_line(file, {"status": "busy", "message": "Cannot reconfigure runtime while generating."})
+                                continue
+                            state["default_config"] = dict(runtime_config)
+                            owner_pid = int(request.get("owner_pid") or 0)
+                            if owner_pid > 0:
+                                state["owner_pid"] = owner_pid
+                        with runtime_gate:
+                            info = _ensure_runtime(state, runtime_config, kimodo_root, logger)
+                        bridge_impl._write_json_line(file, {"status": "ready", **info})
+                    elif cmd == "generate":
+                        task_id = str(request.get("task_id") or "").strip()
+                        if not task_id:
+                            bridge_impl._write_json_line(file, {"status": "error", "message": "generate requires task_id."})
+                            continue
+
+                        with queue_changed:
+                            active_config = state.get("runtime_config") or state.get("default_config")
+                            if not active_config:
+                                bridge_impl._write_json_line(file, {"status": "error", "message": "Runtime has not been started."})
+                                continue
+                            if task_id in state["tasks"]:
+                                bridge_impl._write_json_line(file, {"status": "error", "message": f"Duplicate task_id '{task_id}'."})
+                                continue
+
+                            task = {
+                                "task_id": task_id,
+                                "request": dict(request),
+                                "runtime_config": dict(active_config),
+                                "cancel_event": threading.Event(),
+                                "event": threading.Event(),
+                                "response": None,
+                                "binary": None,
+                            }
+                            state["tasks"][task_id] = task
+                            state["queue"].append(task)
+                            queue_changed.notify_all()
+
+                        while True:
+                            if task["event"].wait(timeout=0.5):
+                                break
+                            with state_lock:
+                                if state["shutdown"]:
+                                    break
+
+                        response = task.get("response") or {"status": "cancelled", "message": "Server shutting down."}
+                        binary_payload = task.get("binary")
+                        if binary_payload:
+                            bridge_impl._write_json_line(file, response)
+                            file.write(binary_payload)
+                            file.flush()
+                        else:
+                            bridge_impl._write_json_line(file, response)
+                    elif cmd == "cancel":
+                        task_id = str(request.get("task_id") or "").strip()
+                        if not task_id:
+                            bridge_impl._write_json_line(file, {"status": "error", "message": "cancel requires task_id."})
+                            continue
+                        bridge_impl._write_json_line(file, cancel_task(task_id))
+                    elif cmd in {"quit", "stop"}:
+                        bridge_impl._write_json_line(file, {"status": "bye"})
+                        request_shutdown("quit command")
+                        return
+                    else:
+                        bridge_impl._write_json_line(file, {"status": "error", "message": f"Unknown cmd: {cmd!r}"})
+                except Exception as exc:
+                    logger.log(f"[ERROR] Command '{cmd}' failed: {exc}")
+                    bridge_impl._write_json_line(file, {"status": "error", "message": str(exc)})
 
     try:
         while True:
-            if watchpid and os.name == "nt":
-                try:
-                    owner_bridge_pid = int(watchpid)
-                except Exception:
-                    owner_bridge_pid = 0
-                if owner_bridge_pid > 0 and not _is_running(owner_bridge_pid):
-                    _write_watchdog(f"[WARN] Owner pid missing. owner_pid={watchpid}")
-                    return 0
-
-            if paths.run_lock.exists():
-                if not waiting_on_run_lock_logged:
-                    _write_watchdog(f"[INFO] Waiting for run lock release: {paths.run_lock}")
-                    waiting_on_run_lock_logged = True
-                runtime_active = False
-                remaining_idle_budget = idle_no_log_max
-                idle_without_target_count = 0
-                time.sleep(startup_interval)
-                continue
-
-            waiting_on_run_lock_logged = False
-            bridge_pid = _read_pid_file(bridge_pid_file)
-            if bridge_pid <= 0:
-                idle_without_target_count += 1
-                if not runtime_active and idle_without_target_count >= idle_without_target_max:
-                    _write_watchdog("[INFO] No bridge target appeared after watchdog startup. Exiting.")
-                    return 0
-                if runtime_active:
-                    _cleanup_endpoint_file()
-                    return 0
-                time.sleep(runtime_interval)
-                continue
-
-            idle_without_target_count = 0
-            if not _is_running(bridge_pid):
-                _write_watchdog(f"[INFO] Bridge pid no longer running. pid={bridge_pid}")
-                archive_path(bridge_pid_file, paths.recycle_dir)
-                _cleanup_endpoint_file()
-                return 0
-
-            if not runtime_active:
-                runtime_active = True
-                last_mtime = _log_mtime_ns(bridge_log_path)
-                remaining_idle_budget = idle_no_log_max
-                _write_watchdog(f"[INFO] Runtime watchdog active. bridge_pid={bridge_pid}")
-
-            now_mtime = _log_mtime_ns(bridge_log_path)
-            if now_mtime <= 0:
-                now_mtime = last_mtime
-            if now_mtime == last_mtime:
-                remaining_idle_budget -= 1
-            else:
-                remaining_idle_budget = idle_no_log_max
-                last_mtime = now_mtime
-            if remaining_idle_budget <= 0:
-                _write_watchdog(f"[INFO] No bridge log update for runtime window. Killing pid={bridge_pid}")
-                _kill_bridge_and_cleanup_endpoint(bridge_pid)
-                return 0
-            time.sleep(runtime_interval)
+            with state_lock:
+                if state["shutdown"]:
+                    break
+            try:
+                conn, addr = server.accept()
+            except OSError:
+                with state_lock:
+                    if state["shutdown"]:
+                        break
+                raise
+            threading.Thread(target=client_worker, args=(conn, addr), daemon=True).start()
     finally:
-        current_owner = _read_pid_file(watchdog_pid_file)
-        if current_owner == os.getpid():
-            archive_path(watchdog_pid_file, paths.recycle_dir)
-
-
-def main(argv: Sequence[str] | None = None, *, root_dir: str | None = None, source_root: str | None = None) -> int:
-    raw_args = list(argv or [])
-    parser = _build_parser()
-    if any(arg in ("-h", "--help") for arg in raw_args):
-        parser.print_help()
-        return 0
-    args = parser.parse_args(raw_args)
-    paths = _project_paths(root_dir or str(Path(__file__).resolve().parents[3]))
-    default_log_name = WATCHDOG_LOG_NAME if args.action == "watchdog" else BRIDGE_LOG_NAME
-    bridge_log_path = Path(args.log).resolve() if getattr(args, "log", None) else paths.log_dir / default_log_name
-    watchdog_log_path = paths.log_dir / WATCHDOG_LOG_NAME
-
-    if getattr(args, "output", None) == "file":
-        archive_path(bridge_log_path, paths.recycle_dir)
-        archive_path(watchdog_log_path, paths.recycle_dir)
-
-    append_logs = args.action == "watchdog"
-    logger_name = WATCHDOG_LOG_NAME if args.action == "watchdog" else BRIDGE_LOG_NAME
-    output_mode = getattr(args, "output", None) or "file"
-    with _prepare_logger(paths, output_mode, args.log, logger_name, append=append_logs) as run_logger:
+        with runtime_gate:
+            with state_lock:
+                _release_runtime(state, logger)
+        _remove_file(serverport_path)
         try:
-            if args.action == "watchdog":
-                return _run_watchdog(paths, args.watchpid, run_logger)
-            run_logger.log("[STEP] Preflight runtime import check...")
-            _runtime_import_preflight(run_logger)
-            run_logger.log("[STEP] Bridge will provision required model assets on demand.")
-            return _launch_bridge(paths, args, run_logger)
-        except Exception as exc:
-            run_logger.log(f"[ERROR] run failed: {exc}")
-            return 1
+            server.close()
+        except Exception:
+            pass
+
+    return 0
+
+
+def main(argv: list[str] | None = None, *, root_dir: str | None = None, source_root: str | None = None) -> int:
+    del source_root
+
+    parser = _build_parser()
+    args = parser.parse_args(list(argv or []))
+    paths = discover_project_paths(root_dir)
+
+    if args.action == "watchdog":
+        print("watchdog mode has been removed; quickserver_cli now supervises itself.", flush=True)
+        return 1
+
+    with _prepare_logger(paths, args.output, args.log, BRIDGE_LOG_NAME, append=True) as logger:
+        return _run_supervisor(args, str(paths.root_dir), logger)

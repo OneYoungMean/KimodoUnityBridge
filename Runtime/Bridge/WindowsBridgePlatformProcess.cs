@@ -29,14 +29,9 @@ namespace KimodoBridge
             }
 
             string qLauncher = QuoteForCmd(launcherPath);
-            string qModel = QuoteForCmd(string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim());
-            string modelsArg = string.IsNullOrWhiteSpace(modelsRoot)
-                ? string.Empty
-                : $" --models-root {QuoteForCmd(modelsRoot.Trim())}";
             string forceSetupArg = forceSetup ? " --force-setup" : string.Empty;
-            string forceCpuArg = forceCpu ? " --device cpu" : string.Empty;
             string watchPidArg = ownerProcessId > 0 ? $" --watchpid {ownerProcessId}" : string.Empty;
-            string args = $"--model {qModel}{(highVram ? " --highvram" : string.Empty)}{modelsArg}{forceSetupArg}{forceCpuArg}{watchPidArg} --output file";
+            string args = $"{forceSetupArg}{watchPidArg} --output file";
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = "cmd.exe",

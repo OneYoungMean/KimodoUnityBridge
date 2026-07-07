@@ -3,12 +3,64 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT_DIR="${SCRIPT_DIR}"
+SOURCE_ROOT="${ROOT_DIR}/kimodo"
+if [[ ! -f "${SOURCE_ROOT}/pyproject.toml" ]]; then
+  SOURCE_ROOT="${ROOT_DIR}"
+fi
+BOOTSTRAP_LOCK="${ROOT_DIR}/.bootstrap.lock"
 UV_INSTALL_TIMEOUT_SEC=600
 UV_PROBE_TIMEOUT_SEC=1
 UV_VERSION="0.11.25"
 UV_SELECTED_NAME=""
 UV_SELECTED_URL=""
 UV_SELECTED_MS=""
+LOCK_HELD=0
+
+cleanup_lock() {
+  if [[ "${LOCK_HELD}" == "1" && -f "${BOOTSTRAP_LOCK}" ]]; then
+    rm -f "${BOOTSTRAP_LOCK}" || true
+  fi
+}
+
+trap cleanup_lock EXIT
+
+pid_is_running() {
+  local pid="$1"
+  [[ -n "${pid}" ]] || return 1
+  kill -0 "${pid}" >/dev/null 2>&1
+}
+
+acquire_bootstrap_lock() {
+  local now=""
+  while true; do
+    if [[ -f "${BOOTSTRAP_LOCK}" ]]; then
+      local owner_pid=""
+      owner_pid="$(awk -F= '$1=="owner_pid"{print $2}' "${BOOTSTRAP_LOCK}" 2>/dev/null | tr -d '\r' | head -n 1)"
+      if [[ -n "${owner_pid}" ]] && pid_is_running "${owner_pid}"; then
+        sleep 1
+        continue
+      fi
+      rm -f "${BOOTSTRAP_LOCK}" || true
+      if [[ -f "${BOOTSTRAP_LOCK}" ]]; then
+        sleep 1
+        continue
+      fi
+    fi
+
+    now="$(date +%s)"
+    if ( set -o noclobber; printf 'owner_pid=%s\nstarted_epoch=%s\n' "$$" "${now}" > "${BOOTSTRAP_LOCK}" ) 2>/dev/null; then
+      LOCK_HELD=1
+      return 0
+    fi
+
+    sleep 1
+  done
+}
+
+release_bootstrap_lock() {
+  cleanup_lock
+  LOCK_HELD=0
+}
 
 resolve_uv_bin() {
   if [[ -n "${KIMODO_UV_BIN:-}" ]]; then
@@ -183,6 +235,20 @@ prompt_install_missing_tools() {
   esac
 }
 
+resolve_python_from_venv() {
+  local venv_input="$1"
+  if [[ -z "${venv_input}" ]]; then
+    return 1
+  fi
+  if [[ "${venv_input}" == */python || "${venv_input}" == */python3 || "${venv_input}" == *.exe ]]; then
+    echo "${venv_input}"
+  else
+    echo "${venv_input}/bin/python"
+  fi
+}
+
+acquire_bootstrap_lock
+
 UV_BIN="$(resolve_uv_bin)"
 
 if [[ -n "${KIMODO_TEST_VENV_PATH:-}" ]]; then
@@ -218,15 +284,48 @@ if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
 fi
 
 ARGS=("$@")
+SETUP_ARGS=("setup" "--output" "file")
 HAS_VENV_ARG=0
-for arg in "${ARGS[@]}"; do
-  if [[ "${arg}" == "--venv" ]]; then
+EXPLICIT_VENV="${KIMODO_VENV_PATH:-}"
+
+idx=0
+while [[ "${idx}" -lt "${#ARGS[@]}" ]]; do
+  arg="${ARGS[${idx}]}"
+  if [[ "${arg}" == "--force-setup" ]]; then
+    SETUP_ARGS+=("--force-setup")
+  elif [[ "${arg}" == "--force" ]]; then
+    SETUP_ARGS+=("--force")
+  elif [[ "${arg}" == "--venv" ]]; then
     HAS_VENV_ARG=1
-    break
+    idx=$((idx + 1))
+    if [[ "${idx}" -ge "${#ARGS[@]}" ]]; then
+      echo "[ERROR] --venv requires a path."
+      exit 1
+    fi
+    EXPLICIT_VENV="${ARGS[${idx}]}"
+    SETUP_ARGS+=("--venv" "${EXPLICIT_VENV}")
   fi
+  idx=$((idx + 1))
 done
+
 if [[ -n "${KIMODO_VENV_PATH:-}" && "${HAS_VENV_ARG}" -eq 0 ]]; then
   ARGS+=("--venv" "${KIMODO_VENV_PATH}")
+  SETUP_ARGS+=("--venv" "${KIMODO_VENV_PATH}")
 fi
 
-exec "${UV_BIN}" run --python 3.12 --no-project python "${ROOT_DIR}/quickserver.py" "${ARGS[@]}"
+"${UV_BIN}" run --python 3.12 --no-project python "${ROOT_DIR}/quickserver.py" "${SETUP_ARGS[@]}"
+
+if [[ -n "${EXPLICIT_VENV}" ]]; then
+  VENV_PYTHON="$(resolve_python_from_venv "${EXPLICIT_VENV}")"
+else
+  VENV_PYTHON="${SOURCE_ROOT}/.venv/bin/python"
+fi
+
+if [[ ! -x "${VENV_PYTHON}" ]]; then
+  echo "[ERROR] Failed to resolve QuickServer venv python: ${VENV_PYTHON}"
+  exit 1
+fi
+
+release_bootstrap_lock
+export PYTHONPATH="${SOURCE_ROOT}"
+exec "${VENV_PYTHON}" -m kimodo.bridge.quickserver_cli run --output file "${ARGS[@]}"

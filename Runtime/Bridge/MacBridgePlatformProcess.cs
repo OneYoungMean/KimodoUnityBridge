@@ -30,14 +30,10 @@ namespace KimodoBridge
 
             EnsureReadableByBash(launcherPath);
 
-            string modelArg = $" --model \"{(string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim())}\"";
-            string vramArg = highVram ? " --highvram" : string.Empty;
             string forceSetupArg = forceSetup ? " --force-setup" : string.Empty;
-            string forceCpuArg = forceCpu ? " --device cpu" : string.Empty;
-            string modelsArg = string.IsNullOrWhiteSpace(modelsRoot) ? string.Empty : $" --models-root \"{modelsRoot.Trim()}\"";
             string watchPidArg = ownerProcessId > 0 ? $" --watchpid {ownerProcessId}" : string.Empty;
             string outputArg = " --output file";
-            string args = modelArg + vramArg + forceSetupArg + forceCpuArg + modelsArg + watchPidArg + outputArg;
+            string args = forceSetupArg + watchPidArg + outputArg;
             string envPrefix = $"KIMODO_IDLE_TIMEOUT_SEC={Math.Max(0, idleTimeoutSeconds)}";
 
             return new ProcessStartInfo

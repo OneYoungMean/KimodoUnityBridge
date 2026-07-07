@@ -6,6 +6,7 @@ namespace KimodoBridge
     [Serializable]
     public sealed class KimodoGenerationRequestDto
     {
+        public string task_id;
         public string prompt;
         public float duration;
         public int? seed;

@@ -44,27 +44,27 @@ namespace KimodoBridge
             this.modelLoadingPollIntervalMs = Math.Max(100, modelLoadingPollIntervalMs);
         }
 
-        public async Task<bool> PingAsync(string host, int port, CancellationToken token, bool acceptLoading)
+        public bool IsConnected =>
+            sharedClient != null &&
+            sharedClient.Connected &&
+            sharedStream != null;
+
+        public async Task ConnectAsync(string host, int port, CancellationToken token)
         {
+            bool lockTaken = false;
             try
             {
-                JObject response = await SendAsync(host, port, new JObject { ["cmd"] = "ping" }, token).ConfigureAwait(false);
-                string status = response?.Value<string>("status") ?? string.Empty;
-                if (string.Equals(status, "pong", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-
-                if (acceptLoading && string.Equals(status, "loading", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-
-                return false;
+                await ioLock.WaitAsync(token).ConfigureAwait(false);
+                lockTaken = true;
+                ThrowIfDisposed();
+                await EnsureSharedConnectionAsync(host, port, token).ConfigureAwait(false);
             }
-            catch
+            finally
             {
-                return false;
+                if (lockTaken)
+                {
+                    ioLock.Release();
+                }
             }
         }
 
@@ -83,6 +83,7 @@ namespace KimodoBridge
             var payload = new JObject
             {
                 ["cmd"] = "generate",
+                ["task_id"] = string.IsNullOrWhiteSpace(request.task_id) ? null : request.task_id,
                 ["prompt"] = request.prompt ?? string.Empty,
                 ["duration"] = request.duration,
                 ["output_format"] = "flatbuf_motion_v1",
@@ -96,46 +97,60 @@ namespace KimodoBridge
             payload["transition_duration"] = request.transition_duration;
 
             UnityEngine.Debug.Log($"[KimodoBridge] Generate JSON: {payload.ToString(Formatting.None)}");
-            await WaitUntilModelReadyAsync(host, port, progress, token).ConfigureAwait(false);
-            progress?.Invoke(
-                $"Bridge generate request sent: duration={request.duration:F3}s, steps={request.steps}, seed={(request.seed.HasValue ? request.seed.Value.ToString() : "null")}.");
-            BridgeProtocolResponse response = await SendRequestAsync(host, port, payload, token).ConfigureAwait(false);
-            JObject header = response?.Header;
-            string status = header?.Value<string>("status") ?? string.Empty;
-            string message = header?.Value<string>("message") ?? string.Empty;
-            string outputFormat = header?.Value<string>("output_format") ?? string.Empty;
-            progress?.Invoke(
-                $"Bridge generate response status={status}, format={outputFormat}{(string.IsNullOrWhiteSpace(message) ? string.Empty : $", message={message}")}");
 
-            if (string.Equals(status, "loading", StringComparison.OrdinalIgnoreCase))
+            DateTime waitStart = DateTime.UtcNow;
+            while (true)
             {
-                throw new Exception("Bridge returned loading after ready check.");
-            }
+                progress?.Invoke(
+                    $"Bridge generate request sent: duration={request.duration:F3}s, steps={request.steps}, seed={(request.seed.HasValue ? request.seed.Value.ToString() : "null")}.");
+                BridgeProtocolResponse response = await SendRequestAsync(host, port, payload, token).ConfigureAwait(false);
+                JObject header = response?.Header;
+                string status = header?.Value<string>("status") ?? string.Empty;
+                string message = header?.Value<string>("message") ?? string.Empty;
+                string outputFormat = header?.Value<string>("output_format") ?? string.Empty;
+                progress?.Invoke(
+                    $"Bridge generate response status={status}, format={outputFormat}{(string.IsNullOrWhiteSpace(message) ? string.Empty : $", message={message}")}");
 
-            if (string.Equals(status, "error", StringComparison.OrdinalIgnoreCase))
-            {
-                string errorMessage = header?.Value<string>("message") ?? "Bridge generation failed.";
-                string traceback = header?.Value<string>("traceback");
-                if (!string.IsNullOrWhiteSpace(traceback))
+                if (string.Equals(status, "loading", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(status, "initializing", StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new Exception($"{errorMessage}\n{traceback}");
+                    if ((DateTime.UtcNow - waitStart).TotalMilliseconds > modelLoadingTimeoutMs)
+                    {
+                        throw new TimeoutException($"Bridge model loading timeout (>{modelLoadingTimeoutMs}ms).");
+                    }
+
+                    progress?.Invoke(string.IsNullOrWhiteSpace(message)
+                        ? "Bridge is still loading model assets..."
+                        : $"Bridge is still loading model assets... {message}");
+                    await Task.Delay(modelLoadingPollIntervalMs, token).ConfigureAwait(false);
+                    continue;
                 }
 
-                throw new Exception(errorMessage);
-            }
+                if (string.Equals(status, "error", StringComparison.OrdinalIgnoreCase))
+                {
+                    string errorMessage = header?.Value<string>("message") ?? "Bridge generation failed.";
+                    string traceback = header?.Value<string>("traceback");
+                    if (!string.IsNullOrWhiteSpace(traceback))
+                    {
+                        throw new Exception($"{errorMessage}\n{traceback}");
+                    }
 
-            if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new OperationCanceledException(
-                    string.IsNullOrWhiteSpace(message) ? "Bridge generation cancelled." : message);
-            }
+                    throw new Exception(errorMessage);
+                }
 
-            if (string.Equals(status, "busy", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new Exception(string.IsNullOrWhiteSpace(message) ? "Bridge is busy." : message);
-            }
+                if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new OperationCanceledException(
+                        string.IsNullOrWhiteSpace(message) ? "Bridge generation cancelled." : message);
+                }
 
-            return response;
+                if (string.Equals(status, "busy", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new Exception(string.IsNullOrWhiteSpace(message) ? "Bridge is busy." : message);
+                }
+
+                return response;
+            }
         }
 
         public async Task<bool> TrySendQuitAsync(string host, int port, CancellationToken token)
@@ -152,9 +167,9 @@ namespace KimodoBridge
             }
         }
 
-        public async Task<bool> TryCancelGenerateAsync(string host, int port, CancellationToken token)
+        public async Task<bool> TryCancelGenerateAsync(string host, int port, string taskId, CancellationToken token)
         {
-            if (string.IsNullOrWhiteSpace(host) || port <= 0)
+            if (string.IsNullOrWhiteSpace(host) || port <= 0 || string.IsNullOrWhiteSpace(taskId))
             {
                 return false;
             }
@@ -178,7 +193,14 @@ namespace KimodoBridge
                 client.SendTimeout = ioTimeoutMs;
 
                 using NetworkStream stream = client.GetStream();
-                await WriteJsonLineAsync(stream, new JObject { ["cmd"] = "cancel" }, token).ConfigureAwait(false);
+                await WriteJsonLineAsync(
+                    stream,
+                    new JObject
+                    {
+                        ["cmd"] = "cancel",
+                        ["task_id"] = taskId
+                    },
+                    token).ConfigureAwait(false);
                 JObject response = await ReadJsonLineAsync(stream, token).ConfigureAwait(false);
                 string status = response?.Value<string>("status") ?? string.Empty;
                 return string.Equals(status, "cancelling", StringComparison.OrdinalIgnoreCase) ||
@@ -397,65 +419,6 @@ namespace KimodoBridge
             sharedStream = stream;
             sharedHost = host;
             sharedPort = port;
-        }
-
-        private async Task WaitUntilModelReadyAsync(string host, int port, Action<string> progress, CancellationToken token)
-        {
-            DateTime waitStart = DateTime.UtcNow;
-            string lastLoadingMessage = null;
-            while (true)
-            {
-                token.ThrowIfCancellationRequested();
-                JObject response = await SendAsync(host, port, new JObject { ["cmd"] = "ping" }, token).ConfigureAwait(false);
-                string status = response?.Value<string>("status") ?? string.Empty;
-                string message = response?.Value<string>("message") ?? string.Empty;
-
-                if (string.Equals(status, "pong", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(status, "ready", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (lastLoadingMessage != null)
-                    {
-                        progress?.Invoke("Bridge model ready.");
-                    }
-
-                    return;
-                }
-
-                if (string.Equals(status, "loading", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(status, "initializing", StringComparison.OrdinalIgnoreCase))
-                {
-                    string loadingMessage = string.IsNullOrWhiteSpace(message) ? "Model is loading." : message;
-                    if (!string.Equals(lastLoadingMessage, loadingMessage, StringComparison.Ordinal))
-                    {
-                        progress?.Invoke($"Bridge waiting for model ready... {loadingMessage}");
-                        lastLoadingMessage = loadingMessage;
-                    }
-
-                    if ((DateTime.UtcNow - waitStart).TotalMilliseconds > modelLoadingTimeoutMs)
-                    {
-                        throw new TimeoutException($"Bridge model loading timeout (>{modelLoadingTimeoutMs}ms).");
-                    }
-
-                    await Task.Delay(modelLoadingPollIntervalMs, token).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (string.Equals(status, "error", StringComparison.OrdinalIgnoreCase))
-                {
-                    string errorMessage = response.Value<string>("message") ?? "Bridge readiness check failed.";
-                    string traceback = response.Value<string>("traceback");
-                    if (!string.IsNullOrWhiteSpace(traceback))
-                    {
-                        throw new Exception($"{errorMessage}\n{traceback}");
-                    }
-
-                    throw new Exception(errorMessage);
-                }
-
-                throw new Exception(
-                    $"Unexpected bridge ping status while waiting for ready: {status}" +
-                    $"{(string.IsNullOrWhiteSpace(message) ? string.Empty : $". message={message}")}");
-            }
         }
 
         private async Task WriteJsonLineAsync(NetworkStream stream, JObject request, CancellationToken token)

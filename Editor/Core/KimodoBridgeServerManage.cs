@@ -33,38 +33,6 @@ namespace KimodoBridge.Editor
         }
     }
 
-    internal readonly struct ServerStatusSnapshot
-    {
-        public readonly bool Ready;
-        public readonly bool Running;
-        public readonly bool HasPort;
-        public readonly bool QueryInFlight;
-        public readonly string Host;
-        public readonly int Port;
-        public readonly BridgePingStatus PingStatus;
-        public readonly string Message;
-
-        public ServerStatusSnapshot(
-            bool ready,
-            bool running,
-            bool hasPort,
-            bool queryInFlight,
-            string host,
-            int port,
-            BridgePingStatus pingStatus = BridgePingStatus.Unknown,
-            string message = "")
-        {
-            Ready = ready;
-            Running = running;
-            HasPort = hasPort;
-            QueryInFlight = queryInFlight;
-            Host = host ?? "127.0.0.1";
-            Port = port;
-            PingStatus = pingStatus;
-            Message = message ?? string.Empty;
-        }
-    }
-
     [InitializeOnLoad]
     public static class KimodoBridgeServerManage
     {
@@ -82,22 +50,13 @@ namespace KimodoBridge.Editor
         private static bool currentServiceHighVram;
         private static bool currentServiceForceSetup;
         private static bool currentServiceForceCpu;
-        private static bool isRecovering;
         private static bool isClosing;
         private static int shutdownTicket;
         private static int runtimeMaintenanceDepth;
         private static readonly object sharedServiceGate = new object();
         static KimodoBridgeServerManage()
         {
-            EditorApplication.delayCall += RecoverBridgeAfterDomainReload;
             EditorCompilationStateGate.StateChanged += HandleCompilationStateChanged;
-        }
-
-        internal static bool IsServerRunning => GetServerStatusSnapshot().Running;
-
-        internal static ServerStatusSnapshot GetServerStatusSnapshot()
-        {
-            return GetServerStatusSnapshotCore();
         }
 
         public static string[] SupportedModelNames => KimodoBridgeRuntimeInstallFacade.SupportedModelNames;
@@ -155,48 +114,6 @@ namespace KimodoBridge.Editor
             return KimodoBridgeRuntimeInstallFacade.QueryDisplayableModelDirectories(modelsRoot);
         }
 
-        private static async void RecoverBridgeAfterDomainReload()
-        {
-            if (EditorCompilationStateGate.IsCompilingOrReloading)
-            {
-                UnityEngine.Debug.Log("[Kimodo][CompileGate] skip recovery during compile/reload.");
-                return;
-            }
-
-            if (isRecovering)
-            {
-                return;
-            }
-
-            isRecovering = true;
-            try
-            {
-                KimodoBridgeService bridge = CreateDetachedBridgeServiceOrNull();
-                if (bridge == null)
-                {
-                    return;
-                }
-
-                try
-                {
-                    _ = await bridge.AttachAsync(message => UnityEngine.Debug.Log($"[KimodoBridge] {message}"), CancellationToken.None);
-                    await bridge.DetachAsync(CancellationToken.None);
-                }
-                finally
-                {
-                    bridge.Dispose();
-                }
-            }
-            catch
-            {
-                // Recovery is best-effort and must not break editor startup.
-            }
-            finally
-            {
-                isRecovering = false;
-            }
-        }
-
         internal static async Task<string> StartServerAsync(
             string launcherPath,
             string modelName,
@@ -224,12 +141,12 @@ namespace KimodoBridge.Editor
 
         private static void HandleCompilationStateChanged(bool active)
         {
-            if (active)
+            if (!active)
             {
                 return;
             }
 
-            EditorApplication.delayCall += RecoverBridgeAfterDomainReload;
+            _ = ShutdownAsync(ShutdownMode.DetachOnly, CancellationToken.None);
         }
 
         private static KimodoBridgeService GetOrCreateSharedBridgeService(
@@ -329,11 +246,6 @@ namespace KimodoBridge.Editor
                 ResetSharedServiceState();
             }
 
-            if (bridgeService == null && mode == ShutdownMode.StopAndDispose)
-            {
-                bridgeService = CreateDetachedBridgeServiceOrNull();
-            }
-
             try
             {
                 if (bridgeService == null)
@@ -372,31 +284,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static KimodoBridgeService CreateDetachedBridgeServiceOrNull()
-        {
-            string runtimeRoot = GetRuntimeRootPath();
-            if (string.IsNullOrWhiteSpace(runtimeRoot) || !Directory.Exists(runtimeRoot))
-            {
-                return null;
-            }
-
-            string launcherPath = ResolveStartScript(runtimeRoot);
-            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
-            {
-                return null;
-            }
-
-            return new KimodoBridgeService(BridgeRuntimeSettingsFactory.Create(
-                runtimeRoot: runtimeRoot,
-                launcherPath: launcherPath,
-                modelName: "Kimodo-SOMA-RP-v1",
-                highVram: false,
-                forceSetup: false,
-                forceCpu: false,
-                modelsRoot: string.Empty,
-                startupTimeoutMs: BridgeRuntimeSettings.DefaultStartupTimeoutMs));
-        }
-
         private static void ResetSharedServiceState()
         {
             currentServiceRuntimeRoot = string.Empty;
@@ -408,42 +295,30 @@ namespace KimodoBridge.Editor
             currentServiceForceCpu = false;
         }
 
-        private static ServerStatusSnapshot GetServerStatusSnapshotCore()
+        internal static bool HasConnectedSession
         {
-            string runtimeRoot = GetRuntimeRootPath();
-            if (string.IsNullOrWhiteSpace(runtimeRoot) || !Directory.Exists(runtimeRoot))
+            get
             {
-                return new ServerStatusSnapshot(
-                    ready: true,
-                    running: false,
-                    hasPort: false,
-                    queryInFlight: false,
-                    host: "127.0.0.1",
-                    port: -1);
+                lock (sharedServiceGate)
+                {
+                    return sharedBridgeService != null && sharedBridgeService.IsConnected;
+                }
+            }
+        }
+
+        internal static bool TryGetConnectedEndpoint(out string host, out int port)
+        {
+            lock (sharedServiceGate)
+            {
+                if (sharedBridgeService != null && sharedBridgeService.IsConnected)
+                {
+                    return sharedBridgeService.TryGetCurrentEndpoint(out host, out port);
+                }
             }
 
-            if (!BridgeRuntimeControl.TryReadServerEndpoint(runtimeRoot, out string host, out int port))
-            {
-                return new ServerStatusSnapshot(
-                    ready: true,
-                    running: false,
-                    hasPort: false,
-                    queryInFlight: false,
-                    host: "127.0.0.1",
-                    port: -1);
-            }
-
-            BridgePingResult ping = BridgeRuntimeControl.QueryPing(host, port);
-            bool running = ping.Status == BridgePingStatus.Ready || ping.Status == BridgePingStatus.Loading;
-            return new ServerStatusSnapshot(
-                ready: true,
-                running: running,
-                hasPort: true,
-                queryInFlight: false,
-                host: host,
-                port: port,
-                pingStatus: ping.Status,
-                message: ping.Message);
+            host = "127.0.0.1";
+            port = -1;
+            return false;
         }
 
         private sealed class RuntimeMaintenanceScope : IDisposable

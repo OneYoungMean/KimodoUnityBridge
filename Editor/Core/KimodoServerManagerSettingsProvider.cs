@@ -41,9 +41,6 @@ namespace KimodoBridge.Editor
         private double detectHintUntilTime;
         private string serverHost = "127.0.0.1";
         private int serverPort = -1;
-        private bool serverHasPort;
-        private BridgePingStatus serverPingStatus;
-        private string serverStatusMessage = string.Empty;
 
         private bool operationInProgress;
         private string operationStatus = string.Empty;
@@ -282,12 +279,6 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.HelpBox("detect...", MessageType.None);
             }
-            else if (serverPingStatus == BridgePingStatus.Error)
-            {
-                EditorGUILayout.HelpBox(
-                    $"Server reported an error at {serverHost}:{serverPort}. {SummarizeForUi(serverStatusMessage)}",
-                    MessageType.Error);
-            }
             else if (serverState == ServerState.Enabled)
             {
                 EditorGUILayout.HelpBox($"Running at {serverHost}:{serverPort}", MessageType.Info);
@@ -295,25 +286,14 @@ namespace KimodoBridge.Editor
             else
             {
                 EditorGUILayout.HelpBox("Server is not running.", MessageType.None);
-                if (serverHasPort)
-                {
-                    string detail = string.IsNullOrWhiteSpace(serverStatusMessage)
-                        ? string.Empty
-                        : " " + SummarizeForUi(serverStatusMessage);
-                    EditorGUILayout.HelpBox("Detected stale endpoint file (serverport). Process is not alive." + detail, MessageType.None);
-                }
             }
             if (compileGate)
             {
                 EditorGUILayout.LabelField("Status", "detect/compiling", EditorStyles.miniLabel);
             }
-            else if (serverPingStatus == BridgePingStatus.Error)
-            {
-                EditorGUILayout.LabelField("Status", "error", EditorStyles.miniLabel);
-            }
             else
             {
-                EditorGUILayout.LabelField("Status", serverState == ServerState.Enabled ? "enable" : "disable", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("Status", serverState == ServerState.Enabled ? "connected" : "disconnected", EditorStyles.miniLabel);
             }
 
             bool inMaintenance = KimodoBridgeServerManage.IsRuntimeMaintenanceInProgress;
@@ -615,16 +595,17 @@ namespace KimodoBridge.Editor
             if (!runtimeExists)
             {
                 serverState = ServerState.Disabled;
+                serverHost = "127.0.0.1";
+                serverPort = -1;
                 return;
             }
 
-            ServerStatusSnapshot snapshot = KimodoBridgeServerManage.GetServerStatusSnapshot();
-            serverHost = snapshot.Host;
-            serverPort = snapshot.Port;
-            serverHasPort = snapshot.HasPort;
-            serverPingStatus = snapshot.PingStatus;
-            serverStatusMessage = snapshot.Message;
-            serverState = snapshot.Running ? ServerState.Enabled : ServerState.Disabled;
+            serverState = KimodoBridgeServerManage.HasConnectedSession ? ServerState.Enabled : ServerState.Disabled;
+            if (!KimodoBridgeServerManage.TryGetConnectedEndpoint(out serverHost, out serverPort))
+            {
+                serverHost = "127.0.0.1";
+                serverPort = -1;
+            }
         }
 
         private Task EnsureRuntimeRootAsync()
@@ -673,9 +654,7 @@ namespace KimodoBridge.Editor
                 onSuccess: () =>
                 {
                     PullServerStatusFromController();
-                    operationStatus = serverPingStatus == BridgePingStatus.Error
-                        ? "Server reported an error. " + SummarizeForUi(serverStatusMessage)
-                        : serverState == ServerState.Enabled
+                    operationStatus = serverState == ServerState.Enabled
                         ? $"Running at {serverHost}:{serverPort}"
                         : "Start completed.";
                 });

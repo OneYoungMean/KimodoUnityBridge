@@ -5,6 +5,9 @@ chcp 65001 >nul
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "ROOT_DIR=%SCRIPT_DIR%"
+set "SOURCE_ROOT=%ROOT_DIR%\kimodo"
+if not exist "%SOURCE_ROOT%\pyproject.toml" set "SOURCE_ROOT=%ROOT_DIR%"
+set "BOOTSTRAP_LOCK=%ROOT_DIR%\.bootstrap.lock"
 set "UV_TOOL_DIR=%ROOT_DIR%\program\exe\uv"
 set "UV_BIN="
 set "UV_INSTALL_TIMEOUT_SEC=600"
@@ -35,41 +38,143 @@ if defined CHECKPOINT_DIR (
   exit /b 1
 )
 set "VENV_OVERRIDE=%KIMODO_VENV_PATH%"
+set "PASSTHROUGH_ARGS="
+set "SETUP_ARGS=setup --output file"
+set "HAS_VENV_ARG="
+set "EXPLICIT_VENV="
 
+call :acquire_bootstrap_lock || exit /b 1
 call :resolve_uv_bin
 if not defined UV_BIN (
-  call :prompt_install_uv || exit /b 1
+  call :prompt_install_uv || goto cleanup_fail
   call :resolve_uv_bin
 )
 if not defined UV_BIN (
   echo [ERROR] uv is still unavailable after the download attempt.
+  goto cleanup_fail
+)
+
+:collect_args
+if "%~1"=="" goto setup_phase
+set "NEXT=%~1"
+if /I "%NEXT%"=="--force-setup" set "SETUP_ARGS=%SETUP_ARGS% --force-setup"
+if /I "%NEXT%"=="--force" set "SETUP_ARGS=%SETUP_ARGS% --force"
+if /I "%NEXT%"=="--venv" (
+  set "HAS_VENV_ARG=1"
+  if "%~2"=="" (
+    echo [ERROR] --venv requires a path.
+    goto cleanup_fail
+  )
+  set "EXPLICIT_VENV=%~2"
+  set "SETUP_ARGS=%SETUP_ARGS% --venv ""%~2"""
+)
+if defined PASSTHROUGH_ARGS (
+  set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! "!NEXT!""
+) else (
+  set "PASSTHROUGH_ARGS="!NEXT!""
+)
+shift
+if /I "%NEXT%"=="--venv" (
+  set "NEXT=%~1"
+  if defined PASSTHROUGH_ARGS (
+    set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! "!NEXT!""
+  ) else (
+    set "PASSTHROUGH_ARGS="!NEXT!""
+  )
+  shift
+)
+goto collect_args
+
+:setup_phase
+if defined VENV_OVERRIDE if not defined HAS_VENV_ARG (
+  set "SETUP_ARGS=%SETUP_ARGS% --venv ""%VENV_OVERRIDE%"""
+  if defined PASSTHROUGH_ARGS (
+    set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! "--venv" "%VENV_OVERRIDE%""
+  ) else (
+    set "PASSTHROUGH_ARGS="--venv" "%VENV_OVERRIDE%""
+  )
+  set "EXPLICIT_VENV=%VENV_OVERRIDE%"
+)
+
+"%UV_BIN%" run --python 3.12 --no-project python "%ROOT_DIR%\quickserver.py" %SETUP_ARGS%
+if errorlevel 1 goto cleanup_fail
+
+call :resolve_venv_python
+if not defined VENV_PYTHON (
+  echo [ERROR] Failed to resolve QuickServer venv python.
+  goto cleanup_fail
+)
+
+call :release_bootstrap_lock
+set "PYTHONPATH=%SOURCE_ROOT%"
+"%VENV_PYTHON%" -m kimodo.bridge.quickserver_cli run --output file %PASSTHROUGH_ARGS%
+exit /b %ERRORLEVEL%
+
+:cleanup_fail
+call :release_bootstrap_lock
+exit /b 1
+
+:acquire_bootstrap_lock
+set "BOOTSTRAP_PID="
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "[System.Diagnostics.Process]::GetCurrentProcess().Id"`) do set "BOOTSTRAP_PID=%%I"
+if not defined BOOTSTRAP_PID (
+  echo [ERROR] Failed to resolve bootstrap pid.
   exit /b 1
 )
 
-set "ARGS="
-set "HAS_VENV_ARG="
-:collect_args
-if "%~1"=="" goto launch
-set "NEXT=%~1"
-if /I "%NEXT%"=="--venv" set "HAS_VENV_ARG=1"
-if defined ARGS (
-  set "ARGS=!ARGS! "!NEXT!""
-) else (
-  set "ARGS="!NEXT!""
-)
-shift
-goto collect_args
-
-:launch
-if defined VENV_OVERRIDE if not defined HAS_VENV_ARG (
-  if defined ARGS (
-    set "ARGS=!ARGS! "--venv" "%VENV_OVERRIDE%""
-  ) else (
-    set "ARGS="--venv" "%VENV_OVERRIDE%""
+:lock_wait
+if exist "%BOOTSTRAP_LOCK%" (
+  set "LOCK_OWNER="
+  for /f "usebackq tokens=1,* delims==" %%A in ("%BOOTSTRAP_LOCK%") do (
+    if /I "%%A"=="owner_pid" set "LOCK_OWNER=%%B"
+  )
+  if defined LOCK_OWNER (
+    tasklist /FI "PID eq !LOCK_OWNER!" 2>nul | findstr /R /C:"[ ]!LOCK_OWNER![ ]" >nul
+    if not errorlevel 1 (
+      timeout /t 1 /nobreak >nul
+      goto lock_wait
+    )
+  )
+  del /f /q "%BOOTSTRAP_LOCK%" >nul 2>nul
+  if exist "%BOOTSTRAP_LOCK%" (
+    timeout /t 1 /nobreak >nul
+    goto lock_wait
   )
 )
-"%UV_BIN%" run --python 3.12 --no-project python "%ROOT_DIR%\quickserver.py" !ARGS!
-exit /b %ERRORLEVEL%
+
+powershell -NoProfile -Command "$p='%BOOTSTRAP_LOCK%';$dir=[System.IO.Path]::GetDirectoryName($p);if($dir){[System.IO.Directory]::CreateDirectory($dir)|Out-Null};$fs=[System.IO.File]::Open($p,[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None);$sw=New-Object System.IO.StreamWriter($fs,[System.Text.UTF8Encoding]::new($false));$sw.WriteLine('owner_pid=%BOOTSTRAP_PID%');$sw.WriteLine('started_epoch=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds());$sw.Dispose()" >nul 2>nul
+if errorlevel 1 (
+  timeout /t 1 /nobreak >nul
+  goto lock_wait
+)
+exit /b 0
+
+:release_bootstrap_lock
+if exist "%BOOTSTRAP_LOCK%" del /f /q "%BOOTSTRAP_LOCK%" >nul 2>nul
+exit /b 0
+
+:resolve_venv_python
+set "VENV_PYTHON="
+if defined EXPLICIT_VENV (
+  call :venv_to_python "%EXPLICIT_VENV%"
+  exit /b 0
+)
+call :venv_to_python "%SOURCE_ROOT%\.venv"
+exit /b 0
+
+:venv_to_python
+set "VENV_CANDIDATE=%~1"
+if not defined VENV_CANDIDATE exit /b 0
+if exist "%VENV_CANDIDATE%" (
+  if /I "%VENV_CANDIDATE:~-10%"=="python.exe" (
+    set "VENV_PYTHON=%VENV_CANDIDATE%"
+    exit /b 0
+  )
+)
+if exist "%VENV_CANDIDATE%\Scripts\python.exe" (
+  set "VENV_PYTHON=%VENV_CANDIDATE%\Scripts\python.exe"
+)
+exit /b 0
 
 :resolve_uv_bin
 set "UV_BIN="

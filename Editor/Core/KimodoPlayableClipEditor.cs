@@ -42,11 +42,7 @@ namespace KimodoBridge.Editor
         private string lastError;
         private string lastConstraintsPath = string.Empty;
         private readonly List<KimodoConstraintMarkerBase> lastConstraintMarkers = new List<KimodoConstraintMarkerBase>();
-        private bool bridgeRunningCached;
-        private bool bridgePortDiscoveredCached;
-        private bool bridgeStatusReady;
-        private BridgePingStatus bridgePingStatus;
-        private string bridgeStatusMessage = string.Empty;
+        private bool bridgeConnectedCached;
         private bool showAdvancedFoldout = true;
         private double lastRepaintTime;
         private bool repaintQueued;
@@ -229,27 +225,9 @@ namespace KimodoBridge.Editor
 
             DrawEstimatedSetupTimeHint();
 
-            if (!bridgeStatusReady)
-            {
-                EditorGUILayout.LabelField("Bridge status: checking...", EditorStyles.miniLabel);
-            }
-
-            if (bridgePingStatus == BridgePingStatus.Error)
-            {
-                EditorGUILayout.HelpBox(
-                    "Bridge reports an error. " + SummarizeForUi(bridgeStatusMessage),
-                    MessageType.Error);
-            }
-            else if (bridgePingStatus == BridgePingStatus.Loading && !string.IsNullOrWhiteSpace(bridgeStatusMessage))
-            {
-                EditorGUILayout.LabelField("Bridge status: " + SummarizeForUi(bridgeStatusMessage), EditorStyles.miniLabel);
-            }
-            else if (!bridgeRunningCached && bridgePortDiscoveredCached)
-            {
-                EditorGUILayout.HelpBox(
-                    "Bridge process is not running, but endpoint file still exists. This is usually a stale serverport record.",
-                    MessageType.None);
-            }
+            EditorGUILayout.LabelField(
+                "Bridge status: " + (bridgeConnectedCached ? "connected" : "disconnected"),
+                EditorStyles.miniLabel);
 
             if (!string.IsNullOrWhiteSpace(lastStatus))
             {
@@ -296,12 +274,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            ServerStatusSnapshot snapshot = KimodoBridgeServerManage.GetServerStatusSnapshot();
-            bridgeStatusReady = snapshot.Ready;
-            bridgeRunningCached = snapshot.Running;
-            bridgePortDiscoveredCached = snapshot.HasPort;
-            bridgePingStatus = snapshot.PingStatus;
-            bridgeStatusMessage = snapshot.Message;
+            bridgeConnectedCached = KimodoBridgeServerManage.HasConnectedSession;
         }
 
         private static string SummarizeForUi(string message, int maxLength = 320)

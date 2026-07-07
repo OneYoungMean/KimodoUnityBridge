@@ -79,22 +79,15 @@ namespace KimodoBridge
         public async Task WaitUntilReadyAsync(
             string runtimeRoot,
             string hostFallback,
-            BridgeProtocolClient protocolClient,
             int startupTimeoutMs,
             int pollIntervalMs,
             CancellationToken token)
         {
-            if (protocolClient == null)
-            {
-                throw new ArgumentNullException(nameof(protocolClient));
-            }
-
             await startupWaiter.WaitUntilReadyAsync(
                 hasProcessExited: () => process != null && process.HasExited,
                 getExitCode: () => process != null ? process.ExitCode : -1,
                 runtimeRoot: runtimeRoot,
                 hostFallback: hostFallback,
-                protocolClient: protocolClient,
                 startupTimeoutMs: startupTimeoutMs,
                 pollIntervalMs: pollIntervalMs,
                 token: token).ConfigureAwait(false);
