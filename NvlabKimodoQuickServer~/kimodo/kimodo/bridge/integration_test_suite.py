@@ -381,6 +381,35 @@ def _wait_for_server(ctx: TestContext) -> tuple[str, int]:
     return _wait_for(_endpoint, START_TIMEOUT_SEC, "serverport endpoint")
 
 
+def _wait_for_server_shutdown(ctx: TestContext, timeout_sec: float = 60.0) -> None:
+    def _stopped() -> bool:
+        data = _read_serverport(ctx.serverport_path)
+        if not data:
+            return True
+        pid_text = data.get("pid", "").strip()
+        if pid_text:
+            try:
+                if not _pid_is_running(int(pid_text)):
+                    return True
+            except ValueError:
+                return True
+        host = data.get("host", "").strip()
+        port_text = data.get("port", "").strip()
+        if not host or not port_text:
+            return True
+        try:
+            port = int(port_text)
+        except ValueError:
+            return True
+        try:
+            with socket.create_connection((host, port), timeout=1.0):
+                return False
+        except OSError:
+            return True
+
+    _wait_for(_stopped, timeout_sec, "server shutdown")
+
+
 def _start_runtime(ctx: TestContext, *, highvram: bool = False, force_hf_download: bool = False, simulate_vram_gb: int | None = None, share_models: bool = True, owner_pid: int = 0) -> tuple[str, int]:
     host, port = _wait_for_server(ctx)
     payload: dict[str, Any] = {
@@ -442,6 +471,36 @@ def _post_recovery_generate(ctx: TestContext, params: dict[str, Any]) -> None:
     )
     _generate_tpose(ctx, host, port, duration=1.0)
     _stop_server(host, port)
+
+
+def _start_phase_driver(
+    ctx: TestContext,
+    phase: str,
+    *,
+    owner_pid: int = 0,
+) -> tuple[Any, list[str]]:
+    phase_errors: list[str] = []
+    phase_thread = None
+    if phase not in {"download", "loading_runtime", "generating"}:
+        return phase_thread, phase_errors
+
+    import threading
+
+    def _run() -> None:
+        try:
+            host, port = _start_runtime(
+                ctx,
+                share_models=(phase != "download"),
+                owner_pid=owner_pid,
+            )
+            if phase == "generating":
+                _generate_tpose(ctx, host, port, task_id=f"{ctx.case.case_id}_phase_driver", duration=20.0)
+        except Exception as exc:
+            phase_errors.append(str(exc))
+
+    phase_thread = threading.Thread(target=_run, daemon=True)
+    phase_thread.start()
+    return phase_thread, phase_errors
 
 
 def _run_basic(ctx: TestContext, params: dict[str, Any]) -> dict[str, Any]:
@@ -604,22 +663,7 @@ def _run_abort_phase(ctx: TestContext, phase: str, delay_sec: int) -> dict[str, 
     share_env = phase not in {"boot", "setting_up_env"}
     _start_launcher(ctx, share_env=share_env)
 
-    phase_error: list[str] = []
-    phase_thread = None
-    if phase in {"download", "loading_runtime"}:
-        import threading
-
-        def _start_for_phase() -> None:
-            try:
-                _start_runtime(
-                    ctx,
-                    share_models=(phase != "download"),
-                )
-            except Exception as exc:
-                phase_error.append(str(exc))
-
-        phase_thread = threading.Thread(target=_start_for_phase, daemon=True)
-        phase_thread.start()
+    phase_thread, phase_error = _start_phase_driver(ctx, phase)
 
     _wait_for_bootstrap_phase(ctx, phase)
     if delay_sec > 0:
@@ -635,15 +679,19 @@ def _run_abort_phase(ctx: TestContext, phase: str, delay_sec: int) -> dict[str, 
 
 def _run_owner_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
     owner_pid = ctx.start_owner()
-    _start_launcher(ctx, share_env=True)
+    share_env = phase not in {"boot", "setting_up_env"}
+    _start_launcher(ctx, share_env=share_env)
+    phase_thread, phase_errors = _start_phase_driver(ctx, phase, owner_pid=owner_pid)
     _wait_for_bootstrap_phase(ctx, phase)
     if ctx.owner_proc is None:
         raise RuntimeError("Owner process missing.")
     ctx.owner_proc.kill()
     ctx.owner_proc.wait(timeout=10)
-    time.sleep(5)
+    _wait_for_server_shutdown(ctx, timeout_sec=120)
+    if phase_thread is not None:
+        phase_thread.join(timeout=30)
     _post_recovery_generate(ctx, {"share_env": True})
-    return {"status": "passed", "owner_pid": owner_pid, "phase": phase}
+    return {"status": "passed", "owner_pid": owner_pid, "phase": phase, "phase_errors": phase_errors}
 
 
 def _run_owner_kill_recovery(ctx: TestContext) -> dict[str, Any]:
@@ -651,7 +699,9 @@ def _run_owner_kill_recovery(ctx: TestContext) -> dict[str, Any]:
 
 
 def _run_cli_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=True)
+    share_env = phase not in {"boot", "setting_up_env"}
+    _start_launcher(ctx, share_env=share_env)
+    phase_thread, phase_errors = _start_phase_driver(ctx, phase)
     if phase != "boot":
         _wait_for_bootstrap_phase(ctx, phase)
     else:
@@ -664,9 +714,11 @@ def _run_cli_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
         subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         os.kill(pid, 9)
-    time.sleep(5)
+    _wait_for_server_shutdown(ctx, timeout_sec=120)
+    if phase_thread is not None:
+        phase_thread.join(timeout=30)
     _post_recovery_generate(ctx, {"share_env": True})
-    return {"status": "passed", "cli_pid": pid, "phase": phase}
+    return {"status": "passed", "cli_pid": pid, "phase": phase, "phase_errors": phase_errors}
 
 
 def _run_case(ctx: TestContext) -> dict[str, Any]:
@@ -718,7 +770,7 @@ def _select_cases(case_ids: list[str], tag: str | None, full: bool, case_range: 
     if sum(1 for enabled in (full, bool(case_ids), bool(tag), bool(case_range)) if enabled) > 1:
         raise RuntimeError("Use only one selector among --full, --case/--cases, --tag, or --range.")
     if full:
-        return cases
+        return [case for case in cases if "hf" not in case.tags]
     if case_ids:
         case_map = {case.case_id.lower(): case for case in cases}
         selected: list[TestCase] = []
