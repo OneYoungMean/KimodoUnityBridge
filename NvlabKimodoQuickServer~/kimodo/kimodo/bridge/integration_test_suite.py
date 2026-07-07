@@ -161,6 +161,21 @@ def _find_host_python() -> str:
     return sys.executable
 
 
+def _pid_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        completed = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        return completed.returncode == 0 and str(pid) in (completed.stdout or "")
+    return Path(f"/proc/{pid}").exists()
+
+
 def _tracked_workspace_copy(repo_root: Path, target_dir: Path) -> None:
     files_blob = subprocess.check_output(["git", "-C", str(repo_root), "-c", "core.quotePath=false", "ls-files", "-z"])
     for rel in [entry.decode("utf-8", errors="surrogateescape") for entry in files_blob.split(b"\x00") if entry]:
@@ -247,14 +262,32 @@ class TestContext:
             if proc is None:
                 continue
             if proc.poll() is None:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=10)
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
+                _terminate_process_tree(proc)
+
+
+def _terminate_process_tree(proc: subprocess.Popen[Any] | None, timeout_sec: float = 10.0) -> None:
+    if proc is None:
+        return
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/F", "/T"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            proc.wait(timeout=timeout_sec)
+            return
+
+        proc.terminate()
+        proc.wait(timeout=timeout_sec)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 def _wait_for_bootstrap_phase(ctx: TestContext, phase: str) -> None:
@@ -323,6 +356,18 @@ def _wait_for_server(ctx: TestContext) -> tuple[str, int]:
         except ValueError:
             return None
         if port <= 0:
+            return None
+        pid_text = data.get("pid", "").strip()
+        if pid_text:
+            try:
+                if not _pid_is_running(int(pid_text)):
+                    return None
+            except ValueError:
+                return None
+        try:
+            with socket.create_connection((host, port), timeout=1.0):
+                pass
+        except OSError:
             return None
         return host, port
     return _wait_for(_endpoint, START_TIMEOUT_SEC, "serverport endpoint")
@@ -548,19 +593,36 @@ def _run_cancel_finished(ctx: TestContext) -> dict[str, Any]:
 
 
 def _run_abort_phase(ctx: TestContext, phase: str, delay_sec: int) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=False)
+    share_env = phase not in {"boot", "setting_up_env"}
+    _start_launcher(ctx, share_env=share_env)
+
+    phase_error: list[str] = []
+    phase_thread = None
+    if phase in {"download", "loading_runtime"}:
+        import threading
+
+        def _start_for_phase() -> None:
+            try:
+                _start_runtime(
+                    ctx,
+                    share_models=(phase != "download"),
+                )
+            except Exception as exc:
+                phase_error.append(str(exc))
+
+        phase_thread = threading.Thread(target=_start_for_phase, daemon=True)
+        phase_thread.start()
+
     _wait_for_bootstrap_phase(ctx, phase)
     if delay_sec > 0:
         time.sleep(delay_sec)
     if ctx.launcher_proc is None:
         raise RuntimeError("Launcher process missing.")
-    ctx.launcher_proc.terminate()
-    try:
-        ctx.launcher_proc.wait(timeout=30)
-    except Exception:
-        ctx.launcher_proc.kill()
+    _terminate_process_tree(ctx.launcher_proc, timeout_sec=30)
+    if phase_thread is not None:
+        phase_thread.join(timeout=30)
     _post_recovery_generate(ctx, {})
-    return {"status": "passed", "phase": phase, "delay_sec": delay_sec}
+    return {"status": "passed", "phase": phase, "delay_sec": delay_sec, "phase_errors": phase_error}
 
 
 def _run_owner_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
