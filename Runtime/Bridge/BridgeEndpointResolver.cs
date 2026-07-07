@@ -85,11 +85,44 @@ namespace KimodoBridge
                     return false;
                 }
 
-                int split = text.LastIndexOf(':');
-                if (split > 0 && split < text.Length - 1)
+                string[] lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                string firstLine = lines.Length > 0 ? lines[0].Trim() : text;
+                foreach (string line in lines)
                 {
-                    string rawHost = text.Substring(0, split).Trim();
-                    string rawPort = text.Substring(split + 1).Trim();
+                    int eqIndex = line.IndexOf('=');
+                    if (eqIndex <= 0)
+                    {
+                        continue;
+                    }
+
+                    string key = line.Substring(0, eqIndex).Trim();
+                    string value = line.Substring(eqIndex + 1).Trim();
+                    if (key.Equals("host", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!string.IsNullOrWhiteSpace(value))
+                        {
+                            host = value;
+                        }
+                    }
+                    else if (key.Equals("port", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (TryParsePort(value, out int parsedPort))
+                        {
+                            port = parsedPort;
+                        }
+                    }
+                }
+
+                if (port > 0 && TryParseHost(host, out host))
+                {
+                    return true;
+                }
+
+                int split = firstLine.LastIndexOf(':');
+                if (split > 0 && split < firstLine.Length - 1)
+                {
+                    string rawHost = firstLine.Substring(0, split).Trim();
+                    string rawPort = firstLine.Substring(split + 1).Trim();
                     if (!TryParsePort(rawPort, out port))
                     {
                         error = $"invalid port in serverport: '{rawPort}'";
@@ -105,9 +138,9 @@ namespace KimodoBridge
                     return true;
                 }
 
-                if (!TryParsePort(text, out port))
+                if (!TryParsePort(firstLine, out port))
                 {
-                    error = $"invalid serverport content: '{text}'";
+                    error = $"invalid serverport content: '{firstLine}'";
                     return false;
                 }
 

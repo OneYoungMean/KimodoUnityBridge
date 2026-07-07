@@ -17,36 +17,17 @@ set "UV_ARTIFACT=uv-x86_64-pc-windows-msvc.zip"
 set "UV_GITHUB_URL=https://github.com/astral-sh/uv/releases/download/%UV_VERSION%/%UV_ARTIFACT%"
 set "UV_USTC_URL=https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/%UV_VERSION%/%UV_ARTIFACT%"
 set "UV_AUTO_INSTALL="
-set "RAW_ARGS=%*"
-if /I not "%RAW_ARGS:--output file=%"=="%RAW_ARGS%" set "UV_AUTO_INSTALL=1"
-if /I not "%RAW_ARGS:--output \"file\"=%"=="%RAW_ARGS%" set "UV_AUTO_INSTALL=1"
 if defined KIMODO_AUTO_INSTALL_UV set "UV_AUTO_INSTALL=%KIMODO_AUTO_INSTALL_UV%"
-if defined KIMODO_TEST_VENV_PATH (
-  echo [ERROR] KIMODO_TEST_VENV_PATH has been removed. Use KIMODO_VENV_PATH.
-  exit /b 1
-)
-if defined KIMODO_TEST_SETUP_DEVICE (
-  echo [ERROR] KIMODO_TEST_SETUP_DEVICE has been removed. Use KIMODO_SETUP_DEVICE.
-  exit /b 1
-)
-if defined KIMODO_CPU_TEXT_ENCODER (
-  echo [ERROR] KIMODO_CPU_TEXT_ENCODER has been removed. QuickServer now auto-selects the local INT8 text encoder route.
-  exit /b 1
-)
-if defined CHECKPOINT_DIR (
-  echo [ERROR] CHECKPOINT_DIR has been removed. Use KIMODO_MODELS_ROOT.
-  exit /b 1
-)
-set "VENV_OVERRIDE=%KIMODO_VENV_PATH%"
-set "PASSTHROUGH_ARGS="
 set "SETUP_ARGS=setup --output file"
-set "HAS_VENV_ARG="
-set "EXPLICIT_VENV="
+set "CLI_ARGS=run --output file"
+set "EXPLICIT_VENV=%KIMODO_VENV_PATH%"
 
-call :acquire_bootstrap_lock || exit /b 1
+call :acquire_bootstrap_lock
+if errorlevel 1 exit /b 1
 call :resolve_uv_bin
 if not defined UV_BIN (
-  call :prompt_install_uv || goto cleanup_fail
+  call :prompt_install_uv
+  if errorlevel 1 goto cleanup_fail
   call :resolve_uv_bin
 )
 if not defined UV_BIN (
@@ -54,48 +35,39 @@ if not defined UV_BIN (
   goto cleanup_fail
 )
 
-:collect_args
-if "%~1"=="" goto setup_phase
-set "NEXT=%~1"
-if /I "%NEXT%"=="--force-setup" set "SETUP_ARGS=%SETUP_ARGS% --force-setup"
-if /I "%NEXT%"=="--force" set "SETUP_ARGS=%SETUP_ARGS% --force"
-if /I "%NEXT%"=="--venv" (
-  set "HAS_VENV_ARG=1"
+:parse_args
+if "%~1"=="" goto after_parse
+if /I "%~1"=="--force-setup" (
+  set "SETUP_ARGS=%SETUP_ARGS% --force-setup"
+  set "CLI_ARGS=%CLI_ARGS% --force-setup"
+  shift
+  goto parse_args
+)
+if /I "%~1"=="--watchpid" (
+  if "%~2"=="" (
+    echo [ERROR] --watchpid requires a value.
+    goto cleanup_fail
+  )
+  set "CLI_ARGS=%CLI_ARGS% --watchpid %~2"
+  shift
+  shift
+  goto parse_args
+)
+if /I "%~1"=="--venv" (
   if "%~2"=="" (
     echo [ERROR] --venv requires a path.
     goto cleanup_fail
   )
   set "EXPLICIT_VENV=%~2"
   set "SETUP_ARGS=%SETUP_ARGS% --venv ""%~2"""
-)
-if defined PASSTHROUGH_ARGS (
-  set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! "!NEXT!""
-) else (
-  set "PASSTHROUGH_ARGS="!NEXT!""
+  shift
+  shift
+  goto parse_args
 )
 shift
-if /I "%NEXT%"=="--venv" (
-  set "NEXT=%~1"
-  if defined PASSTHROUGH_ARGS (
-    set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! "!NEXT!""
-  ) else (
-    set "PASSTHROUGH_ARGS="!NEXT!""
-  )
-  shift
-)
-goto collect_args
+goto parse_args
 
-:setup_phase
-if defined VENV_OVERRIDE if not defined HAS_VENV_ARG (
-  set "SETUP_ARGS=%SETUP_ARGS% --venv ""%VENV_OVERRIDE%"""
-  if defined PASSTHROUGH_ARGS (
-    set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! "--venv" "%VENV_OVERRIDE%""
-  ) else (
-    set "PASSTHROUGH_ARGS="--venv" "%VENV_OVERRIDE%""
-  )
-  set "EXPLICIT_VENV=%VENV_OVERRIDE%"
-)
-
+:after_parse
 "%UV_BIN%" run --python 3.12 --no-project python "%ROOT_DIR%\quickserver.py" %SETUP_ARGS%
 if errorlevel 1 goto cleanup_fail
 
@@ -107,7 +79,14 @@ if not defined VENV_PYTHON (
 
 call :release_bootstrap_lock
 set "PYTHONPATH=%SOURCE_ROOT%"
-"%VENV_PYTHON%" -m kimodo.bridge.quickserver_cli run --output file %PASSTHROUGH_ARGS%
+if not exist "%ROOT_DIR%\log" mkdir "%ROOT_DIR%\log" >nul 2>nul
+> "%ROOT_DIR%\log\run_server_cli_launch.log" (
+  echo VENV_PYTHON=%VENV_PYTHON%
+  echo SOURCE_ROOT=%SOURCE_ROOT%
+  echo CLI_ARGS=%CLI_ARGS%
+)
+"%VENV_PYTHON%" -m kimodo.bridge.quickserver_cli %CLI_ARGS%
+>> "%ROOT_DIR%\log\run_server_cli_launch.log" echo CLI_RC=%ERRORLEVEL%
 exit /b %ERRORLEVEL%
 
 :cleanup_fail
@@ -117,10 +96,7 @@ exit /b 1
 :acquire_bootstrap_lock
 set "BOOTSTRAP_PID="
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "[System.Diagnostics.Process]::GetCurrentProcess().Id"`) do set "BOOTSTRAP_PID=%%I"
-if not defined BOOTSTRAP_PID (
-  echo [ERROR] Failed to resolve bootstrap pid.
-  exit /b 1
-)
+if not defined BOOTSTRAP_PID exit /b 1
 
 :lock_wait
 if exist "%BOOTSTRAP_LOCK%" (
@@ -131,6 +107,7 @@ if exist "%BOOTSTRAP_LOCK%" (
   if defined LOCK_OWNER (
     tasklist /FI "PID eq !LOCK_OWNER!" 2>nul | findstr /R /C:"[ ]!LOCK_OWNER![ ]" >nul
     if not errorlevel 1 (
+      if exist "%ROOT_DIR%\serverport" goto :eof
       timeout /t 1 /nobreak >nul
       goto lock_wait
     )
@@ -156,23 +133,17 @@ exit /b 0
 :resolve_venv_python
 set "VENV_PYTHON="
 if defined EXPLICIT_VENV (
-  call :venv_to_python "%EXPLICIT_VENV%"
-  exit /b 0
-)
-call :venv_to_python "%SOURCE_ROOT%\.venv"
-exit /b 0
-
-:venv_to_python
-set "VENV_CANDIDATE=%~1"
-if not defined VENV_CANDIDATE exit /b 0
-if exist "%VENV_CANDIDATE%" (
-  if /I "%VENV_CANDIDATE:~-10%"=="python.exe" (
-    set "VENV_PYTHON=%VENV_CANDIDATE%"
+  if exist "%EXPLICIT_VENV%\Scripts\python.exe" (
+    set "VENV_PYTHON=%EXPLICIT_VENV%\Scripts\python.exe"
+    exit /b 0
+  )
+  if exist "%EXPLICIT_VENV%" (
+    set "VENV_PYTHON=%EXPLICIT_VENV%"
     exit /b 0
   )
 )
-if exist "%VENV_CANDIDATE%\Scripts\python.exe" (
-  set "VENV_PYTHON=%VENV_CANDIDATE%\Scripts\python.exe"
+if exist "%SOURCE_ROOT%\.venv\Scripts\python.exe" (
+  set "VENV_PYTHON=%SOURCE_ROOT%\.venv\Scripts\python.exe"
 )
 exit /b 0
 
@@ -216,9 +187,5 @@ if not exist "%UV_TOOL_DIR%" mkdir "%UV_TOOL_DIR%" >nul 2>nul
 echo [INFO] Probing uv download sources for this launch...
 echo [INFO] Download uv...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$installDir='%UV_TOOL_DIR%';$artifact='%UV_ARTIFACT%';$probeTimeout=%UV_PROBE_TIMEOUT_SEC%;$downloadTimeout=%UV_INSTALL_TIMEOUT_SEC%;$candidates=@(@{Name='github';Url='%UV_GITHUB_URL%'},@{Name='ustc';Url='%UV_USTC_URL%'});function Probe([string]$name,[string]$url){$result=& curl.exe -I -L -o NUL -s -w '%%{http_code} %%{time_total}' --max-time $probeTimeout $url; if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($result)){Write-Host ('[PROBE] uv {0}: failed, timeout={1}s, {2}' -f $name,$probeTimeout,$url); return $null}; $parts=$result.Trim().Split(' '); if($parts.Length -lt 2){Write-Host ('[PROBE] uv {0}: failed, malformed response, {1}' -f $name,$url); return $null}; $status=[int]$parts[0]; $seconds=0.0; [double]::TryParse($parts[1],[ref]$seconds) | Out-Null; $ms=[int][Math]::Round($seconds*1000); if($status -ge 200 -and $status -lt 400){Write-Host ('[PROBE] uv {0}: ok, {1} ms, {2}' -f $name,$ms,$url); return [pscustomobject]@{Name=$name;Url=$url;Ms=$ms}}; Write-Host ('[PROBE] uv {0}: failed, status={1}, {2}' -f $name,$status,$url); return $null}; $probed=@(); foreach($c in $candidates){$r=Probe $c.Name $c.Url; if($null -ne $r){$probed+=$r}}; if($probed.Count -eq 0){throw 'Unable to reach any uv download source for this launch.'}; $selected=$probed | Sort-Object Ms | Select-Object -First 1; Write-Host ('[INFO] Selected uv source: {0}' -f $selected.Name); $tempRoot=Join-Path ([IO.Path]::GetTempPath()) ('kimodo-uv-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null; try { $archivePath=Join-Path $tempRoot $artifact; & curl.exe -L --fail --silent --show-error --max-time $downloadTimeout -o $archivePath $selected.Url; if($LASTEXITCODE -ne 0){throw 'curl download failed.'}; Expand-Archive -LiteralPath $archivePath -DestinationPath $tempRoot -Force; New-Item -ItemType Directory -Force -Path $installDir | Out-Null; foreach($name in @('uv.exe','uvx.exe','uvw.exe')){ $source=Join-Path $tempRoot $name; if(Test-Path -LiteralPath $source){ Copy-Item -LiteralPath $source -Destination (Join-Path $installDir $name) -Force } }; Write-Host '[INFO] Download uv complete.' } finally { if(Test-Path -LiteralPath $tempRoot){ Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue } }"
-if errorlevel 1 (
-  echo [ERROR] Failed to download uv automatically within 10 minutes.
-  echo [ERROR] Please install uv manually, or place uv under: %UV_TOOL_DIR%
-  exit /b 1
-)
+if errorlevel 1 exit /b 1
 exit /b 0

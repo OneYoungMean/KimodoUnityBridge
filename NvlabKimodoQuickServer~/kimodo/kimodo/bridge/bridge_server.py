@@ -580,6 +580,12 @@ def _probe_bitsandbytes() -> tuple[bool, bool]:
 def _runtime_self_check(requested_device: str | None) -> _RuntimeSelfCheckResult:
     requested = str(requested_device or "").strip().lower()
     total_vram_gb = _detect_total_vram_gb()
+    raw_simulated_vram = os.environ.get("KIMODO_SIMULATE_VRAM_GB", "").strip()
+    if raw_simulated_vram:
+        try:
+            total_vram_gb = max(0.0, float(raw_simulated_vram))
+        except Exception:
+            pass
 
     candidates: list[tuple[str, str]] = []
     if requested:

@@ -9,6 +9,7 @@ from pathlib import Path
 import socket
 import threading
 import time
+import sys
 from typing import Any
 
 from . import bridge_server as bridge_impl
@@ -94,8 +95,20 @@ def _remove_file(path: Path) -> None:
         pass
 
 
-def _write_serverport(path: Path, host: str, port: int) -> None:
-    bridge_impl._write_text_atomic(str(path), f"{host}:{port}\n")
+def _write_serverport(path: Path, host: str, port: int, state_name: str) -> None:
+    bridge_impl._write_text_atomic(
+        str(path),
+        "\n".join(
+            [
+                f"{host}:{port}",
+                f"host={host}",
+                f"port={port}",
+                f"state={state_name}",
+                f"pid={os.getpid()}",
+                "",
+            ]
+        ),
+    )
 
 
 def _build_signature(config: dict[str, Any]) -> str:
@@ -106,6 +119,7 @@ def _build_signature(config: dict[str, Any]) -> str:
             f"force_cpu={int(bool(config['force_cpu']))}",
             f"models_root={config['models_root']}",
             f"force_hf_download={int(bool(config['force_hf_download']))}",
+            f"simulate_vram_gb={config['simulate_vram_gb']}",
         ]
     )
 
@@ -124,6 +138,7 @@ def _normalize_runtime_config(req: dict[str, Any], defaults: dict[str, Any]) -> 
         "force_cpu": force_cpu,
         "models_root": models_root,
         "force_hf_download": _bool_value(req.get("force_hf_download"), _bool_value(defaults.get("force_hf_download"))),
+        "simulate_vram_gb": int(req.get("simulate_vram_gb") or defaults.get("simulate_vram_gb") or 0),
     }
 
 
@@ -184,6 +199,11 @@ def _ensure_runtime(
         os.environ["KIMODO_MODELS_ROOT"] = config["models_root"]
     else:
         os.environ.pop("KIMODO_MODELS_ROOT", None)
+
+    if int(config["simulate_vram_gb"] or 0) > 0:
+        os.environ["KIMODO_SIMULATE_VRAM_GB"] = str(int(config["simulate_vram_gb"]))
+    else:
+        os.environ.pop("KIMODO_SIMULATE_VRAM_GB", None)
 
     requested_device = "cpu" if config["force_cpu"] else None
     runtime_profile = bridge_impl._runtime_self_check(requested_device)
@@ -291,7 +311,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     server.bind((host, 0))
     server.listen(16)
     host, port = server.getsockname()
-    _write_serverport(serverport_path, host, int(port))
+    _write_serverport(serverport_path, host, int(port), "boot")
     logger.log(f"[INFO] quickserver_cli listening on {host}:{port}")
 
     state: dict[str, Any] = {
@@ -304,6 +324,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             "force_cpu": str(args.device or "").strip().lower() == "cpu",
             "models_root": str(args.models_root or "").strip(),
             "force_hf_download": bool(args.force_hf_download),
+            "simulate_vram_gb": 0,
         },
         "runtime_signature": "",
         "runtime_config": None,
@@ -315,6 +336,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "tasks": {},
         "active_task_id": "",
         "active_cancel_event": None,
+        "active_command_count": 0,
+        "server_state": "boot",
     }
     state_lock = threading.Lock()
     queue_changed = threading.Condition(state_lock)
@@ -322,6 +345,20 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
 
     def touch_activity() -> None:
         with state_lock:
+            state["last_activity"] = time.time()
+
+    def publish_state(state_name: str) -> None:
+        state["server_state"] = state_name
+        _write_serverport(serverport_path, host, int(port), state_name)
+
+    def begin_command() -> None:
+        with state_lock:
+            state["active_command_count"] = int(state.get("active_command_count") or 0) + 1
+            state["last_activity"] = time.time()
+
+    def end_command() -> None:
+        with state_lock:
+            state["active_command_count"] = max(0, int(state.get("active_command_count") or 0) - 1)
             state["last_activity"] = time.time()
 
     def request_shutdown(reason: str) -> None:
@@ -356,7 +393,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 owner_pid = int(state.get("owner_pid") or 0)
                 idle_seconds = time.time() - float(state.get("last_activity") or 0.0)
                 has_runtime = state.get("model") is not None
-                has_work = bool(state["queue"]) or bool(state.get("active_task_id"))
+                has_work = bool(state["queue"]) or bool(state.get("active_task_id")) or int(state.get("active_command_count") or 0) > 0
 
             if owner_pid > 0 and not _pid_is_running(owner_pid):
                 request_shutdown(f"owner pid {owner_pid} exited")
@@ -369,7 +406,12 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             if not has_work and has_runtime and idle_seconds >= max(30, idle_timeout_seconds // 2 if idle_timeout_seconds > 0 else 300):
                 with runtime_gate:
                     with state_lock:
-                        if state["model"] is not None and not state["queue"] and not state["active_task_id"]:
+                        if (
+                            state["model"] is not None
+                            and not state["queue"]
+                            and not state["active_task_id"]
+                            and int(state.get("active_command_count") or 0) == 0
+                        ):
                             _release_runtime(state, logger)
 
     def worker_loop() -> None:
@@ -384,12 +426,15 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 cancel_event = task["cancel_event"]
                 state["active_task_id"] = task_id
                 state["active_cancel_event"] = cancel_event
+                publish_state("generating")
 
             try:
                 with state_lock:
                     runtime_config = dict(task["runtime_config"])
                 with runtime_gate:
+                    publish_state("loading_runtime")
                     _ensure_runtime(state, runtime_config, kimodo_root, logger)
+                    publish_state("generating")
                 response, binary_payload = _execute_generate(task["request"], state["model"], cancel_event)
             except bridge_impl.GenerateCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
@@ -410,6 +455,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     state["active_task_id"] = ""
                     state["active_cancel_event"] = None
                     state["last_activity"] = time.time()
+                    publish_state("idle")
                     queue_changed.notify_all()
 
     threading.Thread(target=owner_watchdog, daemon=True).start()
@@ -457,18 +503,24 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
 
                 try:
                     if cmd == "start":
+                        begin_command()
                         runtime_config = _normalize_runtime_config(request, state["default_config"])
-                        with state_lock:
-                            if state.get("active_task_id"):
-                                bridge_impl._write_json_line(file, {"status": "busy", "message": "Cannot reconfigure runtime while generating."})
-                                continue
-                            state["default_config"] = dict(runtime_config)
-                            owner_pid = int(request.get("owner_pid") or 0)
-                            if owner_pid > 0:
-                                state["owner_pid"] = owner_pid
-                        with runtime_gate:
-                            info = _ensure_runtime(state, runtime_config, kimodo_root, logger)
-                        bridge_impl._write_json_line(file, {"status": "ready", **info})
+                        try:
+                            with state_lock:
+                                if state.get("active_task_id"):
+                                    bridge_impl._write_json_line(file, {"status": "busy", "message": "Cannot reconfigure runtime while generating."})
+                                    continue
+                                state["default_config"] = dict(runtime_config)
+                                owner_pid = int(request.get("owner_pid") or 0)
+                                if owner_pid > 0:
+                                    state["owner_pid"] = owner_pid
+                            with runtime_gate:
+                                publish_state("loading_runtime")
+                                info = _ensure_runtime(state, runtime_config, kimodo_root, logger)
+                                publish_state("idle")
+                            bridge_impl._write_json_line(file, {"status": "ready", **info})
+                        finally:
+                            end_command()
                     elif cmd == "generate":
                         task_id = str(request.get("task_id") or "").strip()
                         if not task_id:
@@ -529,6 +581,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     bridge_impl._write_json_line(file, {"status": "error", "message": str(exc)})
 
     try:
+        publish_state("boot")
         while True:
             with state_lock:
                 if state["shutdown"]:
@@ -558,7 +611,7 @@ def main(argv: list[str] | None = None, *, root_dir: str | None = None, source_r
     del source_root
 
     parser = _build_parser()
-    args = parser.parse_args(list(argv or []))
+    args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     paths = discover_project_paths(root_dir)
 
     if args.action == "watchdog":
@@ -567,3 +620,7 @@ def main(argv: list[str] | None = None, *, root_dir: str | None = None, source_r
 
     with _prepare_logger(paths, args.output, args.log, BRIDGE_LOG_NAME, append=True) as logger:
         return _run_supervisor(args, str(paths.root_dir), logger)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
