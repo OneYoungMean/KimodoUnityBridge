@@ -248,7 +248,7 @@ def _provision_bridge_assets(
     logger = _BridgeAssetLogger()
     recovery_flag_dir = Path(kimodo_root).resolve() / "archive" / "recovery_flags"
     recycle_dir = Path(kimodo_root).resolve() / "archive" / "recycle"
-    allow_download = not plan.using_external_models
+    allow_download = True
     download_counter = [0]
 
     _apply_bridge_runtime_env(kimodo_root, plan)
