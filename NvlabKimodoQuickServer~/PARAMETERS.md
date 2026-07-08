@@ -40,16 +40,9 @@ INT8 资产说明：
   - 若同时存在且有效：`models\Meta-Llama-3-8B-Instruct` + `models\LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised`，优先走 legacy 本地兼容加载
   - 否则使用 `models\KIMODO-Meta3_llm2vec_FP16`
 
-### 启动与 watchdog
-- `KIMODO_WATCHDOG_STARTUP_INTERVAL_SEC`: 启动阶段等待 `serverport` 的轮询间隔（默认 `1` 秒）。
-- `KIMODO_WATCHDOG_STARTUP_MAX_FAILS`: 启动阶段等待 `serverport` 的最大轮询次数（默认 `180`）。
-- `KIMODO_WATCHDOG_RUNTIME_INTERVAL_SEC`: 运行阶段检查 `log\bridge_server.log` 更新时间间隔（默认 `1` 秒）。
-- `KIMODO_WATCHDOG_IDLE_NOLOG_MAX`: 运行阶段日志未更新的最大连续次数（默认 `300`），超过则自动关闭进程。
-
-说明：
-- 默认启动等待窗口约 `180s`（`1s * 180`）。
-- 不做 `serverport` 回填、不做 TCP 探活；`serverport` 仅由 bridge server 写入。
+### 启动说明
 - `run_server.bat setup` / `run_server.sh setup` 都是同一条 Python 入口的子命令，用于单独执行 setup。
+- `serverport` 仅由当前 TCP supervisor 写入；Unity 侧只读取 `serverport` 并建立 TCP 连接，不再做独立 ping 探活。
 - `KIMODO_BRIDGE_OUTPUT_FORMAT=bvh` 是给直接消费 QuickServer TCP 返回值的外部客户端使用的。现有 Unity 客户端仍然依赖 `motion_json_compact`，不应在 Unity 这条链路上开启。
 
 已移除变量：
@@ -60,7 +53,7 @@ INT8 资产说明：
 - `KIMODO_TEST_VENV_PATH`: 改用 `KIMODO_VENV_PATH`。
 
 ## 3. `example\example_run_server_tpose.bat`
-- 默认流程：后台启动 `run_server` -> 读取 `serverport` -> 发送 `ping/generate(tpose)/quit`。
+- 当前 `example\` 目录仍保留旧示例脚本，尚未完全迁移到最新 TCP 生命周期；请优先使用 `run_integration_tests.bat/.sh` 与 `integration_test_suite.py`。
 - 通过判定：客户端退出码 `0` 且出现 `status=done`。
 
 相关环境变量：
@@ -77,6 +70,5 @@ INT8 资产说明：
 - 典型文件：
   - `log\setup.log`
   - `log\bridge_server.log`（run/bridge 主日志）
-  - `log\watchdog.log`
   - `log\example_run_server_tpose.log`
   - `log\example_run_server_tpose_client.log`

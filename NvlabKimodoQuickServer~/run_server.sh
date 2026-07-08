@@ -10,11 +10,20 @@ fi
 BOOTSTRAP_LOCK="${ROOT_DIR}/.bootstrap.lock"
 UV_INSTALL_TIMEOUT_SEC=600
 UV_PROBE_TIMEOUT_SEC=1
+if [[ -n "${KIMODO_UV_INSTALL_TIMEOUT_SEC:-}" ]]; then
+  UV_INSTALL_TIMEOUT_SEC="${KIMODO_UV_INSTALL_TIMEOUT_SEC}"
+fi
+if [[ -n "${KIMODO_UV_PROBE_TIMEOUT_SEC:-}" ]]; then
+  UV_PROBE_TIMEOUT_SEC="${KIMODO_UV_PROBE_TIMEOUT_SEC}"
+fi
 UV_VERSION="0.11.25"
 UV_SELECTED_NAME=""
 UV_SELECTED_URL=""
 UV_SELECTED_MS=""
 LOCK_HELD=0
+BOOTSTRAP_WAIT_LOGGED=0
+BOOTSTRAP_HOLD_SEC="${KIMODO_BOOTSTRAP_HOLD_SEC:-}"
+BOOTSTRAP_WAIT_LOG="${ROOT_DIR}/log/bootstrap_wait.log"
 
 cleanup_lock() {
   if [[ "${LOCK_HELD}" == "1" && -f "${BOOTSTRAP_LOCK}" ]]; then
@@ -37,6 +46,12 @@ acquire_bootstrap_lock() {
       local owner_pid=""
       owner_pid="$(awk -F= '$1=="owner_pid"{print $2}' "${BOOTSTRAP_LOCK}" 2>/dev/null | tr -d '\r' | head -n 1)"
       if [[ -n "${owner_pid}" ]] && pid_is_running "${owner_pid}"; then
+        if [[ "${BOOTSTRAP_WAIT_LOGGED}" != "1" ]]; then
+          mkdir -p "${ROOT_DIR}/log"
+          echo "[INFO] Bootstrap wait: lock is held by pid ${owner_pid}, waiting for setup to finish..."
+          printf '[INFO] pid=%s waiting_on=%s at=%s\n' "$$" "${owner_pid}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "${BOOTSTRAP_WAIT_LOG}"
+          BOOTSTRAP_WAIT_LOGGED=1
+        fi
         sleep 1
         continue
       fi
@@ -65,6 +80,8 @@ release_bootstrap_lock() {
 resolve_uv_bin() {
   if [[ -n "${KIMODO_UV_BIN:-}" ]]; then
     echo "${KIMODO_UV_BIN}"
+  elif [[ "${KIMODO_FORCE_DOWNLOAD_UV:-}" == "1" || "${KIMODO_FORCE_DOWNLOAD_UV:-}" == "true" || "${KIMODO_FORCE_DOWNLOAD_UV:-}" == "yes" ]]; then
+    echo ""
   elif [[ -x "${ROOT_DIR}/program/exe/uv/uv" ]]; then
     echo "${ROOT_DIR}/program/exe/uv/uv"
   elif [[ -x "${ROOT_DIR}/program/exe/uv/uv.exe" ]]; then
@@ -93,10 +110,13 @@ install_uv_locally() {
   github_url="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${artifact}"
   probe_uv_candidate "github" "${github_url}"
   if [[ -z "${UV_SELECTED_URL}" ]]; then
-    echo "[ERROR] Failed to choose a uv download source."
-    return 1
+    UV_SELECTED_NAME="github"
+    UV_SELECTED_URL="${github_url}"
+    UV_SELECTED_MS=""
+    echo "[WARN] uv probe failed for every source, falling back to direct download from: ${UV_SELECTED_NAME}"
+  else
+    echo "[INFO] Selected uv source: ${UV_SELECTED_NAME}"
   fi
-  echo "[INFO] Selected uv source: ${UV_SELECTED_NAME}"
   tmp_dir="$(mktemp -d 2>/dev/null || mktemp -d -t kimodo-uv)"
   trap 'rm -rf "${tmp_dir}"' RETURN
   run_with_timeout "${UV_INSTALL_TIMEOUT_SEC}" curl -L --fail --silent --show-error --output "${tmp_dir}/${artifact}" "${UV_SELECTED_URL}" || return 1
@@ -245,6 +265,11 @@ resolve_python_from_venv() {
 }
 
 acquire_bootstrap_lock
+
+if [[ -n "${BOOTSTRAP_HOLD_SEC}" ]]; then
+  echo "[INFO] Bootstrap hold: sleeping for ${BOOTSTRAP_HOLD_SEC}s before setup..."
+  sleep "${BOOTSTRAP_HOLD_SEC}"
+fi
 
 UV_BIN="$(resolve_uv_bin)"
 

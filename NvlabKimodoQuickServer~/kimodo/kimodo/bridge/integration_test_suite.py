@@ -23,12 +23,28 @@ TPROMPT = "tpose"
 
 
 @dataclass(frozen=True)
+class ResourcePolicy:
+    env: str
+    models: str
+    uv: str = "reuse"
+
+
+@dataclass(frozen=True)
 class TestCase:
     case_id: str
     name: str
     tags: tuple[str, ...]
     kind: str
+    resources: ResourcePolicy
     params: dict[str, Any] = field(default_factory=dict)
+
+
+RESOURCE_SHARED_RUNTIME = ResourcePolicy(env="shared", models="shared", uv="reuse")
+RESOURCE_LOCAL_ENV = ResourcePolicy(env="local", models="shared", uv="reuse")
+RESOURCE_LOCAL_MODELS = ResourcePolicy(env="shared", models="local", uv="reuse")
+RESOURCE_LOCAL_ENV_AND_MODELS = ResourcePolicy(env="local", models="local", uv="reuse")
+RESOURCE_FORCE_DOWNLOADED_UV = ResourcePolicy(env="shared", models="shared", uv="force_download")
+RESOURCE_DOWNLOAD_PROBE = ResourcePolicy(env="shared", models="probe", uv="probe")
 
 
 def _repo_root() -> Path:
@@ -101,52 +117,54 @@ def _send_json(
 
 def _list_cases() -> list[TestCase]:
     cases: list[TestCase] = [
-        TestCase("T01", "Basic T-Pose Generate", ("basic", "smoke"), "basic"),
-        TestCase("T02", "Double Start Same Params", ("basic", "multi-start"), "double_start_same"),
-        TestCase("T03", "Double Start Different Params", ("basic", "multi-start"), "double_start_diff"),
-        TestCase("T04", "Queue Order", ("basic", "queue"), "queue_order"),
-        TestCase("T05", "Stop Idle", ("basic", "stop"), "stop_idle"),
-        TestCase("T06", "Stop Generating", ("basic", "stop"), "stop_generating"),
-        TestCase("T07", "Cancel NonCurrent Boot", ("cancel", "boot"), "skip_placeholder"),
-        TestCase("T08", "Cancel NonCurrent CLI", ("cancel", "cli"), "cancel_queued"),
-        TestCase("T09", "Cancel Current Boot", ("cancel", "boot"), "abort_phase", {"phase": "boot"}),
-        TestCase("T10", "Cancel Current SettingUpEnv Immediate", ("cancel", "setting_up_env"), "abort_phase", {"phase": "setting_up_env", "delay_sec": 0}),
-        TestCase("T11", "Cancel Current SettingUpEnv 1s", ("cancel", "setting_up_env"), "abort_phase", {"phase": "setting_up_env", "delay_sec": 1}),
-        TestCase("T12", "Cancel Current SettingUpEnv 61s", ("cancel", "setting_up_env", "slow"), "abort_phase", {"phase": "setting_up_env", "delay_sec": 61}),
-        TestCase("T13", "Cancel Current SettingUpEnv 301s", ("cancel", "setting_up_env", "slow"), "abort_phase", {"phase": "setting_up_env", "delay_sec": 301}),
-        TestCase("T14", "Cancel Current SettingUpEnv 601s", ("cancel", "setting_up_env", "slow"), "abort_phase", {"phase": "setting_up_env", "delay_sec": 601}),
-        TestCase("T15", "Cancel Current Download Immediate", ("cancel", "download"), "abort_phase", {"phase": "download", "delay_sec": 0}),
-        TestCase("T16", "Cancel Current Download 1s", ("cancel", "download"), "abort_phase", {"phase": "download", "delay_sec": 1}),
-        TestCase("T17", "Cancel Current Download 61s", ("cancel", "download", "slow"), "abort_phase", {"phase": "download", "delay_sec": 61}),
-        TestCase("T18", "Cancel Current Download 301s", ("cancel", "download", "slow"), "abort_phase", {"phase": "download", "delay_sec": 301}),
-        TestCase("T19", "Cancel Current Download 601s", ("cancel", "download", "slow"), "abort_phase", {"phase": "download", "delay_sec": 601}),
-        TestCase("T20", "Cancel Current LoadingRuntime", ("cancel", "loading_runtime"), "abort_phase", {"phase": "loading_runtime", "delay_sec": 0}),
-        TestCase("T21", "Cancel Current Generating", ("cancel", "generating"), "cancel_active"),
-        TestCase("T22", "Cancel Empty Task Id", ("cancel", "invalid"), "cancel_invalid", {"mode": "empty"}),
-        TestCase("T23", "Cancel Unknown Task Id", ("cancel", "invalid"), "cancel_invalid", {"mode": "unknown"}),
-        TestCase("T24", "Cancel Finished Task Id", ("cancel", "invalid"), "cancel_finished"),
-        TestCase("T25", "Kill Owner Boot", ("owner-kill", "boot"), "owner_kill", {"phase": "boot"}),
-        TestCase("T26", "Kill Owner SettingUpEnv", ("owner-kill", "setting_up_env"), "owner_kill", {"phase": "setting_up_env"}),
-        TestCase("T27", "Kill Owner Download", ("owner-kill", "download"), "owner_kill", {"phase": "download"}),
-        TestCase("T28", "Kill Owner LoadingRuntime", ("owner-kill", "loading_runtime"), "owner_kill", {"phase": "loading_runtime"}),
-        TestCase("T29", "Kill Owner Generating", ("owner-kill", "generating"), "owner_kill", {"phase": "generating"}),
-        TestCase("T30", "Owner Kill Recovery", ("owner-kill", "recovery"), "owner_kill_recovery"),
-        TestCase("T31", "Kill CLI Boot", ("cli-kill", "boot"), "cli_kill", {"phase": "boot"}),
-        TestCase("T32", "Kill CLI SettingUpEnv", ("cli-kill", "setting_up_env"), "cli_kill", {"phase": "setting_up_env"}),
-        TestCase("T33", "Kill CLI Download", ("cli-kill", "download"), "cli_kill", {"phase": "download"}),
-        TestCase("T34", "Kill CLI LoadingRuntime", ("cli-kill", "loading_runtime"), "cli_kill", {"phase": "loading_runtime"}),
-        TestCase("T35", "Kill CLI Generating", ("cli-kill", "generating"), "cli_kill", {"phase": "generating"}),
-        TestCase("T36", "No Cached Models", ("cache", "models"), "basic", {"share_models": False}),
-        TestCase("T37", "No Cached UV", ("cache", "uv"), "basic", {"uncached_uv": True}),
-        TestCase("T38", "High VRAM", ("runtime", "highvram"), "basic", {"highvram": True}),
-        TestCase("T39", "Simulate VRAM 1G", ("runtime", "simulate-vram"), "basic", {"simulate_vram_gb": 1}),
-        TestCase("T40", "Simulate VRAM 4G", ("runtime", "simulate-vram"), "basic", {"simulate_vram_gb": 4}),
-        TestCase("T41", "Simulate VRAM 6G", ("runtime", "simulate-vram"), "basic", {"simulate_vram_gb": 6}),
-        TestCase("T42", "Force HuggingFace Download", ("download", "hf"), "basic", {"force_hf_download": True}),
-        TestCase("T43", "No Shared Env", ("env", "setup"), "basic", {"share_env": False}),
-        TestCase("T44", "Use Shared Env", ("env", "shared"), "basic", {"share_env": True}),
-        TestCase("T45", "Use Shared Models", ("models", "shared"), "basic", {"share_models": True}),
-        TestCase("T46", "Download Source Health Probe", ("probe", "network", "manual"), "download_probe"),
+        TestCase("T01", "Basic T-Pose Generate", ("basic", "smoke"), "basic", RESOURCE_SHARED_RUNTIME),
+        TestCase("T02", "Double Start Same Params", ("basic", "multi-start"), "double_start_same", RESOURCE_SHARED_RUNTIME),
+        TestCase("T03", "Double Start Different Params", ("basic", "multi-start"), "double_start_diff", RESOURCE_SHARED_RUNTIME),
+        TestCase("T04", "Queue Order", ("basic", "queue"), "queue_order", RESOURCE_SHARED_RUNTIME),
+        TestCase("T05", "Stop Idle", ("basic", "stop"), "stop_idle", RESOURCE_SHARED_RUNTIME),
+        TestCase("T06", "Stop Generating", ("basic", "stop"), "stop_generating", RESOURCE_SHARED_RUNTIME),
+        TestCase("T07", "Cancel NonCurrent Boot", ("cancel", "boot"), "skip_placeholder", RESOURCE_SHARED_RUNTIME),
+        TestCase("T08", "Cancel NonCurrent CLI", ("cancel", "cli"), "cancel_queued", RESOURCE_SHARED_RUNTIME),
+        TestCase("T09", "Cancel Current Boot", ("cancel", "boot"), "abort_phase", RESOURCE_SHARED_RUNTIME, {"phase": "boot"}),
+        TestCase("T10", "Cancel Current SettingUpEnv Immediate", ("cancel", "setting_up_env"), "abort_phase", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env", "delay_sec": 0}),
+        TestCase("T11", "Cancel Current SettingUpEnv 1s", ("cancel", "setting_up_env"), "abort_phase", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env", "delay_sec": 1}),
+        TestCase("T12", "Cancel Current SettingUpEnv 61s", ("cancel", "setting_up_env", "slow"), "abort_phase", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env", "delay_sec": 61}),
+        TestCase("T13", "Cancel Current SettingUpEnv 301s", ("cancel", "setting_up_env", "slow"), "abort_phase", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env", "delay_sec": 301}),
+        TestCase("T14", "Cancel Current SettingUpEnv 601s", ("cancel", "setting_up_env", "slow"), "abort_phase", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env", "delay_sec": 601}),
+        TestCase("T15", "Cancel Current Download Immediate", ("cancel", "download"), "abort_phase", RESOURCE_LOCAL_MODELS, {"phase": "download", "delay_sec": 0}),
+        TestCase("T16", "Cancel Current Download 1s", ("cancel", "download"), "abort_phase", RESOURCE_LOCAL_MODELS, {"phase": "download", "delay_sec": 1}),
+        TestCase("T17", "Cancel Current Download 61s", ("cancel", "download", "slow"), "abort_phase", RESOURCE_LOCAL_MODELS, {"phase": "download", "delay_sec": 61}),
+        TestCase("T18", "Cancel Current Download 301s", ("cancel", "download", "slow"), "abort_phase", RESOURCE_LOCAL_MODELS, {"phase": "download", "delay_sec": 301}),
+        TestCase("T19", "Cancel Current Download 601s", ("cancel", "download", "slow"), "abort_phase", RESOURCE_LOCAL_MODELS, {"phase": "download", "delay_sec": 601}),
+        TestCase("T20", "Cancel Current LoadingRuntime", ("cancel", "loading_runtime"), "abort_phase", RESOURCE_SHARED_RUNTIME, {"phase": "loading_runtime", "delay_sec": 0}),
+        TestCase("T21", "Cancel Current Generating", ("cancel", "generating"), "cancel_active", RESOURCE_SHARED_RUNTIME),
+        TestCase("T22", "Cancel Empty Task Id", ("cancel", "invalid"), "cancel_invalid", RESOURCE_SHARED_RUNTIME, {"mode": "empty"}),
+        TestCase("T23", "Cancel Unknown Task Id", ("cancel", "invalid"), "cancel_invalid", RESOURCE_SHARED_RUNTIME, {"mode": "unknown"}),
+        TestCase("T24", "Cancel Finished Task Id", ("cancel", "invalid"), "cancel_finished", RESOURCE_SHARED_RUNTIME),
+        TestCase("T25", "Kill Owner Boot", ("owner-kill", "boot"), "owner_kill", RESOURCE_SHARED_RUNTIME, {"phase": "boot"}),
+        TestCase("T26", "Kill Owner SettingUpEnv", ("owner-kill", "setting_up_env"), "owner_kill", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env"}),
+        TestCase("T27", "Kill Owner Download", ("owner-kill", "download"), "owner_kill", RESOURCE_LOCAL_MODELS, {"phase": "download"}),
+        TestCase("T28", "Kill Owner LoadingRuntime", ("owner-kill", "loading_runtime"), "owner_kill", RESOURCE_SHARED_RUNTIME, {"phase": "loading_runtime"}),
+        TestCase("T29", "Kill Owner Generating", ("owner-kill", "generating"), "owner_kill", RESOURCE_SHARED_RUNTIME, {"phase": "generating"}),
+        TestCase("T30", "Owner Kill Recovery", ("owner-kill", "recovery"), "owner_kill_recovery", RESOURCE_SHARED_RUNTIME),
+        TestCase("T31", "Kill CLI Boot", ("cli-kill", "boot"), "cli_kill", RESOURCE_SHARED_RUNTIME, {"phase": "boot"}),
+        TestCase("T32", "Kill CLI SettingUpEnv", ("cli-kill", "setting_up_env"), "cli_kill", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env"}),
+        TestCase("T33", "Kill CLI Download", ("cli-kill", "download"), "cli_kill", RESOURCE_LOCAL_MODELS, {"phase": "download"}),
+        TestCase("T34", "Kill CLI LoadingRuntime", ("cli-kill", "loading_runtime"), "cli_kill", RESOURCE_SHARED_RUNTIME, {"phase": "loading_runtime"}),
+        TestCase("T35", "Kill CLI Generating", ("cli-kill", "generating"), "cli_kill", RESOURCE_SHARED_RUNTIME, {"phase": "generating"}),
+        TestCase("T36", "No Cached Models", ("cache", "models"), "basic", RESOURCE_LOCAL_MODELS),
+        TestCase("T37", "No Cached UV", ("cache", "uv"), "basic", RESOURCE_SHARED_RUNTIME, {"uncached_uv": True}),
+        TestCase("T38", "High VRAM", ("runtime", "highvram"), "basic", RESOURCE_SHARED_RUNTIME, {"highvram": True}),
+        TestCase("T39", "Simulate VRAM 1G", ("runtime", "simulate-vram"), "basic", RESOURCE_SHARED_RUNTIME, {"simulate_vram_gb": 1}),
+        TestCase("T40", "Simulate VRAM 4G", ("runtime", "simulate-vram"), "basic", RESOURCE_SHARED_RUNTIME, {"simulate_vram_gb": 4}),
+        TestCase("T41", "Simulate VRAM 6G", ("runtime", "simulate-vram"), "basic", RESOURCE_SHARED_RUNTIME, {"simulate_vram_gb": 6}),
+        TestCase("T42", "Force HuggingFace Download", ("download", "hf"), "basic", RESOURCE_LOCAL_MODELS, {"force_hf_download": True}),
+        TestCase("T43", "No Shared Env", ("env", "setup"), "basic", RESOURCE_LOCAL_ENV),
+        TestCase("T44", "Use Shared Env", ("env", "shared"), "basic", RESOURCE_SHARED_RUNTIME),
+        TestCase("T45", "Use Shared Models", ("models", "shared"), "basic", RESOURCE_SHARED_RUNTIME),
+        TestCase("T46", "Download Source Health Probe", ("probe", "network", "manual"), "download_probe", RESOURCE_DOWNLOAD_PROBE),
+        TestCase("T47", "Force Downloaded UV", ("cache", "uv", "download", "network", "manual"), "basic", RESOURCE_FORCE_DOWNLOADED_UV, {"uncached_uv": True, "force_download_uv": True}),
+        TestCase("T48", "Short Idle Timeout Override", ("timeout", "idle"), "idle_timeout_override", RESOURCE_SHARED_RUNTIME, {"idle_timeout_sec": 3}),
     ]
     return cases
 
@@ -224,12 +242,20 @@ def _shared_path(runtime_root: Path, names: tuple[str, ...], validator) -> str:
     return ""
 
 
+def _share_env(policy: ResourcePolicy) -> bool:
+    return policy.env == "shared"
+
+
+def _share_models(policy: ResourcePolicy) -> bool:
+    return policy.models == "shared"
+
+
 class TestContext:
     def __init__(self, case: TestCase):
         self.case = case
         self.repo_root = _repo_root()
         self.runtime_root = _runtime_root(self.repo_root)
-        self.run_root = self.repo_root / "test_runs" / (time.strftime("%Y%m%d_%H%M%S") + "_" + case.case_id)
+        self.run_root = self.runtime_root / "test_runs" / (time.strftime("%Y%m%d_%H%M%S") + "_" + case.case_id)
         self.workspace_root = self.run_root / "workspace"
         self.workspace_runtime = self.workspace_root / "NvlabKimodoQuickServer~"
         self.logs_dir = self.run_root / "logs"
@@ -252,6 +278,10 @@ class TestContext:
     @property
     def setup_log_path(self) -> Path:
         return self.workspace_runtime / "log" / "setup.log"
+
+    @property
+    def bootstrap_wait_log_path(self) -> Path:
+        return self.workspace_runtime / "log" / "bootstrap_wait.log"
 
     @property
     def bridge_log_path(self) -> Path:
@@ -328,9 +358,17 @@ def _wait_for_bootstrap_phase(ctx: TestContext, phase: str) -> None:
     raise ValueError(f"Unsupported phase: {phase}")
 
 
-def _start_launcher(ctx: TestContext, *, share_env: bool, uncached_uv: bool = False) -> None:
+def _start_launcher(
+    ctx: TestContext,
+    *,
+    share_env: bool,
+    uncached_uv: bool = False,
+    force_download_uv: bool = False,
+    bootstrap_hold_sec: int | None = None,
+    idle_timeout_sec: int | None = None,
+) -> None:
     env = os.environ.copy()
-    env["KIMODO_IDLE_TIMEOUT_SEC"] = "120"
+    env["KIMODO_IDLE_TIMEOUT_SEC"] = str(int(idle_timeout_sec if idle_timeout_sec is not None else 120))
     if share_env and ctx.shared_env_path:
         env["KIMODO_VENV_PATH"] = ctx.shared_env_path
     else:
@@ -338,6 +376,12 @@ def _start_launcher(ctx: TestContext, *, share_env: bool, uncached_uv: bool = Fa
     if uncached_uv:
         env["KIMODO_UV_BIN"] = ""
         env["UV_NO_CACHE"] = "1"
+    if force_download_uv:
+        env["KIMODO_FORCE_DOWNLOAD_UV"] = "1"
+        env["KIMODO_AUTO_INSTALL_UV"] = "1"
+        env["KIMODO_UV_PROBE_TIMEOUT_SEC"] = "15"
+    if bootstrap_hold_sec and bootstrap_hold_sec > 0:
+        env["KIMODO_BOOTSTRAP_HOLD_SEC"] = str(int(bootstrap_hold_sec))
 
     stdout_path = ctx.logs_dir / "launcher.out.log"
     stderr_path = ctx.logs_dir / "launcher.err.log"
@@ -462,7 +506,13 @@ def _stop_server(host: str, port: int) -> None:
 
 
 def _post_recovery_generate(ctx: TestContext, params: dict[str, Any]) -> None:
-    _start_launcher(ctx, share_env=params.get("share_env", True), uncached_uv=params.get("uncached_uv", False))
+    _start_launcher(
+        ctx,
+        share_env=params.get("share_env", True),
+        uncached_uv=params.get("uncached_uv", False),
+        force_download_uv=params.get("force_download_uv", False),
+        idle_timeout_sec=params.get("idle_timeout_sec"),
+    )
     host, port = _start_runtime(
         ctx,
         highvram=params.get("highvram", False),
@@ -539,8 +589,24 @@ def _start_phase_driver(
     return phase_thread, phase_errors
 
 
+def _resolved_case_params(case: TestCase) -> dict[str, Any]:
+    params = dict(case.params)
+    params.setdefault("share_env", _share_env(case.resources))
+    params.setdefault("share_models", _share_models(case.resources))
+    if case.resources.uv == "force_download":
+        params.setdefault("force_download_uv", True)
+        params.setdefault("uncached_uv", True)
+    return params
+
+
 def _run_basic(ctx: TestContext, params: dict[str, Any]) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=params.get("share_env", True), uncached_uv=params.get("uncached_uv", False))
+    _start_launcher(
+        ctx,
+        share_env=params.get("share_env", True),
+        uncached_uv=params.get("uncached_uv", False),
+        force_download_uv=params.get("force_download_uv", False),
+        idle_timeout_sec=params.get("idle_timeout_sec"),
+    )
     host, port = _start_runtime(
         ctx,
         highvram=params.get("highvram", False),
@@ -554,11 +620,20 @@ def _run_basic(ctx: TestContext, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run_double_start(ctx: TestContext, params: dict[str, Any], different: bool) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=True)
+    _start_launcher(ctx, share_env=params.get("share_env", True), bootstrap_hold_sec=10, idle_timeout_sec=params.get("idle_timeout_sec"))
     second_log = ctx.logs_dir / "launcher_second.out.log"
     env = os.environ.copy()
     second_proc = subprocess.Popen(ctx.launcher_command(), cwd=str(ctx.workspace_runtime), env=env, stdout=second_log.open("w", encoding="utf-8"), stderr=subprocess.STDOUT, text=True)
     try:
+        bootstrap_wait_text = _wait_for(
+            lambda: (
+                ctx.bootstrap_wait_log_path.read_text(encoding="utf-8", errors="replace")
+                if ctx.bootstrap_wait_log_path.exists() and "waiting_on=" in ctx.bootstrap_wait_log_path.read_text(encoding="utf-8", errors="replace")
+                else None
+            ),
+            20.0,
+            "bootstrap wait log",
+        )
         host, port = _start_runtime(
             ctx,
             highvram=different,
@@ -566,14 +641,25 @@ def _run_double_start(ctx: TestContext, params: dict[str, Any], different: bool)
         )
         _generate_tpose(ctx, host, port)
         _stop_server(host, port)
-        return {"status": "passed", "second_pid": second_proc.pid}
+        second_log_text = second_log.read_text(encoding="utf-8", errors="replace") if second_log.exists() else ""
+        wait_detected = "waiting_on=" in bootstrap_wait_text
+        if not wait_detected:
+            raise RuntimeError(f"Second bootstrap did not emit a wait log. Inspect: {second_log}")
+        return {
+            "status": "passed",
+            "second_pid": second_proc.pid,
+            "second_log_path": str(second_log),
+            "bootstrap_wait_log_path": str(ctx.bootstrap_wait_log_path),
+            "second_bootstrap_wait_detected": wait_detected,
+            "second_launcher_log_excerpt": second_log_text[:500],
+        }
     finally:
         if second_proc.poll() is None:
             second_proc.terminate()
 
 
 def _run_queue_order(ctx: TestContext) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=True)
+    _start_launcher(ctx, share_env=_share_env(ctx.case.resources))
     host, port = _start_runtime(ctx)
     import threading
 
@@ -600,7 +686,8 @@ def _run_queue_order(ctx: TestContext) -> dict[str, Any]:
 
 
 def _run_stop_generating(ctx: TestContext) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=True)
+    params = _resolved_case_params(ctx.case)
+    _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
     host, port = _start_runtime(ctx)
     import threading
 
@@ -617,12 +704,35 @@ def _run_stop_generating(ctx: TestContext) -> dict[str, Any]:
     _wait_for(lambda: _read_serverport(ctx.serverport_path).get("state") == "generating", 120, "generating state")
     _stop_server(host, port)
     thread.join(timeout=30)
-    _post_recovery_generate(ctx, {})
+    _post_recovery_generate(ctx, params)
     return {"status": "passed", "errors": error_holder}
 
 
+def _run_idle_timeout_override(ctx: TestContext, params: dict[str, Any]) -> dict[str, Any]:
+    idle_timeout_sec = int(params.get("idle_timeout_sec") or 3)
+    _start_launcher(
+        ctx,
+        share_env=params.get("share_env", True),
+        uncached_uv=params.get("uncached_uv", False),
+        force_download_uv=params.get("force_download_uv", False),
+        idle_timeout_sec=idle_timeout_sec,
+    )
+    host, port = _start_runtime(
+        ctx,
+        highvram=params.get("highvram", False),
+        force_hf_download=params.get("force_hf_download", False),
+        simulate_vram_gb=params.get("simulate_vram_gb"),
+        share_models=params.get("share_models", True),
+    )
+    _generate_tpose(ctx, host, port)
+    _wait_for_server_shutdown(ctx, timeout_sec=max(20, idle_timeout_sec * 5))
+    _post_recovery_generate(ctx, params)
+    return {"status": "passed", "idle_timeout_sec": idle_timeout_sec}
+
+
 def _run_cancel_queued(ctx: TestContext) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=True)
+    params = _resolved_case_params(ctx.case)
+    _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
     host, port = _start_runtime(ctx)
     import threading
 
@@ -646,12 +756,13 @@ def _run_cancel_queued(ctx: TestContext) -> dict[str, Any]:
     _stop_server(host, port)
     if str(header.get("status", "")).lower() not in {"cancelled", "cancelling", "idle"}:
         raise RuntimeError(f"Unexpected cancel response: {header}")
-    _post_recovery_generate(ctx, {})
+    _post_recovery_generate(ctx, params)
     return {"status": "passed", "cancel": header, "errors": error_holder}
 
 
 def _run_cancel_active(ctx: TestContext) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=True)
+    params = _resolved_case_params(ctx.case)
+    _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
     host, port = _start_runtime(ctx)
     import threading
 
@@ -671,33 +782,36 @@ def _run_cancel_active(ctx: TestContext) -> dict[str, Any]:
     _stop_server(host, port)
     if str(header.get("status", "")).lower() not in {"cancelling", "cancelled"}:
         raise RuntimeError(f"Unexpected cancel response: {header}")
-    _post_recovery_generate(ctx, {})
+    _post_recovery_generate(ctx, params)
     return {"status": "passed", "cancel": header, "result": result}
 
 
 def _run_cancel_invalid(ctx: TestContext, mode: str) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=True)
+    params = _resolved_case_params(ctx.case)
+    _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
     host, port = _start_runtime(ctx)
     task_id = "" if mode == "empty" else "does_not_exist"
     header, _ = _send_json(host, port, {"cmd": "cancel", "task_id": task_id})
     _stop_server(host, port)
-    _post_recovery_generate(ctx, {})
+    _post_recovery_generate(ctx, params)
     return {"status": "passed", "cancel": header}
 
 
 def _run_cancel_finished(ctx: TestContext) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=True)
+    params = _resolved_case_params(ctx.case)
+    _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
     host, port = _start_runtime(ctx)
     _generate_tpose(ctx, host, port, task_id="finished_task")
     header, _ = _send_json(host, port, {"cmd": "cancel", "task_id": "finished_task"})
     _stop_server(host, port)
-    _post_recovery_generate(ctx, {})
+    _post_recovery_generate(ctx, params)
     return {"status": "passed", "cancel": header}
 
 
 def _run_abort_phase(ctx: TestContext, phase: str, delay_sec: int) -> dict[str, Any]:
-    share_env = phase not in {"boot", "setting_up_env"}
-    _start_launcher(ctx, share_env=share_env)
+    params = _resolved_case_params(ctx.case)
+    share_env = params.get("share_env", phase not in {"boot", "setting_up_env"})
+    _start_launcher(ctx, share_env=share_env, idle_timeout_sec=params.get("idle_timeout_sec"))
 
     phase_thread, phase_error = _start_phase_driver(ctx, phase)
 
@@ -709,14 +823,15 @@ def _run_abort_phase(ctx: TestContext, phase: str, delay_sec: int) -> dict[str, 
     _terminate_process_tree(ctx.launcher_proc, timeout_sec=30)
     if phase_thread is not None:
         phase_thread.join(timeout=30)
-    _post_recovery_generate(ctx, {})
+    _post_recovery_generate(ctx, params)
     return {"status": "passed", "phase": phase, "delay_sec": delay_sec, "phase_errors": phase_error}
 
 
 def _run_owner_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
     owner_pid = ctx.start_owner()
-    share_env = phase not in {"boot", "setting_up_env"}
-    _start_launcher(ctx, share_env=share_env)
+    params = _resolved_case_params(ctx.case)
+    share_env = params.get("share_env", phase not in {"boot", "setting_up_env"})
+    _start_launcher(ctx, share_env=share_env, idle_timeout_sec=params.get("idle_timeout_sec"))
     phase_thread, phase_errors = _start_phase_driver(ctx, phase, owner_pid=owner_pid)
     _wait_for_bootstrap_phase(ctx, phase)
     if ctx.owner_proc is None:
@@ -726,7 +841,7 @@ def _run_owner_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
     _wait_for_server_shutdown(ctx, timeout_sec=120)
     if phase_thread is not None:
         phase_thread.join(timeout=30)
-    _post_recovery_generate(ctx, {"share_env": True})
+    _post_recovery_generate(ctx, params)
     return {"status": "passed", "owner_pid": owner_pid, "phase": phase, "phase_errors": phase_errors}
 
 
@@ -735,8 +850,9 @@ def _run_owner_kill_recovery(ctx: TestContext) -> dict[str, Any]:
 
 
 def _run_cli_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
-    share_env = phase not in {"boot", "setting_up_env"}
-    _start_launcher(ctx, share_env=share_env)
+    params = _resolved_case_params(ctx.case)
+    share_env = params.get("share_env", phase not in {"boot", "setting_up_env"})
+    _start_launcher(ctx, share_env=share_env, idle_timeout_sec=params.get("idle_timeout_sec"))
     phase_thread, phase_errors = _start_phase_driver(ctx, phase)
     if phase != "boot":
         _wait_for_bootstrap_phase(ctx, phase)
@@ -756,13 +872,13 @@ def _run_cli_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
     _wait_for_server_shutdown(ctx, timeout_sec=120)
     if phase_thread is not None:
         phase_thread.join(timeout=30)
-    _post_recovery_generate(ctx, {"share_env": True})
+    _post_recovery_generate(ctx, params)
     return {"status": "passed", "cli_pid": pid, "phase": phase, "phase_errors": phase_errors}
 
 
 def _run_case(ctx: TestContext) -> dict[str, Any]:
     kind = ctx.case.kind
-    params = dict(ctx.case.params)
+    params = _resolved_case_params(ctx.case)
     if kind == "basic":
         return _run_basic(ctx, params)
     if kind == "double_start_same":
@@ -772,10 +888,10 @@ def _run_case(ctx: TestContext) -> dict[str, Any]:
     if kind == "queue_order":
         return _run_queue_order(ctx)
     if kind == "stop_idle":
-        _start_launcher(ctx, share_env=True)
+        _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
         host, port = _start_runtime(ctx)
         _stop_server(host, port)
-        _post_recovery_generate(ctx, {})
+        _post_recovery_generate(ctx, params)
         return {"status": "passed"}
     if kind == "stop_generating":
         return _run_stop_generating(ctx)
@@ -797,6 +913,8 @@ def _run_case(ctx: TestContext) -> dict[str, Any]:
         return _run_cli_kill(ctx, params["phase"])
     if kind == "download_probe":
         return _run_download_probe(ctx)
+    if kind == "idle_timeout_override":
+        return _run_idle_timeout_override(ctx, params)
     if kind == "skip_placeholder":
         return {"status": "skipped", "reason": "Not represented cleanly in the new lifecycle yet."}
     raise RuntimeError(f"Unsupported test kind: {kind}")
@@ -811,7 +929,7 @@ def _select_cases(case_ids: list[str], tag: str | None, full: bool, case_range: 
     if sum(1 for enabled in (full, bool(case_ids), bool(tag), bool(case_range)) if enabled) > 1:
         raise RuntimeError("Use only one selector among --full, --case/--cases, --tag, or --range.")
     if full:
-        return [case for case in cases if "hf" not in case.tags and "probe" not in case.tags]
+        return [case for case in cases if "hf" not in case.tags and "probe" not in case.tags and "manual" not in case.tags]
     if case_ids:
         case_map = {case.case_id.lower(): case for case in cases}
         selected: list[TestCase] = []
@@ -871,7 +989,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.list:
         print("testfull")
         for case in cases:
-            print(f"{case.case_id}\t{case.name}\t[{', '.join(case.tags)}]")
+            print(
+                f"{case.case_id}\t{case.name}\t"
+                f"[{', '.join(case.tags)}]\t"
+                f"env={case.resources.env},models={case.resources.models},uv={case.resources.uv}"
+            )
         return 0
 
     case_ids = list(args.case or [])
@@ -898,6 +1020,11 @@ def main(argv: list[str] | None = None) -> int:
                 "case_id": case.case_id,
                 "name": case.name,
                 "tags": list(case.tags),
+                "resources": {
+                    "env": case.resources.env,
+                    "models": case.resources.models,
+                    "uv": case.resources.uv,
+                },
                 "elapsed_sec": round(time.time() - started, 3),
                 "run_root": str(ctx.run_root),
             }
