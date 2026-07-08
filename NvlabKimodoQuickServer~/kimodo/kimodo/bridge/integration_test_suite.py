@@ -24,9 +24,9 @@ TPROMPT = "tpose"
 
 @dataclass(frozen=True)
 class ResourcePolicy:
-    env: str
-    models: str
-    uv: str = "reuse"
+    env_policy: str
+    model_policy: str
+    uv_policy: str = "reuse-available-uv"
 
 
 @dataclass(frozen=True)
@@ -39,12 +39,28 @@ class TestCase:
     params: dict[str, Any] = field(default_factory=dict)
 
 
-RESOURCE_SHARED_RUNTIME = ResourcePolicy(env="shared", models="shared", uv="reuse")
-RESOURCE_LOCAL_ENV = ResourcePolicy(env="local", models="shared", uv="reuse")
-RESOURCE_LOCAL_MODELS = ResourcePolicy(env="shared", models="local", uv="reuse")
-RESOURCE_LOCAL_ENV_AND_MODELS = ResourcePolicy(env="local", models="local", uv="reuse")
-RESOURCE_FORCE_DOWNLOADED_UV = ResourcePolicy(env="shared", models="shared", uv="force_download")
-RESOURCE_DOWNLOAD_PROBE = ResourcePolicy(env="shared", models="probe", uv="probe")
+POLICY_REUSE_EXISTING_ENV_AND_MODELS = ResourcePolicy(
+    env_policy="reuse-existing-env",
+    model_policy="reuse-existing-model-cache",
+)
+POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS = ResourcePolicy(
+    env_policy="isolated-env-setup",
+    model_policy="reuse-existing-model-cache",
+)
+POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS = ResourcePolicy(
+    env_policy="reuse-existing-env",
+    model_policy="isolated-models",
+)
+POLICY_FORCE_DOWNLOADED_UV = ResourcePolicy(
+    env_policy="reuse-existing-env",
+    model_policy="reuse-existing-model-cache",
+    uv_policy="force-download-uv",
+)
+POLICY_DOWNLOAD_PROBE = ResourcePolicy(
+    env_policy="reuse-existing-env",
+    model_policy="probe-output-only",
+    uv_policy="probe-only",
+)
 
 
 def _repo_root() -> Path:
@@ -117,54 +133,66 @@ def _send_json(
 
 def _list_cases() -> list[TestCase]:
     cases: list[TestCase] = [
-        TestCase("T01", "Basic T-Pose Generate", ("basic", "smoke"), "basic", RESOURCE_SHARED_RUNTIME),
-        TestCase("T02", "Double Start Same Params", ("basic", "multi-start"), "double_start_same", RESOURCE_SHARED_RUNTIME),
-        TestCase("T03", "Double Start Different Params", ("basic", "multi-start"), "double_start_diff", RESOURCE_SHARED_RUNTIME),
-        TestCase("T04", "Queue Order", ("basic", "queue"), "queue_order", RESOURCE_SHARED_RUNTIME),
-        TestCase("T05", "Stop Idle", ("basic", "stop"), "stop_idle", RESOURCE_SHARED_RUNTIME),
-        TestCase("T06", "Stop Generating", ("basic", "stop"), "stop_generating", RESOURCE_SHARED_RUNTIME),
-        TestCase("T07", "Cancel NonCurrent Boot", ("cancel", "boot"), "skip_placeholder", RESOURCE_SHARED_RUNTIME),
-        TestCase("T08", "Cancel NonCurrent CLI", ("cancel", "cli"), "cancel_queued", RESOURCE_SHARED_RUNTIME),
-        TestCase("T09", "Cancel Current Boot", ("cancel", "boot"), "abort_phase", RESOURCE_SHARED_RUNTIME, {"phase": "boot"}),
-        TestCase("T10", "Cancel Current SettingUpEnv Immediate", ("cancel", "setting_up_env"), "abort_phase", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env", "delay_sec": 0}),
-        TestCase("T11", "Cancel Current SettingUpEnv 1s", ("cancel", "setting_up_env"), "abort_phase", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env", "delay_sec": 1}),
-        TestCase("T12", "Cancel Current SettingUpEnv 61s", ("cancel", "setting_up_env", "slow"), "abort_phase", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env", "delay_sec": 61}),
-        TestCase("T13", "Cancel Current SettingUpEnv 301s", ("cancel", "setting_up_env", "slow"), "abort_phase", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env", "delay_sec": 301}),
-        TestCase("T14", "Cancel Current SettingUpEnv 601s", ("cancel", "setting_up_env", "slow"), "abort_phase", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env", "delay_sec": 601}),
-        TestCase("T15", "Cancel Current Download Immediate", ("cancel", "download"), "abort_phase", RESOURCE_LOCAL_MODELS, {"phase": "download", "delay_sec": 0}),
-        TestCase("T16", "Cancel Current Download 1s", ("cancel", "download"), "abort_phase", RESOURCE_LOCAL_MODELS, {"phase": "download", "delay_sec": 1}),
-        TestCase("T17", "Cancel Current Download 61s", ("cancel", "download", "slow"), "abort_phase", RESOURCE_LOCAL_MODELS, {"phase": "download", "delay_sec": 61}),
-        TestCase("T18", "Cancel Current Download 301s", ("cancel", "download", "slow"), "abort_phase", RESOURCE_LOCAL_MODELS, {"phase": "download", "delay_sec": 301}),
-        TestCase("T19", "Cancel Current Download 601s", ("cancel", "download", "slow"), "abort_phase", RESOURCE_LOCAL_MODELS, {"phase": "download", "delay_sec": 601}),
-        TestCase("T20", "Cancel Current LoadingRuntime", ("cancel", "loading_runtime"), "abort_phase", RESOURCE_SHARED_RUNTIME, {"phase": "loading_runtime", "delay_sec": 0}),
-        TestCase("T21", "Cancel Current Generating", ("cancel", "generating"), "cancel_active", RESOURCE_SHARED_RUNTIME),
-        TestCase("T22", "Cancel Empty Task Id", ("cancel", "invalid"), "cancel_invalid", RESOURCE_SHARED_RUNTIME, {"mode": "empty"}),
-        TestCase("T23", "Cancel Unknown Task Id", ("cancel", "invalid"), "cancel_invalid", RESOURCE_SHARED_RUNTIME, {"mode": "unknown"}),
-        TestCase("T24", "Cancel Finished Task Id", ("cancel", "invalid"), "cancel_finished", RESOURCE_SHARED_RUNTIME),
-        TestCase("T25", "Kill Owner Boot", ("owner-kill", "boot"), "owner_kill", RESOURCE_SHARED_RUNTIME, {"phase": "boot"}),
-        TestCase("T26", "Kill Owner SettingUpEnv", ("owner-kill", "setting_up_env"), "owner_kill", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env"}),
-        TestCase("T27", "Kill Owner Download", ("owner-kill", "download"), "owner_kill", RESOURCE_LOCAL_MODELS, {"phase": "download"}),
-        TestCase("T28", "Kill Owner LoadingRuntime", ("owner-kill", "loading_runtime"), "owner_kill", RESOURCE_SHARED_RUNTIME, {"phase": "loading_runtime"}),
-        TestCase("T29", "Kill Owner Generating", ("owner-kill", "generating"), "owner_kill", RESOURCE_SHARED_RUNTIME, {"phase": "generating"}),
-        TestCase("T30", "Owner Kill Recovery", ("owner-kill", "recovery"), "owner_kill_recovery", RESOURCE_SHARED_RUNTIME),
-        TestCase("T31", "Kill CLI Boot", ("cli-kill", "boot"), "cli_kill", RESOURCE_SHARED_RUNTIME, {"phase": "boot"}),
-        TestCase("T32", "Kill CLI SettingUpEnv", ("cli-kill", "setting_up_env"), "cli_kill", RESOURCE_LOCAL_ENV, {"phase": "setting_up_env"}),
-        TestCase("T33", "Kill CLI Download", ("cli-kill", "download"), "cli_kill", RESOURCE_LOCAL_MODELS, {"phase": "download"}),
-        TestCase("T34", "Kill CLI LoadingRuntime", ("cli-kill", "loading_runtime"), "cli_kill", RESOURCE_SHARED_RUNTIME, {"phase": "loading_runtime"}),
-        TestCase("T35", "Kill CLI Generating", ("cli-kill", "generating"), "cli_kill", RESOURCE_SHARED_RUNTIME, {"phase": "generating"}),
-        TestCase("T36", "No Cached Models", ("cache", "models"), "basic", RESOURCE_LOCAL_MODELS),
-        TestCase("T37", "No Cached UV", ("cache", "uv"), "basic", RESOURCE_SHARED_RUNTIME, {"uncached_uv": True}),
-        TestCase("T38", "High VRAM", ("runtime", "highvram"), "basic", RESOURCE_SHARED_RUNTIME, {"highvram": True}),
-        TestCase("T39", "Simulate VRAM 1G", ("runtime", "simulate-vram"), "basic", RESOURCE_SHARED_RUNTIME, {"simulate_vram_gb": 1}),
-        TestCase("T40", "Simulate VRAM 4G", ("runtime", "simulate-vram"), "basic", RESOURCE_SHARED_RUNTIME, {"simulate_vram_gb": 4}),
-        TestCase("T41", "Simulate VRAM 6G", ("runtime", "simulate-vram"), "basic", RESOURCE_SHARED_RUNTIME, {"simulate_vram_gb": 6}),
-        TestCase("T42", "Force HuggingFace Download", ("download", "hf"), "basic", RESOURCE_LOCAL_MODELS, {"force_hf_download": True}),
-        TestCase("T43", "No Shared Env", ("env", "setup"), "basic", RESOURCE_LOCAL_ENV),
-        TestCase("T44", "Use Shared Env", ("env", "shared"), "basic", RESOURCE_SHARED_RUNTIME),
-        TestCase("T45", "Use Shared Models", ("models", "shared"), "basic", RESOURCE_SHARED_RUNTIME),
-        TestCase("T46", "Download Source Health Probe", ("probe", "network", "manual"), "download_probe", RESOURCE_DOWNLOAD_PROBE),
-        TestCase("T47", "Force Downloaded UV", ("cache", "uv", "download", "network", "manual"), "basic", RESOURCE_FORCE_DOWNLOADED_UV, {"uncached_uv": True, "force_download_uv": True}),
-        TestCase("T48", "Short Idle Timeout Override", ("timeout", "idle"), "idle_timeout_override", RESOURCE_SHARED_RUNTIME, {"idle_timeout_sec": 3}),
+        TestCase("T01", "Basic T-Pose Generate", ("basic", "smoke"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T02", "Double Start Same Params", ("basic", "multi-start"), "double_start_same", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T03", "Double Start Different Params", ("basic", "multi-start"), "double_start_diff", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T04", "Queue Order", ("basic", "queue"), "queue_order", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T05", "Stop Idle", ("basic", "stop"), "stop_idle", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T06", "Stop Generating", ("basic", "stop"), "stop_generating", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T07", "Cancel NonCurrent Boot", ("cancel", "boot"), "skip_placeholder", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T08", "Cancel NonCurrent CLI", ("cancel", "cli"), "cancel_queued", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T09", "Cancel Current Boot", ("cancel", "boot"), "abort_phase", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"phase": "boot"}),
+        TestCase("T10", "Cancel Current SettingUpEnv Immediate", ("cancel", "setting_up_env"), "abort_phase", POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS, {"phase": "setting_up_env", "delay_sec": 0}),
+        TestCase("T11", "Cancel Current SettingUpEnv 1s", ("cancel", "setting_up_env"), "abort_phase", POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS, {"phase": "setting_up_env", "delay_sec": 1}),
+        TestCase("T12", "Cancel Current SettingUpEnv 61s", ("cancel", "setting_up_env", "slow"), "abort_phase", POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS, {"phase": "setting_up_env", "delay_sec": 61}),
+        TestCase("T13", "Cancel Current SettingUpEnv 301s", ("cancel", "setting_up_env", "slow"), "abort_phase", POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS, {"phase": "setting_up_env", "delay_sec": 301}),
+        TestCase("T14", "Cancel Current SettingUpEnv 601s", ("cancel", "setting_up_env", "slow"), "abort_phase", POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS, {"phase": "setting_up_env", "delay_sec": 601}),
+        TestCase("T15", "Cancel Current Download Immediate", ("cancel", "download"), "abort_phase", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS, {"phase": "download", "delay_sec": 0}),
+        TestCase("T16", "Cancel Current Download 1s", ("cancel", "download"), "abort_phase", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS, {"phase": "download", "delay_sec": 1}),
+        TestCase("T17", "Cancel Current Download 61s", ("cancel", "download", "slow"), "abort_phase", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS, {"phase": "download", "delay_sec": 61}),
+        TestCase("T18", "Cancel Current Download 301s", ("cancel", "download", "slow"), "abort_phase", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS, {"phase": "download", "delay_sec": 301}),
+        TestCase("T19", "Cancel Current Download 601s", ("cancel", "download", "slow"), "abort_phase", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS, {"phase": "download", "delay_sec": 601}),
+        TestCase("T20", "Cancel Current LoadingRuntime", ("cancel", "loading_runtime"), "abort_phase", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"phase": "loading_runtime", "delay_sec": 0}),
+        TestCase("T21", "Cancel Current Generating", ("cancel", "generating"), "cancel_active", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T22", "Cancel Empty Task Id", ("cancel", "invalid"), "cancel_invalid", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"mode": "empty"}),
+        TestCase("T23", "Cancel Unknown Task Id", ("cancel", "invalid"), "cancel_invalid", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"mode": "unknown"}),
+        TestCase("T24", "Cancel Finished Task Id", ("cancel", "invalid"), "cancel_finished", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T25", "Kill Owner Boot", ("owner-kill", "boot"), "owner_kill", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"phase": "boot"}),
+        TestCase("T26", "Kill Owner SettingUpEnv", ("owner-kill", "setting_up_env"), "owner_kill", POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS, {"phase": "setting_up_env"}),
+        TestCase("T27", "Kill Owner Download", ("owner-kill", "download"), "owner_kill", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS, {"phase": "download"}),
+        TestCase("T28", "Kill Owner LoadingRuntime", ("owner-kill", "loading_runtime"), "owner_kill", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"phase": "loading_runtime"}),
+        TestCase("T29", "Kill Owner Generating", ("owner-kill", "generating"), "owner_kill", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"phase": "generating"}),
+        TestCase("T30", "Owner Kill Recovery", ("owner-kill", "recovery"), "owner_kill_recovery", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T31", "Kill CLI Boot", ("cli-kill", "boot"), "cli_kill", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"phase": "boot"}),
+        TestCase("T32", "Kill CLI SettingUpEnv", ("cli-kill", "setting_up_env"), "cli_kill", POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS, {"phase": "setting_up_env"}),
+        TestCase("T33", "Kill CLI Download", ("cli-kill", "download"), "cli_kill", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS, {"phase": "download"}),
+        TestCase("T34", "Kill CLI LoadingRuntime", ("cli-kill", "loading_runtime"), "cli_kill", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"phase": "loading_runtime"}),
+        TestCase("T35", "Kill CLI Generating", ("cli-kill", "generating"), "cli_kill", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"phase": "generating"}),
+        TestCase("T36", "No Cached Models", ("cache", "models"), "basic", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS),
+        TestCase("T37", "No Cached UV", ("cache", "uv"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"uncached_uv": True}),
+        TestCase("T38", "High VRAM", ("runtime", "highvram"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"highvram": True}),
+        TestCase("T39", "Simulate VRAM 1G", ("runtime", "simulate-vram"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"simulate_vram_gb": 1}),
+        TestCase("T40", "Simulate VRAM 4G", ("runtime", "simulate-vram"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"simulate_vram_gb": 4}),
+        TestCase("T41", "Simulate VRAM 6G", ("runtime", "simulate-vram"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"simulate_vram_gb": 6}),
+        TestCase("T42", "Force HuggingFace Download", ("download", "hf"), "basic", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS, {"force_hf_download": True}),
+        TestCase("T43", "No Existing Env", ("env", "setup"), "basic", POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS),
+        TestCase("T44", "Reuse Existing Env", ("env", "reusable"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T45", "Reuse Existing Models", ("models", "reusable"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
+        TestCase("T46", "Download Source Health Probe", ("probe", "network", "manual"), "download_probe", POLICY_DOWNLOAD_PROBE),
+        TestCase("T47", "Force Downloaded UV", ("cache", "uv", "download", "network", "manual"), "basic", POLICY_FORCE_DOWNLOADED_UV, {"uncached_uv": True, "force_download_uv": True}),
+        TestCase("T48", "Short Idle Timeout Override", ("timeout", "idle"), "idle_timeout_override", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"idle_timeout_sec": 3}),
+        TestCase("T49", "Example Default T-Pose Batch", ("example", "smoke"), "example_tpose_batch", ResourcePolicy(
+            env_policy="isolated-env-setup",
+            model_policy="isolated-models",
+            uv_policy="reuse-available-uv",
+        )),
+        TestCase("T50", "Example Default Startup Batch", ("example", "startup"), "example_startup_batch", ResourcePolicy(
+            env_policy="isolated-env-setup",
+            model_policy="isolated-models",
+            uv_policy="reuse-available-uv",
+        )),
+        TestCase("T51", "Reject Legacy Start Command", ("protocol", "legacy"), "legacy_command_reject", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"cmd": "start"}),
+        TestCase("T52", "Reject Legacy Stop Command", ("protocol", "legacy"), "legacy_command_reject", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"cmd": "stop"}),
     ]
     return cases
 
@@ -217,7 +245,7 @@ def _tracked_workspace_copy(repo_root: Path, target_dir: Path) -> None:
         dst.write_bytes(blob)
 
 
-def _looks_like_shared_env(candidate: Path) -> bool:
+def _looks_like_reusable_env(candidate: Path) -> bool:
     if not candidate.exists() or not candidate.is_dir():
         return False
     if os.name == "nt":
@@ -225,7 +253,7 @@ def _looks_like_shared_env(candidate: Path) -> bool:
     return (candidate / "bin" / "python").exists()
 
 
-def _looks_like_shared_models(candidate: Path) -> bool:
+def _looks_like_reusable_models(candidate: Path) -> bool:
     if not candidate.exists() or not candidate.is_dir():
         return False
     for child in candidate.iterdir():
@@ -234,7 +262,7 @@ def _looks_like_shared_models(candidate: Path) -> bool:
     return False
 
 
-def _shared_path(runtime_root: Path, names: tuple[str, ...], validator) -> str:
+def _resolve_reusable_path(runtime_root: Path, names: tuple[str, ...], validator) -> str:
     for name in names:
         candidate = runtime_root / name
         if validator(candidate):
@@ -242,12 +270,12 @@ def _shared_path(runtime_root: Path, names: tuple[str, ...], validator) -> str:
     return ""
 
 
-def _share_env(policy: ResourcePolicy) -> bool:
-    return policy.env == "shared"
+def _policy_uses_reusable_env(policy: ResourcePolicy) -> bool:
+    return policy.env_policy == "reuse-existing-env"
 
 
-def _share_models(policy: ResourcePolicy) -> bool:
-    return policy.models == "shared"
+def _policy_uses_reusable_models(policy: ResourcePolicy) -> bool:
+    return policy.model_policy == "reuse-existing-model-cache"
 
 
 class TestContext:
@@ -265,8 +293,8 @@ class TestContext:
         self.owner_proc: subprocess.Popen[str] | None = None
         self.last_task_id = ""
         self.python_host = _find_host_python()
-        self.shared_env_path = _shared_path(self.runtime_root, ("Env~", "Env"), _looks_like_shared_env)
-        self.shared_models_path = _shared_path(self.runtime_root, ("models~", "models"), _looks_like_shared_models)
+        self.reusable_env_path = _resolve_reusable_path(self.runtime_root, ("Env~", "Env"), _looks_like_reusable_env)
+        self.reusable_models_path = _resolve_reusable_path(self.runtime_root, ("models~", "models"), _looks_like_reusable_models)
 
     def prepare_workspace(self) -> None:
         _tracked_workspace_copy(self.repo_root, self.workspace_root)
@@ -361,7 +389,7 @@ def _wait_for_bootstrap_phase(ctx: TestContext, phase: str) -> None:
 def _start_launcher(
     ctx: TestContext,
     *,
-    share_env: bool,
+    reuse_existing_env: bool,
     uncached_uv: bool = False,
     force_download_uv: bool = False,
     bootstrap_hold_sec: int | None = None,
@@ -369,8 +397,8 @@ def _start_launcher(
 ) -> None:
     env = os.environ.copy()
     env["KIMODO_IDLE_TIMEOUT_SEC"] = str(int(idle_timeout_sec if idle_timeout_sec is not None else 120))
-    if share_env and ctx.shared_env_path:
-        env["KIMODO_VENV_PATH"] = ctx.shared_env_path
+    if reuse_existing_env and ctx.reusable_env_path:
+        env["KIMODO_VENV_PATH"] = ctx.reusable_env_path
     else:
         env.pop("KIMODO_VENV_PATH", None)
     if uncached_uv:
@@ -455,32 +483,27 @@ def _wait_for_server_shutdown(ctx: TestContext, timeout_sec: float = 60.0) -> No
     _wait_for(_stopped, timeout_sec, "server shutdown")
 
 
-def _start_runtime(ctx: TestContext, *, highvram: bool = False, force_hf_download: bool = False, simulate_vram_gb: int | None = None, share_models: bool = True, owner_pid: int = 0) -> tuple[str, int]:
+def _start_runtime(ctx: TestContext, *, highvram: bool = False, force_hf_download: bool = False, simulate_vram_gb: int | None = None, reuse_existing_models: bool = True, owner_pid: int = 0) -> tuple[str, int]:
     host, port = _wait_for_server(ctx)
-    payload: dict[str, Any] = {
-        "cmd": "start",
+    ctx.runtime_request_defaults = {
         "model": "Kimodo-SOMA-RP-v1",
         "highvram": bool(highvram),
         "force_cpu": False,
         "force_hf_download": bool(force_hf_download),
         "owner_pid": int(owner_pid),
     }
-    if share_models and ctx.shared_models_path:
-        payload["models_root"] = ctx.shared_models_path
+    if reuse_existing_models and ctx.reusable_models_path:
+        ctx.runtime_request_defaults["models_root"] = ctx.reusable_models_path
     if simulate_vram_gb is not None:
-        payload["simulate_vram_gb"] = int(simulate_vram_gb)
-    header, _ = _send_json(host, port, payload, timeout_sec=START_TIMEOUT_SEC)
-    if str(header.get("status", "")).lower() != "ready":
-        raise RuntimeError(f"Start failed: {header}")
+        ctx.runtime_request_defaults["simulate_vram_gb"] = int(simulate_vram_gb)
     return host, port
 
 
 def _generate_tpose(ctx: TestContext, host: str, port: int, *, task_id: str | None = None, duration: float = 1.0) -> dict[str, Any]:
     task_id = task_id or f"{ctx.case.case_id}_{int(time.time() * 1000)}"
     ctx.last_task_id = task_id
-    header, payload = _send_json(
-        host,
-        port,
+    request_payload = dict(getattr(ctx, "runtime_request_defaults", {}) or {})
+    request_payload.update(
         {
             "cmd": "generate",
             "task_id": task_id,
@@ -490,7 +513,12 @@ def _generate_tpose(ctx: TestContext, host: str, port: int, *, task_id: str | No
             "output_format": "flatbuf_motion_v1",
             "constraints_json": "",
             "seed": 42,
-        },
+        }
+    )
+    header, payload = _send_json(
+        host,
+        port,
+        request_payload,
         read_binary=True,
         timeout_sec=TEST_TIMEOUT_SEC,
     )
@@ -502,13 +530,13 @@ def _generate_tpose(ctx: TestContext, host: str, port: int, *, task_id: str | No
 
 
 def _stop_server(host: str, port: int) -> None:
-    _send_json(host, port, {"cmd": "stop"})
+    _send_json(host, port, {"cmd": "quit"})
 
 
 def _post_recovery_generate(ctx: TestContext, params: dict[str, Any]) -> None:
     _start_launcher(
         ctx,
-        share_env=params.get("share_env", True),
+        reuse_existing_env=params.get("reuse_existing_env", True),
         uncached_uv=params.get("uncached_uv", False),
         force_download_uv=params.get("force_download_uv", False),
         idle_timeout_sec=params.get("idle_timeout_sec"),
@@ -518,7 +546,7 @@ def _post_recovery_generate(ctx: TestContext, params: dict[str, Any]) -> None:
         highvram=params.get("highvram", False),
         force_hf_download=params.get("force_hf_download", False),
         simulate_vram_gb=params.get("simulate_vram_gb"),
-        share_models=params.get("share_models", True),
+        reuse_existing_models=params.get("reuse_existing_models", True),
     )
     _generate_tpose(ctx, host, port, duration=1.0)
     _stop_server(host, port)
@@ -559,6 +587,110 @@ def _run_download_probe(ctx: TestContext) -> dict[str, Any]:
     }
 
 
+def _run_example_tpose_batch(ctx: TestContext) -> dict[str, Any]:
+    if os.name != "nt":
+        return {"status": "skipped", "reason": "example_run_server_tpose.bat is Windows-only."}
+
+    example_script = ctx.workspace_runtime / "example" / "example_run_server_tpose.bat"
+    stdout_path = ctx.logs_dir / "example_tpose_batch.out.log"
+    stderr_path = ctx.logs_dir / "example_tpose_batch.err.log"
+    env = os.environ.copy()
+
+    completed = subprocess.run(
+        ["cmd.exe", "/d", "/c", "call", f".\\{example_script.name}"],
+        cwd=str(example_script.parent),
+        env=env,
+        stdout=stdout_path.open("w", encoding="utf-8", newline="\n"),
+        stderr=stderr_path.open("w", encoding="utf-8", newline="\n"),
+        text=True,
+        timeout=TEST_TIMEOUT_SEC,
+        check=False,
+    )
+
+    stdout_text = stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path.exists() else ""
+    stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "example_run_server_tpose.bat failed with "
+            f"exit code {completed.returncode}.\nstdout:\n{stdout_text[-4000:]}\nstderr:\n{stderr_text[-4000:]}"
+        )
+
+    if "[OK] QuickServer T-pose example passed." not in stdout_text:
+        raise RuntimeError(
+            "example_run_server_tpose.bat did not emit the expected success marker.\n"
+            f"stdout:\n{stdout_text[-4000:]}"
+        )
+
+    return {
+        "status": "passed",
+        "exit_code": completed.returncode,
+        "stdout_log": str(stdout_path),
+        "stderr_log": str(stderr_path),
+    }
+
+
+def _run_example_startup_batch(ctx: TestContext) -> dict[str, Any]:
+    if os.name != "nt":
+        return {"status": "skipped", "reason": "example_run_server_startup.bat is Windows-only."}
+
+    example_script = ctx.workspace_runtime / "example" / "example_run_server_startup.bat"
+    stdout_path = ctx.logs_dir / "example_startup_batch.out.log"
+    stderr_path = ctx.logs_dir / "example_startup_batch.err.log"
+    env = os.environ.copy()
+
+    completed = subprocess.run(
+        ["cmd.exe", "/d", "/c", "call", f".\\{example_script.name}"],
+        cwd=str(example_script.parent),
+        env=env,
+        stdout=stdout_path.open("w", encoding="utf-8", newline="\n"),
+        stderr=stderr_path.open("w", encoding="utf-8", newline="\n"),
+        text=True,
+        timeout=TEST_TIMEOUT_SEC,
+        check=False,
+    )
+
+    stdout_text = stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path.exists() else ""
+    stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "example_run_server_startup.bat failed with "
+            f"exit code {completed.returncode}.\nstdout:\n{stdout_text[-4000:]}\nstderr:\n{stderr_text[-4000:]}"
+        )
+
+    if "[OK] QuickServer startup ready:" not in stdout_text:
+        raise RuntimeError(
+            "example_run_server_startup.bat did not emit the expected success marker.\n"
+            f"stdout:\n{stdout_text[-4000:]}"
+        )
+
+    return {
+        "status": "passed",
+        "exit_code": completed.returncode,
+        "stdout_log": str(stdout_path),
+        "stderr_log": str(stderr_path),
+    }
+
+
+def _run_legacy_command_reject(ctx: TestContext, cmd_name: str) -> dict[str, Any]:
+    params = _resolved_case_params(ctx.case)
+    _start_launcher(
+        ctx,
+        reuse_existing_env=params.get("reuse_existing_env", True),
+        uncached_uv=params.get("uncached_uv", False),
+        force_download_uv=params.get("force_download_uv", False),
+        idle_timeout_sec=params.get("idle_timeout_sec"),
+    )
+    host, port = _wait_for_server(ctx)
+    header, _ = _send_json(host, port, {"cmd": cmd_name})
+    _stop_server(host, port)
+    if str(header.get("status", "")).lower() != "error":
+        raise RuntimeError(f"Legacy command '{cmd_name}' should fail, got: {header}")
+    message = str(header.get("message", ""))
+    if "Unknown cmd" not in message:
+        raise RuntimeError(f"Legacy command '{cmd_name}' returned unexpected error: {header}")
+    return {"status": "passed", "response": header}
+
+
 def _start_phase_driver(
     ctx: TestContext,
     phase: str,
@@ -576,7 +708,7 @@ def _start_phase_driver(
         try:
             host, port = _start_runtime(
                 ctx,
-                share_models=(phase != "download"),
+                reuse_existing_models=(phase != "download"),
                 owner_pid=owner_pid,
             )
             if phase == "generating":
@@ -591,9 +723,9 @@ def _start_phase_driver(
 
 def _resolved_case_params(case: TestCase) -> dict[str, Any]:
     params = dict(case.params)
-    params.setdefault("share_env", _share_env(case.resources))
-    params.setdefault("share_models", _share_models(case.resources))
-    if case.resources.uv == "force_download":
+    params.setdefault("reuse_existing_env", _policy_uses_reusable_env(case.resources))
+    params.setdefault("reuse_existing_models", _policy_uses_reusable_models(case.resources))
+    if case.resources.uv_policy == "force-download-uv":
         params.setdefault("force_download_uv", True)
         params.setdefault("uncached_uv", True)
     return params
@@ -602,7 +734,7 @@ def _resolved_case_params(case: TestCase) -> dict[str, Any]:
 def _run_basic(ctx: TestContext, params: dict[str, Any]) -> dict[str, Any]:
     _start_launcher(
         ctx,
-        share_env=params.get("share_env", True),
+        reuse_existing_env=params.get("reuse_existing_env", True),
         uncached_uv=params.get("uncached_uv", False),
         force_download_uv=params.get("force_download_uv", False),
         idle_timeout_sec=params.get("idle_timeout_sec"),
@@ -612,7 +744,7 @@ def _run_basic(ctx: TestContext, params: dict[str, Any]) -> dict[str, Any]:
         highvram=params.get("highvram", False),
         force_hf_download=params.get("force_hf_download", False),
         simulate_vram_gb=params.get("simulate_vram_gb"),
-        share_models=params.get("share_models", True),
+        reuse_existing_models=params.get("reuse_existing_models", True),
     )
     header = _generate_tpose(ctx, host, port)
     _stop_server(host, port)
@@ -620,7 +752,7 @@ def _run_basic(ctx: TestContext, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run_double_start(ctx: TestContext, params: dict[str, Any], different: bool) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=params.get("share_env", True), bootstrap_hold_sec=10, idle_timeout_sec=params.get("idle_timeout_sec"))
+    _start_launcher(ctx, reuse_existing_env=params.get("reuse_existing_env", True), bootstrap_hold_sec=10, idle_timeout_sec=params.get("idle_timeout_sec"))
     second_log = ctx.logs_dir / "launcher_second.out.log"
     env = os.environ.copy()
     second_proc = subprocess.Popen(ctx.launcher_command(), cwd=str(ctx.workspace_runtime), env=env, stdout=second_log.open("w", encoding="utf-8"), stderr=subprocess.STDOUT, text=True)
@@ -637,7 +769,7 @@ def _run_double_start(ctx: TestContext, params: dict[str, Any], different: bool)
         host, port = _start_runtime(
             ctx,
             highvram=different,
-            share_models=True,
+            reuse_existing_models=True,
         )
         _generate_tpose(ctx, host, port)
         _stop_server(host, port)
@@ -659,7 +791,7 @@ def _run_double_start(ctx: TestContext, params: dict[str, Any], different: bool)
 
 
 def _run_queue_order(ctx: TestContext) -> dict[str, Any]:
-    _start_launcher(ctx, share_env=_share_env(ctx.case.resources))
+    _start_launcher(ctx, reuse_existing_env=_policy_uses_reusable_env(ctx.case.resources))
     host, port = _start_runtime(ctx)
     import threading
 
@@ -687,7 +819,7 @@ def _run_queue_order(ctx: TestContext) -> dict[str, Any]:
 
 def _run_stop_generating(ctx: TestContext) -> dict[str, Any]:
     params = _resolved_case_params(ctx.case)
-    _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
+    _start_launcher(ctx, reuse_existing_env=params.get("reuse_existing_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
     host, port = _start_runtime(ctx)
     import threading
 
@@ -712,7 +844,7 @@ def _run_idle_timeout_override(ctx: TestContext, params: dict[str, Any]) -> dict
     idle_timeout_sec = int(params.get("idle_timeout_sec") or 3)
     _start_launcher(
         ctx,
-        share_env=params.get("share_env", True),
+        reuse_existing_env=params.get("reuse_existing_env", True),
         uncached_uv=params.get("uncached_uv", False),
         force_download_uv=params.get("force_download_uv", False),
         idle_timeout_sec=idle_timeout_sec,
@@ -722,7 +854,7 @@ def _run_idle_timeout_override(ctx: TestContext, params: dict[str, Any]) -> dict
         highvram=params.get("highvram", False),
         force_hf_download=params.get("force_hf_download", False),
         simulate_vram_gb=params.get("simulate_vram_gb"),
-        share_models=params.get("share_models", True),
+        reuse_existing_models=params.get("reuse_existing_models", True),
     )
     _generate_tpose(ctx, host, port)
     _wait_for_server_shutdown(ctx, timeout_sec=max(20, idle_timeout_sec * 5))
@@ -732,7 +864,7 @@ def _run_idle_timeout_override(ctx: TestContext, params: dict[str, Any]) -> dict
 
 def _run_cancel_queued(ctx: TestContext) -> dict[str, Any]:
     params = _resolved_case_params(ctx.case)
-    _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
+    _start_launcher(ctx, reuse_existing_env=params.get("reuse_existing_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
     host, port = _start_runtime(ctx)
     import threading
 
@@ -762,7 +894,7 @@ def _run_cancel_queued(ctx: TestContext) -> dict[str, Any]:
 
 def _run_cancel_active(ctx: TestContext) -> dict[str, Any]:
     params = _resolved_case_params(ctx.case)
-    _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
+    _start_launcher(ctx, reuse_existing_env=params.get("reuse_existing_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
     host, port = _start_runtime(ctx)
     import threading
 
@@ -788,7 +920,7 @@ def _run_cancel_active(ctx: TestContext) -> dict[str, Any]:
 
 def _run_cancel_invalid(ctx: TestContext, mode: str) -> dict[str, Any]:
     params = _resolved_case_params(ctx.case)
-    _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
+    _start_launcher(ctx, reuse_existing_env=params.get("reuse_existing_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
     host, port = _start_runtime(ctx)
     task_id = "" if mode == "empty" else "does_not_exist"
     header, _ = _send_json(host, port, {"cmd": "cancel", "task_id": task_id})
@@ -799,7 +931,7 @@ def _run_cancel_invalid(ctx: TestContext, mode: str) -> dict[str, Any]:
 
 def _run_cancel_finished(ctx: TestContext) -> dict[str, Any]:
     params = _resolved_case_params(ctx.case)
-    _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
+    _start_launcher(ctx, reuse_existing_env=params.get("reuse_existing_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
     host, port = _start_runtime(ctx)
     _generate_tpose(ctx, host, port, task_id="finished_task")
     header, _ = _send_json(host, port, {"cmd": "cancel", "task_id": "finished_task"})
@@ -810,8 +942,8 @@ def _run_cancel_finished(ctx: TestContext) -> dict[str, Any]:
 
 def _run_abort_phase(ctx: TestContext, phase: str, delay_sec: int) -> dict[str, Any]:
     params = _resolved_case_params(ctx.case)
-    share_env = params.get("share_env", phase not in {"boot", "setting_up_env"})
-    _start_launcher(ctx, share_env=share_env, idle_timeout_sec=params.get("idle_timeout_sec"))
+    reuse_existing_env = params.get("reuse_existing_env", phase not in {"boot", "setting_up_env"})
+    _start_launcher(ctx, reuse_existing_env=reuse_existing_env, idle_timeout_sec=params.get("idle_timeout_sec"))
 
     phase_thread, phase_error = _start_phase_driver(ctx, phase)
 
@@ -830,8 +962,8 @@ def _run_abort_phase(ctx: TestContext, phase: str, delay_sec: int) -> dict[str, 
 def _run_owner_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
     owner_pid = ctx.start_owner()
     params = _resolved_case_params(ctx.case)
-    share_env = params.get("share_env", phase not in {"boot", "setting_up_env"})
-    _start_launcher(ctx, share_env=share_env, idle_timeout_sec=params.get("idle_timeout_sec"))
+    reuse_existing_env = params.get("reuse_existing_env", phase not in {"boot", "setting_up_env"})
+    _start_launcher(ctx, reuse_existing_env=reuse_existing_env, idle_timeout_sec=params.get("idle_timeout_sec"))
     phase_thread, phase_errors = _start_phase_driver(ctx, phase, owner_pid=owner_pid)
     _wait_for_bootstrap_phase(ctx, phase)
     if ctx.owner_proc is None:
@@ -851,8 +983,8 @@ def _run_owner_kill_recovery(ctx: TestContext) -> dict[str, Any]:
 
 def _run_cli_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
     params = _resolved_case_params(ctx.case)
-    share_env = params.get("share_env", phase not in {"boot", "setting_up_env"})
-    _start_launcher(ctx, share_env=share_env, idle_timeout_sec=params.get("idle_timeout_sec"))
+    reuse_existing_env = params.get("reuse_existing_env", phase not in {"boot", "setting_up_env"})
+    _start_launcher(ctx, reuse_existing_env=reuse_existing_env, idle_timeout_sec=params.get("idle_timeout_sec"))
     phase_thread, phase_errors = _start_phase_driver(ctx, phase)
     if phase != "boot":
         _wait_for_bootstrap_phase(ctx, phase)
@@ -888,7 +1020,7 @@ def _run_case(ctx: TestContext) -> dict[str, Any]:
     if kind == "queue_order":
         return _run_queue_order(ctx)
     if kind == "stop_idle":
-        _start_launcher(ctx, share_env=params.get("share_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
+        _start_launcher(ctx, reuse_existing_env=params.get("reuse_existing_env", True), idle_timeout_sec=params.get("idle_timeout_sec"))
         host, port = _start_runtime(ctx)
         _stop_server(host, port)
         _post_recovery_generate(ctx, params)
@@ -915,6 +1047,12 @@ def _run_case(ctx: TestContext) -> dict[str, Any]:
         return _run_download_probe(ctx)
     if kind == "idle_timeout_override":
         return _run_idle_timeout_override(ctx, params)
+    if kind == "example_tpose_batch":
+        return _run_example_tpose_batch(ctx)
+    if kind == "example_startup_batch":
+        return _run_example_startup_batch(ctx)
+    if kind == "legacy_command_reject":
+        return _run_legacy_command_reject(ctx, str(params["cmd"]))
     if kind == "skip_placeholder":
         return {"status": "skipped", "reason": "Not represented cleanly in the new lifecycle yet."}
     raise RuntimeError(f"Unsupported test kind: {kind}")
@@ -992,7 +1130,7 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"{case.case_id}\t{case.name}\t"
                 f"[{', '.join(case.tags)}]\t"
-                f"env={case.resources.env},models={case.resources.models},uv={case.resources.uv}"
+                f"env_policy={case.resources.env_policy},model_policy={case.resources.model_policy},uv_policy={case.resources.uv_policy}"
             )
         return 0
 
@@ -1021,9 +1159,9 @@ def main(argv: list[str] | None = None) -> int:
                 "name": case.name,
                 "tags": list(case.tags),
                 "resources": {
-                    "env": case.resources.env,
-                    "models": case.resources.models,
-                    "uv": case.resources.uv,
+                    "env_policy": case.resources.env_policy,
+                    "model_policy": case.resources.model_policy,
+                    "uv_policy": case.resources.uv_policy,
                 },
                 "elapsed_sec": round(time.time() - started, 3),
                 "run_root": str(ctx.run_root),

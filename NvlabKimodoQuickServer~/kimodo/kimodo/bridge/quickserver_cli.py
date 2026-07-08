@@ -12,12 +12,12 @@ import time
 import sys
 from typing import Any
 
-from . import bridge_server as bridge_impl
+from . import bridge_server as bridge_runtime_helpers
 from . import quickserver_assets as assets
 from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 
 
-BRIDGE_LOG_NAME = "bridge_server.log"
+SUPERVISOR_LOG_FILE_NAME = "bridge_server.log"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -30,7 +30,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--watchpid", type=int, default=0)
     run_parser.add_argument("--force-setup", action="store_true")
 
-    # Legacy compatibility only. Runtime semantics now come from TCP start/generate requests.
+    # Legacy CLI compatibility only. Runtime semantics now come from TCP generate requests.
     run_parser.add_argument("--model", default=assets.DEFAULT_MODEL_NAME)
     run_parser.add_argument("--highvram", action="store_true")
     run_parser.add_argument("--models-root")
@@ -39,8 +39,6 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--venv")
     run_parser.add_argument("--unlock-stale", action="store_true")
     run_parser.add_argument("--force", action="store_true")
-
-    subparsers.add_parser("watchdog")
     return parser
 
 
@@ -96,7 +94,7 @@ def _remove_file(path: Path) -> None:
 
 
 def _write_serverport(path: Path, host: str, port: int, state_name: str) -> None:
-    bridge_impl._write_text_atomic(
+    bridge_runtime_helpers._write_text_atomic(
         str(path),
         "\n".join(
             [
@@ -142,7 +140,7 @@ def _normalize_runtime_config(req: dict[str, Any], defaults: dict[str, Any]) -> 
     }
 
 
-def _release_runtime(state: dict[str, Any], logger: SetupLogger) -> None:
+def _unload_runtime_model(state: dict[str, Any], logger: SetupLogger) -> None:
     model = state.get("model")
     if model is None:
         return
@@ -188,7 +186,7 @@ def _ensure_runtime(
         }
 
     if state.get("model") is not None:
-        _release_runtime(state, logger)
+        _unload_runtime_model(state, logger)
 
     if config["highvram"]:
         os.environ["KIMODO_HIGHVRAM"] = "1"
@@ -206,7 +204,7 @@ def _ensure_runtime(
         os.environ.pop("KIMODO_SIMULATE_VRAM_GB", None)
 
     requested_device = "cpu" if config["force_cpu"] else None
-    runtime_profile = bridge_impl._runtime_self_check(requested_device)
+    runtime_profile = bridge_runtime_helpers._runtime_self_check(requested_device)
     os.environ["KIMODO_RUNTIME_BACKEND_PROFILE"] = runtime_profile.backend_profile
     os.environ["KIMODO_RUNTIME_DEVICE"] = runtime_profile.runtime_device
 
@@ -217,7 +215,7 @@ def _ensure_runtime(
     )
 
     force_download_site = assets.DownloadSite.HUGGINGFACE if config["force_hf_download"] else None
-    plan = bridge_impl._provision_bridge_assets(
+    plan = bridge_runtime_helpers._provision_bridge_assets(
         kimodo_root,
         config["model"],
         runtime_profile=runtime_profile,
@@ -267,8 +265,8 @@ def _execute_generate(task_request: dict[str, Any], model: Any, cancel_event: th
         seed_everything(int(seed))
 
     num_frames = max(1, int(duration * float(model.fps)))
-    constraints = bridge_impl._load_constraints(constraints_json, model)
-    progress_bar = bridge_impl._make_cancelable_progress_bar(cancel_event)
+    constraints = bridge_runtime_helpers._load_constraints(constraints_json, model)
+    progress_bar = bridge_runtime_helpers._make_cancelable_progress_bar(cancel_event)
 
     output = model(
         [prompt],
@@ -283,18 +281,18 @@ def _execute_generate(task_request: dict[str, Any], model: Any, cancel_event: th
         progress_bar=progress_bar,
     )
     if cancel_event.is_set():
-        raise bridge_impl.GenerateCancelledError("Generation canceled.")
+        raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
 
-    output_format = bridge_impl._resolve_requested_output_format(task_request)
+    output_format = bridge_runtime_helpers._resolve_requested_output_format(task_request)
     if output_format == "flatbuf_motion_v1":
-        payload = bridge_impl._build_generate_flatbuffer_payload(model, output, sample_index=0)
+        payload = bridge_runtime_helpers._build_generate_flatbuffer_payload(model, output, sample_index=0)
         return {
             "status": "done",
             "output_format": "flatbuf_motion_v1",
             "byte_length": len(payload),
         }, payload
 
-    return bridge_impl._build_generate_response(model, output, prompt, sample_index=0), None
+    return bridge_runtime_helpers._build_generate_response(model, output, prompt, sample_index=0), None
 
 
 def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger) -> int:
@@ -304,7 +302,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     idle_timeout_seconds = max(0, int(float(os.environ.get("KIMODO_IDLE_TIMEOUT_SEC", "600"))))
 
     os.environ["KIMODO_ROOT_PATH"] = kimodo_root
-    os.environ["KIMODO_BRIDGE_LOG"] = str((Path(kimodo_root) / "log" / BRIDGE_LOG_NAME).resolve())
+    os.environ["KIMODO_BRIDGE_LOG"] = str((Path(kimodo_root) / "log" / SUPERVISOR_LOG_FILE_NAME).resolve())
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -384,7 +382,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         except Exception:
             pass
 
-    def owner_watchdog() -> None:
+    def lifecycle_monitor_loop() -> None:
         while True:
             time.sleep(1.0)
             with state_lock:
@@ -392,18 +390,18 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     return
                 owner_pid = int(state.get("owner_pid") or 0)
                 idle_seconds = time.time() - float(state.get("last_activity") or 0.0)
-                has_runtime = state.get("model") is not None
-                has_work = bool(state["queue"]) or bool(state.get("active_task_id")) or int(state.get("active_command_count") or 0) > 0
+                runtime_loaded = state.get("model") is not None
+                work_in_flight = bool(state["queue"]) or bool(state.get("active_task_id")) or int(state.get("active_command_count") or 0) > 0
 
             if owner_pid > 0 and not _pid_is_running(owner_pid):
                 request_shutdown(f"owner pid {owner_pid} exited")
                 return
 
-            if idle_timeout_seconds > 0 and not has_work and idle_seconds >= idle_timeout_seconds:
+            if idle_timeout_seconds > 0 and not work_in_flight and idle_seconds >= idle_timeout_seconds:
                 request_shutdown(f"idle timeout reached ({int(idle_seconds)}s)")
                 return
 
-            if not has_work and has_runtime and idle_seconds >= max(30, idle_timeout_seconds // 2 if idle_timeout_seconds > 0 else 300):
+            if not work_in_flight and runtime_loaded and idle_seconds >= max(30, idle_timeout_seconds // 2 if idle_timeout_seconds > 0 else 300):
                 with runtime_gate:
                     with state_lock:
                         if (
@@ -412,7 +410,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             and not state["active_task_id"]
                             and int(state.get("active_command_count") or 0) == 0
                         ):
-                            _release_runtime(state, logger)
+                            _unload_runtime_model(state, logger)
 
     def worker_loop() -> None:
         while True:
@@ -436,7 +434,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     _ensure_runtime(state, runtime_config, kimodo_root, logger)
                     publish_state("generating")
                 response, binary_payload = _execute_generate(task["request"], state["model"], cancel_event)
-            except bridge_impl.GenerateCancelledError as exc:
+            except bridge_runtime_helpers.GenerateCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
                 binary_payload = None
             except Exception as exc:
@@ -458,7 +456,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     publish_state("idle")
                     queue_changed.notify_all()
 
-    threading.Thread(target=owner_watchdog, daemon=True).start()
+    threading.Thread(target=lifecycle_monitor_loop, daemon=True).start()
     threading.Thread(target=worker_loop, daemon=True).start()
 
     def cancel_task(task_id: str) -> dict[str, Any]:
@@ -495,45 +493,27 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 try:
                     request = json.loads(line.decode("utf-8").strip())
                 except Exception as exc:
-                    bridge_impl._write_json_line(file, {"status": "error", "message": f"Bad JSON: {exc}"})
+                    bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": f"Bad JSON: {exc}"})
                     continue
 
                 touch_activity()
                 cmd = str(request.get("cmd", "") or "").strip().lower()
 
                 try:
-                    if cmd == "start":
-                        begin_command()
-                        runtime_config = _normalize_runtime_config(request, state["default_config"])
-                        try:
-                            with state_lock:
-                                if state.get("active_task_id"):
-                                    bridge_impl._write_json_line(file, {"status": "busy", "message": "Cannot reconfigure runtime while generating."})
-                                    continue
-                                state["default_config"] = dict(runtime_config)
-                                owner_pid = int(request.get("owner_pid") or 0)
-                                if owner_pid > 0:
-                                    state["owner_pid"] = owner_pid
-                            with runtime_gate:
-                                publish_state("loading_runtime")
-                                info = _ensure_runtime(state, runtime_config, kimodo_root, logger)
-                                publish_state("idle")
-                            bridge_impl._write_json_line(file, {"status": "ready", **info})
-                        finally:
-                            end_command()
-                    elif cmd == "generate":
+                    if cmd == "generate":
                         task_id = str(request.get("task_id") or "").strip()
                         if not task_id:
-                            bridge_impl._write_json_line(file, {"status": "error", "message": "generate requires task_id."})
+                            bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": "generate requires task_id."})
                             continue
 
                         with queue_changed:
-                            active_config = state.get("runtime_config") or state.get("default_config")
-                            if not active_config:
-                                bridge_impl._write_json_line(file, {"status": "error", "message": "Runtime has not been started."})
-                                continue
+                            active_config = _normalize_runtime_config(request, state.get("default_config") or {})
+                            state["default_config"] = dict(active_config)
+                            owner_pid = int(request.get("owner_pid") or 0)
+                            if owner_pid > 0:
+                                state["owner_pid"] = owner_pid
                             if task_id in state["tasks"]:
-                                bridge_impl._write_json_line(file, {"status": "error", "message": f"Duplicate task_id '{task_id}'."})
+                                bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": f"Duplicate task_id '{task_id}'."})
                                 continue
 
                             task = {
@@ -559,26 +539,26 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                         response = task.get("response") or {"status": "cancelled", "message": "Server shutting down."}
                         binary_payload = task.get("binary")
                         if binary_payload:
-                            bridge_impl._write_json_line(file, response)
+                            bridge_runtime_helpers._write_json_line(file, response)
                             file.write(binary_payload)
                             file.flush()
                         else:
-                            bridge_impl._write_json_line(file, response)
+                            bridge_runtime_helpers._write_json_line(file, response)
                     elif cmd == "cancel":
                         task_id = str(request.get("task_id") or "").strip()
                         if not task_id:
-                            bridge_impl._write_json_line(file, {"status": "error", "message": "cancel requires task_id."})
+                            bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": "cancel requires task_id."})
                             continue
-                        bridge_impl._write_json_line(file, cancel_task(task_id))
-                    elif cmd in {"quit", "stop"}:
-                        bridge_impl._write_json_line(file, {"status": "bye"})
+                        bridge_runtime_helpers._write_json_line(file, cancel_task(task_id))
+                    elif cmd == "quit":
+                        bridge_runtime_helpers._write_json_line(file, {"status": "bye"})
                         request_shutdown("quit command")
                         return
                     else:
-                        bridge_impl._write_json_line(file, {"status": "error", "message": f"Unknown cmd: {cmd!r}"})
+                        bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": f"Unknown cmd: {cmd!r}"})
                 except Exception as exc:
                     logger.log(f"[ERROR] Command '{cmd}' failed: {exc}")
-                    bridge_impl._write_json_line(file, {"status": "error", "message": str(exc)})
+                    bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": str(exc)})
 
     try:
         publish_state("boot")
@@ -597,7 +577,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     finally:
         with runtime_gate:
             with state_lock:
-                _release_runtime(state, logger)
+                _unload_runtime_model(state, logger)
         _remove_file(serverport_path)
         try:
             server.close()
@@ -614,11 +594,7 @@ def main(argv: list[str] | None = None, *, root_dir: str | None = None, source_r
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     paths = discover_project_paths(root_dir)
 
-    if args.action == "watchdog":
-        print("watchdog mode has been removed; quickserver_cli now supervises itself.", flush=True)
-        return 1
-
-    with _prepare_logger(paths, args.output, args.log, BRIDGE_LOG_NAME, append=True) as logger:
+    with _prepare_logger(paths, args.output, args.log, SUPERVISOR_LOG_FILE_NAME, append=True) as logger:
         return _run_supervisor(args, str(paths.root_dir), logger)
 
 

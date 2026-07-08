@@ -8,10 +8,9 @@ for %%I in ("!SCRIPT_DIR!\..") do set "ROOT_DIR=%%~fI"
 for %%I in ("!ROOT_DIR!\run_server.bat") do set "LAUNCHER=%%~fI"
 set "PORT_FILE=!ROOT_DIR!\serverport"
 set "BRIDGE_LOG=!ROOT_DIR!\log\bridge_server.log"
-set "PID_FILE=!ROOT_DIR!\log\example_run_server_tpose.pid"
+set "PID_FILE=!ROOT_DIR!\log\example_run_server_startup.pid"
 set "STARTUP_TIMEOUT_SEC=1800"
 set "EXIT_GRACE_SEC=15"
-set "TASK_ID=example_tpose"
 
 if not exist "!LAUNCHER!" (
   echo [ERROR] run_server.bat not found: !LAUNCHER!
@@ -20,7 +19,7 @@ if not exist "!LAUNCHER!" (
 if not exist "!ROOT_DIR!\log" mkdir "!ROOT_DIR!\log" >nul 2>nul
 
 echo [EXAMPLE] ROOT_DIR=!ROOT_DIR!
-echo [EXAMPLE] Launching QuickServer T-pose example...
+echo [EXAMPLE] Launching QuickServer startup example...
 
 if exist "!PORT_FILE!" del /f /q "!PORT_FILE!" >nul 2>nul
 if exist "!PID_FILE!" del /f /q "!PID_FILE!" >nul 2>nul
@@ -38,6 +37,7 @@ call :read_serverport
 if not errorlevel 1 goto ready
 call :read_endpoint_from_log
 if not errorlevel 1 goto ready
+
 call :is_wrapper_alive
 if errorlevel 1 (
   if not defined WRAPPER_EXITED (
@@ -51,8 +51,17 @@ if errorlevel 1 (
     exit /b 1
   )
 )
+
 timeout /t 1 /nobreak >nul
 set /a WAIT_SEC+=1
+set /a WAIT_MOD=WAIT_SEC %% 10
+if !WAIT_MOD! equ 0 (
+  if defined WRAPPER_EXITED (
+    echo [EXAMPLE] waiting startup endpoint... !WAIT_SEC!/%STARTUP_TIMEOUT_SEC%s ^(wrapper exited, waiting for bridge handoff^)
+  ) else (
+    echo [EXAMPLE] waiting startup endpoint... !WAIT_SEC!/%STARTUP_TIMEOUT_SEC%s
+  )
+)
 if !WAIT_SEC! geq %STARTUP_TIMEOUT_SEC% (
   echo [ERROR] startup endpoint did not appear within %STARTUP_TIMEOUT_SEC%s.
   call :dump_logs
@@ -61,22 +70,9 @@ if !WAIT_SEC! geq %STARTUP_TIMEOUT_SEC% (
 goto wait_ready
 
 :ready
-echo [EXAMPLE] endpoint ready: !HOST!:!PORT!
-call :run_generate
-if errorlevel 1 exit /b 1
+echo [OK] QuickServer startup ready: !HOST!:!PORT!
 call :send_quit
 call :wait_wrapper_exit
-echo [OK] QuickServer T-pose example passed.
-exit /b 0
-
-:run_generate
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ErrorActionPreference='Stop'; $client=New-Object Net.Sockets.TcpClient('!HOST!',[int]!PORT!); try { $stream=$client.GetStream(); $writer=New-Object IO.StreamWriter($stream); $writer.AutoFlush=$true; $reader=New-Object IO.StreamReader($stream); $req=@{cmd='generate'; task_id='!TASK_ID!'; prompt='tpose'; duration=1.0; diffusion_steps=20; output_format='flatbuf_motion_v1'; constraints_json=''; seed=42} | ConvertTo-Json -Compress; $writer.WriteLine($req); $headerLine=$reader.ReadLine(); if([string]::IsNullOrWhiteSpace($headerLine)){ throw 'No response header from server.' }; $header=$headerLine | ConvertFrom-Json; if($header.status -ne 'done'){ throw ('Generate failed: ' + $headerLine) }; $remaining=[int]($header.byte_length); $buffer=New-Object byte[] 8192; while($remaining -gt 0){ $read=$stream.Read($buffer,0,[Math]::Min($buffer.Length,$remaining)); if($read -le 0){ throw 'Generate payload truncated.' }; $remaining -= $read }; Write-Host '[EXAMPLE] generate complete.' } finally { if($reader){$reader.Dispose()}; if($writer){$writer.Dispose()}; if($stream){$stream.Dispose()}; $client.Dispose() }"
-if errorlevel 1 (
-  echo [ERROR] generate request failed.
-  call :dump_logs
-  exit /b 1
-)
 exit /b 0
 
 :read_serverport
@@ -127,7 +123,7 @@ exit /b %ERRORLEVEL%
 if not defined HOST exit /b 0
 if not defined PORT exit /b 0
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ErrorActionPreference='SilentlyContinue'; $client=New-Object Net.Sockets.TcpClient; $client.Connect('!HOST!',[int]!PORT!); $stream=$client.GetStream(); $writer=New-Object IO.StreamWriter($stream); $writer.AutoFlush=$true; $writer.WriteLine('{""cmd"":""quit""}'); $writer.Dispose(); $stream.Dispose(); $client.Dispose();" >nul 2>nul
+  "$ErrorActionPreference='Stop'; $client=New-Object Net.Sockets.TcpClient; $client.Connect('!HOST!',[int]!PORT!); $stream=$client.GetStream(); $writer=New-Object IO.StreamWriter($stream); $writer.AutoFlush=$true; $writer.WriteLine('{""cmd"":""quit""}'); $writer.Dispose(); $stream.Dispose(); $client.Dispose();" >nul 2>nul
 exit /b 0
 
 :wait_wrapper_exit

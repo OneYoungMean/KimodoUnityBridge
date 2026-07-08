@@ -184,15 +184,15 @@ run_with_timeout() {
     sleep 2
     kill -KILL "${cmd_pid}" >/dev/null 2>&1 || true
   ) &
-  local watchdog_pid=$!
+  local timeout_guard_pid=$!
   local rc=0
   if wait "${cmd_pid}"; then
     rc=0
   else
     rc=$?
   fi
-  kill -TERM "${watchdog_pid}" >/dev/null 2>&1 || true
-  wait "${watchdog_pid}" 2>/dev/null || true
+  kill -TERM "${timeout_guard_pid}" >/dev/null 2>&1 || true
+  wait "${timeout_guard_pid}" 2>/dev/null || true
   if [[ "${rc}" -eq 143 || "${rc}" -eq 137 ]]; then
     echo "[ERROR] uv automatic installation timed out after ${timeout_sec} seconds."
     echo "[ERROR] Please install uv manually, or place uv under: ${ROOT_DIR}/program/exe/uv"
