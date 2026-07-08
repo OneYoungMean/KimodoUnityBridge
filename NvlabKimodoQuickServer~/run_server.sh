@@ -45,17 +45,17 @@ acquire_bootstrap_lock() {
     if [[ -f "${BOOTSTRAP_LOCK}" ]]; then
       local owner_pid=""
       owner_pid="$(awk -F= '$1=="owner_pid"{print $2}' "${BOOTSTRAP_LOCK}" 2>/dev/null | tr -d '\r' | head -n 1)"
-      if [[ -n "${owner_pid}" ]] && pid_is_running "${owner_pid}"; then
-        if [[ "${BOOTSTRAP_WAIT_LOGGED}" != "1" ]]; then
-          mkdir -p "${ROOT_DIR}/log"
+      if [[ "${BOOTSTRAP_WAIT_LOGGED}" != "1" ]]; then
+        mkdir -p "${ROOT_DIR}/log"
+        if [[ -n "${owner_pid}" ]]; then
           echo "[INFO] Bootstrap wait: lock is held by pid ${owner_pid}, waiting for setup to finish..."
           printf '[INFO] pid=%s waiting_on=%s at=%s\n' "$$" "${owner_pid}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "${BOOTSTRAP_WAIT_LOG}"
-          BOOTSTRAP_WAIT_LOGGED=1
+        else
+          echo "[INFO] Bootstrap wait: lock exists, waiting for setup to finish..."
+          printf '[INFO] pid=%s waiting_on=%s at=%s\n' "$$" "unknown" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "${BOOTSTRAP_WAIT_LOG}"
         fi
-        sleep 1
-        continue
+        BOOTSTRAP_WAIT_LOGGED=1
       fi
-      rm -f "${BOOTSTRAP_LOCK}" || true
       if [[ -f "${BOOTSTRAP_LOCK}" ]]; then
         sleep 1
         continue
@@ -97,6 +97,9 @@ install_uv_locally() {
   local uv_dir="${ROOT_DIR}/program/exe/uv"
   local artifact=""
   local github_url=""
+  local ustc_url=""
+  local fallback_name=""
+  local fallback_url=""
   local tmp_dir=""
   mkdir -p "${uv_dir}"
   UV_SELECTED_NAME=""
@@ -107,19 +110,31 @@ install_uv_locally() {
     return 1
   fi
   artifact="$(resolve_uv_artifact)" || return 1
+  ustc_url="https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/${artifact}"
   github_url="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${artifact}"
+  probe_uv_candidate "ustc" "${ustc_url}"
   probe_uv_candidate "github" "${github_url}"
   if [[ -z "${UV_SELECTED_URL}" ]]; then
-    UV_SELECTED_NAME="github"
-    UV_SELECTED_URL="${github_url}"
+    UV_SELECTED_NAME="ustc"
+    UV_SELECTED_URL="${ustc_url}"
     UV_SELECTED_MS=""
     echo "[WARN] uv probe failed for every source, falling back to direct download from: ${UV_SELECTED_NAME}"
   else
     echo "[INFO] Selected uv source: ${UV_SELECTED_NAME}"
   fi
+  fallback_name="github"
+  fallback_url="${github_url}"
+  if [[ "${UV_SELECTED_NAME}" == "github" ]]; then
+    fallback_name="ustc"
+    fallback_url="${ustc_url}"
+  fi
   tmp_dir="$(mktemp -d 2>/dev/null || mktemp -d -t kimodo-uv)"
   trap 'rm -rf "${tmp_dir}"' RETURN
-  run_with_timeout "${UV_INSTALL_TIMEOUT_SEC}" curl -L --fail --silent --show-error --output "${tmp_dir}/${artifact}" "${UV_SELECTED_URL}" || return 1
+  if ! run_with_timeout "${UV_INSTALL_TIMEOUT_SEC}" curl -L --fail --silent --show-error --output "${tmp_dir}/${artifact}" "${UV_SELECTED_URL}"; then
+    echo "[WARN] uv download failed from ${UV_SELECTED_NAME}, retrying with ${fallback_name}..."
+    rm -f "${tmp_dir:?}/${artifact}" || true
+    run_with_timeout "${UV_INSTALL_TIMEOUT_SEC}" curl -L --fail --silent --show-error --output "${tmp_dir}/${artifact}" "${fallback_url}" || return 1
+  fi
   if [[ "${artifact}" == *.zip ]]; then
     if ! command -v unzip >/dev/null 2>&1; then
       echo "[ERROR] unzip is required to install uv from ${artifact}."

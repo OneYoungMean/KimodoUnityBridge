@@ -16,6 +16,7 @@ if defined KIMODO_UV_INSTALL_TIMEOUT_SEC set "UV_INSTALL_TIMEOUT_SEC=%KIMODO_UV_
 if defined KIMODO_UV_PROBE_TIMEOUT_SEC set "UV_PROBE_TIMEOUT_SEC=%KIMODO_UV_PROBE_TIMEOUT_SEC%"
 set "UV_VERSION=0.11.25"
 set "UV_ARTIFACT=uv-x86_64-pc-windows-msvc.zip"
+set "UV_USTC_URL=https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/%UV_ARTIFACT%"
 set "UV_GITHUB_URL=https://github.com/astral-sh/uv/releases/download/%UV_VERSION%/%UV_ARTIFACT%"
 set "UV_AUTO_INSTALL="
 if defined KIMODO_AUTO_INSTALL_UV set "UV_AUTO_INSTALL=%KIMODO_AUTO_INSTALL_UV%"
@@ -127,25 +128,19 @@ if exist "%BOOTSTRAP_LOCK%" (
   for /f "usebackq tokens=1,* delims==" %%A in ("%BOOTSTRAP_LOCK%") do (
     if /I "%%A"=="owner_pid" set "LOCK_OWNER=%%B"
   )
-  if defined LOCK_OWNER (
-    powershell -NoProfile -Command "try { Get-Process -Id !LOCK_OWNER! -ErrorAction Stop | Out-Null; exit 0 } catch { exit 1 }" >nul 2>nul
-    if not errorlevel 1 (
-      if not defined BOOTSTRAP_WAIT_LOGGED (
-        if not exist "%ROOT_DIR%\log" mkdir "%ROOT_DIR%\log" >nul 2>nul
-        echo [INFO] Bootstrap wait: lock is held by pid !LOCK_OWNER!, waiting for setup to finish...
-        >> "%BOOTSTRAP_WAIT_LOG%" echo [INFO] pid=%BOOTSTRAP_PID% waiting_on=!LOCK_OWNER! at=%DATE% %TIME%
-        set "BOOTSTRAP_WAIT_LOGGED=1"
-      )
-      if exist "%ROOT_DIR%\serverport" goto :eof
-      timeout /t 1 /nobreak >nul
-      goto lock_wait
+  if not defined BOOTSTRAP_WAIT_LOGGED (
+    if not exist "%ROOT_DIR%\log" mkdir "%ROOT_DIR%\log" >nul 2>nul
+    if defined LOCK_OWNER (
+      echo [INFO] Bootstrap wait: lock is held by pid !LOCK_OWNER!, waiting for setup to finish...
+      >> "%BOOTSTRAP_WAIT_LOG%" echo [INFO] pid=%BOOTSTRAP_PID% waiting_on=!LOCK_OWNER! at=%DATE% %TIME%
+    ) else (
+      echo [INFO] Bootstrap wait: lock exists, waiting for setup to finish...
+      >> "%BOOTSTRAP_WAIT_LOG%" echo [INFO] pid=%BOOTSTRAP_PID% waiting_on=unknown at=%DATE% %TIME%
     )
+    set "BOOTSTRAP_WAIT_LOGGED=1"
   )
-  del /f /q "%BOOTSTRAP_LOCK%" >nul 2>nul
-  if exist "%BOOTSTRAP_LOCK%" (
-    timeout /t 1 /nobreak >nul
-    goto lock_wait
-  )
+  timeout /t 1 /nobreak >nul
+  goto lock_wait
 )
 
 powershell -NoProfile -Command "$p='%BOOTSTRAP_LOCK%';$dir=[System.IO.Path]::GetDirectoryName($p);if($dir){[System.IO.Directory]::CreateDirectory($dir)|Out-Null};$fs=[System.IO.File]::Open($p,[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None);$sw=New-Object System.IO.StreamWriter($fs,[System.Text.UTF8Encoding]::new($false));$sw.WriteLine('owner_pid=%BOOTSTRAP_PID%');$sw.WriteLine('started_epoch=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds());$sw.Dispose()" >nul 2>nul
@@ -182,11 +177,11 @@ if defined KIMODO_UV_BIN (
   call :check_uv_candidate "%KIMODO_UV_BIN%"
   if defined UV_BIN goto :eof
 )
+call :check_uv_candidate "%UV_TOOL_DIR%\uv.exe"
+if defined UV_BIN goto :eof
 if /I "%FORCE_DOWNLOAD_UV%"=="1" goto :eof
 if /I "%FORCE_DOWNLOAD_UV%"=="true" goto :eof
 if /I "%FORCE_DOWNLOAD_UV%"=="yes" goto :eof
-call :check_uv_candidate "%UV_TOOL_DIR%\uv.exe"
-if defined UV_BIN goto :eof
 for /f "delims=" %%I in ('where uv.exe 2^>nul') do (
   call :check_uv_candidate "%%~fI"
   if defined UV_BIN goto :eof
@@ -218,6 +213,6 @@ exit /b 1
 if not exist "%UV_TOOL_DIR%" mkdir "%UV_TOOL_DIR%" >nul 2>nul
 echo [INFO] Probing uv download sources for this launch...
 echo [INFO] Download uv...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$installDir='%UV_TOOL_DIR%';$artifact='%UV_ARTIFACT%';$probeTimeout=%UV_PROBE_TIMEOUT_SEC%;$downloadTimeout=%UV_INSTALL_TIMEOUT_SEC%;$candidates=@(@{Name='github';Url='%UV_GITHUB_URL%'});function Probe([string]$name,[string]$url){$result=& curl.exe -I -L -o NUL -s -w '%%{http_code} %%{time_total}' --max-time $probeTimeout $url; if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($result)){Write-Host ('[PROBE] uv {0}: failed, timeout={1}s, {2}' -f $name,$probeTimeout,$url); return $null}; $parts=$result.Trim().Split(' '); if($parts.Length -lt 2){Write-Host ('[PROBE] uv {0}: failed, malformed response, {1}' -f $name,$url); return $null}; $status=[int]$parts[0]; $seconds=0.0; [double]::TryParse($parts[1],[ref]$seconds) | Out-Null; $ms=[int][Math]::Round($seconds*1000); if($status -ge 200 -and $status -lt 400){Write-Host ('[PROBE] uv {0}: ok, {1} ms, {2}' -f $name,$ms,$url); return [pscustomobject]@{Name=$name;Url=$url;Ms=$ms}}; Write-Host ('[PROBE] uv {0}: failed, status={1}, {2}' -f $name,$status,$url); return $null}; $probed=@(); foreach($c in $candidates){$r=Probe $c.Name $c.Url; if($null -ne $r){$probed+=$r}}; if($probed.Count -eq 0){$selected=[pscustomobject]@{Name=$candidates[0].Name;Url=$candidates[0].Url;Ms=[int]::MaxValue}; Write-Host ('[WARN] uv probe failed for every source, falling back to direct download from: {0}' -f $selected.Name)} else {$selected=$probed | Sort-Object Ms | Select-Object -First 1; Write-Host ('[INFO] Selected uv source: {0}' -f $selected.Name)}; $tempRoot=Join-Path ([IO.Path]::GetTempPath()) ('kimodo-uv-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null; try { $archivePath=Join-Path $tempRoot $artifact; & curl.exe -L --fail --silent --show-error --max-time $downloadTimeout -o $archivePath $selected.Url; if($LASTEXITCODE -ne 0){throw 'curl download failed.'}; Expand-Archive -LiteralPath $archivePath -DestinationPath $tempRoot -Force; New-Item -ItemType Directory -Force -Path $installDir | Out-Null; foreach($name in @('uv.exe','uvx.exe','uvw.exe')){ $source=Join-Path $tempRoot $name; if(Test-Path -LiteralPath $source){ Copy-Item -LiteralPath $source -Destination (Join-Path $installDir $name) -Force } }; Write-Host '[INFO] Download uv complete.' } finally { if(Test-Path -LiteralPath $tempRoot){ Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue } }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$installDir='%UV_TOOL_DIR%';$artifact='%UV_ARTIFACT%';$probeTimeout=%UV_PROBE_TIMEOUT_SEC%;$downloadTimeout=%UV_INSTALL_TIMEOUT_SEC%;$candidates=@(@{Name='ustc';Url='%UV_USTC_URL%'},@{Name='github';Url='%UV_GITHUB_URL%'});function Probe([string]$name,[string]$url){$result=& curl.exe -I -L -o NUL -s -w '%%{http_code} %%{time_total}' --max-time $probeTimeout $url; if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($result)){Write-Host ('[PROBE] uv {0}: failed, timeout={1}s, {2}' -f $name,$probeTimeout,$url); return $null}; $parts=$result.Trim().Split(' '); if($parts.Length -lt 2){Write-Host ('[PROBE] uv {0}: failed, malformed response, {1}' -f $name,$url); return $null}; $status=[int]$parts[0]; $seconds=0.0; [double]::TryParse($parts[1],[ref]$seconds) | Out-Null; $ms=[int][Math]::Round($seconds*1000); if($status -ge 200 -and $status -lt 400){Write-Host ('[PROBE] uv {0}: ok, {1} ms, {2}' -f $name,$ms,$url); return [pscustomobject]@{Name=$name;Url=$url;Ms=$ms}}; Write-Host ('[PROBE] uv {0}: failed, status={1}, {2}' -f $name,$status,$url); return $null}; function Download([string]$url,[string]$archivePath){ & curl.exe -L --fail --silent --show-error --max-time $downloadTimeout -o $archivePath $url; return $LASTEXITCODE }; $probed=@(); foreach($c in $candidates){$r=Probe $c.Name $c.Url; if($null -ne $r){$probed+=$r}}; if($probed.Count -eq 0){$selected=[pscustomobject]@{Name=$candidates[0].Name;Url=$candidates[0].Url;Ms=[int]::MaxValue}; Write-Host ('[WARN] uv probe failed for every source, falling back to direct download from: {0}' -f $selected.Name)} else {$selected=$probed | Sort-Object Ms | Select-Object -First 1; Write-Host ('[INFO] Selected uv source: {0}' -f $selected.Name)}; $fallback = $candidates | Where-Object { $_.Name -ne $selected.Name } | Select-Object -First 1; $tempRoot=Join-Path ([IO.Path]::GetTempPath()) ('kimodo-uv-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null; try { $archivePath=Join-Path $tempRoot $artifact; $rc = Download $selected.Url $archivePath; if($rc -ne 0){ if($null -ne $fallback){ Write-Host ('[WARN] uv download failed from {0}, retrying with {1}...' -f $selected.Name,$fallback.Name); if(Test-Path -LiteralPath $archivePath){ Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue }; $rc = Download $fallback.Url $archivePath } }; if($rc -ne 0){throw 'curl download failed.'}; Expand-Archive -LiteralPath $archivePath -DestinationPath $tempRoot -Force; New-Item -ItemType Directory -Force -Path $installDir | Out-Null; foreach($name in @('uv.exe','uvx.exe','uvw.exe')){ $source=Join-Path $tempRoot $name; if(Test-Path -LiteralPath $source){ Copy-Item -LiteralPath $source -Destination (Join-Path $installDir $name) -Force } }; Write-Host '[INFO] Download uv complete.' } finally { if(Test-Path -LiteralPath $tempRoot){ Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue } }"
 if errorlevel 1 exit /b 1
 exit /b 0

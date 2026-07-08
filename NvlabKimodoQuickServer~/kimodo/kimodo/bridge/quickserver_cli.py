@@ -93,6 +93,66 @@ def _remove_file(path: Path) -> None:
         pass
 
 
+def _read_serverport(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return {}
+
+    data: dict[str, str] = {}
+    for line in lines:
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        data[key.strip().lower()] = value.strip()
+    return data
+
+
+def _can_connect(host: str, port: int, timeout_seconds: float = 1.0) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout_seconds):
+            return True
+    except OSError:
+        return False
+
+
+def _try_reuse_existing_supervisor(serverport_path: Path, logger: SetupLogger) -> bool:
+    data = _read_serverport(serverport_path)
+    host = str(data.get("host") or "").strip()
+    port_text = str(data.get("port") or "").strip()
+    if not host or not port_text:
+        return False
+
+    try:
+        port = int(port_text)
+    except ValueError:
+        _remove_file(serverport_path)
+        return False
+
+    if port <= 0:
+        _remove_file(serverport_path)
+        return False
+
+    pid_text = str(data.get("pid") or "").strip()
+    if pid_text:
+        try:
+            if not _pid_is_running(int(pid_text)):
+                _remove_file(serverport_path)
+                return False
+        except ValueError:
+            _remove_file(serverport_path)
+            return False
+
+    if not _can_connect(host, port):
+        _remove_file(serverport_path)
+        return False
+
+    logger.log(f"[INFO] Reusing active quickserver_cli at {host}:{port}")
+    return True
+
+
 def _write_serverport(path: Path, host: str, port: int, state_name: str) -> None:
     bridge_runtime_helpers._write_text_atomic(
         str(path),
@@ -303,6 +363,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
 
     os.environ["KIMODO_ROOT_PATH"] = kimodo_root
     os.environ["KIMODO_BRIDGE_LOG"] = str((Path(kimodo_root) / "log" / SUPERVISOR_LOG_FILE_NAME).resolve())
+
+    if _try_reuse_existing_supervisor(serverport_path, logger):
+        return 0
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

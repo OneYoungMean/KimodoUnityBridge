@@ -1,3 +1,6 @@
 /test_runs/
+/NvlabKimodoQuickServer~/.setup.complete
+/NvlabKimodoQuickServer~/log/
 **/__pycache__/
 /archive/quickserver_pycache_*/
+/archive/test_runs_archive_*/

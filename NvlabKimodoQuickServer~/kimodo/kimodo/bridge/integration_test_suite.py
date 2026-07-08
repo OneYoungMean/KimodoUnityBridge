@@ -193,6 +193,21 @@ def _list_cases() -> list[TestCase]:
         )),
         TestCase("T51", "Reject Legacy Start Command", ("protocol", "legacy"), "legacy_command_reject", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"cmd": "start"}),
         TestCase("T52", "Reject Legacy Stop Command", ("protocol", "legacy"), "legacy_command_reject", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"cmd": "stop"}),
+        TestCase("T53", "Basic T-Pose Generate Cold Start", ("cold-start", "smoke"), "basic", ResourcePolicy(
+            env_policy="isolated-env-setup",
+            model_policy="isolated-models",
+            uv_policy="reuse-available-uv",
+        )),
+        TestCase("T54", "Cancel Current Generating Cold Start", ("cold-start", "cancel"), "cancel_active", ResourcePolicy(
+            env_policy="isolated-env-setup",
+            model_policy="isolated-models",
+            uv_policy="reuse-available-uv",
+        )),
+        TestCase("T55", "Short Idle Timeout Override Cold Start", ("cold-start", "timeout"), "idle_timeout_override", ResourcePolicy(
+            env_policy="isolated-env-setup",
+            model_policy="isolated-models",
+            uv_policy="reuse-available-uv",
+        ), {"idle_timeout_sec": 3}),
     ]
     return cases
 
@@ -371,7 +386,11 @@ def _wait_for_bootstrap_phase(ctx: TestContext, phase: str) -> None:
             if not ctx.bridge_log_path.exists():
                 return False
             text = ctx.bridge_log_path.read_text(encoding="utf-8", errors="replace")
-            return "asset plan:" in text or "Text encoder layout selected:" in text
+            return (
+                "[STEP] Downloading " in text
+                or "forced download site=" in text
+                or "selected download site=" in text
+            )
         _wait_for(_download_seen, START_TIMEOUT_SEC, "download stage")
         return
 
@@ -395,6 +414,37 @@ def _start_launcher(
     bootstrap_hold_sec: int | None = None,
     idle_timeout_sec: int | None = None,
 ) -> None:
+    env = _build_launcher_env(
+        ctx,
+        reuse_existing_env=reuse_existing_env,
+        uncached_uv=uncached_uv,
+        force_download_uv=force_download_uv,
+        bootstrap_hold_sec=bootstrap_hold_sec,
+        idle_timeout_sec=idle_timeout_sec,
+    )
+    stdout_path = ctx.logs_dir / "launcher.out.log"
+    stderr_path = ctx.logs_dir / "launcher.err.log"
+    stdout_stream = stdout_path.open("w", encoding="utf-8", newline="\n")
+    stderr_stream = stderr_path.open("w", encoding="utf-8", newline="\n")
+    ctx.launcher_proc = subprocess.Popen(
+        ctx.launcher_command(),
+        cwd=str(ctx.workspace_runtime),
+        env=env,
+        stdout=stdout_stream,
+        stderr=stderr_stream,
+        text=True,
+    )
+
+
+def _build_launcher_env(
+    ctx: TestContext,
+    *,
+    reuse_existing_env: bool,
+    uncached_uv: bool = False,
+    force_download_uv: bool = False,
+    bootstrap_hold_sec: int | None = None,
+    idle_timeout_sec: int | None = None,
+) -> dict[str, str]:
     env = os.environ.copy()
     env["KIMODO_IDLE_TIMEOUT_SEC"] = str(int(idle_timeout_sec if idle_timeout_sec is not None else 120))
     if reuse_existing_env and ctx.reusable_env_path:
@@ -410,19 +460,7 @@ def _start_launcher(
         env["KIMODO_UV_PROBE_TIMEOUT_SEC"] = "15"
     if bootstrap_hold_sec and bootstrap_hold_sec > 0:
         env["KIMODO_BOOTSTRAP_HOLD_SEC"] = str(int(bootstrap_hold_sec))
-
-    stdout_path = ctx.logs_dir / "launcher.out.log"
-    stderr_path = ctx.logs_dir / "launcher.err.log"
-    stdout_stream = stdout_path.open("w", encoding="utf-8", newline="\n")
-    stderr_stream = stderr_path.open("w", encoding="utf-8", newline="\n")
-    ctx.launcher_proc = subprocess.Popen(
-        ctx.launcher_command(),
-        cwd=str(ctx.workspace_runtime),
-        env=env,
-        stdout=stdout_stream,
-        stderr=stderr_stream,
-        text=True,
-    )
+    return env
 
 
 def _wait_for_server(ctx: TestContext) -> tuple[str, int]:
@@ -711,8 +749,7 @@ def _start_phase_driver(
                 reuse_existing_models=(phase != "download"),
                 owner_pid=owner_pid,
             )
-            if phase == "generating":
-                _generate_tpose(ctx, host, port, task_id=f"{ctx.case.case_id}_phase_driver", duration=20.0)
+            _generate_tpose(ctx, host, port, task_id=f"{ctx.case.case_id}_phase_driver", duration=20.0)
         except Exception as exc:
             phase_errors.append(str(exc))
 
@@ -754,17 +791,17 @@ def _run_basic(ctx: TestContext, params: dict[str, Any]) -> dict[str, Any]:
 def _run_double_start(ctx: TestContext, params: dict[str, Any], different: bool) -> dict[str, Any]:
     _start_launcher(ctx, reuse_existing_env=params.get("reuse_existing_env", True), bootstrap_hold_sec=10, idle_timeout_sec=params.get("idle_timeout_sec"))
     second_log = ctx.logs_dir / "launcher_second.out.log"
-    env = os.environ.copy()
+    env = _build_launcher_env(
+        ctx,
+        reuse_existing_env=params.get("reuse_existing_env", True),
+        idle_timeout_sec=params.get("idle_timeout_sec"),
+    )
     second_proc = subprocess.Popen(ctx.launcher_command(), cwd=str(ctx.workspace_runtime), env=env, stdout=second_log.open("w", encoding="utf-8"), stderr=subprocess.STDOUT, text=True)
     try:
-        bootstrap_wait_text = _wait_for(
-            lambda: (
-                ctx.bootstrap_wait_log_path.read_text(encoding="utf-8", errors="replace")
-                if ctx.bootstrap_wait_log_path.exists() and "waiting_on=" in ctx.bootstrap_wait_log_path.read_text(encoding="utf-8", errors="replace")
-                else None
-            ),
+        outcome = _wait_for(
+            lambda: _probe_double_start_outcome(ctx, second_log),
             20.0,
-            "bootstrap wait log",
+            "double-start outcome",
         )
         host, port = _start_runtime(
             ctx,
@@ -774,20 +811,41 @@ def _run_double_start(ctx: TestContext, params: dict[str, Any], different: bool)
         _generate_tpose(ctx, host, port)
         _stop_server(host, port)
         second_log_text = second_log.read_text(encoding="utf-8", errors="replace") if second_log.exists() else ""
-        wait_detected = "waiting_on=" in bootstrap_wait_text
-        if not wait_detected:
-            raise RuntimeError(f"Second bootstrap did not emit a wait log. Inspect: {second_log}")
+        wait_detected = bool(outcome.get("wait_detected"))
+        reused_existing = bool(outcome.get("reused_existing"))
+        if not wait_detected and not reused_existing:
+            raise RuntimeError(f"Second bootstrap neither waited nor reused the active supervisor. Inspect: {second_log}")
         return {
             "status": "passed",
             "second_pid": second_proc.pid,
             "second_log_path": str(second_log),
             "bootstrap_wait_log_path": str(ctx.bootstrap_wait_log_path),
             "second_bootstrap_wait_detected": wait_detected,
+            "second_reused_existing_supervisor": reused_existing,
             "second_launcher_log_excerpt": second_log_text[:500],
         }
     finally:
         if second_proc.poll() is None:
             second_proc.terminate()
+
+
+def _probe_double_start_outcome(ctx: TestContext, second_log: Path) -> dict[str, bool] | None:
+    wait_detected = False
+    if ctx.bootstrap_wait_log_path.exists():
+        wait_text = ctx.bootstrap_wait_log_path.read_text(encoding="utf-8", errors="replace")
+        wait_detected = "waiting_on=" in wait_text
+
+    reused_existing = False
+    if second_log.exists():
+        second_log_text = second_log.read_text(encoding="utf-8", errors="replace")
+        reused_existing = "Reusing active quickserver_cli" in second_log_text
+
+    if wait_detected or reused_existing:
+        return {
+            "wait_detected": wait_detected,
+            "reused_existing": reused_existing,
+        }
+    return None
 
 
 def _run_queue_order(ctx: TestContext) -> dict[str, Any]:

@@ -71,6 +71,9 @@ All test runs are created under `NvlabKimodoQuickServer~/test_runs/<timestamp>_<
 | `T50` | Example Default Startup Batch | `env_policy=isolated-env-setup, model_policy=isolated-models, uv_policy=reuse-available-uv` | Runs `example\example_run_server_startup.bat` with no extra parameters in the isolated workspace copy and requires startup-ready plus quit to succeed. |
 | `T51` | Reject Legacy Start Command | `env_policy=reuse-existing-env, model_policy=reuse-existing-model-cache, uv_policy=reuse-available-uv` | Verifies TCP `start` is no longer accepted after protocol收束. |
 | `T52` | Reject Legacy Stop Command | `env_policy=reuse-existing-env, model_policy=reuse-existing-model-cache, uv_policy=reuse-available-uv` | Verifies TCP `stop` is no longer accepted after protocol收束. |
+| `T53` | Basic T-Pose Generate Cold Start | `env_policy=isolated-env-setup, model_policy=isolated-models, uv_policy=reuse-available-uv` | Direct non-example cold-start minimal generate, used as the strict counterpart to `T01`. |
+| `T54` | Cancel Current Generating Cold Start | `env_policy=isolated-env-setup, model_policy=isolated-models, uv_policy=reuse-available-uv` | Cold-start generate enters active run, then cancel must succeed and recovery must remain healthy. |
+| `T55` | Short Idle Timeout Override Cold Start | `env_policy=isolated-env-setup, model_policy=isolated-models, uv_policy=reuse-available-uv` | Cold-start generate followed by short idle timeout shutdown, then recovery generate must still succeed. |
 
 ## Default Full Sweep
 
