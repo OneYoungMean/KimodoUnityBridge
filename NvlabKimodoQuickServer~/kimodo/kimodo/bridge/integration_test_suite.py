@@ -61,6 +61,10 @@ POLICY_DOWNLOAD_PROBE = ResourcePolicy(
     model_policy="probe-output-only",
     uv_policy="probe-only",
 )
+POLICY_PREPARE_SHARED_ENV_AND_MODELS = ResourcePolicy(
+    env_policy="prepare-shared-env",
+    model_policy="prepare-shared-model-cache",
+)
 
 
 def _repo_root() -> Path:
@@ -133,6 +137,7 @@ def _send_json(
 
 def _list_cases() -> list[TestCase]:
     cases: list[TestCase] = [
+        TestCase("T00", "Prepare Shared Env And Models", ("prepare", "bootstrap"), "prepare", POLICY_PREPARE_SHARED_ENV_AND_MODELS),
         TestCase("T01", "Basic T-Pose Generate", ("basic", "smoke"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
         TestCase("T02", "Double Start Same Params", ("basic", "multi-start"), "double_start_same", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
         TestCase("T03", "Double Start Different Params", ("basic", "multi-start"), "double_start_diff", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
@@ -729,6 +734,102 @@ def _run_legacy_command_reject(ctx: TestContext, cmd_name: str) -> dict[str, Any
     return {"status": "passed", "response": header}
 
 
+def _run_prepare(ctx: TestContext) -> dict[str, Any]:
+    root_runtime = ctx.runtime_root
+    root_logs_dir = ctx.logs_dir / "prepare_root_runtime"
+    root_logs_dir.mkdir(parents=True, exist_ok=True)
+
+    if os.name == "nt":
+        command = ["cmd.exe", "/d", "/c", "call", str(root_runtime / "run_server.bat")]
+    else:
+        command = ["bash", str(root_runtime / "run_server.sh")]
+
+    env = os.environ.copy()
+    env["KIMODO_IDLE_TIMEOUT_SEC"] = "120"
+    env.pop("KIMODO_VENV_PATH", None)
+
+    stdout_path = root_logs_dir / "launcher.out.log"
+    stderr_path = root_logs_dir / "launcher.err.log"
+    stdout_stream = stdout_path.open("w", encoding="utf-8", newline="\n")
+    stderr_stream = stderr_path.open("w", encoding="utf-8", newline="\n")
+    launcher_proc = subprocess.Popen(
+        command,
+        cwd=str(root_runtime),
+        env=env,
+        stdout=stdout_stream,
+        stderr=stderr_stream,
+        text=True,
+    )
+
+    serverport_path = root_runtime / "serverport"
+    host = ""
+    port = 0
+    try:
+        def _endpoint() -> tuple[str, int] | None:
+            data = _read_serverport(serverport_path)
+            current_host = data.get("host", "").strip()
+            port_text = data.get("port", "").strip()
+            if not current_host or not port_text:
+                return None
+            try:
+                current_port = int(port_text)
+            except ValueError:
+                return None
+            if current_port <= 0:
+                return None
+            return current_host, current_port
+
+        host, port = _wait_for(_endpoint, START_TIMEOUT_SEC, "prepare runtime endpoint")
+        header, _ = _send_json(
+            host,
+            port,
+            {
+                "cmd": "generate",
+                "task_id": f"{ctx.case.case_id}_{int(time.time() * 1000)}",
+                "prompt": TPROMPT,
+                "duration": 1.0,
+                "diffusion_steps": 20,
+                "output_format": "flatbuf_motion_v1",
+                "constraints_json": "",
+                "seed": 42,
+                "model": "Kimodo-SOMA-RP-v1",
+                "highvram": False,
+                "force_cpu": False,
+                "force_hf_download": False,
+                "owner_pid": 0,
+            },
+            read_binary=True,
+            timeout_sec=TEST_TIMEOUT_SEC * 2,
+        )
+        if str(header.get("status", "")).lower() != "done":
+            raise RuntimeError(f"Prepare generate failed: {header}")
+        _send_json(host, port, {"cmd": "quit"})
+        _wait_for(lambda: not serverport_path.exists(), 120.0, "prepare runtime shutdown")
+    finally:
+        try:
+            stdout_stream.close()
+        finally:
+            stderr_stream.close()
+        if launcher_proc.poll() is None:
+            _terminate_process_tree(launcher_proc, timeout_sec=30)
+
+    env_dir = root_runtime / "Env"
+    models_dir = root_runtime / "models"
+    if not _looks_like_reusable_env(env_dir):
+        raise RuntimeError(f"Prepare did not create a reusable Env at: {env_dir}")
+    if not _looks_like_reusable_models(models_dir):
+        raise RuntimeError(f"Prepare did not create reusable models at: {models_dir}")
+
+    return {
+        "status": "passed",
+        "prepared_runtime_root": str(root_runtime),
+        "prepared_env_path": str(env_dir),
+        "prepared_models_path": str(models_dir),
+        "stdout_log": str(stdout_path),
+        "stderr_log": str(stderr_path),
+    }
+
+
 def _start_phase_driver(
     ctx: TestContext,
     phase: str,
@@ -1069,6 +1170,8 @@ def _run_cli_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
 def _run_case(ctx: TestContext) -> dict[str, Any]:
     kind = ctx.case.kind
     params = _resolved_case_params(ctx.case)
+    if kind == "prepare":
+        return _run_prepare(ctx)
     if kind == "basic":
         return _run_basic(ctx, params)
     if kind == "double_start_same":
@@ -1122,10 +1225,12 @@ def _write_summary(ctx: TestContext, result: dict[str, Any]) -> None:
 
 def _select_cases(case_ids: list[str], tag: str | None, full: bool, case_range: tuple[str, str] | None) -> list[TestCase]:
     cases = _list_cases()
+    prepare_case = next((case for case in cases if case.case_id.lower() == "t00"), None)
     if sum(1 for enabled in (full, bool(case_ids), bool(tag), bool(case_range)) if enabled) > 1:
         raise RuntimeError("Use only one selector among --full, --case/--cases, --tag, or --range.")
     if full:
-        return [case for case in cases if "hf" not in case.tags and "probe" not in case.tags and "manual" not in case.tags]
+        selected = [case for case in cases if "hf" not in case.tags and "probe" not in case.tags and "manual" not in case.tags]
+        return _prepend_prepare_case(selected, prepare_case)
     if case_ids:
         case_map = {case.case_id.lower(): case for case in cases}
         selected: list[TestCase] = []
@@ -1138,7 +1243,7 @@ def _select_cases(case_ids: list[str], tag: str | None, full: bool, case_range: 
                 continue
             selected.append(case_map[key])
             seen.add(key)
-        return selected
+        return _prepend_prepare_case(selected, prepare_case)
     if case_range:
         start_key = _case_sort_key(case_range[0])
         end_key = _case_sort_key(case_range[1])
@@ -1147,13 +1252,23 @@ def _select_cases(case_ids: list[str], tag: str | None, full: bool, case_range: 
         selected = [case for case in cases if start_key <= _case_sort_key(case.case_id) <= end_key]
         if not selected:
             raise RuntimeError(f"Empty test range: {case_range[0]}..{case_range[1]}")
-        return selected
+        return _prepend_prepare_case(selected, prepare_case)
     if tag:
         selected = [case for case in cases if tag in case.tags]
         if not selected:
             raise RuntimeError(f"Unknown/empty tag selection: {tag}")
+        return _prepend_prepare_case(selected, prepare_case)
+    return _prepend_prepare_case(cases, prepare_case)
+
+
+def _prepend_prepare_case(selected: list[TestCase], prepare_case: TestCase | None) -> list[TestCase]:
+    if prepare_case is None or not selected:
         return selected
-    return cases
+    if all(case.case_id.lower() == "t00" for case in selected):
+        return selected
+    if any(case.case_id.lower() == "t00" for case in selected):
+        selected = [case for case in selected if case.case_id.lower() != "t00"]
+    return [prepare_case, *selected]
 
 
 def _archive_legacy_tests(repo_root: Path) -> None:
