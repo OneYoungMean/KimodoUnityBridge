@@ -282,6 +282,12 @@ def _looks_like_reusable_models(candidate: Path) -> bool:
     return False
 
 
+def _copytree_replace(source: Path, destination: Path) -> None:
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source, destination)
+
+
 def _resolve_reusable_path(runtime_root: Path, names: tuple[str, ...], validator) -> str:
     for name in names:
         candidate = runtime_root / name
@@ -303,7 +309,7 @@ class TestContext:
         self.case = case
         self.repo_root = _repo_root()
         self.runtime_root = _runtime_root(self.repo_root)
-        self.run_root = self.runtime_root / "test_runs" / (time.strftime("%Y%m%d_%H%M%S") + "_" + case.case_id)
+        self.run_root = self.runtime_root / "test_runs~" / (time.strftime("%Y%m%d_%H%M%S") + "_" + case.case_id)
         self.workspace_root = self.run_root / "workspace"
         self.workspace_runtime = self.workspace_root / "NvlabKimodoQuickServer~"
         self.logs_dir = self.run_root / "logs"
@@ -313,7 +319,7 @@ class TestContext:
         self.owner_proc: subprocess.Popen[str] | None = None
         self.last_task_id = ""
         self.python_host = _find_host_python()
-        self.reusable_env_path = _resolve_reusable_path(self.runtime_root, ("Env~", "Env"), _looks_like_reusable_env)
+        self.reusable_env_path = _resolve_reusable_path(self.runtime_root, ("Env", "Env~"), _looks_like_reusable_env)
         self.reusable_models_path = _resolve_reusable_path(self.runtime_root, ("models~", "models"), _looks_like_reusable_models)
 
     def prepare_workspace(self) -> None:
@@ -452,10 +458,11 @@ def _build_launcher_env(
 ) -> dict[str, str]:
     env = os.environ.copy()
     env["KIMODO_IDLE_TIMEOUT_SEC"] = str(int(idle_timeout_sec if idle_timeout_sec is not None else 120))
-    if reuse_existing_env and ctx.reusable_env_path:
+    env.pop("KIMODO_VENV_PATH", None)
+    if reuse_existing_env:
+        if not ctx.reusable_env_path:
+            raise RuntimeError(f"Reusable Env is required but missing or invalid under: {ctx.runtime_root / 'Env'}")
         env["KIMODO_VENV_PATH"] = ctx.reusable_env_path
-    else:
-        env.pop("KIMODO_VENV_PATH", None)
     if uncached_uv:
         env["KIMODO_UV_BIN"] = ""
         env["UV_NO_CACHE"] = "1"
@@ -736,6 +743,19 @@ def _run_legacy_command_reject(ctx: TestContext, cmd_name: str) -> dict[str, Any
 
 def _run_prepare(ctx: TestContext) -> dict[str, Any]:
     root_runtime = ctx.runtime_root
+    shared_env_dir = root_runtime / "Env"
+    shared_models_dir = root_runtime / "models"
+    shared_env_ready = _looks_like_reusable_env(shared_env_dir)
+    shared_models_ready = _looks_like_reusable_models(shared_models_dir)
+    if shared_env_ready and shared_models_ready:
+        return {
+            "status": "passed",
+            "prepared_runtime_root": str(root_runtime),
+            "prepared_env_path": str(shared_env_dir),
+            "prepared_models_path": str(shared_models_dir),
+            "skipped_prepare": True,
+        }
+
     root_logs_dir = ctx.logs_dir / "prepare_root_runtime"
     root_logs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -813,20 +833,26 @@ def _run_prepare(ctx: TestContext) -> dict[str, Any]:
         if launcher_proc.poll() is None:
             _terminate_process_tree(launcher_proc, timeout_sec=30)
 
-    env_dir = root_runtime / "Env"
-    models_dir = root_runtime / "models"
-    if not _looks_like_reusable_env(env_dir):
-        raise RuntimeError(f"Prepare did not create a reusable Env at: {env_dir}")
-    if not _looks_like_reusable_models(models_dir):
-        raise RuntimeError(f"Prepare did not create reusable models at: {models_dir}")
+    source_root = root_runtime / "kimodo"
+    source_env_dir = source_root / ".venv"
+    if not shared_env_ready:
+        if not _looks_like_reusable_env(source_env_dir):
+            raise RuntimeError(f"Prepare did not create a source venv at: {source_env_dir}")
+        _copytree_replace(source_env_dir, shared_env_dir)
+
+    if not _looks_like_reusable_env(shared_env_dir):
+        raise RuntimeError(f"Prepare did not create a reusable Env at: {shared_env_dir}")
+    if not _looks_like_reusable_models(shared_models_dir):
+        raise RuntimeError(f"Prepare did not create reusable models at: {shared_models_dir}")
 
     return {
         "status": "passed",
         "prepared_runtime_root": str(root_runtime),
-        "prepared_env_path": str(env_dir),
-        "prepared_models_path": str(models_dir),
+        "prepared_env_path": str(shared_env_dir),
+        "prepared_models_path": str(shared_models_dir),
         "stdout_log": str(stdout_path),
         "stderr_log": str(stderr_path),
+        "skipped_prepare": False,
     }
 
 
