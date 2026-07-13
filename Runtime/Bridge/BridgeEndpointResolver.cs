@@ -5,14 +5,14 @@ using System.Net;
 
 namespace KimodoBridge
 {
-    public static class BridgeEndpointResolver
+    internal static class BridgeEndpointResolver
     {
-        public static string GetServerPortFilePath(string runtimeRoot)
+        internal static string GetServerPortFilePath(string runtimeRoot)
         {
             return Path.Combine(runtimeRoot, "serverport");
         }
 
-        public static string ResolveAttachLogPath(string runtimeRoot)
+        internal static string ResolveAttachLogPath(string runtimeRoot)
         {
             if (string.IsNullOrWhiteSpace(runtimeRoot))
             {
@@ -59,12 +59,12 @@ namespace KimodoBridge
             return Path.Combine(logDir, "bridge_server.log");
         }
 
-        public static bool TryReadServerEndpoint(string runtimeRoot, string hostFallback, out string host, out int port, out string error)
+        internal static bool TryReadServerEndpoint(string runtimeRoot, string hostFallback, out string host, out int port, out string error)
         {
             return TryReadServerEndpointFromFile(GetServerPortFilePath(runtimeRoot), hostFallback, out host, out port, out error);
         }
 
-        public static bool TryReadServerEndpointFromFile(string serverPortPath, string hostFallback, out string host, out int port, out string error)
+        internal static bool TryReadServerEndpointFromFile(string serverPortPath, string hostFallback, out string host, out int port, out string error)
         {
             host = string.IsNullOrWhiteSpace(hostFallback) ? "127.0.0.1" : hostFallback.Trim();
             port = -1;

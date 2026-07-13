@@ -72,9 +72,7 @@ namespace KimodoBridge.Editor
         private static void OnCompilationFinished(object _)
         {
             compilingDepth = Math.Max(0, compilingDepth - 1);
-            bool active = IsCompilingOrReloading;
             //UnityEngine.Debug.Log($"[Kimodo][CompileGate] compilation finished depth={compilingDepth}, active={active}");
-            StateChanged?.Invoke(active);
         }
 
         private static void OnBeforeReload()
@@ -82,15 +80,12 @@ namespace KimodoBridge.Editor
             FlushDisposables();
             reloadDepth++;
             //UnityEngine.Debug.Log($"[Kimodo][CompileGate] before reload depth={reloadDepth}");
-            StateChanged?.Invoke(true);
         }
 
         private static void OnAfterReload()
         {
             reloadDepth = Math.Max(0, reloadDepth - 1);
-            bool active = IsCompilingOrReloading;
             //UnityEngine.Debug.Log($"[Kimodo][CompileGate] after reload depth={reloadDepth}, active={active}");
-            StateChanged?.Invoke(active);
         }
 
         private static void OnPlayModeStateChanged(PlayModeStateChange change)

@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
@@ -13,17 +14,74 @@ namespace KimodoBridge
     {
         public JObject Header { get; set; }
         public byte[] BinaryPayload { get; set; }
+        public string TaskId { get; set; }
     }
 
-    public sealed class BridgeProtocolClient : IDisposable
+    internal sealed class BridgeProtocolClient : IDisposable
     {
+        private sealed class PendingGenerateRequest
+        {
+            private int completed;
+
+            internal PendingGenerateRequest(string taskId, Action<string> progress, int modelLoadingTimeoutMs)
+            {
+                TaskId = taskId;
+                Progress = progress;
+                ModelLoadingTimeoutMs = modelLoadingTimeoutMs;
+                CreatedAtUtc = DateTime.UtcNow;
+                Completion = new TaskCompletionSource<BridgeProtocolResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            internal string TaskId { get; }
+            internal Action<string> Progress { get; }
+            internal int ModelLoadingTimeoutMs { get; }
+            internal DateTime CreatedAtUtc { get; }
+            internal TaskCompletionSource<BridgeProtocolResponse> Completion { get; }
+
+            internal bool TrySetResult(BridgeProtocolResponse response)
+            {
+                if (Interlocked.Exchange(ref completed, 1) != 0)
+                {
+                    return false;
+                }
+
+                return Completion.TrySetResult(response);
+            }
+
+            internal bool TrySetException(Exception exception)
+            {
+                if (Interlocked.Exchange(ref completed, 1) != 0)
+                {
+                    return false;
+                }
+
+                return Completion.TrySetException(exception);
+            }
+
+            internal bool TrySetCanceled(string message)
+            {
+                if (Interlocked.Exchange(ref completed, 1) != 0)
+                {
+                    return false;
+                }
+
+                return Completion.TrySetException(new OperationCanceledException(
+                    string.IsNullOrWhiteSpace(message) ? "Bridge generation cancelled." : message));
+            }
+        }
+
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
-        private readonly SemaphoreSlim ioLock = new SemaphoreSlim(1, 1);
+
+        private readonly SemaphoreSlim writeLock = new SemaphoreSlim(1, 1);
         private readonly object disposeGate = new object();
+        private readonly object pendingGate = new object();
         private readonly int connectTimeoutMs;
         private readonly int ioTimeoutMs;
         private readonly int modelLoadingTimeoutMs;
         private readonly int modelLoadingPollIntervalMs;
+
+        private readonly Dictionary<string, PendingGenerateRequest> pendingRequests =
+            new Dictionary<string, PendingGenerateRequest>(StringComparer.Ordinal);
 
         private TcpClient sharedClient;
         private NetworkStream sharedStream;
@@ -31,12 +89,14 @@ namespace KimodoBridge
         private int sharedPort = -1;
         private bool disposed;
         private int disposeStarted;
+        private CancellationTokenSource readerCts;
+        private Task readerTask;
 
         public BridgeProtocolClient(
-            int connectTimeoutMs = BridgeRuntimeSettings.DefaultConnectTimeoutMs,
-            int ioTimeoutMs = BridgeRuntimeSettings.DefaultIoTimeoutMs,
-            int modelLoadingTimeoutMs = BridgeRuntimeSettings.DefaultModelLoadingTimeoutMs,
-            int modelLoadingPollIntervalMs = BridgeRuntimeSettings.DefaultModelLoadingPollIntervalMs)
+            int connectTimeoutMs = BridgeRuntimeDefaults.ConnectTimeoutMs,
+            int ioTimeoutMs = BridgeRuntimeDefaults.IoTimeoutMs,
+            int modelLoadingTimeoutMs = BridgeRuntimeDefaults.ModelLoadingTimeoutMs,
+            int modelLoadingPollIntervalMs = BridgeRuntimeDefaults.ModelLoadingPollIntervalMs)
         {
             this.connectTimeoutMs = Math.Max(500, connectTimeoutMs);
             this.ioTimeoutMs = Math.Max(1000, ioTimeoutMs);
@@ -54,7 +114,7 @@ namespace KimodoBridge
             bool lockTaken = false;
             try
             {
-                await ioLock.WaitAsync(token).ConfigureAwait(false);
+                await writeLock.WaitAsync(token).ConfigureAwait(false);
                 lockTaken = true;
                 ThrowIfDisposed();
                 await EnsureSharedConnectionAsync(host, port, token).ConfigureAwait(false);
@@ -63,7 +123,7 @@ namespace KimodoBridge
             {
                 if (lockTaken)
                 {
-                    ioLock.Release();
+                    writeLock.Release();
                 }
             }
         }
@@ -80,10 +140,14 @@ namespace KimodoBridge
                 throw new ArgumentNullException(nameof(request));
             }
 
+            string taskId = string.IsNullOrWhiteSpace(request.task_id) ? Guid.NewGuid().ToString("N") : request.task_id.Trim();
+            request.task_id = taskId;
+
             var payload = new JObject
             {
                 ["cmd"] = "generate",
-                ["task_id"] = string.IsNullOrWhiteSpace(request.task_id) ? null : request.task_id,
+                ["task_id"] = taskId,
+                ["id"] = taskId,
                 ["prompt"] = request.prompt ?? string.Empty,
                 ["duration"] = request.duration,
                 ["output_format"] = "flatbuf_motion_v1",
@@ -95,75 +159,73 @@ namespace KimodoBridge
             payload["loop_hint"] = request.loop_hint;
             payload["segment_index"] = request.segment_index;
             payload["transition_duration"] = request.transition_duration;
+            payload["model"] = string.IsNullOrWhiteSpace(request.model) ? null : request.model;
+            payload["highvram"] = request.highvram;
+            payload["force_cpu"] = request.force_cpu;
+            payload["models_root"] = request.models_root ?? string.Empty;
+            payload["force_hf_download"] = request.force_hf_download;
+            payload["owner_pid"] = request.owner_pid;
 
             UnityEngine.Debug.Log($"[KimodoBridge] Generate JSON: {payload.ToString(Formatting.None)}");
 
-            DateTime waitStart = DateTime.UtcNow;
-            while (true)
+            var pending = new PendingGenerateRequest(taskId, progress, modelLoadingTimeoutMs);
+            RegisterPendingRequest(pending);
+
+            bool lockTaken = false;
+            try
             {
+                await writeLock.WaitAsync(token).ConfigureAwait(false);
+                lockTaken = true;
+                ThrowIfDisposed();
+                await EnsureSharedConnectionAsync(host, port, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+
                 progress?.Invoke(
                     $"Bridge generate request sent: duration={request.duration:F3}s, steps={request.steps}, seed={(request.seed.HasValue ? request.seed.Value.ToString() : "null")}.");
-                BridgeProtocolResponse response = await SendRequestAsync(host, port, payload, token).ConfigureAwait(false);
-                JObject header = response?.Header;
-                string status = header?.Value<string>("status") ?? string.Empty;
-                string message = header?.Value<string>("message") ?? string.Empty;
-                string outputFormat = header?.Value<string>("output_format") ?? string.Empty;
-                progress?.Invoke(
-                    $"Bridge generate response status={status}, format={outputFormat}{(string.IsNullOrWhiteSpace(message) ? string.Empty : $", message={message}")}");
-
-                if (string.Equals(status, "loading", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(status, "initializing", StringComparison.OrdinalIgnoreCase))
-                {
-                    if ((DateTime.UtcNow - waitStart).TotalMilliseconds > modelLoadingTimeoutMs)
-                    {
-                        throw new TimeoutException($"Bridge model loading timeout (>{modelLoadingTimeoutMs}ms).");
-                    }
-
-                    progress?.Invoke(string.IsNullOrWhiteSpace(message)
-                        ? "Bridge is still loading model assets..."
-                        : $"Bridge is still loading model assets... {message}");
-                    await Task.Delay(modelLoadingPollIntervalMs, token).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (string.Equals(status, "error", StringComparison.OrdinalIgnoreCase))
-                {
-                    string errorMessage = header?.Value<string>("message") ?? "Bridge generation failed.";
-                    string traceback = header?.Value<string>("traceback");
-                    if (!string.IsNullOrWhiteSpace(traceback))
-                    {
-                        throw new Exception($"{errorMessage}\n{traceback}");
-                    }
-
-                    throw new Exception(errorMessage);
-                }
-
-                if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new OperationCanceledException(
-                        string.IsNullOrWhiteSpace(message) ? "Bridge generation cancelled." : message);
-                }
-
-                if (string.Equals(status, "busy", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new Exception(string.IsNullOrWhiteSpace(message) ? "Bridge is busy." : message);
-                }
-
-                return response;
+                await WriteJsonLineAsync(sharedStream, payload, token).ConfigureAwait(false);
             }
+            catch
+            {
+                RemovePendingRequest(taskId, pending);
+                FailPendingRequest(pending, new IOException($"Bridge generate send failed for task '{taskId}'."));
+                CloseSharedConnectionSync();
+                throw;
+            }
+            finally
+            {
+                if (lockTaken)
+                {
+                    writeLock.Release();
+                }
+            }
+
+            return await pending.Completion.Task.ConfigureAwait(false);
         }
 
         public async Task<bool> TrySendQuitAsync(string host, int port, CancellationToken token)
         {
+            bool lockTaken = false;
             try
             {
-                await SendWithoutReplyAsync(host, port, new JObject { ["cmd"] = "quit" }, token).ConfigureAwait(false);
+                await writeLock.WaitAsync(token).ConfigureAwait(false);
+                lockTaken = true;
+                ThrowIfDisposed();
+                await EnsureSharedConnectionAsync(host, port, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                await WriteJsonLineAsync(sharedStream, new JObject { ["cmd"] = "quit" }, token).ConfigureAwait(false);
                 return true;
             }
             catch
             {
                 CloseSharedConnectionSync();
                 return false;
+            }
+            finally
+            {
+                if (lockTaken)
+                {
+                    writeLock.Release();
+                }
             }
         }
 
@@ -174,152 +236,54 @@ namespace KimodoBridge
                 return false;
             }
 
+            bool lockTaken = false;
             try
             {
-                using var client = new TcpClient();
-                using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                connectCts.CancelAfter(connectTimeoutMs);
-                Task connectTask = client.ConnectAsync(host, port);
-                Task timeoutTask = Task.Delay(Timeout.Infinite, connectCts.Token);
-                Task completed = await Task.WhenAny(connectTask, timeoutTask).ConfigureAwait(false);
-                if (completed != connectTask)
-                {
-                    token.ThrowIfCancellationRequested();
-                    return false;
-                }
-
-                await connectTask.ConfigureAwait(false);
-                client.ReceiveTimeout = ioTimeoutMs;
-                client.SendTimeout = ioTimeoutMs;
-
-                using NetworkStream stream = client.GetStream();
+                await writeLock.WaitAsync(token).ConfigureAwait(false);
+                lockTaken = true;
+                ThrowIfDisposed();
+                await EnsureSharedConnectionAsync(host, port, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
                 await WriteJsonLineAsync(
-                    stream,
+                    sharedStream,
                     new JObject
                     {
                         ["cmd"] = "cancel",
-                        ["task_id"] = taskId
+                        ["task_id"] = taskId,
+                        ["id"] = taskId
                     },
                     token).ConfigureAwait(false);
-                JObject response = await ReadJsonLineAsync(stream, token).ConfigureAwait(false);
-                string status = response?.Value<string>("status") ?? string.Empty;
-                return string.Equals(status, "cancelling", StringComparison.OrdinalIgnoreCase) ||
-                       string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase) ||
-                       string.Equals(status, "idle", StringComparison.OrdinalIgnoreCase);
+                return true;
             }
             catch
             {
+                CloseSharedConnectionSync();
                 return false;
             }
-        }
-
-        public async Task<JObject> SendAsync(string host, int port, JObject request, CancellationToken token)
-        {
-            BridgeProtocolResponse response = await SendRequestAsync(host, port, request, token).ConfigureAwait(false);
-            return response?.Header;
-        }
-
-        private async Task<BridgeProtocolResponse> SendRequestAsync(string host, int port, JObject request, CancellationToken token)
-        {
-            if (string.IsNullOrWhiteSpace(host))
-            {
-                throw new InvalidOperationException("Bridge host is empty.");
-            }
-
-            if (port <= 0)
-            {
-                throw new InvalidOperationException("Bridge port is invalid.");
-            }
-
-            if (request == null)
-            {
-                throw new ArgumentNullException(nameof(request));
-            }
-
-            bool lockTaken = false;
-            try
-            {
-                await ioLock.WaitAsync(token).ConfigureAwait(false);
-                lockTaken = true;
-                ThrowIfDisposed();
-                await EnsureSharedConnectionAsync(host, port, token).ConfigureAwait(false);
-                token.ThrowIfCancellationRequested();
-                await WriteJsonLineAsync(sharedStream, request, token).ConfigureAwait(false);
-                return await ReadResponseAsync(sharedStream, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                if (lockTaken)
-                {
-                    CloseSharedConnectionSync();
-                }
-                throw;
-            }
-            catch
-            {
-                if (lockTaken)
-                {
-                    CloseSharedConnectionSync();
-                }
-                throw;
-            }
             finally
             {
                 if (lockTaken)
                 {
-                    ioLock.Release();
+                    writeLock.Release();
                 }
             }
         }
 
-        private async Task SendWithoutReplyAsync(string host, int port, JObject request, CancellationToken token)
+        public Task<JObject> SendAsync(string host, int port, JObject request, CancellationToken token)
         {
-            bool lockTaken = false;
-            try
-            {
-                await ioLock.WaitAsync(token).ConfigureAwait(false);
-                lockTaken = true;
-                ThrowIfDisposed();
-                await EnsureSharedConnectionAsync(host, port, token).ConfigureAwait(false);
-                token.ThrowIfCancellationRequested();
-                await WriteJsonLineAsync(sharedStream, request, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                if (lockTaken)
-                {
-                    CloseSharedConnectionSync();
-                }
-                throw;
-            }
-            catch
-            {
-                if (lockTaken)
-                {
-                    CloseSharedConnectionSync();
-                }
-                throw;
-            }
-            finally
-            {
-                if (lockTaken)
-                {
-                    CloseSharedConnectionSync();
-                    ioLock.Release();
-                }
-            }
+            throw new NotSupportedException("Generic shared bridge requests are not supported by this client.");
         }
 
         public async Task DetachAsync()
         {
-            await ioLock.WaitAsync().ConfigureAwait(false);
+            await writeLock.WaitAsync().ConfigureAwait(false);
             try
             {
                 CloseSharedConnectionSync();
             }
             finally
             {
-                ioLock.Release();
+                writeLock.Release();
             }
         }
 
@@ -340,7 +304,7 @@ namespace KimodoBridge
             }
             finally
             {
-                ioLock.Dispose();
+                writeLock.Dispose();
             }
         }
 
@@ -353,7 +317,7 @@ namespace KimodoBridge
 
             try
             {
-                Task waitTask = ioLock.WaitAsync();
+                Task waitTask = writeLock.WaitAsync();
                 Task completed = await Task.WhenAny(waitTask, Task.Delay(Math.Max(10, timeoutMs))).ConfigureAwait(false);
                 if (completed == waitTask)
                 {
@@ -363,7 +327,7 @@ namespace KimodoBridge
                     }
                     finally
                     {
-                        try { ioLock.Release(); } catch { }
+                        try { writeLock.Release(); } catch { }
                     }
                 }
             }
@@ -382,7 +346,77 @@ namespace KimodoBridge
                     // ignore
                 }
 
-                ioLock.Dispose();
+                writeLock.Dispose();
+            }
+        }
+
+        private void RegisterPendingRequest(PendingGenerateRequest pending)
+        {
+            lock (pendingGate)
+            {
+                if (pendingRequests.ContainsKey(pending.TaskId))
+                {
+                    throw new InvalidOperationException($"Bridge task id is already pending: {pending.TaskId}");
+                }
+
+                pendingRequests[pending.TaskId] = pending;
+            }
+        }
+
+        private void RemovePendingRequest(string taskId, PendingGenerateRequest pending)
+        {
+            lock (pendingGate)
+            {
+                if (pendingRequests.TryGetValue(taskId, out PendingGenerateRequest existing) && ReferenceEquals(existing, pending))
+                {
+                    pendingRequests.Remove(taskId);
+                }
+            }
+        }
+
+        private PendingGenerateRequest GetPendingRequest(string taskId)
+        {
+            if (string.IsNullOrWhiteSpace(taskId))
+            {
+                return null;
+            }
+
+            lock (pendingGate)
+            {
+                pendingRequests.TryGetValue(taskId, out PendingGenerateRequest pending);
+                return pending;
+            }
+        }
+
+        private void FailPendingRequest(PendingGenerateRequest pending, Exception exception)
+        {
+            if (pending == null || exception == null)
+            {
+                return;
+            }
+
+            RemovePendingRequest(pending.TaskId, pending);
+            pending.TrySetException(exception);
+        }
+
+        private void FailAllPendingRequests(Exception exception)
+        {
+            PendingGenerateRequest[] pending;
+            lock (pendingGate)
+            {
+                if (pendingRequests.Count == 0)
+                {
+                    return;
+                }
+
+                pending = new PendingGenerateRequest[pendingRequests.Count];
+                pendingRequests.Values.CopyTo(pending, 0);
+                pendingRequests.Clear();
+            }
+
+            for (int i = 0; i < pending.Length; i++)
+            {
+                pending[i].TrySetException(exception);
             }
         }
 
@@ -419,6 +453,131 @@ namespace KimodoBridge
             sharedStream = stream;
             sharedHost = host;
             sharedPort = port;
+
+            var newReaderCts = new CancellationTokenSource();
+            readerCts = newReaderCts;
+            readerTask = Task.Run(() => ReaderLoopAsync(stream, newReaderCts.Token));
+        }
+
+        private async Task ReaderLoopAsync(NetworkStream stream, CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    BridgeProtocolResponse response = await ReadResponseAsync(stream, token).ConfigureAwait(false);
+                    DispatchResponse(response);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // ignore
+            }
+            catch (Exception exception)
+            {
+                if (!disposed)
+                {
+                    FailAllPendingRequests(exception);
+                    CloseSharedConnectionSync();
+                }
+            }
+        }
+
+        private void DispatchResponse(BridgeProtocolResponse response)
+        {
+            JObject header = response?.Header;
+            string taskId = response?.TaskId ?? ExtractTaskId(header);
+            if (string.IsNullOrWhiteSpace(taskId))
+            {
+                return;
+            }
+
+            PendingGenerateRequest pending = GetPendingRequest(taskId);
+            if (pending == null)
+            {
+                return;
+            }
+
+            string status = header?.Value<string>("status") ?? string.Empty;
+            string message = header?.Value<string>("message") ?? string.Empty;
+            string outputFormat = header?.Value<string>("output_format") ?? string.Empty;
+
+            if (string.Equals(status, "loading", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(status, "initializing", StringComparison.OrdinalIgnoreCase))
+            {
+                if ((DateTime.UtcNow - pending.CreatedAtUtc).TotalMilliseconds > pending.ModelLoadingTimeoutMs)
+                {
+                    FailPendingRequest(
+                        pending,
+                        new TimeoutException($"Bridge model loading timeout (>{pending.ModelLoadingTimeoutMs}ms)."));
+                    return;
+                }
+
+                SafeReportProgress(
+                    pending,
+                    string.IsNullOrWhiteSpace(message)
+                        ? "Bridge is still loading model assets..."
+                        : $"Bridge is still loading model assets... {message}");
+                return;
+            }
+
+            if (string.Equals(status, "queued", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(status, "progress", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(status, "cancelling", StringComparison.OrdinalIgnoreCase))
+            {
+                SafeReportProgress(
+                    pending,
+                    string.IsNullOrWhiteSpace(message)
+                        ? $"Bridge generate response status={status}, format={outputFormat}"
+                        : message);
+                return;
+            }
+
+            if (string.Equals(status, "error", StringComparison.OrdinalIgnoreCase))
+            {
+                string errorMessage = header?.Value<string>("message") ?? "Bridge generation failed.";
+                string traceback = header?.Value<string>("traceback");
+                if (!string.IsNullOrWhiteSpace(traceback))
+                {
+                    errorMessage = errorMessage + "\n" + traceback;
+                }
+
+                FailPendingRequest(pending, new Exception(errorMessage));
+                return;
+            }
+
+            if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
+            {
+                RemovePendingRequest(taskId, pending);
+                pending.TrySetCanceled(message);
+                return;
+            }
+
+            if (string.Equals(status, "busy", StringComparison.OrdinalIgnoreCase))
+            {
+                FailPendingRequest(pending, new Exception(string.IsNullOrWhiteSpace(message) ? "Bridge is busy." : message));
+                return;
+            }
+
+            RemovePendingRequest(taskId, pending);
+            pending.TrySetResult(response);
+        }
+
+        private static void SafeReportProgress(PendingGenerateRequest pending, string message)
+        {
+            if (pending == null || string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
+
+            try
+            {
+                pending.Progress?.Invoke(message);
+            }
+            catch
+            {
+                // ignore callback failures
+            }
         }
 
         private async Task WriteJsonLineAsync(NetworkStream stream, JObject request, CancellationToken token)
@@ -439,8 +598,26 @@ namespace KimodoBridge
             return new BridgeProtocolResponse
             {
                 Header = header,
-                BinaryPayload = binaryPayload
+                BinaryPayload = binaryPayload,
+                TaskId = ExtractTaskId(header)
             };
+        }
+
+        private static string ExtractTaskId(JObject header)
+        {
+            if (header == null)
+            {
+                return string.Empty;
+            }
+
+            string taskId = header.Value<string>("task_id");
+            if (!string.IsNullOrWhiteSpace(taskId))
+            {
+                return taskId.Trim();
+            }
+
+            string id = header.Value<string>("id");
+            return string.IsNullOrWhiteSpace(id) ? string.Empty : id.Trim();
         }
 
         private async Task<JObject> ReadJsonLineAsync(NetworkStream stream, CancellationToken token)
@@ -536,6 +713,20 @@ namespace KimodoBridge
 
         private void CloseSharedConnectionSync()
         {
+            if (!disposed)
+            {
+                FailAllPendingRequests(new IOException("Bridge connection closed."));
+            }
+
+            CancellationTokenSource currentReaderCts = readerCts;
+            readerCts = null;
+
+            if (currentReaderCts != null)
+            {
+                try { currentReaderCts.Cancel(); } catch { }
+                try { currentReaderCts.Dispose(); } catch { }
+            }
+
             try { sharedStream?.Dispose(); } catch { }
             try { sharedClient?.Dispose(); } catch { }
             sharedStream = null;

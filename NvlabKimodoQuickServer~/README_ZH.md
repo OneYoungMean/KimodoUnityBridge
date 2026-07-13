@@ -6,8 +6,9 @@
 
 ## 功能介绍
 - 使用 `uv` 构建运行环境。
-- 启动 Kimodo bridge 服务并支持模型参数。
-- 提供 TCP 示例链路（`ping -> generate -> quit`）。
+- 启动 QuickServer TCP supervisor，并在其内部排队执行 bridge 生成任务。
+- 复用同一条 TCP 连接处理 `generate / cancel / quit`。
+- 返回按任务 id 归属的 `queued / loading / progress / cancelling / cancelled / done / error` 状态。
 
 ## 环境要求
 - Windows 10/11 x64
@@ -64,6 +65,13 @@ set KIMODO_BRIDGE_OUTPUT_FORMAT=bvh
 set KIMODO_BRIDGE_BVH_STANDARD_TPOSE=1
 ```
 - 开启后响应中将返回 `motion_bvh`，不再返回 `motion_json_compact`。这个模式适合直接接 QuickServer TCP 协议的外部客户端，不适用于当前 Unity 客户端链路。
+
+TCP 协议补充：
+- `generate` 的 `task_id` / `id` 现在是可选的；如果调用方不传，QuickServer 会在入队前自动补一个稳定 id。
+- 一旦最终 id 确定，该任务后续所有响应都会带同一个 `task_id` 和 `id`。
+- 任务会先后经历 `queued`、`loading`、`progress`、`cancelling` 等中间态，并最终落到 `done`、`error` 或 `cancelled`。
+- `cancel` 同样支持可选 `task_id` / `id`；若未传，则取消当前队列中第一个可取消任务，并在响应里回传实际命中的 id。
+- FlatBuffer 返回仍保持 `byte_length` 后紧跟该任务自己的二进制 payload，不会夹入其他任务的数据头。
 
 ## 参数文档
 - 见 `PARAMETERS.md`

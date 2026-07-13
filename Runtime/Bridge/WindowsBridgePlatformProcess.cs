@@ -14,12 +14,7 @@ namespace KimodoBridge
 
         public ProcessStartInfo BuildLauncherStartInfo(
             string launcherPath,
-            string modelName,
-            bool highVram,
             bool forceSetup,
-            bool forceCpu,
-            string modelsRoot,
-            int idleTimeoutSeconds,
             int ownerProcessId)
         {
             string ext = Path.GetExtension(launcherPath)?.ToLowerInvariant() ?? string.Empty;
@@ -42,7 +37,7 @@ namespace KimodoBridge
             };
 
             startInfo.EnvironmentVariables["KIMODO_SERVER_WINDOW_STYLE"] = "Hidden";
-            startInfo.EnvironmentVariables["KIMODO_IDLE_TIMEOUT_SEC"] = Math.Max(0, idleTimeoutSeconds).ToString();
+            startInfo.EnvironmentVariables["KIMODO_IDLE_TIMEOUT_SEC"] = "0";
             return startInfo;
         }
 

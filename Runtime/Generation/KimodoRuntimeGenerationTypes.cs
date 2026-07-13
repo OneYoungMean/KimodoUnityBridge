@@ -20,6 +20,13 @@ namespace KimodoBridge
         public int segment_index;
         // Optional desired transition overlap in seconds.
         public float transition_duration;
+        // Runtime configuration is sent together with generate under the current bridge protocol.
+        public string model;
+        public bool highvram;
+        public bool force_cpu;
+        public string models_root;
+        public bool force_hf_download;
+        public int owner_pid;
     }
 
     [Serializable]
@@ -37,11 +44,5 @@ namespace KimodoBridge
         public string motionFormat;
         public string rawStatus;
         public string message;
-    }
-
-    [Serializable]
-    public sealed class KimodoRuntimeGenerationSettings
-    {
-        public BridgeRuntimeSettings bridgeSettings;
     }
 }

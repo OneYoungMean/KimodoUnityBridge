@@ -22,11 +22,6 @@ namespace KimodoBridge.Editor
             return KimodoServerRuntimeUtil.ReinstallRuntimeRoot();
         }
 
-        internal static string ResolveStartScript(string runtimeRoot)
-        {
-            return BridgeLauncherResolver.ResolveStartScript(runtimeRoot);
-        }
-
         internal static string ResolveRuntimeRootOrThrow()
         {
             string runtimeRoot = GetRuntimeRootPath();
@@ -37,18 +32,6 @@ namespace KimodoBridge.Editor
             }
 
             return Path.GetFullPath(runtimeRoot);
-        }
-
-        internal static string ResolveStartScriptOrThrow(string runtimeRoot)
-        {
-            string resolved = ResolveStartScript(runtimeRoot);
-            if (!string.IsNullOrWhiteSpace(resolved) && File.Exists(resolved))
-            {
-                return Path.GetFullPath(resolved);
-            }
-
-            throw new FileNotFoundException(
-                $"Bridge launcher not found under runtime root: {runtimeRoot}. Expected new pipeline launcher: run_server.bat or run_server.sh.");
         }
 
         internal static ModelSetupStatus EvaluateModelSetupStatus(

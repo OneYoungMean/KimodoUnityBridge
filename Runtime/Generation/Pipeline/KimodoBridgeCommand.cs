@@ -18,11 +18,6 @@ namespace KimodoBridge
 
             progress?.Invoke(KimodoBridgeCommandStage.Validate, "Validating generation request...");
 
-            if (request.RuntimeSettings == null)
-            {
-                throw new InvalidOperationException("Runtime settings are required.");
-            }
-
             if (request.GenerationRequest == null)
             {
                 throw new InvalidOperationException("Generation request is required.");
@@ -63,22 +58,9 @@ namespace KimodoBridge
             Action<KimodoBridgeCommandStage, string> progress,
             CancellationToken token)
         {
-            if (request.RuntimeSettings.bridgeSettings == null)
-            {
-                throw new InvalidOperationException("Bridge runtime settings are required.");
-            }
-
-            progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Starting generation backend...");
-
-            using var bridgeService = new KimodoBridgeService(request.RuntimeSettings.bridgeSettings);
-            _ = await bridgeService.StartAsync(
-                message => progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, message ?? string.Empty),
-                token);
-
-            token.ThrowIfCancellationRequested();
             progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Invoking generation backend...");
 
-            KimodoBridgeGenerationResult bridgeResult = await bridgeService.GenerateAsync(
+            KimodoBridgeGenerationResult bridgeResult = await KimodoBridgeService.Shared.GenerateAsync(
                 request.GenerationRequest,
                 message => progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, message ?? string.Empty),
                 token);
@@ -118,7 +100,6 @@ namespace KimodoBridge
 
     public sealed class KimodoBridgeCommandRequest
     {
-        public KimodoRuntimeGenerationSettings RuntimeSettings;
         public KimodoGenerationRequestDto GenerationRequest;
     }
 }

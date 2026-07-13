@@ -75,10 +75,6 @@ namespace KimodoBridge.Editor
                     $"anchorRoot={built.NormalizationInfo.AnchorSample.unityRootPos} " +
                     $"anchorHeading={(built.NormalizationInfo.AnchorSample.hasRootHeading ? built.NormalizationInfo.AnchorSample.rootHeading.ToString() : "(none)")}");
             }
-            else
-            {
-                Debug.Log("[Kimodo][ConstraintNormalize] applied=false anchorKind=None");
-            }
 
             double clipDurationSeconds = KimodoInOutConstraintAdapter.ResolveConstraintClipDurationSeconds(request.GenerationFrames);
             built.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(

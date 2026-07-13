@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 using PackageInfo = UnityEditor.PackageManager.PackageInfo;
@@ -303,10 +305,33 @@ namespace KimodoBridge.Editor
 
         internal static void CopyDirectoryRecursive(string sourceDir, string destinationDir, string skipTopLevelDirectoryName = null)
         {
+            var ignoreRules = GitIgnoreRuleSet.LoadFromRoot(sourceDir);
+            CopyDirectoryRecursiveCore(
+                sourceDir,
+                destinationDir,
+                sourceDir,
+                ignoreRules,
+                skipTopLevelDirectoryName,
+                isRoot: true);
+        }
+
+        private static void CopyDirectoryRecursiveCore(
+            string sourceDir,
+            string destinationDir,
+            string rootSourceDir,
+            GitIgnoreRuleSet ignoreRules,
+            string skipTopLevelDirectoryName,
+            bool isRoot)
+        {
             Directory.CreateDirectory(destinationDir);
 
             foreach (string file in Directory.GetFiles(sourceDir))
             {
+                if (ignoreRules.IsIgnored(file, isDirectory: false))
+                {
+                    continue;
+                }
+
                 string destFile = Path.Combine(destinationDir, Path.GetFileName(file));
                 File.Copy(file, destFile, overwrite: true);
             }
@@ -318,13 +343,206 @@ namespace KimodoBridge.Editor
                 {
                     continue;
                 }
-                if (!string.IsNullOrWhiteSpace(skipTopLevelDirectoryName) &&
+
+                if (isRoot &&
+                    !string.IsNullOrWhiteSpace(skipTopLevelDirectoryName) &&
                     string.Equals(dirName, skipTopLevelDirectoryName, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
-                string destSubDir = Path.Combine(destinationDir, Path.GetFileName(dir));
-                CopyDirectoryRecursive(dir, destSubDir);
+
+                if (ignoreRules.IsIgnored(dir, isDirectory: true))
+                {
+                    continue;
+                }
+
+                string destSubDir = Path.Combine(destinationDir, dirName);
+                CopyDirectoryRecursiveCore(
+                    dir,
+                    destSubDir,
+                    rootSourceDir,
+                    ignoreRules.WithDirectoryRules(dir),
+                    skipTopLevelDirectoryName,
+                    isRoot: false);
+            }
+        }
+
+        private sealed class GitIgnoreRuleSet
+        {
+            private readonly List<GitIgnorePattern> patterns;
+
+            private GitIgnoreRuleSet(List<GitIgnorePattern> patterns)
+            {
+                this.patterns = patterns;
+            }
+
+            internal static GitIgnoreRuleSet LoadFromRoot(string rootDir)
+            {
+                var patterns = new List<GitIgnorePattern>();
+                AddDirectoryRules(patterns, rootDir);
+                return new GitIgnoreRuleSet(patterns);
+            }
+
+            internal GitIgnoreRuleSet WithDirectoryRules(string directory)
+            {
+                var next = new List<GitIgnorePattern>(patterns);
+                AddDirectoryRules(next, directory);
+                return new GitIgnoreRuleSet(next);
+            }
+
+            internal bool IsIgnored(string path, bool isDirectory)
+            {
+                bool ignored = false;
+                foreach (GitIgnorePattern pattern in patterns)
+                {
+                    if (!pattern.Matches(path, isDirectory))
+                    {
+                        continue;
+                    }
+
+                    ignored = !pattern.IsNegation;
+                }
+
+                return ignored;
+            }
+
+            private static void AddDirectoryRules(List<GitIgnorePattern> patterns, string rulesDirectory)
+            {
+                string gitIgnorePath = Path.Combine(rulesDirectory, ".gitignore");
+                if (!File.Exists(gitIgnorePath))
+                {
+                    return;
+                }
+
+                foreach (string rawLine in File.ReadAllLines(gitIgnorePath))
+                {
+                    GitIgnorePattern pattern = GitIgnorePattern.TryParse(rawLine, rulesDirectory);
+                    if (pattern != null)
+                    {
+                        patterns.Add(pattern);
+                    }
+                }
+            }
+        }
+
+        private sealed class GitIgnorePattern
+        {
+            private readonly Regex regex;
+
+            private GitIgnorePattern(string baseDirectory, bool isNegation, bool directoryOnly, Regex regex)
+            {
+                BaseDirectory = baseDirectory;
+                IsNegation = isNegation;
+                DirectoryOnly = directoryOnly;
+                this.regex = regex;
+            }
+
+            internal string BaseDirectory { get; }
+            internal bool IsNegation { get; }
+            internal bool DirectoryOnly { get; }
+
+            internal static GitIgnorePattern TryParse(string rawLine, string baseDirectory)
+            {
+                if (string.IsNullOrWhiteSpace(rawLine))
+                {
+                    return null;
+                }
+
+                string line = rawLine.Trim();
+                if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal))
+                {
+                    return null;
+                }
+
+                bool isNegation = line.StartsWith("!", StringComparison.Ordinal);
+                if (isNegation)
+                {
+                    line = line.Substring(1).Trim();
+                    if (line.Length == 0)
+                    {
+                        return null;
+                    }
+                }
+
+                bool directoryOnly = line.EndsWith("/", StringComparison.Ordinal);
+                if (directoryOnly)
+                {
+                    line = line.TrimEnd('/');
+                    if (line.Length == 0)
+                    {
+                        return null;
+                    }
+                }
+
+                bool anchored = line.StartsWith("/", StringComparison.Ordinal);
+                if (anchored)
+                {
+                    line = line.Substring(1);
+                }
+
+                string normalized = line.Replace('\\', '/');
+                string regexPattern = BuildRegexPattern(normalized, anchored, normalized.Contains("/"));
+                return new GitIgnorePattern(
+                    baseDirectory,
+                    isNegation,
+                    directoryOnly,
+                    new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+            }
+
+            internal bool Matches(string path, bool isDirectory)
+            {
+                if (DirectoryOnly && !isDirectory)
+                {
+                    return false;
+                }
+
+                string relative = GetRelativePath(BaseDirectory, path);
+                if (string.IsNullOrEmpty(relative))
+                {
+                    return false;
+                }
+
+                return regex.IsMatch(relative.Replace('\\', '/'));
+            }
+
+            private static string BuildRegexPattern(string pattern, bool anchored, bool containsSlash)
+            {
+                string converted = Regex.Escape(pattern)
+                    .Replace(@"\*\*", "___DOUBLESTAR___")
+                    .Replace(@"\*", @"[^/]*")
+                    .Replace(@"\?", @"[^/]")
+                    .Replace("___DOUBLESTAR___", @".*");
+
+                if (!containsSlash)
+                {
+                    return @"(^|.*/)" + converted + @"(/.*)?$";
+                }
+
+                if (anchored)
+                {
+                    return "^" + converted + @"(/.*)?$";
+                }
+
+                return @"(^|.*/)" + converted + @"(/.*)?$";
+            }
+
+            private static string GetRelativePath(string baseDirectory, string targetPath)
+            {
+                string basePath = Path.GetFullPath(baseDirectory)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string fullPath = Path.GetFullPath(targetPath);
+                if (string.Equals(basePath, fullPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return string.Empty;
+                }
+
+                if (!fullPath.StartsWith(basePath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+                    !fullPath.StartsWith(basePath + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    return string.Empty;
+                }
+
+                return fullPath.Substring(basePath.Length + 1);
             }
         }
 

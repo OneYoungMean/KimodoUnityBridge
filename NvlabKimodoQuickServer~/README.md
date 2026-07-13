@@ -6,8 +6,9 @@
 
 ## Features
 - Build runtime environment with `uv` pipeline.
-- Start Kimodo bridge server with model options.
-- Run TCP example flow (`ping -> generate -> quit`).
+- Start the QuickServer TCP supervisor and let it queue bridge generate tasks.
+- Reuse a single TCP connection for `generate / cancel / quit` commands.
+- Return task-scoped `queued / loading / progress / cancelling / cancelled / done / error` messages.
 
 ## Requirements
 - Windows 10/11 x64
@@ -55,6 +56,13 @@ Live console variant:
 ```bat
 example\example_run_server_tpose_console_live.bat
 ```
+
+## TCP protocol notes
+- `generate` accepts optional `task_id` / `id`. If omitted, QuickServer assigns a stable task id before queueing.
+- Once a task id is assigned, every response for that task carries the same `task_id` and `id`.
+- A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.
+- `cancel` accepts an optional `task_id` / `id`. If omitted, QuickServer cancels the first cancellable queued task and returns the resolved task id.
+- FlatBuffer responses still use `byte_length` followed immediately by the binary payload for that same task.
 
 ## Parameters
 - See `PARAMETERS.md`

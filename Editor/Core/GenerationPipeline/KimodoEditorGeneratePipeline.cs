@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
@@ -159,9 +158,9 @@ namespace KimodoBridge.Editor
                 throw new ArgumentNullException(nameof(request));
             }
 
-            string kimodoRootPath = KimodoBridgeServerManage.ResolveRuntimeRootOrThrow();
-            string launcherPath = KimodoBridgeServerManage.ResolveStartScriptOrThrow(kimodoRootPath);
-            string modelsRoot = string.IsNullOrWhiteSpace(request.ModelsRoot) ? string.Empty : Path.GetFullPath(request.ModelsRoot.Trim());
+            string modelsRoot = string.IsNullOrWhiteSpace(request.ModelsRoot)
+                ? string.Empty
+                : System.IO.Path.GetFullPath(request.ModelsRoot.Trim());
 
             var generationRequest = new KimodoGenerationRequestDto
             {
@@ -169,40 +168,18 @@ namespace KimodoBridge.Editor
                 duration = request.DurationSeconds,
                 seed = request.EffectiveSeed,
                 steps = request.DiffusionSteps,
-                constraints_json = request.ConstraintsJson ?? string.Empty
+                constraints_json = request.ConstraintsJson ?? string.Empty,
+                model = modelName,
+                highvram = request.BridgeVramMode == KimodoBridgeVramMode.High,
+                force_cpu = false,
+                models_root = modelsRoot,
+                force_hf_download = false,
+                owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id
             };
 
             return new KimodoBridgeCommandRequest
             {
-                RuntimeSettings = BuildRuntimeSettings(
-                    kimodoRootPath,
-                    launcherPath,
-                    modelName,
-                    request.BridgeVramMode,
-                    modelsRoot,
-                    request.GenerationTimeoutSeconds),
                 GenerationRequest = generationRequest
-            };
-        }
-
-        internal static KimodoRuntimeGenerationSettings BuildRuntimeSettings(
-            string kimodoRootPath,
-            string launcherPath,
-            string modelName,
-            KimodoBridgeVramMode bridgeVramMode,
-            string modelsRoot,
-            float generationTimeoutSeconds)
-        {
-            bool highVram = bridgeVramMode == KimodoBridgeVramMode.High;
-            return new KimodoRuntimeGenerationSettings
-            {
-                bridgeSettings = BridgeRuntimeSettingsFactory.Create(
-                    runtimeRoot: kimodoRootPath,
-                    launcherPath: launcherPath,
-                    modelName: modelName,
-                    highVram: highVram,
-                    modelsRoot: modelsRoot,
-                    startupTimeoutMs: ComputeBridgeStartupTimeoutMs(kimodoRootPath, highVram, modelName, generationTimeoutSeconds))
             };
         }
 
@@ -310,21 +287,5 @@ namespace KimodoBridge.Editor
             EditorUtility.SetDirty(clip);
         }
 
-        private static int ComputeBridgeStartupTimeoutMs(string runtimeRoot, bool highVram, string modelName, float generationTimeoutSeconds)
-        {
-            int requestedMs = Math.Max(30000, Mathf.RoundToInt(generationTimeoutSeconds * 1000f));
-            int timeoutMs = requestedMs;
-
-            ModelSetupStatus modelStatus =
-                KimodoBridgeServerManage.EvaluateModelSetupStatus(runtimeRoot, highVram, modelName, modelsRootOverride: null);
-            if (modelStatus.Missing)
-            {
-                int minutes = modelStatus.EstimatedMinutes;
-                int dynamicMs = (int)Math.Round(Math.Max(600f, minutes * 60f) * 1000f);
-                timeoutMs = Math.Max(timeoutMs, dynamicMs);
-            }
-
-            return timeoutMs;
-        }
     }
 }

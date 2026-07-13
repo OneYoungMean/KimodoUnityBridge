@@ -1,14 +1,17 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace KimodoBridge
 {
-    internal sealed class KimodoBridgeGenerationResult
+    public sealed class KimodoBridgeGenerationResult
     {
         public string MotionJsonCompact { get; set; }
         public KimodoRawMotionData MotionData { get; set; }
@@ -17,182 +20,125 @@ namespace KimodoBridge
         public string Message { get; set; }
     }
 
-    public sealed class KimodoBridgeService : IDisposable
+    public sealed class KimodoBridgeService
     {
-        private readonly BridgeRuntimeSettings settings;
+        private sealed class ProgressSink
+        {
+            public Action<string> Callback;
+            public SynchronizationContext Context;
+        }
+
+        private sealed class ProgressSubscription : IDisposable
+        {
+            private readonly KimodoBridgeService owner;
+            private readonly ProgressSink sink;
+            private bool disposed;
+
+            public ProgressSubscription(KimodoBridgeService owner, ProgressSink sink)
+            {
+                this.owner = owner;
+                this.sink = sink;
+            }
+
+            public void Dispose()
+            {
+                if (disposed)
+                {
+                    return;
+                }
+
+                disposed = true;
+                owner.RemoveProgressSink(sink);
+            }
+        }
+
+        private sealed class NoopDisposable : IDisposable
+        {
+            public static readonly NoopDisposable Instance = new NoopDisposable();
+
+            public void Dispose()
+            {
+            }
+        }
+
+        private sealed class TrackedBridgeTask
+        {
+            public string TaskId = string.Empty;
+            public DateTime CreatedAtUtc;
+        }
+
+        private sealed class ActiveLogPump
+        {
+            public string Path = string.Empty;
+            public BridgeLogPump Pump;
+        }
+
+        private sealed class ResolvedRuntimeContext
+        {
+            public string RuntimeRoot = string.Empty;
+            public string LauncherPath = string.Empty;
+            public bool ForceSetup;
+        }
+
+        private static readonly Lazy<KimodoBridgeService> SharedInstance =
+            new Lazy<KimodoBridgeService>(() => new KimodoBridgeService(), LazyThreadSafetyMode.ExecutionAndPublication);
+
         private readonly BridgeProtocolClient protocolClient;
         private readonly BridgeProcessManager processManager;
         private readonly SemaphoreSlim lifecycleGate = new SemaphoreSlim(1, 1);
+        private readonly object taskGate = new object();
+        private readonly object progressGate = new object();
         private readonly SynchronizationContext creationContext;
+        private readonly Dictionary<string, TrackedBridgeTask> trackedTasks = new Dictionary<string, TrackedBridgeTask>(StringComparer.Ordinal);
+        private readonly List<ProgressSink> progressSinks = new List<ProgressSink>(2);
+        private readonly List<ActiveLogPump> logPumps = new List<ActiveLogPump>(4);
 
-        private string currentHost;
+        private string currentHost = DefaultHost;
         private int currentPort = -1;
-        private string currentPortFilePath = string.Empty;
-        private string activeTaskId = string.Empty;
-        private IDisposable logSubscription;
-        private bool disposed;
+        private string currentRuntimeRoot = string.Empty;
 
-        public KimodoBridgeService(BridgeRuntimeSettings settings)
+        private const string DefaultHost = "127.0.0.1";
+
+        private KimodoBridgeService()
         {
-            this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
-            this.settings.Validate();
-
-            IBridgePlatformProcess platform = CreatePlatformProcess(this.settings);
-            protocolClient = new BridgeProtocolClient(
-                this.settings.connectTimeoutMs,
-                this.settings.ioTimeoutMs,
-                this.settings.modelLoadingTimeoutMs,
-                this.settings.modelLoadingPollIntervalMs);
-            processManager = new BridgeProcessManager(platform);
+            protocolClient = new BridgeProtocolClient();
+            processManager = new BridgeProcessManager(CreatePlatformProcess());
             creationContext = SynchronizationContext.Current;
-            currentHost = string.IsNullOrWhiteSpace(this.settings.hostFallback) ? "127.0.0.1" : this.settings.hostFallback;
         }
 
-        public bool IsRunning => currentPort > 0;
+        public static KimodoBridgeService Shared => SharedInstance.Value;
+
         public bool IsConnected => protocolClient.IsConnected;
 
-        public string RuntimeRoot => settings.runtimeRoot;
-        public string LauncherPath => settings.launcherPath;
-
-        private void EmitDebugLog(string message)
+        public Task<KimodoBridgeGenerationResult> GenerateAsync(
+            string prompt,
+            float durationSeconds,
+            CancellationToken token = default)
         {
-            if (string.IsNullOrWhiteSpace(message))
-            {
-                return;
-            }
-
-            if (creationContext != null)
-            {
-                creationContext.Post(_ => Debug.Log(message), null);
-                return;
-            }
-
-            Debug.Log(message);
+            return GenerateAsync(
+                new KimodoGenerationRequestDto
+                {
+                    prompt = prompt ?? string.Empty,
+                    duration = durationSeconds
+                },
+                progress: null,
+                token);
         }
 
-        private void EmitProgress(Action<string> progress, string message)
+        public Task<KimodoBridgeGenerationResult> GenerateAsync(
+            KimodoGenerationRequestDto request,
+            CancellationToken token = default)
         {
-            if (progress == null || string.IsNullOrWhiteSpace(message))
-            {
-                return;
-            }
-
-            if (creationContext != null)
-            {
-                creationContext.Post(_ => progress(message), null);
-                return;
-            }
-
-            progress(message);
+            return GenerateAsync(request, progress: null, token);
         }
 
-        public async Task<string> StartAsync(Action<string> progress, CancellationToken token)
+        internal async Task WarmupAsync(
+            Action<string> progress,
+            bool forceSetup,
+            CancellationToken token)
         {
-            ThrowIfDisposed();
-            await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                return await StartCoreAsync(progress, token).ConfigureAwait(false);
-            }
-            finally
-            {
-                lifecycleGate.Release();
-            }
-        }
-
-        private async Task<string> StartCoreAsync(Action<string> progress, CancellationToken token)
-        {
-            ValidateRuntimeRootOrThrow();
-            EnsureLauncherExists();
-
-            currentPortFilePath = BridgeEndpointResolver.GetServerPortFilePath(settings.runtimeRoot);
-            bool canReuseExistingEndpoint = false;
-            if (File.Exists(currentPortFilePath))
-            {
-                if (!BridgeEndpointResolver.TryReadServerEndpoint(settings.runtimeRoot, settings.hostFallback, out string host, out int port, out string endpointError))
-                {
-                    EmitProgress(progress, $"Bridge endpoint file is invalid, starting server to recover. {endpointError}");
-                }
-                else
-                {
-                    bool canConnect = await BridgeRuntimeControl.CanOpenConnectionAsync(
-                        host,
-                        port,
-                        settings.statusConnectTimeoutMs,
-                        token).ConfigureAwait(false);
-                    if (canConnect)
-                    {
-                        currentHost = host;
-                        currentPort = port;
-                        canReuseExistingEndpoint = true;
-                    }
-                    else
-                    {
-                        EmitProgress(
-                            progress,
-                            $"Bridge endpoint is unreachable, starting server to recover: {host}:{port}.");
-                    }
-                }
-            }
-
-            if (canReuseExistingEndpoint)
-            {
-                await protocolClient.ConnectAsync(currentHost, currentPort, token).ConfigureAwait(false);
-                StartLogPump(progress);
-                await EnsureRuntimeConfiguredAsync(progress, token).ConfigureAwait(false);
-                return $"Ready - {settings.modelName} on {currentHost}:{currentPort}";
-            }
-
-            await InvalidateCurrentEndpointAsync().ConfigureAwait(false);
-            bool reusingExistingProcess = processManager.IsRunning;
-            if (!reusingExistingProcess)
-            {
-                processManager.Start(
-                    settings.launcherPath,
-                    settings.modelName,
-                    settings.highVram,
-                    settings.forceSetup,
-                    settings.forceCpu,
-                    settings.modelsRoot,
-                    settings.idleTimeoutSeconds,
-                    settings.ownerProcessId);
-                EmitProgress(progress, "Bridge process launched.");
-            }
-
-            StartLogPump(progress);
-
-            try
-            {
-                EmitProgress(progress, reusingExistingProcess ? "Bridge process already exists, waiting for endpoint..." : "Starting bridge...");
-                await processManager.WaitUntilReadyAsync(
-                    settings.runtimeRoot,
-                    settings.hostFallback,
-                    settings.startupTimeoutMs,
-                    settings.pollIntervalMs,
-                    token).ConfigureAwait(false);
-
-                if (!BridgeEndpointResolver.TryReadServerEndpoint(settings.runtimeRoot, settings.hostFallback, out string host, out int port, out string endpointError))
-                {
-                    throw new Exception($"Bridge started but server endpoint missing. {endpointError}");
-                }
-
-                currentHost = host;
-                currentPort = port;
-                await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
-                await EnsureRuntimeConfiguredAsync(progress, token).ConfigureAwait(false);
-                return $"Ready - {settings.modelName} on {host}:{port}";
-            }
-            catch (OperationCanceledException)
-            {
-                await DetachCurrentConnectionAsync().ConfigureAwait(false);
-                throw;
-            }
-            catch
-            {
-                await InvalidateCurrentEndpointAsync().ConfigureAwait(false);
-                await DetachCoreAsync().ConfigureAwait(false);
-                throw;
-            }
+            using var progressSubscription = SubscribeProgressSink(progress);
+            await EnsureConnectedAsync(forceSetup, token).ConfigureAwait(false);
         }
 
         internal async Task<KimodoBridgeGenerationResult> GenerateAsync(
@@ -205,37 +151,37 @@ namespace KimodoBridge
                 throw new ArgumentNullException(nameof(request));
             }
 
-            ThrowIfDisposed();
-            await EnsureHealthyOrThrowAsync(token).ConfigureAwait(false);
+            using var progressSubscription = SubscribeProgressSink(progress);
+            await EnsureConnectedAsync(forceSetup: false, token).ConfigureAwait(false);
+
             if (string.IsNullOrWhiteSpace(request.task_id))
             {
                 request.task_id = Guid.NewGuid().ToString("N");
             }
 
-            activeTaskId = request.task_id;
+            if (request.owner_pid <= 0)
+            {
+                request.owner_pid = Process.GetCurrentProcess().Id;
+            }
+
+            TrackTask(request.task_id);
             EmitDebugLog(
                 $"[KimodoBridge] Generate request: host={currentHost}:{currentPort}, " +
                 $"taskId='{request.task_id}', " +
                 $"promptLen={(request.prompt ?? string.Empty).Length}, duration={request.duration:F3}, " +
                 $"steps={request.steps}, seed={(request.seed.HasValue ? request.seed.Value.ToString() : "null")}, " +
-                $"constraintsPath='{request.constraints_json ?? string.Empty}', " +
-                $"loopHint={request.loop_hint}, segmentIndex={request.segment_index}, transition={request.transition_duration:F3}, " +
-                $"boundaryPoseLen={(request.boundary_pose_json ?? string.Empty).Length}");
+                $"model='{request.model ?? string.Empty}', highvram={request.highvram}, force_cpu={request.force_cpu}, " +
+                $"models_root='{request.models_root ?? string.Empty}'");
 
+            Task<BridgeProtocolResponse> protocolTask = SendGenerateRequestAsync(request, CancellationToken.None);
             BridgeProtocolResponse response;
             try
             {
-                response = await SendGenerateRequestAsync(request, progress, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                await TryCancelActiveGenerateAsync().ConfigureAwait(false);
-                await DetachCurrentConnectionAsync().ConfigureAwait(false);
-                throw;
+                response = await AwaitGenerateCompletionAsync(protocolTask, request.task_id, token).ConfigureAwait(false);
             }
             finally
             {
-                activeTaskId = string.Empty;
+                UntrackTask(request.task_id);
             }
 
             JObject header = response?.Header;
@@ -246,6 +192,13 @@ namespace KimodoBridge
             EmitDebugLog(
                 $"[KimodoBridge] Generate response: status='{status}', format='{outputFormat}', hasJson={!string.IsNullOrWhiteSpace(motionJson)}, " +
                 $"hasBinary={(response?.BinaryPayload != null && response.BinaryPayload.Length > 0)}, message='{responseMessage}'");
+
+            if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new OperationCanceledException(
+                    string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation cancelled." : responseMessage);
+            }
+
             if (!string.Equals(status, "done", StringComparison.OrdinalIgnoreCase))
             {
                 throw new Exception($"Unexpected bridge response status: {status}. message={responseMessage}");
@@ -264,7 +217,7 @@ namespace KimodoBridge
                     throw new Exception($"Failed to parse bridge FlatBuffer motion: {parseError}");
                 }
 
-                EmitProgress(progress, "Bridge generation complete.");
+                PublishProgressMessage("Bridge generation complete.");
                 return new KimodoBridgeGenerationResult
                 {
                     MotionData = motionData,
@@ -279,7 +232,7 @@ namespace KimodoBridge
                 throw new Exception("Bridge completed without motion_json_compact.");
             }
 
-            EmitProgress(progress, "Bridge generation complete.");
+            PublishProgressMessage("Bridge generation complete.");
             return new KimodoBridgeGenerationResult
             {
                 MotionJsonCompact = motionJson,
@@ -289,23 +242,164 @@ namespace KimodoBridge
             };
         }
 
-        private Task<BridgeProtocolResponse> SendGenerateRequestAsync(
-            KimodoGenerationRequestDto request,
-            Action<string> progress,
+        public async Task CancelAllAsync(CancellationToken token = default)
+        {
+            await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                await CancelTrackedTasksAsync(token).ConfigureAwait(false);
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+        }
+
+        public async Task StopAsync(CancellationToken token = default)
+        {
+            await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                await CancelTrackedTasksAsync(token).ConfigureAwait(false);
+
+                if (TryResolveCurrentEndpoint(out string host, out int port))
+                {
+                    await protocolClient.TrySendQuitAsync(host, port, token).ConfigureAwait(false);
+                }
+
+                await protocolClient.DetachAsync().ConfigureAwait(false);
+                await StopLogPumpsAsync(token).ConfigureAwait(false);
+                processManager.DetachProcess();
+                DeleteServerPortFile();
+                ResetConnectionState();
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+        }
+
+        private async Task EnsureConnectedAsync(bool forceSetup, CancellationToken token)
+        {
+            await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                if (IsConnected && currentPort > 0)
+                {
+                    return;
+                }
+
+                ResolvedRuntimeContext context = ResolveRuntimeContext(forceSetup);
+                currentRuntimeRoot = context.RuntimeRoot;
+
+                if (TryReadRuntimeEndpoint(context.RuntimeRoot, out string host, out int port))
+                {
+                    try
+                    {
+                        await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
+                        currentHost = host;
+                        currentPort = port;
+                        StartLogPumpsIfNeeded();
+                        PublishProgressMessage($"Bridge attached to {host}:{port}.");
+                        return;
+                    }
+                    catch
+                    {
+                        await protocolClient.DetachAsync().ConfigureAwait(false);
+                        currentHost = DefaultHost;
+                        currentPort = -1;
+                    }
+                }
+
+                if (!processManager.IsRunning)
+                {
+                    processManager.Start(
+                        context.LauncherPath,
+                        forceSetup: context.ForceSetup,
+                        ownerProcessId: Process.GetCurrentProcess().Id);
+                    PublishProgressMessage("Bridge process launched.");
+                }
+                else
+                {
+                    PublishProgressMessage("Bridge process already exists. Waiting for QuickServer...");
+                }
+
+                StartLogPumpsIfNeeded();
+                PublishProgressMessage("Waiting for QuickServer...");
+
+                await processManager.WaitUntilReadyAsync(
+                    context.RuntimeRoot,
+                    DefaultHost,
+                    BridgeRuntimeDefaults.StartupTimeoutMs,
+                    BridgeRuntimeDefaults.PollIntervalMs,
+                    token).ConfigureAwait(false);
+
+                if (!TryReadRuntimeEndpoint(context.RuntimeRoot, out host, out port))
+                {
+                    throw new Exception($"QuickServer started but serverport is missing under '{context.RuntimeRoot}'.");
+                }
+
+                await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
+                currentHost = host;
+                currentPort = port;
+                PublishProgressMessage($"Bridge attached to {host}:{port}.");
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+        }
+
+        private async Task<BridgeProtocolResponse> AwaitGenerateCompletionAsync(
+            Task<BridgeProtocolResponse> protocolTask,
+            string taskId,
             CancellationToken token)
         {
-            Action<string> marshaledProgress = progress == null ? null : msg => EmitProgress(progress, msg);
+            if (!token.CanBeCanceled)
+            {
+                return await protocolTask.ConfigureAwait(false);
+            }
+
+            Task cancellationTask = Task.Delay(Timeout.Infinite, token);
+            Task completed = await Task.WhenAny(protocolTask, cancellationTask).ConfigureAwait(false);
+            if (completed == protocolTask)
+            {
+                return await protocolTask.ConfigureAwait(false);
+            }
+
+            await CancelTaskAsync(taskId, CancellationToken.None).ConfigureAwait(false);
+            return await protocolTask.ConfigureAwait(false);
+        }
+
+        private Task<BridgeProtocolResponse> SendGenerateRequestAsync(
+            KimodoGenerationRequestDto request,
+            CancellationToken token)
+        {
             return protocolClient.GenerateAsync(
                 currentHost,
                 currentPort,
                 request,
-                marshaledProgress,
+                PublishProgressMessage,
                 token);
         }
 
-        private async Task TryCancelActiveGenerateAsync()
+        private async Task CancelTrackedTasksAsync(CancellationToken token)
         {
-            string taskId = activeTaskId;
+            string[] trackedTaskIds;
+            lock (taskGate)
+            {
+                trackedTaskIds = new string[trackedTasks.Count];
+                trackedTasks.Keys.CopyTo(trackedTaskIds, 0);
+            }
+
+            for (int i = 0; i < trackedTaskIds.Length; i++)
+            {
+                await CancelTaskAsync(trackedTaskIds[i], token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task CancelTaskAsync(string taskId, CancellationToken token)
+        {
             if (string.IsNullOrWhiteSpace(taskId))
             {
                 return;
@@ -316,10 +410,9 @@ namespace KimodoBridge
                 return;
             }
 
-            using var cancelCts = new CancellationTokenSource(Math.Max(500, settings.ioTimeoutMs));
             try
             {
-                await protocolClient.TryCancelGenerateAsync(host, port, taskId, cancelCts.Token).ConfigureAwait(false);
+                await protocolClient.TryCancelGenerateAsync(host, port, taskId, token).ConfigureAwait(false);
             }
             catch
             {
@@ -327,198 +420,7 @@ namespace KimodoBridge
             }
         }
 
-        public async Task StopAsync(CancellationToken token)
-        {
-            ThrowIfDisposed();
-            await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                await StopCoreAsync(token).ConfigureAwait(false);
-            }
-            finally
-            {
-                lifecycleGate.Release();
-            }
-        }
-
-        public async Task DetachAsync(CancellationToken token)
-        {
-            ThrowIfDisposed();
-            await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                await DetachCoreAsync().ConfigureAwait(false);
-            }
-            finally
-            {
-                lifecycleGate.Release();
-            }
-        }
-
-        public void Dispose()
-        {
-            if (disposed)
-            {
-                return;
-            }
-
-            disposed = true;
-            try
-            {
-                StopLogPump();
-                protocolClient?.Dispose();
-                processManager?.Dispose();
-                lifecycleGate?.Dispose();
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-
-        private void ValidateRuntimeRootOrThrow()
-        {
-            if (string.IsNullOrWhiteSpace(settings.runtimeRoot))
-            {
-                throw new InvalidOperationException("Bridge runtimeRoot is empty.");
-            }
-
-            if (!Directory.Exists(settings.runtimeRoot))
-            {
-                throw new DirectoryNotFoundException($"Bridge runtime root not found: {settings.runtimeRoot}");
-            }
-        }
-
-        private void EnsureLauncherExists()
-        {
-            if (string.IsNullOrWhiteSpace(settings.launcherPath))
-            {
-                throw new InvalidOperationException("Bridge launcher path is empty.");
-            }
-
-            if (!File.Exists(settings.launcherPath))
-            {
-                throw new FileNotFoundException($"Bridge launcher not found: {settings.launcherPath}");
-            }
-        }
-
-        private async Task EnsureHealthyOrThrowAsync(CancellationToken token)
-        {
-            string endpointBeforeConnect = TryResolveCurrentEndpoint(out string host, out int port)
-                ? $"{host}:{port}"
-                : "(none)";
-            if (port <= 0)
-            {
-                throw new Exception($"Bridge port is unreachable. endpoint={endpointBeforeConnect}");
-            }
-
-            bool canConnect = await BridgeRuntimeControl.CanOpenConnectionAsync(
-                host,
-                port,
-                settings.statusConnectTimeoutMs,
-                token).ConfigureAwait(false);
-            if (canConnect)
-            {
-                await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
-                currentHost = host;
-                currentPort = port;
-                return;
-            }
-
-            await InvalidateCurrentEndpointAsync().ConfigureAwait(false);
-            throw new Exception($"Bridge port is unreachable. endpoint={endpointBeforeConnect}");
-        }
-
-        private async Task StopCoreAsync(CancellationToken token)
-        {
-            StopLogPump();
-            await protocolClient.DetachAsync().ConfigureAwait(false);
-
-            bool endpointResolved = TryResolveCurrentEndpoint(out string host, out int port);
-            if (endpointResolved)
-            {
-                await protocolClient.TrySendQuitAsync(host, port, token).ConfigureAwait(false);
-            }
-
-            processManager.DetachProcess();
-            currentPort = -1;
-            currentHost = settings.hostFallback;
-            activeTaskId = string.Empty;
-        }
-
-        private async Task DetachCoreAsync()
-        {
-            StopLogPump();
-            await protocolClient.DetachAsync().ConfigureAwait(false);
-            processManager.DetachProcess();
-            currentPort = -1;
-            currentHost = settings.hostFallback;
-            activeTaskId = string.Empty;
-        }
-
-        private async Task DetachCurrentConnectionAsync()
-        {
-            await protocolClient.DetachAsync().ConfigureAwait(false);
-        }
-
         private bool TryResolveCurrentEndpoint(out string host, out int port)
-        {
-            string filePath = BridgeEndpointResolver.GetServerPortFilePath(settings.runtimeRoot);
-            if (BridgeEndpointResolver.TryReadServerEndpoint(settings.runtimeRoot, settings.hostFallback, out string fileHost, out int filePort, out _))
-            {
-                host = fileHost;
-                port = filePort;
-                return true;
-            }
-
-            if (currentPort > 0 && !string.IsNullOrWhiteSpace(currentHost) && !File.Exists(filePath))
-            {
-                host = currentHost;
-                port = currentPort;
-                return true;
-            }
-
-            host = string.IsNullOrWhiteSpace(settings.hostFallback) ? "127.0.0.1" : settings.hostFallback;
-            port = -1;
-            return false;
-        }
-
-        private async Task InvalidateCurrentEndpointAsync()
-        {
-            currentPort = -1;
-            currentHost = settings.hostFallback;
-            activeTaskId = string.Empty;
-            await protocolClient.DetachAsync().ConfigureAwait(false);
-        }
-
-        private async Task EnsureRuntimeConfiguredAsync(Action<string> progress, CancellationToken token)
-        {
-            var request = new JObject
-            {
-                ["cmd"] = "start",
-                ["model"] = settings.modelName,
-                ["highvram"] = settings.highVram,
-                ["force_cpu"] = settings.forceCpu,
-                ["models_root"] = settings.modelsRoot ?? string.Empty,
-                ["force_hf_download"] = false,
-                ["owner_pid"] = settings.ownerProcessId
-            };
-
-            JObject response = await protocolClient.SendAsync(currentHost, currentPort, request, token).ConfigureAwait(false);
-            string status = response?.Value<string>("status") ?? string.Empty;
-            string message = response?.Value<string>("message") ?? string.Empty;
-            EmitProgress(progress, string.IsNullOrWhiteSpace(message)
-                ? $"Bridge start status={status}"
-                : $"Bridge start status={status}, message={message}");
-            if (!string.Equals(status, "ready", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new Exception(string.IsNullOrWhiteSpace(message)
-                    ? $"Unexpected bridge start status: {status}."
-                    : $"Unexpected bridge start status: {status}. message={message}");
-            }
-        }
-
-        internal bool TryGetCurrentEndpoint(out string host, out int port)
         {
             if (currentPort > 0 && !string.IsNullOrWhiteSpace(currentHost))
             {
@@ -527,71 +429,397 @@ namespace KimodoBridge
                 return true;
             }
 
-            host = string.IsNullOrWhiteSpace(settings.hostFallback) ? "127.0.0.1" : settings.hostFallback;
+            host = DefaultHost;
             port = -1;
             return false;
         }
 
-        private void StartLogPump(Action<string> progress)
+        private bool TryReadRuntimeEndpoint(string runtimeRoot, out string host, out int port)
         {
-            logSubscription?.Dispose();
-            logSubscription = null;
-            if (progress == null)
+            return BridgeEndpointResolver.TryReadServerEndpoint(runtimeRoot, DefaultHost, out host, out port, out _);
+        }
+
+        private void DeleteServerPortFile()
+        {
+            if (string.IsNullOrWhiteSpace(currentRuntimeRoot))
             {
                 return;
             }
 
-            logSubscription = BridgeLogPump.SubscribeShared(settings.runtimeRoot, settings, progress);
-        }
-
-        private void StopLogPump()
-        {
-            logSubscription?.Dispose();
-            logSubscription = null;
-        }
-
-        private static IBridgePlatformProcess CreatePlatformProcess(BridgeRuntimeSettings settings)
-        {
-            RuntimePlatform p = Application.platform;
-            if (p == RuntimePlatform.WindowsEditor || p == RuntimePlatform.WindowsPlayer)
+            string path = BridgeEndpointResolver.GetServerPortFilePath(currentRuntimeRoot);
+            try
             {
-                if (!settings.enableWindows)
+                if (File.Exists(path))
                 {
-                    throw new PlatformNotSupportedException("Bridge Windows platform disabled.");
+                    File.Delete(path);
+                }
+            }
+            catch
+            {
+                // best effort only
+            }
+        }
+
+        private void ResetConnectionState()
+        {
+            currentHost = DefaultHost;
+            currentPort = -1;
+            currentRuntimeRoot = string.Empty;
+            ClearTrackedTasks();
+        }
+
+        private void EmitDebugLog(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
+
+            if (creationContext != null)
+            {
+                creationContext.Post(_ => UnityEngine.Debug.Log(message), null);
+                return;
+            }
+
+            Debug.Log(message);
+        }
+
+        private void PublishProgressMessage(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
+
+            ProgressSink[] sinks;
+            lock (progressGate)
+            {
+                if (progressSinks.Count == 0)
+                {
+                    return;
                 }
 
+                sinks = progressSinks.ToArray();
+            }
+
+            for (int i = 0; i < sinks.Length; i++)
+            {
+                ProgressSink sink = sinks[i];
+                if (sink == null || sink.Callback == null)
+                {
+                    continue;
+                }
+
+                if (sink.Context != null)
+                {
+                    sink.Context.Post(_ => SafeInvokeProgress(sink.Callback, message), null);
+                    continue;
+                }
+
+                SafeInvokeProgress(sink.Callback, message);
+            }
+        }
+
+        private IDisposable SubscribeProgressSink(Action<string> progress)
+        {
+            if (progress == null)
+            {
+                return NoopDisposable.Instance;
+            }
+
+            var sink = new ProgressSink
+            {
+                Callback = progress,
+                Context = SynchronizationContext.Current
+            };
+            lock (progressGate)
+            {
+                progressSinks.Add(sink);
+            }
+
+            return new ProgressSubscription(this, sink);
+        }
+
+        private void RemoveProgressSink(ProgressSink sink)
+        {
+            if (sink == null)
+            {
+                return;
+            }
+
+            lock (progressGate)
+            {
+                progressSinks.Remove(sink);
+            }
+        }
+
+        private void StartLogPumpsIfNeeded()
+        {
+            if (string.IsNullOrWhiteSpace(currentRuntimeRoot))
+            {
+                return;
+            }
+
+            lock (progressGate)
+            {
+                if (logPumps.Count > 0)
+                {
+                    return;
+                }
+
+                StartLogPumpForPath(BridgeEndpointResolver.ResolveAttachLogPath(currentRuntimeRoot), "[Bridge]");
+                StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "bridge_server.log"), "[BridgeServer]");
+                StartLogPumpForPath(
+                    Path.Combine(currentRuntimeRoot, "log", "bridge_message.log"),
+                    "[BridgeMessage]",
+                    BridgeRuntimeDefaults.LogPumpWaitFileTimeoutMs * 3,
+                    BridgeRuntimeDefaults.LogPumpMissingFilePollMinMs,
+                    BridgeRuntimeDefaults.LogPumpMissingFilePollMinMs);
+                StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "run_server.log"), "[RunServer]");
+                StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "setup.log"), "[Setup]");
+            }
+        }
+
+        private void StartLogPumpForPath(
+            string logPath,
+            string tag,
+            int? waitFileTimeoutMsOverride = null,
+            int? missingFilePollMinMsOverride = null,
+            int? missingFilePollMaxMsOverride = null)
+        {
+            if (string.IsNullOrWhiteSpace(logPath))
+            {
+                return;
+            }
+
+            string normalizedPath = NormalizePathOrEmpty(logPath);
+            if (string.IsNullOrWhiteSpace(normalizedPath))
+            {
+                return;
+            }
+
+            for (int i = 0; i < logPumps.Count; i++)
+            {
+                if (string.Equals(logPumps[i].Path, normalizedPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            var pump = new BridgeLogPump();
+            logPumps.Add(new ActiveLogPump
+            {
+                Path = normalizedPath,
+                Pump = pump
+            });
+            pump.Start(
+                normalizedPath,
+                line => OnLogLine($"{tag} {line}"),
+                waitFileTimeoutMsOverride,
+                missingFilePollMinMsOverride,
+                missingFilePollMaxMsOverride);
+        }
+
+        private async Task StopLogPumpsAsync(CancellationToken token)
+        {
+            ActiveLogPump[] pumps;
+            lock (progressGate)
+            {
+                if (logPumps.Count == 0)
+                {
+                    return;
+                }
+
+                pumps = logPumps.ToArray();
+                logPumps.Clear();
+            }
+
+            for (int i = 0; i < pumps.Length; i++)
+            {
+                try
+                {
+                    await pumps[i].Pump.StopAsync(token: token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // best effort only
+                }
+                finally
+                {
+                    try { pumps[i].Pump.Dispose(); } catch { }
+                }
+            }
+        }
+
+        private void OnLogLine(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
+
+            EmitDebugLog(message);
+            PublishProgressMessage(message);
+        }
+
+        private static void SafeInvokeProgress(Action<string> callback, string message)
+        {
+            try
+            {
+                callback?.Invoke(message);
+            }
+            catch
+            {
+                // ignore callback failures
+            }
+        }
+
+        private static string NormalizePathOrEmpty(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return Path.GetFullPath(path.Trim());
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private void TrackTask(string taskId)
+        {
+            if (string.IsNullOrWhiteSpace(taskId))
+            {
+                return;
+            }
+
+            lock (taskGate)
+            {
+                trackedTasks[taskId] = new TrackedBridgeTask
+                {
+                    TaskId = taskId,
+                    CreatedAtUtc = DateTime.UtcNow
+                };
+            }
+        }
+
+        private void UntrackTask(string taskId)
+        {
+            if (string.IsNullOrWhiteSpace(taskId))
+            {
+                return;
+            }
+
+            lock (taskGate)
+            {
+                trackedTasks.Remove(taskId);
+            }
+        }
+
+        private void ClearTrackedTasks()
+        {
+            lock (taskGate)
+            {
+                trackedTasks.Clear();
+            }
+        }
+
+        private static IBridgePlatformProcess CreatePlatformProcess()
+        {
+            RuntimePlatform platform = Application.platform;
+            if (platform == RuntimePlatform.WindowsEditor || platform == RuntimePlatform.WindowsPlayer)
+            {
                 return new WindowsBridgePlatformProcess();
             }
 
-            if (p == RuntimePlatform.OSXEditor || p == RuntimePlatform.OSXPlayer)
+            if (platform == RuntimePlatform.OSXEditor || platform == RuntimePlatform.OSXPlayer)
             {
-                if (!settings.enableMac)
-                {
-                    throw new PlatformNotSupportedException("Bridge macOS platform disabled.");
-                }
-
                 return new MacBridgePlatformProcess();
             }
 
-            if (p == RuntimePlatform.LinuxEditor || p == RuntimePlatform.LinuxPlayer)
+            if (platform == RuntimePlatform.LinuxEditor || platform == RuntimePlatform.LinuxPlayer)
             {
-                if (!settings.enableLinux)
-                {
-                    throw new PlatformNotSupportedException("Bridge Linux platform disabled.");
-                }
-
                 return new LinuxBridgePlatformProcess();
             }
 
-            throw new PlatformNotSupportedException($"Unsupported bridge platform: {p}");
+            throw new PlatformNotSupportedException($"Unsupported bridge platform: {platform}");
         }
 
-        private void ThrowIfDisposed()
+        private static ResolvedRuntimeContext ResolveRuntimeContext(bool forceSetup)
         {
-            if (disposed)
+            string runtimeRoot;
+#if UNITY_EDITOR
+            runtimeRoot = ResolveEditorRuntimeRootOrThrow();
+#else
+            runtimeRoot = KimodoRuntimeBootstrapUtility.EnsureRuntimeRootForCurrentMode(
+                Path.GetFullPath(Path.Combine(Application.streamingAssetsPath, "NvlabKimodoQuickServer~")));
+            if (string.IsNullOrWhiteSpace(runtimeRoot) || !Directory.Exists(runtimeRoot))
             {
-                throw new ObjectDisposedException(nameof(KimodoBridgeService));
+                throw new DirectoryNotFoundException($"Bridge runtime root not found: {runtimeRoot}");
             }
+#endif
+
+            string launcherPath = BridgeLauncherResolver.ResolveStartScript(runtimeRoot);
+            if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
+            {
+                throw new FileNotFoundException(
+                    $"Bridge launcher not found under runtime root: {runtimeRoot}. Expected run_server.bat or run_server.sh.");
+            }
+
+            return new ResolvedRuntimeContext
+            {
+                RuntimeRoot = Path.GetFullPath(runtimeRoot),
+                LauncherPath = Path.GetFullPath(launcherPath),
+                ForceSetup = forceSetup
+            };
         }
+
+#if UNITY_EDITOR
+        private static string ResolveEditorRuntimeRootOrThrow()
+        {
+            const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
+            const string methodName = "ResolveRuntimeRootOrThrow";
+
+            Type facadeType = Type.GetType($"{typeName}, KimodoTool.Editor");
+            if (facadeType == null)
+            {
+                Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                for (int i = 0; i < assemblies.Length; i++)
+                {
+                    facadeType = assemblies[i].GetType(typeName, throwOnError: false);
+                    if (facadeType != null)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (facadeType == null)
+            {
+                throw new TypeLoadException($"Cannot resolve editor runtime facade '{typeName}'.");
+            }
+
+            MethodInfo resolveMethod = facadeType.GetMethod(
+                methodName,
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            if (resolveMethod == null)
+            {
+                throw new MissingMethodException(typeName, methodName);
+            }
+
+            object result = resolveMethod.Invoke(null, null);
+            if (result is string runtimeRoot && !string.IsNullOrWhiteSpace(runtimeRoot))
+            {
+                return Path.GetFullPath(runtimeRoot);
+            }
+
+            throw new InvalidOperationException("Editor runtime root resolve returned an empty path.");
+        }
+#endif
     }
 }

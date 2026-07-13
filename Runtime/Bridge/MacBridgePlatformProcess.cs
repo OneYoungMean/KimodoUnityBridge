@@ -14,12 +14,7 @@ namespace KimodoBridge
 
         public ProcessStartInfo BuildLauncherStartInfo(
             string launcherPath,
-            string modelName,
-            bool highVram,
             bool forceSetup,
-            bool forceCpu,
-            string modelsRoot,
-            int idleTimeoutSeconds,
             int ownerProcessId)
         {
             string ext = Path.GetExtension(launcherPath)?.ToLowerInvariant() ?? string.Empty;
@@ -34,7 +29,7 @@ namespace KimodoBridge
             string watchPidArg = ownerProcessId > 0 ? $" --watchpid {ownerProcessId}" : string.Empty;
             string outputArg = " --output file";
             string args = forceSetupArg + watchPidArg + outputArg;
-            string envPrefix = $"KIMODO_IDLE_TIMEOUT_SEC={Math.Max(0, idleTimeoutSeconds)}";
+            string envPrefix = "KIMODO_IDLE_TIMEOUT_SEC=0";
 
             return new ProcessStartInfo
             {

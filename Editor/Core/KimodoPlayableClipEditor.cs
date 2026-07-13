@@ -196,7 +196,7 @@ namespace KimodoBridge.Editor
 
             bool disableGenerate =
                 isGenerating ||
-                KimodoBridgeServerManage.IsRuntimeMaintenanceInProgress ||
+                KimodoBridgeServerTool.IsRuntimeMaintenanceInProgress ||
                 EditorCompilationStateGate.IsCompilingOrReloading;
             GUI.enabled = !disableGenerate;
             if (GUILayout.Button(new GUIContent("Generate & Bake", "Generate motion using current settings and bake result back into this playable clip."), GUILayout.Height(32)))
@@ -274,7 +274,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            bridgeConnectedCached = KimodoBridgeServerManage.HasConnectedSession;
+            bridgeConnectedCached = KimodoBridgeService.Shared.IsConnected;
         }
 
         private static string SummarizeForUi(string message, int maxLength = 320)
@@ -358,7 +358,7 @@ namespace KimodoBridge.Editor
         private void DrawBridgeModelSelector()
         {
             string current = KimodoPlayableClip.NormalizeBridgeModelName(bridgeModelName.stringValue);
-            string[] options = KimodoBridgeServerManage.SupportedModelNames;
+            string[] options = KimodoBridgeServerTool.SupportedModelNames;
             int idx = Array.IndexOf(options, current);
             if (idx < 0)
             {
@@ -371,11 +371,11 @@ namespace KimodoBridge.Editor
 
         private void DrawEstimatedSetupTimeHint()
         {
-            string runtimeRoot = KimodoBridgeServerManage.GetRuntimeRootPath();
+            string runtimeRoot = KimodoBridgeServerTool.GetRuntimeRootPath();
             bool highVram = clip != null && clip.bridgeVramMode == KimodoBridgeVramMode.High;
             string modelName = clip == null ? KimodoPlayableClip.DefaultBridgeModelName : KimodoPlayableClip.NormalizeBridgeModelName(clip.bridgeModelName);
             string modelsRootOverride = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim();
-            if (!KimodoBridgeServerManage.TryGetModelMissingSetupMinutes(runtimeRoot, highVram, modelName, modelsRootOverride, out int minutes))
+            if (!KimodoBridgeServerTool.TryGetModelMissingSetupMinutes(runtimeRoot, highVram, modelName, modelsRootOverride, out int minutes))
             {
                 return;
             }

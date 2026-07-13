@@ -4,9 +4,9 @@ using UnityEngine;
 
 namespace KimodoBridge
 {
-    public static class BridgeLauncherResolver
+    internal static class BridgeLauncherResolver
     {
-        public static string ResolveStartScript(string runtimeRoot)
+        internal static string ResolveStartScript(string runtimeRoot)
         {
             EnsureNoLegacyScripts(runtimeRoot);
 
@@ -31,7 +31,7 @@ namespace KimodoBridge
             return string.Empty;
         }
 
-        public static void EnsureNoLegacyScripts(string runtimeRoot)
+        internal static void EnsureNoLegacyScripts(string runtimeRoot)
         {
             if (string.IsNullOrWhiteSpace(runtimeRoot))
             {

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import gc
 import json
 import os
 from collections import deque
+from itertools import count
+import io
 from pathlib import Path
 import socket
 import threading
@@ -18,6 +21,7 @@ from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 
 
 SUPERVISOR_LOG_FILE_NAME = "bridge_server.log"
+DEFAULT_TASK_ID_PREFIX = "task"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -52,6 +56,56 @@ def _prepare_logger(
     final_log_path = Path(log_path).resolve() if log_path else paths.log_dir / default_name
     paths.log_dir.mkdir(parents=True, exist_ok=True)
     return SetupLogger(output_mode, final_log_path, append=append)
+
+
+class _TeeTextStream(io.TextIOBase):
+    def __init__(self, primary, secondary):
+        self._primary = primary
+        self._secondary = secondary
+
+    @property
+    def encoding(self):
+        return getattr(self._primary, "encoding", "utf-8")
+
+    def write(self, s):
+        text = "" if s is None else str(s)
+        self._primary.write(text)
+        self._secondary.write(text)
+        return len(text)
+
+    def flush(self):
+        self._primary.flush()
+        self._secondary.flush()
+
+    def isatty(self):
+        return bool(getattr(self._primary, "isatty", lambda: False)())
+
+
+@contextlib.contextmanager
+def _redirect_process_output(paths: ProjectPaths, output_mode: str, log_path: str | None, default_name: str):
+    final_log_path = Path(log_path).resolve() if log_path else paths.log_dir / default_name
+    final_log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with final_log_path.open("a", encoding="utf-8", newline="\n") as log_stream:
+        original_stdout = sys.stdout
+        original_stderr = sys.stderr
+        tee_stdout = _TeeTextStream(original_stdout, log_stream) if str(output_mode or "").strip().lower() == "console" else log_stream
+        tee_stderr = _TeeTextStream(original_stderr, log_stream) if str(output_mode or "").strip().lower() == "console" else log_stream
+        sys.stdout = tee_stdout
+        sys.stderr = tee_stderr
+        try:
+            yield final_log_path
+        finally:
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
+            try:
+                sys.stderr.flush()
+            except Exception:
+                pass
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
 
 
 def _pid_is_running(pid: int) -> bool:
@@ -355,6 +409,36 @@ def _execute_generate(task_request: dict[str, Any], model: Any, cancel_event: th
     return bridge_runtime_helpers._build_generate_response(model, output, prompt, sample_index=0), None
 
 
+def _build_streaming_status_message(server_state: str, queue_index: int, task_id: str) -> tuple[str, str]:
+    normalized = str(server_state or "").strip().lower()
+    if normalized == "loading_runtime":
+        return "loading", f"Preparing runtime for task '{task_id}'..."
+    if normalized == "generating":
+        if queue_index > 0:
+            return "queued", f"Task '{task_id}' waiting in queue. queue_index={queue_index}"
+        return "progress", f"Generating task '{task_id}'..."
+    if queue_index > 0:
+        return "queued", f"Task '{task_id}' waiting in queue. queue_index={queue_index}"
+    return "progress", f"Task '{task_id}' is still running..."
+
+
+def _attach_task_id(payload: dict[str, Any], task_id: str) -> dict[str, Any]:
+    result = dict(payload or {})
+    normalized_task_id = str(task_id or "").strip()
+    if normalized_task_id:
+        result["task_id"] = normalized_task_id
+        result["id"] = normalized_task_id
+    return result
+
+
+def _write_protocol_message(file, writer_lock: threading.Lock, payload: dict[str, Any], binary_payload: bytes | None = None) -> None:
+    with writer_lock:
+        bridge_runtime_helpers._write_json_line(file, payload)
+        if binary_payload:
+            file.write(binary_payload)
+            file.flush()
+
+
 def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger) -> int:
     host = "127.0.0.1"
     kimodo_root = str(Path(root_dir).resolve())
@@ -399,6 +483,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "active_cancel_event": None,
         "active_command_count": 0,
         "server_state": "boot",
+        "task_counter": count(1),
     }
     state_lock = threading.Lock()
     queue_changed = threading.Condition(state_lock)
@@ -509,7 +594,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 logger.log(f"[ERROR] Generate task {task_id} failed: {exc}")
             finally:
                 with queue_changed:
-                    task["response"] = response
+                    task["state"] = str(response.get("status") or "done")
+                    task["status_message"] = str(response.get("message") or "")
+                    task["response"] = _attach_task_id(response, task_id)
                     task["binary"] = binary_payload
                     task["event"].set()
                     state["tasks"].pop(task_id, None)
@@ -522,29 +609,128 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     threading.Thread(target=lifecycle_monitor_loop, daemon=True).start()
     threading.Thread(target=worker_loop, daemon=True).start()
 
+    def resolve_request_task_id(request: dict[str, Any]) -> str:
+        raw_task_id = str(request.get("task_id") or request.get("id") or "").strip()
+        if raw_task_id:
+            return raw_task_id
+
+        sequence = next(state["task_counter"])
+        return f"{DEFAULT_TASK_ID_PREFIX}-{int(time.time() * 1000)}-{sequence}"
+
+    def select_cancel_target_locked() -> dict[str, Any] | None:
+        if state["queue"]:
+            return state["queue"][0]
+
+        active_task_id = str(state.get("active_task_id") or "")
+        if active_task_id:
+            return state["tasks"].get(active_task_id)
+
+        return None
+
     def cancel_task(task_id: str) -> dict[str, Any]:
         with queue_changed:
-            task = state["tasks"].get(task_id)
-            if task is None:
-                return {"status": "idle", "message": f"Task '{task_id}' not found."}
+            resolved_task = None
+            normalized_task_id = str(task_id or "").strip()
+            if normalized_task_id:
+                resolved_task = state["tasks"].get(normalized_task_id)
+            else:
+                resolved_task = select_cancel_target_locked()
 
-            if state.get("active_task_id") == task_id:
+            task = resolved_task
+            if task is None:
+                return {"status": "idle", "message": "No cancellable task found."}
+
+            resolved_task_id = str(task["task_id"])
+
+            if state.get("active_task_id") == resolved_task_id:
                 task["cancel_event"].set()
-                return {"status": "cancelling", "message": f"Cancellation requested for '{task_id}'."}
+                task["state"] = "cancelling"
+                task["status_message"] = f"Cancellation requested for '{resolved_task_id}'."
+                return _attach_task_id(
+                    {"status": "cancelling", "message": task["status_message"]},
+                    resolved_task_id)
 
             try:
                 state["queue"].remove(task)
             except ValueError:
                 pass
-            task["response"] = {"status": "cancelled", "message": f"Task '{task_id}' was removed from queue."}
+            task["state"] = "cancelled"
+            task["status_message"] = f"Task '{resolved_task_id}' was removed from queue."
+            task["response"] = _attach_task_id(
+                {"status": "cancelled", "message": task["status_message"]},
+                resolved_task_id)
             task["binary"] = None
             task["event"].set()
-            state["tasks"].pop(task_id, None)
-            return {"status": "cancelled", "message": f"Task '{task_id}' was removed from queue."}
+            state["tasks"].pop(resolved_task_id, None)
+            return _attach_task_id(
+                {"status": "cancelled", "message": task["status_message"]},
+                resolved_task_id)
+
+    def stream_task_to_client(task: dict[str, Any], file, writer_lock: threading.Lock) -> None:
+        task_id = str(task["task_id"] or "")
+        last_stream_status = ""
+        last_stream_message = ""
+        last_stream_time = 0.0
+
+        try:
+            while True:
+                if task["event"].wait(timeout=0.5):
+                    break
+
+                with state_lock:
+                    if state["shutdown"]:
+                        break
+                    current_state = str(state.get("server_state") or "")
+                    active_task_id = str(state.get("active_task_id") or "")
+                    queue_snapshot = list(state.get("queue") or [])
+
+                queue_index = -1
+                for index, queued_task in enumerate(queue_snapshot):
+                    if queued_task is task:
+                        queue_index = index + 1
+                        break
+
+                if active_task_id and active_task_id != task_id and queue_index < 0:
+                    queue_index = 1
+
+                if str(task.get("state") or "") == "cancelling":
+                    stream_status = "cancelling"
+                    stream_message = str(task.get("status_message") or f"Cancellation requested for '{task_id}'.")
+                else:
+                    stream_status, stream_message = _build_streaming_status_message(current_state, queue_index, task_id)
+
+                now = time.time()
+                should_emit = (
+                    stream_status != last_stream_status
+                    or stream_message != last_stream_message
+                    or (now - last_stream_time) >= 2.0
+                )
+                if should_emit:
+                    _write_protocol_message(
+                        file,
+                        writer_lock,
+                        _attach_task_id(
+                            {
+                                "status": stream_status,
+                                "message": stream_message,
+                            },
+                            task_id))
+                    last_stream_status = stream_status
+                    last_stream_message = stream_message
+                    last_stream_time = now
+
+            response = task.get("response")
+            if response is None:
+                response = _attach_task_id({"status": "cancelled", "message": "Server shutting down."}, task_id)
+            binary_payload = task.get("binary")
+            _write_protocol_message(file, writer_lock, response, binary_payload)
+        except Exception:
+            return
 
     def client_worker(conn: socket.socket, addr: tuple[str, int]) -> None:
         with conn:
             file = conn.makefile("rwb")
+            writer_lock = threading.Lock()
             while True:
                 try:
                     line = file.readline()
@@ -556,7 +742,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 try:
                     request = json.loads(line.decode("utf-8").strip())
                 except Exception as exc:
-                    bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": f"Bad JSON: {exc}"})
+                    _write_protocol_message(file, writer_lock, {"status": "error", "message": f"Bad JSON: {exc}"})
                     continue
 
                 touch_activity()
@@ -564,10 +750,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
 
                 try:
                     if cmd == "generate":
-                        task_id = str(request.get("task_id") or "").strip()
-                        if not task_id:
-                            bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": "generate requires task_id."})
-                            continue
+                        task_id = resolve_request_task_id(request)
+                        request["task_id"] = task_id
+                        request["id"] = task_id
 
                         with queue_changed:
                             active_config = _normalize_runtime_config(request, state.get("default_config") or {})
@@ -576,7 +761,12 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             if owner_pid > 0:
                                 state["owner_pid"] = owner_pid
                             if task_id in state["tasks"]:
-                                bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": f"Duplicate task_id '{task_id}'."})
+                                _write_protocol_message(
+                                    file,
+                                    writer_lock,
+                                    _attach_task_id(
+                                        {"status": "error", "message": f"Duplicate task_id '{task_id}'."},
+                                        task_id))
                                 continue
 
                             task = {
@@ -587,41 +777,26 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                 "event": threading.Event(),
                                 "response": None,
                                 "binary": None,
+                                "state": "queued",
+                                "status_message": f"Task '{task_id}' waiting in queue.",
                             }
                             state["tasks"][task_id] = task
                             state["queue"].append(task)
                             queue_changed.notify_all()
 
-                        while True:
-                            if task["event"].wait(timeout=0.5):
-                                break
-                            with state_lock:
-                                if state["shutdown"]:
-                                    break
-
-                        response = task.get("response") or {"status": "cancelled", "message": "Server shutting down."}
-                        binary_payload = task.get("binary")
-                        if binary_payload:
-                            bridge_runtime_helpers._write_json_line(file, response)
-                            file.write(binary_payload)
-                            file.flush()
-                        else:
-                            bridge_runtime_helpers._write_json_line(file, response)
+                        threading.Thread(target=stream_task_to_client, args=(task, file, writer_lock), daemon=True).start()
                     elif cmd == "cancel":
-                        task_id = str(request.get("task_id") or "").strip()
-                        if not task_id:
-                            bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": "cancel requires task_id."})
-                            continue
-                        bridge_runtime_helpers._write_json_line(file, cancel_task(task_id))
+                        task_id = str(request.get("task_id") or request.get("id") or "").strip()
+                        _write_protocol_message(file, writer_lock, cancel_task(task_id))
                     elif cmd == "quit":
-                        bridge_runtime_helpers._write_json_line(file, {"status": "bye"})
+                        _write_protocol_message(file, writer_lock, {"status": "bye"})
                         request_shutdown("quit command")
                         return
                     else:
-                        bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": f"Unknown cmd: {cmd!r}"})
+                        _write_protocol_message(file, writer_lock, {"status": "error", "message": f"Unknown cmd: {cmd!r}"})
                 except Exception as exc:
                     logger.log(f"[ERROR] Command '{cmd}' failed: {exc}")
-                    bridge_runtime_helpers._write_json_line(file, {"status": "error", "message": str(exc)})
+                    _write_protocol_message(file, writer_lock, {"status": "error", "message": str(exc)})
 
     try:
         publish_state("boot")
@@ -656,9 +831,9 @@ def main(argv: list[str] | None = None, *, root_dir: str | None = None, source_r
     parser = _build_parser()
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     paths = discover_project_paths(root_dir)
-
-    with _prepare_logger(paths, args.output, args.log, SUPERVISOR_LOG_FILE_NAME, append=True) as logger:
-        return _run_supervisor(args, str(paths.root_dir), logger)
+    with _redirect_process_output(paths, args.output, args.log, SUPERVISOR_LOG_FILE_NAME):
+        with _prepare_logger(paths, "file", args.log, SUPERVISOR_LOG_FILE_NAME, append=True) as logger:
+            return _run_supervisor(args, str(paths.root_dir), logger)
 
 
 if __name__ == "__main__":

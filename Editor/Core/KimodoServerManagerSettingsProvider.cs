@@ -38,9 +38,6 @@ namespace KimodoBridge.Editor
         private string setupProfile = "unknown";
 
         private ServerState serverState = ServerState.Disabled;
-        private double detectHintUntilTime;
-        private string serverHost = "127.0.0.1";
-        private int serverPort = -1;
 
         private bool operationInProgress;
         private string operationStatus = string.Empty;
@@ -64,7 +61,6 @@ namespace KimodoBridge.Editor
         public override void OnActivate(string searchContext, VisualElement rootElement)
         {
             Refresh();
-            detectHintUntilTime = EditorApplication.timeSinceStartup + 2.0;
         }
 
         public override void OnDeactivate()
@@ -76,7 +72,7 @@ namespace KimodoBridge.Editor
         {
             if (string.IsNullOrWhiteSpace(runtimeRoot))
             {
-                runtimeRoot = KimodoBridgeServerManage.GetRuntimeRootPath();
+                runtimeRoot = KimodoBridgeServerTool.GetRuntimeRootPath();
             }
 
             PullServerStatusFromController();
@@ -137,14 +133,14 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("Startup", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
-            string[] options = KimodoBridgeServerManage.SupportedModelNames;
+            string[] options = KimodoBridgeServerTool.SupportedModelNames;
             int idx = Array.IndexOf(options, selectedModel);
             if (idx < 0)
             {
                 idx = 0;
             }
 
-            int newIdx = EditorGUILayout.Popup(new GUIContent("Model", "Default model used when starting server from this settings page."), idx, options);
+            int newIdx = EditorGUILayout.Popup(new GUIContent("Model", "Model hint used for setup estimates on this page. Runtime switching is handled by QuickServer per generate request."), idx, options);
             selectedModel = options[Mathf.Clamp(newIdx, 0, options.Length - 1)];
             selectedVramMode = (KimodoBridgeVramMode)EditorGUILayout.EnumPopup(
                 new GUIContent("VRAM Mode", "Low: quantized encoder (~4G). High: full model stack (~16G)."),
@@ -248,7 +244,7 @@ namespace KimodoBridge.Editor
                 $"Estimated VRAM for selected mode: ~{totalVramGb} GB (core 2 GB + encoder {encoderVramGb} GB).",
                 MessageType.Info);
 
-            if (KimodoBridgeServerManage.TryGetModelMissingSetupMinutes(
+            if (KimodoBridgeServerTool.TryGetModelMissingSetupMinutes(
                 runtimeRoot,
                 selectedVramMode == KimodoBridgeVramMode.High,
                 selectedModel,
@@ -269,19 +265,14 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("Server", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
-            bool showDetectHint = EditorApplication.timeSinceStartup < detectHintUntilTime;
             bool compileGate = EditorCompilationStateGate.IsCompilingOrReloading;
             if (compileGate)
             {
                 EditorGUILayout.HelpBox("compiling...", MessageType.None);
             }
-            else if (showDetectHint)
-            {
-                EditorGUILayout.HelpBox("detect...", MessageType.None);
-            }
             else if (serverState == ServerState.Enabled)
             {
-                EditorGUILayout.HelpBox($"Running at {serverHost}:{serverPort}", MessageType.Info);
+                EditorGUILayout.HelpBox("Server is connected.", MessageType.Info);
             }
             else
             {
@@ -296,13 +287,13 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.LabelField("Status", serverState == ServerState.Enabled ? "connected" : "disconnected", EditorStyles.miniLabel);
             }
 
-            bool inMaintenance = KimodoBridgeServerManage.IsRuntimeMaintenanceInProgress;
+            bool inMaintenance = KimodoBridgeServerTool.IsRuntimeMaintenanceInProgress;
             bool stopMode = serverState == ServerState.Enabled;
-            string buttonLabel = (operationInProgress || inMaintenance) ? "Processing..." : (stopMode ? "Stop Server" : "Start Server");
+            string buttonLabel = (operationInProgress || inMaintenance) ? "Processing..." : (stopMode ? "Stop Server" : "Warm Up Server");
 
             using (new EditorGUI.DisabledScope(operationInProgress || inMaintenance || compileGate))
             {
-                if (GUILayout.Button(new GUIContent(buttonLabel, "Start or stop Kimodo bridge server with current startup model and VRAM mode settings."), GUILayout.Width(140f)))
+                if (GUILayout.Button(new GUIContent(buttonLabel, "Warm up or stop the shared Kimodo bridge service. Runtime switching remains request-driven on the QuickServer side."), GUILayout.Width(140f)))
                 {
                     if (stopMode)
                     {
@@ -518,7 +509,7 @@ namespace KimodoBridge.Editor
 
         private void Refresh()
         {
-            runtimeRoot = KimodoBridgeServerManage.GetRuntimeRootPath();
+            runtimeRoot = KimodoBridgeServerTool.GetRuntimeRootPath();
             runtimeExists = Directory.Exists(runtimeRoot);
             setupProfile = "unknown";
             if (runtimeExists && KimodoServerRuntimeUtil.TryReadSetupProfile(runtimeRoot, out string profile))
@@ -527,8 +518,6 @@ namespace KimodoBridge.Editor
             }
             RefreshModelList();
 
-            serverHost = "127.0.0.1";
-            serverPort = -1;
             serverState = ServerState.Disabled;
         }
 
@@ -562,7 +551,7 @@ namespace KimodoBridge.Editor
             try
             {
                 List<ModelDirectoryInfo> source =
-                    KimodoBridgeServerManage.QueryDisplayableModelDirectories(resolvedModelsRoot);
+                    KimodoBridgeServerTool.QueryDisplayableModelDirectories(resolvedModelsRoot);
                 for (int i = 0; i < source.Count; i++)
                 {
                     ModelDirectoryInfo item = source[i];
@@ -595,17 +584,10 @@ namespace KimodoBridge.Editor
             if (!runtimeExists)
             {
                 serverState = ServerState.Disabled;
-                serverHost = "127.0.0.1";
-                serverPort = -1;
                 return;
             }
 
-            serverState = KimodoBridgeServerManage.HasConnectedSession ? ServerState.Enabled : ServerState.Disabled;
-            if (!KimodoBridgeServerManage.TryGetConnectedEndpoint(out serverHost, out serverPort))
-            {
-                serverHost = "127.0.0.1";
-                serverPort = -1;
-            }
+            serverState = KimodoBridgeService.Shared.IsConnected ? ServerState.Enabled : ServerState.Disabled;
         }
 
         private Task EnsureRuntimeRootAsync()
@@ -615,11 +597,11 @@ namespace KimodoBridge.Editor
                 successStatus: runtimeExists ? "Runtime root reinstalled (models preserved)." : "Runtime root ready.",
                 async _ =>
                 {
-                    using (KimodoBridgeServerManage.EnterRuntimeMaintenanceScope())
+                    using (KimodoBridgeServerTool.EnterRuntimeMaintenanceScope())
                     {
-                        await KimodoBridgeServerManage.StopServerAsync(CancellationToken.None);
+                        await KimodoBridgeService.Shared.StopAsync(CancellationToken.None);
 
-                        if (!KimodoBridgeServerManage.ReinstallRuntimeRoot())
+                        if (!KimodoBridgeServerTool.ReinstallRuntimeRoot())
                         {
                             throw new InvalidOperationException("Failed to reinstall runtime root from package template.");
                         }
@@ -632,31 +614,13 @@ namespace KimodoBridge.Editor
         private Task StartServerAsync()
         {
             return RunOperationAsync(
-                initialStatus: "Starting server...",
+                initialStatus: "Warming up server...",
                 successStatus: null,
-                progress =>
-                {
-                    string runtimeRootPath = runtimeRoot;
-                    string launcherPath = KimodoBridgeServerManage.ResolveStartScriptOrThrow(runtimeRootPath);
-                    string modelName = string.IsNullOrWhiteSpace(selectedModel) ? "Kimodo-SOMA-RP-v1" : selectedModel.Trim();
-                    bool highVram = selectedVramMode == KimodoBridgeVramMode.High;
-                    string modelsRoot = ResolveModelsRootForServer();
-                    return KimodoBridgeServerManage.StartServerAsync(
-                        launcherPath,
-                        modelName,
-                        highVram,
-                        runtimeRootPath,
-                        modelsRoot,
-                        forceSetup: false,
-                        progress,
-                        CancellationToken.None);
-                },
+                progress => WarmupServerAsync(progress, forceSetup: false),
                 onSuccess: () =>
                 {
                     PullServerStatusFromController();
-                    operationStatus = serverState == ServerState.Enabled
-                        ? $"Running at {serverHost}:{serverPort}"
-                        : "Start completed.";
+                    operationStatus = serverState == ServerState.Enabled ? "Server connected." : "Warmup completed.";
                 });
         }
 
@@ -665,7 +629,7 @@ namespace KimodoBridge.Editor
             return RunOperationAsync(
                 initialStatus: "Stopping server...",
                 successStatus: "Server stopped.",
-                async _ => await KimodoBridgeServerManage.StopServerAsync(CancellationToken.None));
+                async _ => await KimodoBridgeService.Shared.StopAsync(CancellationToken.None));
         }
 
         private Task TryFixRuntimeAsync()
@@ -676,28 +640,16 @@ namespace KimodoBridge.Editor
                 async progress =>
                 {
                     string runtimeRootPath = runtimeRoot;
-                    string launcherPath = KimodoBridgeServerManage.ResolveStartScriptOrThrow(runtimeRootPath);
-                    string modelName = string.IsNullOrWhiteSpace(selectedModel) ? "Kimodo-SOMA-RP-v1" : selectedModel.Trim();
-                    bool highVram = selectedVramMode == KimodoBridgeVramMode.High;
-                    string modelsRoot = ResolveModelsRootForServer();
 
-                    using (KimodoBridgeServerManage.EnterRuntimeMaintenanceScope())
+                    using (KimodoBridgeServerTool.EnterRuntimeMaintenanceScope())
                     {
-                        await KimodoBridgeServerManage.StopServerAsync(CancellationToken.None);
+                        await KimodoBridgeService.Shared.StopAsync(CancellationToken.None);
                         if (!Directory.Exists(runtimeRootPath))
                         {
                             throw new DirectoryNotFoundException($"Runtime root not found: {runtimeRootPath}");
                         }
 
-                        await KimodoBridgeServerManage.StartServerAsync(
-                            launcherPath,
-                            modelName,
-                            highVram,
-                            runtimeRootPath,
-                            modelsRoot,
-                            forceSetup: true,
-                            progress,
-                            CancellationToken.None);
+                        await WarmupServerAsync(progress, forceSetup: true);
                     }
                 });
         }
@@ -710,9 +662,9 @@ namespace KimodoBridge.Editor
                 successStatus: "Runtime data deleted.",
                 async _ =>
                 {
-                    using (KimodoBridgeServerManage.EnterRuntimeMaintenanceScope())
+                    using (KimodoBridgeServerTool.EnterRuntimeMaintenanceScope())
                     {
-                        await KimodoBridgeServerManage.StopServerAsync(CancellationToken.None);
+                        await KimodoBridgeService.Shared.StopAsync(CancellationToken.None);
                         if (!Directory.Exists(runtimeRootPath))
                         {
                             throw new DirectoryNotFoundException($"Runtime root not found: {runtimeRootPath}");
@@ -783,6 +735,11 @@ namespace KimodoBridge.Editor
             }
         }
 
+        private static Task WarmupServerAsync(Action<string> progress, bool forceSetup)
+        {
+            return KimodoBridgeService.Shared.WarmupAsync(progress, forceSetup, CancellationToken.None);
+        }
+
         private static string SummarizeForUi(string message, int maxLength = 320)
         {
             if (string.IsNullOrWhiteSpace(message))
@@ -798,6 +755,7 @@ namespace KimodoBridge.Editor
 
             return normalized.Substring(0, maxLength) + "...";
         }
+
     }
 }
 

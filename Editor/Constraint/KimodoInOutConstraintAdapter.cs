@@ -468,7 +468,9 @@ namespace KimodoBridge.Editor
                 SourceAvatar = context.SourceAvatar,
                 ModelName = context.ModelName,
                 GenerationFrames = ClampFrameCount(generationFrames),
-                NormalizeConstraintOrigin = normalizeConstraintOrigin && enableBegin,
+                // Let normalization resolve against whatever valid first-frame anchor
+                // is available instead of requiring a begin neighbor segment upfront.
+                NormalizeConstraintOrigin = normalizeConstraintOrigin,
                 IsLoop = false,
                 ManualSamples = KimodoInOutConstraintTools.BuildLocalManualSamples(
                     manualSamples,

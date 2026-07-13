@@ -57,7 +57,6 @@ namespace KimodoBridge
         private const float MinGenerationDurationSeconds = 1f;
         private const float MaxGenerationDurationSeconds = 10f;
 
-        private KimodoBridgeService bridgeService;
         private CancellationTokenSource lifetimeCts;
         private CancellationTokenSource activeGenerationCts;
         private Task schedulerTask;
@@ -319,7 +318,7 @@ namespace KimodoBridge
             RewindSegmentIndexAfterQueueInvalidation(motionPlayer.QueuedSegmentCount);
             motionPlayer.ClearQueue();
 
-            if (!running || bridgeService == null || lifetimeCts == null || lifetimeCts.IsCancellationRequested)
+            if (!running || lifetimeCts == null || lifetimeCts.IsCancellationRequested)
             {
                 UpdateStatus("Prompt reset.");
                 return;
@@ -367,15 +366,9 @@ namespace KimodoBridge
                 motionPlayer.ResetCompletionState();
                 motionPlayer.ClearQueue();
 
-                bridgeService?.Dispose();
-                bridgeService = new KimodoBridgeService(BuildBridgeRuntimeSettings());
-
-                UpdateStatus("Starting Kimodo bridge...");
-                await bridgeService.StartAsync(OnProgress, lifetimeCts.Token);
-
                 running = true;
                 schedulerTask = RunSchedulerLoopAsync(lifetimeCts.Token);
-                UpdateStatus("Bridge ready.");
+                UpdateStatus("Generator active.");
             }
             catch (Exception ex)
             {
@@ -436,21 +429,6 @@ namespace KimodoBridge
                 }
             }
 
-            if (bridgeService != null)
-            {
-                try
-                {
-                    await bridgeService.DetachAsync(CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[KimodoRuntimeMotionDriver] Detach bridge failed: {ex.Message}", this);
-                }
-
-                bridgeService.Dispose();
-                bridgeService = null;
-            }
-
             cts?.Dispose();
             generationCts?.Dispose();
             generationInFlight = false;
@@ -489,7 +467,7 @@ namespace KimodoBridge
 
         private void MaybeQueueNextGeneration(CancellationToken token)
         {
-            if (!running || generationInFlight || bridgeService == null)
+            if (!running || generationInFlight)
             {
                 return;
             }
@@ -528,7 +506,7 @@ namespace KimodoBridge
 
         private async Task GenerateNextSegmentAsync(CancellationToken token)
         {
-            if (generationInFlight || bridgeService == null)
+            if (generationInFlight)
             {
                 return;
             }
@@ -559,7 +537,7 @@ namespace KimodoBridge
                 };
 
                 OnProgress($"Generating segment {requestSegmentIndex}...");
-                KimodoBridgeGenerationResult bridgeResult = await bridgeService.GenerateAsync(request, OnProgress, generationToken);
+                KimodoBridgeGenerationResult bridgeResult = await KimodoBridgeService.Shared.GenerateAsync(request, OnProgress, generationToken);
 
                 KimodoRawMotionMetadata metadata = await Task.Run(() =>
                 {
@@ -756,7 +734,7 @@ namespace KimodoBridge
             motionPlayer.ClearQueue();
             RewindSegmentIndexAfterQueueInvalidation(clearedQueuedSegmentCount);
 
-            if (!running || bridgeService == null || lifetimeCts == null || lifetimeCts.IsCancellationRequested)
+            if (!running || lifetimeCts == null || lifetimeCts.IsCancellationRequested)
             {
                 UpdateStatus(inactiveStatus);
                 return;
@@ -767,7 +745,7 @@ namespace KimodoBridge
                 UpdateStatus(waitingStatus);
                 TryCancelActiveGeneration();
                 await WaitForGenerationSlotAsync(lifetimeCts.Token);
-                if (!running || bridgeService == null || lifetimeCts == null || lifetimeCts.IsCancellationRequested)
+                if (!running || lifetimeCts == null || lifetimeCts.IsCancellationRequested)
                 {
                     return;
                 }
@@ -1238,27 +1216,6 @@ namespace KimodoBridge
                     nextConstraintPoses.Add(pose);
                 }
             }
-        }
-
-        private BridgeRuntimeSettings BuildBridgeRuntimeSettings()
-        {
-            string resolvedRuntimeRoot = EnsureRuntimeRootReady();
-            string launcherPath = BridgeLauncherResolver.ResolveStartScript(resolvedRuntimeRoot);
-            if (string.IsNullOrWhiteSpace(launcherPath))
-            {
-                throw new FileNotFoundException($"Cannot resolve bridge launcher under '{resolvedRuntimeRoot}'.");
-            }
-
-            return BridgeRuntimeSettingsFactory.Create(
-                runtimeRoot: resolvedRuntimeRoot,
-                launcherPath: launcherPath,
-                modelName: modelName,
-                highVram: highVram,
-                forceSetup: forceSetup,
-                modelsRoot: string.IsNullOrWhiteSpace(modelsRoot) ? null : Path.GetFullPath(modelsRoot),
-                startupTimeoutMs: Mathf.Max(
-                    BridgeRuntimeSettings.DefaultStartupTimeoutMs,
-                    Mathf.RoundToInt(Mathf.Max(1f, startupTimeoutMinutes) * 60f * 1000f)));
         }
 
         private bool ValidateConfiguration(out string error)

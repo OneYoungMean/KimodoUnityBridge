@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TimelineInject;
@@ -31,9 +30,6 @@ namespace KimodoBridge.Editor
             int clampedSteps = Mathf.Clamp(steps, 1, 1000);
             string constraintsJson = BuildBoundaryFullBodyConstraintsJson(startPose, endPose, clampedFrames);
 
-            string runtimeRoot = KimodoBridgeServerManage.ResolveRuntimeRootOrThrow();
-            string launcherPath = KimodoBridgeServerManage.ResolveStartScriptOrThrow(runtimeRoot);
-
             string resolvedModelName = string.IsNullOrWhiteSpace(modelName)
                 ? "Kimodo-SOMA-RP-v1"
                 : modelName.Trim();
@@ -44,7 +40,7 @@ namespace KimodoBridge.Editor
             string modelsRoot = settings != null ? settings.LocalModelsPath?.Trim() : string.Empty;
             if (!string.IsNullOrWhiteSpace(modelsRoot))
             {
-                modelsRoot = Path.GetFullPath(modelsRoot);
+                modelsRoot = System.IO.Path.GetFullPath(modelsRoot);
             }
 
             var request = new KimodoGenerationRequestDto
@@ -53,18 +49,16 @@ namespace KimodoBridge.Editor
                 duration = clampedFrames / KimodoPlayableClip.FIXED_FRAME_RATE,
                 seed = seed,
                 steps = clampedSteps,
-                constraints_json = constraintsJson
+                constraints_json = constraintsJson,
+                model = resolvedModelName,
+                highvram = highVram,
+                models_root = modelsRoot,
+                force_cpu = false,
+                owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id
             };
 
             var pipelineRequest = new KimodoBridgeCommandRequest
             {
-                RuntimeSettings = KimodoEditorGeneratePipeline.BuildRuntimeSettings(
-                    runtimeRoot,
-                    launcherPath,
-                    resolvedModelName,
-                    highVram ? KimodoBridgeVramMode.High : KimodoBridgeVramMode.Low,
-                    modelsRoot,
-                    settings != null ? settings.GenerationTimeoutSeconds : 120f),
                 GenerationRequest = request
             };
 

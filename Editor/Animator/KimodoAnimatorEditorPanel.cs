@@ -182,7 +182,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("Kimodo Bridge", EditorStyles.miniBoldLabel);
             EditorGUILayout.BeginVertical("box");
 
-            string[] options = KimodoBridgeServerManage.SupportedModelNames;
+            string[] options = KimodoBridgeServerTool.SupportedModelNames;
             if (options != null && options.Length > 0)
             {
                 string current = string.IsNullOrWhiteSpace(bridgeModelName) ? options[0] : bridgeModelName.Trim();

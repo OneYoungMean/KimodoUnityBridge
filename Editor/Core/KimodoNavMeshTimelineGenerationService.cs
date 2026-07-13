@@ -44,16 +44,18 @@ namespace KimodoBridge.Editor
     public sealed class KimodoNavMeshTimelineGenerationContext
     {
         public GameObject CharacterRoot;
+        public GameObject TimelineHost;
         public Animator CharacterAnimator;
         public PlayableDirector Director;
         public TimelineAsset TimelineAsset;
         public AnimationTrack Track;
         public readonly List<TimelineClip> GeneratedTimelineClips = new List<TimelineClip>();
 
-        public bool IsValidFor(GameObject characterRoot)
+        public bool IsValidFor(GameObject characterRoot, GameObject timelineHost)
         {
             return characterRoot != null &&
                    CharacterRoot == characterRoot &&
+                   TimelineHost == (timelineHost != null ? timelineHost : characterRoot) &&
                    Director != null &&
                    TimelineAsset != null &&
                    Track != null;
@@ -160,6 +162,7 @@ namespace KimodoBridge.Editor
             KimodoNavMeshConstraintPointType pointType,
             string modelName,
             float footBoundarySkipSeconds,
+            GameObject timelineHost,
             KimodoNavMeshTimelineGenerationContext existingContext,
             bool allowContextReuse,
             out KimodoNavMeshTimelineGenerationContext context,
@@ -180,7 +183,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!TryEnsureTrackContext(characterRoot, existingContext, allowContextReuse, out context, out error))
+            if (!TryEnsureTrackContext(characterRoot, timelineHost, existingContext, allowContextReuse, out context, out error))
             {
                 return false;
             }
@@ -246,6 +249,7 @@ namespace KimodoBridge.Editor
             string modelName,
             string prompt,
             float footBoundarySkipSeconds,
+            GameObject timelineHost,
             KimodoNavMeshTimelineGenerationContext existingContext,
             bool allowInitialContextReuse,
             out KimodoNavMeshTimelineGenerationContext context,
@@ -263,6 +267,7 @@ namespace KimodoBridge.Editor
                     pointType,
                     modelName,
                     footBoundarySkipSeconds,
+                    timelineHost,
                     existingContext,
                     allowInitialContextReuse,
                     out context,
@@ -277,6 +282,7 @@ namespace KimodoBridge.Editor
                 pathPoints,
                 modelName,
                 prompt,
+                timelineHost,
                 context,
                 true,
                 out context,
@@ -289,6 +295,7 @@ namespace KimodoBridge.Editor
             IReadOnlyList<Vector3> pathPoints,
             string modelName,
             string prompt,
+            GameObject timelineHost,
             KimodoNavMeshTimelineGenerationContext existingContext,
             bool allowContextReuse,
             out KimodoNavMeshTimelineGenerationContext context,
@@ -309,7 +316,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!TryEnsureTrackContext(characterRoot, existingContext, allowContextReuse, out context, out error))
+            if (!TryEnsureTrackContext(characterRoot, timelineHost, existingContext, allowContextReuse, out context, out error))
             {
                 return false;
             }
@@ -720,6 +727,7 @@ namespace KimodoBridge.Editor
 
         private static bool TryEnsureTrackContext(
             GameObject characterRoot,
+            GameObject timelineHost,
             KimodoNavMeshTimelineGenerationContext existingContext,
             bool allowContextReuse,
             out KimodoNavMeshTimelineGenerationContext context,
@@ -741,21 +749,22 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (allowContextReuse && existingContext != null && existingContext.IsValidFor(characterRoot))
+            GameObject resolvedTimelineHost = timelineHost != null ? timelineHost : characterRoot;
+            if (allowContextReuse && existingContext != null && existingContext.IsValidFor(characterRoot, resolvedTimelineHost))
             {
                 existingContext.CharacterAnimator = animator;
                 context = existingContext;
                 return true;
             }
 
-            PlayableDirector director = characterRoot.GetComponent<PlayableDirector>();
+            PlayableDirector director = resolvedTimelineHost.GetComponent<PlayableDirector>();
             TimelineAsset timelineAsset = director != null ? director.playableAsset as TimelineAsset : null;
             AnimationTrack track;
 
             if (director == null || timelineAsset == null)
             {
-                director = director != null ? director : Undo.AddComponent<PlayableDirector>(characterRoot);
-                timelineAsset = CreateTimelineAsset(characterRoot.name);
+                director = director != null ? director : Undo.AddComponent<PlayableDirector>(resolvedTimelineHost);
+                timelineAsset = CreateTimelineAsset(resolvedTimelineHost.name);
                 director.playableAsset = timelineAsset;
                 track = timelineAsset.CreateTrack<AnimationTrack>(null, BuildTrackName());
             }
@@ -769,6 +778,7 @@ namespace KimodoBridge.Editor
             context = new KimodoNavMeshTimelineGenerationContext
             {
                 CharacterRoot = characterRoot,
+                TimelineHost = resolvedTimelineHost,
                 CharacterAnimator = animator,
                 Director = director,
                 TimelineAsset = timelineAsset,
