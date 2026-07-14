@@ -7,10 +7,9 @@ namespace KimodoBridge.Editor
     public enum KimodoConstraintNormalizationAnchorKind
     {
         None = 0,
-        InOut = 1,
-        FullBody = 2,
-        Root2D = 3,
-        Foot = 4
+        FullBody = 1,
+        Root2D = 2,
+        Foot = 3
     }
 
     internal sealed class KimodoConstraintNormalizationInfo
@@ -45,8 +44,6 @@ namespace KimodoBridge.Editor
 
     internal sealed class KimodoInOutConstraintResult
     {
-        public KimodoMarkerSampleResult BeginSample;
-        public KimodoMarkerSampleResult EndSample;
         public List<KimodoMarkerSampleResult> CombinedSamples = new List<KimodoMarkerSampleResult>();
         public string ConstraintsJson = string.Empty;
         public KimodoConstraintNormalizationInfo NormalizationInfo = new KimodoConstraintNormalizationInfo();

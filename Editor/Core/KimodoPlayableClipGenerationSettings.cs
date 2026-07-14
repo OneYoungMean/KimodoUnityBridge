@@ -15,9 +15,12 @@ namespace KimodoBridge.Editor
 
         [SerializeField] private int maxGeneratedClips = DefaultGeneratedClipsLimit;
         [SerializeField] private string localModelsPath = string.Empty;
+        [SerializeField] private string defaultBridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
+        [SerializeField] private KimodoBridgeVramMode defaultBridgeVramMode = KimodoBridgeVramMode.Low;
         [SerializeField] private float generationTimeoutSeconds = DefaultGenerationTimeoutSeconds;
         [SerializeField] private bool floatingUiEnabled = true;
         [SerializeField] private bool keepCpuForceExperimental;
+        [SerializeField] private bool setupWizardCompleted;
         [SerializeField, HideInInspector] private bool advancedCurveFilterFoldout = true;
 
         internal int MaxGeneratedClips
@@ -30,6 +33,18 @@ namespace KimodoBridge.Editor
         {
             get => localModelsPath ?? string.Empty;
             set => localModelsPath = value ?? string.Empty;
+        }
+
+        internal string DefaultBridgeModelName
+        {
+            get => KimodoPlayableClip.NormalizeBridgeModelName(defaultBridgeModelName);
+            set => defaultBridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(value);
+        }
+
+        internal KimodoBridgeVramMode DefaultBridgeVramMode
+        {
+            get => defaultBridgeVramMode;
+            set => defaultBridgeVramMode = value;
         }
 
         internal bool AdvancedCurveFilterFoldout
@@ -60,11 +75,18 @@ namespace KimodoBridge.Editor
             set => generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, value);
         }
 
+        internal bool SetupWizardCompleted
+        {
+            get => setupWizardCompleted;
+            set => setupWizardCompleted = value;
+        }
+
         internal void SaveSettings()
         {
             bool effectiveKeepCpuForce = KeepCpuForceExperimental;
             maxGeneratedClips = Mathf.Clamp(maxGeneratedClips, MinGeneratedClipsLimit, MaxGeneratedClipsLimit);
             localModelsPath = localModelsPath ?? string.Empty;
+            defaultBridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(defaultBridgeModelName);
             generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);
             keepCpuForceExperimental = effectiveKeepCpuForce;
             EditorPrefs.SetBool(KeepCpuForceEditorPrefsKey, effectiveKeepCpuForce);

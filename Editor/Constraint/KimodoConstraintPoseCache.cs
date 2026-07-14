@@ -211,6 +211,41 @@ namespace KimodoBridge.Editor
             }
         }
 
+        internal static bool TryGetRootBone(PoseCacheRenderContext context, out Transform rootBone)
+        {
+            rootBone = null;
+            if (!TryGetFirstEntryForContext(context, out PoseCacheEntry entry) || entry?.Root == null)
+            {
+                return false;
+            }
+
+            if (KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
+                    context.ModelName,
+                    entry.Root,
+                    out _,
+                    out _,
+                    out Transform[] jointTransforms,
+                    out _) &&
+                jointTransforms != null &&
+                jointTransforms.Length > 1 &&
+                jointTransforms[1] != null)
+            {
+                rootBone = jointTransforms[1];
+                return true;
+            }
+
+            if (jointTransforms != null &&
+                jointTransforms.Length > 0 &&
+                jointTransforms[0] != null)
+            {
+                rootBone = jointTransforms[0];
+                return true;
+            }
+
+            rootBone = entry.Root;
+            return rootBone != null;
+        }
+
         internal static bool TryBuildSampleFromContext(
             PoseCacheRenderContext context,
             string markerType,

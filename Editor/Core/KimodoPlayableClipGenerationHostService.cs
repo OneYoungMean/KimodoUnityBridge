@@ -194,9 +194,6 @@ namespace KimodoBridge.Editor
                     $"anchorKind={request.NormalizationAnchorKind} anchorType='{request.NormalizationAnchorSample?.constraintType ?? string.Empty}'");
                 switch (request.NormalizationAnchorKind)
                 {
-                    case KimodoConstraintNormalizationAnchorKind.InOut:
-                        TryMatchOffsetsToPreviousClip(playableClip, timelineClip);
-                        return;
                     case KimodoConstraintNormalizationAnchorKind.FullBody:
                         if (TryApplyAnchorOffsetToClip(playableClip, request.NormalizationAnchorSample, planarOnly: false))
                         {

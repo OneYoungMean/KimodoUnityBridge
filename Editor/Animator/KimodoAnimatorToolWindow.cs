@@ -40,6 +40,13 @@ namespace KimodoBridge.Editor
 
         private void OnEnable()
         {
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            if (settings != null)
+            {
+                bridgeModelName = settings.DefaultBridgeModelName;
+                bridgeVramMode = settings.DefaultBridgeVramMode;
+            }
+
             previewPanel = new KimodoAnimatorPreviewPanel();
             previewPanel.Initialize();
             editorPanel = new KimodoAnimatorEditorPanel();

@@ -63,7 +63,7 @@ namespace KimodoBridge
         public KimodoInOutConstraintMode inOutConstraintMode = KimodoInOutConstraintMode.None;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
-        [Tooltip("Normalize constraint root positions around the first available origin anchor before export.")]
+        [Tooltip("Normalize constraint root positions around the first available first-frame constraint anchor before export.")]
         public bool normalizeConstraintOrigin = true;
         public bool isGenerated;
         public string lastGeneratedPrompt;

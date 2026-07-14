@@ -41,6 +41,7 @@ namespace KimodoBridge.Editor
             if (marker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out _))
             {
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
+                FocusSelectionOnEditSkeletonRoot(context);
             }
         }
 
@@ -103,6 +104,7 @@ namespace KimodoBridge.Editor
                 {
                     KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
                     KimodoConstraintPoseCache.ClearTransformChanges(context);
+                    FocusSelectionOnEditSkeletonRoot(context);
                 }
             }
             LockTimelineWindow();
@@ -334,6 +336,7 @@ namespace KimodoBridge.Editor
             }
 
             KimodoConstraintPoseCache.SetGroupState(editContext, visible: true, selectable: true);
+            FocusSelectionOnEditSkeletonRoot(editContext);
         }
 
         private bool TryGetEditContext(out PoseCacheRenderContext context, out string error)
@@ -448,6 +451,19 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.PropertyField(prop, true);
             }
+        }
+
+        private static void FocusSelectionOnEditSkeletonRoot(PoseCacheRenderContext context)
+        {
+            if (!KimodoConstraintPoseCache.TryGetRootBone(context, out Transform rootBone) ||
+                rootBone == null ||
+                rootBone.gameObject == null)
+            {
+                return;
+            }
+
+            Selection.activeGameObject = rootBone.gameObject;
+            EditorGUIUtility.PingObject(rootBone.gameObject);
         }
 
     }

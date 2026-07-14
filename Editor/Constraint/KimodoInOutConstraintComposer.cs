@@ -35,9 +35,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            built.BeginSample = beginSample;
-            built.EndSample = endSample;
-
             if (beginSample != null && !ContainsSampleTime(request.ManualSamples, beginSample.sampleTime))
             {
                 built.CombinedSamples.Add(beginSample);
@@ -54,7 +51,6 @@ namespace KimodoBridge.Editor
             {
                 KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
                     built.CombinedSamples,
-                    new[] { beginSample, endSample },
                     out KimodoConstraintNormalizationInfo normalizationInfo,
                     out string normalizeWarning);
                 built.NormalizationInfo = normalizationInfo ?? new KimodoConstraintNormalizationInfo();

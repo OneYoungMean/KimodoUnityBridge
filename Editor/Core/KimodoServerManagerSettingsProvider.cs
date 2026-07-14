@@ -44,9 +44,6 @@ namespace KimodoBridge.Editor
         private string lastError = string.Empty;
         private string modelError = string.Empty;
 
-        private string selectedModel = "Kimodo-SOMA-RP-v1";
-        private KimodoBridgeVramMode selectedVramMode = KimodoBridgeVramMode.Low;
-
         private KimodoServerManagerSettingsProvider(string path, SettingsScope scope) : base(path, scope) { }
 
         [SettingsProvider]
@@ -108,7 +105,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            DrawStartupSection();
+            DrawDefaultParametersSection();
             DrawServerSection();
             DrawModelSection();
             DrawActionsSection();
@@ -127,26 +124,35 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private void DrawStartupSection()
+        private void DrawDefaultParametersSection()
         {
             EditorGUILayout.Space(8f);
-            EditorGUILayout.LabelField("Startup", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Default Parameters", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             string[] options = KimodoBridgeServerTool.SupportedModelNames;
+            string selectedModel = settings.DefaultBridgeModelName;
+            KimodoBridgeVramMode selectedVramMode = settings.DefaultBridgeVramMode;
             int idx = Array.IndexOf(options, selectedModel);
             if (idx < 0)
             {
                 idx = 0;
             }
 
-            int newIdx = EditorGUILayout.Popup(new GUIContent("Model", "Model hint used for setup estimates on this page. Runtime switching is handled by QuickServer per generate request."), idx, options);
-            selectedModel = options[Mathf.Clamp(newIdx, 0, options.Length - 1)];
-            selectedVramMode = (KimodoBridgeVramMode)EditorGUILayout.EnumPopup(
-                new GUIContent("VRAM Mode", "Low: quantized encoder (~4G). High: full model stack (~16G)."),
+            EditorGUI.BeginChangeCheck();
+            int newIdx = EditorGUILayout.Popup(new GUIContent("Default Model", "Default Kimodo model used by editor flows that do not explicitly override the model."), idx, options);
+            KimodoBridgeVramMode newVramMode = (KimodoBridgeVramMode)EditorGUILayout.EnumPopup(
+                new GUIContent("Default VRAM Mode", "Default VRAM mode used by editor flows that do not explicitly override the VRAM setting."),
                 selectedVramMode);
-
-            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            if (EditorGUI.EndChangeCheck())
+            {
+                settings.DefaultBridgeModelName = options[Mathf.Clamp(newIdx, 0, options.Length - 1)];
+                settings.DefaultBridgeVramMode = newVramMode;
+                settings.SaveSettings();
+                selectedModel = settings.DefaultBridgeModelName;
+                selectedVramMode = settings.DefaultBridgeVramMode;
+            }
 
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -206,7 +212,7 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.HelpBox(
-                "Bridge server stays alive through compile, assembly reload, and Play Mode transitions. Use Stop Server to close it manually.",
+                "These are default generation parameters. QuickServer now switches runtime behavior per request; starting the server no longer depends on these values.",
                 MessageType.Info);
 
             string localModelsPath = settings.LocalModelsPath;
@@ -289,11 +295,11 @@ namespace KimodoBridge.Editor
 
             bool inMaintenance = KimodoBridgeServerTool.IsRuntimeMaintenanceInProgress;
             bool stopMode = serverState == ServerState.Enabled;
-            string buttonLabel = (operationInProgress || inMaintenance) ? "Processing..." : (stopMode ? "Stop Server" : "Warm Up Server");
+            string buttonLabel = (operationInProgress || inMaintenance) ? "Processing..." : (stopMode ? "Stop Server" : "Start Server");
 
             using (new EditorGUI.DisabledScope(operationInProgress || inMaintenance || compileGate))
             {
-                if (GUILayout.Button(new GUIContent(buttonLabel, "Warm up or stop the shared Kimodo bridge service. Runtime switching remains request-driven on the QuickServer side."), GUILayout.Width(140f)))
+                if (GUILayout.Button(new GUIContent(buttonLabel, "Start or stop the shared Kimodo bridge service. Runtime switching remains request-driven on the QuickServer side."), GUILayout.Width(140f)))
                 {
                     if (stopMode)
                     {
@@ -614,13 +620,13 @@ namespace KimodoBridge.Editor
         private Task StartServerAsync()
         {
             return RunOperationAsync(
-                initialStatus: "Warming up server...",
+                initialStatus: "Starting server...",
                 successStatus: null,
-                progress => WarmupServerAsync(progress, forceSetup: false),
+                progress => StartServerConnectionAsync(progress, forceSetup: false),
                 onSuccess: () =>
                 {
                     PullServerStatusFromController();
-                    operationStatus = serverState == ServerState.Enabled ? "Server connected." : "Warmup completed.";
+                    operationStatus = serverState == ServerState.Enabled ? "Server connected." : "Server start completed.";
                 });
         }
 
@@ -649,7 +655,7 @@ namespace KimodoBridge.Editor
                             throw new DirectoryNotFoundException($"Runtime root not found: {runtimeRootPath}");
                         }
 
-                        await WarmupServerAsync(progress, forceSetup: true);
+                        await StartServerConnectionAsync(progress, forceSetup: true);
                     }
                 });
         }
@@ -735,7 +741,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static Task WarmupServerAsync(Action<string> progress, bool forceSetup)
+        private static Task StartServerConnectionAsync(Action<string> progress, bool forceSetup)
         {
             return KimodoBridgeService.Shared.WarmupAsync(progress, forceSetup, CancellationToken.None);
         }

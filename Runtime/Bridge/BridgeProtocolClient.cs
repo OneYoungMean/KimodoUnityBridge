@@ -155,7 +155,6 @@ namespace KimodoBridge
                 ["constraints_json"] = request.constraints_json ?? string.Empty
             };
             payload["seed"] = request.seed.HasValue ? request.seed.Value : null;
-            payload["boundary_pose_json"] = request.boundary_pose_json ?? string.Empty;
             payload["loop_hint"] = request.loop_hint;
             payload["segment_index"] = request.segment_index;
             payload["transition_duration"] = request.transition_duration;

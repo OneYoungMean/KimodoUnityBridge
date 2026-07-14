@@ -505,7 +505,7 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.PropertyField(
                     normalizeConstraintOrigin,
-                    new GUIContent("Normalize Constraint Origin", "Use the first available boundary constraint as the local origin before export."));
+                    new GUIContent("Normalize Constraint Origin", "Use the first available first-frame constraint anchor as the local origin before export."));
             }
 
             EditorGUILayout.Space(4f);
@@ -699,7 +699,7 @@ namespace KimodoBridge.Editor
                 {
                     renderItems.Add(new PoseCacheRenderItem
                     {
-                        EntryId = "inout_begin_boundary",
+                        EntryId = "preview_begin_constraint_pose",
                         SampleData = beginBoundaryPose,
                         ConstraintType = "fullbody",
                         HighlightJoints = null,
@@ -711,7 +711,7 @@ namespace KimodoBridge.Editor
                 {
                     renderItems.Add(new PoseCacheRenderItem
                     {
-                        EntryId = "inout_end_boundary",
+                        EntryId = "preview_end_constraint_pose",
                         SampleData = endBoundaryPose,
                         ConstraintType = "fullbody",
                         HighlightJoints = null,

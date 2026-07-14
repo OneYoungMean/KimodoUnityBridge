@@ -12,8 +12,6 @@ namespace KimodoBridge
         public int? seed;
         public int steps;
         public string constraints_json;
-        // Optional serialized boundary pose payload for segment stitching.
-        public string boundary_pose_json;
         // Optional hint to backend that this request is for loop/infinite continuation.
         public bool loop_hint;
         // Optional segment sequence index for observability on backend side.
@@ -27,13 +25,6 @@ namespace KimodoBridge
         public string models_root;
         public bool force_hf_download;
         public int owner_pid;
-    }
-
-    [Serializable]
-    public sealed class KimodoBoundaryPoseDto
-    {
-        public Vector3 rootPosition;
-        public Quaternion rootRotation;
     }
 
     [Serializable]

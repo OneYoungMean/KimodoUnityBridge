@@ -530,7 +530,6 @@ namespace KimodoBridge
                     seed = randomSeed ? (int?)null : fixedSeed,
                     steps = Mathf.Max(1, diffusionSteps),
                     constraints_json = constraintsJson,
-                    boundary_pose_json = string.Empty,
                     loop_hint = loopHint,
                     segment_index = requestSegmentIndex,
                     transition_duration = 0f

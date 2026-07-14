@@ -138,7 +138,7 @@ namespace KimodoBridge.Editor
 
             if (!KimodoInOutConstraintComposer.TryBuild(
                     request,
-                    out KimodoInOutConstraintResult result,
+                    out _,
                     out string buildWarning,
                     out string buildError))
             {
@@ -146,11 +146,20 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            beginBoundaryPose = result?.BeginSample;
-            endBoundaryPose = result?.EndSample;
+            if (!KimodoInOutConstraintTools.TrySampleBoundaryPair(
+                    request,
+                    out beginBoundaryPose,
+                    out endBoundaryPose,
+                    out string sampleWarning,
+                    out string sampleError))
+            {
+                warning = sampleError;
+                return false;
+            }
+
             warning = mode == KimodoInOutConstraintMode.Outside
-                ? FirstNonEmpty(context.PreviousClipWarning, context.NextClipWarning, buildWarning)
-                : buildWarning;
+                ? FirstNonEmpty(context.PreviousClipWarning, context.NextClipWarning, buildWarning, sampleWarning)
+                : FirstNonEmpty(buildWarning, sampleWarning);
             return true;
         }
 
@@ -468,8 +477,7 @@ namespace KimodoBridge.Editor
                 SourceAvatar = context.SourceAvatar,
                 ModelName = context.ModelName,
                 GenerationFrames = ClampFrameCount(generationFrames),
-                // Let normalization resolve against whatever valid first-frame anchor
-                // is available instead of requiring a begin neighbor segment upfront.
+                // Normalize against the first available first-frame constraint anchor.
                 NormalizeConstraintOrigin = normalizeConstraintOrigin,
                 IsLoop = false,
                 ManualSamples = KimodoInOutConstraintTools.BuildLocalManualSamples(
