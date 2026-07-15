@@ -1,7 +1,6 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
@@ -73,15 +72,12 @@ namespace KimodoBridge
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
 
         private readonly SemaphoreSlim writeLock = new SemaphoreSlim(1, 1);
-        private readonly object disposeGate = new object();
-        private readonly object pendingGate = new object();
         private readonly int connectTimeoutMs;
         private readonly int ioTimeoutMs;
         private readonly int modelLoadingTimeoutMs;
         private readonly int modelLoadingPollIntervalMs;
 
-        private readonly Dictionary<string, PendingGenerateRequest> pendingRequests =
-            new Dictionary<string, PendingGenerateRequest>(StringComparer.Ordinal);
+        private PendingGenerateRequest pendingRequest;
 
         private TcpClient sharedClient;
         private NetworkStream sharedStream;
@@ -168,7 +164,7 @@ namespace KimodoBridge
             UnityEngine.Debug.Log($"[KimodoBridge] Generate JSON: {payload.ToString(Formatting.None)}");
 
             var pending = new PendingGenerateRequest(taskId, progress, modelLoadingTimeoutMs);
-            RegisterPendingRequest(pending);
+            SetPendingRequest(pending);
 
             bool lockTaken = false;
             try
@@ -185,7 +181,7 @@ namespace KimodoBridge
             }
             catch
             {
-                RemovePendingRequest(taskId, pending);
+                ClearPendingRequest(pending);
                 FailPendingRequest(pending, new IOException($"Bridge generate send failed for task '{taskId}'."));
                 CloseSharedConnectionSync();
                 throw;
@@ -349,42 +345,17 @@ namespace KimodoBridge
             }
         }
 
-        private void RegisterPendingRequest(PendingGenerateRequest pending)
+        private void SetPendingRequest(PendingGenerateRequest pending)
         {
-            lock (pendingGate)
+            if (Interlocked.CompareExchange(ref pendingRequest, pending, null) != null)
             {
-                if (pendingRequests.ContainsKey(pending.TaskId))
-                {
-                    throw new InvalidOperationException($"Bridge task id is already pending: {pending.TaskId}");
-                }
-
-                pendingRequests[pending.TaskId] = pending;
+                throw new InvalidOperationException("Bridge already has an active generate request.");
             }
         }
 
-        private void RemovePendingRequest(string taskId, PendingGenerateRequest pending)
+        private void ClearPendingRequest(PendingGenerateRequest pending)
         {
-            lock (pendingGate)
-            {
-                if (pendingRequests.TryGetValue(taskId, out PendingGenerateRequest existing) && ReferenceEquals(existing, pending))
-                {
-                    pendingRequests.Remove(taskId);
-                }
-            }
-        }
-
-        private PendingGenerateRequest GetPendingRequest(string taskId)
-        {
-            if (string.IsNullOrWhiteSpace(taskId))
-            {
-                return null;
-            }
-
-            lock (pendingGate)
-            {
-                pendingRequests.TryGetValue(taskId, out PendingGenerateRequest pending);
-                return pending;
-            }
+            Interlocked.CompareExchange(ref pendingRequest, null, pending);
         }
 
         private void FailPendingRequest(PendingGenerateRequest pending, Exception exception)
@@ -394,29 +365,14 @@ namespace KimodoBridge
                 return;
             }
 
-            RemovePendingRequest(pending.TaskId, pending);
+            ClearPendingRequest(pending);
             pending.TrySetException(exception);
         }
 
-        private void FailAllPendingRequests(Exception exception)
+        private void FailPendingRequest(Exception exception)
         {
-            PendingGenerateRequest[] pending;
-            lock (pendingGate)
-            {
-                if (pendingRequests.Count == 0)
-                {
-                    return;
-                }
-
-                pending = new PendingGenerateRequest[pendingRequests.Count];
-                pendingRequests.Values.CopyTo(pending, 0);
-                pendingRequests.Clear();
-            }
-
-            for (int i = 0; i < pending.Length; i++)
-            {
-                pending[i].TrySetException(exception);
-            }
+            PendingGenerateRequest pending = Interlocked.Exchange(ref pendingRequest, null);
+            pending?.TrySetException(exception);
         }
 
         private async Task EnsureSharedConnectionAsync(string host, int port, CancellationToken token)
@@ -476,7 +432,7 @@ namespace KimodoBridge
             {
                 if (!disposed)
                 {
-                    FailAllPendingRequests(exception);
+                    FailPendingRequest(exception);
                     CloseSharedConnectionSync();
                 }
             }
@@ -491,8 +447,8 @@ namespace KimodoBridge
                 return;
             }
 
-            PendingGenerateRequest pending = GetPendingRequest(taskId);
-            if (pending == null)
+            PendingGenerateRequest pending = Volatile.Read(ref pendingRequest);
+            if (pending == null || !string.Equals(taskId, pending.TaskId, StringComparison.Ordinal))
             {
                 return;
             }
@@ -547,7 +503,7 @@ namespace KimodoBridge
 
             if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
             {
-                RemovePendingRequest(taskId, pending);
+                ClearPendingRequest(pending);
                 pending.TrySetCanceled(message);
                 return;
             }
@@ -558,7 +514,7 @@ namespace KimodoBridge
                 return;
             }
 
-            RemovePendingRequest(taskId, pending);
+            ClearPendingRequest(pending);
             pending.TrySetResult(response);
         }
 
@@ -714,7 +670,7 @@ namespace KimodoBridge
         {
             if (!disposed)
             {
-                FailAllPendingRequests(new IOException("Bridge connection closed."));
+                FailPendingRequest(new IOException("Bridge connection closed."));
             }
 
             CancellationTokenSource currentReaderCts = readerCts;
@@ -749,10 +705,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            lock (disposeGate)
-            {
-                disposed = true;
-            }
+            Volatile.Write(ref disposed, true);
 
             return true;
         }
