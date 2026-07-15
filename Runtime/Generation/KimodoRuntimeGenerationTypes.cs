@@ -32,8 +32,12 @@ namespace KimodoBridge
     {
         public string motionJsonCompact;
         [NonSerialized] public KimodoRawMotionData motionData;
+        [NonSerialized] public byte[] motionBytes;
         public string motionFormat;
         public string rawStatus;
         public string message;
+        public string clipHandle;
+        public string motionRepFingerprint;
+        public int? resolvedSeed;
     }
 }

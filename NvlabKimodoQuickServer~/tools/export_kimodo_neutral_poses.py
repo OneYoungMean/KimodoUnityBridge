@@ -6,6 +6,19 @@ import torch
 
 
 SKELETON_LAYOUTS = {
+    "cskel27": [
+        ("Hips", None),
+        ("Spine", "Hips"), ("Spine1", "Spine"), ("Spine2", "Spine1"), ("Spine3", "Spine2"),
+        ("Neck", "Spine3"), ("Head", "Neck"),
+        ("RightShoulder", "Spine3"), ("RightArm", "RightShoulder"), ("RightForeArm", "RightArm"),
+        ("RightHand", "RightForeArm"), ("RightHandEnd", "RightHand"), ("RightHandThumb1", "RightHand"),
+        ("LeftShoulder", "Spine3"), ("LeftArm", "LeftShoulder"), ("LeftForeArm", "LeftArm"),
+        ("LeftHand", "LeftForeArm"), ("LeftHandEnd", "LeftHand"), ("LeftHandThumb1", "LeftHand"),
+        ("RightUpLeg", "Hips"), ("RightLeg", "RightUpLeg"), ("RightFoot", "RightLeg"),
+        ("RightToeBase", "RightFoot"),
+        ("LeftUpLeg", "Hips"), ("LeftLeg", "LeftUpLeg"), ("LeftFoot", "LeftLeg"),
+        ("LeftToeBase", "LeftFoot"),
+    ],
     "somaskel30": [
         ("Hips", None),
         ("Spine1", "Hips"),

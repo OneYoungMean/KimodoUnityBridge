@@ -29,16 +29,17 @@ namespace KimodoBridge
             string watchPidArg = ownerProcessId > 0 ? $" --watchpid {ownerProcessId}" : string.Empty;
             string outputArg = " --output file";
             string args = forceSetupArg + watchPidArg + outputArg;
-            string envPrefix = "KIMODO_IDLE_TIMEOUT_SEC=0";
-
-            return new ProcessStartInfo
+            var startInfo = new ProcessStartInfo
             {
                 FileName = "bash",
-                Arguments = $"-lc \"{envPrefix} bash \\\"{launcherPath}\\\"{args}\"",
+                Arguments = $"-lc \"bash \\\"{launcherPath}\\\"{args}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? Environment.CurrentDirectory
             };
+            startInfo.EnvironmentVariables["KIMODO_IDLE_TIMEOUT_SEC"] = "0";
+            startInfo.EnvironmentVariables["KIMODO_ARDY_FILE_ROOTS"] = ArdyUnityMotionCache.ManagedRoot;
+            return startInfo;
         }
 
         private static void EnsureExecutableByBash(string launcherPath)

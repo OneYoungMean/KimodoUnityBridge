@@ -49,7 +49,11 @@ namespace KimodoBridge
                 MotionData = result.motionData,
                 MotionFormat = result.motionFormat,
                 Message = result.message ?? string.Empty,
-                RawStatus = result.rawStatus ?? string.Empty
+                RawStatus = result.rawStatus ?? string.Empty,
+                MotionBytes = result.motionBytes,
+                ClipHandle = result.clipHandle ?? string.Empty,
+                MotionRepFingerprint = result.motionRepFingerprint ?? string.Empty,
+                ResolvedSeed = result.resolvedSeed
             };
         }
 
@@ -71,7 +75,11 @@ namespace KimodoBridge
                 message = bridgeResult?.Message ?? "Bridge generation complete.",
                 motionJsonCompact = bridgeResult?.MotionJsonCompact,
                 motionData = bridgeResult?.MotionData,
-                motionFormat = bridgeResult?.MotionFormat
+                motionBytes = bridgeResult?.MotionBytes,
+                motionFormat = bridgeResult?.MotionFormat,
+                clipHandle = bridgeResult?.ClipHandle,
+                motionRepFingerprint = bridgeResult?.MotionRepFingerprint,
+                resolvedSeed = bridgeResult?.ResolvedSeed
             };
         }
     }
@@ -83,6 +91,10 @@ namespace KimodoBridge
         public string MotionFormat;
         public string Message;
         public string RawStatus;
+        public byte[] MotionBytes;
+        public string ClipHandle;
+        public string MotionRepFingerprint;
+        public int? ResolvedSeed;
     }
 
     public enum KimodoBridgeCommandStage

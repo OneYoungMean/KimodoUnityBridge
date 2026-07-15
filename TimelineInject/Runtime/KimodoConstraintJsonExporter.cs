@@ -7,14 +7,20 @@ namespace TimelineInject
 {
     public static class KimodoConstraintJsonExporter
     {
-        private const double ExportFps = 30.0;
+        private const double DefaultExportFps = 30.0;
 
         public static string ToConstraintsJson(
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double clipStartSeconds = 0.0,
-            double? clipDurationSeconds = null)
+            double? clipDurationSeconds = null,
+            double exportFps = DefaultExportFps)
         {
-            List<KimodoConstraintJson> constraints = BuildConstraints(samples, mergeByType: true, clipStartSeconds: clipStartSeconds, clipDurationSeconds: clipDurationSeconds);
+            List<KimodoConstraintJson> constraints = BuildConstraints(
+                samples,
+                mergeByType: true,
+                clipStartSeconds: clipStartSeconds,
+                clipDurationSeconds: clipDurationSeconds,
+                exportFps: exportFps);
             if (constraints.Count == 0)
             {
                 return string.Empty;
@@ -28,13 +34,14 @@ namespace TimelineInject
 
         public static List<KimodoConstraintJson> BuildConstraints(IReadOnlyList<KimodoMarkerSampleResult> samples)
         {
-            return BuildConstraints(samples, 0.0, null);
+            return BuildConstraints(samples, 0.0, null, DefaultExportFps);
         }
 
         private static List<KimodoConstraintJson> BuildConstraints(
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double clipStartSeconds,
-            double? clipDurationSeconds)
+            double? clipDurationSeconds,
+            double exportFps)
         {
             var output = new List<KimodoConstraintJson>();
             if (samples == null)
@@ -45,7 +52,7 @@ namespace TimelineInject
             for (int i = 0; i < samples.Count; i++)
             {
                 KimodoMarkerSampleResult sample = samples[i];
-                KimodoConstraintJson json = BuildConstraint(sample, clipStartSeconds, clipDurationSeconds);
+                KimodoConstraintJson json = BuildConstraint(sample, clipStartSeconds, clipDurationSeconds, exportFps);
                 if (json != null)
                 {
                     output.Add(json);
@@ -57,13 +64,14 @@ namespace TimelineInject
 
         public static KimodoConstraintJson BuildConstraint(KimodoMarkerSampleResult sample)
         {
-            return BuildConstraint(sample, 0.0, null);
+            return BuildConstraint(sample, 0.0, null, DefaultExportFps);
         }
 
         public static KimodoConstraintJson BuildConstraint(
             KimodoMarkerSampleResult sample,
             double clipStartSeconds,
-            double? clipDurationSeconds)
+            double? clipDurationSeconds,
+            double exportFps = DefaultExportFps)
         {
             if (sample == null)
             {
@@ -78,33 +86,38 @@ namespace TimelineInject
 
             if (string.Equals(type, "root2d", StringComparison.OrdinalIgnoreCase))
             {
-                return BuildRoot2D(sample, clipStartSeconds, clipDurationSeconds);
+                return BuildRoot2D(sample, clipStartSeconds, clipDurationSeconds, exportFps);
             }
 
             if (string.Equals(type, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
-                return BuildFullBody(sample, clipStartSeconds, clipDurationSeconds);
+                return BuildFullBody(sample, clipStartSeconds, clipDurationSeconds, exportFps);
             }
 
-            return BuildEndEffector(sample, clipStartSeconds, clipDurationSeconds);
+            return BuildEndEffector(sample, clipStartSeconds, clipDurationSeconds, exportFps);
         }
 
         public static List<KimodoConstraintJson> BuildConstraints(
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             bool mergeByType,
             double clipStartSeconds = 0.0,
-            double? clipDurationSeconds = null)
+            double? clipDurationSeconds = null,
+            double exportFps = DefaultExportFps)
         {
-            List<KimodoConstraintJson> constraints = BuildConstraints(samples, clipStartSeconds, clipDurationSeconds);
+            List<KimodoConstraintJson> constraints = BuildConstraints(samples, clipStartSeconds, clipDurationSeconds, exportFps);
             return mergeByType ? MergeConstraintsByType(constraints) : constraints;
         }
 
-        private static KimodoConstraintJson BuildRoot2D(KimodoMarkerSampleResult sample, double clipStartSeconds, double? clipDurationSeconds)
+        private static KimodoConstraintJson BuildRoot2D(
+            KimodoMarkerSampleResult sample,
+            double clipStartSeconds,
+            double? clipDurationSeconds,
+            double exportFps)
         {
             var json = new KimodoConstraintJson
             {
                 type = "root2d",
-                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds),
+                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
                 smooth_root_2d = new List<float[]>
                 {
                     new[] { -sample.kimodoRootPosition.x, sample.kimodoRootPosition.z }
@@ -122,13 +135,17 @@ namespace TimelineInject
             return json;
         }
 
-        private static KimodoConstraintJson BuildFullBody(KimodoMarkerSampleResult sample, double clipStartSeconds, double? clipDurationSeconds)
+        private static KimodoConstraintJson BuildFullBody(
+            KimodoMarkerSampleResult sample,
+            double clipStartSeconds,
+            double? clipDurationSeconds,
+            double exportFps)
         {
             Vector3 kimodoRoot = new Vector3(-sample.kimodoRootPosition.x, sample.kimodoRootPosition.y, sample.kimodoRootPosition.z);
             var json = new KimodoConstraintJson
             {
                 type = "fullbody",
-                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds),
+                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
                 smooth_root_2d = new List<float[]>
                 {
                     new[] { kimodoRoot.x, kimodoRoot.z }
@@ -146,13 +163,17 @@ namespace TimelineInject
             return json;
         }
 
-        private static KimodoConstraintJson BuildEndEffector(KimodoMarkerSampleResult sample, double clipStartSeconds, double? clipDurationSeconds)
+        private static KimodoConstraintJson BuildEndEffector(
+            KimodoMarkerSampleResult sample,
+            double clipStartSeconds,
+            double? clipDurationSeconds,
+            double exportFps)
         {
             Vector3 kimodoRoot = new Vector3(-sample.kimodoRootPosition.x, sample.kimodoRootPosition.y, sample.kimodoRootPosition.z);
             var json = new KimodoConstraintJson
             {
                 type = sample.constraintType,
-                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds),
+                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
                 joint_names = sample.jointNames != null ? new List<string>(sample.jointNames) : new List<string>(),
                 smooth_root_2d = new List<float[]>
                 {
@@ -171,17 +192,18 @@ namespace TimelineInject
             return json;
         }
 
-        private static List<int> BuildFrameIndices(double sampleTime, double? clipDurationSeconds)
+        private static List<int> BuildFrameIndices(double sampleTime, double? clipDurationSeconds, double exportFps)
         {
-            return new List<int> { ToFrameIndex(sampleTime, clipDurationSeconds) };
+            return new List<int> { ToFrameIndex(sampleTime, clipDurationSeconds, exportFps) };
         }
 
-        private static int ToFrameIndex(double sampleTime, double? clipDurationSeconds)
+        private static int ToFrameIndex(double sampleTime, double? clipDurationSeconds, double exportFps)
         {
-            int frame = Mathf.Max(0, (int)Math.Ceiling(sampleTime * ExportFps));
+            double fps = exportFps > 0.0 ? exportFps : DefaultExportFps;
+            int frame = Mathf.Max(0, (int)Math.Floor(sampleTime * fps + 1e-9));
             if (clipDurationSeconds.HasValue)
             {
-                int maxFrame = Mathf.Max(0, Mathf.CeilToInt((float)(clipDurationSeconds.Value * ExportFps)) - 1);
+                int maxFrame = Mathf.Max(0, Mathf.CeilToInt((float)(clipDurationSeconds.Value * fps)) - 1);
                 frame = Mathf.Clamp(frame, 0, maxFrame);
             }
 

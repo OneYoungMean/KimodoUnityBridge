@@ -1,5 +1,6 @@
 using TimelineInject;
 using UnityEngine;
+using System.Collections.Generic;
 
 namespace KimodoBridge.Editor
 {
@@ -11,5 +12,7 @@ namespace KimodoBridge.Editor
         public bool NormalizeConstraintOriginApplied;
         public KimodoConstraintNormalizationAnchorKind NormalizationAnchorKind;
         public KimodoMarkerSampleResult NormalizationAnchorSample;
+        public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
+        public List<string> HistoryFilePaths = new List<string>();
     }
 }

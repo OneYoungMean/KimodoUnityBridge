@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using TimelineInject;
 using UnityEngine;
@@ -26,6 +27,23 @@ namespace KimodoBridge.Editor
         public bool NormalizeConstraintOriginApplied;
         public KimodoConstraintNormalizationAnchorKind NormalizationAnchorKind;
         public KimodoMarkerSampleResult NormalizationAnchorSample;
+        public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
+        public List<string> InitialArdyHistoryFilePaths = new List<string>();
+        public ArdyEditorHistorySource InitialArdyHistorySource;
+        public string GeneratedArdyMotionCachePath = string.Empty;
+        public List<string> GeneratedArdyWindowCachePaths = new List<string>();
+        public List<string> GeneratedArdyHandles = new List<string>();
+        public List<int> GeneratedArdySeeds = new List<int>();
+        public string GeneratedArdyFingerprint = string.Empty;
+    }
+
+    internal sealed class ArdyEditorHistorySource
+    {
+        public AnimationClip Clip;
+        public Avatar SourceAvatar;
+        public double ClipInSeconds;
+        public double TimelineDurationSeconds;
+        public double TimeScale = 1.0;
     }
 
     internal sealed class KimodoEditorGenerateOutputPlan

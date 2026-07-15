@@ -16,6 +16,7 @@ import sys
 from typing import Any
 
 from . import bridge_server as bridge_runtime_helpers
+from . import ardy_backend
 from . import quickserver_assets as assets
 from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 
@@ -259,13 +260,14 @@ def _unload_runtime_model(state: dict[str, Any], logger: SetupLogger) -> None:
     if model is None:
         return
 
-    logger.log("[INFO] Releasing current Kimodo runtime.")
+    logger.log("[INFO] Releasing current motion runtime.")
     state["model"] = None
     state["fps"] = 30
     state["runtime_signature"] = ""
     state["runtime_config"] = None
     state["resolved_model_name"] = ""
     state["runtime_device"] = ""
+    state["motion_profile"] = None
 
     try:
         del model
@@ -328,6 +330,33 @@ def _ensure_runtime(
         f"models_root={config['models_root'] or '<default>'} device={runtime_profile.runtime_device}"
     )
 
+    motion_profile = assets.resolve_motion_model_profile(config["model"])
+    if motion_profile is not None and motion_profile.backend == "ardy":
+        model = ardy_backend.load_runtime(
+            motion_profile,
+            config,
+            kimodo_root,
+            runtime_profile.runtime_device,
+        )
+        state["model"] = model
+        state["fps"] = int(motion_profile.source_fps)
+        state["runtime_signature"] = signature
+        state["runtime_config"] = dict(config)
+        state["resolved_model_name"] = motion_profile.model_name
+        state["runtime_device"] = runtime_profile.runtime_device
+        state["motion_profile"] = motion_profile
+        logger.log(
+            f"[INFO] Runtime ready: model={motion_profile.model_name} "
+            f"device={runtime_profile.runtime_device} fps={motion_profile.source_fps:g}"
+        )
+        return {
+            "model": motion_profile.model_name,
+            "device": runtime_profile.runtime_device,
+            "fps": int(motion_profile.source_fps),
+            "signature": signature,
+            "reused": False,
+        }
+
     force_download_site = assets.DownloadSite.HUGGINGFACE if config["force_hf_download"] else None
     plan = bridge_runtime_helpers._provision_bridge_assets(
         kimodo_root,
@@ -351,6 +380,7 @@ def _ensure_runtime(
     state["runtime_config"] = dict(config)
     state["resolved_model_name"] = resolved_model_name
     state["runtime_device"] = runtime_profile.runtime_device
+    state["motion_profile"] = None
     logger.log(
         f"[INFO] Runtime ready: model={resolved_model_name} device={runtime_profile.runtime_device} fps={int(model.fps)}"
     )
@@ -363,7 +393,24 @@ def _ensure_runtime(
     }
 
 
-def _execute_generate(task_request: dict[str, Any], model: Any, cancel_event: threading.Event) -> tuple[dict[str, Any], bytes | None]:
+def _execute_generate(
+    task_request: dict[str, Any],
+    model: Any,
+    cancel_event: threading.Event,
+    motion_profile: assets.MotionModelProfile | None,
+    spool: ardy_backend.ArdyClipSpool,
+    kimodo_root: str,
+) -> tuple[dict[str, Any], bytes | None]:
+    if motion_profile is not None and motion_profile.backend == "ardy":
+        return ardy_backend.execute_generate(
+            task_request,
+            model,
+            motion_profile,
+            cancel_event,
+            spool,
+            kimodo_root,
+        )
+
     from kimodo.tools import seed_everything
 
     prompt = str(task_request.get("prompt", "A person walks forward.")).strip()
@@ -475,6 +522,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "runtime_config": None,
         "resolved_model_name": "",
         "runtime_device": "",
+        "motion_profile": None,
         "model": None,
         "fps": 30,
         "queue": deque(),
@@ -484,6 +532,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "active_command_count": 0,
         "server_state": "boot",
         "task_counter": count(1),
+        "ardy_spool": ardy_backend.create_spool(kimodo_root),
     }
     state_lock = threading.Lock()
     queue_changed = threading.Condition(state_lock)
@@ -518,6 +567,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 active_cancel_event.set()
             pending_tasks = list(state["tasks"].values())
             for task in pending_tasks:
+                state["ardy_spool"].unpin(task.get("pinned_handles") or ())
                 task["response"] = {"status": "cancelled", "message": "Server shutting down."}
                 task["binary"] = None
                 task["event"].set()
@@ -581,9 +631,23 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     publish_state("loading_runtime")
                     _ensure_runtime(state, runtime_config, kimodo_root, logger)
                     publish_state("generating")
-                response, binary_payload = _execute_generate(task["request"], state["model"], cancel_event)
+                response, binary_payload = _execute_generate(
+                    task["request"],
+                    state["model"],
+                    cancel_event,
+                    state.get("motion_profile"),
+                    state["ardy_spool"],
+                    kimodo_root,
+                )
             except bridge_runtime_helpers.GenerateCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
+                binary_payload = None
+            except ardy_backend.ArdyBackendError as exc:
+                response = {
+                    "status": "error",
+                    "error_code": exc.code,
+                    "message": str(exc),
+                }
                 binary_payload = None
             except Exception as exc:
                 response = {
@@ -594,6 +658,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 logger.log(f"[ERROR] Generate task {task_id} failed: {exc}")
             finally:
                 with queue_changed:
+                    state["ardy_spool"].unpin(task.get("pinned_handles") or ())
                     task["state"] = str(response.get("status") or "done")
                     task["status_message"] = str(response.get("message") or "")
                     task["response"] = _attach_task_id(response, task_id)
@@ -656,6 +721,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 pass
             task["state"] = "cancelled"
             task["status_message"] = f"Task '{resolved_task_id}' was removed from queue."
+            state["ardy_spool"].unpin(task.get("pinned_handles") or ())
             task["response"] = _attach_task_id(
                 {"status": "cancelled", "message": task["status_message"]},
                 resolved_task_id)
@@ -769,6 +835,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                         task_id))
                                 continue
 
+                            pinned_handles = state["ardy_spool"].pin(
+                                ardy_backend.extract_handle_refs(request.get("constraints_json", ""))
+                            )
                             task = {
                                 "task_id": task_id,
                                 "request": dict(request),
@@ -779,6 +848,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                 "binary": None,
                                 "state": "queued",
                                 "status_message": f"Task '{task_id}' waiting in queue.",
+                                "pinned_handles": pinned_handles,
                             }
                             state["tasks"][task_id] = task
                             state["queue"].append(task)

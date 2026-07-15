@@ -18,6 +18,10 @@ namespace KimodoBridge
         public string MotionFormat { get; set; }
         public string RawStatus { get; set; }
         public string Message { get; set; }
+        public byte[] MotionBytes { get; set; }
+        public string ClipHandle { get; set; }
+        public string MotionRepFingerprint { get; set; }
+        public int? ResolvedSeed { get; set; }
     }
 
     public sealed class KimodoBridgeService
@@ -144,6 +148,7 @@ namespace KimodoBridge
                 string responseMessage = header?.Value<string>("message") ?? string.Empty;
                 string outputFormat = header?.Value<string>("output_format") ?? string.Empty;
                 string motionJson = header?.Value<string>("motion_json_compact");
+                string errorCode = header?.Value<string>("error_code") ?? string.Empty;
                 EmitDebugLog(
                     $"[KimodoBridge] Generate response: status='{status}', format='{outputFormat}', hasJson={!string.IsNullOrWhiteSpace(motionJson)}, " +
                     $"hasBinary={(response?.BinaryPayload != null && response.BinaryPayload.Length > 0)}, message='{responseMessage}'");
@@ -156,7 +161,8 @@ namespace KimodoBridge
 
                 if (!string.Equals(status, "done", StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new Exception($"Unexpected bridge response status: {status}. message={responseMessage}");
+                    throw new Exception(
+                        $"Unexpected bridge response status: {status}. error_code={errorCode}. message={responseMessage}");
                 }
 
                 if (string.Equals(outputFormat, "flatbuf_motion_v1", StringComparison.OrdinalIgnoreCase))
@@ -176,9 +182,13 @@ namespace KimodoBridge
                     return new KimodoBridgeGenerationResult
                     {
                         MotionData = motionData,
+                        MotionBytes = payload,
                         MotionFormat = outputFormat,
                         RawStatus = status,
-                        Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage
+                        Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage,
+                        ClipHandle = header?.Value<string>("clip_handle") ?? string.Empty,
+                        MotionRepFingerprint = header?.Value<string>("motion_rep_fingerprint") ?? string.Empty,
+                        ResolvedSeed = header?.Value<int?>("resolved_seed")
                     };
                 }
 

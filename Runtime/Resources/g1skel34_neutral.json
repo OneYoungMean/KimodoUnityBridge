@@ -1,0 +1,385 @@
+{
+  "schema_version": 1,
+  "source": "kimodo/assets/skeletons",
+  "skeleton_name": "g1skel34",
+  "joint_count": 34,
+  "units": "meter",
+  "space": "world",
+  "root_index": 0,
+  "joints": [
+    {
+      "index": 0,
+      "name": "pelvis_skel",
+      "parent_index": -1,
+      "parent_name": "",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "index": 1,
+      "name": "left_hip_pitch_skel",
+      "parent_index": 0,
+      "parent_name": "pelvis_skel",
+      "position": [
+        0.064452,
+        -0.1027,
+        -0.0
+      ]
+    },
+    {
+      "index": 2,
+      "name": "left_hip_roll_skel",
+      "parent_index": 1,
+      "parent_name": "left_hip_pitch_skel",
+      "position": [
+        0.116452,
+        -0.133165,
+        -0.0
+      ]
+    },
+    {
+      "index": 3,
+      "name": "left_hip_yaw_skel",
+      "parent_index": 2,
+      "parent_name": "left_hip_roll_skel",
+      "position": [
+        0.116452,
+        -0.257285,
+        0.025001
+      ]
+    },
+    {
+      "index": 4,
+      "name": "left_knee_skel",
+      "parent_index": 3,
+      "parent_name": "left_hip_yaw_skel",
+      "position": [
+        0.118601,
+        -0.434625,
+        -0.053272
+      ]
+    },
+    {
+      "index": 5,
+      "name": "left_ankle_pitch_skel",
+      "parent_index": 4,
+      "parent_name": "left_knee_skel",
+      "position": [
+        0.118506,
+        -0.734635,
+        -0.053272
+      ]
+    },
+    {
+      "index": 6,
+      "name": "left_ankle_roll_skel",
+      "parent_index": 5,
+      "parent_name": "left_ankle_pitch_skel",
+      "position": [
+        0.118506,
+        -0.752193,
+        -0.053272
+      ]
+    },
+    {
+      "index": 7,
+      "name": "left_toe_base",
+      "parent_index": 6,
+      "parent_name": "left_ankle_roll_skel",
+      "position": [
+        0.118506,
+        -0.787193,
+        0.086728
+      ]
+    },
+    {
+      "index": 8,
+      "name": "right_hip_pitch_skel",
+      "parent_index": 0,
+      "parent_name": "pelvis_skel",
+      "position": [
+        -0.064452,
+        -0.1027,
+        -0.0
+      ]
+    },
+    {
+      "index": 9,
+      "name": "right_hip_roll_skel",
+      "parent_index": 8,
+      "parent_name": "right_hip_pitch_skel",
+      "position": [
+        -0.116452,
+        -0.133165,
+        -0.0
+      ]
+    },
+    {
+      "index": 10,
+      "name": "right_hip_yaw_skel",
+      "parent_index": 9,
+      "parent_name": "right_hip_roll_skel",
+      "position": [
+        -0.116452,
+        -0.257285,
+        0.025001
+      ]
+    },
+    {
+      "index": 11,
+      "name": "right_knee_skel",
+      "parent_index": 10,
+      "parent_name": "right_hip_yaw_skel",
+      "position": [
+        -0.118601,
+        -0.434625,
+        -0.053272
+      ]
+    },
+    {
+      "index": 12,
+      "name": "right_ankle_pitch_skel",
+      "parent_index": 11,
+      "parent_name": "right_knee_skel",
+      "position": [
+        -0.118506,
+        -0.734635,
+        -0.053272
+      ]
+    },
+    {
+      "index": 13,
+      "name": "right_ankle_roll_skel",
+      "parent_index": 12,
+      "parent_name": "right_ankle_pitch_skel",
+      "position": [
+        -0.118506,
+        -0.752193,
+        -0.053272
+      ]
+    },
+    {
+      "index": 14,
+      "name": "right_toe_base",
+      "parent_index": 13,
+      "parent_name": "right_ankle_roll_skel",
+      "position": [
+        -0.118506,
+        -0.787193,
+        0.086728
+      ]
+    },
+    {
+      "index": 15,
+      "name": "waist_yaw_skel",
+      "parent_index": 0,
+      "parent_name": "pelvis_skel",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "index": 16,
+      "name": "waist_roll_skel",
+      "parent_index": 15,
+      "parent_name": "waist_yaw_skel",
+      "position": [
+        -0.0,
+        0.044,
+        -0.003963
+      ]
+    },
+    {
+      "index": 17,
+      "name": "waist_pitch_skel",
+      "parent_index": 16,
+      "parent_name": "waist_roll_skel",
+      "position": [
+        -0.0,
+        0.044,
+        -0.003963
+      ]
+    },
+    {
+      "index": 18,
+      "name": "left_shoulder_pitch_skel",
+      "parent_index": 17,
+      "parent_name": "waist_pitch_skel",
+      "position": [
+        0.10022,
+        0.29178,
+        -7e-06
+      ]
+    },
+    {
+      "index": 19,
+      "name": "left_shoulder_roll_skel",
+      "parent_index": 18,
+      "parent_name": "left_shoulder_pitch_skel",
+      "position": [
+        0.13822,
+        0.277949,
+        -7e-06
+      ]
+    },
+    {
+      "index": 20,
+      "name": "left_shoulder_yaw_skel",
+      "parent_index": 19,
+      "parent_name": "left_shoulder_roll_skel",
+      "position": [
+        0.14446,
+        0.174749,
+        -7e-06
+      ]
+    },
+    {
+      "index": 21,
+      "name": "left_elbow_skel",
+      "parent_index": 20,
+      "parent_name": "left_shoulder_yaw_skel",
+      "position": [
+        0.14446,
+        0.094231,
+        0.015776
+      ]
+    },
+    {
+      "index": 22,
+      "name": "left_wrist_roll_skel",
+      "parent_index": 21,
+      "parent_name": "left_elbow_skel",
+      "position": [
+        0.146348,
+        0.084231,
+        0.115776
+      ]
+    },
+    {
+      "index": 23,
+      "name": "left_wrist_pitch_skel",
+      "parent_index": 22,
+      "parent_name": "left_wrist_roll_skel",
+      "position": [
+        0.146348,
+        0.084231,
+        0.153776
+      ]
+    },
+    {
+      "index": 24,
+      "name": "left_wrist_yaw_skel",
+      "parent_index": 23,
+      "parent_name": "left_wrist_pitch_skel",
+      "position": [
+        0.146348,
+        0.084231,
+        0.199776
+      ]
+    },
+    {
+      "index": 25,
+      "name": "left_hand_roll_skel",
+      "parent_index": 24,
+      "parent_name": "left_wrist_yaw_skel",
+      "position": [
+        0.146348,
+        0.084231,
+        0.299776
+      ]
+    },
+    {
+      "index": 26,
+      "name": "right_shoulder_pitch_skel",
+      "parent_index": 17,
+      "parent_name": "waist_pitch_skel",
+      "position": [
+        -0.10021,
+        0.29178,
+        -7e-06
+      ]
+    },
+    {
+      "index": 27,
+      "name": "right_shoulder_roll_skel",
+      "parent_index": 26,
+      "parent_name": "right_shoulder_pitch_skel",
+      "position": [
+        -0.13821,
+        0.277949,
+        -7e-06
+      ]
+    },
+    {
+      "index": 28,
+      "name": "right_shoulder_yaw_skel",
+      "parent_index": 27,
+      "parent_name": "right_shoulder_roll_skel",
+      "position": [
+        -0.14445,
+        0.174749,
+        -7e-06
+      ]
+    },
+    {
+      "index": 29,
+      "name": "right_elbow_skel",
+      "parent_index": 28,
+      "parent_name": "right_shoulder_yaw_skel",
+      "position": [
+        -0.14445,
+        0.094231,
+        0.015776
+      ]
+    },
+    {
+      "index": 30,
+      "name": "right_wrist_roll_skel",
+      "parent_index": 29,
+      "parent_name": "right_elbow_skel",
+      "position": [
+        -0.146338,
+        0.084231,
+        0.115776
+      ]
+    },
+    {
+      "index": 31,
+      "name": "right_wrist_pitch_skel",
+      "parent_index": 30,
+      "parent_name": "right_wrist_roll_skel",
+      "position": [
+        -0.146338,
+        0.084231,
+        0.153776
+      ]
+    },
+    {
+      "index": 32,
+      "name": "right_wrist_yaw_skel",
+      "parent_index": 31,
+      "parent_name": "right_wrist_pitch_skel",
+      "position": [
+        -0.146338,
+        0.084231,
+        0.199776
+      ]
+    },
+    {
+      "index": 33,
+      "name": "right_hand_roll_skel",
+      "parent_index": 32,
+      "parent_name": "right_wrist_yaw_skel",
+      "position": [
+        -0.146338,
+        0.084231,
+        0.299776
+      ]
+    }
+  ]
+}

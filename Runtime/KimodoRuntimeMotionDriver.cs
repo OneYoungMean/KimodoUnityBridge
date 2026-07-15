@@ -72,7 +72,9 @@ namespace KimodoBridge
         private readonly List<KimodoMarkerSampleResult> stagedConstraintSamples = new List<KimodoMarkerSampleResult>();
         private readonly List<KimodoMarkerSampleResult> pendingConstraintSamples = new List<KimodoMarkerSampleResult>();
         private readonly List<KimodoMarkerSampleResult> constraintJsonScratch = new List<KimodoMarkerSampleResult>();
+        private readonly List<string> ardyPrefixHandles = new List<string>();
         private KimodoRuntimeMotionPlayer motionPlayer;
+        private bool generationBlocked;
 
         [NonSerialized] private bool promptLocked;
 
@@ -181,7 +183,7 @@ namespace KimodoBridge
                 return;
             }
 
-            if (loopHint)
+            if (loopHint && !KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
                 SetNextConstraintPoses(startedSegment.ConstraintOverlapPoses);
             }
@@ -317,6 +319,8 @@ namespace KimodoBridge
             lastGenerationWaitStatusSegment = -1;
             RewindSegmentIndexAfterQueueInvalidation(motionPlayer.QueuedSegmentCount);
             motionPlayer.ClearQueue();
+            ardyPrefixHandles.Clear();
+            generationBlocked = false;
 
             if (!running || lifetimeCts == null || lifetimeCts.IsCancellationRequested)
             {
@@ -358,6 +362,7 @@ namespace KimodoBridge
                 segmentIndex = 0;
                 generationInFlight = false;
                 generationRequestVersion = 0;
+                generationBlocked = false;
                 lastGenerationWaitStatusSegment = -1;
                 stagedConstraintSamples.Clear();
                 pendingConstraintSamples.Clear();
@@ -365,6 +370,7 @@ namespace KimodoBridge
                 motionPlayer.Stop();
                 motionPlayer.ResetCompletionState();
                 motionPlayer.ClearQueue();
+                ardyPrefixHandles.Clear();
 
                 running = true;
                 schedulerTask = RunSchedulerLoopAsync(lifetimeCts.Token);
@@ -439,6 +445,7 @@ namespace KimodoBridge
             motionPlayer.Stop();
             motionPlayer.ResetCompletionState();
             motionPlayer.ClearQueue();
+            ardyPrefixHandles.Clear();
             UpdateStatus("Stopped.");
         }
 
@@ -467,7 +474,7 @@ namespace KimodoBridge
 
         private void MaybeQueueNextGeneration(CancellationToken token)
         {
-            if (!running || generationInFlight)
+            if (!running || generationInFlight || generationBlocked)
             {
                 return;
             }
@@ -523,20 +530,32 @@ namespace KimodoBridge
 
                 string prompt = ResolvePrompt();
                 string constraintsJson = BuildNextConstraintsJson();
+                bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile ardyProfile);
+                int resolvedRequestSeed = randomSeed ? (Guid.NewGuid().GetHashCode() & int.MaxValue) : fixedSeed;
                 var request = new KimodoGenerationRequestDto
                 {
                     prompt = prompt,
-                    duration = ResolveGenerationDurationSeconds(),
-                    seed = randomSeed ? (int?)null : fixedSeed,
-                    steps = Mathf.Max(1, diffusionSteps),
+                    duration = isArdy ? ardyProfile.HorizonFrames / ardyProfile.SourceFps : ResolveGenerationDurationSeconds(),
+                    seed = resolvedRequestSeed,
+                    steps = Mathf.Clamp(diffusionSteps, 1, isArdy ? ardyProfile.MaxDiffusionSteps : 1000),
                     constraints_json = constraintsJson,
                     loop_hint = loopHint,
                     segment_index = requestSegmentIndex,
-                    transition_duration = 0f
+                    transition_duration = 0f,
+                    model = modelName,
+                    highvram = highVram,
+                    force_cpu = false,
+                    models_root = string.IsNullOrWhiteSpace(modelsRoot) ? string.Empty : Path.GetFullPath(modelsRoot),
+                    force_hf_download = false,
+                    owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id
                 };
 
                 OnProgress($"Generating segment {requestSegmentIndex}...");
                 KimodoBridgeGenerationResult bridgeResult = await KimodoBridgeService.Shared.GenerateAsync(request, OnProgress, generationToken);
+                if (isArdy)
+                {
+                    ValidateArdyResult(bridgeResult, ardyProfile, resolvedRequestSeed);
+                }
 
                 KimodoRawMotionMetadata metadata = await Task.Run(() =>
                 {
@@ -596,18 +615,24 @@ namespace KimodoBridge
                     return;
                 }
 
-                List<KimodoMarkerSampleResult> constraintOverlapPoses =
-                    KimodoRuntimeSegmentAnalysisUtility.BuildConstraintOverlapPoses(
+                List<KimodoMarkerSampleResult> constraintOverlapPoses = isArdy
+                    ? new List<KimodoMarkerSampleResult>()
+                    : KimodoRuntimeSegmentAnalysisUtility.BuildConstraintOverlapPoses(
                         metadata.Motion,
                         modelName,
                         effectiveLastFrameIndex,
                         segmentOverlapHeadSettings,
                         allowPartialJoints);
-                if (constraintOverlapPoses.Count == 0)
+                if (!isArdy && constraintOverlapPoses.Count == 0)
                 {
                     KimodoMarkerSampleResult fallbackPose = effectiveTailPose.Clone();
                     fallbackPose.sampleTime = 0.0;
                     constraintOverlapPoses.Add(fallbackPose);
+                }
+
+                if (isArdy)
+                {
+                    ardyPrefixHandles.Add(bridgeResult.ClipHandle);
                 }
 
                 motionPlayer.Enqueue(new KimodoRuntimeGeneratedSegment
@@ -622,7 +647,11 @@ namespace KimodoBridge
                     EffectiveLastFrameIndex = effectiveLastFrameIndex,
                     EffectiveLastFrameTimeSeconds = metadata.Motion.FrameRate > 0f
                         ? effectiveLastFrameIndex / metadata.Motion.FrameRate
-                        : metadata.Motion.LastFrameTimeSeconds
+                        : metadata.Motion.LastFrameTimeSeconds,
+                    MotionBytes = bridgeResult?.MotionBytes,
+                    ClipHandle = bridgeResult?.ClipHandle ?? string.Empty,
+                    MotionRepFingerprint = bridgeResult?.MotionRepFingerprint ?? string.Empty,
+                    ResolvedSeed = bridgeResult?.ResolvedSeed
                 }, verboseLogging);
                 SegmentReady?.Invoke(CreateSegmentReport(new KimodoRuntimeGeneratedSegment
                 {
@@ -652,6 +681,10 @@ namespace KimodoBridge
             catch (Exception ex)
             {
                 Debug.LogException(ex, this);
+                if (ex.Message.IndexOf("error_code=clip_handle_not_found", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    generationBlocked = true;
+                }
                 UpdateStatus($"Generate failed: {ex.Message}");
             }
             finally
@@ -670,7 +703,9 @@ namespace KimodoBridge
         {
             var samples = new List<KimodoMarkerSampleResult>();
 
-            if (loopHint && nextConstraintPoses.Count > 0)
+            if (loopHint &&
+                !KimodoMotionModelProfiles.TryGetArdy(modelName, out _) &&
+                nextConstraintPoses.Count > 0)
             {
                 for (int i = 0; i < nextConstraintPoses.Count; i++)
                 {
@@ -709,17 +744,26 @@ namespace KimodoBridge
         private string BuildNextConstraintsJson()
         {
             List<KimodoMarkerSampleResult> activeConstraints = BuildActiveGenerationConstraints();
-            if (activeConstraints.Count == 0)
+            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile);
+            if (activeConstraints.Count == 0 && (!isArdy || ardyPrefixHandles.Count == 0))
             {
                 return string.Empty;
             }
 
             constraintJsonScratch.Clear();
             constraintJsonScratch.AddRange(activeConstraints);
-            return KimodoConstraintJsonExporter.ToConstraintsJson(
+            string futureConstraints = KimodoConstraintJsonExporter.ToConstraintsJson(
                 constraintJsonScratch,
                 0.0,
-                ResolveGenerationDurationSeconds());
+                isArdy ? profile.MaxContextFrames / profile.SourceFps : ResolveGenerationDurationSeconds(),
+                isArdy ? profile.SourceFps : KimodoPlayableClip.FIXED_FRAME_RATE);
+            return isArdy
+                ? ArdyClipConstraintSerializer.MergeHandles(
+                    ardyPrefixHandles,
+                    profile.MaxHistoryHandles,
+                    profile.HorizonFrames,
+                    futureConstraints)
+                : futureConstraints;
         }
 
         private async Task RefreshUpcomingGenerationAsync(
@@ -732,6 +776,7 @@ namespace KimodoBridge
             int clearedQueuedSegmentCount = motionPlayer.QueuedSegmentCount;
             motionPlayer.ClearQueue();
             RewindSegmentIndexAfterQueueInvalidation(clearedQueuedSegmentCount);
+            TrimArdyPrefixHandles(clearedQueuedSegmentCount);
 
             if (!running || lifetimeCts == null || lifetimeCts.IsCancellationRequested)
             {
@@ -788,6 +833,44 @@ namespace KimodoBridge
 
             int minSegmentIndex = Mathf.Max(0, motionPlayer.LastCompletedSegmentIndex + 1);
             segmentIndex = Mathf.Max(minSegmentIndex, segmentIndex - clearedQueuedSegmentCount);
+        }
+
+        private void TrimArdyPrefixHandles(int clearedQueuedSegmentCount)
+        {
+            int removeCount = Mathf.Min(Mathf.Max(0, clearedQueuedSegmentCount), ardyPrefixHandles.Count);
+            if (removeCount > 0)
+            {
+                ardyPrefixHandles.RemoveRange(ardyPrefixHandles.Count - removeCount, removeCount);
+            }
+        }
+
+        private static void ValidateArdyResult(
+            KimodoBridgeGenerationResult result,
+            KimodoMotionModelProfile profile,
+            int requestedSeed)
+        {
+            if (result?.MotionData == null ||
+                result.MotionData.FrameCount != profile.HorizonFrames ||
+                result.MotionData.JointCount != profile.JointCount ||
+                Mathf.Abs(result.MotionData.FrameRate - profile.SourceFps) > 1e-4f)
+            {
+                throw new InvalidOperationException("ARDY result Horizon, FPS, or rig metadata does not match the model profile.");
+            }
+            if (result.MotionBytes == null || result.MotionBytes.Length == 0 || string.IsNullOrWhiteSpace(result.ClipHandle))
+            {
+                throw new InvalidOperationException("ARDY result is missing its KMB1 payload or clip handle.");
+            }
+            if (!string.Equals(
+                    result.MotionRepFingerprint,
+                    profile.MotionRepFingerprint,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("ARDY result motion representation fingerprint mismatch.");
+            }
+            if (!result.ResolvedSeed.HasValue || result.ResolvedSeed.Value != requestedSeed)
+            {
+                throw new InvalidOperationException("ARDY result resolved_seed does not match the requested seed.");
+            }
         }
 
         private string SetPromptInternal(string prompt)

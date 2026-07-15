@@ -25,7 +25,8 @@ namespace KimodoBridge.Editor
             "Kimodo-G1-RP-v1",
             "Kimodo-SMPLX-RP-v1",
             "Kimodo-SOMA-SEED-v1",
-            "Kimodo-G1-SEED-v1"
+            "Kimodo-G1-SEED-v1",
+            KimodoMotionModelProfiles.ArdyG1ModelName
         };
 
         internal static string ResolveProjectRoot()

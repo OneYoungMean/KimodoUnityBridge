@@ -238,6 +238,183 @@ namespace KimodoBridge
             return JsonUtility.ToJson(payload);
         }
 
+        public static byte[] ToFlatBuffer(KimodoRawMotionData motion, string modelName)
+        {
+            if (motion == null || motion.FrameCount <= 0 || motion.JointCount <= 0)
+            {
+                return Array.Empty<byte>();
+            }
+
+            int frameCount = motion.FrameCount;
+            int jointCount = motion.JointCount;
+            float[] roots = new float[frameCount * 3];
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                motion.TryReadUnityRootPosition(frame, out Vector3 root);
+                int index = frame * 3;
+                roots[index + 0] = -root.x;
+                roots[index + 1] = root.y;
+                roots[index + 2] = root.z;
+            }
+
+            float[] rotations = motion.localRotQuats != null
+                ? motion.localRotQuats.ToArray()
+                : Array.Empty<float>();
+            var builder = new FlatBufferBuilder(Mathf.Max(1024, roots.Length * 4 + rotations.Length * 4 + 512));
+            var nameOffsets = new StringOffset[jointCount];
+            for (int i = 0; i < jointCount; i++)
+            {
+                string jointName = i < motion.jointNames.Length ? motion.jointNames[i] : $"joint_{i}";
+                nameOffsets[i] = builder.CreateString(jointName ?? string.Empty);
+            }
+
+            VectorOffset namesOffset = MotionPacket.CreateJointNamesVector(builder, nameOffsets);
+            VectorOffset parentsOffset = MotionPacket.CreateJointParentsVector(builder, motion.jointParents);
+            VectorOffset rootsOffset = MotionPacket.CreateRootPositionsVector(builder, roots);
+            VectorOffset rotationsOffset = MotionPacket.CreateLocalRotQuatsVector(builder, rotations);
+            StringOffset modelOffset = builder.CreateString(modelName ?? string.Empty);
+            Offset<MotionPacket> packet = MotionPacket.CreateMotionPacket(
+                builder,
+                version: 1,
+                fps: motion.FrameRate,
+                num_frames: (uint)frameCount,
+                num_joints: (uint)jointCount,
+                joint_namesOffset: namesOffset,
+                joint_parentsOffset: parentsOffset,
+                root_positionsOffset: rootsOffset,
+                local_rot_quatsOffset: rotationsOffset,
+                model_nameOffset: modelOffset);
+            MotionPacket.FinishMotionPacketBuffer(builder, packet);
+            return builder.SizedByteArray();
+        }
+
+        public static bool TryConcatenate(
+            IReadOnlyList<KimodoRawMotionData> motions,
+            int targetFrameCount,
+            out KimodoRawMotionData combined,
+            out string error)
+        {
+            combined = null;
+            error = string.Empty;
+            if (motions == null || motions.Count == 0 || motions[0] == null)
+            {
+                error = "Motion list is empty.";
+                return false;
+            }
+
+            KimodoRawMotionData first = motions[0];
+            int availableFrames = 0;
+            for (int i = 0; i < motions.Count; i++)
+            {
+                KimodoRawMotionData motion = motions[i];
+                if (motion == null ||
+                    motion.JointCount != first.JointCount ||
+                    Mathf.Abs(motion.FrameRate - first.FrameRate) > 1e-4f ||
+                    !SameRig(first, motion))
+                {
+                    error = $"Motion {i} has incompatible FPS or rig metadata.";
+                    return false;
+                }
+                availableFrames += motion.FrameCount;
+            }
+
+            int frameCount = Mathf.Clamp(targetFrameCount, 1, availableFrames);
+            var roots = new Vector3[frameCount];
+            var rotations = new List<float>(frameCount * first.JointCount * 4);
+            int written = 0;
+            for (int i = 0; i < motions.Count && written < frameCount; i++)
+            {
+                KimodoRawMotionData motion = motions[i];
+                int copyFrames = Mathf.Min(motion.FrameCount, frameCount - written);
+                Array.Copy(motion.rootPositions, 0, roots, written, copyFrames);
+                int scalarCount = copyFrames * first.JointCount * 4;
+                for (int scalar = 0; scalar < scalarCount; scalar++)
+                {
+                    rotations.Add(motion.localRotQuats[scalar]);
+                }
+                written += copyFrames;
+            }
+
+            combined = new KimodoRawMotionData(
+                frameCount,
+                first.JointCount,
+                first.FrameRate,
+                (string[])first.jointNames.Clone(),
+                (int[])first.jointParents.Clone(),
+                roots,
+                rotations,
+                first.rootJointIndex);
+            return true;
+        }
+
+        public static bool TryResample(
+            KimodoRawMotionData source,
+            float targetFrameRate,
+            int targetFrameCount,
+            out KimodoRawMotionData resampled,
+            out string error)
+        {
+            resampled = null;
+            error = string.Empty;
+            if (source == null || source.FrameCount <= 0 || targetFrameRate <= 0f || targetFrameCount <= 0)
+            {
+                error = "Source motion or target sampling settings are invalid.";
+                return false;
+            }
+
+            var roots = new Vector3[targetFrameCount];
+            var rotations = new List<float>(targetFrameCount * source.JointCount * 4);
+            for (int frame = 0; frame < targetFrameCount; frame++)
+            {
+                float sourceFrame = frame * source.FrameRate / targetFrameRate;
+                int frame0 = Mathf.Clamp(Mathf.FloorToInt(sourceFrame), 0, source.FrameCount - 1);
+                int frame1 = Mathf.Min(frame0 + 1, source.FrameCount - 1);
+                float blend = Mathf.Clamp01(sourceFrame - frame0);
+                source.TryReadUnityRootPosition(frame0, out Vector3 root0);
+                source.TryReadUnityRootPosition(frame1, out Vector3 root1);
+                roots[frame] = Vector3.LerpUnclamped(root0, root1, blend);
+
+                for (int joint = 0; joint < source.JointCount; joint++)
+                {
+                    source.TryReadUnityLocalRotation(frame0, joint, source.JointCount, out Quaternion rotation0);
+                    source.TryReadUnityLocalRotation(frame1, joint, source.JointCount, out Quaternion rotation1);
+                    Quaternion unityRotation = Quaternion.SlerpUnclamped(rotation0, rotation1, blend).normalized;
+                    rotations.Add(unityRotation.w);
+                    rotations.Add(unityRotation.x);
+                    rotations.Add(-unityRotation.y);
+                    rotations.Add(-unityRotation.z);
+                }
+            }
+
+            resampled = new KimodoRawMotionData(
+                targetFrameCount,
+                source.JointCount,
+                targetFrameRate,
+                (string[])source.jointNames.Clone(),
+                (int[])source.jointParents.Clone(),
+                roots,
+                rotations,
+                source.rootJointIndex);
+            return true;
+        }
+
+        private static bool SameRig(KimodoRawMotionData a, KimodoRawMotionData b)
+        {
+            if (a.jointNames.Length != b.jointNames.Length || a.jointParents.Length != b.jointParents.Length)
+            {
+                return false;
+            }
+            for (int i = 0; i < a.jointNames.Length; i++)
+            {
+                if (!string.Equals(a.jointNames[i], b.jointNames[i], StringComparison.Ordinal) ||
+                    a.jointParents[i] != b.jointParents[i])
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         public static bool TryParseFlatBuffer(byte[] motionBytes, out KimodoRawMotionData motion, out string error)
         {
             motion = null;

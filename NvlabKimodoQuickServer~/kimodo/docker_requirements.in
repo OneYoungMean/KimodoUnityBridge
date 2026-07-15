@@ -15,15 +15,18 @@ omegaconf>=2.3
 
 # Core numerics
 numpy>=1.23,<2
-scipy>=1.10,<2
+scipy>=1.10,<1.15
 
 # Model / embeddings
-# NOTE: `kimodo/model/llm2vec` is has only been tested with transformers==5.1.0
-transformers==5.1.0
+# Shared ARDY/Kimodo runtime version; both smoke tests gate upgrades.
+transformers==5.8.1
 urllib3>=2.6.3
 boto3
-peft>=0.12
+peft>=0.19
 einops>=0.7
+vector-quantize-pytorch>=1.25,<1.26
+huggingface_hub>=1.0
+safetensors>=0.4
 
 # Misc
 tqdm>=4.0
@@ -33,7 +36,7 @@ pydantic>=2.0
 # UI / client
 filelock>=3.20.3
 gradio>=6.8.0
-gradio_client>=1.0
+gradio_client>=2.0
 
 # Visualization
 trimesh>=3.21.7
@@ -41,9 +44,6 @@ scenepic>=1.1.0
 pillow>=9.0
 av>=16.1.0
 
-py-soma-x @ git+https://github.com/NVlabs/SOMA-X.git
-
-# Local packages (editable installs for viser and kimodo; MotionCorrection non-editable)
+# Local packages (Kimodo editable; MotionCorrection non-editable)
 ./MotionCorrection
 -e .
--e ./kimodo-viser

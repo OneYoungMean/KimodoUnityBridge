@@ -77,6 +77,24 @@ class RuntimeHints:
     normalized_device: str | None
 
 
+@dataclass(frozen=True)
+class MotionModelProfile:
+    model_name: str
+    modelscope_repo: str
+    backend: str
+    source_fps: float
+    horizon_frames: int
+    frames_per_token: int
+    max_context_frames: int
+    rig_profile: str
+    max_diffusion_steps: int
+    cfg_text_weight: float
+    cfg_constraint_weight: float
+    motion_rep_fingerprint: str
+    postprocess: bool
+    aliases: tuple[str, ...] = ()
+
+
 class DownloadSite(str, Enum):
     MODELSCOPE = "modelscope"
     HUGGINGFACE = "huggingface"
@@ -171,6 +189,29 @@ def _build_main_model_registry() -> dict[str, MainModelSpec]:
 
 MAIN_MODEL_REGISTRY = _build_main_model_registry()
 
+ARDY_G1_PROFILE = MotionModelProfile(
+    model_name="ARDY-G1-RP-25FPS-Horizon52",
+    modelscope_repo="nv-community/ARDY-G1-RP-25FPS-Horizon52",
+    backend="ardy",
+    source_fps=25.0,
+    horizon_frames=52,
+    frames_per_token=4,
+    max_context_frames=248,
+    rig_profile="g1skel34",
+    max_diffusion_steps=10,
+    cfg_text_weight=2.0,
+    cfg_constraint_weight=2.0,
+    motion_rep_fingerprint="ardy-g1-rp-25fps-h52:nfpt4:motionrep-v1",
+    postprocess=False,
+    aliases=("ardy-g1", "ardy-g152"),
+)
+MOTION_MODEL_PROFILES: tuple[MotionModelProfile, ...] = (ARDY_G1_PROFILE,)
+MOTION_MODEL_PROFILE_REGISTRY = {
+    key.lower(): profile
+    for profile in MOTION_MODEL_PROFILES
+    for key in (profile.model_name, *profile.aliases)
+}
+
 INT8_ASSET = AssetSpec(
     label="INT8 text encoder",
     local_dir_name=INT8_LOCAL_DIR,
@@ -258,6 +299,10 @@ def resolve_main_model(requested_name: str | None) -> ResolvedModel:
             huggingface_repo=f"nvidia/{raw_name}",
         )
     raise ValueError(f"Unsupported model alias: {raw_name}")
+
+
+def resolve_motion_model_profile(requested_name: str | None) -> MotionModelProfile | None:
+    return MOTION_MODEL_PROFILE_REGISTRY.get(str(requested_name or "").strip().lower())
 
 
 def assert_no_legacy_gguf_env() -> None:

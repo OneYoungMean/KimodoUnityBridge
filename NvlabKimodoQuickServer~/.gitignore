@@ -3,6 +3,7 @@
 /Env~/
 /test_runs/
 /download_probe_runs/
+/archive/
 
 # Local offline model assets (do not commit)
 /models/*

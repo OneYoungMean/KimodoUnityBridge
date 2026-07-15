@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 namespace KimodoBridge.Editor
 {
@@ -23,5 +24,9 @@ namespace KimodoBridge.Editor
         public string MotionJsonCompact;
         public AnimationClip GeneratedClip;
         public AnimationClip RawBoneClip;
+        public string ArdyMotionCachePath;
+        public List<string> ArdyClipHandles;
+        public string ArdyMotionRepFingerprint;
+        public List<int> ArdyResolvedSeeds;
     }
 }
