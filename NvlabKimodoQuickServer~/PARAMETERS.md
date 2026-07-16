@@ -44,9 +44,9 @@ INT8 资产说明：
 - `run_server.bat setup` / `run_server.sh setup` 都是同一条 Python 入口的子命令，用于单独执行 setup。
 - `serverport` 仅由当前 TCP supervisor 写入；Unity 侧只读取 `serverport` 并建立 TCP 连接，不再做独立 ping 探活。
 - `KIMODO_BRIDGE_OUTPUT_FORMAT=bvh` 是给直接消费 QuickServer TCP 返回值的外部客户端使用的。现有 Unity 客户端仍然依赖 `motion_json_compact`，不应在 Unity 这条链路上开启。
-- QuickServer TCP 现在以任务 id 作为协议真相：`generate` 可选传 `task_id` / `id`，未传时会在入队前自动补齐。
-- 同一任务的所有中间态和终态响应都会回传同一个 `task_id` 与 `id`；终态固定为 `done / error / cancelled`。
-- `cancel` 支持显式 `task_id` / `id`；若未传，则命中队列中的第一个可取消任务，并在响应里回传解析后的任务 id。
+- QuickServer TCP 现在以 `task_id` 作为协议真相：`generate` 可选传 `task_id`，未传时会在入队前自动补齐。
+- 同一任务的所有中间态和终态响应都会回传同一个 `task_id`；终态固定为 `done / error / cancelled`。
+- `cancel` 支持显式 `task_id`；若未传，则命中队列中的第一个可取消任务，并在响应里回传解析后的 `task_id`。
 - 同一条 TCP 连接可以连续发送多个 `generate / cancel / quit` 命令，不要求每个 generate 独占一条连接生命周期。
 
 已移除变量：

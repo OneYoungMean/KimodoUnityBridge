@@ -129,6 +129,9 @@ namespace KimodoBridge.Editor
             string fileName;
             switch (rigType)
             {
+                case KimodoConstraintRigType.Core27:
+                    fileName = "SOMA_cskel27.fbx";
+                    break;
                 case KimodoConstraintRigType.Smplx:
                     fileName = "SMPLX.fbx";
                     break;

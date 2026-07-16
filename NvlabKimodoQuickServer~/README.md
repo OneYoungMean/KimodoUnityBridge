@@ -12,7 +12,7 @@
 
 ## Requirements
 - Windows 10/11 x64
-- Model root available (recommended): `C:\nvlab\models~`
+- Models are downloaded into the local `models\` directory by default. Use `--models-root` only when a test or shared cache needs an override.
 - `uv` is required. `run_server.bat` / `run_server.sh` can download an unmanaged local `uv` binary into `program\exe\uv\` on first launch if missing. Its package cache still uses uv's normal global cache location.
 
 ## Install
@@ -36,13 +36,13 @@ cd /mnt/c/nvlab/NvlabKimodoQuickServer1
 ## Example
 ```bat
 cd /d C:\nvlab\NvlabKimodoQuickServer1
-run_server.bat --model Kimodo-SOMA-RP-v1 --models-root C:\nvlab\models~ --output console
+run_server.bat --model Kimodo-SOMA-RP-v1 --output console
 ```
 
 Linux:
 ```bash
 cd /mnt/c/nvlab/NvlabKimodoQuickServer1
-./run_server.sh --model Kimodo-SOMA-RP-v1 --models-root /mnt/c/nvlab/models~ --output console
+./run_server.sh --model Kimodo-SOMA-RP-v1 --output console
 ```
 
 Low-VRAM runs now default to the local Torch CPU INT8 text encoder asset under `models\KIMODO-Meta3_llm2vec_INT8`.
@@ -58,10 +58,10 @@ example\example_run_server_tpose_console_live.bat
 ```
 
 ## TCP protocol notes
-- `generate` accepts optional `task_id` / `id`. If omitted, QuickServer assigns a stable task id before queueing.
-- Once a task id is assigned, every response for that task carries the same `task_id` and `id`.
+- `generate` accepts optional `task_id`. If omitted, QuickServer assigns a stable task id before queueing.
+- Once a task id is assigned, every response for that task carries the same `task_id`.
 - A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.
-- `cancel` accepts an optional `task_id` / `id`. If omitted, QuickServer cancels the first cancellable queued task and returns the resolved task id.
+- `cancel` accepts an optional `task_id`. If omitted, QuickServer cancels the first cancellable queued task and returns the resolved task id.
 - FlatBuffer responses still use `byte_length` followed immediately by the binary payload for that same task.
 
 ## Parameters

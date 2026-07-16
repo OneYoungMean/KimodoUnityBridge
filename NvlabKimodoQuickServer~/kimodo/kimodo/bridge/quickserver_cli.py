@@ -332,9 +332,49 @@ def _ensure_runtime(
 
     motion_profile = assets.resolve_motion_model_profile(config["model"])
     if motion_profile is not None and motion_profile.backend == "ardy":
+        models_root, _ = assets.resolve_models_root(kimodo_root, config["models_root"])
+        encoder_route = assets.choose_prepare_encoder_route(
+            config["highvram"],
+            assets.normalize_runtime_hints(runtime_profile.runtime_device),
+            total_vram_gb=runtime_profile.total_vram_gb,
+        )
+        encoder_layout = assets.select_text_encoder_layout_for_route(encoder_route, models_root)
+        source_root = Path(kimodo_root).resolve() / "kimodo"
+        if not (source_root / "pyproject.toml").is_file():
+            source_root = Path(kimodo_root).resolve()
+        assets.scrub_removed_runtime_env(os.environ)
+        os.environ.update(
+            assets.build_runtime_env(
+                root_dir=kimodo_root,
+                source_root=source_root,
+                models_root=models_root,
+                highvram=config["highvram"],
+                hints=assets.normalize_runtime_hints(runtime_profile.runtime_device),
+                encoder_route=encoder_route,
+                encoder_layout_id=encoder_layout.layout_id,
+            )
+        )
+        download_counter = [0]
+        recovery_flag_dir = Path(kimodo_root).resolve() / "archive" / "recovery_flags"
+        force_download_site = assets.DownloadSite.HUGGINGFACE if config["force_hf_download"] else None
+        for encoder_asset in encoder_layout.download_assets:
+            assets.ensure_asset_present(
+                encoder_asset,
+                models_root / encoder_asset.local_dir_name,
+                logger,
+                recovery_flag_dir,
+                download_counter,
+                force_site=force_download_site,
+            )
+        logger.log(
+            f"[INFO] ARDY reusing Kimodo text encoder: route={encoder_route} "
+            f"layout={encoder_layout.layout_id} models_root={models_root} downloads={download_counter[0]}"
+        )
+        runtime_config = dict(config)
+        runtime_config["models_root"] = str(models_root)
         model = ardy_backend.load_runtime(
             motion_profile,
-            config,
+            runtime_config,
             kimodo_root,
             runtime_profile.runtime_device,
         )
@@ -474,7 +514,6 @@ def _attach_task_id(payload: dict[str, Any], task_id: str) -> dict[str, Any]:
     normalized_task_id = str(task_id or "").strip()
     if normalized_task_id:
         result["task_id"] = normalized_task_id
-        result["id"] = normalized_task_id
     return result
 
 
@@ -818,7 +857,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     if cmd == "generate":
                         task_id = resolve_request_task_id(request)
                         request["task_id"] = task_id
-                        request["id"] = task_id
 
                         with queue_changed:
                             active_config = _normalize_runtime_config(request, state.get("default_config") or {})

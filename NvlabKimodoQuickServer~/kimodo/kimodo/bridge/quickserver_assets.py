@@ -189,6 +189,22 @@ def _build_main_model_registry() -> dict[str, MainModelSpec]:
 
 MAIN_MODEL_REGISTRY = _build_main_model_registry()
 
+ARDY_CORE_PROFILE = MotionModelProfile(
+    model_name="ARDY-Core-RP-20FPS-Horizon40",
+    modelscope_repo="nv-community/ARDY-Core-RP-20FPS-Horizon40",
+    backend="ardy",
+    source_fps=20.0,
+    horizon_frames=40,
+    frames_per_token=4,
+    max_context_frames=200,
+    rig_profile="cskel27",
+    max_diffusion_steps=10,
+    cfg_text_weight=2.0,
+    cfg_constraint_weight=2.0,
+    motion_rep_fingerprint="ardy-core-rp-20fps-h40:nfpt4:motionrep-v1",
+    postprocess=True,
+    aliases=("ardy-core", "ardy-core40"),
+)
 ARDY_G1_PROFILE = MotionModelProfile(
     model_name="ARDY-G1-RP-25FPS-Horizon52",
     modelscope_repo="nv-community/ARDY-G1-RP-25FPS-Horizon52",
@@ -205,7 +221,7 @@ ARDY_G1_PROFILE = MotionModelProfile(
     postprocess=False,
     aliases=("ardy-g1", "ardy-g152"),
 )
-MOTION_MODEL_PROFILES: tuple[MotionModelProfile, ...] = (ARDY_G1_PROFILE,)
+MOTION_MODEL_PROFILES: tuple[MotionModelProfile, ...] = (ARDY_CORE_PROFILE, ARDY_G1_PROFILE)
 MOTION_MODEL_PROFILE_REGISTRY = {
     key.lower(): profile
     for profile in MOTION_MODEL_PROFILES

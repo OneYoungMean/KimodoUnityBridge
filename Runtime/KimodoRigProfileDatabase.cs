@@ -57,6 +57,24 @@ namespace KimodoBridge
             17, 26, 27, 28, 29, 30, 31, 32
         };
 
+        private static readonly string[] Core27Names =
+        {
+            "Hips", "Spine", "Spine1", "Spine2", "Spine3", "Neck", "Head",
+            "RightShoulder", "RightArm", "RightForeArm", "RightHand", "RightHandEnd", "RightHandThumb1",
+            "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand", "LeftHandEnd", "LeftHandThumb1",
+            "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase",
+            "LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase"
+        };
+
+        private static readonly int[] Core27Parents =
+        {
+            -1, 0, 1, 2, 3, 4, 5,
+            4, 7, 8, 9, 10, 10,
+            4, 13, 14, 15, 16, 16,
+            0, 19, 20, 21,
+            0, 23, 24, 25
+        };
+
         private static readonly string[] Smplx22Names =
         {
             "pelvis",
@@ -88,6 +106,11 @@ namespace KimodoBridge
             string normalized = string.IsNullOrWhiteSpace(modelName)
                 ? string.Empty
                 : modelName.Trim().ToLowerInvariant();
+            if (normalized.Contains("ardy-core") || normalized.Contains("cskel27"))
+            {
+                return KimodoConstraintRigType.Core27;
+            }
+
             if (normalized.Contains("g1"))
             {
                 return KimodoConstraintRigType.G1;
@@ -128,6 +151,10 @@ namespace KimodoBridge
             rigType = ResolveRigTypeFromModelName(modelName);
             switch (rigType)
             {
+                case KimodoConstraintRigType.Core27:
+                    jointNames = Core27Names;
+                    parentIndices = Core27Parents;
+                    return;
                 case KimodoConstraintRigType.G1:
                     jointNames = G1Skel34Names;
                     parentIndices = G1Skel34Parents;

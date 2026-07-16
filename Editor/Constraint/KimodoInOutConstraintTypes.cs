@@ -39,6 +39,7 @@ namespace KimodoBridge.Editor
         public int GenerationFrames = 1;
         public bool NormalizeConstraintOrigin;
         public bool IsLoop;
+        public KimodoTimelineInOutConstraintContext TimelineContext;
         public List<KimodoMarkerSampleResult> ManualSamples = new List<KimodoMarkerSampleResult>();
     }
 

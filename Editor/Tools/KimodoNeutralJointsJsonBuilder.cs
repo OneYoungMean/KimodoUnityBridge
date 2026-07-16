@@ -46,7 +46,7 @@ namespace KimodoUnityMotionTools.ProjectEditor
             public Transform Segment;
         }
 
-        [MenuItem("Kimodo/Build Skeleton From Neutral Joints JSON")]
+        //[MenuItem("Kimodo/Build Skeleton From Neutral Joints JSON")]
         private static void BuildFromSelectedJson()
         {
             TextAsset textAsset = Selection.activeObject as TextAsset;

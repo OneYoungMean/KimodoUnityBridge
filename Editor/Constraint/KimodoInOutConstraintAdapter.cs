@@ -374,13 +374,13 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                if (clip.end <= sourceClip.start &&
-                    (previousClip == null || clip.end > previousClip.end))
+                if (clip.start < sourceClip.start &&
+                    (previousClip == null || clip.start > previousClip.start))
                 {
                     previousClip = clip;
                 }
 
-                if (clip.start >= sourceClip.end &&
+                if (clip.start > sourceClip.start &&
                     (nextClip == null || clip.start < nextClip.start))
                 {
                     nextClip = clip;
@@ -457,9 +457,14 @@ namespace KimodoBridge.Editor
                 case KimodoInOutConstraintMode.Outside:
                     beginSegment = BuildSegment(context.PreviousClip, context.PreviousTimelineClip);
                     endSegment = BuildSegment(context.NextClip, context.NextTimelineClip);
-                    enableBegin = beginSegment != null;
-                    enableEnd = endSegment != null;
+                    enableBegin = context.PreviousTimelineClip != null;
+                    enableEnd = context.NextTimelineClip != null;
                     break;
+            }
+
+            if (KimodoMotionModelProfiles.TryGetArdy(context.ModelName, out _))
+            {
+                enableBegin = false;
             }
 
             if (!enableBegin && !enableEnd && !hasManualSamples)
@@ -480,6 +485,7 @@ namespace KimodoBridge.Editor
                 // Normalize against the first available first-frame constraint anchor.
                 NormalizeConstraintOrigin = normalizeConstraintOrigin,
                 IsLoop = false,
+                TimelineContext = context,
                 ManualSamples = KimodoInOutConstraintTools.BuildLocalManualSamples(
                     manualSamples,
                     context.SourceClip != null ? context.SourceClip.start : 0.0)

@@ -25,6 +25,11 @@ namespace KimodoBridge
                 return "G1Avatar";
             }
 
+            if (normalized.Contains("ardy-core") || normalized.Contains("cskel27"))
+            {
+                return "SOMA_cskel27Avatar";
+            }
+
             return "SOMAAvatar";
         }
 

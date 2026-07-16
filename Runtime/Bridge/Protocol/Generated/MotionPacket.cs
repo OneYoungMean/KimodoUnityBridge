@@ -55,6 +55,14 @@ public struct MotionPacket : IFlatbufferObject
   public ArraySegment<byte>? GetModelNameBytes() { return __p.__vector_as_arraysegment(20); }
 #endif
   public byte[] GetModelNameArray() { return __p.__vector_as_array<byte>(20); }
+  public byte FootContacts(int j) { int o = __p.__offset(22); return o != 0 ? __p.bb.Get(__p.__vector(o) + j * 1) : (byte)0; }
+  public int FootContactsLength { get { int o = __p.__offset(22); return o != 0 ? __p.__vector_len(o) : 0; } }
+#if ENABLE_SPAN_T
+  public Span<byte> GetFootContactsBytes() { return __p.__vector_as_span<byte>(22, 1); }
+#else
+  public ArraySegment<byte>? GetFootContactsBytes() { return __p.__vector_as_arraysegment(22); }
+#endif
+  public byte[] GetFootContactsArray() { return __p.__vector_as_array<byte>(22); }
 
   public static Offset<MotionPacket> CreateMotionPacket(FlatBufferBuilder builder,
       uint version = 1,
@@ -65,8 +73,10 @@ public struct MotionPacket : IFlatbufferObject
       VectorOffset joint_parentsOffset = default(VectorOffset),
       VectorOffset root_positionsOffset = default(VectorOffset),
       VectorOffset local_rot_quatsOffset = default(VectorOffset),
-      StringOffset model_nameOffset = default(StringOffset)) {
-    builder.StartTable(9);
+      StringOffset model_nameOffset = default(StringOffset),
+      VectorOffset foot_contactsOffset = default(VectorOffset)) {
+    builder.StartTable(10);
+    MotionPacket.AddFootContacts(builder, foot_contactsOffset);
     MotionPacket.AddModelName(builder, model_nameOffset);
     MotionPacket.AddLocalRotQuats(builder, local_rot_quatsOffset);
     MotionPacket.AddRootPositions(builder, root_positionsOffset);
@@ -79,7 +89,7 @@ public struct MotionPacket : IFlatbufferObject
     return MotionPacket.EndMotionPacket(builder);
   }
 
-  public static void StartMotionPacket(FlatBufferBuilder builder) { builder.StartTable(9); }
+  public static void StartMotionPacket(FlatBufferBuilder builder) { builder.StartTable(10); }
   public static void AddVersion(FlatBufferBuilder builder, uint version) { builder.AddUint(0, version, 1); }
   public static void AddFps(FlatBufferBuilder builder, float fps) { builder.AddFloat(1, fps, 0.0f); }
   public static void AddNumFrames(FlatBufferBuilder builder, uint numFrames) { builder.AddUint(2, numFrames, 0); }
@@ -109,6 +119,12 @@ public struct MotionPacket : IFlatbufferObject
   public static VectorOffset CreateLocalRotQuatsVectorBlock(FlatBufferBuilder builder, IntPtr dataPtr, int sizeInBytes) { builder.StartVector(1, sizeInBytes, 1); builder.Add<float>(dataPtr, sizeInBytes); return builder.EndVector(); }
   public static void StartLocalRotQuatsVector(FlatBufferBuilder builder, int numElems) { builder.StartVector(4, numElems, 4); }
   public static void AddModelName(FlatBufferBuilder builder, StringOffset modelNameOffset) { builder.AddOffset(8, modelNameOffset.Value, 0); }
+  public static void AddFootContacts(FlatBufferBuilder builder, VectorOffset footContactsOffset) { builder.AddOffset(9, footContactsOffset.Value, 0); }
+  public static VectorOffset CreateFootContactsVector(FlatBufferBuilder builder, byte[] data) { builder.StartVector(1, data.Length, 1); for (int i = data.Length - 1; i >= 0; i--) builder.AddByte(data[i]); return builder.EndVector(); }
+  public static VectorOffset CreateFootContactsVectorBlock(FlatBufferBuilder builder, byte[] data) { builder.StartVector(1, data.Length, 1); builder.Add(data); return builder.EndVector(); }
+  public static VectorOffset CreateFootContactsVectorBlock(FlatBufferBuilder builder, ArraySegment<byte> data) { builder.StartVector(1, data.Count, 1); builder.Add(data); return builder.EndVector(); }
+  public static VectorOffset CreateFootContactsVectorBlock(FlatBufferBuilder builder, IntPtr dataPtr, int sizeInBytes) { builder.StartVector(1, sizeInBytes, 1); builder.Add<byte>(dataPtr, sizeInBytes); return builder.EndVector(); }
+  public static void StartFootContactsVector(FlatBufferBuilder builder, int numElems) { builder.StartVector(1, numElems, 1); }
   public static Offset<MotionPacket> EndMotionPacket(FlatBufferBuilder builder) {
     int o = builder.EndTable();
     return new Offset<MotionPacket>(o);
@@ -132,6 +148,7 @@ static public class MotionPacketVerify
       && verifier.VerifyVectorOfData(tablePos, 16 /*RootPositions*/, 4 /*float*/, false)
       && verifier.VerifyVectorOfData(tablePos, 18 /*LocalRotQuats*/, 4 /*float*/, false)
       && verifier.VerifyString(tablePos, 20 /*ModelName*/, false)
+      && verifier.VerifyVectorOfData(tablePos, 22 /*FootContacts*/, 1 /*byte*/, false)
       && verifier.VerifyTableEnd(tablePos);
   }
 }

@@ -21,6 +21,7 @@ namespace KimodoBridge.Editor
             public int[] joint_parents;
             public List<List<List<float>>> positions;
             public List<float> local_rot_quats;
+            public List<float> foot_contacts;
         }
 
         public static bool BakeIntoClip(
@@ -86,6 +87,7 @@ namespace KimodoBridge.Editor
             };
 
             BakeMotionCurvesDirect(rawClip, data, fps, frameCount, ResolveProfileAvatarForBake(modelName));
+            KimodoFootContactTrackUtility.Apply(rawClip, data.foot_contacts, frameCount, fps);
             KimodoEditorClipUtility.CopyClipData(rawClip, targetClip, forceNoLoopKeepY: true);
             UnityEngine.Object.DestroyImmediate(rawClip);
 
@@ -1020,6 +1022,11 @@ namespace KimodoBridge.Editor
                         py.AddKey(t, p.y);
                         pz.AddKey(t, p.z);
                     }
+                    Vector3 heldPosition = ReadPos(data, frameCount - 1, joint);
+                    float coverageEnd = frameCount / fps;
+                    px.AddKey(coverageEnd, heldPosition.x);
+                    py.AddKey(coverageEnd, heldPosition.y);
+                    pz.AddKey(coverageEnd, heldPosition.z);
 
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalPosition.x", px);
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalPosition.y", py);
@@ -1042,6 +1049,12 @@ namespace KimodoBridge.Editor
                         qz.AddKey(t, q.z);
                         qw.AddKey(t, q.w);
                     }
+                    Quaternion heldRotation = ReadLocalQuat(data, frameCount - 1, joint, rotJointCount);
+                    float coverageEnd = frameCount / fps;
+                    qx.AddKey(coverageEnd, heldRotation.x);
+                    qy.AddKey(coverageEnd, heldRotation.y);
+                    qz.AddKey(coverageEnd, heldRotation.z);
+                    qw.AddKey(coverageEnd, heldRotation.w);
 
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalRotation.x", qx);
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalRotation.y", qy);

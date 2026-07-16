@@ -144,7 +144,6 @@ var request = new KimodoGenerationRequestDto
     duration = 5f,
     steps = 100,
     seed = null,            // null 表示随机种子
-    loop_hint = true,
     constraints_json = ""   // 可选：首尾约束 JSON
 };
 KimodoGenerationResultDto result =

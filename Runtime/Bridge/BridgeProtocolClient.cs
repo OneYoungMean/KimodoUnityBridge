@@ -143,7 +143,6 @@ namespace KimodoBridge
             {
                 ["cmd"] = "generate",
                 ["task_id"] = taskId,
-                ["id"] = taskId,
                 ["prompt"] = request.prompt ?? string.Empty,
                 ["duration"] = request.duration,
                 ["output_format"] = "flatbuf_motion_v1",
@@ -151,8 +150,6 @@ namespace KimodoBridge
                 ["constraints_json"] = request.constraints_json ?? string.Empty
             };
             payload["seed"] = request.seed.HasValue ? request.seed.Value : null;
-            payload["loop_hint"] = request.loop_hint;
-            payload["segment_index"] = request.segment_index;
             payload["transition_duration"] = request.transition_duration;
             payload["model"] = string.IsNullOrWhiteSpace(request.model) ? null : request.model;
             payload["highvram"] = request.highvram;
@@ -244,8 +241,7 @@ namespace KimodoBridge
                     new JObject
                     {
                         ["cmd"] = "cancel",
-                        ["task_id"] = taskId,
-                        ["id"] = taskId
+                        ["task_id"] = taskId
                     },
                     token).ConfigureAwait(false);
                 return true;

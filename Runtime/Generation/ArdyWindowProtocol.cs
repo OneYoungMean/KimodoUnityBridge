@@ -18,12 +18,27 @@ namespace KimodoBridge
         internal int MaxDiffusionSteps;
         internal string MotionRepFingerprint;
 
-        internal int MaxHistoryHandles => Mathf.Max(0, (MaxContextFrames - HorizonFrames) / HorizonFrames);
+        internal int MaxHistoryHandles => Mathf.Max(
+            0,
+            Mathf.CeilToInt((MaxContextFrames - HorizonFrames) / (float)HorizonFrames));
     }
 
     internal static class KimodoMotionModelProfiles
     {
+        internal const string ArdyCoreModelName = "ARDY-Core-RP-20FPS-Horizon40";
         internal const string ArdyG1ModelName = "ARDY-G1-RP-25FPS-Horizon52";
+
+        private static readonly KimodoMotionModelProfile ArdyCore = new KimodoMotionModelProfile
+        {
+            ModelName = ArdyCoreModelName,
+            SourceFps = 20f,
+            HorizonFrames = 40,
+            FramesPerToken = 4,
+            MaxContextFrames = 200,
+            JointCount = 27,
+            MaxDiffusionSteps = 10,
+            MotionRepFingerprint = "ardy-core-rp-20fps-h40:nfpt4:motionrep-v1"
+        };
 
         private static readonly KimodoMotionModelProfile ArdyG1 = new KimodoMotionModelProfile
         {
@@ -40,6 +55,14 @@ namespace KimodoBridge
         internal static bool TryGetArdy(string modelName, out KimodoMotionModelProfile profile)
         {
             string normalized = (modelName ?? string.Empty).Trim();
+            if (string.Equals(normalized, ArdyCoreModelName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "ardy-core", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "ardy-core40", StringComparison.OrdinalIgnoreCase))
+            {
+                profile = ArdyCore;
+                return true;
+            }
+
             if (string.Equals(normalized, ArdyG1ModelName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(normalized, "ardy-g1", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(normalized, "ardy-g152", StringComparison.OrdinalIgnoreCase))
@@ -101,11 +124,23 @@ namespace KimodoBridge
                         continue;
                     }
 
+                    string fullPath = Path.GetFullPath(path.Trim());
+                    if (!KimodoRawMotionUtility.TryParseFlatBuffer(
+                            File.ReadAllBytes(fullPath),
+                            out KimodoRawMotionData motion,
+                            out string error))
+                    {
+                        throw new InvalidOperationException($"Invalid ARDY file history '{fullPath}': {error}");
+                    }
+
                     output.Add(new JObject
                     {
                         ["type"] = "clip",
                         ["format"] = "ardy_file_v1",
-                        ["path"] = Path.GetFullPath(path.Trim())
+                        ["path"] = fullPath,
+                        ["start_frame"] = 0,
+                        ["end_frame_exclusive"] = motion.FrameCount,
+                        ["duration_seconds"] = motion.DurationSeconds
                     });
                 }
             }

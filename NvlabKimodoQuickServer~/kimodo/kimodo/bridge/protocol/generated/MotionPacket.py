@@ -164,8 +164,35 @@ class MotionPacket(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
+    # MotionPacket
+    def FootContacts(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+        return 0
+
+    # MotionPacket
+    def FootContactsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint8Flags, o)
+        return 0
+
+    # MotionPacket
+    def FootContactsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # MotionPacket
+    def FootContactsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
+        return o == 0
+
 def MotionPacketStart(builder):
-    builder.StartObject(9)
+    builder.StartObject(10)
 
 def Start(builder):
     MotionPacketStart(builder)
@@ -206,6 +233,12 @@ def MotionPacketStartJointNamesVector(builder, numElems):
 def StartJointNamesVector(builder, numElems):
     return MotionPacketStartJointNamesVector(builder, numElems)
 
+def MotionPacketCreateJointNamesVector(builder, data):
+    return builder.CreateVectorOfTables(data)
+
+def CreateJointNamesVector(builder, data):
+    MotionPacketCreateJointNamesVector(builder, data)
+
 def MotionPacketAddJointParents(builder, jointParents):
     builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(jointParents), 0)
 
@@ -217,6 +250,16 @@ def MotionPacketStartJointParentsVector(builder, numElems):
 
 def StartJointParentsVector(builder, numElems):
     return MotionPacketStartJointParentsVector(builder, numElems)
+
+def MotionPacketCreateJointParentsVector(builder, data):
+    data = list(data)
+    builder.StartVector(4, len(data), 4)
+    for item in reversed(data):
+        builder.PrependInt32(item)
+    return builder.EndVector()
+
+def CreateJointParentsVector(builder, data):
+    MotionPacketCreateJointParentsVector(builder, data)
 
 def MotionPacketAddRootPositions(builder, rootPositions):
     builder.PrependUOffsetTRelativeSlot(6, flatbuffers.number_types.UOffsetTFlags.py_type(rootPositions), 0)
@@ -230,6 +273,16 @@ def MotionPacketStartRootPositionsVector(builder, numElems):
 def StartRootPositionsVector(builder, numElems):
     return MotionPacketStartRootPositionsVector(builder, numElems)
 
+def MotionPacketCreateRootPositionsVector(builder, data):
+    data = list(data)
+    builder.StartVector(4, len(data), 4)
+    for item in reversed(data):
+        builder.PrependFloat32(item)
+    return builder.EndVector()
+
+def CreateRootPositionsVector(builder, data):
+    MotionPacketCreateRootPositionsVector(builder, data)
+
 def MotionPacketAddLocalRotQuats(builder, localRotQuats):
     builder.PrependUOffsetTRelativeSlot(7, flatbuffers.number_types.UOffsetTFlags.py_type(localRotQuats), 0)
 
@@ -242,11 +295,43 @@ def MotionPacketStartLocalRotQuatsVector(builder, numElems):
 def StartLocalRotQuatsVector(builder, numElems):
     return MotionPacketStartLocalRotQuatsVector(builder, numElems)
 
+def MotionPacketCreateLocalRotQuatsVector(builder, data):
+    data = list(data)
+    builder.StartVector(4, len(data), 4)
+    for item in reversed(data):
+        builder.PrependFloat32(item)
+    return builder.EndVector()
+
+def CreateLocalRotQuatsVector(builder, data):
+    MotionPacketCreateLocalRotQuatsVector(builder, data)
+
 def MotionPacketAddModelName(builder, modelName):
     builder.PrependUOffsetTRelativeSlot(8, flatbuffers.number_types.UOffsetTFlags.py_type(modelName), 0)
 
 def AddModelName(builder, modelName):
     MotionPacketAddModelName(builder, modelName)
+
+def MotionPacketAddFootContacts(builder, footContacts):
+    builder.PrependUOffsetTRelativeSlot(9, flatbuffers.number_types.UOffsetTFlags.py_type(footContacts), 0)
+
+def AddFootContacts(builder, footContacts):
+    MotionPacketAddFootContacts(builder, footContacts)
+
+def MotionPacketStartFootContactsVector(builder, numElems):
+    return builder.StartVector(1, numElems, 1)
+
+def StartFootContactsVector(builder, numElems):
+    return MotionPacketStartFootContactsVector(builder, numElems)
+
+def MotionPacketCreateFootContactsVector(builder, data):
+    data = list(data)
+    builder.StartVector(1, len(data), 1)
+    for item in reversed(data):
+        builder.PrependUint8(item)
+    return builder.EndVector()
+
+def CreateFootContactsVector(builder, data):
+    MotionPacketCreateFootContactsVector(builder, data)
 
 def MotionPacketEnd(builder):
     return builder.EndObject()

@@ -539,8 +539,6 @@ namespace KimodoBridge
                     seed = resolvedRequestSeed,
                     steps = Mathf.Clamp(diffusionSteps, 1, isArdy ? ardyProfile.MaxDiffusionSteps : 1000),
                     constraints_json = constraintsJson,
-                    loop_hint = loopHint,
-                    segment_index = requestSegmentIndex,
                     transition_duration = 0f,
                     model = modelName,
                     highvram = highVram,
@@ -583,9 +581,11 @@ namespace KimodoBridge
                     return parsedMetadata;
                 }, generationToken);
 
-                int effectiveLastFrameIndex = KimodoRuntimeSegmentAnalysisUtility.ResolveEffectiveLastFrameIndex(
-                    metadata.Motion,
-                    segmentTrimTrailSettings);
+                int effectiveLastFrameIndex = isArdy
+                    ? metadata.Motion.FrameCount - 1
+                    : KimodoRuntimeSegmentAnalysisUtility.ResolveEffectiveLastFrameIndex(
+                        metadata.Motion,
+                        segmentTrimTrailSettings);
                 if (!metadata.Motion.TryReadUnityRootPosition(effectiveLastFrameIndex, out Vector3 effectiveLastRootPosition))
                 {
                     throw new InvalidOperationException(

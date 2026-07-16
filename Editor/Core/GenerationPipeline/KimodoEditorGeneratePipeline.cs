@@ -56,9 +56,15 @@ namespace KimodoBridge.Editor
 
             ThrowIfCanceled(request);
             EditorUtility.SetDirty(request.TargetClip);
+            KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
 
             AnimationClip rawBoneClip = CreateRawBoneWritebackClip(request.TargetClip);
             request.RawBoneClip = rawBoneClip;
+            if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
+            {
+                // ponytail: keep native ARDY keys; Unity samples them at the output rate.
+                request.TargetClip.frameRate = KimodoPlayableClip.FIXED_FRAME_RATE;
+            }
             ThrowIfCanceled(request);
             KimodoEditorGenerateOutputPlan outputPlan = ResolveOutputPlan(request, modelName);
             if (outputPlan == null)
@@ -70,6 +76,7 @@ namespace KimodoBridge.Editor
             if (outputPlan.SkipRetarget)
             {
                 TryFilterGeneratedBoneClip(request.TargetClip, outputPlan.TargetRetargetAvatar, outputPlan.CurveFilterOptions);
+                KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
                 KimodoEditorClipWritebackService.FlushWritebackAssets();
                 request.Progress?.Invoke(KimodoBridgeCommandStage.Retarget, "Skipping retarget: binding hierarchy already matches clip bindings.");
                 return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
@@ -96,6 +103,7 @@ namespace KimodoBridge.Editor
             if (outputPlan.ExportMuscleClip)
             {
                 request.TargetClip.EnsureQuaternionContinuity();
+                KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
                 EditorUtility.SetDirty(request.TargetClip);
                 KimodoEditorClipWritebackService.FlushWritebackAssets();
                 return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
@@ -130,6 +138,7 @@ namespace KimodoBridge.Editor
 
             ThrowIfCanceled(request);
             TryFilterGeneratedBoneClip(request.TargetClip, outputPlan.TargetRetargetAvatar, outputPlan.CurveFilterOptions);
+            KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
             KimodoEditorClipWritebackService.FlushWritebackAssets();
             ThrowIfCanceled(request);
 
@@ -160,17 +169,9 @@ namespace KimodoBridge.Editor
             KimodoMotionModelProfile profile)
         {
             var initialFiles = new List<string>();
-            for (int i = 0; i < request.InitialArdyHistoryFilePaths.Count; i++)
+            if (request.InitialArdyHistorySource != null)
             {
-                string path = request.InitialArdyHistoryFilePaths[i];
-                if (!string.IsNullOrWhiteSpace(path) && System.IO.File.Exists(path))
-                {
-                    initialFiles.Add(System.IO.Path.GetFullPath(path));
-                }
-            }
-            if (initialFiles.Count == 0 && request.InitialArdyHistorySource != null)
-            {
-                request.Progress?.Invoke(KimodoBridgeCommandStage.Constraint, "Redirecting Timeline history to ARDY G1 KMB1...");
+                request.Progress?.Invoke(KimodoBridgeCommandStage.Constraint, "Sampling Timeline history to ARDY KMB1...");
                 if (!ArdyEditorHistoryEncoder.TryEncode(
                         request.InitialArdyHistorySource,
                         profile,
@@ -205,12 +206,10 @@ namespace KimodoBridge.Editor
                     profile.ModelName);
                 commandRequest.GenerationRequest.duration = profile.HorizonFrames / profile.SourceFps;
                 commandRequest.GenerationRequest.seed = windowSeed;
-                commandRequest.GenerationRequest.steps = Mathf.Clamp(
-                    request.DiffusionSteps,
-                    1,
-                    profile.MaxDiffusionSteps);
+                commandRequest.GenerationRequest.steps = request.DiffusionSteps <= 0
+                    ? profile.MaxDiffusionSteps
+                    : Mathf.Clamp(request.DiffusionSteps, 1, profile.MaxDiffusionSteps);
                 commandRequest.GenerationRequest.constraints_json = constraintsJson;
-                commandRequest.GenerationRequest.segment_index = windowIndex;
 
                 request.Progress?.Invoke(
                     KimodoBridgeCommandStage.InvokeBackend,
@@ -244,23 +243,10 @@ namespace KimodoBridge.Editor
             byte[] sourcePayload = KimodoRawMotionUtility.ToFlatBuffer(sourceMotion, profile.ModelName);
             request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(sourcePayload, "timeline-final");
 
-            int targetBakeFrames = Mathf.Max(
-                1,
-                Mathf.RoundToInt(request.DurationSeconds * KimodoPlayableClip.FIXED_FRAME_RATE));
-            if (!KimodoRawMotionUtility.TryResample(
-                    sourceMotion,
-                    KimodoPlayableClip.FIXED_FRAME_RATE,
-                    targetBakeFrames,
-                    out KimodoRawMotionData bakeMotion,
-                    out string resampleError))
-            {
-                throw new InvalidOperationException(resampleError);
-            }
-
             return new KimodoBridgeCommandResult
             {
-                MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(bakeMotion),
-                MotionData = bakeMotion,
+                MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(sourceMotion),
+                MotionData = sourceMotion,
                 MotionBytes = sourcePayload,
                 MotionFormat = "flatbuf_motion_v1",
                 Message = "ARDY window generation complete.",

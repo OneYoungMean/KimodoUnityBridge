@@ -403,8 +403,6 @@ namespace KimodoBridge
                     seed = randomSeed ? (int?)null : fixedSeed,
                     steps = Mathf.Max(1, diffusionSteps),
                     constraints_json = constraintsJson,
-                    loop_hint = loopHint,
-                    segment_index = segmentIndex,
                     transition_duration = 0f
                 };
 

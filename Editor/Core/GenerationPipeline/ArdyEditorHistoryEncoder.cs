@@ -6,6 +6,8 @@ namespace KimodoBridge.Editor
 {
     internal static class ArdyEditorHistoryEncoder
     {
+        private const double TimelineBoundaryEpsilonSeconds = 1e-6;
+
         internal static bool TryEncode(
             ArdyEditorHistorySource source,
             KimodoMotionModelProfile profile,
@@ -14,45 +16,24 @@ namespace KimodoBridge.Editor
         {
             cachePath = string.Empty;
             error = string.Empty;
-            if (source?.Clip == null || source.SourceAvatar == null)
+            if (source?.TimelineContext == null || source.RangeEndSeconds <= source.RangeStartSeconds)
             {
-                error = "ARDY history source clip or source avatar is missing.";
+                error = "ARDY Timeline history range is missing or empty.";
                 return false;
             }
-            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+            if (!KimodoTimelinePoseSampler.TryCreate(
+                    source.TimelineContext,
                     profile.ModelName,
-                    out Avatar targetAvatar,
+                    out KimodoTimelinePoseSampler sampler,
                     out error))
             {
                 return false;
             }
-            if (!KimodoRetargetToolsEditor.TryGetOrCreateEditorBoneClip(
-                    source.Clip,
-                    source.SourceAvatar,
-                    targetAvatar,
-                    forceRefresh: false,
-                    out AnimationClip targetClip,
-                    out _,
-                    out error))
-            {
-                return false;
-            }
-
-            SkeletonCache cache = null;
-            KimodoRetargetClipSamplingUtility.ClipSamplingContext context = null;
             try
             {
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
-                        targetAvatar,
-                        "ArdyHistoryEncoder",
-                        out cache,
-                        out error))
-                {
-                    return false;
-                }
                 if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
                         profile.ModelName,
-                        cache.skeletonRoot,
+                        sampler.TargetCache.skeletonRoot,
                         out string[] jointNames,
                         out int[] jointParents,
                         out Transform[] joints,
@@ -60,19 +41,12 @@ namespace KimodoBridge.Editor
                 {
                     return false;
                 }
-                if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
-                        targetClip,
-                        cache,
-                        "ArdyHistoryEncoder",
-                        KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(targetClip),
-                        out context,
-                        out error))
-                {
-                    return false;
-                }
 
-                int maxFrames = profile.MaxHistoryHandles * profile.HorizonFrames;
-                double timelineDuration = Math.Max(0.0, source.TimelineDurationSeconds);
+                int maxFrames = Math.Max(
+                    profile.FramesPerToken,
+                    profile.MaxContextFrames - profile.HorizonFrames);
+                maxFrames -= maxFrames % profile.FramesPerToken;
+                double timelineDuration = source.RangeEndSeconds - source.RangeStartSeconds;
                 int requestedFrames = Math.Max(
                     profile.FramesPerToken,
                     (int)Math.Floor(timelineDuration * profile.SourceFps + 1e-9));
@@ -84,23 +58,31 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                double sampledTimelineDuration = frameCount / profile.SourceFps;
-                double timelineStart = Math.Max(0.0, timelineDuration - sampledTimelineDuration);
-                double timeScale = Math.Max(1e-6, source.TimeScale);
+                int availableFrames = Math.Min(
+                    frameCount,
+                    Math.Max(1, (int)Math.Floor(timelineDuration * profile.SourceFps + 1e-9)));
+                double latestSampleTime = Math.Max(
+                    source.RangeStartSeconds,
+                    source.RangeEndSeconds - TimelineBoundaryEpsilonSeconds);
+                double timelineStart = Math.Max(
+                    source.RangeStartSeconds,
+                    latestSampleTime - (availableFrames - 1) / profile.SourceFps);
                 var rootPositions = new Vector3[frameCount];
                 var rotations = new List<float>(frameCount * jointNames.Length * 4);
+                var footContacts = new byte[frameCount * KimodoFootContactTrackUtility.ChannelCount];
+                bool hasFootContacts = true;
                 for (int frame = 0; frame < frameCount; frame++)
                 {
-                    double timelineTime = timelineStart + frame / profile.SourceFps;
-                    float sampleTime = (float)Math.Min(
-                        targetClip.length,
-                        Math.Max(0.0, source.ClipInSeconds + timelineTime * timeScale));
-                    if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(context, sampleTime, out error))
+                    // ponytail: pad a sub-token Timeline history with its latest sampled pose.
+                    double sampleTime = frame < availableFrames
+                        ? timelineStart + frame / profile.SourceFps
+                        : latestSampleTime;
+                    if (!sampler.TryEvaluate(sampleTime, out error))
                     {
                         return false;
                     }
 
-                    rootPositions[frame] = cache.skeletonRoot.InverseTransformPoint(joints[0].position);
+                    rootPositions[frame] = joints[0].position;
                     for (int joint = 0; joint < joints.Length; joint++)
                     {
                         Quaternion unity = joints[joint] != null ? joints[joint].localRotation.normalized : Quaternion.identity;
@@ -108,6 +90,24 @@ namespace KimodoBridge.Editor
                         rotations.Add(unity.x);
                         rotations.Add(-unity.y);
                         rotations.Add(-unity.z);
+                    }
+
+                    if (hasFootContacts &&
+                        KimodoTimelineFootContactSampler.TrySample(
+                            source.TimelineContext,
+                            sampleTime,
+                            out byte[] sampledContacts))
+                    {
+                        Array.Copy(
+                            sampledContacts,
+                            0,
+                            footContacts,
+                            frame * KimodoFootContactTrackUtility.ChannelCount,
+                            KimodoFootContactTrackUtility.ChannelCount);
+                    }
+                    else
+                    {
+                        hasFootContacts = false;
                     }
                 }
 
@@ -119,9 +119,10 @@ namespace KimodoBridge.Editor
                     jointParents,
                     rootPositions,
                     rotations,
-                    rootJointIndex: 0);
+                    rootJointIndex: 0,
+                    footContacts: hasFootContacts ? footContacts : null);
                 byte[] payload = KimodoRawMotionUtility.ToFlatBuffer(motion, profile.ModelName);
-                cachePath = ArdyUnityMotionCache.Write(payload, "redirected-history");
+                cachePath = ArdyUnityMotionCache.Write(payload, "timeline-history");
                 return true;
             }
             catch (Exception ex)
@@ -131,8 +132,7 @@ namespace KimodoBridge.Editor
             }
             finally
             {
-                KimodoRetargetClipSamplingUtility.DestroyClipSamplingContext(context);
-                cache?.Dispose();
+                sampler.Dispose();
             }
         }
     }

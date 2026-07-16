@@ -12,10 +12,6 @@ namespace KimodoBridge
         public int? seed;
         public int steps;
         public string constraints_json;
-        // Optional hint to backend that this request is for loop/infinite continuation.
-        public bool loop_hint;
-        // Optional segment sequence index for observability on backend side.
-        public int segment_index;
         // Optional desired transition overlap in seconds.
         public float transition_duration;
         // Runtime configuration is sent together with generate under the current bridge protocol.

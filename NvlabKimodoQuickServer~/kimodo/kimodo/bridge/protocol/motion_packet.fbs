@@ -8,6 +8,7 @@ table MotionPacket {
   root_positions:[float];
   local_rot_quats:[float];
   model_name:string;
+  foot_contacts:[ubyte];
 }
 
 root_type MotionPacket;

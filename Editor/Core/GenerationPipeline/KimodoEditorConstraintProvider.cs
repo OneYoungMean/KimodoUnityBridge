@@ -19,7 +19,9 @@ namespace KimodoBridge.Editor
             return BuildConstraintDataOrThrow(clip).ConstraintsJson ?? string.Empty;
         }
 
-        public KimodoInOutConstraintResult BuildConstraintDataOrThrow(KimodoPlayableClip clip)
+        public KimodoInOutConstraintResult BuildConstraintDataOrThrow(
+            KimodoPlayableClip clip,
+            int? generationFramesOverride = null)
         {
             TimelineClip sourceClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
             if (sourceClip == null)
@@ -34,7 +36,7 @@ namespace KimodoBridge.Editor
                 sourceClip,
                 clip.inOutConstraintMode,
                 clip.normalizeConstraintOrigin,
-                clip.generationFrames,
+                generationFramesOverride ?? clip.generationFrames,
                 out KimodoInOutConstraintResult result,
                 out string error);
 

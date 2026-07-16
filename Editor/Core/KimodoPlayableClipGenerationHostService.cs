@@ -1,7 +1,6 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading;
 using TimelineInject;
 using UnityEditor;
@@ -27,12 +26,29 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("Playable clip is null.");
             }
 
+            string resolvedModelName = KimodoPlayableClip.NormalizeBridgeModelName(clip.bridgeModelName);
+            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(
+                resolvedModelName,
+                out KimodoMotionModelProfile ardyProfile);
+            float durationSeconds = Mathf.Clamp(
+                clip.generationFrames,
+                KimodoPlayableClip.MIN_FRAMES,
+                KimodoPlayableClip.MAX_FRAMES) / KimodoPlayableClip.FIXED_FRAME_RATE;
+            if (isArdy)
+            {
+                TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
+                if (timelineClip == null || timelineClip.duration <= 0.0)
+                {
+                    throw new InvalidOperationException("ARDY duration requires a Timeline clip with positive duration.");
+                }
+                durationSeconds = (float)timelineClip.duration;
+            }
+
             string constraintsJson;
             bool normalizeConstraintOriginApplied = false;
             KimodoConstraintNormalizationAnchorKind normalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.None;
             KimodoMarkerSampleResult normalizationAnchorSample = null;
             var constraintSamples = new List<KimodoMarkerSampleResult>();
-            var initialHistoryPaths = new List<string>();
             if (externalConstraint != null && externalConstraint.Enabled)
             {
                 constraintsJson = externalConstraint.ConstraintsJson ?? string.Empty;
@@ -42,11 +58,15 @@ namespace KimodoBridge.Editor
                     ? externalConstraint.NormalizationAnchorSample.Clone()
                     : null;
                 AppendSamples(externalConstraint.ConstraintSamples, constraintSamples);
-                AppendExistingPaths(externalConstraint.HistoryFilePaths, initialHistoryPaths);
             }
             else
             {
-                KimodoInOutConstraintResult constraintResult = ConstraintProvider.BuildConstraintDataOrThrow(clip);
+                int constraintFrames = isArdy
+                    ? KimodoInOutConstraintAdapter.DurationSecondsToFrameCount(durationSeconds)
+                    : clip.generationFrames;
+                KimodoInOutConstraintResult constraintResult = ConstraintProvider.BuildConstraintDataOrThrow(
+                    clip,
+                    constraintFrames);
                 constraintsJson = constraintResult.ConstraintsJson ?? string.Empty;
                 AppendSamples(constraintResult.CombinedSamples, constraintSamples);
                 if (constraintResult.NormalizationInfo != null)
@@ -59,20 +79,18 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            string resolvedModelName = KimodoPlayableClip.NormalizeBridgeModelName(clip.bridgeModelName);
             ArdyEditorHistorySource initialHistorySource = null;
-            if (KimodoMotionModelProfiles.TryGetArdy(resolvedModelName, out KimodoMotionModelProfile profile))
+            if (isArdy)
             {
                 if (constraintSamples.Count > 0)
                 {
                     constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                         constraintSamples,
-                        0.0,
-                        Mathf.Clamp(clip.generationFrames, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES) /
-                            KimodoPlayableClip.FIXED_FRAME_RATE,
-                        profile.SourceFps);
+                    0.0,
+                    durationSeconds,
+                    ardyProfile.SourceFps);
                 }
-                ResolveArdyInitialHistory(clip, profile, initialHistoryPaths, out initialHistorySource);
+                ResolveArdyInitialHistory(clip, ardyProfile, out initialHistorySource);
             }
             int effectiveSeed = ResolveEffectiveSeed(clip);
             return new KimodoEditorGenerateRequest
@@ -80,8 +98,10 @@ namespace KimodoBridge.Editor
                 Prompt = prompt,
                 ModelName = resolvedModelName,
                 BridgeVramMode = clip.bridgeVramMode,
-                DurationSeconds = Mathf.Clamp(clip.generationFrames, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES) / KimodoPlayableClip.FIXED_FRAME_RATE,
-                DiffusionSteps = Mathf.Clamp(clip.diffusionSteps, 1, 1000),
+                DurationSeconds = durationSeconds,
+                DiffusionSteps = isArdy
+                    ? Mathf.Clamp(clip.diffusionSteps, 0, ardyProfile.MaxDiffusionSteps)
+                    : Mathf.Clamp(clip.diffusionSteps, 1, 1000),
                 EffectiveSeed = effectiveSeed,
                 ConstraintsJson = constraintsJson,
                 CreateTargetClip = () => CreateTimelineTargetClip(clip),
@@ -97,7 +117,6 @@ namespace KimodoBridge.Editor
                 NormalizationAnchorKind = normalizationAnchorKind,
                 NormalizationAnchorSample = normalizationAnchorSample,
                 ConstraintSamples = constraintSamples,
-                InitialArdyHistoryFilePaths = initialHistoryPaths,
                 InitialArdyHistorySource = initialHistorySource
             };
         }
@@ -239,6 +258,13 @@ namespace KimodoBridge.Editor
             else
             {
                 Debug.Log($"[Kimodo][TimelineOffset] normalizationApplied=false clip='{playableClip.name}'.");
+            }
+
+            if (KimodoMotionModelProfiles.TryGetArdy(request?.ModelName, out _) &&
+                playableClip.inOutConstraintMode != KimodoInOutConstraintMode.None)
+            {
+                Debug.Log($"[Kimodo][TimelineOffset] skipped Match Offsets to Previous for ARDY InOutConstraint on '{playableClip.name}'.");
+                return;
             }
 
             TryMatchOffsetsToPreviousClip(playableClip, timelineClip);
@@ -521,29 +547,17 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static void AppendExistingPaths(IReadOnlyList<string> source, List<string> destination)
-        {
-            if (source == null)
-            {
-                return;
-            }
-            for (int i = 0; i < source.Count; i++)
-            {
-                string path = source[i];
-                if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
-                {
-                    destination.Add(Path.GetFullPath(path));
-                }
-            }
-        }
-
         private static void ResolveArdyInitialHistory(
             KimodoPlayableClip clip,
             KimodoMotionModelProfile profile,
-            List<string> existingPaths,
             out ArdyEditorHistorySource source)
         {
             source = null;
+            if (clip.inOutConstraintMode != KimodoInOutConstraintMode.Outside)
+            {
+                return;
+            }
+
             TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
             if (timelineClip == null ||
                 !KimodoInOutConstraintAdapter.TryResolveTimelineContext(
@@ -554,30 +568,18 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (context.PreviousTimelineClip?.asset is KimodoPlayableClip previousPlayable &&
-                string.Equals(
-                    previousPlayable.ardyMotionRepFingerprint,
-                    profile.MotionRepFingerprint,
-                    StringComparison.Ordinal) &&
-                !string.IsNullOrWhiteSpace(previousPlayable.ardyMotionCachePath) &&
-                File.Exists(previousPlayable.ardyMotionCachePath))
-            {
-                existingPaths.Add(Path.GetFullPath(previousPlayable.ardyMotionCachePath));
-                return;
-            }
-
-            if (existingPaths.Count > 0 || context.PreviousClip == null || context.PreviousTimelineClip == null)
+            if (context.PreviousTimelineClip == null || context.PreviousTimelineClip.duration <= 0.0)
             {
                 return;
             }
 
             source = new ArdyEditorHistorySource
             {
-                Clip = context.PreviousClip,
-                SourceAvatar = context.SourceAvatar,
-                ClipInSeconds = Math.Max(0.0, context.PreviousTimelineClip.clipIn),
-                TimelineDurationSeconds = Math.Max(0.0, context.PreviousTimelineClip.duration),
-                TimeScale = Math.Max(1e-6, context.PreviousTimelineClip.timeScale)
+                TimelineContext = context,
+                RangeStartSeconds = Math.Max(
+                    0.0,
+                    timelineClip.start - (profile.MaxContextFrames - profile.HorizonFrames) / profile.SourceFps),
+                RangeEndSeconds = Math.Max(0.0, timelineClip.start)
             };
         }
 

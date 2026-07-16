@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using TimelineInject;
 using UnityEngine;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
@@ -38,6 +39,17 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            if (request.TimelineContext != null)
+            {
+                // ponytail: Timeline already resolves clip ranges, blends and offsets.
+                return TrySampleTimelineBoundaryPair(
+                    request,
+                    out beginSample,
+                    out endSample,
+                    out warning,
+                    out error);
+            }
+
             if (request.EnableBegin &&
                 !TrySampleBoundaryPose(
                     request.BeginSegment,
@@ -70,6 +82,88 @@ namespace KimodoBridge.Editor
             }
 
             return true;
+        }
+
+        private static bool TrySampleTimelineBoundaryPair(
+            KimodoInOutConstraintRequest request,
+            out KimodoMarkerSampleResult beginSample,
+            out KimodoMarkerSampleResult endSample,
+            out string warning,
+            out string error)
+        {
+            beginSample = null;
+            endSample = null;
+            warning = string.Empty;
+            if (!KimodoTimelinePoseSampler.TryCreate(
+                    request.TimelineContext,
+                    request.ModelName,
+                    out KimodoTimelinePoseSampler sampler,
+                    out error))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (request.EnableBegin &&
+                    !sampler.TrySampleMarker(
+                        ResolveTimelineBoundaryTime(request, isBegin: true),
+                        0.0,
+                        FullBodyConstraintType,
+                        request.ModelName,
+                        out beginSample,
+                        out error))
+                {
+                    return false;
+                }
+
+                if (request.EnableEnd &&
+                    !sampler.TrySampleMarker(
+                        ResolveTimelineBoundaryTime(request, isBegin: false),
+                        ResolveConstraintEndSampleTimeSeconds(request.GenerationFrames),
+                        FullBodyConstraintType,
+                        request.ModelName,
+                        out endSample,
+                        out error))
+                {
+                    return false;
+                }
+
+                if (!request.EnableBegin && !request.EnableEnd)
+                {
+                    warning = "InOut constraint request has no enabled boundary segments.";
+                }
+                return true;
+            }
+            finally
+            {
+                sampler.Dispose();
+            }
+        }
+
+        private static double ResolveTimelineBoundaryTime(KimodoInOutConstraintRequest request, bool isBegin)
+        {
+            KimodoTimelineInOutConstraintContext context = request.TimelineContext;
+            double delta = 1.0 / ResolveModelFrameRate(request.ModelName);
+            if (request.Mode == KimodoInOutConstraintMode.Outside)
+            {
+                TimelineClip range = isBegin ? context.PreviousTimelineClip : context.NextTimelineClip;
+                return isBegin
+                    ? Math.Max(range.start, range.end - delta)
+                    : range.start;
+            }
+
+            TimelineClip current = context.SourceClip;
+            return isBegin
+                ? current.start
+                : Math.Max(current.start, current.end - delta);
+        }
+
+        private static float ResolveModelFrameRate(string modelName)
+        {
+            return KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile)
+                ? profile.SourceFps
+                : KimodoPlayableClip.FIXED_FRAME_RATE;
         }
 
         internal static int ClampFrameCount(int generationFrames)

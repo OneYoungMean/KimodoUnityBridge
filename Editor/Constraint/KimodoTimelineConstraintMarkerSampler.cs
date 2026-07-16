@@ -7,6 +7,160 @@ using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
+    internal sealed class KimodoTimelinePoseSampler : IDisposable
+    {
+        private readonly KimodoTimelineInOutConstraintContext context;
+        private readonly HumanPoseHandler sourcePoseHandler;
+        private readonly double originalTime;
+        private readonly DirectorWrapMode originalWrapMode;
+        private bool disposed;
+
+        private KimodoTimelinePoseSampler(
+            KimodoTimelineInOutConstraintContext context,
+            HumanPoseHandler sourcePoseHandler,
+            SkeletonCache targetCache)
+        {
+            this.context = context;
+            this.sourcePoseHandler = sourcePoseHandler;
+            TargetCache = targetCache;
+            originalTime = context.Director.time;
+            originalWrapMode = context.Director.extrapolationMode;
+            context.Director.extrapolationMode = DirectorWrapMode.Hold;
+        }
+
+        internal SkeletonCache TargetCache { get; }
+
+        internal static bool TryCreate(
+            KimodoTimelineInOutConstraintContext context,
+            string modelName,
+            out KimodoTimelinePoseSampler sampler,
+            out string error)
+        {
+            sampler = null;
+            error = string.Empty;
+            if (context?.Director == null || context.Animator == null)
+            {
+                error = "Timeline director or Animator is missing.";
+                return false;
+            }
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(context.SourceAvatar))
+            {
+                error = "Timeline source avatar is null/invalid/non-humanoid.";
+                return false;
+            }
+            if (!KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
+                    null,
+                    context.Animator,
+                    modelName,
+                    out Avatar targetAvatar,
+                    out error))
+            {
+                return false;
+            }
+            if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    targetAvatar,
+                    "KimodoTimelinePoseSampler_Target",
+                    out SkeletonCache targetCache,
+                    out error))
+            {
+                return false;
+            }
+
+            HumanPoseHandler sourceHandler = null;
+            try
+            {
+                sourceHandler = new HumanPoseHandler(context.SourceAvatar, context.Animator.transform);
+                sampler = new KimodoTimelinePoseSampler(context, sourceHandler, targetCache);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                sourceHandler?.Dispose();
+                targetCache.Dispose();
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        internal bool TryEvaluate(double timelineTime, out string error)
+        {
+            error = string.Empty;
+            if (disposed || double.IsNaN(timelineTime) || double.IsInfinity(timelineTime))
+            {
+                error = "Timeline pose sampler or sample time is invalid.";
+                return false;
+            }
+
+            try
+            {
+                context.Director.time = Math.Max(0.0, timelineTime);
+                context.Director.Evaluate();
+                var pose = new HumanPose();
+                sourcePoseHandler.GetHumanPose(ref pose);
+                KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
+                TargetCache.poseHandler.SetHumanPose(ref pose);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        internal bool TrySampleMarker(
+            double timelineTime,
+            double exportedSampleTime,
+            string markerType,
+            string modelName,
+            out KimodoMarkerSampleResult sample,
+            out string error)
+        {
+            sample = null;
+            if (!TryEvaluate(timelineTime, out error))
+            {
+                return false;
+            }
+
+            BoneSample targetSample = KimodoRetargetSamplingUtility.CaptureBoneSample(TargetCache);
+            if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                    targetSample,
+                    TargetCache,
+                    modelName,
+                    markerType,
+                    timelineTime,
+                    out sample,
+                    out error))
+            {
+                return false;
+            }
+
+            sample.sampleTime = exportedSampleTime;
+            return true;
+        }
+
+        public void Dispose()
+        {
+            if (disposed)
+            {
+                return;
+            }
+            disposed = true;
+            try
+            {
+                context.Director.extrapolationMode = originalWrapMode;
+                context.Director.time = originalTime;
+                context.Director.Evaluate();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Kimodo][TimelineSample] Failed to restore Director state: {ex.Message}");
+            }
+            sourcePoseHandler.Dispose();
+            TargetCache.Dispose();
+        }
+    }
+
     internal static class KimodoTimelineConstraintMarkerSampler
     {
         internal static bool TryBuildMarkerSamplesForExport(
@@ -47,15 +201,19 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            double originalTime = context.Director.time;
-            DirectorWrapMode originalWrap = context.Director.extrapolationMode;
-
+            if (!KimodoTimelinePoseSampler.TryCreate(
+                    context,
+                    context.ModelName,
+                    out KimodoTimelinePoseSampler sampler,
+                    out error))
+            {
+                return false;
+            }
             try
             {
-                context.Director.extrapolationMode = DirectorWrapMode.Hold;
                 for (int i = 0; i < markers.Count; i++)
                 {
-                    if (!TryBuildMarkerSample(markers[i], context, out KimodoMarkerSampleResult sample, out error))
+                    if (!TryBuildMarkerSample(markers[i], context, sampler, out KimodoMarkerSampleResult sample, out error))
                     {
                         return false;
                     }
@@ -65,9 +223,7 @@ namespace KimodoBridge.Editor
             }
             finally
             {
-                context.Director.time = originalTime;
-                context.Director.Evaluate();
-                context.Director.extrapolationMode = originalWrap;
+                sampler.Dispose();
             }
 
             return true;
@@ -113,68 +269,10 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        internal static bool TrySamplePoseFromClipAsset(
-            KimodoTimelineInOutConstraintContext context,
-            double timelineTime,
-            string markerType,
-            out KimodoMarkerSampleResult sample,
-            out string error)
-        {
-            sample = null;
-            error = string.Empty;
-
-            if (context == null || context.SourceClip == null)
-            {
-                error = "Source clip is null.";
-                return false;
-            }
-
-            if (context.Track == null)
-            {
-                error = "Parent track not found.";
-                return false;
-            }
-
-            if (context.Animator == null)
-            {
-                error = "Animation track has no Animator binding.";
-                return false;
-            }
-
-            if (context.CurrentClip == null)
-            {
-                error = "Timeline clip does not contain a usable AnimationClip.";
-                return false;
-            }
-
-            double sourceSampleTime = KimodoMarkerSamplingUtility.ResolveSourceClipSampleTime(
-                context.SourceClip,
-                timelineTime);
-
-            if (!KimodoRetargetToolsEditor.TrySampleMarkerForClip(
-                    context.CurrentClip,
-                    markerType,
-                    sourceSampleTime,
-                    context.SourceAvatar,
-                    null,
-                    context.Animator,
-                    context.ModelName,
-                    forceRefresh: false,
-                    out KimodoMarkerSampleResult sampledPose,
-                    out error))
-            {
-                return false;
-            }
-
-            sample = sampledPose;
-            sample.constraintType = markerType ?? string.Empty;
-            sample.sampleTime = timelineTime;
-            return true;
-        }
-
         private static bool TryBuildMarkerSample(
             KimodoConstraintMarkerBase marker,
             KimodoTimelineInOutConstraintContext context,
+            KimodoTimelinePoseSampler sampler,
             out KimodoMarkerSampleResult sample,
             out string error)
         {
@@ -202,21 +300,16 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            double sampleTime = marker.time;
-            context.Director.time = sampleTime;
-            context.Director.Evaluate();
-
-            if (!TrySamplePoseFromClipAsset(
-                    context,
-                    sampleTime,
+            if (!sampler.TrySampleMarker(
+                    marker.time,
+                    marker.time,
                     marker.ConstraintType,
+                    context.ModelName,
                     out KimodoMarkerSampleResult captured,
                     out error))
             {
                 return false;
             }
-
-            captured.sampleTime = sampleTime;
             sample = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, captured);
             if (sample == null)
             {

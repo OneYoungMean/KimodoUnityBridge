@@ -12,6 +12,7 @@ namespace KimodoBridge.Editor
     public partial class KimodoPlayableClipEditor : UnityEditor.Editor
     {
         private const double RepaintIntervalSeconds = 0.2d;
+        private static readonly string[] BaseModelOptions = { "Kimodo", "ARDY" };
 
         private SerializedProperty bridgeModelName;
         private SerializedProperty bridgeVramMode;
@@ -93,7 +94,7 @@ namespace KimodoBridge.Editor
             serializedObject.UpdateIfRequiredOrScript();
             motionPrompt.stringValue = prompt ?? string.Empty;
             generationFrames.intValue = Mathf.Clamp(generationFramesValue, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES);
-            diffusionSteps.intValue = Mathf.Clamp(diffusionStepsValue, 1, 1000);
+            diffusionSteps.intValue = Mathf.Clamp(diffusionStepsValue, 0, 1000);
             randomProp.boolValue = randomSeedEnabled;
             seed.intValue = seedValue;
             serializedObject.ApplyModifiedPropertiesWithoutUndo();
@@ -132,9 +133,15 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.LabelField("Generate Motion", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
+            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(
+                KimodoPlayableClip.NormalizeBridgeModelName(bridgeModelName?.stringValue),
+                out KimodoMotionModelProfile ardyProfile);
             if (bridgeModelName != null)
             {
-                DrawBridgeModelSelector();
+                isArdy = DrawBridgeModelSelector();
+                KimodoMotionModelProfiles.TryGetArdy(
+                    KimodoPlayableClip.NormalizeBridgeModelName(bridgeModelName.stringValue),
+                    out ardyProfile);
             }
             if (bridgeVramMode != null)
             {
@@ -152,23 +159,51 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField(new GUIContent("Prompt", "Natural-language motion prompt sent to Kimodo Bridge."));
             motionPrompt.stringValue = EditorGUILayout.TextArea(motionPrompt.stringValue, GUILayout.Height(60));
 
-            int oldFrames = generationFrames.intValue;
-            float minDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(KimodoPlayableClip.MIN_FRAMES);
-            float maxDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(KimodoPlayableClip.MAX_FRAMES);
-            float oldDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(oldFrames);
-            float newDurationSeconds = EditorGUILayout.Slider(
-                new GUIContent("Duration (s)", "Target generated clip length in seconds. Internally uses the fixed Kimodo sample rate and also syncs timeline clip duration when changed."),
-                oldDurationSeconds,
-                minDurationSeconds,
-                maxDurationSeconds);
-            int newFrames = KimodoInOutConstraintAdapter.DurationSecondsToFrameCount(newDurationSeconds);
-            if (newFrames != oldFrames)
+            bool hasArdyTimelineDuration = true;
+            if (isArdy)
             {
-                generationFrames.intValue = newFrames;
-                TrySyncTimelineDuration(newFrames);
+                TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
+                hasArdyTimelineDuration = timelineClip != null && timelineClip.duration > 0.0;
+                if (hasArdyTimelineDuration)
+                {
+                    EditorGUILayout.LabelField("Timeline Duration", $"{timelineClip.duration:F2}s");
+                }
+                else
+                {
+                    EditorGUILayout.HelpBox("ARDY duration is read from its Timeline clip.", MessageType.Error);
+                }
+            }
+            else
+            {
+                int oldFrames = generationFrames.intValue;
+                float minDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(KimodoPlayableClip.MIN_FRAMES);
+                float maxDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(KimodoPlayableClip.MAX_FRAMES);
+                float oldDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(oldFrames);
+                float newDurationSeconds = EditorGUILayout.Slider(
+                    new GUIContent("Duration (s)", "Target generated clip length in seconds. Internally uses the fixed Kimodo sample rate and also syncs timeline clip duration when changed."),
+                    oldDurationSeconds,
+                    minDurationSeconds,
+                    maxDurationSeconds);
+                int newFrames = KimodoInOutConstraintAdapter.DurationSecondsToFrameCount(newDurationSeconds);
+                if (newFrames != oldFrames)
+                {
+                    generationFrames.intValue = newFrames;
+                    TrySyncTimelineDuration(newFrames);
+                }
             }
 
-            diffusionSteps.intValue = Mathf.Clamp(EditorGUILayout.IntField(new GUIContent("Diffusion Steps", "Sampling steps for generation. Higher values increase compute time and may improve fidelity."), diffusionSteps.intValue), 1, 1000);
+            if (isArdy && ardyProfile != null)
+            {
+                diffusionSteps.intValue = EditorGUILayout.IntSlider(
+                    new GUIContent("Diffusion Steps", $"0 uses the model default ({ardyProfile.MaxDiffusionSteps})."),
+                    Mathf.Clamp(diffusionSteps.intValue, 0, ardyProfile.MaxDiffusionSteps),
+                    0,
+                    ardyProfile.MaxDiffusionSteps);
+            }
+            else
+            {
+                diffusionSteps.intValue = Mathf.Clamp(EditorGUILayout.IntField(new GUIContent("Diffusion Steps", "Sampling steps for generation. Higher values increase compute time and may improve fidelity."), diffusionSteps.intValue), 1, 1000);
+            }
 
             EditorGUILayout.BeginHorizontal();
             randomProp.boolValue = EditorGUILayout.ToggleLeft(new GUIContent("Random", "Use a random seed on each generation run."), randomProp.boolValue, GUILayout.Width(110f));
@@ -190,12 +225,16 @@ namespace KimodoBridge.Editor
             }
             DrawConstraintPreviewIfNeeded();
 
-            float seconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(generationFrames.intValue);
-            EditorGUILayout.LabelField($"Duration: {seconds:F2}s", EditorStyles.miniLabel);
+            if (!isArdy)
+            {
+                float seconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(generationFrames.intValue);
+                EditorGUILayout.LabelField($"Duration: {seconds:F2}s", EditorStyles.miniLabel);
+            }
             DrawConstraintReferenceList();
 
             bool disableGenerate =
                 isGenerating ||
+                !hasArdyTimelineDuration ||
                 KimodoBridgeServerTool.IsRuntimeMaintenanceInProgress ||
                 EditorCompilationStateGate.IsCompilingOrReloading;
             GUI.enabled = !disableGenerate;
@@ -355,18 +394,44 @@ namespace KimodoBridge.Editor
             EditorGUILayout.EndVertical();
         }
 
-        private void DrawBridgeModelSelector()
+        private bool DrawBridgeModelSelector()
         {
             string current = KimodoPlayableClip.NormalizeBridgeModelName(bridgeModelName.stringValue);
-            string[] options = KimodoBridgeServerTool.SupportedModelNames;
+            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(current, out _);
+            int baseModelIndex = EditorGUILayout.Popup(
+                new GUIContent("Base Model", "Select the Kimodo or ARDY model family."),
+                isArdy ? 1 : 0,
+                BaseModelOptions);
+            bool selectedArdy = baseModelIndex == 1;
+            if (selectedArdy != isArdy)
+            {
+                current = selectedArdy
+                    ? KimodoMotionModelProfiles.ArdyCoreModelName
+                    : KimodoPlayableClip.DefaultBridgeModelName;
+                bridgeModelName.stringValue = current;
+                diffusionSteps.intValue = selectedArdy ? 10 : 100;
+            }
+
+            string[] allOptions = KimodoBridgeServerTool.SupportedModelNames;
+            var filtered = new List<string>();
+            for (int i = 0; i < allOptions.Length; i++)
+            {
+                bool optionIsArdy = KimodoMotionModelProfiles.TryGetArdy(allOptions[i], out _);
+                if (optionIsArdy == selectedArdy)
+                {
+                    filtered.Add(allOptions[i]);
+                }
+            }
+            string[] options = filtered.ToArray();
             int idx = Array.IndexOf(options, current);
             if (idx < 0)
             {
                 idx = 0;
             }
 
-            int newIdx = EditorGUILayout.Popup(new GUIContent("Bridge Model", "Installed Kimodo model package to use for bridge generation."), idx, options);
+            int newIdx = EditorGUILayout.Popup(new GUIContent("Model", "Model package used for generation."), idx, options);
             bridgeModelName.stringValue = options[Mathf.Clamp(newIdx, 0, options.Length - 1)];
+            return selectedArdy;
         }
 
         private void DrawEstimatedSetupTimeHint()
@@ -686,11 +751,14 @@ namespace KimodoBridge.Editor
                 });
             }
 
+            int previewGenerationFrames = KimodoMotionModelProfiles.TryGetArdy(context.ModelName, out _)
+                ? KimodoInOutConstraintAdapter.DurationSecondsToFrameCount((float)timelineClip.duration)
+                : clip.generationFrames;
             if (clip.inOutConstraintMode != KimodoInOutConstraintMode.None &&
                 KimodoInOutConstraintAdapter.TryBuildBoundarySamplesForPreview(
                     timelineClip,
                     clip.inOutConstraintMode,
-                    KimodoInOutConstraintAdapter.ClampFrameCount(clip.generationFrames),
+                    KimodoInOutConstraintAdapter.ClampFrameCount(previewGenerationFrames),
                     out KimodoMarkerSampleResult beginBoundaryPose,
                     out KimodoMarkerSampleResult endBoundaryPose,
                     out _))

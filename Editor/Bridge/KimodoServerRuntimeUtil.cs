@@ -26,6 +26,7 @@ namespace KimodoBridge.Editor
             "Kimodo-SMPLX-RP-v1",
             "Kimodo-SOMA-SEED-v1",
             "Kimodo-G1-SEED-v1",
+            KimodoMotionModelProfiles.ArdyCoreModelName,
             KimodoMotionModelProfiles.ArdyG1ModelName
         };
 

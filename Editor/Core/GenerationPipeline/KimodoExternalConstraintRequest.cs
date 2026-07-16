@@ -13,6 +13,5 @@ namespace KimodoBridge.Editor
         public KimodoConstraintNormalizationAnchorKind NormalizationAnchorKind;
         public KimodoMarkerSampleResult NormalizationAnchorSample;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
-        public List<string> HistoryFilePaths = new List<string>();
     }
 }

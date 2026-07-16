@@ -2,11 +2,14 @@
 
 ## 0. 文档状态
 
-- 状态：已按现有 Unity 与 QuickServer 源码修订，待实施。
-- 本文只描述计划，不执行代码改造。
+- 状态：实施中；Phase 1～4 的主链路已落地，场景级验收与正式 venv 升格尚未完成。
+- 本文同时记录实施进度；勾选表示代码项已完成，不代表所在 Phase 的全部验收测试已经通过。
 - 范围：`KimodoUnityBridge`、`NvlabKimodoQuickServer~` 与 ARDY 推理后端。
 - 核心目标：Unity 管理时序状态并拼接固定 Horizon；Python 只执行可排队、可取消、可重试的原子生成任务。
-- 首个目标：ARDY G1 模型；具体 checkpoint 名称与能力值在接入模型 registry 时固定。
+- 首选目标：ARDY Core27；G1 作为保留的第二 profile。
+
+当前首选实现固定为 `ARDY-Core-RP-20FPS-Horizon40`（20 FPS、Horizon 40、max context 200、Core 27 joints、官方 postprocess 开启）；同时保留 `ARDY-G1-RP-25FPS-Horizon52`（25 FPS、Horizon 52、G1 34 joints、postprocess 关闭）。
+`cskel27_neutral.json`、`SOMA_cskel27.fbx` 与 `SOMA_cskel27Avatar.asset` 已逐项核对 joint/parent；G1 的 FBX、Avatar 与 neutral JSON 继续保留在同一资源目录。
 
 本次修订实际核对了以下链路：
 
@@ -101,10 +104,10 @@ Unity 负责：
 - prompt、future constraints 与本地 request version。
 - 生成结果队列、取消、过期结果丢弃和窗口拼接。
 - Unity 只保留生成后的 clip/MotionPacket cache 与服务器返回的 handle，不保留 normalized flattened tensor。
-- Timeline 为每个 ARDY 窗口显式构造 ClipConstraint；外部/Authoring/重定向动作先写成现有 `flatbuf_motion_v1 / KMB1 MotionPacket` 文件，窗口循环内部的已生成前缀只发送 QuickServer 返回的 handle。
+- Timeline 为每个 ARDY 窗口显式构造 ClipConstraint；首窗口的 history 一律从 Timeline 已烘焙结果重采样后写成现有 `flatbuf_motion_v1 / KMB1 MotionPacket` 文件，窗口循环内部的已生成前缀只发送 QuickServer 返回的 handle。
 - Runtime 保存已提交/排队 segment 对应的 handle，并在每次 ARDY generate 时显式发送滚动 history handle 列表。
 
-Python 不保存角色播放位置、constraint revision 或“当前连接上一结果”。它只维护 handle → 现有 KMB1 MotionPacket 文件的技术缓存；读取 handle/file 时用 root positions 与 local rotations 有损重建 ARDY normalized history，velocities 与 foot contacts 由 motion representation 重新计算。handle 被淘汰后请求直接失败，Unity 不自动重试或 fallback。
+Python 不保存角色播放位置、constraint revision 或“当前连接上一结果”。它只维护 handle → 现有 KMB1 MotionPacket 文件的技术缓存；读取 handle/file 时用 root positions 与 local rotations 重建 ARDY normalized history，velocities 重新计算；KMB1 若带逐帧 foot contacts 则保留，否则才由 motion representation 推断。handle 被淘汰后请求直接失败，Unity 不自动重试或 fallback。
 
 ### 2.2 Python 只执行原子窗口
 
@@ -200,7 +203,7 @@ KimodoRuntimeMotionDriver.RunSchedulerLoopAsync
 - `cancel`
 - `quit`
 
-同一 TCP 连接可连续发送命令；任务以 `task_id/id` 为真相；中间态为 `queued/loading/progress/cancelling`；终态为 `done/error/cancelled`；FlatBuffer 响应是 JSON header 后紧跟该任务的 binary payload。
+同一 TCP 连接可连续发送命令；任务以 `task_id` 为真相；中间态为 `queued/loading/progress/cancelling`；终态为 `done/error/cancelled`；FlatBuffer 响应是 JSON header 后紧跟该任务的 binary payload。
 
 ARDY 必须接入这条现有队列，而不是建立第二套命令或 socket server。
 
@@ -224,7 +227,7 @@ ARDY 必须接入这条现有队列，而不是建立第二套命令或 socket s
 | `max_diffusion_steps` | 在进入 CUDA 推理前拒绝越界 denoising steps |
 | `cfg_text_weight` / `cfg_constraint_weight` | 固定 ARDY text/constraint guidance 语义 |
 | `motion_rep_fingerprint` | checkpoint、normalization stats、feature layout 与 handle 兼容性校验 |
-| `postprocess` | G1 第一阶段固定为禁用，与 ARDY 官方生成路径一致 |
+| `postprocess` | 按 ARDY 官方路径由 profile 固定：Core 开启，G1 禁用 |
 
 Unity 侧把当前 `SupportedModelNames` 从纯字符串列表扩展为可查询 profile；QuickServer 的 model/asset registry 保存服务器侧 profile。服务器加载真实 checkpoint 后必须断言 profile 与 `model.motion_rep.fps`、`model.gen_horizon_len`、`model.num_frames_per_token`、`model.diffusion.num_base_steps` 一致。ARDY model 本体不假定存在 Kimodo 的 `model.fps` / `model.name` 属性，adapter 负责输出元数据。
 
@@ -274,15 +277,12 @@ ARDY 响应 header 额外返回 `clip_handle`、`motion_rep_fingerprint` 与 `re
 {
   "cmd": "generate",
   "task_id": "ardy-segment-10-v17",
-  "id": "ardy-segment-10-v17",
   "model": "<registered-ardy-g1-model>",
   "prompt": "turn left and raise the right hand",
   "duration": 2.08,
   "diffusion_steps": 20,
   "seed": 184291,
   "constraints_json": "[ClipConstraint(handle), Root2DConstraint, ...]",
-  "loop_hint": false,
-  "segment_index": 10,
   "transition_duration": 0.0,
   "output_format": "flatbuf_motion_v1",
   "highvram": false,
@@ -296,8 +296,7 @@ ARDY 响应 header 额外返回 `clip_handle`、`motion_rep_fingerprint` 与 `re
 说明：
 
 - backend 由现有 `model` registry 决定，不新增 `backend` 字段。
-- `segment_index` 沿用现有字段，只用于日志/诊断，不是 Python session。
-- `loop_hint` 和 `transition_duration` 在 ARDY 第一阶段不参与推理。
+- `transition_duration` 在 ARDY 第一阶段不参与推理。
 - ARDY history 完全来自本次 `constraints_json`；没有 clip 就从空 history 开始。
 - Unity 在发送前解析随机 seed，ARDY 请求不发送 `null`；重试同一 window 复用同一 seed。
 - request version 只保留在 `KimodoRuntimeMotionDriver`；旧任务通过 task id、取消令牌和 await 后的 version 比较被拒绝，不要求服务器回显 Unity 状态。
@@ -309,11 +308,11 @@ ARDY 响应 header 额外返回 `clip_handle`、`motion_rep_fingerprint` 与 `re
 1. 按 `constraints_json` 出现顺序解析零个或多个 `type=clip`。
 2. `format=ardy_handle_v1` 从 QuickServer handle cache 读取现有 `flatbuf_motion_v1 / KMB1` 文件。
 3. `format=ardy_file_v1` 从受管路径读取同一种 KMB1 文件；用于 Timeline/外部 clip 和显式测试文件。
-4. Python 从 KMB1 的 root positions/local rotation quaternions 重建 normalized tensor。
+4. Python 从 KMB1 的 root positions/local rotation quaternions 重建 normalized tensor，并在存在时保留 KMB1 的逐帧 foot contacts。
 5. 多个 clip 沿时间维拼接，再按 `max_context_frames - horizon - future lookahead` 从头部裁到最近 K 个 token-aligned frames。
 6. 没有 clip 时从空 history 开始。
 
-Timeline 每个窗口都显式发送 ClipConstraint：初始/Authoring prefix 使用 `ardy_file_v1`；同一次窗口循环后续请求只发送前面结果的 handles。Runtime 每次 ARDY generate 都发送当前有效 prefix 的 handles；首段确实没有 history 时才不发送 clip。
+Timeline 每个窗口都显式发送 ClipConstraint：首窗口只从已烘焙 Timeline 重采样得到 `ardy_file_v1`；同一次窗口循环后续请求只发送前面结果的 handles。Runtime 每次 ARDY generate 都发送当前有效 prefix 的 handles；首段确实没有 history 时才不发送 clip。
 
 不存在连接断开清历史、model switch 清历史或 stale connection history 的分支。handle 的 model/fingerprint/FPS/rig 不匹配，或 handle 不存在时，返回结构化 `clip_handle_not_found` 并结束本次请求；Unity 不自动改用 file、空 history 或重新提交。初始 root/heading 使用模型默认值；需要指定起点时使用 ARDY 自己的 `root2d` / `fullbody` constraint。
 
@@ -327,7 +326,7 @@ queued/loading/progress/cancelling
 done + flatbuf_motion_v1，或 error/cancelled
 ```
 
-- `cancel` 继续按 `task_id/id` 命中 active 或 queued task。
+- `cancel` 继续按 `task_id` 命中 active 或 queued task。
 - 最终 FlatBuffer 只包含新生成 Horizon，不包含输入 ClipConstraint。
 - ARDY 把返回 Unity 的同一份 KMB1 payload 原子写入 QuickServer spool，并在响应 header 返回 immutable `clip_handle`；不创建 ARDY 专属 FlatBuffer。
 - `error/cancelled` 不创建可见 handle；active cancel 必须在 denoising step 间被检查，最大延迟不超过一个 step。
@@ -363,13 +362,13 @@ done + flatbuf_motion_v1，或 error/cancelled
 }
 ```
 
-两种格式最终读取的文件内容完全相同：现有 `flatbuf_motion_v1 / KMB1 MotionPacket`，包含 FPS、frame/joint count、joint names/parents、root positions 与 local rotation quaternions。不新增或扩展任何 FlatBuffer schema。
+两种格式最终读取的文件内容完全相同：现有 `flatbuf_motion_v1 / KMB1 MotionPacket`，包含 FPS、frame/joint count、joint names/parents、root positions 与 local rotation quaternions；新增了向后兼容的可选 `foot_contacts`（每帧 4 个 0/1 值）。KMB1 identifier、version 与 TCP framing 不变。
 
 - `ardy_handle_v1`：只接受 QuickServer 已签发的不可变 handle；handle 映射到 spool 中的 KMB1 文件。
-- `ardy_file_v1`：读取客户端指定的 KMB1 文件。生产模式只允许 Unity/项目受管 cache 根目录；显式 test flag 可额外开放配置的测试目录。
+- `ardy_file_v1`：读取客户端指定的 KMB1 文件。Unity 输出时显式附带 `start_frame=0`、`end_frame_exclusive=KMB1 frame count` 与仅供日志诊断的 `duration_seconds=frame count/fps`；服务端仍以 KMB1 实际内容为准。生产模式只允许 Unity/项目受管 cache 根目录；显式 test flag 可额外开放配置的测试目录。
 - 两者都允许半开 slice `[start_frame,end_frame_exclusive)`；slice 后不足一个 token 时请求失败。
-- Python 解析 KMB1 后通过 ARDY motion representation 有损重建 normalized history；velocities 和 foot contacts 重新计算。此误差是已接受的契约，但必须通过边界连续性测试。
-- Unity 构造 `ardy_file_v1` 时，只把上一 clip 采样/重定向到 ARDY G1 skeleton/FPS，提取 root positions 与 local rotations，再用现有 MotionPacket writer 写 KMB1；Unity 不计算或保存 normalized features。该动作只能发生在新请求提交前，不能由 handle miss 自动触发。
+- Python 解析 KMB1 后通过 ARDY motion representation 有损重建 normalized history；velocities 重新计算，存在的 `foot_contacts` 直接覆盖 feature，旧 KMB 缺该数组时才重新推断。此误差是已接受的契约，但必须通过边界连续性测试。
+- Timeline 构造 `ardy_file_v1` 时，只从已烘焙 Timeline 重采样到所选 ARDY profile 的 skeleton/FPS，提取 root positions、local rotations 与 4 条 foot-contact 曲线（`KimodoFootContact.LeftHeel/LeftToe/RightHeel/RightToe`），再用现有 MotionPacket writer 写 KMB1；不足一个 token 时重复最近采样帧。Unity 不计算或保存 normalized features。该动作只能发生在新请求提交前，不能由 handle miss 自动触发。
 
 ### 6.2 一个请求允许多个 ClipConstraint
 
@@ -479,6 +478,7 @@ Python 不需要 `update_constraint`。正常直线生成、branch、revision re
 
 - Kimodo：保留现有 `ConstraintOverlapPoses`、`loopHint`、trail trim 与 independent segment root offset 逻辑。
 - ARDY：连续性的主要输入是 dense ClipConstraint；不再把同一 history 尾段复制造成 future fullbody overlap。
+- ARDY 启用 InOutConstraint 时不再调用 Unity 的 Match Offsets to Previous；边界由 ARDY ClipConstraint 处理。
 - ARDY 若启用 trail trim，最后一个 handle ClipConstraint 必须用 `end_frame_exclusive = EffectiveLastFrameIndex + 1` 表示与 playback 相同的尾边界；多个 clips 拼接后从头部裁成 token-aligned history，不改变尾帧。若剩余历史不足一个 token，则第一阶段拒绝该 trim 或禁用 ARDY trail trim。
 
 ---
@@ -509,7 +509,7 @@ Python 不需要 `update_constraint`。正常直线生成、branch、revision re
 12. ARDY cancel callback 在每个 denoising step 间检查 cancel_event
 13. 从返回值中切出新 Horizon
 14. inverse 为现有 flatbuf_motion_v1 / KMB1，并把同一 payload 原子写入 spool
-15. 返回 done/task_id/id/byte_length/clip_handle/motion_rep_fingerprint/resolved_seed + KMB1 payload；MotionPacket schema/version 不变
+15. 返回 done/task_id/byte_length/clip_handle/motion_rep_fingerprint/resolved_seed + KMB1 payload；MotionPacket schema/version 不变
 ```
 
 ### 8.3 Bounded handle cache
@@ -521,7 +521,7 @@ Python 不需要 `update_constraint`。正常直线生成、branch、revision re
 - `error/cancelled` 不发布 handle；取消必须在写 spool 之前再次检查。
 - Unity 不主动销毁 handle；`clip_handle_not_found` 是终态 error，不触发 Unity fallback 或重试。
 - seed 在 Unity 请求中显式设置，服务器回显 `resolved_seed`；同一 window 重试复用相同 seed。
-- G1 第一阶段明确禁用 postprocess；不能继承其他 ARDY skeleton 的默认行为。
+- 直接复用 ARDY 官方 `post_process_motion`：Core profile 开启，G1 profile 禁用，不在 Bridge 内复制后处理算法。
 - 模型和 text embedding 可继续缓存；不再增加连接 history cache。
 - server 只返回新窗口，不替 Unity 决定 append、replace 或 committed boundary。
 
@@ -549,7 +549,7 @@ BuildRequest：目标 10 秒 + 整段 constraints
   ↓
 KimodoEditorGeneratePipeline 检测 ARDY profile
   ↓
-Window 0：把 Authoring/外部 prefix 写成现有 KMB1，以 ardy_file_v1 显式发送；无 prefix 时为空 history
+Window 0：从已烘焙 Timeline 重采样 prefix 并写成现有 KMB1，以 ardy_file_v1 显式发送；无 prefix 时为空 history
   ↓
 Window N：显式发送窗口循环当前滚动 prefix 的 ardy_handle_v1 ClipConstraints
   ↓
@@ -560,9 +560,9 @@ Window N：显式发送窗口循环当前滚动 prefix 的 ardy_handle_v1 ClipCo
 进入现有 Analyze → Bake → Retarget → FinalizeGeneration
 ```
 
-ARDY 窗口循环应是 editor pipeline 内部 helper，不复用 Runtime MonoBehaviour，也不新增 transport command。运行中的 handle 列表只属于本次生成任务；handle 元数据保存在 Unity 现有生成状态/cache 中，不写入或扩展 MotionPacket schema，也不创建独立 handle 资产。
+ARDY 窗口循环应是 editor pipeline 内部 helper，不复用 Runtime MonoBehaviour，也不新增 transport command。运行中的 handle 列表只属于本次生成任务；handle 元数据保存在 Unity 现有生成状态/cache 中，不写入 MotionPacket，也不创建独立 handle 资产；KMB1 仅以向后兼容的可选 `foot_contacts` 扩展动画数据。
 
-正常窗口链保持严格顺序：上一条 `done` 后才提交下一条。每个窗口都显式发送 ClipConstraint；handle miss 令本次 Timeline 生成直接失败，不自动从 clip/file 重建和重提。用户重新发起生成时，新的任务可从实际 Timeline/Authoring clip 重新写 KMB1。
+正常窗口链保持严格顺序：上一条 `done` 后才提交下一条。每个窗口都显式发送 ClipConstraint；handle miss 令本次 Timeline 生成直接失败，不自动从 clip/file 重建和重提。用户重新发起生成时，新的任务可从实际 Timeline 重新采样并写 KMB1。
 
 ### 9.3 Timeline constraint 分窗
 
@@ -576,7 +576,7 @@ ARDY 窗口循环应是 editor pipeline 内部 helper，不复用 Runtime MonoBe
 6. 全部窗口使用半开区间：window N 对应全局帧 `[N*H, (N+1)*H)`；`H-1` 属于当前窗口，`H` 与下一窗口 frame 0 是同一全局采样点。
 7. 约束位于全局 `H` 时，可作为当前窗口 future lookahead，同时在下一窗口 rebase 为 frame 0；两次引用必须表示同一目标，不得复制或偏移一帧。
 
-不能把当前 30 FPS `frame_indices` 原样传给 25 FPS ARDY。
+不能把当前 30 FPS `frame_indices` 原样传给 20/25 FPS ARDY。
 
 Phase 4 同时统一 `N/fps` 覆盖时长与 `(N-1)/fps` 最后采样时间：raw motion 合并按 `[0,N)` 裁切；播放/Bake 若要覆盖完整 `N/fps`，需明确保持最后采样一帧或在 `N/fps` 写入重复末帧 key，不能混用两个 duration 定义。
 
@@ -585,12 +585,12 @@ Unity 世界坐标、Timeline clip-local 坐标与 ARDY model-space history 原�
 ### 9.4 输出、Seek 与倒放
 
 - Editor 端合并完成后仍生成普通 AnimationClip，因此支持现有 Timeline seek、倒放和缓存。
-- 最终 AnimationClip 可保留 ARDY 原生 FPS，也可明确重采样到现有 30 FPS bake 约定；不能静默把 25 FPS 帧号当 30 FPS。
+- 最终 AnimationClip 可保留 ARDY 原生 FPS，也可明确重采样到现有 30 FPS bake 约定；不能静默把 20/25 FPS 帧号当 30 FPS。
 - Unity 与 QuickServer 都只保存/读取现有 KMB1 MotionPacket cache，不创建 normalized history 文件。
 - `KimodoEditorClipWritebackService` 只继续管理最终 AnimationClip；不扩展为 Python cache manager。
 - Timeline 对每个成功窗口保留服务器原始 KMB1 bytes 作为 Unity 侧 generated cache；该 cache 可按 Unity 现有生成缓存策略清理。
 - handle/fingerprint/seed 作为 KMB1 之外的生成元数据保存。Unity 不向 Python 发送 handle delete，spool 由 QuickServer quota/LRU 清理。
-- 未来重新编辑或分支时，Unity 可在新任务提交前从上一 clip 重定向并写出 `ardy_file_v1`；这不是 handle miss 后的自动 retry。
+- 未来重新编辑或分支时，Unity 可在新任务提交前从已烘焙 Timeline 重采样并写出 `ardy_file_v1`；这不是 handle miss 后的自动 retry。
 
 ---
 
@@ -622,7 +622,7 @@ ArdyEditorWindowGenerationCoordinator
 - session id / stream registry
 - 新的 TCP command DTO
 
-`KimodoGenerationRequestDto` 不增加 history/session 字段；ClipConstraint 仍放入已有 `constraints_json`。Bridge 只解析响应 JSON header 中新增的 `clip_handle`、`motion_rep_fingerprint`、`resolved_seed`；现有 MotionPacket FlatBuffer schema、version 与 framing 全部不变。
+`KimodoGenerationRequestDto` 不增加 history/session 字段；ClipConstraint 仍放入已有 `constraints_json`。Bridge 只解析响应 JSON header 中新增的 `clip_handle`、`motion_rep_fingerprint`、`resolved_seed`；KMB1 version 与 framing 不变，并增加可选 `foot_contacts` 动画数据字段。
 
 ### 10.2 QuickServer / Python
 
@@ -650,71 +650,77 @@ Phase 0 把 QuickServer Python 基线提升到 `>=3.10`，在同一 venv 中收�
 
 ### Phase 0：先固定骨架与单 venv
 
-- [ ] 复用 `NvlabKimodoQuickServer~/tools/export_kimodo_neutral_poses.py` 的 `export_one()`，从 ARDY `ardy/assets/skeletons` 只导出 `g1skel34_neutral.json`。
-- [ ] 用导出结果固定 joint name、parent、neutral position、root index 和单位，并建立 Unity G1 rig profile 校验。
-- [ ] QuickServer venv 的 Python 基线提升到 `>=3.10`。
-- [ ] 建立一个与正式 QuickServer venv 同构、可随时丢弃的候选 venv；不直接破坏当前可用 Kimodo 环境。
-- [ ] 在候选 venv 中把 `transformers` 专门升级并固定为 ARDY 已验证的 `5.8.1`，处理 Kimodo 当前 `==5.1.0` pin 的最小兼容修改。
-- [ ] 生成完整依赖 lock 并运行 `pip check`，覆盖 numpy/torch/peft/gradio_client 等交集，不只检查 transformers。
+- [x] 复用 `NvlabKimodoQuickServer~/tools/export_kimodo_neutral_poses.py` 的 `export_one()`，导出首选 `cskel27_neutral.json`，并保留 `g1skel34_neutral.json`。
+- [x] 用导出结果固定 joint name、parent、neutral position、root index 和单位，并建立 Unity Core27/G1 rig profile 校验。
+- [x] QuickServer venv 的 Python 基线提升到 `>=3.10`。
+- [x] 建立一个与正式 QuickServer venv 同构、可随时丢弃的候选 venv；不直接破坏当前可用 Kimodo 环境。
+- [x] 在候选 venv 中把 `transformers` 专门升级并固定为 ARDY 已验证的 `5.8.1`，处理 Kimodo 当前 `==5.1.0` pin 的最小兼容修改。
+- [x] 生成完整依赖 lock 并运行 `pip check`，覆盖 numpy/torch/peft/gradio_client 等交集，不只检查 transformers。
 - [ ] 升级前记录当前 Kimodo 基线；升级后依次回归：模型加载、无约束 `generate`、带 `constraints_json` 的 `generate`、`cancel`、`flatbuf_motion_v1` 解析与现有 Unity bake 路径。
 - [ ] 只有全部回归通过，才把该候选 venv 升格为唯一正式 QuickServer venv；未通过则先修 Kimodo 的 5.8.1 兼容性，不进入 ARDY 协议/骨架工作。
 - [ ] 在正式单 venv、同一进程生命周期中分别完成一次 Kimodo 与一次 ARDY 最小推理。
 
 验收：骨架 JSON 可被 Unity 读取且与 ARDY checkpoint 一致；Kimodo 在 `transformers==5.8.1` 下的全部最小回归通过；同一正式 venv 的 Kimodo 与 ARDY 最小推理都成功。
 
+实施备注：候选 `Env~`（Python 3.12 / transformers 5.8.1）已通过 `pip check`、Kimodo 最小生成和 ARDY 实际模型最小生成；正式 `kimodo/.venv` 尚未构建/升格，因此 Phase 0 整体验收仍未完成。
+
 ### Phase 1：Constraint 与 Clip 格式
 
-- [ ] 固定 7 个 ARDY 原生 constraint type。
-- [ ] 固定 `ardy_handle_v1` / `ardy_file_v1` 两种 JSON 引用；两者都读取现有 `flatbuf_motion_v1 / KMB1`，不新增 FlatBuffer schema。
-- [ ] 多个 clip 按 `constraints_json` 出现顺序拼接。
-- [ ] Python 从 KMB1 root/local rotations 有损重建 normalized history，并重新计算 velocities/foot contacts。
-- [ ] handle 半开 slice 合法，effective-tail crop 保留相同尾帧并在拼接后从头部完成 token 对齐。
+- [x] 固定 7 个 ARDY 原生 constraint type。
+- [x] 固定 `ardy_handle_v1` / `ardy_file_v1` 两种 JSON 引用；两者都读取现有 `flatbuf_motion_v1 / KMB1`，只以可选 `foot_contacts` 向后兼容扩展 schema。
+- [x] 多个 clip 按 `constraints_json` 出现顺序拼接。
+- [x] Python 从 KMB1 root/local rotations 有损重建 normalized history，并重新计算 velocities；KMB1 存在 foot contacts 时直接保留，旧文件才推断。
+- [x] handle 半开 slice 合法，effective-tail crop 保留相同尾帧并在拼接后从头部完成 token 对齐。
 - [ ] 建立 Unity exporter → ARDY adapter fixture。
-- [ ] 覆盖 `smooth_root_2d/root_2d` 与 heading vector/angle 转换。
-- [ ] 按 channel 实现 `fullbody > root2d > end-effector root` 与 end-effector 同 joint 后者覆盖。
-- [ ] ARDY constraint 只接受 Phase 0 固定的 ARDY G1 rig。
+- [x] 覆盖 `smooth_root_2d/root_2d` 与 heading vector/angle 转换。
+- [x] 按 channel 实现 `fullbody > root2d > end-effector root` 与 end-effector 同 joint 后者覆盖。
+- [x] ARDY constraint 只接受当前 model profile 固定的 Core27 或 G1 rig，不跨 rig 解释。
 
 验收：handle/file KMB1 都能进入 `init_history_sequence`；允许的有损重建不产生边界跳变，多 clip 拼接帧序与冲突优先级正确。
 
 ### Phase 2：QuickServer ARDY 原子 `generate`
 
-- [ ] 现有 model registry 可选择 ARDY。
-- [ ] `duration` 被忽略并固定返回 Horizon。
-- [ ] 无显式 clip 时始终从空 history 开始，不读取连接状态。
-- [ ] 将响应使用的同一份 KMB1 payload 保存到 QuickServer spool，并返回 immutable `clip_handle` / fingerprint / resolved seed。
-- [ ] handle cache 按字节 quota + LRU + active pin 管理；handle miss 返回结构化错误。
-- [ ] handle miss 是终态 error；Unity 不 fallback、不 retry、不发送 handle delete。
-- [ ] 校验 cfg text/constraint weights、diffusion steps 上限与 G1 postprocess 禁用。
-- [ ] `autoregressive_step` 支持 cooperative cancel；`error/cancelled` 不发布 handle。
-- [ ] 复用现有 `generate/cancel/quit`、progress、task id 与 MotionPacket。
+- [x] 现有 model registry 可选择 ARDY。
+- [x] `duration` 被忽略并固定返回 Horizon。
+- [x] 无显式 clip 时始终从空 history 开始，不读取连接状态。
+- [x] 将响应使用的同一份 KMB1 payload 保存到 QuickServer spool，并返回 immutable `clip_handle` / fingerprint / resolved seed。
+- [x] handle cache 按字节 quota + LRU + active pin 管理；handle miss 返回结构化错误。
+- [x] handle miss 是终态 error；Unity 不 fallback、不 retry、不发送 handle delete。
+- [x] 校验 cfg text/constraint weights、diffusion steps 上限，以及 Core postprocess 开/G1 postprocess 关。
+- [x] `autoregressive_step` 支持 cooperative cancel；`error/cancelled` 不发布 handle。
+- [x] 复用现有 `generate/cancel/quit`、progress、task id 与 MotionPacket。
 
 验收：不新增命令即可用显式 handles 连续生成；多角色/多调用方共用连接不会串 history，重连后 handle 仍按 cache 契约工作。
 
+实施备注：Core27 已通过真实 CUDA 1-step 生成、postprocess、handle 续窗和 160 history + 40 Horizon 最大 context；G1 已回归真实 1-step 生成并确认不进入 postprocess。
+
 ### Phase 3：现有 Runtime Driver 接入
 
-- [ ] 每次 ARDY generate 都发送当前有效 prefix 的最近 K 个 handle ClipConstraints；确实无 history 时为空。
-- [ ] segment 保存 handle/fingerprint/resolved seed，cancel/revision 后只从仍有效 prefix 重建 handles。
-- [ ] handle miss 时本次 Runtime generation 失败并保持错误状态，不提交第二个请求。
-- [ ] 合并 pending ARDY future constraints。
-- [ ] 禁用 ARDY duplicate overlap pose continuity。
-- [ ] 复用现有 refresh/cancel/version/queue。
-- [ ] 校验返回 Horizon、fps、rig 与 motion representation fingerprint。
+- [x] 每次 ARDY generate 都发送当前有效 prefix 的最近 K 个 handle ClipConstraints；确实无 history 时为空。
+- [x] segment 保存 handle/fingerprint/resolved seed，cancel/revision 后只从仍有效 prefix 重建 handles。
+- [x] handle miss 时本次 Runtime generation 失败并保持错误状态，不提交第二个请求。
+- [x] 合并 pending ARDY future constraints。
+- [x] 禁用 ARDY duplicate overlap pose continuity。
+- [x] 复用现有 refresh/cancel/version/queue。
+- [x] 校验返回 Horizon、fps、rig 与 motion representation fingerprint。
 
 验收：不新增 scheduler 连续运行至少 2 分钟；prompt/constraint 更新不会继承 stale history。
 
 ### Phase 4：Timeline 多窗口 Bake 与 writeback
 
-- [ ] `generationFrames` 作为最终目标长度。
-- [ ] editor pipeline 严格串行调用原子 `generate`。
-- [ ] 每个 Timeline 窗口显式发送 ClipConstraint：初始实际 clip 写成 `ardy_file_v1 / KMB1`，内部续窗使用临时 handles。
-- [ ] constraint 按 `floor(seconds * source_fps)`、半开窗口 `[N*H,(N+1)*H)` 分窗/rebase。
-- [ ] 固定 `H-1 / H / 下一窗口 0` 的 lookahead 与重复引用规则。
-- [ ] 统一 `N/fps` 覆盖时长与 `(N-1)/fps` 最后采样时间，明确末帧保持/重复 key。
+- [x] `generationFrames` 作为最终目标长度。
+- [x] editor pipeline 严格串行调用原子 `generate`。
+- [x] 每个 Timeline 窗口显式发送 ClipConstraint：首窗口从 Timeline 当前起点向前最多采样 profile history budget（Core 为 8 秒），末样本为 `T-ε`，并写成带可选 foot contacts 的 `ardy_file_v1 / KMB1`；内部续窗使用临时 handles。
+- [x] constraint 按 `floor(seconds * source_fps)`、半开窗口 `[N*H,(N+1)*H)` 分窗/rebase。
+- [x] 固定 `H-1 / H / 下一窗口 0` 的 lookahead 与重复引用规则。
+- [x] 统一 `N/fps` 覆盖时长与 `(N-1)/fps` 最后采样时间，明确末帧保持/重复 key。
 - [ ] 固定 Unity world/clip-local → ARDY model-space history 原点转换并建立 golden fixture。
-- [ ] raw motion 合并、精确裁切与显式重采样。
-- [ ] 复用现有 bake/retarget/finalize。
+- [x] raw motion 合并、精确裁切与显式重采样。
+- [x] 复用现有 bake/retarget/finalize。
 
 验收：生成 10 秒 AnimationClip，窗口边界连续且无一帧时长偏差；handle miss 明确终止本次任务，用户新发起的任务可从实际 Timeline clip 重新建立。
+
+实施备注：history 已固定为“所选 ARDY profile 的隐藏 sampler 位于 Unity 世界原点；root 读取 sampler joint 世界坐标；Unity→ARDY root 镜像 X；local quaternion 写成 `(w, x, -y, -z)`；Timeline/PlayableAsset 的世界偏移不写入 KMB”。场景级 golden fixture 尚未建立，所以对应 checkbox 保持未完成。
 
 ### Phase 5：性能优化（最后）
 
@@ -742,29 +748,31 @@ Phase 0 把 QuickServer Python 基线提升到 `>=3.10`，在同一 venv 中收�
 
 - [ ] 任意连接无 clip 时都从空历史开始。
 - [ ] 同一连接、不同连接和多个角色交错请求都不共享隐式 history。
-- [ ] 多个 handle/file KMB1 clip 按出现顺序拼接。
+- [x] 多个 handle/file KMB1 clip 按出现顺序拼接。
 - [ ] handle 可跨 TCP 重连读取；不存在、淘汰或 fingerprint 不匹配时返回结构化错误。
 - [ ] active/queued 引用的 handle 不会被 LRU 清理。
-- [ ] cancelled/error task 不发布 handle，不留下可见临时文件。
+- [x] cancelled/error task 不发布 handle，不留下可见临时文件。
 - [ ] 磁盘满、原子 rename 失败和写入中断时返回 error，不发布半成品 handle。
 - [ ] 长时间未使用 handle 被 LRU 淘汰后，本次请求失败且 Unity 不自动 retry。
-- [ ] `ardy_file_v1` 与 handle 缓存文件都是现有 KMB1 bytes，Unity/Python 可交叉读取。
-- [ ] 生产 file path 只能位于项目受管 cache；test flag 只额外开放测试目录。
-- [ ] 最小/最大 token-aligned history。
+- [x] `ardy_file_v1` 与 handle 缓存文件都是现有 KMB1 bytes，Unity/Python 可交叉读取。
+- [x] 生产 file path 只能位于项目受管 cache；test flag 只额外开放测试目录。
+- [x] 最小/最大 token-aligned history。
 - [ ] history 过长或不对齐。
 - [ ] handle/KMB1 model/FPS/rig/fingerprint/vector length 不匹配。
 - [ ] 超大、损坏、过期 KMB1 spool 文件。
 - [ ] KMB1→ARDY 有损重建的 root、foot 与 joint 边界连续性。
 - [ ] effective tail crop 与 playback boundary 一致。
 
+当前 Python self-check 还覆盖：同长度 spool payload 损坏可被内容哈希识别、相同内容再次发布会把损坏文件归档并重建、fingerprint 不匹配返回终态失败、LRU 超额时保留 pinned 与当前发布 handle。它不替代 queued/active pin、磁盘故障和长时间淘汰的 QuickServer 集成压测。
+
 ### 12.3 现有协议回归
 
-- [ ] Kimodo `generate` 行为不变。
-- [ ] 同一 TCP 连接连续 ARDY `generate`。
+- [x] Kimodo `generate` 行为不变。
+- [x] 同一 TCP 连接连续 ARDY `generate`。
 - [ ] queued/active task cancel。
 - [ ] active cancel 最大延迟不超过一个 denoising step，且不发布 handle。
 - [ ] model switch、disconnect 与 transparent reconnect 不改变显式 handle history。
-- [ ] `task_id/id` 在所有状态中一致。
+- [ ] `task_id` 在所有状态中一致。
 - [ ] FlatBuffer header 与 payload 不被其他任务穿插。
 - [ ] server 完成后、Unity 收到 payload 前断线；同 seed/history 重试同一 window。
 - [ ] `quit` 行为不变。
@@ -786,9 +794,9 @@ Phase 0 把 QuickServer Python 基线提升到 `>=3.10`，在同一 venv 中收�
 - [ ] `floor(seconds * source_fps)` 对整数、非整数秒和负/越界时间一致。
 - [ ] 约束位于 `0 / H-1 / H / H+1` 时的分窗与 lookahead 正确。
 - [ ] `N/fps` 覆盖时长、`(N-1)/fps` 末采样时间和末帧保持无一帧偏差。
-- [ ] 25 FPS ARDY → 30 FPS Bake 的最终帧数、clip length 与约束时间一致。
+- [ ] 20/25 FPS ARDY → 30 FPS Bake 的最终帧数、clip length 与约束时间一致。
 - [ ] Unity world/clip-local → ARDY model-space 原点、heading 与 root trajectory golden fixture。
-- [ ] 相同 history/prompt/seed 的重试结果满足定义的确定性。
+- [x] 相同 history/prompt/seed 的重试结果满足定义的确定性。
 
 ### 12.6 连续性与性能
 
@@ -808,11 +816,11 @@ Phase 0 把 QuickServer Python 基线提升到 `>=3.10`，在同一 venv 中收�
 
 第一阶段只实现 **ARDY skeleton 上的 ARDY constraint**：
 
-- ARDY G1 模型只接收按 Phase 0 导出骨架构造的 G1 root/fullbody/end-effector constraints。
+- ARDY Core27/G1 模型只接收按各自 Phase 0 骨架构造的 root/fullbody/end-effector constraints。
 - 不把现有 SOMA constraint JSON 直接解释为 ARDY constraint。
 - 不在第一阶段实现 SOMA → ARDY constraint 自动转换、自动 joint mapping 或任意 FPS/rig 转换。
 
-后续确实需要 SOMA constraint 时，再单独实现转换层。最小可行路径是先把 SOMA constraint pose 生成成一帧临时 clip，经 Unity retarget 到 ARDY G1，再从该 G1 帧提取 ARDY constraint；它不阻塞当前原子窗口链路。
+后续确实需要 SOMA constraint 时，再单独实现转换层。最小可行路径是先把 SOMA constraint pose 生成成一帧临时 clip，经 Unity retarget 到当前 ARDY profile rig，再从该帧提取 ARDY constraint；它不阻塞当前原子窗口链路。
 
 ---
 
@@ -825,11 +833,11 @@ Phase 0 把 QuickServer Python 基线提升到 `>=3.10`，在同一 venv 中收�
 5. ARDY `duration` 不控制长度，每次只返回 checkpoint 固定 Horizon。
 6. 每个 ARDY 请求只使用显式 handle/file KMB1 ClipConstraints；Timeline/Runtime/多角色交错与重连不会串 history。
 7. QuickServer 以 immutable handle、fingerprint、字节 quota、LRU 和 active pin 管理 KMB1 spool；Unity 不发送 handle delete。
-8. Timeline 每个窗口显式发送 ClipConstraint；初始/外部 clip 用 `ardy_file_v1`，同一次内部窗口循环复用临时 handles，最终资产仍是普通 AnimationClip。
+8. Timeline 每个窗口显式发送 ClipConstraint；首窗口从 Timeline 重采样后用 `ardy_file_v1`，同一次内部窗口循环复用临时 handles，最终资产仍是普通 AnimationClip。
 9. Runtime 每次生成发送最近 K 个有效 handles；handle miss 是终态失败，Unity 不 fallback、不 retry。
-10. cfg text/constraint weights、diffusion steps 上限、resolved seed、G1 postprocess 与 cooperative cancel 均有测试。
+10. cfg text/constraint weights、diffusion steps 上限、resolved seed、Core/G1 postprocess 分流与 cooperative cancel 均有测试。
 11. `fullbody/root2d/end-effector` 按 conditioning channel 的优先级和冲突覆盖规则有 fixture。
 12. Phase 4 固定 floor 帧换算、半开窗口、`N/fps` 时长与 Unity→ARDY history 原点公式。
 13. ARDY 与 Kimodo 在同一 QuickServer venv 中通过完整 lock、`pip check`、最小推理与连续生成测试。
 14. 10 秒 Timeline Bake 和至少 2 分钟 Runtime 连续生成通过连续性、取消、stale-result 与多调用方交错测试。
-15. 现有 Kimodo `generate/cancel/quit`、KMB1 FlatBuffer schema/version/framing 和 bake 路径回归通过。
+15. 现有 Kimodo `generate/cancel/quit`、带可选 foot contacts 的 KMB1 version/framing 和 bake 路径回归通过。

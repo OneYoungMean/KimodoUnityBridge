@@ -707,7 +707,19 @@ def _build_generate_flatbuffer_payload(model: Any, output: dict, sample_index: i
     if local_rot_quats is None or int(local_rot_quats.size) == 0:
         raise ValueError("FlatBuffer export requires local_rot_quats, but none were available in model output.")
 
-    builder = flatbuffers.Builder(max(1024, int(local_rot_quats.size * 4 + root_positions.size * 4 + 512)))
+    foot_contacts = np.asarray(output.get("foot_contacts", []))
+    if foot_contacts.ndim == 3:
+        foot_contacts = foot_contacts[sample_index]
+    if foot_contacts.size:
+        if foot_contacts.ndim != 2 or foot_contacts.shape != (num_frames, 4):
+            raise ValueError(
+                f"FlatBuffer foot_contacts must have shape ({num_frames}, 4); got {foot_contacts.shape!r}."
+            )
+        foot_contacts = np.ascontiguousarray((foot_contacts >= 0.5).astype(np.uint8)).reshape(-1)
+
+    builder = flatbuffers.Builder(
+        max(1024, int(local_rot_quats.size * 4 + root_positions.size * 4 + foot_contacts.size + 512))
+    )
 
     model_name_offset = builder.CreateString(str(getattr(model, "name", "") or ""))
     joint_name_offsets = [builder.CreateString(str(name or "")) for name in joint_names]
@@ -718,6 +730,7 @@ def _build_generate_flatbuffer_payload(model: Any, output: dict, sample_index: i
     joint_parents_offset = builder.CreateNumpyVector(np.asarray(joint_parents, dtype=np.int32))
     root_positions_offset = builder.CreateNumpyVector(root_positions)
     local_rot_quats_offset = builder.CreateNumpyVector(local_rot_quats)
+    foot_contacts_offset = builder.CreateNumpyVector(foot_contacts) if foot_contacts.size else None
 
     MotionPacket.Start(builder)
     MotionPacket.AddVersion(builder, 1)
@@ -729,6 +742,8 @@ def _build_generate_flatbuffer_payload(model: Any, output: dict, sample_index: i
     MotionPacket.AddRootPositions(builder, root_positions_offset)
     MotionPacket.AddLocalRotQuats(builder, local_rot_quats_offset)
     MotionPacket.AddModelName(builder, model_name_offset)
+    if foot_contacts_offset is not None:
+        MotionPacket.AddFootContacts(builder, foot_contacts_offset)
     packet = MotionPacket.End(builder)
     builder.Finish(packet, file_identifier=b"KMB1")
     return bytes(builder.Output())

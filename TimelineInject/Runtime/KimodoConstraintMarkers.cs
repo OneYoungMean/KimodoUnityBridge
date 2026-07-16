@@ -34,7 +34,8 @@ namespace TimelineInject
         Soma77 = 0,
         G1 = 1,
         Smplx = 2,
-        Unknown = 3
+        Unknown = 3,
+        Core27 = 4
     }
 
     [Serializable]

@@ -28,7 +28,6 @@ namespace KimodoBridge.Editor
         public KimodoConstraintNormalizationAnchorKind NormalizationAnchorKind;
         public KimodoMarkerSampleResult NormalizationAnchorSample;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
-        public List<string> InitialArdyHistoryFilePaths = new List<string>();
         public ArdyEditorHistorySource InitialArdyHistorySource;
         public string GeneratedArdyMotionCachePath = string.Empty;
         public List<string> GeneratedArdyWindowCachePaths = new List<string>();
@@ -39,11 +38,9 @@ namespace KimodoBridge.Editor
 
     internal sealed class ArdyEditorHistorySource
     {
-        public AnimationClip Clip;
-        public Avatar SourceAvatar;
-        public double ClipInSeconds;
-        public double TimelineDurationSeconds;
-        public double TimeScale = 1.0;
+        public KimodoTimelineInOutConstraintContext TimelineContext;
+        public double RangeStartSeconds;
+        public double RangeEndSeconds;
     }
 
     internal sealed class KimodoEditorGenerateOutputPlan
