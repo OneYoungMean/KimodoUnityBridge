@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import socket
+import tempfile
 from types import SimpleNamespace
 import threading
 import unittest
@@ -13,6 +15,7 @@ import torch
 from kimodo.bridge import ardy_backend
 from kimodo.bridge import bridge_server
 from kimodo.bridge import quickserver_assets
+from kimodo.bridge import quickserver_setup
 
 
 class _MotionRep:
@@ -261,6 +264,45 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         )
         parsed = ardy_backend.parse_kmb1(payload)
         np.testing.assert_array_equal(parsed.foot_contacts, contacts[0])
+
+    def test_kmb_maps_soma_foot_contacts_to_four_channels(self):
+        skeleton = SimpleNamespace(
+            bone_order_names=["Hips", "LeftFoot"],
+            joint_parents=torch.tensor([-1, 0]),
+        )
+        model = SimpleNamespace(name="foot-contact-test", fps=20.0, skeleton=skeleton)
+        contacts = np.asarray(
+            [[1, 0, 9, 0, 1, 9], [0, 1, 9, 1, 0, 9], [1, 1, 9, 0, 0, 9], [0, 0, 9, 1, 1, 9]],
+            dtype=np.float32,
+        )
+        parsed = ardy_backend.parse_kmb1(_payload(model, 0.0, contacts))
+        np.testing.assert_array_equal(parsed.foot_contacts, contacts[:, [0, 1, 3, 4]])
+
+    def test_force_setup_stops_active_quickserver(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            host, port = listener.getsockname()
+            serverport = root / "serverport"
+            serverport.write_text(f"host={host}\nport={port}\n", encoding="utf-8")
+            received: list[bytes] = []
+
+            def serve() -> None:
+                with listener:
+                    conn, _ = listener.accept()
+                    with conn:
+                        received.append(conn.recv(64))
+                        conn.sendall(b'{"status":"bye"}\n')
+                serverport.unlink()
+
+            thread = threading.Thread(target=serve)
+            thread.start()
+            quickserver_setup._stop_active_quickserver(SimpleNamespace(root_dir=root), timeout_seconds=1)
+            thread.join(timeout=1)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(received, [b'{"cmd":"quit"}\n'])
 
     def test_ardy_history_uses_stored_foot_contacts(self):
         archive = Path(__file__).resolve().parents[3] / "archive" / "test_artifacts" / f"contacts-{os.getpid()}"

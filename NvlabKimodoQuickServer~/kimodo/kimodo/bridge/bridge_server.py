@@ -711,7 +711,13 @@ def _build_generate_flatbuffer_payload(model: Any, output: dict, sample_index: i
     if foot_contacts.ndim == 3:
         foot_contacts = foot_contacts[sample_index]
     if foot_contacts.size:
-        if foot_contacts.ndim != 2 or foot_contacts.shape != (num_frames, 4):
+        if foot_contacts.ndim != 2:
+            raise ValueError(
+                f"FlatBuffer foot_contacts must have shape ({num_frames}, 4); got {foot_contacts.shape!r}."
+            )
+        if foot_contacts.shape[1] == 6:
+            foot_contacts = foot_contacts[:, [0, 1, 3, 4]]
+        if foot_contacts.shape != (num_frames, 4):
             raise ValueError(
                 f"FlatBuffer foot_contacts must have shape ({num_frames}, 4); got {foot_contacts.shape!r}."
             )

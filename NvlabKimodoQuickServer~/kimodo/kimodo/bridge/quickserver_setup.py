@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -151,6 +152,44 @@ def archive_path(target: Path, recycle_dir: Path) -> None:
         shutil.move(str(target), str(destination))
     except Exception:
         pass
+
+
+def _stop_active_quickserver(paths: ProjectPaths, timeout_seconds: float = 120.0) -> None:
+    serverport_path = paths.root_dir / "serverport"
+    try:
+        lines = serverport_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return
+
+    data: dict[str, str] = {}
+    for line in lines:
+        if "=" in line:
+            key, value = line.split("=", 1)
+            data[key.strip().lower()] = value.strip()
+    host = data.get("host", "")
+    try:
+        port = int(data.get("port", "0"))
+    except ValueError:
+        return
+    if not host or port <= 0:
+        return
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        raise SetupError(f"Refusing to stop non-local QuickServer from {serverport_path}: {host!r}")
+
+    try:
+        with socket.create_connection((host, port), timeout=5) as conn:
+            conn.settimeout(5)
+            conn.sendall(b'{"cmd":"quit"}\n')
+            with conn.makefile("rb") as response:
+                response.readline()
+    except OSError as exc:
+        raise SetupError(f"Active QuickServer did not respond to quit at {host}:{port}.") from exc
+
+    deadline = time.monotonic() + timeout_seconds
+    while serverport_path.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if serverport_path.exists():
+        raise SetupError("Timed out waiting for QuickServer to exit before forced setup.")
 
 
 def _read_sentinel(sentinel: Path) -> dict[str, str]:
@@ -707,6 +746,13 @@ def run_setup_cli(root_dir: str | os.PathLike[str], options: SetupCliOptions) ->
         return SetupCliResult(ok=True, exit_code=0, venv_python=python_path)
 
     if options.force:
+        try:
+            _stop_active_quickserver(paths)
+        except SetupError as exc:
+            log_path = Path(options.log_path).resolve() if options.log_path else paths.default_setup_log_path
+            with SetupLogger(options.output_mode or "console", log_path) as logger:
+                logger.log(f"[ERROR] {exc}")
+            return SetupCliResult(ok=False, exit_code=1, venv_python="")
         archive_path(paths.setup_sentinel, paths.recycle_dir)
 
     sentinel = _read_sentinel(paths.setup_sentinel)

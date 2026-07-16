@@ -12,8 +12,6 @@ namespace KimodoBridge.Editor
     public partial class KimodoPlayableClipEditor : UnityEditor.Editor
     {
         private const double RepaintIntervalSeconds = 0.2d;
-        private static readonly string[] BaseModelOptions = { "Kimodo", "ARDY" };
-
         private SerializedProperty bridgeModelName;
         private SerializedProperty bridgeVramMode;
         private SerializedProperty motionPrompt;
@@ -133,31 +131,16 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.LabelField("Generate Motion", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
-            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(
-                KimodoPlayableClip.NormalizeBridgeModelName(bridgeModelName?.stringValue),
-                out KimodoMotionModelProfile ardyProfile);
+            bool isArdy = KimodoGenerationInspectorGui.IsArdy(bridgeModelName?.stringValue);
             if (bridgeModelName != null)
             {
-                isArdy = DrawBridgeModelSelector();
-                KimodoMotionModelProfiles.TryGetArdy(
-                    KimodoPlayableClip.NormalizeBridgeModelName(bridgeModelName.stringValue),
-                    out ardyProfile);
+                isArdy = KimodoGenerationInspectorGui.DrawModelSelector(bridgeModelName, diffusionSteps);
             }
             if (bridgeVramMode != null)
             {
-                EditorGUILayout.PropertyField(
-                    bridgeVramMode,
-                    new GUIContent("VRAM Mode", "Low: quantized text encoder (~4G). High: full Llama+LLM2Vec (~16G)."));
+                KimodoGenerationInspectorGui.DrawVram(bridgeVramMode);
             }
-
-            int encoderVramGb = clip.bridgeVramMode == KimodoBridgeVramMode.High ? 16 : 4;
-            int totalVramGb = 2 + encoderVramGb;
-            EditorGUILayout.HelpBox(
-                $"Estimated VRAM for selected mode: ~{totalVramGb} GB (core 2 GB + encoder {encoderVramGb} GB).",
-                MessageType.Info);
-
-            EditorGUILayout.LabelField(new GUIContent("Prompt", "Natural-language motion prompt sent to Kimodo Bridge."));
-            motionPrompt.stringValue = EditorGUILayout.TextArea(motionPrompt.stringValue, GUILayout.Height(60));
+            KimodoGenerationInspectorGui.DrawPrompt(motionPrompt);
 
             bool hasArdyTimelineDuration = true;
             if (isArdy)
@@ -175,42 +158,20 @@ namespace KimodoBridge.Editor
             }
             else
             {
-                int oldFrames = generationFrames.intValue;
                 float minDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(KimodoPlayableClip.MIN_FRAMES);
                 float maxDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(KimodoPlayableClip.MAX_FRAMES);
-                float oldDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(oldFrames);
-                float newDurationSeconds = EditorGUILayout.Slider(
-                    new GUIContent("Duration (s)", "Target generated clip length in seconds. Internally uses the fixed Kimodo sample rate and also syncs timeline clip duration when changed."),
-                    oldDurationSeconds,
+                if (KimodoGenerationInspectorGui.DrawDuration(
+                    generationFrames,
                     minDurationSeconds,
-                    maxDurationSeconds);
-                int newFrames = KimodoInOutConstraintAdapter.DurationSecondsToFrameCount(newDurationSeconds);
-                if (newFrames != oldFrames)
+                    maxDurationSeconds,
+                    "Target generated clip length in seconds. Internally uses the fixed Kimodo sample rate and also syncs timeline clip duration when changed."))
                 {
-                    generationFrames.intValue = newFrames;
-                    TrySyncTimelineDuration(newFrames);
+                    TrySyncTimelineDuration(generationFrames.intValue);
                 }
             }
 
-            if (isArdy && ardyProfile != null)
-            {
-                diffusionSteps.intValue = EditorGUILayout.IntSlider(
-                    new GUIContent("Diffusion Steps", $"0 uses the model default ({ardyProfile.MaxDiffusionSteps})."),
-                    Mathf.Clamp(diffusionSteps.intValue, 0, ardyProfile.MaxDiffusionSteps),
-                    0,
-                    ardyProfile.MaxDiffusionSteps);
-            }
-            else
-            {
-                diffusionSteps.intValue = Mathf.Clamp(EditorGUILayout.IntField(new GUIContent("Diffusion Steps", "Sampling steps for generation. Higher values increase compute time and may improve fidelity."), diffusionSteps.intValue), 1, 1000);
-            }
-
-            EditorGUILayout.BeginHorizontal();
-            randomProp.boolValue = EditorGUILayout.ToggleLeft(new GUIContent("Random", "Use a random seed on each generation run."), randomProp.boolValue, GUILayout.Width(110f));
-            EditorGUI.BeginDisabledGroup(randomProp.boolValue);
-            seed.intValue = EditorGUILayout.IntField(new GUIContent("Seed", "Deterministic seed used when Random is disabled."), seed.intValue);
-            EditorGUI.EndDisabledGroup();
-            EditorGUILayout.EndHorizontal();
+            KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, bridgeModelName);
+            KimodoGenerationInspectorGui.DrawSeed(randomProp, seed);
             if (inOutConstraintModeProp != null)
             {
                 EditorGUILayout.PropertyField(
@@ -392,46 +353,6 @@ namespace KimodoBridge.Editor
             DrawAdvancedCurveFilterSection();
 
             EditorGUILayout.EndVertical();
-        }
-
-        private bool DrawBridgeModelSelector()
-        {
-            string current = KimodoPlayableClip.NormalizeBridgeModelName(bridgeModelName.stringValue);
-            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(current, out _);
-            int baseModelIndex = EditorGUILayout.Popup(
-                new GUIContent("Base Model", "Select the Kimodo or ARDY model family."),
-                isArdy ? 1 : 0,
-                BaseModelOptions);
-            bool selectedArdy = baseModelIndex == 1;
-            if (selectedArdy != isArdy)
-            {
-                current = selectedArdy
-                    ? KimodoMotionModelProfiles.ArdyCoreModelName
-                    : KimodoPlayableClip.DefaultBridgeModelName;
-                bridgeModelName.stringValue = current;
-                diffusionSteps.intValue = selectedArdy ? 10 : 100;
-            }
-
-            string[] allOptions = KimodoBridgeServerTool.SupportedModelNames;
-            var filtered = new List<string>();
-            for (int i = 0; i < allOptions.Length; i++)
-            {
-                bool optionIsArdy = KimodoMotionModelProfiles.TryGetArdy(allOptions[i], out _);
-                if (optionIsArdy == selectedArdy)
-                {
-                    filtered.Add(allOptions[i]);
-                }
-            }
-            string[] options = filtered.ToArray();
-            int idx = Array.IndexOf(options, current);
-            if (idx < 0)
-            {
-                idx = 0;
-            }
-
-            int newIdx = EditorGUILayout.Popup(new GUIContent("Model", "Model package used for generation."), idx, options);
-            bridgeModelName.stringValue = options[Mathf.Clamp(newIdx, 0, options.Length - 1)];
-            return selectedArdy;
         }
 
         private void DrawEstimatedSetupTimeHint()

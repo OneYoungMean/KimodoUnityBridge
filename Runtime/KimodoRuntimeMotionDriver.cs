@@ -231,6 +231,20 @@ namespace KimodoBridge
             ApplyGenerationDurationSeconds(seconds);
         }
 
+        public void ApplyGenerationSettings()
+        {
+            EnsurePromptDraftInitialized();
+            promptDraft = string.IsNullOrWhiteSpace(defaultPrompt) ? IdlePrompt : defaultPrompt.Trim();
+            if (!KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
+            {
+                ApplyGenerationDurationSeconds(generationFrames / KimodoPlayableClip.FIXED_FRAME_RATE);
+            }
+            _ = RefreshUpcomingGenerationAsync(
+                "Generation settings applied.",
+                "Generation settings applied. Waiting for current generation to finish.",
+                "Generation settings applied. Generating fresh segment.");
+        }
+
         public float GetAnimationDurationSeconds()
         {
             return ResolveGenerationDurationSeconds();

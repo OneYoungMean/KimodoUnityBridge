@@ -241,7 +241,7 @@ namespace KimodoBridge.Editor
                 switch (request.NormalizationAnchorKind)
                 {
                     case KimodoConstraintNormalizationAnchorKind.FullBody:
-                        if (TryApplyAnchorOffsetToClip(playableClip, request.NormalizationAnchorSample, planarOnly: false))
+                        if (TryApplyAnchorOffsetToClip(playableClip, request.NormalizationAnchorSample, planarOnly: true))
                         {
                             return;
                         }

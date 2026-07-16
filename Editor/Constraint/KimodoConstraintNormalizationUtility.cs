@@ -15,7 +15,6 @@ namespace KimodoBridge.Editor
             public KimodoConstraintNormalizationAnchorKind AnchorKind = KimodoConstraintNormalizationAnchorKind.None;
             public KimodoMarkerSampleResult AnchorSample;
             public Vector3 RootPosition = Vector3.zero;
-            public Quaternion RootRotation = Quaternion.identity;
             public Quaternion InverseRootRotation = Quaternion.identity;
         }
 
@@ -66,9 +65,8 @@ namespace KimodoBridge.Editor
                 resolved.AnchorSample = anchor != null ? anchor.Clone() : null;
                 if (anchor != null)
                 {
-                    resolved.RootPosition = anchor.unityRootPos;
-                    resolved.RootRotation = anchor.unityRootRot;
-                    resolved.InverseRootRotation = Quaternion.Inverse(anchor.unityRootRot);
+                    resolved.RootPosition = new Vector3(anchor.unityRootPos.x, 0f, anchor.unityRootPos.z);
+                    resolved.InverseRootRotation = Quaternion.Inverse(ResolvePlanarRootRotation(anchor));
                 }
             }
 
@@ -218,6 +216,16 @@ namespace KimodoBridge.Editor
         private static bool IsSameFirstFrameTime(double sampleTime, double earliestTime)
         {
             return Math.Abs(sampleTime - earliestTime) <= FirstFrameTimeEpsilonSeconds;
+        }
+
+        private static Quaternion ResolvePlanarRootRotation(KimodoMarkerSampleResult sample)
+        {
+            Vector3 forward = sample != null && sample.hasRootHeading
+                ? new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y)
+                : Vector3.ProjectOnPlane((sample != null ? sample.unityRootRot : Quaternion.identity) * Vector3.forward, Vector3.up);
+            return forward.sqrMagnitude > 1e-8f
+                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
+                : Quaternion.identity;
         }
 
         private static void NormalizeConstraintOriginSample(

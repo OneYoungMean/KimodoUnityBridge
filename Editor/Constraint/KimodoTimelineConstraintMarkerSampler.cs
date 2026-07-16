@@ -135,8 +135,70 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            Transform sourceHips = ResolveSourceHumanBone(
+                context.Animator,
+                context.SourceAvatar,
+                HumanBodyBones.Hips);
+            if (sourceHips == null)
+            {
+                error = "Timeline source Animator has no Hips bone.";
+                return false;
+            }
+
+            Vector3 sourceForward = Vector3.ProjectOnPlane(sourceHips.forward, Vector3.up);
+            if (sourceForward.sqrMagnitude <= 1e-8f)
+            {
+                sourceForward = Vector3.forward;
+            }
+            sourceForward.Normalize();
+
+            // ponytail: SetHumanPose drops Timeline root motion, so keep source Hips XZ/yaw.
+            sample.kimodoRootPosition = new Vector3(
+                sourceHips.position.x,
+                sample.kimodoRootPosition.y,
+                sourceHips.position.z);
+            sample.unityRootPos = sourceHips.position;
+            sample.unityRootRot = Quaternion.LookRotation(sourceForward, Vector3.up);
+            sample.rootHeading = new Vector2(sourceForward.x, sourceForward.z);
+            sample.hasRootHeading = true;
             sample.sampleTime = exportedSampleTime;
             return true;
+        }
+
+        internal static Transform ResolveSourceHumanBone(
+            Animator animator,
+            Avatar sourceAvatar,
+            HumanBodyBones bone)
+        {
+            if (animator == null)
+            {
+                return null;
+            }
+
+            if (KimodoRetargetCoreUtility.IsValidHumanoid(animator.avatar))
+            {
+                return animator.GetBoneTransform(bone);
+            }
+
+            // ponytail: importer/cache avatars may be valid without being assigned to the scene Animator.
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
+            {
+                return null;
+            }
+
+            HumanBone[] humanBones = sourceAvatar.humanDescription.human;
+            string humanName = bone.ToString();
+            for (int i = 0; i < humanBones.Length; i++)
+            {
+                if (string.Equals(humanBones[i].humanName, humanName, StringComparison.Ordinal))
+                {
+                    return KimodoRetargetAvatarUtility.FindTransformByName(
+                        animator.transform,
+                        humanBones[i].boneName);
+                }
+            }
+
+            return null;
         }
 
         public void Dispose()
