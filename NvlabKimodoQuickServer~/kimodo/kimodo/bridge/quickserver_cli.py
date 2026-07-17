@@ -8,6 +8,7 @@ import os
 from collections import deque
 from itertools import count
 import io
+import math
 from pathlib import Path
 import socket
 import threading
@@ -35,9 +36,13 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--watchpid", type=int, default=0)
     run_parser.add_argument("--force-setup", action="store_true")
 
-    # Legacy CLI compatibility only. Runtime semantics now come from TCP generate requests.
+    # Defaults only; TCP generate requests own runtime semantics.
     run_parser.add_argument("--model", default=assets.DEFAULT_MODEL_NAME)
-    run_parser.add_argument("--highvram", action="store_true")
+    run_parser.add_argument(
+        "--text-encoder-mode",
+        choices=(assets.TEXT_ENCODER_MODE_HIGH_PERFORMANCE, assets.TEXT_ENCODER_MODE_HIGH_PRECISION),
+        default=assets.DEFAULT_TEXT_ENCODER_MODE,
+    )
     run_parser.add_argument("--models-root")
     run_parser.add_argument("--device")
     run_parser.add_argument("--force-hf-download", action="store_true")
@@ -228,8 +233,7 @@ def _build_signature(config: dict[str, Any]) -> str:
     return "|".join(
         [
             f"model={config['model']}",
-            f"highvram={int(bool(config['highvram']))}",
-            f"force_cpu={int(bool(config['force_cpu']))}",
+            f"text_encoder_mode={config['text_encoder_mode']}",
             f"models_root={config['models_root']}",
             f"force_hf_download={int(bool(config['force_hf_download']))}",
             f"simulate_vram_gb={config['simulate_vram_gb']}",
@@ -238,20 +242,36 @@ def _build_signature(config: dict[str, Any]) -> str:
 
 
 def _normalize_runtime_config(req: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
+    removed_keys = [key for key in ("highvram", "force_cpu") if key in req]
+    if removed_keys:
+        raise ValueError(
+            "Removed generate fields are not supported: "
+            + ", ".join(removed_keys)
+            + ". Use text_encoder_mode and simulate_vram_gb."
+        )
     model = str(req.get("model") or defaults.get("model") or assets.DEFAULT_MODEL_NAME).strip() or assets.DEFAULT_MODEL_NAME
     models_root = str(req.get("models_root") or defaults.get("models_root") or "").strip()
-    raw_device = str(req.get("device") or defaults.get("device") or "").strip().lower()
-    force_cpu = _bool_value(req.get("force_cpu"), _bool_value(defaults.get("force_cpu")))
-    if raw_device == "cpu":
-        force_cpu = True
+    raw_simulated_vram = (
+        req.get("simulate_vram_gb")
+        if "simulate_vram_gb" in req
+        else defaults.get("simulate_vram_gb")
+    )
+    simulated_vram_gb = None
+    if raw_simulated_vram is not None and str(raw_simulated_vram).strip() != "":
+        simulated_vram_gb = float(raw_simulated_vram)
+        if not math.isfinite(simulated_vram_gb) or simulated_vram_gb < 0.0:
+            raise ValueError("simulate_vram_gb must be a finite value greater than or equal to 0.")
 
     return {
         "model": model,
-        "highvram": _bool_value(req.get("highvram"), _bool_value(defaults.get("highvram"))),
-        "force_cpu": force_cpu,
+        "text_encoder_mode": assets.normalize_text_encoder_mode(
+            req.get("text_encoder_mode")
+            if "text_encoder_mode" in req
+            else defaults.get("text_encoder_mode")
+        ),
         "models_root": models_root,
         "force_hf_download": _bool_value(req.get("force_hf_download"), _bool_value(defaults.get("force_hf_download"))),
-        "simulate_vram_gb": int(req.get("simulate_vram_gb") or defaults.get("simulate_vram_gb") or 0),
+        "simulate_vram_gb": simulated_vram_gb,
     }
 
 
@@ -268,6 +288,7 @@ def _unload_runtime_model(state: dict[str, Any], logger: SetupLogger) -> None:
     state["resolved_model_name"] = ""
     state["runtime_device"] = ""
     state["motion_profile"] = None
+    state["text_encoder_decision"] = None
 
     try:
         del model
@@ -280,6 +301,10 @@ def _unload_runtime_model(state: dict[str, Any], logger: SetupLogger) -> None:
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        if hasattr(torch, "xpu") and torch.xpu.is_available() and hasattr(torch.xpu, "empty_cache"):
+            torch.xpu.empty_cache()
     except Exception:
         pass
 
@@ -304,41 +329,52 @@ def _ensure_runtime(
     if state.get("model") is not None:
         _unload_runtime_model(state, logger)
 
-    if config["highvram"]:
-        os.environ["KIMODO_HIGHVRAM"] = "1"
-    else:
-        os.environ.pop("KIMODO_HIGHVRAM", None)
+    os.environ["KIMODO_TEXT_ENCODER_MODE"] = config["text_encoder_mode"]
 
     if config["models_root"]:
         os.environ["KIMODO_MODELS_ROOT"] = config["models_root"]
     else:
         os.environ.pop("KIMODO_MODELS_ROOT", None)
 
-    if int(config["simulate_vram_gb"] or 0) > 0:
-        os.environ["KIMODO_SIMULATE_VRAM_GB"] = str(int(config["simulate_vram_gb"]))
+    if config["simulate_vram_gb"] is not None:
+        os.environ["KIMODO_SIMULATE_VRAM_GB"] = str(config["simulate_vram_gb"])
     else:
         os.environ.pop("KIMODO_SIMULATE_VRAM_GB", None)
 
-    requested_device = "cpu" if config["force_cpu"] else None
-    runtime_profile = bridge_runtime_helpers._runtime_self_check(requested_device)
+    runtime_profile = bridge_runtime_helpers._runtime_self_check(None)
+    runtime_decision = assets.resolve_text_encoder_runtime(
+        config["text_encoder_mode"],
+        runtime_profile.runtime_device,
+        runtime_profile.total_vram_gb,
+        nf4_available=runtime_profile.nf4_available,
+        int8_accelerator_available=runtime_profile.int8_accelerator_available,
+        fp16_accelerator_available=runtime_profile.fp16_accelerator_available,
+    )
+    if config.get("_force_text_encoder_cpu"):
+        runtime_decision = assets.force_text_encoder_cpu(runtime_decision)
+        os.environ["KIMODO_TEXT_ENCODER_FORCE_CPU"] = "1"
+    else:
+        os.environ.pop("KIMODO_TEXT_ENCODER_FORCE_CPU", None)
     os.environ["KIMODO_RUNTIME_BACKEND_PROFILE"] = runtime_profile.backend_profile
-    os.environ["KIMODO_RUNTIME_DEVICE"] = runtime_profile.runtime_device
+    os.environ["KIMODO_RUNTIME_DEVICE"] = runtime_decision.motion_device
 
     logger.log(
         "[INFO] Preparing runtime: "
-        f"model={config['model']} highvram={config['highvram']} force_cpu={config['force_cpu']} "
-        f"models_root={config['models_root'] or '<default>'} device={runtime_profile.runtime_device}"
+        f"model={config['model']} text_encoder_mode={config['text_encoder_mode']} "
+        f"models_root={config['models_root'] or '<default>'} "
+        f"motion_device={runtime_decision.motion_device} encoder_route={runtime_decision.encoder_route} "
+        f"encoder_device={runtime_decision.encoder_device} vram={runtime_decision.effective_vram_gb:g}GB"
     )
 
     motion_profile = assets.resolve_motion_model_profile(config["model"])
     if motion_profile is not None and motion_profile.backend == "ardy":
         models_root, _ = assets.resolve_models_root(kimodo_root, config["models_root"])
-        encoder_route = assets.choose_prepare_encoder_route(
-            config["highvram"],
-            assets.normalize_runtime_hints(runtime_profile.runtime_device),
-            total_vram_gb=runtime_profile.total_vram_gb,
+        encoder_route = runtime_decision.encoder_route
+        encoder_layout = assets.select_text_encoder_layout_for_route(
+            encoder_route,
+            models_root,
+            runtime_decision.encoder_device,
         )
-        encoder_layout = assets.select_text_encoder_layout_for_route(encoder_route, models_root)
         source_root = Path(kimodo_root).resolve() / "kimodo"
         if not (source_root / "pyproject.toml").is_file():
             source_root = Path(kimodo_root).resolve()
@@ -348,8 +384,8 @@ def _ensure_runtime(
                 root_dir=kimodo_root,
                 source_root=source_root,
                 models_root=models_root,
-                highvram=config["highvram"],
-                hints=assets.normalize_runtime_hints(runtime_profile.runtime_device),
+                text_encoder_mode=runtime_decision.mode,
+                encoder_device=runtime_decision.encoder_device,
                 encoder_route=encoder_route,
                 encoder_layout_id=encoder_layout.layout_id,
             )
@@ -376,22 +412,23 @@ def _ensure_runtime(
             motion_profile,
             runtime_config,
             kimodo_root,
-            runtime_profile.runtime_device,
+            runtime_decision.motion_device,
         )
         state["model"] = model
         state["fps"] = int(motion_profile.source_fps)
         state["runtime_signature"] = signature
         state["runtime_config"] = dict(config)
         state["resolved_model_name"] = motion_profile.model_name
-        state["runtime_device"] = runtime_profile.runtime_device
+        state["runtime_device"] = runtime_decision.motion_device
         state["motion_profile"] = motion_profile
+        state["text_encoder_decision"] = runtime_decision
         logger.log(
             f"[INFO] Runtime ready: model={motion_profile.model_name} "
-            f"device={runtime_profile.runtime_device} fps={motion_profile.source_fps:g}"
+            f"device={runtime_decision.motion_device} fps={motion_profile.source_fps:g}"
         )
         return {
             "model": motion_profile.model_name,
-            "device": runtime_profile.runtime_device,
+            "device": runtime_decision.motion_device,
             "fps": int(motion_profile.source_fps),
             "signature": signature,
             "reused": False,
@@ -411,7 +448,7 @@ def _ensure_runtime(
     model = load_bridge_model(
         resolved_model_name,
         models_root=plan.models_root,
-        device=runtime_profile.runtime_device,
+        device=plan.runtime_decision.motion_device,
     )
 
     state["model"] = model
@@ -419,14 +456,15 @@ def _ensure_runtime(
     state["runtime_signature"] = signature
     state["runtime_config"] = dict(config)
     state["resolved_model_name"] = resolved_model_name
-    state["runtime_device"] = runtime_profile.runtime_device
+    state["runtime_device"] = plan.runtime_decision.motion_device
     state["motion_profile"] = None
+    state["text_encoder_decision"] = plan.runtime_decision
     logger.log(
-        f"[INFO] Runtime ready: model={resolved_model_name} device={runtime_profile.runtime_device} fps={int(model.fps)}"
+        f"[INFO] Runtime ready: model={resolved_model_name} device={plan.runtime_decision.motion_device} fps={int(model.fps)}"
     )
     return {
         "model": resolved_model_name,
-        "device": runtime_profile.runtime_device,
+        "device": plan.runtime_decision.motion_device,
         "fps": int(model.fps),
         "signature": signature,
         "reused": False,
@@ -460,6 +498,7 @@ def _execute_generate(
     duration = float(task_request.get("duration", 5.0))
     seed = task_request.get("seed")
     diffusion_steps = int(task_request.get("diffusion_steps", 100))
+    cfg_text_weight = bridge_runtime_helpers._resolve_cfg_text_weight(task_request)
     constraints_json = task_request.get("constraints_json", "")
 
     if seed is not None:
@@ -474,6 +513,7 @@ def _execute_generate(
         [num_frames],
         constraint_lst=constraints,
         num_denoising_steps=diffusion_steps,
+        cfg_weight=[cfg_text_weight, 2.0],
         num_samples=1,
         multi_prompt=True,
         num_transition_frames=5,
@@ -517,6 +557,36 @@ def _attach_task_id(payload: dict[str, Any], task_id: str) -> dict[str, Any]:
     return result
 
 
+def _attach_runtime_metadata(
+    payload: dict[str, Any],
+    decision: assets.TextEncoderRuntimeDecision | None,
+) -> dict[str, Any]:
+    result = dict(payload or {})
+    if decision is not None:
+        result.update(
+            {
+                "text_encoder_mode": decision.mode,
+                "text_encoder_route": decision.encoder_route,
+                "text_encoder_device": decision.encoder_device,
+                "text_encoder_reason": decision.reason,
+                "effective_vram_gb": decision.effective_vram_gb,
+            }
+        )
+    return result
+
+
+def _is_accelerator_oom(error: Exception) -> bool:
+    try:
+        import torch
+
+        if isinstance(error, torch.cuda.OutOfMemoryError):
+            return True
+    except Exception:
+        pass
+    message = str(error or "").lower()
+    return "out of memory" in message and any(name in message for name in ("cuda", "mps", "xpu", "gpu"))
+
+
 def _write_protocol_message(file, writer_lock: threading.Lock, payload: dict[str, Any], binary_payload: bytes | None = None) -> None:
     with writer_lock:
         bridge_runtime_helpers._write_json_line(file, payload)
@@ -551,17 +621,17 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "last_activity": time.time(),
         "default_config": {
             "model": str(args.model or assets.DEFAULT_MODEL_NAME).strip() or assets.DEFAULT_MODEL_NAME,
-            "highvram": bool(args.highvram),
-            "force_cpu": str(args.device or "").strip().lower() == "cpu",
+            "text_encoder_mode": assets.normalize_text_encoder_mode(args.text_encoder_mode),
             "models_root": str(args.models_root or "").strip(),
             "force_hf_download": bool(args.force_hf_download),
-            "simulate_vram_gb": 0,
+            "simulate_vram_gb": 0.0 if str(args.device or "").strip().lower() == "cpu" else None,
         },
         "runtime_signature": "",
         "runtime_config": None,
         "resolved_model_name": "",
         "runtime_device": "",
         "motion_profile": None,
+        "text_encoder_decision": None,
         "model": None,
         "fps": 30,
         "queue": deque(),
@@ -670,14 +740,45 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     publish_state("loading_runtime")
                     _ensure_runtime(state, runtime_config, kimodo_root, logger)
                     publish_state("generating")
-                response, binary_payload = _execute_generate(
-                    task["request"],
-                    state["model"],
-                    cancel_event,
-                    state.get("motion_profile"),
-                    state["ardy_spool"],
-                    kimodo_root,
-                )
+                fallback_reason = ""
+                try:
+                    response, binary_payload = _execute_generate(
+                        task["request"],
+                        state["model"],
+                        cancel_event,
+                        state.get("motion_profile"),
+                        state["ardy_spool"],
+                        kimodo_root,
+                    )
+                except Exception as generation_error:
+                    decision = state.get("text_encoder_decision")
+                    if (
+                        decision is not None
+                        and decision.encoder_device != "cpu"
+                        and _is_accelerator_oom(generation_error)
+                    ):
+                        fallback_reason = str(generation_error)
+                    else:
+                        raise
+
+                if fallback_reason:
+                    logger.log(
+                        "[WARN] Accelerator OOM; reloading the text encoder on CPU and retrying once. "
+                        + fallback_reason
+                    )
+                    fallback_config = dict(runtime_config)
+                    fallback_config["_force_text_encoder_cpu"] = True
+                    with runtime_gate:
+                        _unload_runtime_model(state, logger)
+                        _ensure_runtime(state, fallback_config, kimodo_root, logger)
+                    response, binary_payload = _execute_generate(
+                        task["request"],
+                        state["model"],
+                        cancel_event,
+                        state.get("motion_profile"),
+                        state["ardy_spool"],
+                        kimodo_root,
+                    )
             except bridge_runtime_helpers.GenerateCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
                 binary_payload = None
@@ -700,7 +801,10 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     state["ardy_spool"].unpin(task.get("pinned_handles") or ())
                     task["state"] = str(response.get("status") or "done")
                     task["status_message"] = str(response.get("message") or "")
-                    task["response"] = _attach_task_id(response, task_id)
+                    task["response"] = _attach_task_id(
+                        _attach_runtime_metadata(response, state.get("text_encoder_decision")),
+                        task_id,
+                    )
                     task["binary"] = binary_payload
                     task["event"].set()
                     state["tasks"].pop(task_id, None)

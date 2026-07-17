@@ -548,6 +548,7 @@ def execute_generate(
         raise ArdyBackendError(
             f"diffusion_steps must be in [1, {profile.max_diffusion_steps}]; got {diffusion_steps}."
         )
+    cfg_text_weight = bridge_runtime_helpers._resolve_cfg_text_weight(task_request)
     requested_seed = task_request.get("seed")
     resolved_seed = secrets.randbelow(2**31) if requested_seed is None else int(requested_seed)
     seed_everything(resolved_seed)
@@ -574,7 +575,7 @@ def execute_generate(
             num_denoising_steps=diffusion_steps,
             motion_mask=motion_mask,
             observed_motion=observed_motion,
-            cfg_weight=(profile.cfg_text_weight, profile.cfg_constraint_weight),
+            cfg_weight=(cfg_text_weight, profile.cfg_constraint_weight),
             texts=[prompt],
             init_history_sequence=init_history,
             cancel_callback=check_cancel,

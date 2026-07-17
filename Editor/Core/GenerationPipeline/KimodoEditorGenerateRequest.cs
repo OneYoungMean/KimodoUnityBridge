@@ -10,9 +10,10 @@ namespace KimodoBridge.Editor
     {
         public string Prompt;
         public string ModelName;
-        public KimodoBridgeVramMode BridgeVramMode;
+        public KimodoTextEncoderMode TextEncoderMode;
         public float DurationSeconds;
         public int DiffusionSteps;
+        public float TextWeight = 1f;
         public int EffectiveSeed;
         public string ConstraintsJson;
         public Func<AnimationClip> CreateTargetClip;

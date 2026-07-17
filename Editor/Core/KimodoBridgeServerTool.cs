@@ -64,14 +64,14 @@ namespace KimodoBridge.Editor
             return new RuntimeMaintenanceScope();
         }
 
-        internal static bool TryGetModelMissingSetupMinutes(string runtimeRoot, bool highVram, string modelName, string modelsRootOverride, out int minutes)
+        internal static bool TryGetModelMissingSetupMinutes(string runtimeRoot, KimodoTextEncoderMode mode, string modelName, string modelsRootOverride, out int minutes)
         {
-            return KimodoBridgeRuntimeInstallFacade.TryGetModelMissingSetupMinutes(runtimeRoot, highVram, modelName, modelsRootOverride, out minutes);
+            return KimodoBridgeRuntimeInstallFacade.TryGetModelMissingSetupMinutes(runtimeRoot, mode, modelName, modelsRootOverride, out minutes);
         }
 
-        internal static ModelSetupStatus EvaluateModelSetupStatus(string runtimeRoot, bool highVram, string modelName, string modelsRootOverride)
+        internal static ModelSetupStatus EvaluateModelSetupStatus(string runtimeRoot, KimodoTextEncoderMode mode, string modelName, string modelsRootOverride)
         {
-            return KimodoBridgeRuntimeInstallFacade.EvaluateModelSetupStatus(runtimeRoot, highVram, modelName, modelsRootOverride);
+            return KimodoBridgeRuntimeInstallFacade.EvaluateModelSetupStatus(runtimeRoot, mode, modelName, modelsRootOverride);
         }
 
         internal static List<ModelDirectoryInfo> QueryDisplayableModelDirectories(string modelsRoot)

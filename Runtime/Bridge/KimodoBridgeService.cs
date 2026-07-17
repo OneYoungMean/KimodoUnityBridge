@@ -53,6 +53,7 @@ namespace KimodoBridge
         private int currentPort = -1;
         private string currentRuntimeRoot = string.Empty;
         private string activeTaskId = string.Empty;
+        private string textEncoderStatusMessage = string.Empty;
         private int sessionVersion;
         private int stopRequested;
 
@@ -68,6 +69,7 @@ namespace KimodoBridge
         public static KimodoBridgeService Shared => SharedInstance.Value;
 
         public bool IsConnected => protocolClient.IsConnected;
+        public string TextEncoderStatusMessage => Volatile.Read(ref textEncoderStatusMessage) ?? string.Empty;
 
         public Task<KimodoBridgeGenerationResult> GenerateAsync(
             string prompt,
@@ -137,7 +139,8 @@ namespace KimodoBridge
                     $"taskId='{request.task_id}', " +
                     $"promptLen={(request.prompt ?? string.Empty).Length}, duration={request.duration:F3}, " +
                     $"steps={request.steps}, seed={(request.seed.HasValue ? request.seed.Value.ToString() : "null")}, " +
-                    $"model='{request.model ?? string.Empty}', highvram={request.highvram}, force_cpu={request.force_cpu}, " +
+                    $"model='{request.model ?? string.Empty}', text_encoder_mode='{request.text_encoder_mode ?? string.Empty}', " +
+                    $"simulate_vram_gb={(request.simulate_vram_gb.HasValue ? request.simulate_vram_gb.Value.ToString() : "auto")}, " +
                     $"models_root='{request.models_root ?? string.Empty}'");
 
                 Task<BridgeProtocolResponse> protocolTask = SendGenerateRequestAsync(request, progress, CancellationToken.None);
@@ -149,9 +152,20 @@ namespace KimodoBridge
                 string outputFormat = header?.Value<string>("output_format") ?? string.Empty;
                 string motionJson = header?.Value<string>("motion_json_compact");
                 string errorCode = header?.Value<string>("error_code") ?? string.Empty;
+                string resolvedEncoderMode = header?.Value<string>("text_encoder_mode") ?? string.Empty;
+                string resolvedEncoderRoute = header?.Value<string>("text_encoder_route") ?? string.Empty;
+                string resolvedEncoderDevice = header?.Value<string>("text_encoder_device") ?? string.Empty;
+                string resolvedEncoderReason = header?.Value<string>("text_encoder_reason") ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(resolvedEncoderRoute) || !string.IsNullOrWhiteSpace(resolvedEncoderDevice))
+                {
+                    Volatile.Write(
+                        ref textEncoderStatusMessage,
+                        $"Resolved: {resolvedEncoderMode} / {resolvedEncoderRoute} / {resolvedEncoderDevice} ({resolvedEncoderReason})");
+                }
                 EmitDebugLog(
                     $"[KimodoBridge] Generate response: status='{status}', format='{outputFormat}', hasJson={!string.IsNullOrWhiteSpace(motionJson)}, " +
-                    $"hasBinary={(response?.BinaryPayload != null && response.BinaryPayload.Length > 0)}, message='{responseMessage}'");
+                    $"hasBinary={(response?.BinaryPayload != null && response.BinaryPayload.Length > 0)}, message='{responseMessage}', " +
+                    $"text_encoder='{resolvedEncoderMode}/{resolvedEncoderRoute}/{resolvedEncoderDevice}'");
 
                 if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
                 {

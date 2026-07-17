@@ -1,5 +1,6 @@
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace KimodoBridge.Editor
 {
@@ -16,7 +17,8 @@ namespace KimodoBridge.Editor
         [SerializeField] private int maxGeneratedClips = DefaultGeneratedClipsLimit;
         [SerializeField] private string localModelsPath = string.Empty;
         [SerializeField] private string defaultBridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
-        [SerializeField] private KimodoBridgeVramMode defaultBridgeVramMode = KimodoBridgeVramMode.Low;
+        [FormerlySerializedAs("defaultBridgeVramMode")]
+        [SerializeField] private KimodoTextEncoderMode defaultTextEncoderMode = KimodoTextEncoderMode.HighPrecision;
         [SerializeField] private float generationTimeoutSeconds = DefaultGenerationTimeoutSeconds;
         [SerializeField] private bool floatingUiEnabled = true;
         [SerializeField] private bool keepCpuForceExperimental;
@@ -41,10 +43,10 @@ namespace KimodoBridge.Editor
             set => defaultBridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(value);
         }
 
-        internal KimodoBridgeVramMode DefaultBridgeVramMode
+        internal KimodoTextEncoderMode DefaultTextEncoderMode
         {
-            get => defaultBridgeVramMode;
-            set => defaultBridgeVramMode = value;
+            get => defaultTextEncoderMode;
+            set => defaultTextEncoderMode = value;
         }
 
         internal bool AdvancedCurveFilterFoldout

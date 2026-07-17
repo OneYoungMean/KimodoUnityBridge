@@ -36,7 +36,7 @@ namespace KimodoBridge.Editor
 
         internal static ModelSetupStatus EvaluateModelSetupStatus(
             string runtimeRoot,
-            bool highVram,
+            KimodoTextEncoderMode mode,
             string modelName,
             string modelsRootOverride)
         {
@@ -50,7 +50,7 @@ namespace KimodoBridge.Editor
                 return new ModelSetupStatus(false, 0, 0);
             }
 
-            int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(runtimeRoot, highVram, modelName, modelsRootOverride);
+            int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(runtimeRoot, mode, modelName, modelsRootOverride);
             if (points <= 0)
             {
                 return new ModelSetupStatus(false, 0, 0);
@@ -62,12 +62,12 @@ namespace KimodoBridge.Editor
 
         internal static bool TryGetModelMissingSetupMinutes(
             string runtimeRoot,
-            bool highVram,
+            KimodoTextEncoderMode mode,
             string modelName,
             string modelsRootOverride,
             out int minutes)
         {
-            ModelSetupStatus status = EvaluateModelSetupStatus(runtimeRoot, highVram, modelName, modelsRootOverride);
+            ModelSetupStatus status = EvaluateModelSetupStatus(runtimeRoot, mode, modelName, modelsRootOverride);
             minutes = 0;
             if (!status.Missing)
             {

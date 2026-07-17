@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using TimelineInject;
 using UnityEngine;
 using UnityEngine.Animations;
+using UnityEngine.Serialization;
 
 namespace KimodoBridge
 {
@@ -19,7 +20,9 @@ namespace KimodoBridge
         [Header("Bridge Runtime")]
         [SerializeField] private string modelsRoot = string.Empty;
         [SerializeField] private string modelName = "Kimodo-SOMA-RP-v1";
-        [SerializeField] private bool highVram;
+        [FormerlySerializedAs("highVram")]
+        [SerializeField] private KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPrecision;
+        [SerializeField] private bool forceCpu;
         [SerializeField] private bool forceSetup;
         [SerializeField][Min(1f)] private float startupTimeoutMinutes = 30f;
 
@@ -403,7 +406,12 @@ namespace KimodoBridge
                     seed = randomSeed ? (int?)null : fixedSeed,
                     steps = Mathf.Max(1, diffusionSteps),
                     constraints_json = constraintsJson,
-                    transition_duration = 0f
+                    transition_duration = 0f,
+                    model = modelName,
+                    text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode),
+                    simulate_vram_gb = forceCpu ? 0 : (int?)null,
+                    models_root = string.IsNullOrWhiteSpace(modelsRoot) ? string.Empty : Path.GetFullPath(modelsRoot),
+                    owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id
                 };
 
                 OnProgress($"Generating segment {segmentIndex}...");

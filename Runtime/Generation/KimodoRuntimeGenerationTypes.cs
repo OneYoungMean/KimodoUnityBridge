@@ -11,16 +11,28 @@ namespace KimodoBridge
         public float duration;
         public int? seed;
         public int steps;
+        public float text_weight = 1f;
         public string constraints_json;
         // Optional desired transition overlap in seconds.
         public float transition_duration;
         // Runtime configuration is sent together with generate under the current bridge protocol.
         public string model;
-        public bool highvram;
-        public bool force_cpu;
+        public string text_encoder_mode = KimodoTextEncoderModeProtocol.HighPrecision;
+        public int? simulate_vram_gb;
         public string models_root;
         public bool force_hf_download;
         public int owner_pid;
+    }
+
+    public static class KimodoTextEncoderModeProtocol
+    {
+        public const string HighPerformance = "high_performance";
+        public const string HighPrecision = "high_precision";
+
+        public static string ToProtocolValue(KimodoTextEncoderMode mode)
+        {
+            return mode == KimodoTextEncoderMode.HighPerformance ? HighPerformance : HighPrecision;
+        }
     }
 
     [Serializable]

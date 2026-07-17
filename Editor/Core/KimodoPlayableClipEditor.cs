@@ -13,10 +13,11 @@ namespace KimodoBridge.Editor
     {
         private const double RepaintIntervalSeconds = 0.2d;
         private SerializedProperty bridgeModelName;
-        private SerializedProperty bridgeVramMode;
+        private SerializedProperty textEncoderMode;
         private SerializedProperty motionPrompt;
         private SerializedProperty generationFrames;
         private SerializedProperty diffusionSteps;
+        private SerializedProperty textWeight;
         private SerializedProperty randomProp;
         private SerializedProperty seed;
         private SerializedProperty inOutConstraintModeProp;
@@ -58,10 +59,11 @@ namespace KimodoBridge.Editor
         {
             clip = (KimodoPlayableClip)target;
             bridgeModelName = serializedObject.FindProperty("bridgeModelName");
-            bridgeVramMode = serializedObject.FindProperty("bridgeVramMode");
+            textEncoderMode = serializedObject.FindProperty("textEncoderMode");
             motionPrompt = serializedObject.FindProperty("motionPrompt");
             generationFrames = serializedObject.FindProperty("generationFrames");
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
+            textWeight = serializedObject.FindProperty("textWeight");
             randomProp = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("seed");
             inOutConstraintModeProp = serializedObject.FindProperty("inOutConstraintMode");
@@ -136,9 +138,10 @@ namespace KimodoBridge.Editor
             {
                 isArdy = KimodoGenerationInspectorGui.DrawModelSelector(bridgeModelName, diffusionSteps);
             }
-            if (bridgeVramMode != null)
+            if (textEncoderMode != null)
             {
-                KimodoGenerationInspectorGui.DrawVram(bridgeVramMode);
+                KimodoGenerationInspectorGui.DrawTextEncoderMode(textEncoderMode);
+                KimodoGenerationInspectorGui.DrawResolvedTextEncoderStatus();
             }
             KimodoGenerationInspectorGui.DrawPrompt(motionPrompt);
 
@@ -171,6 +174,7 @@ namespace KimodoBridge.Editor
             }
 
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, bridgeModelName);
+            KimodoGenerationInspectorGui.DrawTextWeight(textWeight);
             KimodoGenerationInspectorGui.DrawSeed(randomProp, seed);
             if (inOutConstraintModeProp != null)
             {
@@ -358,10 +362,12 @@ namespace KimodoBridge.Editor
         private void DrawEstimatedSetupTimeHint()
         {
             string runtimeRoot = KimodoBridgeServerTool.GetRuntimeRootPath();
-            bool highVram = clip != null && clip.bridgeVramMode == KimodoBridgeVramMode.High;
+            KimodoTextEncoderMode encoderMode = clip != null
+                ? clip.textEncoderMode
+                : KimodoTextEncoderMode.HighPrecision;
             string modelName = clip == null ? KimodoPlayableClip.DefaultBridgeModelName : KimodoPlayableClip.NormalizeBridgeModelName(clip.bridgeModelName);
             string modelsRootOverride = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim();
-            if (!KimodoBridgeServerTool.TryGetModelMissingSetupMinutes(runtimeRoot, highVram, modelName, modelsRootOverride, out int minutes))
+            if (!KimodoBridgeServerTool.TryGetModelMissingSetupMinutes(runtimeRoot, encoderMode, modelName, modelsRootOverride, out int minutes))
             {
                 return;
             }

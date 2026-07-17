@@ -22,6 +22,13 @@ LEGACY_FP16_PEFT_LOCAL_DIR = "LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised"
 ENCODER_ROUTE_INT8 = "int8"
 ENCODER_ROUTE_NF4 = "nf4"
 ENCODER_ROUTE_FP16 = "fp16"
+TEXT_ENCODER_MODE_HIGH_PERFORMANCE = "high_performance"
+TEXT_ENCODER_MODE_HIGH_PRECISION = "high_precision"
+DEFAULT_TEXT_ENCODER_MODE = TEXT_ENCODER_MODE_HIGH_PRECISION
+KIMODO_ACCELERATOR_MIN_GB = 2.0
+NF4_ACCELERATOR_MIN_GB = 6.0
+INT8_ACCELERATOR_MIN_GB = 8.0
+FP16_ACCELERATOR_MIN_GB = 18.0
 DOWNLOAD_PROBE_TIMEOUT_SECONDS = 1.0
 LEGACY_GGUF_ENV_VARS = (
     "KIMODO_GGUF_MODEL_PATH",
@@ -61,7 +68,6 @@ class TextEncoderLayoutSpec:
     peft_local_dir_name: str | None = None
     download_assets: tuple[AssetSpec, ...] = ()
     preferred_if_ready: bool = False
-    text_encoder_device: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -73,8 +79,13 @@ class ResolvedModel:
 
 
 @dataclass(frozen=True)
-class RuntimeHints:
-    normalized_device: str | None
+class TextEncoderRuntimeDecision:
+    mode: str
+    motion_device: str
+    encoder_route: str
+    encoder_device: str
+    reason: str
+    effective_vram_gb: float
 
 
 @dataclass(frozen=True)
@@ -98,6 +109,96 @@ class MotionModelProfile:
 class DownloadSite(str, Enum):
     MODELSCOPE = "modelscope"
     HUGGINGFACE = "huggingface"
+
+
+def normalize_text_encoder_mode(value: str | None) -> str:
+    normalized = str(value or DEFAULT_TEXT_ENCODER_MODE).strip().lower().replace("-", "_")
+    if normalized not in {TEXT_ENCODER_MODE_HIGH_PERFORMANCE, TEXT_ENCODER_MODE_HIGH_PRECISION}:
+        raise ValueError(
+            "text_encoder_mode must be 'high_performance' or 'high_precision'."
+        )
+    return normalized
+
+
+def resolve_text_encoder_runtime(
+    mode: str | None,
+    runtime_device: str | None,
+    effective_vram_gb: float,
+    *,
+    nf4_available: bool,
+    int8_accelerator_available: bool,
+    fp16_accelerator_available: bool,
+) -> TextEncoderRuntimeDecision:
+    resolved_mode = normalize_text_encoder_mode(mode)
+    device = str(runtime_device or "cpu").strip().lower() or "cpu"
+    vram = max(0.0, float(effective_vram_gb))
+    has_accelerator = device != "cpu" and vram >= KIMODO_ACCELERATOR_MIN_GB
+    motion_device = device if has_accelerator else "cpu"
+
+    if resolved_mode == TEXT_ENCODER_MODE_HIGH_PRECISION:
+        use_accelerator = (
+            has_accelerator
+            and fp16_accelerator_available
+            and vram >= FP16_ACCELERATOR_MIN_GB
+        )
+        return TextEncoderRuntimeDecision(
+            mode=resolved_mode,
+            motion_device=motion_device,
+            encoder_route=ENCODER_ROUTE_FP16,
+            encoder_device=device if use_accelerator else "cpu",
+            reason=(
+                "fp16_accelerator"
+                if use_accelerator
+                else "fp16_cpu_insufficient_vram_or_capability"
+            ),
+            effective_vram_gb=vram,
+        )
+
+    if has_accelerator and nf4_available and vram >= NF4_ACCELERATOR_MIN_GB:
+        return TextEncoderRuntimeDecision(
+            mode=resolved_mode,
+            motion_device=motion_device,
+            encoder_route=ENCODER_ROUTE_NF4,
+            encoder_device=device,
+            reason="nf4_accelerator",
+            effective_vram_gb=vram,
+        )
+
+    use_int8_accelerator = (
+        has_accelerator
+        and int8_accelerator_available
+        and vram >= INT8_ACCELERATOR_MIN_GB
+    )
+    return TextEncoderRuntimeDecision(
+        mode=resolved_mode,
+        motion_device=motion_device,
+        encoder_route=ENCODER_ROUTE_INT8,
+        encoder_device=device if use_int8_accelerator else "cpu",
+        reason=(
+            "int8_accelerator"
+            if use_int8_accelerator
+            else "int8_cpu_insufficient_vram_or_capability"
+        ),
+        effective_vram_gb=vram,
+    )
+
+
+def force_text_encoder_cpu(
+    decision: TextEncoderRuntimeDecision,
+    reason: str = "accelerator_oom_cpu_fallback",
+) -> TextEncoderRuntimeDecision:
+    return TextEncoderRuntimeDecision(
+        mode=decision.mode,
+        motion_device=decision.motion_device,
+        encoder_route=(
+            ENCODER_ROUTE_FP16
+            if decision.mode == TEXT_ENCODER_MODE_HIGH_PRECISION
+            else ENCODER_ROUTE_INT8
+        ),
+        encoder_device="cpu",
+        reason=reason,
+        effective_vram_gb=decision.effective_vram_gb,
+    )
 
 
 @dataclass(frozen=True)
@@ -290,7 +391,13 @@ INT8_LAYOUT = TextEncoderLayoutSpec(
     label="INT8 single-dir local layout",
     primary_local_dir_name=INT8_LOCAL_DIR,
     download_assets=(INT8_ASSET,),
-    text_encoder_device="cpu",
+)
+INT8_GPU_LAYOUT = TextEncoderLayoutSpec(
+    layout_id="int8_gpu_from_fp16",
+    route=ENCODER_ROUTE_INT8,
+    label="INT8 accelerator layout loaded from the FP16 bundle",
+    primary_local_dir_name=FP16_LOCAL_DIR,
+    download_assets=(FP16_ASSET,),
 )
 NF4_LAYOUT = TextEncoderLayoutSpec(
     layout_id="nf4_single",
@@ -317,6 +424,7 @@ FP16_SINGLE_LAYOUT = TextEncoderLayoutSpec(
 
 TEXT_ENCODER_LAYOUTS: tuple[TextEncoderLayoutSpec, ...] = (
     INT8_LAYOUT,
+    INT8_GPU_LAYOUT,
     NF4_LAYOUT,
     LEGACY_FP16_LAYOUT,
     FP16_SINGLE_LAYOUT,
@@ -325,7 +433,7 @@ TEXT_ENCODER_LAYOUT_REGISTRY: dict[str, TextEncoderLayoutSpec] = {
     layout.layout_id: layout for layout in TEXT_ENCODER_LAYOUTS
 }
 TEXT_ENCODER_LAYOUTS_BY_ROUTE: dict[str, tuple[TextEncoderLayoutSpec, ...]] = {
-    ENCODER_ROUTE_INT8: (INT8_LAYOUT,),
+    ENCODER_ROUTE_INT8: (INT8_LAYOUT, INT8_GPU_LAYOUT),
     ENCODER_ROUTE_NF4: (NF4_LAYOUT,),
     ENCODER_ROUTE_FP16: (LEGACY_FP16_LAYOUT, FP16_SINGLE_LAYOUT),
 }
@@ -377,57 +485,6 @@ def assert_no_removed_quickserver_env() -> None:
 def scrub_removed_runtime_env(env: dict[str, str] | os._Environ[str]) -> None:
     for name in PURGED_RUNTIME_ENV_VARS:
         env.pop(name, None)
-
-
-def normalize_runtime_hints(run_device: str | None) -> RuntimeHints:
-    normalized_device: str | None = None
-    assert_no_legacy_gguf_env()
-    assert_no_removed_quickserver_env()
-
-    raw_device = str(run_device or "").strip()
-    if raw_device:
-        lowered = raw_device.lower()
-        if lowered == "cpu":
-            normalized_device = "cpu"
-        elif lowered == "cuda":
-            normalized_device = "cuda:0"
-        elif lowered.startswith("cuda"):
-            normalized_device = raw_device
-        elif lowered == "mps" or lowered.startswith("mps"):
-            normalized_device = "mps"
-        elif lowered == "xpu":
-            normalized_device = "xpu:0"
-        elif lowered.startswith("xpu"):
-            normalized_device = raw_device
-        else:
-            raise ValueError(f"Invalid --device value: {run_device}")
-    return RuntimeHints(
-        normalized_device=normalized_device,
-    )
-
-
-def detect_total_vram_gb() -> float:
-    try:
-        import torch
-
-        if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-            props = torch.cuda.get_device_properties(0)
-            return float(props.total_memory) / (1024 ** 3)
-    except Exception:
-        pass
-    return 0.0
-
-
-def should_use_int8(total_vram_gb: float) -> bool:
-    return float(total_vram_gb) < 6.0
-
-
-def choose_prepare_encoder_route(highvram: bool, hints: RuntimeHints, total_vram_gb: float | None = None) -> str:
-    if hints.normalized_device == "cpu":
-        return ENCODER_ROUTE_INT8
-    if hints.normalized_device == "mps" or str(hints.normalized_device or "").startswith("xpu"):
-        return ENCODER_ROUTE_FP16 if highvram else ENCODER_ROUTE_INT8
-    return ENCODER_ROUTE_FP16 if highvram else ENCODER_ROUTE_NF4
 
 
 def default_models_root(root_dir: str | os.PathLike[str]) -> Path:
@@ -589,10 +646,14 @@ def text_encoder_layout_ready(layout: TextEncoderLayoutSpec, models_root: str | 
 def select_text_encoder_layout_for_route(
     route: str,
     models_root: str | os.PathLike[str],
+    encoder_device: str | None = None,
 ) -> TextEncoderLayoutSpec:
     layouts = TEXT_ENCODER_LAYOUTS_BY_ROUTE.get(str(route or "").strip())
     if not layouts:
         raise ValueError(f"Unsupported text encoder route: {route}")
+    if str(route or "").strip() == ENCODER_ROUTE_INT8:
+        use_cpu = str(encoder_device or "cpu").strip().lower() == "cpu"
+        return INT8_LAYOUT if use_cpu else INT8_GPU_LAYOUT
     for layout in layouts:
         if layout.preferred_if_ready and text_encoder_layout_ready(layout, models_root):
             return layout
@@ -600,16 +661,6 @@ def select_text_encoder_layout_for_route(
         if not layout.preferred_if_ready:
             return layout
     return layouts[0]
-
-
-def select_text_encoder_layout(
-    highvram: bool,
-    hints: RuntimeHints,
-    models_root: str | os.PathLike[str],
-    total_vram_gb: float | None = None,
-) -> TextEncoderLayoutSpec:
-    route = choose_prepare_encoder_route(highvram, hints, total_vram_gb=total_vram_gb)
-    return select_text_encoder_layout_for_route(route, models_root)
 
 
 def _format_bytes(value: int) -> str:
@@ -985,18 +1036,22 @@ def build_runtime_env(
     root_dir: str | os.PathLike[str],
     source_root: str | os.PathLike[str],
     models_root: str | os.PathLike[str],
-    highvram: bool,
-    hints: RuntimeHints,
+    text_encoder_mode: str,
+    encoder_device: str,
     encoder_route: str | None = None,
     encoder_layout_id: str | None = None,
 ) -> dict[str, str]:
+    assert_no_legacy_gguf_env()
+    assert_no_removed_quickserver_env()
     root = Path(root_dir).resolve()
     models_path = Path(models_root).resolve()
-    selected_encoder_route = encoder_route or choose_prepare_encoder_route(highvram, hints)
+    selected_encoder_route = str(encoder_route or "").strip()
+    if not selected_encoder_route:
+        raise ValueError("encoder_route is required.")
     selected_layout = (
         resolve_text_encoder_layout(encoder_layout_id)
         if encoder_layout_id
-        else select_text_encoder_layout_for_route(selected_encoder_route, models_path)
+        else select_text_encoder_layout_for_route(selected_encoder_route, models_path, encoder_device)
     )
     if selected_layout.route != selected_encoder_route:
         raise ValueError(
@@ -1009,12 +1064,13 @@ def build_runtime_env(
         "PYTHONPATH": str(Path(source_root).resolve()),
         "KIMODO_ROOT_PATH": str(root),
         "KIMODO_MODELS_ROOT": str(models_path),
-        "KIMODO_HIGHVRAM": "1" if highvram else "0",
+        "KIMODO_TEXT_ENCODER_MODE": normalize_text_encoder_mode(text_encoder_mode),
+        "KIMODO_TEXT_ENCODER_ROUTE": selected_encoder_route,
         "LOCAL_CACHE": "true",
-        "TEXT_ENCODER": "llm2vec_int8" if selected_layout.route == ENCODER_ROUTE_INT8 else "llm2vec",
+        "TEXT_ENCODER": "llm2vec_int8" if selected_layout.layout_id == INT8_LAYOUT.layout_id else "llm2vec",
         "TEXT_ENCODER_MODE": "local",
     }
-    env["TEXT_ENCODER_DEVICE"] = hints.normalized_device or selected_layout.text_encoder_device
+    env["TEXT_ENCODER_DEVICE"] = str(encoder_device or "cpu").strip().lower() or "cpu"
     env["KIMODO_LLM2VEC_DIR"] = str(primary_dir)
     if peft_dir is not None:
         env["TEXT_ENCODERS_DIR"] = str(models_path)

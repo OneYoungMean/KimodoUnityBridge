@@ -8,10 +8,12 @@ namespace KimodoBridge.Editor
     {
         private SerializedProperty targetAnimator;
         private SerializedProperty modelName;
-        private SerializedProperty highVram;
+        private SerializedProperty textEncoderMode;
+        private SerializedProperty forceCpu;
         private SerializedProperty prompt;
         private SerializedProperty generationFrames;
         private SerializedProperty diffusionSteps;
+        private SerializedProperty textWeight;
         private SerializedProperty randomSeed;
         private SerializedProperty seed;
         private SerializedProperty drawDebugSkeleton;
@@ -24,10 +26,12 @@ namespace KimodoBridge.Editor
         {
             targetAnimator = serializedObject.FindProperty("targetHumanoidAnimator");
             modelName = serializedObject.FindProperty("modelName");
-            highVram = serializedObject.FindProperty("highVram");
+            textEncoderMode = serializedObject.FindProperty("textEncoderMode");
+            forceCpu = serializedObject.FindProperty("forceCpu");
             prompt = serializedObject.FindProperty("defaultPrompt");
             generationFrames = serializedObject.FindProperty("generationFrames");
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
+            textWeight = serializedObject.FindProperty("textWeight");
             randomSeed = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("fixedSeed");
             drawDebugSkeleton = serializedObject.FindProperty("drawDebugSkeleton");
@@ -63,11 +67,15 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.PropertyField(targetAnimator, new GUIContent("Target Animator"));
                 isArdy = KimodoGenerationInspectorGui.DrawModelSelector(modelName, diffusionSteps);
-                DrawVramMode();
+                KimodoGenerationInspectorGui.DrawTextEncoderMode(textEncoderMode);
+                KimodoGenerationInspectorGui.DrawResolvedTextEncoderStatus();
+                EditorGUILayout.PropertyField(
+                    forceCpu,
+                    new GUIContent("Force CPU", "Send simulate_vram_gb=0 so Kimodo and the text encoder both run on CPU."));
             }
             if (Application.isPlaying)
             {
-                EditorGUILayout.LabelField("Target, model, and VRAM mode are applied when entering Play Mode.", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("Target, model, and text encoder mode are applied when entering Play Mode.", EditorStyles.miniLabel);
             }
             if (Application.isPlaying)
             {
@@ -91,24 +99,10 @@ namespace KimodoBridge.Editor
                     "Duration of each generated motion segment.");
             }
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, modelName);
+            KimodoGenerationInspectorGui.DrawTextWeight(textWeight);
             KimodoGenerationInspectorGui.DrawSeed(randomSeed, seed);
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
-        }
-
-        private void DrawVramMode()
-        {
-            EditorGUI.BeginChangeCheck();
-            KimodoBridgeVramMode mode = highVram.boolValue ? KimodoBridgeVramMode.High : KimodoBridgeVramMode.Low;
-            mode = (KimodoBridgeVramMode)EditorGUILayout.EnumPopup(
-                new GUIContent("VRAM Mode", "Low: quantized text encoder (~4G). High: full Llama+LLM2Vec (~16G)."),
-                mode);
-            if (EditorGUI.EndChangeCheck())
-            {
-                highVram.boolValue = mode == KimodoBridgeVramMode.High;
-            }
-
-            KimodoGenerationInspectorGui.DrawVramEstimate(highVram.boolValue);
         }
 
         private void DrawRuntimeControls()

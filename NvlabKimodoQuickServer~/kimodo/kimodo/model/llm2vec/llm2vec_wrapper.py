@@ -30,6 +30,10 @@ class LLM2VecEncoder(nn.Module):
         self.custom_dir = self._resolve_local_text_encoder_dir()
         self.custom_peft_dir = self._resolve_local_llm2vec_peft_dir()
         self.target_device = self._resolve_target_device()
+        self.accelerator_int8 = (
+            os.environ.get("KIMODO_TEXT_ENCODER_ROUTE", "").strip().lower() == "int8"
+            and self.target_device != "cpu"
+        )
 
         print(f"[LLM2VecEncoder] Initializing model from {self.custom_dir}...")
         if self.custom_peft_dir:
@@ -139,7 +143,10 @@ class LLM2VecEncoder(nn.Module):
         if self.model is not None:
             if self.get_device().type == "cuda":
                 print(f"[LLM2VecEncoder] Offloading 5.4GB model to System RAM...")
-                self.model.model.to("cpu")
+                if self.accelerator_int8:
+                    self.model = None
+                else:
+                    self.model.model.to("cpu")
                 gc.collect()
                 if platform.system() == "Linux":
                     try:
@@ -161,23 +168,29 @@ class LLM2VecEncoder(nn.Module):
         """Move from System RAM to VRAM."""
         if self.model is None:
             print(f"[LLM2VecEncoder] Model was None. Reloading from disk (15s delay)...")
-            self.model = LLM2Vec.from_pretrained(
-                base_model_name_or_path=self.custom_dir,
-                peft_model_name_or_path=self.custom_peft_dir,
-                torch_dtype=self.torch_dtype,
-                device_map="cpu"
-            )
+            load_kwargs = {
+                "base_model_name_or_path": self.custom_dir,
+                "peft_model_name_or_path": self.custom_peft_dir,
+                "torch_dtype": self.torch_dtype,
+                "device_map": "cpu",
+            }
+            if self.accelerator_int8:
+                from transformers import BitsAndBytesConfig
+
+                load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+                load_kwargs["device_map"] = {"": self.target_device}
+            self.model = LLM2Vec.from_pretrained(**load_kwargs)
             self.model.eval()
             for param in self.model.parameters():
                 param.requires_grad = False
 
-        if self.target_device.startswith("cuda"):
+        if self.target_device.startswith("cuda") and not self.accelerator_int8:
             from kimodo.demo.memory_manager import manager
             manager.ensure_vram_capacity(5400 * 1024 * 1024, device=self.target_device, exclude_name="text_encoder")
 
         curr_device = self.get_device()
         desired_type = self.target_device.split(":")[0]
-        if curr_device.type != desired_type:
+        if curr_device.type != desired_type and not self.accelerator_int8:
             print(f"[LLM2VecEncoder] Moving weights to {self.target_device}...")
             self.model.model.to(self.target_device)
             

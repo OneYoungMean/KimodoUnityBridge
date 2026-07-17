@@ -563,30 +563,30 @@ namespace KimodoBridge.Editor
             return File.Exists(Path.Combine(modelDir, "model.safetensors"));
         }
 
-        internal static bool IsTextEncoderInstalled(string runtimeRoot, bool highVram)
+        internal static bool IsTextEncoderInstalled(string runtimeRoot, KimodoTextEncoderMode mode)
         {
-            return IsTextEncoderInstalled(runtimeRoot, highVram, IsKeepCpuForceEnabled(), null);
+            return IsTextEncoderInstalled(runtimeRoot, mode, IsKeepCpuForceEnabled(), null);
         }
 
-        internal static bool IsTextEncoderInstalled(string runtimeRoot, bool highVram, string modelsRootOverride)
+        internal static bool IsTextEncoderInstalled(string runtimeRoot, KimodoTextEncoderMode mode, string modelsRootOverride)
         {
-            return IsTextEncoderInstalled(runtimeRoot, highVram, IsKeepCpuForceEnabled(), modelsRootOverride);
+            return IsTextEncoderInstalled(runtimeRoot, mode, IsKeepCpuForceEnabled(), modelsRootOverride);
         }
 
-        internal static bool IsTextEncoderInstalled(string runtimeRoot, bool highVram, bool forceCpu, string modelsRootOverride)
+        internal static bool IsTextEncoderInstalled(string runtimeRoot, KimodoTextEncoderMode mode, bool forceCpu, string modelsRootOverride)
         {
             string modelsRoot = string.IsNullOrWhiteSpace(modelsRootOverride)
                 ? Path.Combine(runtimeRoot, "models")
                 : Path.GetFullPath(modelsRootOverride.Trim());
 
-            if (forceCpu)
+            if (mode == KimodoTextEncoderMode.HighPrecision)
             {
-                string ggufDir = Path.Combine(modelsRoot, "KIMODO-Meta3_llm2vec_FP16-Q6_K");
-                return File.Exists(Path.Combine(ggufDir, "KIMODO-Meta3_llm2vec_FP16-Q6_K.gguf"));
-            }
+                string singleDir = Path.Combine(modelsRoot, "KIMODO-Meta3_llm2vec_FP16");
+                if (File.Exists(Path.Combine(singleDir, "model.safetensors")))
+                {
+                    return true;
+                }
 
-            if (highVram)
-            {
                 string fullDir = Path.Combine(modelsRoot, "Meta-Llama-3-8B-Instruct");
                 string peftDir = Path.Combine(modelsRoot, "LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised");
                 bool fullOk = File.Exists(Path.Combine(fullDir, "model.safetensors.index.json")) || File.Exists(Path.Combine(fullDir, "model.safetensors"));
@@ -594,26 +594,33 @@ namespace KimodoBridge.Editor
                 return fullOk && peftOk;
             }
 
+            string int8Dir = Path.Combine(modelsRoot, "KIMODO-Meta3_llm2vec_INT8");
+            bool int8Ok = File.Exists(Path.Combine(int8Dir, "quantized_state_dict.pt"));
+            if (forceCpu)
+            {
+                return int8Ok;
+            }
+
             string nf4Dir = Path.Combine(modelsRoot, "KIMODO-Meta3_llm2vec_NF4");
-            return File.Exists(Path.Combine(nf4Dir, "model.safetensors"));
+            return File.Exists(Path.Combine(nf4Dir, "model.safetensors")) || int8Ok;
         }
 
-        internal static int EstimateMissingConfigPoints(string runtimeRoot, bool highVram, string selectedModel)
+        internal static int EstimateMissingConfigPoints(string runtimeRoot, KimodoTextEncoderMode mode, string selectedModel)
         {
-            return EstimateMissingConfigPoints(runtimeRoot, highVram, IsKeepCpuForceEnabled(), selectedModel, null);
+            return EstimateMissingConfigPoints(runtimeRoot, mode, IsKeepCpuForceEnabled(), selectedModel, null);
         }
 
-        internal static int EstimateMissingConfigPoints(string runtimeRoot, bool highVram, string selectedModel, string modelsRootOverride)
+        internal static int EstimateMissingConfigPoints(string runtimeRoot, KimodoTextEncoderMode mode, string selectedModel, string modelsRootOverride)
         {
-            return EstimateMissingConfigPoints(runtimeRoot, highVram, IsKeepCpuForceEnabled(), selectedModel, modelsRootOverride);
+            return EstimateMissingConfigPoints(runtimeRoot, mode, IsKeepCpuForceEnabled(), selectedModel, modelsRootOverride);
         }
 
-        internal static int EstimateMissingConfigPoints(string runtimeRoot, bool highVram, bool forceCpu, string selectedModel)
+        internal static int EstimateMissingConfigPoints(string runtimeRoot, KimodoTextEncoderMode mode, bool forceCpu, string selectedModel)
         {
-            return EstimateMissingConfigPoints(runtimeRoot, highVram, forceCpu, selectedModel, null);
+            return EstimateMissingConfigPoints(runtimeRoot, mode, forceCpu, selectedModel, null);
         }
 
-        internal static int EstimateMissingConfigPoints(string runtimeRoot, bool highVram, bool forceCpu, string selectedModel, string modelsRootOverride)
+        internal static int EstimateMissingConfigPoints(string runtimeRoot, KimodoTextEncoderMode mode, bool forceCpu, string selectedModel, string modelsRootOverride)
         {
             int points = 0;
             bool firstSetup = !File.Exists(Path.Combine(runtimeRoot, ".setup.complete"));
@@ -627,9 +634,9 @@ namespace KimodoBridge.Editor
                 points += 2; // Kimodo base model estimate
             }
 
-            if (!IsTextEncoderInstalled(runtimeRoot, highVram, forceCpu, modelsRootOverride))
+            if (!IsTextEncoderInstalled(runtimeRoot, mode, forceCpu, modelsRootOverride))
             {
-                points += (forceCpu || !highVram) ? 4 : 16;
+                points += mode == KimodoTextEncoderMode.HighPrecision ? 16 : 8;
             }
 
             return points;

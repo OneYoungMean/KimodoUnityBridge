@@ -133,7 +133,7 @@ namespace KimodoBridge.Editor
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             string[] options = KimodoBridgeServerTool.SupportedModelNames;
             string selectedModel = settings.DefaultBridgeModelName;
-            KimodoBridgeVramMode selectedVramMode = settings.DefaultBridgeVramMode;
+            KimodoTextEncoderMode selectedEncoderMode = settings.DefaultTextEncoderMode;
             int idx = Array.IndexOf(options, selectedModel);
             if (idx < 0)
             {
@@ -142,16 +142,16 @@ namespace KimodoBridge.Editor
 
             EditorGUI.BeginChangeCheck();
             int newIdx = EditorGUILayout.Popup(new GUIContent("Default Model", "Default Kimodo model used by editor flows that do not explicitly override the model."), idx, options);
-            KimodoBridgeVramMode newVramMode = (KimodoBridgeVramMode)EditorGUILayout.EnumPopup(
-                new GUIContent("Default VRAM Mode", "Default VRAM mode used by editor flows that do not explicitly override the VRAM setting."),
-                selectedVramMode);
+            KimodoTextEncoderMode newEncoderMode = (KimodoTextEncoderMode)EditorGUILayout.EnumPopup(
+                new GUIContent("Default Text Encoder Mode", "Default precision/performance preference. Device placement is automatic."),
+                selectedEncoderMode);
             if (EditorGUI.EndChangeCheck())
             {
                 settings.DefaultBridgeModelName = options[Mathf.Clamp(newIdx, 0, options.Length - 1)];
-                settings.DefaultBridgeVramMode = newVramMode;
+                settings.DefaultTextEncoderMode = newEncoderMode;
                 settings.SaveSettings();
                 selectedModel = settings.DefaultBridgeModelName;
-                selectedVramMode = settings.DefaultBridgeVramMode;
+                selectedEncoderMode = settings.DefaultTextEncoderMode;
             }
 
             using (new EditorGUILayout.HorizontalScope())
@@ -202,8 +202,8 @@ namespace KimodoBridge.Editor
             EditorGUI.BeginChangeCheck();
             bool keepCpuForceExperimental = EditorGUILayout.Toggle(
                 new GUIContent(
-                    "Keep CPU Force (Experimental)",
-                    "Force bridge startup to use CPU mode for testing. This is only intended for validating the CPU startup path."),
+                    "Force CPU",
+                    "Send simulate_vram_gb=0 so Kimodo and the text encoder both run on CPU."),
                 settings.KeepCpuForceExperimental);
             if (EditorGUI.EndChangeCheck())
             {
@@ -244,15 +244,15 @@ namespace KimodoBridge.Editor
                 RefreshModelList();
             }
 
-            int encoderVramGb = selectedVramMode == KimodoBridgeVramMode.High ? 16 : 4;
-            int totalVramGb = 2 + encoderVramGb;
             EditorGUILayout.HelpBox(
-                $"Estimated VRAM for selected mode: ~{totalVramGb} GB (core 2 GB + encoder {encoderVramGb} GB).",
+                selectedEncoderMode == KimodoTextEncoderMode.HighPrecision
+                    ? "High Precision: FP16 uses the accelerator at 18 GB effective VRAM; otherwise the encoder runs on CPU."
+                    : "High Performance: NF4 uses the accelerator at 6 GB when supported; otherwise INT8 uses it at 8 GB or runs on CPU.",
                 MessageType.Info);
 
             if (KimodoBridgeServerTool.TryGetModelMissingSetupMinutes(
                 runtimeRoot,
-                selectedVramMode == KimodoBridgeVramMode.High,
+                selectedEncoderMode,
                 selectedModel,
                 ResolveModelsRootForServer(),
                 out int minutes))

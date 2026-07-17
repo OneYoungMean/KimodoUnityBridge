@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TimelineInject;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace KimodoBridge
 {
@@ -17,7 +18,9 @@ namespace KimodoBridge
         [Header("Bridge Runtime")]
         [SerializeField] private string modelsRoot = string.Empty;
         [SerializeField] private string modelName = "Kimodo-SOMA-RP-v1";
-        [SerializeField] private bool highVram;
+        [FormerlySerializedAs("highVram")]
+        [SerializeField] private KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPrecision;
+        [SerializeField] private bool forceCpu;
         [SerializeField] private bool forceSetup;
         [SerializeField][Min(1f)] private float startupTimeoutMinutes = 30f;
 
@@ -25,6 +28,7 @@ namespace KimodoBridge
         [SerializeField] private string defaultPrompt = IdlePrompt;
         [SerializeField][Min(1)] private int generationFrames = 150;
         [SerializeField][Min(1)] private int diffusionSteps = 100;
+        [SerializeField, Range(0f, 4f)] private float textWeight = 1f;
         [SerializeField] private bool randomSeed = true;
         [SerializeField] private int fixedSeed = 42;
         [SerializeField][Min(0.1f)] private float segmentIntervalSeconds = 5f;
@@ -562,11 +566,12 @@ namespace KimodoBridge
                     duration = isArdy ? ardyProfile.HorizonFrames / ardyProfile.SourceFps : ResolveGenerationDurationSeconds(),
                     seed = resolvedRequestSeed,
                     steps = Mathf.Clamp(diffusionSteps, 1, isArdy ? ardyProfile.MaxDiffusionSteps : 1000),
+                    text_weight = Mathf.Clamp(textWeight, 0f, 4f),
                     constraints_json = constraintsJson,
                     transition_duration = 0f,
                     model = modelName,
-                    highvram = highVram,
-                    force_cpu = false,
+                    text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode),
+                    simulate_vram_gb = forceCpu ? 0 : (int?)null,
                     models_root = string.IsNullOrWhiteSpace(modelsRoot) ? string.Empty : Path.GetFullPath(modelsRoot),
                     force_hf_download = false,
                     owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id

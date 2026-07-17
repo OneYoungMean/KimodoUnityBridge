@@ -2,13 +2,14 @@ using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 using System.Collections.Generic;
+using UnityEngine.Serialization;
 
 namespace KimodoBridge
 {
-    public enum KimodoBridgeVramMode
+    public enum KimodoTextEncoderMode
     {
-        Low = 0,
-        High = 1
+        HighPerformance = 0,
+        HighPrecision = 1
     }
 
     public enum KimodoBakeSkeletonType
@@ -49,13 +50,15 @@ namespace KimodoBridge
     {
         [Header("Kimodo Bridge")]
         public string bridgeModelName = DefaultBridgeModelName;
-        [Tooltip("Low: quantized encoder (~4G). High: full encoder (~16G). Kimodo base model ~2G.")]
-        public KimodoBridgeVramMode bridgeVramMode = KimodoBridgeVramMode.Low;
+        [FormerlySerializedAs("bridgeVramMode")]
+        [Tooltip("High Performance uses NF4/INT8. High Precision uses FP16. Device placement is automatic.")]
+        public KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPrecision;
 
         [TextArea(2, 6)]
         public string motionPrompt = "a man walk and say hello";
         public int generationFrames = DEFAULT_FRAMES;
         public int diffusionSteps = 100;
+        [Range(0f, 4f)] public float textWeight = 1f;
         public bool randomSeed = false;
         public int seed = 42;
         [SerializeField, HideInInspector]

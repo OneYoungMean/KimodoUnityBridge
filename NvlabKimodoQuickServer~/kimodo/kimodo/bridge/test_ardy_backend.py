@@ -54,6 +54,14 @@ def _payload(model, root_x: float, foot_contacts=None) -> bytes:
 
 
 class ArdyBackendSelfCheck(unittest.TestCase):
+    def test_text_weight_protocol_maps_exponent_and_rejects_out_of_range(self):
+        self.assertEqual(bridge_server._resolve_cfg_text_weight({}), 2.0)
+        self.assertEqual(bridge_server._resolve_cfg_text_weight({"text_weight": 0}), 1.0)
+        self.assertEqual(bridge_server._resolve_cfg_text_weight({"text_weight": 4}), 16.0)
+        for value in (-1, 4.1, float("nan")):
+            with self.assertRaises(ValueError):
+                bridge_server._resolve_cfg_text_weight({"text_weight": value})
+
     def test_core_and_g1_profiles_route_postprocess(self):
         core = quickserver_assets.resolve_motion_model_profile("ardy-core")
         core8 = quickserver_assets.resolve_motion_model_profile("ardy-core8")

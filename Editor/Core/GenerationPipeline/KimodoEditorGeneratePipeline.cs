@@ -340,10 +340,11 @@ namespace KimodoBridge.Editor
                 duration = request.DurationSeconds,
                 seed = request.EffectiveSeed,
                 steps = request.DiffusionSteps,
+                text_weight = Mathf.Clamp(request.TextWeight, 0f, 4f),
                 constraints_json = request.ConstraintsJson ?? string.Empty,
                 model = modelName,
-                highvram = request.BridgeVramMode == KimodoBridgeVramMode.High,
-                force_cpu = false,
+                text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(request.TextEncoderMode),
+                simulate_vram_gb = KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental ? 0 : (int?)null,
                 models_root = modelsRoot,
                 force_hf_download = false,
                 owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id

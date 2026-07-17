@@ -15,11 +15,12 @@ namespace KimodoBridge.Editor
         private string lastError = string.Empty;
         private bool isGenerating;
         private string bridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
-        private KimodoBridgeVramMode bridgeVramMode = KimodoBridgeVramMode.Low;
+        private KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPrecision;
         private string motionPrompt = string.Empty;
         private bool autoDuration = true;
         private float customDurationSeconds = KimodoPlayableClip.DEFAULT_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
         private int diffusionSteps = 100;
+        private float textWeight = 1f;
         private KimodoInOutConstraintMode inOutConstraintMode = KimodoInOutConstraintMode.Inside;
         private bool isLoop;
         private bool randomSeed;
@@ -44,7 +45,7 @@ namespace KimodoBridge.Editor
             if (settings != null)
             {
                 bridgeModelName = settings.DefaultBridgeModelName;
-                bridgeVramMode = settings.DefaultBridgeVramMode;
+                textEncoderMode = settings.DefaultTextEncoderMode;
             }
 
             previewPanel = new KimodoAnimatorPreviewPanel();
@@ -111,12 +112,13 @@ namespace KimodoBridge.Editor
                     position.height,
                     previewPanel,
                     ref bridgeModelName,
-                    ref bridgeVramMode,
+                    ref textEncoderMode,
                     ref motionPrompt,
                     ref autoDuration,
                     ref customDurationSeconds,
                     suggestedDurationSeconds,
                     ref diffusionSteps,
+                    ref textWeight,
                     ref inOutConstraintMode,
                     ref isLoop,
                     ref randomSeed,
@@ -379,9 +381,10 @@ namespace KimodoBridge.Editor
             {
                 Prompt = motionPrompt,
                 ModelName = resolvedModelName,
-                BridgeVramMode = bridgeVramMode,
+                TextEncoderMode = textEncoderMode,
                 DurationSeconds = generationFrameCount / KimodoPlayableClip.FIXED_FRAME_RATE,
                 DiffusionSteps = diffusionSteps,
+                TextWeight = Mathf.Clamp(textWeight, 0f, 4f),
                 EffectiveSeed = effectiveSeed,
                 ConstraintsJson = constraintsJson ?? string.Empty,
                 CreateTargetClip = CreateAnimatorTargetClip,

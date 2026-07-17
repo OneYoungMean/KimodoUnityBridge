@@ -147,13 +147,19 @@ namespace KimodoBridge
                 ["duration"] = request.duration,
                 ["output_format"] = "flatbuf_motion_v1",
                 ["diffusion_steps"] = request.steps,
+                ["text_weight"] = Math.Min(4f, Math.Max(0f, request.text_weight)),
                 ["constraints_json"] = request.constraints_json ?? string.Empty
             };
             payload["seed"] = request.seed.HasValue ? request.seed.Value : null;
             payload["transition_duration"] = request.transition_duration;
             payload["model"] = string.IsNullOrWhiteSpace(request.model) ? null : request.model;
-            payload["highvram"] = request.highvram;
-            payload["force_cpu"] = request.force_cpu;
+            payload["text_encoder_mode"] = string.IsNullOrWhiteSpace(request.text_encoder_mode)
+                ? KimodoTextEncoderModeProtocol.HighPrecision
+                : request.text_encoder_mode;
+            if (request.simulate_vram_gb.HasValue)
+            {
+                payload["simulate_vram_gb"] = Math.Max(0, request.simulate_vram_gb.Value);
+            }
             payload["models_root"] = request.models_root ?? string.Empty;
             payload["force_hf_download"] = request.force_hf_download;
             payload["owner_pid"] = request.owner_pid;

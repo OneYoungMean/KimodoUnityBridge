@@ -57,20 +57,31 @@ namespace KimodoBridge.Editor
             return options.ToArray();
         }
 
-        internal static void DrawVram(SerializedProperty vramMode)
+        internal static void DrawTextEncoderMode(SerializedProperty textEncoderMode)
         {
             EditorGUILayout.PropertyField(
-                vramMode,
-                new GUIContent("VRAM Mode", "Low: quantized text encoder (~4G). High: full Llama+LLM2Vec (~16G)."));
-            DrawVramEstimate((KimodoBridgeVramMode)vramMode.enumValueIndex == KimodoBridgeVramMode.High);
+                textEncoderMode,
+                new GUIContent("Text Encoder Mode", "High Performance uses NF4/INT8. High Precision uses FP16. Device placement is automatic."));
+            DrawTextEncoderEstimate((KimodoTextEncoderMode)textEncoderMode.enumValueIndex);
         }
 
-        internal static void DrawVramEstimate(bool highVram)
+        internal static void DrawTextEncoderEstimate(KimodoTextEncoderMode mode)
         {
-            int encoderVramGb = highVram ? 16 : 4;
+            bool highPrecision = mode == KimodoTextEncoderMode.HighPrecision;
             EditorGUILayout.HelpBox(
-                $"Estimated VRAM for selected mode: ~{2 + encoderVramGb} GB (core 2 GB + encoder {encoderVramGb} GB).",
+                highPrecision
+                    ? "Automatic placement: FP16 uses the accelerator at 18 GB effective VRAM; otherwise text encoding runs on CPU. Kimodo reserves 2 GB."
+                    : "Automatic placement: NF4 uses the accelerator at 6 GB when supported; otherwise INT8 uses the accelerator at 8 GB or falls back to CPU. Kimodo reserves 2 GB.",
                 MessageType.Info);
+        }
+
+        internal static void DrawResolvedTextEncoderStatus()
+        {
+            string status = KimodoBridgeService.Shared.TextEncoderStatusMessage;
+            if (!string.IsNullOrWhiteSpace(status))
+            {
+                EditorGUILayout.HelpBox(status, MessageType.None);
+            }
         }
 
         internal static void DrawPrompt(SerializedProperty prompt)
@@ -117,6 +128,20 @@ namespace KimodoBridge.Editor
                     diffusionSteps.intValue),
                 1,
                 1000);
+        }
+
+        internal static void DrawTextWeight(SerializedProperty textWeight)
+        {
+            textWeight.floatValue = DrawTextWeight(textWeight.floatValue);
+        }
+
+        internal static float DrawTextWeight(float textWeight)
+        {
+            return EditorGUILayout.Slider(
+                new GUIContent("Text Weight", "Text guidance exponent sent to the bridge. Effective CFG weight is 2^value (0-4 maps to 1-16)."),
+                Mathf.Clamp(textWeight, 0f, 4f),
+                0f,
+                4f);
         }
 
         internal static void DrawSeed(SerializedProperty randomSeed, SerializedProperty seed)

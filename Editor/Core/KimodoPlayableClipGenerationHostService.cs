@@ -97,11 +97,12 @@ namespace KimodoBridge.Editor
             {
                 Prompt = prompt,
                 ModelName = resolvedModelName,
-                BridgeVramMode = clip.bridgeVramMode,
+                TextEncoderMode = clip.textEncoderMode,
                 DurationSeconds = durationSeconds,
                 DiffusionSteps = isArdy
                     ? Mathf.Clamp(clip.diffusionSteps, 0, ardyProfile.MaxDiffusionSteps)
                     : Mathf.Clamp(clip.diffusionSteps, 1, 1000),
+                TextWeight = Mathf.Clamp(clip.textWeight, 0f, 4f),
                 EffectiveSeed = effectiveSeed,
                 ConstraintsJson = constraintsJson,
                 CreateTargetClip = () => CreateTimelineTargetClip(clip),

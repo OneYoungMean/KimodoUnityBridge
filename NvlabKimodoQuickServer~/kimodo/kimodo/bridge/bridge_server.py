@@ -10,6 +10,7 @@ Persistent process for Unity Editor:
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import socket
@@ -30,20 +31,39 @@ class GenerateCancelledError(Exception):
     pass
 
 
+def _resolve_cfg_text_weight(req: dict) -> float:
+    text_weight = float(req.get("text_weight", 1.0))
+    if not math.isfinite(text_weight) or not 0.0 <= text_weight <= 4.0:
+        raise ValueError("text_weight must be in [0, 4].")
+    return 2.0**text_weight
+
+
 def _default_bridge_log_path(root: str) -> str:
     if not root:
         return ""
     return os.path.join(root, "log", "bridge_server.log")
 
 
-def _detect_total_vram_gb() -> float:
-    """Total VRAM of cuda:0 in GiB, or 0.0 when no usable CUDA device exists."""
+def _detect_total_vram_gb(device: str | None = None) -> float:
+    """Best-effort accelerator memory in GiB for CUDA/ROCm, MPS, or XPU."""
     try:
         import torch
 
-        if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-            props = torch.cuda.get_device_properties(0)
+        target = str(device or "").strip().lower()
+        if target.startswith("cuda") and torch.cuda.is_available() and torch.cuda.device_count() > 0:
+            index = int(target.split(":", 1)[1]) if ":" in target else 0
+            props = torch.cuda.get_device_properties(index)
             return float(props.total_memory) / (1024 ** 3)
+        if target.startswith("mps") and torch.backends.mps.is_available():
+            recommended = getattr(torch.mps, "recommended_max_memory", None)
+            if callable(recommended):
+                return float(recommended()) / (1024 ** 3)
+            return assets.KIMODO_ACCELERATOR_MIN_GB
+        if target.startswith("xpu") and hasattr(torch, "xpu") and torch.xpu.is_available():
+            index = int(target.split(":", 1)[1]) if ":" in target else 0
+            props = torch.xpu.get_device_properties(index)
+            total = getattr(props, "total_memory", 0)
+            return float(total) / (1024 ** 3) if total else assets.KIMODO_ACCELERATOR_MIN_GB
     except Exception:
         pass
     return 0.0
@@ -133,9 +153,12 @@ class _BridgeProvisionPlan:
     resolved_model: assets.ResolvedModel
     models_root: Path
     using_external_models: bool
-    highvram: bool
-    encoder_route: str
+    runtime_decision: assets.TextEncoderRuntimeDecision
     text_encoder_layout: assets.TextEncoderLayoutSpec
+
+    @property
+    def encoder_route(self) -> str:
+        return self.runtime_decision.encoder_route
 
 
 @dataclass(frozen=True)
@@ -146,6 +169,8 @@ class _RuntimeSelfCheckResult:
     bnb_present: bool
     bnb_ok: bool
     nf4_available: bool
+    int8_accelerator_available: bool
+    fp16_accelerator_available: bool
     total_vram_gb: float
 
 
@@ -194,22 +219,26 @@ def _build_bridge_provision_plan(
         root_path,
         os.environ.get("KIMODO_MODELS_ROOT"),
     )
-    highvram = _env_flag("KIMODO_HIGHVRAM", False)
-    if runtime_profile.backend_profile == "cpu":
-        encoder_route = assets.ENCODER_ROUTE_INT8
-    elif highvram:
-        encoder_route = assets.ENCODER_ROUTE_FP16
-    elif runtime_profile.nf4_available:
-        encoder_route = assets.ENCODER_ROUTE_NF4
-    else:
-        encoder_route = assets.ENCODER_ROUTE_INT8
-    text_encoder_layout = assets.select_text_encoder_layout_for_route(encoder_route, models_root)
+    runtime_decision = assets.resolve_text_encoder_runtime(
+        os.environ.get("KIMODO_TEXT_ENCODER_MODE"),
+        runtime_profile.runtime_device,
+        runtime_profile.total_vram_gb,
+        nf4_available=runtime_profile.nf4_available,
+        int8_accelerator_available=runtime_profile.int8_accelerator_available,
+        fp16_accelerator_available=runtime_profile.fp16_accelerator_available,
+    )
+    if _env_flag("KIMODO_TEXT_ENCODER_FORCE_CPU", False):
+        runtime_decision = assets.force_text_encoder_cpu(runtime_decision)
+    text_encoder_layout = assets.select_text_encoder_layout_for_route(
+        runtime_decision.encoder_route,
+        models_root,
+        runtime_decision.encoder_device,
+    )
     return _BridgeProvisionPlan(
         resolved_model=resolved_model,
         models_root=models_root,
         using_external_models=using_external_models,
-        highvram=highvram,
-        encoder_route=encoder_route,
+        runtime_decision=runtime_decision,
         text_encoder_layout=text_encoder_layout,
     )
 
@@ -219,13 +248,12 @@ def _apply_bridge_runtime_env(kimodo_root: str, plan: _BridgeProvisionPlan) -> N
     source_root = root_path / "kimodo"
     if not (source_root / "pyproject.toml").is_file():
         source_root = root_path
-    target_encoder_device = "cpu" if plan.encoder_route == assets.ENCODER_ROUTE_INT8 else os.environ.get("KIMODO_RUNTIME_DEVICE", "")
     runtime_env = assets.build_runtime_env(
         root_dir=root_path,
         source_root=source_root,
         models_root=plan.models_root,
-        highvram=plan.highvram,
-        hints=assets.normalize_runtime_hints(target_encoder_device or None),
+        text_encoder_mode=plan.runtime_decision.mode,
+        encoder_device=plan.runtime_decision.encoder_device,
         encoder_route=plan.encoder_route,
         encoder_layout_id=plan.text_encoder_layout.layout_id,
     )
@@ -258,6 +286,7 @@ def _provision_bridge_assets(
     logger.log(
         f"[bridge] asset plan: model={plan.resolved_model.local_name} "
         f"models_root={plan.models_root} encoder_route={plan.encoder_route} "
+        f"encoder_device={plan.runtime_decision.encoder_device} "
         f"encoder_layout={plan.text_encoder_layout.layout_id} "
         f"external_models_root={plan.using_external_models}"
     )
@@ -559,31 +588,69 @@ def _probe_device_kernel(device: str) -> bool:
         return False
 
 
-def _probe_bitsandbytes() -> tuple[bool, bool]:
+def _probe_bitsandbytes(device: str) -> tuple[bool, bool, bool]:
     try:
         import importlib.util
 
         if importlib.util.find_spec("bitsandbytes") is None:
-            return False, False
+            return False, False, False
 
         import bitsandbytes as bnb  # type: ignore
-
         _ = getattr(bnb, "__version__", "")
+    except Exception:
+        return True, False, False
+
+    if not str(device or "").lower().startswith("cuda"):
+        return True, False, False
+
+    nf4_ok = False
+    int8_ok = False
+    try:
+        import torch
         from bitsandbytes.nn import Linear4bit  # type: ignore
 
-        _ = Linear4bit
-        return True, True
+        layer = Linear4bit(8, 8, bias=False, compute_dtype=torch.float16, quant_type="nf4").to(device)
+        layer(torch.ones((1, 8), device=device, dtype=torch.float16)).sum().item()
+        nf4_ok = True
     except Exception:
-        return True, False
+        nf4_ok = False
+
+    try:
+        import torch
+        from bitsandbytes.nn import Linear8bitLt  # type: ignore
+
+        layer = Linear8bitLt(8, 8, bias=False, has_fp16_weights=False).to(device)
+        layer(torch.ones((1, 8), device=device, dtype=torch.float16)).sum().item()
+        int8_ok = True
+    except Exception:
+        int8_ok = False
+    return True, nf4_ok, int8_ok
+
+
+def _probe_fp16_kernel(device: str) -> bool:
+    try:
+        import torch
+
+        target = torch.device(device)
+        left = torch.ones((8, 8), device=target, dtype=torch.float16)
+        right = torch.ones((8, 8), device=target, dtype=torch.float16)
+        (left @ right).sum().item()
+        if target.type == "cuda":
+            torch.cuda.synchronize(target)
+        elif target.type == "xpu" and hasattr(torch, "xpu") and hasattr(torch.xpu, "synchronize"):
+            torch.xpu.synchronize()
+        return True
+    except Exception:
+        return False
 
 
 def _runtime_self_check(requested_device: str | None) -> _RuntimeSelfCheckResult:
     requested = str(requested_device or "").strip().lower()
-    total_vram_gb = _detect_total_vram_gb()
+    simulated_vram_gb: float | None = None
     raw_simulated_vram = os.environ.get("KIMODO_SIMULATE_VRAM_GB", "").strip()
     if raw_simulated_vram:
         try:
-            total_vram_gb = max(0.0, float(raw_simulated_vram))
+            simulated_vram_gb = max(0.0, float(raw_simulated_vram))
         except Exception:
             pass
 
@@ -630,15 +697,26 @@ def _runtime_self_check(requested_device: str | None) -> _RuntimeSelfCheckResult
             kernel_ok = True
             break
 
-    bnb_present, bnb_ok = _probe_bitsandbytes()
-    nf4_available = selected_profile == "cuda" and kernel_ok and bnb_present and bnb_ok
+    total_vram_gb = (
+        simulated_vram_gb
+        if simulated_vram_gb is not None
+        else _detect_total_vram_gb(selected_device)
+    )
+    bnb_present, nf4_bnb_ok, int8_bnb_ok = _probe_bitsandbytes(selected_device)
+    nf4_available = selected_profile == "cuda" and kernel_ok and bnb_present and nf4_bnb_ok
+    int8_accelerator_available = (
+        selected_profile == "cuda" and kernel_ok and bnb_present and int8_bnb_ok
+    )
+    fp16_accelerator_available = kernel_ok and selected_profile != "cpu" and _probe_fp16_kernel(selected_device)
     return _RuntimeSelfCheckResult(
         backend_profile=selected_profile,
         runtime_device=selected_device,
         kernel_ok=kernel_ok,
         bnb_present=bnb_present,
-        bnb_ok=bnb_ok,
+        bnb_ok=nf4_bnb_ok,
         nf4_available=nf4_available,
+        int8_accelerator_available=int8_accelerator_available,
+        fp16_accelerator_available=fp16_accelerator_available,
         total_vram_gb=total_vram_gb,
     )
 
@@ -797,6 +875,7 @@ def _generate(req: dict, model, cancel_event: threading.Event | None = None):
     duration = float(req.get("duration", 5.0))
     seed = req.get("seed", None)
     diffusion_steps = int(req.get("diffusion_steps", 100))
+    cfg_text_weight = _resolve_cfg_text_weight(req)
     constraints_path = req.get("constraints_json", "")
 
     if seed is not None:
@@ -812,6 +891,7 @@ def _generate(req: dict, model, cancel_event: threading.Event | None = None):
         [num_frames],
         constraint_lst=constraints,
         num_denoising_steps=diffusion_steps,
+        cfg_weight=[cfg_text_weight, 2.0],
         num_samples=1,
         multi_prompt=True,
         num_transition_frames=5,
@@ -894,9 +974,7 @@ def main():
 
         runtime_profile = _runtime_self_check(args.device)
         total_vram_gb = runtime_profile.total_vram_gb
-        device = runtime_profile.runtime_device
         os.environ["KIMODO_RUNTIME_BACKEND_PROFILE"] = runtime_profile.backend_profile
-        os.environ["KIMODO_RUNTIME_DEVICE"] = runtime_profile.runtime_device
         _log(
             "[bridge] runtime self-check: "
             f"profile={runtime_profile.backend_profile} device={runtime_profile.runtime_device} "
@@ -904,7 +982,7 @@ def main():
             f"bnb_present={runtime_profile.bnb_present} bnb_ok={runtime_profile.bnb_ok} "
             f"nf4_available={runtime_profile.nf4_available} vram={total_vram_gb:.2f}GB"
         )
-        if args.device and device == "cpu" and str(args.device).strip().lower() != "cpu":
+        if args.device and runtime_profile.runtime_device == "cpu" and str(args.device).strip().lower() != "cpu":
             _out({"status": "loading", "message": f"Requested device {args.device} is unavailable; running on CPU."})
 
         _set_loading_message("Checking local models...")
@@ -924,17 +1002,21 @@ def main():
             _log(f"[bridge] model prepare error {exc}")
             return
 
+        decision = provision_plan.runtime_decision
+        device = decision.motion_device
+        os.environ["KIMODO_RUNTIME_DEVICE"] = device
         use_int8_encoder = provision_plan.encoder_route == assets.ENCODER_ROUTE_INT8
         _log(
             f"[bridge] route decision: profile={runtime_profile.backend_profile} vram={total_vram_gb:.2f}GB device={device} "
             f"encoder_route={provision_plan.encoder_route} "
-            f"encoder_layout={provision_plan.text_encoder_layout.layout_id}"
+            f"encoder_device={decision.encoder_device} "
+            f"encoder_layout={provision_plan.text_encoder_layout.layout_id} reason={decision.reason}"
         )
 
         if provision_plan.encoder_route == assets.ENCODER_ROUTE_NF4:
             _log("[bridge] NF4 text encoder selected for low-VRAM mode on validated CUDA runtime.")
         elif use_int8_encoder:
-            _log("[bridge] INT8 text encoder selected (non-highvram route or CPU fallback).")
+            _log(f"[bridge] INT8 text encoder selected on {decision.encoder_device}.")
         elif provision_plan.text_encoder_layout.layout_id == "legacy_base_peft":
             _log("[bridge] local legacy Meta-Llama-3-8B + LLM2Vec PEFT layout selected (compatibility hit).")
         else:
@@ -970,6 +1052,10 @@ def main():
             "status": "ready",
             "model": resolved_model_name,
             "device": device,
+            "text_encoder_mode": decision.mode,
+            "text_encoder_route": decision.encoder_route,
+            "text_encoder_device": decision.encoder_device,
+            "text_encoder_reason": decision.reason,
             "fps": int(model.fps),
             "host": host,
             "port": int(port)

@@ -320,13 +320,13 @@ namespace KimodoBridge.Editor
                 new GUIContent("Default Model", "Default Kimodo model used by editor flows that do not explicitly override the model."),
                 selectedIndex,
                 options);
-            KimodoBridgeVramMode newVramMode = (KimodoBridgeVramMode)EditorGUILayout.EnumPopup(
-                new GUIContent("Default VRAM Mode", "Default VRAM mode used by editor flows that do not explicitly override the VRAM setting."),
-                settings.DefaultBridgeVramMode);
+            KimodoTextEncoderMode newEncoderMode = (KimodoTextEncoderMode)EditorGUILayout.EnumPopup(
+                new GUIContent("Default Text Encoder Mode", "Default precision/performance preference. Device placement is automatic."),
+                settings.DefaultTextEncoderMode);
             if (EditorGUI.EndChangeCheck())
             {
                 settings.DefaultBridgeModelName = options[Mathf.Clamp(newIndex, 0, options.Length - 1)];
-                settings.DefaultBridgeVramMode = newVramMode;
+                settings.DefaultTextEncoderMode = newEncoderMode;
                 settings.SaveSettings();
             }
 

@@ -15,7 +15,7 @@ namespace KimodoBridge.Editor
             int steps,
             int? seed,
             string modelName,
-            KimodoBridgeVramMode vramMode,
+            KimodoTextEncoderMode textEncoderMode,
             KimodoMarkerSampleResult startPose = null,
             KimodoMarkerSampleResult endPose = null,
             Action<string> progress = null,
@@ -34,8 +34,6 @@ namespace KimodoBridge.Editor
                 ? "Kimodo-SOMA-RP-v1"
                 : modelName.Trim();
 
-            bool highVram = vramMode == KimodoBridgeVramMode.High;
-
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             string modelsRoot = settings != null ? settings.LocalModelsPath?.Trim() : string.Empty;
             if (!string.IsNullOrWhiteSpace(modelsRoot))
@@ -51,9 +49,9 @@ namespace KimodoBridge.Editor
                 steps = clampedSteps,
                 constraints_json = constraintsJson,
                 model = resolvedModelName,
-                highvram = highVram,
+                text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode),
+                simulate_vram_gb = settings != null && settings.KeepCpuForceExperimental ? 0 : (int?)null,
                 models_root = modelsRoot,
-                force_cpu = false,
                 owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id
             };
 
