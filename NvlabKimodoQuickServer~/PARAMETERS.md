@@ -11,8 +11,8 @@
 
 ## 2. `run_server.bat` / `run_server.sh`
 - `--model <name|alias>`: 默认 `Kimodo-SOMA-RP-v1`。
-- `--highvram`: 启用 high-vram 模式。
-- `--force-hf-download`: 对允许竞速的资产强制使用 Hugging Face 下载；包括 `highvram/fp16` 的 FP16 文本编码器；若命中 legacy 本地兼容布局，则不会触发下载。
+- `--text-encoder-mode <high_precision|high_performance>`: 文本编码器偏好，默认 `high_precision`；设备位置由 QuickServer 自动决定。
+- `--force-hf-download`: 对允许竞速的资产强制使用 Hugging Face 下载；若命中 legacy 本地兼容布局，则不会触发下载。
 - `--models-root <path>`: 指定外部模型根目录（存在即跳过下载流程）。
 - `--output <console|file>`: 输出模式，默认 `console`。
 - `--log <path>`: `file` 模式下主日志路径，默认 `log\bridge_server.log`。
@@ -34,11 +34,14 @@ INT8 资产说明：
 - 对外部 `--models-root`：不会自动下载，缺失时直接报错。
 
 文本编码器路由说明：
-- CPU 或显存 `< 6GB`：使用 `models\KIMODO-Meta3_llm2vec_INT8`
-- GPU 且显存 `>= 6GB`，未开启 `--highvram`：使用 `models\KIMODO-Meta3_llm2vec_NF4`
-- GPU 且显存 `>= 6GB`，开启 `--highvram`：
-  - 若同时存在且有效：`models\Meta-Llama-3-8B-Instruct` + `models\LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised`，优先走 legacy 本地兼容加载
-  - 否则使用 `models\KIMODO-Meta3_llm2vec_FP16`
+- Kimodo 在加速设备上固定预留约 `2GB`；有效显存 `< 2GB` 时 Kimodo 和文本编码器全部走 CPU。
+- `high_precision`：有效显存 `>= 18GB` 且设备支持 FP16 时使用 FP16 加速器，否则 FP16 文本编码器走 CPU。
+- `high_performance`：
+  - 设备支持 NF4 且有效显存 `>= 6GB`：NF4 加速器。
+  - 不支持 NF4、支持 INT8 且有效显存 `>= 8GB`：INT8 加速器。
+  - 其他情况：INT8 CPU。
+- `simulate_vram_gb` 未发送表示自动检测；显式发送 `0` 表示全部强制 CPU。
+- 不检测系统内存；CPU 路径允许操作系统使用虚拟内存。
 
 ### 启动说明
 - `run_server.bat setup` / `run_server.sh setup` 都是同一条 Python 入口的子命令，用于单独执行 setup。
@@ -64,7 +67,6 @@ INT8 资产说明：
 - `KIMODO_TEST_OUTPUT=console|file`（默认 `console`）
 - `KIMODO_TEST_WAIT_TIMEOUT_SEC`（默认 `1800`）
 - `KIMODO_TEST_MODEL`
-- `KIMODO_TEST_HIGHVRAM=0|1`
 - `KIMODO_TEST_FORCE_HF_DOWNLOAD=0|1`
 - `KIMODO_TEST_MODELS_ROOT=<path>`
 - `KIMODO_TEST_SERVER_WINDOW_STYLE=Normal|Hidden|Minimized|Maximized`

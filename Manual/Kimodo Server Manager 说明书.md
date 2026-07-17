@@ -33,7 +33,7 @@ Kimodo Server Manager 是整个插件的控制台。生成动画的本地服务�
 | 选项 | 说明 |
 | --- | --- |
 | **Model** | 从这个页面启动服务器时默认使用的模型。 |
-| **VRAM Mode** | Low 使用量化编码器（约 4G）；High 使用完整模型栈（约 16G）。下方会估算所选模式的显存占用。 |
+| **Text Encoder Mode** | High Precision 使用 FP16；High Performance 使用 NF4/INT8。运行时会按有效显存和后端能力自动选择设备。 |
 | **Max Cached Clip** | 缓存目录（Assets/KimodoGeneratedClips/Cache）下保留的缓存片段上限，范围 1–1000。遇到卡顿可调到 100 左右。 |
 | **Clear Clip Cache** | 清理缓存目录中没有被任何场景或资源引用的片段。大型项目上这个操作可能稍慢。 |
 | **Generate Timeout (sec)** | 生成请求的全局超时时间。 |

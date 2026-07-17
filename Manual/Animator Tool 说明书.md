@@ -50,7 +50,7 @@ Animator Controller 是一个状态机，它管理着角色在不同时刻播放
 | --- | --- |
 | **Backend** | 生成后端，保持默认的 Kimodo Bridge 即可（本地运行）。 |
 | **Bridge Model** | 用于桥接生成的 Kimodo 模型包，使用已安装的默认项即可。 |
-| **VRAM Mode** | Low 占用约 4G 显存，High 约 16G、质量更稳。按显卡情况选择。 |
+| **Text Encoder Mode** | High Precision 使用 FP16；High Performance 使用 NF4/INT8。Kimodo 会预留约 2GB，文本编码器根据有效显存和设备能力自动选择 GPU/MPS/ROCm 或 CPU。 |
 | **Prompt** | 自然语言动作描述。选中对象时会自动填入一句参考词，可直接修改。 |
 | **Auto / Duration (s)** | 勾选 Auto 沿用原动作时长；取消勾选可拖动滑条自定义秒数。 |
 | **Diffusion Steps** | 生成采样步数，越高越精细也越慢。默认值适用于大多数情况。 |

@@ -45,7 +45,7 @@ cd /mnt/c/nvlab/NvlabKimodoQuickServer1
 ./run_server.sh --model Kimodo-SOMA-RP-v1 --output console
 ```
 
-Low-VRAM runs now default to the local Torch CPU INT8 text encoder asset under `models\KIMODO-Meta3_llm2vec_INT8`.
+`text_encoder_mode=high_precision|high_performance` selects the precision preference; QuickServer then places the encoder from effective VRAM and backend capabilities. Kimodo reserves about 2 GB, accelerator thresholds are 6/8/18 GB for NF4/INT8/FP16, and explicit `simulate_vram_gb=0` moves the entire runtime to CPU.
 
 TCP smoke test:
 ```bat
@@ -58,6 +58,7 @@ example\example_run_server_tpose_console_live.bat
 ```
 
 ## TCP protocol notes
+- `generate` uses `text_encoder_mode`; `highvram` and `force_cpu` are removed. The Force CPU UI sends `simulate_vram_gb=0`.
 - `generate` accepts optional `task_id`. If omitted, QuickServer assigns a stable task id before queueing.
 - Once a task id is assigned, every response for that task carries the same `task_id`.
 - A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.

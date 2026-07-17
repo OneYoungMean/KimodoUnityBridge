@@ -45,7 +45,7 @@ cd /mnt/c/nvlab/NvlabKimodoQuickServer1
 ./run_server.sh --model Kimodo-SOMA-RP-v1 --output console
 ```
 
-低显存运行现在默认使用 `models\KIMODO-Meta3_llm2vec_INT8` 这份本地 Torch CPU INT8 文本编码器资产。
+文本编码器由 `text_encoder_mode=high_precision|high_performance` 选择精度偏好，再按有效显存和设备能力自动放置。Kimodo 预留约 2GB；NF4/INT8/FP16 的加速器门槛分别为 6GB/8GB/18GB，显式 `simulate_vram_gb=0` 会让整个运行时走 CPU。
 
 TCP 冒烟测试：
 ```bat
@@ -67,6 +67,7 @@ set KIMODO_BRIDGE_BVH_STANDARD_TPOSE=1
 - 开启后响应中将返回 `motion_bvh`，不再返回 `motion_json_compact`。这个模式适合直接接 QuickServer TCP 协议的外部客户端，不适用于当前 Unity 客户端链路。
 
 TCP 协议补充：
+- `generate` 使用 `text_encoder_mode`，不再接受 `highvram` 或 `force_cpu`；Force CPU UI 会发送 `simulate_vram_gb=0`。
 - `generate` 的 `task_id` 现在是可选的；如果调用方不传，QuickServer 会在入队前自动补一个稳定任务标识。
 - 一旦任务标识确定，该任务后续所有响应都会带同一个 `task_id`。
 - 任务会先后经历 `queued`、`loading`、`progress`、`cancelling` 等中间态，并最终落到 `done`、`error` 或 `cancelled`。

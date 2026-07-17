@@ -55,7 +55,7 @@ Kimodo 的 Timeline 工具建立在动画片段（Animation Clip）的概念之�
 | --- | --- |
 | **Backend** | 选择生成后端。默认为本地运行的 Kimodo Bridge；选 ComfyUI 时需要额外填写 IP 和端口。 |
 | **Bridge Model** | 用于桥接生成的 Kimodo 模型包，使用已安装的默认项即可。 |
-| **VRAM Mode** | Low 使用量化过的文本编码器（约 4G）；High 使用完整编码器（约 16G），质量更稳。面板会估算当前模式所需显存。 |
+| **Text Encoder Mode** | High Precision 使用 FP16；High Performance 使用 NF4/INT8。Kimodo 会预留约 2GB，文本编码器根据有效显存和设备能力自动放置。 |
 | **Prompt** | 发送给生成后端的自然语言动作描述。描述越具体，结果越贴近预期。 |
 | **Duration (s)** | 生成片段的目标时长。改动它会同步更新时间轴上片段的长度。 |
 | **Diffusion Steps** | 生成的采样步数。步数越高耗时越长，细节可能更好。默认值适用于大多数情况。 |
