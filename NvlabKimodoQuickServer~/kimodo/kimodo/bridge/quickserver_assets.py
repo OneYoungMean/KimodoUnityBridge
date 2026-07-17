@@ -205,6 +205,22 @@ ARDY_CORE_PROFILE = MotionModelProfile(
     postprocess=True,
     aliases=("ardy-core", "ardy-core40"),
 )
+ARDY_CORE8_PROFILE = MotionModelProfile(
+    model_name="ARDY-Core-RP-20FPS-Horizon8",
+    modelscope_repo="nv-community/ARDY-Core-RP-20FPS-Horizon8",
+    backend="ardy",
+    source_fps=20.0,
+    horizon_frames=8,
+    frames_per_token=4,
+    max_context_frames=200,
+    rig_profile="cskel27",
+    max_diffusion_steps=10,
+    cfg_text_weight=2.0,
+    cfg_constraint_weight=2.0,
+    motion_rep_fingerprint="ardy-core-rp-20fps-h8:nfpt4:motionrep-v1",
+    postprocess=True,
+    aliases=("ardy-core8",),
+)
 ARDY_G1_PROFILE = MotionModelProfile(
     model_name="ARDY-G1-RP-25FPS-Horizon52",
     modelscope_repo="nv-community/ARDY-G1-RP-25FPS-Horizon52",
@@ -221,7 +237,28 @@ ARDY_G1_PROFILE = MotionModelProfile(
     postprocess=False,
     aliases=("ardy-g1", "ardy-g152"),
 )
-MOTION_MODEL_PROFILES: tuple[MotionModelProfile, ...] = (ARDY_CORE_PROFILE, ARDY_G1_PROFILE)
+ARDY_G18_PROFILE = MotionModelProfile(
+    model_name="ARDY-G1-RP-25FPS-Horizon8",
+    modelscope_repo="nv-community/ARDY-G1-RP-25FPS-Horizon8",
+    backend="ardy",
+    source_fps=25.0,
+    horizon_frames=8,
+    frames_per_token=4,
+    max_context_frames=248,
+    rig_profile="g1skel34",
+    max_diffusion_steps=10,
+    cfg_text_weight=2.0,
+    cfg_constraint_weight=2.0,
+    motion_rep_fingerprint="ardy-g1-rp-25fps-h8:nfpt4:motionrep-v1",
+    postprocess=False,
+    aliases=("ardy-g18",),
+)
+MOTION_MODEL_PROFILES: tuple[MotionModelProfile, ...] = (
+    ARDY_CORE_PROFILE,
+    ARDY_CORE8_PROFILE,
+    ARDY_G1_PROFILE,
+    ARDY_G18_PROFILE,
+)
 MOTION_MODEL_PROFILE_REGISTRY = {
     key.lower(): profile
     for profile in MOTION_MODEL_PROFILES

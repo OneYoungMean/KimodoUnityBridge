@@ -56,8 +56,12 @@ def _payload(model, root_x: float, foot_contacts=None) -> bytes:
 class ArdyBackendSelfCheck(unittest.TestCase):
     def test_core_and_g1_profiles_route_postprocess(self):
         core = quickserver_assets.resolve_motion_model_profile("ardy-core")
+        core8 = quickserver_assets.resolve_motion_model_profile("ardy-core8")
         g1 = quickserver_assets.resolve_motion_model_profile("ardy-g1")
+        g18 = quickserver_assets.resolve_motion_model_profile("ardy-g18")
         self.assertEqual((core.source_fps, core.horizon_frames, core.rig_profile), (20.0, 40, "cskel27"))
+        self.assertEqual((core8.source_fps, core8.horizon_frames, core8.rig_profile), (20.0, 8, "cskel27"))
+        self.assertEqual((g18.source_fps, g18.horizon_frames, g18.rig_profile), (25.0, 8, "g1skel34"))
         self.assertEqual(core.max_context_frames, 200)
         self.assertTrue(core.postprocess)
         self.assertFalse(g1.postprocess)

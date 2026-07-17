@@ -226,6 +226,16 @@ namespace KimodoBridge
             return GetCurrentPromptInternal(out isIdle);
         }
 
+        public string LockPrompt()
+        {
+            return LockPromptInternal();
+        }
+
+        public string UnlockPrompt()
+        {
+            return UnlockPromptInternal();
+        }
+
         public void SetAnimationDurationSeconds(float seconds)
         {
             ApplyGenerationDurationSeconds(seconds);
