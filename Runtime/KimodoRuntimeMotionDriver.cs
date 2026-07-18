@@ -21,7 +21,6 @@ namespace KimodoBridge
         [FormerlySerializedAs("highVram")]
         [SerializeField] private KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPrecision;
         [SerializeField] private bool forceCpu;
-        [SerializeField] private bool forceSetup;
         [SerializeField][Min(1f)] private float startupTimeoutMinutes = 30f;
 
         [Header("Generation")]

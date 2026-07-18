@@ -66,8 +66,8 @@ namespace KimodoBridge.Editor
             using (new EditorGUI.DisabledScope(Application.isPlaying))
             {
                 EditorGUILayout.PropertyField(targetAnimator, new GUIContent("Target Animator"));
-                isArdy = KimodoGenerationInspectorGui.DrawModelSelector(modelName, diffusionSteps);
-                KimodoGenerationInspectorGui.DrawTextEncoderMode(textEncoderMode);
+                isArdy = KimodoGenerationInspectorGui.DrawModelSelector(modelName, diffusionSteps, textEncoderMode);
+                KimodoGenerationInspectorGui.DrawTextEncoderMode(textEncoderMode, isArdy);
                 KimodoGenerationInspectorGui.DrawResolvedTextEncoderStatus();
                 EditorGUILayout.PropertyField(
                     forceCpu,

@@ -16,7 +16,10 @@ namespace KimodoBridge.Editor
                 out _);
         }
 
-        internal static bool DrawModelSelector(SerializedProperty modelName, SerializedProperty diffusionSteps)
+        internal static bool DrawModelSelector(
+            SerializedProperty modelName,
+            SerializedProperty diffusionSteps,
+            SerializedProperty textEncoderMode = null)
         {
             string current = KimodoPlayableClip.NormalizeBridgeModelName(modelName.stringValue);
             bool isArdy = IsArdy(current);
@@ -31,6 +34,14 @@ namespace KimodoBridge.Editor
                     : KimodoPlayableClip.DefaultBridgeModelName;
                 modelName.stringValue = current;
                 diffusionSteps.intValue = selectedArdy ? 10 : 100;
+
+                // ARDY is most sensitive to text-conditioning quality.  When the
+                // user switches model families, start with the high-precision
+                // encoder; they can still opt into high performance explicitly.
+                if (selectedArdy && textEncoderMode != null)
+                {
+                    textEncoderMode.enumValueIndex = (int)KimodoTextEncoderMode.HighPrecision;
+                }
             }
 
             string[] options = GetModelOptions(selectedArdy);
@@ -57,12 +68,24 @@ namespace KimodoBridge.Editor
             return options.ToArray();
         }
 
-        internal static void DrawTextEncoderMode(SerializedProperty textEncoderMode)
+        internal static void DrawTextEncoderMode(SerializedProperty textEncoderMode, bool ardy = false)
         {
             EditorGUILayout.PropertyField(
                 textEncoderMode,
                 new GUIContent("Text Encoder Mode", "High Performance uses NF4/INT8. High Precision uses FP16. Device placement is automatic."));
             DrawTextEncoderEstimate((KimodoTextEncoderMode)textEncoderMode.enumValueIndex);
+
+            DrawArdyTextEncoderWarning(ardy, (KimodoTextEncoderMode)textEncoderMode.enumValueIndex);
+        }
+
+        internal static void DrawArdyTextEncoderWarning(bool ardy, KimodoTextEncoderMode mode)
+        {
+            if (ardy && mode == KimodoTextEncoderMode.HighPerformance)
+            {
+                EditorGUILayout.HelpBox(
+                    "ARDY is optimized for the high-precision text encoder. High Performance (NF4/INT8) reduces memory use but may degrade prompt adherence and cause motion quality to deteriorate.",
+                    MessageType.Warning);
+            }
         }
 
         internal static void DrawTextEncoderEstimate(KimodoTextEncoderMode mode)

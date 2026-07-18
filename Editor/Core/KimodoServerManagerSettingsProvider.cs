@@ -145,14 +145,23 @@ namespace KimodoBridge.Editor
             KimodoTextEncoderMode newEncoderMode = (KimodoTextEncoderMode)EditorGUILayout.EnumPopup(
                 new GUIContent("Default Text Encoder Mode", "Default precision/performance preference. Device placement is automatic."),
                 selectedEncoderMode);
+            bool modelChanged = newIdx != idx;
             if (EditorGUI.EndChangeCheck())
             {
                 settings.DefaultBridgeModelName = options[Mathf.Clamp(newIdx, 0, options.Length - 1)];
+                if (modelChanged && KimodoGenerationInspectorGui.IsArdy(settings.DefaultBridgeModelName))
+                {
+                    newEncoderMode = KimodoTextEncoderMode.HighPrecision;
+                }
                 settings.DefaultTextEncoderMode = newEncoderMode;
                 settings.SaveSettings();
                 selectedModel = settings.DefaultBridgeModelName;
                 selectedEncoderMode = settings.DefaultTextEncoderMode;
             }
+
+            KimodoGenerationInspectorGui.DrawArdyTextEncoderWarning(
+                KimodoGenerationInspectorGui.IsArdy(selectedModel),
+                selectedEncoderMode);
 
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -403,11 +412,6 @@ namespace KimodoBridge.Editor
                     TryOpenRuntimeRootFolder();
                 }
 
-                if (GUILayout.Button(new GUIContent("Try Fix (force setup)", "Run bridge self-repair flow: force setup and revalidate the runtime without deleting the runtime root."), GUILayout.Height(24f)))
-                {
-                    _ = TryFixRuntimeAsync();
-                }
-
                 Color previousColor = GUI.color;
                 GUI.color = new Color(0.9f, 0.3f, 0.3f, 1f);
                 bool deleteAllDataClicked = GUILayout.Button(new GUIContent("Delete All Data", "Delete the full Kimodo runtime folder including downloaded models and cache."), GUILayout.Height(24f));
@@ -622,7 +626,7 @@ namespace KimodoBridge.Editor
             return RunOperationAsync(
                 initialStatus: "Starting server...",
                 successStatus: null,
-                progress => StartServerConnectionAsync(progress, forceSetup: false),
+                progress => StartServerConnectionAsync(progress),
                 onSuccess: () =>
                 {
                     PullServerStatusFromController();
@@ -636,28 +640,6 @@ namespace KimodoBridge.Editor
                 initialStatus: "Stopping server...",
                 successStatus: "Server stopped.",
                 async _ => await KimodoBridgeService.Shared.StopAsync(CancellationToken.None));
-        }
-
-        private Task TryFixRuntimeAsync()
-        {
-            return RunOperationAsync(
-                initialStatus: "Force setup running...",
-                successStatus: "TryFix completed.",
-                async progress =>
-                {
-                    string runtimeRootPath = runtimeRoot;
-
-                    using (KimodoBridgeServerTool.EnterRuntimeMaintenanceScope())
-                    {
-                        await KimodoBridgeService.Shared.StopAsync(CancellationToken.None);
-                        if (!Directory.Exists(runtimeRootPath))
-                        {
-                            throw new DirectoryNotFoundException($"Runtime root not found: {runtimeRootPath}");
-                        }
-
-                        await StartServerConnectionAsync(progress, forceSetup: true);
-                    }
-                });
         }
 
         private Task DeleteAllDataAsync()
@@ -741,9 +723,9 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static Task StartServerConnectionAsync(Action<string> progress, bool forceSetup)
+        private static Task StartServerConnectionAsync(Action<string> progress)
         {
-            return KimodoBridgeService.Shared.WarmupAsync(progress, forceSetup, CancellationToken.None);
+            return KimodoBridgeService.Shared.WarmupAsync(progress, CancellationToken.None);
         }
 
         private static string SummarizeForUi(string message, int maxLength = 320)

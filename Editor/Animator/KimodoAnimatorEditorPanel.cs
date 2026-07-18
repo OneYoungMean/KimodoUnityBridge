@@ -198,6 +198,10 @@ namespace KimodoBridge.Editor
 
                 int newIndex = EditorGUILayout.Popup(new GUIContent("Bridge Model"), currentIndex, options);
                 bridgeModelName = options[Mathf.Clamp(newIndex, 0, options.Length - 1)];
+                if (newIndex != currentIndex && KimodoGenerationInspectorGui.IsArdy(bridgeModelName))
+                {
+                    textEncoderMode = KimodoTextEncoderMode.HighPrecision;
+                }
             }
             else
             {
@@ -208,6 +212,9 @@ namespace KimodoBridge.Editor
                 new GUIContent("Text Encoder Mode", "High Performance uses NF4/INT8. High Precision uses FP16. Device placement is automatic."),
                 textEncoderMode);
             KimodoGenerationInspectorGui.DrawTextEncoderEstimate(textEncoderMode);
+            KimodoGenerationInspectorGui.DrawArdyTextEncoderWarning(
+                KimodoGenerationInspectorGui.IsArdy(bridgeModelName),
+                textEncoderMode);
             KimodoGenerationInspectorGui.DrawResolvedTextEncoderStatus();
 
             EditorGUILayout.EndVertical();

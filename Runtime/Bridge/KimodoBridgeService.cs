@@ -36,7 +36,6 @@ namespace KimodoBridge
         {
             public string RuntimeRoot = string.Empty;
             public string LauncherPath = string.Empty;
-            public bool ForceSetup;
         }
 
         private static readonly Lazy<KimodoBridgeService> SharedInstance =
@@ -95,10 +94,9 @@ namespace KimodoBridge
 
         internal async Task WarmupAsync(
             Action<string> progress,
-            bool forceSetup,
             CancellationToken token)
         {
-            await EnsureConnectedAsync(forceSetup, progress, token).ConfigureAwait(false);
+            await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
         }
 
         internal async Task<KimodoBridgeGenerationResult> GenerateAsync(
@@ -119,7 +117,7 @@ namespace KimodoBridge
             {
                 ThrowIfStopRequested();
                 ThrowIfSessionChanged(requestSessionVersion);
-                await EnsureConnectedAsync(forceSetup: false, progress, token).ConfigureAwait(false);
+                await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
                 ThrowIfSessionChanged(requestSessionVersion);
 
                 if (string.IsNullOrWhiteSpace(request.task_id))
@@ -264,7 +262,7 @@ namespace KimodoBridge
             }
         }
 
-        private async Task EnsureConnectedAsync(bool forceSetup, Action<string> progress, CancellationToken token)
+        private async Task EnsureConnectedAsync(Action<string> progress, CancellationToken token)
         {
             await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
             try
@@ -274,7 +272,7 @@ namespace KimodoBridge
                     return;
                 }
 
-                ResolvedRuntimeContext context = ResolveRuntimeContext(forceSetup);
+                ResolvedRuntimeContext context = ResolveRuntimeContext();
                 currentRuntimeRoot = context.RuntimeRoot;
 
                 if (TryReadRuntimeEndpoint(context.RuntimeRoot, out string host, out int port))
@@ -300,7 +298,6 @@ namespace KimodoBridge
                 {
                     processManager.Start(
                         context.LauncherPath,
-                        forceSetup: context.ForceSetup,
                         ownerProcessId: Process.GetCurrentProcess().Id);
                     ReportProgress(progress, "Bridge process launched.");
                 }
@@ -644,7 +641,7 @@ namespace KimodoBridge
             throw new PlatformNotSupportedException($"Unsupported bridge platform: {platform}");
         }
 
-        private static ResolvedRuntimeContext ResolveRuntimeContext(bool forceSetup)
+        private static ResolvedRuntimeContext ResolveRuntimeContext()
         {
             string runtimeRoot;
 #if UNITY_EDITOR
@@ -668,8 +665,7 @@ namespace KimodoBridge
             return new ResolvedRuntimeContext
             {
                 RuntimeRoot = Path.GetFullPath(runtimeRoot),
-                LauncherPath = Path.GetFullPath(launcherPath),
-                ForceSetup = forceSetup
+                LauncherPath = Path.GetFullPath(launcherPath)
             };
         }
 

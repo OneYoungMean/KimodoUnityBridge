@@ -136,11 +136,11 @@ namespace KimodoBridge.Editor
             bool isArdy = KimodoGenerationInspectorGui.IsArdy(bridgeModelName?.stringValue);
             if (bridgeModelName != null)
             {
-                isArdy = KimodoGenerationInspectorGui.DrawModelSelector(bridgeModelName, diffusionSteps);
+                isArdy = KimodoGenerationInspectorGui.DrawModelSelector(bridgeModelName, diffusionSteps, textEncoderMode);
             }
             if (textEncoderMode != null)
             {
-                KimodoGenerationInspectorGui.DrawTextEncoderMode(textEncoderMode);
+                KimodoGenerationInspectorGui.DrawTextEncoderMode(textEncoderMode, isArdy);
                 KimodoGenerationInspectorGui.DrawResolvedTextEncoderStatus();
             }
             KimodoGenerationInspectorGui.DrawPrompt(motionPrompt);

@@ -14,7 +14,6 @@ namespace KimodoBridge
 
         public ProcessStartInfo BuildLauncherStartInfo(
             string launcherPath,
-            bool forceSetup,
             int ownerProcessId)
         {
             string ext = Path.GetExtension(launcherPath)?.ToLowerInvariant() ?? string.Empty;
@@ -25,10 +24,9 @@ namespace KimodoBridge
 
             EnsureReadableByBash(launcherPath);
 
-            string forceSetupArg = forceSetup ? " --force-setup" : string.Empty;
             string watchPidArg = ownerProcessId > 0 ? $" --watchpid {ownerProcessId}" : string.Empty;
             string outputArg = " --output file";
-            string args = forceSetupArg + watchPidArg + outputArg;
+            string args = watchPidArg + outputArg;
             var startInfo = new ProcessStartInfo
             {
                 FileName = "bash",

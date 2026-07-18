@@ -48,7 +48,6 @@ namespace KimodoBridge
 
         public Process Start(
             string launcherPath,
-            bool forceSetup,
             int ownerProcessId)
         {
             ThrowIfDisposed();
@@ -70,7 +69,6 @@ namespace KimodoBridge
 
             ProcessStartInfo startInfo = platformProcess.BuildLauncherStartInfo(
                 resolvedLauncher,
-                forceSetup,
                 ownerProcessId);
             UnityEngine.Debug.Log($"[Kimodo][BridgeProcess] launch cmd: {startInfo.FileName} {startInfo.Arguments} (cwd={startInfo.WorkingDirectory})");
             var proc = new Process { StartInfo = startInfo, EnableRaisingEvents = true };

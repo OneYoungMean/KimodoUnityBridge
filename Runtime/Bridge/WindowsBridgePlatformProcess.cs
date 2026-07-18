@@ -14,7 +14,6 @@ namespace KimodoBridge
 
         public ProcessStartInfo BuildLauncherStartInfo(
             string launcherPath,
-            bool forceSetup,
             int ownerProcessId)
         {
             string ext = Path.GetExtension(launcherPath)?.ToLowerInvariant() ?? string.Empty;
@@ -24,9 +23,8 @@ namespace KimodoBridge
             }
 
             string qLauncher = QuoteForCmd(launcherPath);
-            string forceSetupArg = forceSetup ? " --force-setup" : string.Empty;
             string watchPidArg = ownerProcessId > 0 ? $" --watchpid {ownerProcessId}" : string.Empty;
-            string args = $"{forceSetupArg}{watchPidArg} --output file";
+            string args = $"{watchPidArg} --output file";
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
                 FileName = "cmd.exe",

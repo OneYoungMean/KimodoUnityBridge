@@ -323,12 +323,21 @@ namespace KimodoBridge.Editor
             KimodoTextEncoderMode newEncoderMode = (KimodoTextEncoderMode)EditorGUILayout.EnumPopup(
                 new GUIContent("Default Text Encoder Mode", "Default precision/performance preference. Device placement is automatic."),
                 settings.DefaultTextEncoderMode);
+            bool modelChanged = newIndex != selectedIndex;
             if (EditorGUI.EndChangeCheck())
             {
                 settings.DefaultBridgeModelName = options[Mathf.Clamp(newIndex, 0, options.Length - 1)];
+                if (modelChanged && KimodoGenerationInspectorGui.IsArdy(settings.DefaultBridgeModelName))
+                {
+                    newEncoderMode = KimodoTextEncoderMode.HighPrecision;
+                }
                 settings.DefaultTextEncoderMode = newEncoderMode;
                 settings.SaveSettings();
             }
+
+            KimodoGenerationInspectorGui.DrawArdyTextEncoderWarning(
+                KimodoGenerationInspectorGui.IsArdy(settings.DefaultBridgeModelName),
+                settings.DefaultTextEncoderMode);
 
             EditorGUILayout.HelpBox("These values share the same backing settings as Project Settings and now represent default generation parameters.", MessageType.None);
             EditorGUILayout.EndVertical();
@@ -391,7 +400,6 @@ namespace KimodoBridge.Editor
                             operationStatus = progress;
                         }
                     },
-                    forceSetup: false,
                     CancellationToken.None);
 
                 operationStatus = "Server connected.";

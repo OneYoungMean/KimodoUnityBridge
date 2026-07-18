@@ -43,8 +43,7 @@
 | --- | --- |
 | **Models Root** | 可选的外部模型目录，留空则使用运行目录下的默认位置。 |
 | **Model Name** | 使用的 Kimodo 模型，默认 `Kimodo-SOMA-RP-v1`。 |
-| **High Vram** | 勾选使用完整编码器（约 16G 显存），否则用量化版（约 4G）。 |
-| **Force Setup** | 强制重新配置运行环境，一般不用勾。 |
+| **Text Encoder Mode** | `High Precision` 使用 FP16 文本编码器，优先保证提示词遵循度；`High Performance` 使用 NF4/INT8 量化编码器以降低显存占用，但 ARDY 的动作质量可能下降。 |
 | **Startup Timeout Minutes** | 等待服务器启动的超时时间（分钟）。首次启动要下载模型，可适当放宽。 |
 
 ### Generation（生成）
@@ -129,7 +128,7 @@ var settings = new KimodoRuntimeGenerationSettings
         runtimeRoot = runtimeRootPath,   // 运行目录
         launcherPath = launcherPath,     // 启动脚本路径
         modelName = "Kimodo-SOMA-RP-v1",
-        highVram = false
+        textEncoderMode = KimodoTextEncoderMode.HighPrecision
     }
 };
 
