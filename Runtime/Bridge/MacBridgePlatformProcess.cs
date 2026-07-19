@@ -36,7 +36,6 @@ namespace KimodoBridge
                 WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? Environment.CurrentDirectory
             };
             startInfo.EnvironmentVariables["KIMODO_IDLE_TIMEOUT_SEC"] = "0";
-            startInfo.EnvironmentVariables["KIMODO_ARDY_FILE_ROOTS"] = ArdyUnityMotionCache.ManagedRoot;
             return startInfo;
         }
 

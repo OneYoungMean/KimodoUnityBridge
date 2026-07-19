@@ -53,7 +53,8 @@ namespace KimodoBridge
                 MotionBytes = result.motionBytes,
                 ClipHandle = result.clipHandle ?? string.Empty,
                 MotionRepFingerprint = result.motionRepFingerprint ?? string.Empty,
-                ResolvedSeed = result.resolvedSeed
+                ResolvedSeed = result.resolvedSeed,
+                HandleOperator = result.handleOperator
             };
         }
 
@@ -79,7 +80,8 @@ namespace KimodoBridge
                 motionFormat = bridgeResult?.MotionFormat,
                 clipHandle = bridgeResult?.ClipHandle,
                 motionRepFingerprint = bridgeResult?.MotionRepFingerprint,
-                resolvedSeed = bridgeResult?.ResolvedSeed
+                resolvedSeed = bridgeResult?.ResolvedSeed,
+                handleOperator = bridgeResult?.HandleOperator
             };
         }
     }
@@ -95,6 +97,7 @@ namespace KimodoBridge
         public string ClipHandle;
         public string MotionRepFingerprint;
         public int? ResolvedSeed;
+        public AnimationHandleOperator HandleOperator;
     }
 
     public enum KimodoBridgeCommandStage

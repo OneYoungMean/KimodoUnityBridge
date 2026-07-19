@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import secrets
-import tempfile
 import threading
-import time
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 
 
-HANDLE_PREFIX = "ardy:sha256:"
 MAX_KMB_BYTES = 256 * 1024**2
 
 
@@ -23,8 +19,119 @@ class ArdyBackendError(ValueError):
     code = "ardy_backend_error"
 
 
-class ClipHandleNotFoundError(ArdyBackendError):
-    code = "clip_handle_not_found"
+class ArdyStreamGenerator:
+    """Per-session eager ARDY state; compatible sessions still share the model."""
+
+    def __init__(
+        self,
+        task_request: dict[str, Any],
+        model: Any,
+        profile: Any,
+        spool: Any,
+        quickserver_root: str | Path,
+    ):
+        import torch
+
+        from kimodo.bridge import bridge_server as bridge_runtime_helpers
+
+        self.model = model
+        self.profile = profile
+        self.prompt = str(task_request.get("prompt") or "A person walks forward.").strip()
+        if not self.prompt.endswith("."):
+            self.prompt += "."
+        self.diffusion_steps = int(task_request.get("diffusion_steps", profile.max_diffusion_steps))
+        if not 1 <= self.diffusion_steps <= int(profile.max_diffusion_steps):
+            raise ArdyBackendError(
+                f"diffusion_steps must be in [1, {profile.max_diffusion_steps}]; got {self.diffusion_steps}."
+            )
+        self.cfg_text_weight = bridge_runtime_helpers._resolve_cfg_text_weight(task_request)
+        requested_seed = task_request.get("seed")
+        self.resolved_seed = secrets.randbelow(2**31) if requested_seed is None else int(requested_seed)
+        (
+            self.history,
+            self.observed_motion,
+            self.motion_mask,
+            _,
+            self.history_len,
+            self.postprocess_constraints,
+        ) = prepare_generation_inputs(
+            model,
+            profile,
+            task_request.get("constraints_json", ""),
+            spool,
+            quickserver_root,
+        )
+        self._first_horizon = True
+        self._cpu_rng_state = torch.Generator(device="cpu").manual_seed(self.resolved_seed).get_state()
+        self._cuda_rng_state = None
+        if str(model.device).startswith("cuda"):
+            self._cuda_rng_state = torch.Generator(device=model.device).manual_seed(self.resolved_seed).get_state()
+
+    def generate_horizon(self) -> dict[str, Any]:
+        import torch
+
+        history_len = int(self.history.shape[1]) if self.history is not None else 0
+        total_frames = history_len + int(self.profile.horizon_frames)
+        devices = [torch.device(self.model.device).index or 0] if str(self.model.device).startswith("cuda") else []
+        with torch.random.fork_rng(devices=devices):
+            torch.random.set_rng_state(self._cpu_rng_state)
+            if self._cuda_rng_state is not None:
+                torch.cuda.set_rng_state(self._cuda_rng_state, device=self.model.device)
+            with torch.no_grad():
+                motion = self.model.autoregressive_step(
+                    num_frames=total_frames,
+                    num_denoising_steps=self.diffusion_steps,
+                    motion_mask=self.motion_mask if self._first_horizon else None,
+                    observed_motion=self.observed_motion if self._first_horizon else None,
+                    cfg_weight=(self.cfg_text_weight, self.profile.cfg_constraint_weight),
+                    texts=[self.prompt],
+                    init_history_sequence=self.history,
+                    cancel_callback=None,
+                )
+            self._cpu_rng_state = torch.random.get_rng_state()
+            if self._cuda_rng_state is not None:
+                self._cuda_rng_state = torch.cuda.get_rng_state(device=self.model.device)
+
+        generated = motion[:, history_len : history_len + int(self.profile.horizon_frames)]
+        max_history = (
+            (int(self.profile.max_context_frames) - int(self.profile.horizon_frames))
+            // int(self.profile.frames_per_token)
+            * int(self.profile.frames_per_token)
+        )
+        self.history = motion[:, -min(max_history, int(motion.shape[1])) :].detach() if max_history > 0 else None
+        output = self.model.motion_rep.inverse(generated, is_normalized=True)
+        output = _finalize_output(
+            output,
+            self.model,
+            self.postprocess_constraints if self._first_horizon else [],
+            bool(getattr(self.profile, "postprocess", False)),
+        )
+        self._first_horizon = False
+        self.observed_motion = None
+        self.motion_mask = None
+        self.postprocess_constraints = []
+        return output
+
+    def close(self) -> None:
+        self.history = None
+        self.observed_motion = None
+        self.motion_mask = None
+        self.postprocess_constraints = []
+
+
+def resolve_stream_capacity_frames(task_request: dict[str, Any], profile: Any) -> int:
+    duration = float(task_request.get("duration", 0.0))
+    if not math.isfinite(duration) or duration <= 0.0:
+        raise ArdyBackendError("ARDY stream duration must be a finite value greater than zero.")
+    requested_frames = max(1, int(math.ceil(duration * float(profile.source_fps))))
+    horizon = int(profile.horizon_frames)
+    capacity = int(math.ceil(requested_frames / horizon) * horizon)
+    max_frames = int(os.environ.get("KIMODO_ARDY_STREAM_MAX_FRAMES", int(float(profile.source_fps) * 60)))
+    if capacity > max_frames:
+        raise ArdyBackendError(
+            f"ARDY stream capacity {capacity} exceeds KIMODO_ARDY_STREAM_MAX_FRAMES={max_frames}."
+        )
+    return capacity
 
 
 @dataclass(frozen=True)
@@ -113,177 +220,9 @@ def extract_handle_refs(constraints_json: Any) -> tuple[str, ...]:
         for item in value
         if isinstance(item, dict)
         and item.get("type") == "clip"
-        and item.get("format") == "ardy_handle_v1"
+        and item.get("format") in {"ardy_handle_v1", "kmb_handle_v1"}
         and str(item.get("handle") or "").strip()
     )
-
-
-class ArdyClipSpool:
-    def __init__(self, root: str | Path, *, byte_quota: int, minimum_retention: int = 8):
-        self.root = Path(root).resolve()
-        self.archive = self.root / "archive"
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.archive.mkdir(parents=True, exist_ok=True)
-        self.byte_quota = max(1, int(byte_quota))
-        self.minimum_retention = max(0, int(minimum_retention))
-        self._pins: dict[str, int] = {}
-        self._lock = threading.RLock()
-        self._archive_orphans()
-
-    def pin(self, handles: Iterable[str]) -> tuple[str, ...]:
-        normalized = tuple(dict.fromkeys(str(handle).strip() for handle in handles if str(handle).strip()))
-        with self._lock:
-            for handle in normalized:
-                self._pins[handle] = self._pins.get(handle, 0) + 1
-        return normalized
-
-    def unpin(self, handles: Iterable[str]) -> None:
-        with self._lock:
-            for handle in handles:
-                count = self._pins.get(handle, 0)
-                if count <= 1:
-                    self._pins.pop(handle, None)
-                else:
-                    self._pins[handle] = count - 1
-
-    def publish(self, payload: bytes, *, model_name: str, fingerprint: str, fps: float) -> str:
-        digest = hashlib.sha256(fingerprint.encode("utf-8") + b"\0" + payload).hexdigest()
-        handle = HANDLE_PREFIX + digest
-        kmb_path, meta_path = self._paths(handle)
-        with self._lock:
-            if kmb_path.is_file() and meta_path.is_file():
-                try:
-                    self.read(
-                        handle,
-                        model_name=model_name,
-                        fingerprint=fingerprint,
-                        fps=fps,
-                    )
-                    return handle
-                except ClipHandleNotFoundError:
-                    self._archive_file(kmb_path, "corrupted")
-                    self._archive_file(meta_path, "corrupted")
-
-            record = {
-                "handle": handle,
-                "model_name": model_name,
-                "motion_rep_fingerprint": fingerprint,
-                "fps": float(fps),
-                "byte_length": len(payload),
-                "created_unix": time.time(),
-            }
-            self._atomic_write(kmb_path, payload)
-            try:
-                self._atomic_write(meta_path, json.dumps(record, separators=(",", ":")).encode("utf-8"))
-            except Exception:
-                self._archive_file(kmb_path, "unpublished")
-                raise
-            self._evict(protected={handle})
-        return handle
-
-    def read(self, handle: str, *, model_name: str, fingerprint: str, fps: float) -> bytes:
-        with self._lock:
-            try:
-                kmb_path, meta_path = self._paths(handle)
-            except ValueError as exc:
-                raise ClipHandleNotFoundError(f"Unknown or invalid clip handle: {handle!r}.") from exc
-            if not kmb_path.is_file() or not meta_path.is_file():
-                raise ClipHandleNotFoundError(f"Clip handle is not available: {handle!r}.")
-            try:
-                record = json.loads(meta_path.read_text(encoding="utf-8"))
-            except Exception as exc:
-                raise ClipHandleNotFoundError(f"Clip handle metadata is unreadable: {handle!r}.") from exc
-            if (
-                record.get("handle") != handle
-                or record.get("model_name") != model_name
-                or record.get("motion_rep_fingerprint") != fingerprint
-                or not math.isclose(float(record.get("fps", -1)), float(fps), rel_tol=0.0, abs_tol=1e-5)
-            ):
-                raise ClipHandleNotFoundError(f"Clip handle is incompatible with model {model_name!r}: {handle!r}.")
-            payload = kmb_path.read_bytes()
-            if len(payload) != int(record.get("byte_length", -1)):
-                raise ClipHandleNotFoundError(f"Clip handle payload is incomplete: {handle!r}.")
-            actual_handle = HANDLE_PREFIX + hashlib.sha256(
-                fingerprint.encode("utf-8") + b"\0" + payload
-            ).hexdigest()
-            if actual_handle != handle:
-                raise ClipHandleNotFoundError(f"Clip handle payload is corrupted: {handle!r}.")
-            os.utime(kmb_path, None)
-            return payload
-
-    def _paths(self, handle: str) -> tuple[Path, Path]:
-        if not handle.startswith(HANDLE_PREFIX):
-            raise ValueError("invalid handle prefix")
-        digest = handle[len(HANDLE_PREFIX) :]
-        if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
-            raise ValueError("invalid handle digest")
-        return self.root / f"{digest}.kmb", self.root / f"{digest}.json"
-
-    def _atomic_write(self, destination: Path, data: bytes) -> None:
-        fd, temp_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=self.root)
-        temp_path = Path(temp_name)
-        try:
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(data)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temp_path, destination)
-        except Exception:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-            if temp_path.exists():
-                self._archive_file(temp_path, "incomplete")
-            raise
-
-    def _archive_file(self, path: Path, reason: str) -> None:
-        if not path.exists():
-            return
-        destination = self.archive / f"{path.name}.{reason}.{time.time_ns()}"
-        os.replace(path, destination)
-
-    def _archive_orphans(self) -> None:
-        for kmb_path in self.root.glob("*.kmb"):
-            if not kmb_path.with_suffix(".json").is_file():
-                self._archive_file(kmb_path, "orphan")
-        for meta_path in self.root.glob("*.json"):
-            if not meta_path.with_suffix(".kmb").is_file():
-                self._archive_file(meta_path, "orphan")
-
-    def _evict(self, *, protected: set[str]) -> None:
-        records: list[tuple[float, int, str, Path, Path]] = []
-        for kmb_path in self.root.glob("*.kmb"):
-            meta_path = kmb_path.with_suffix(".json")
-            if not meta_path.is_file():
-                continue
-            digest = kmb_path.stem
-            handle = HANDLE_PREFIX + digest
-            stat = kmb_path.stat()
-            records.append((stat.st_mtime, stat.st_size + meta_path.stat().st_size, handle, kmb_path, meta_path))
-        total = sum(item[1] for item in records)
-        if total <= self.byte_quota:
-            return
-        keep = {item[2] for item in sorted(records, reverse=True)[: self.minimum_retention]}
-        pinned = set(self._pins) | protected | keep
-        for _, size, handle, kmb_path, meta_path in sorted(records):
-            if total <= self.byte_quota:
-                break
-            if handle in pinned:
-                continue
-            self._archive_file(kmb_path, "evicted")
-            self._archive_file(meta_path, "evicted")
-            total -= size
-
-
-def create_spool(quickserver_root: str | Path) -> ArdyClipSpool:
-    root = Path(
-        os.environ.get("KIMODO_ARDY_SPOOL_ROOT")
-        or (Path(quickserver_root).resolve() / "cache" / "ardy_spool")
-    )
-    quota = int(os.environ.get("KIMODO_ARDY_SPOOL_BYTES", str(2 * 1024**3)))
-    minimum = int(os.environ.get("KIMODO_ARDY_MIN_RETAINED_HANDLES", "8"))
-    return ArdyClipSpool(root, byte_quota=quota, minimum_retention=minimum)
 
 
 def _allowed_file_roots(quickserver_root: str | Path) -> tuple[Path, ...]:
@@ -352,17 +291,19 @@ def _future_frame_indices(constraints: list[dict[str, Any]]) -> list[int]:
     return result
 
 
-def _clip_payload(item: dict[str, Any], spool: ArdyClipSpool, profile: Any, quickserver_root: str | Path) -> bytes:
+def _clip_payload(item: dict[str, Any], spool: Any, profile: Any, quickserver_root: str | Path) -> bytes:
     clip_format = str(item.get("format") or "")
-    if clip_format == "ardy_handle_v1":
+    if clip_format in {"ardy_handle_v1", "kmb_handle_v1"}:
         return spool.read(
             str(item.get("handle") or ""),
             model_name=profile.model_name,
             fingerprint=profile.motion_rep_fingerprint,
             fps=profile.source_fps,
         )
-    if clip_format == "ardy_file_v1":
+    if clip_format == "ardy_file_v1" and os.environ.get("KIMODO_ARDY_ALLOW_TEST_FILES", "").strip().lower() in {"1", "true", "yes"}:
         return _read_managed_file(item.get("path"), quickserver_root)
+    if clip_format == "ardy_file_v1":
+        raise ArdyBackendError("ardy_file_v1 is test-only; upload KMB and use kmb_handle_v1.")
     raise ArdyBackendError(f"Unsupported clip format: {clip_format!r}.")
 
 
@@ -385,7 +326,7 @@ def prepare_generation_inputs(
     model: Any,
     profile: Any,
     constraints_json: Any,
-    spool: ArdyClipSpool,
+    spool: Any,
     quickserver_root: str | Path,
 ):
     import torch
@@ -533,16 +474,17 @@ def execute_generate(
     model: Any,
     profile: Any,
     cancel_event: threading.Event,
-    spool: ArdyClipSpool,
+    spool: Any,
     quickserver_root: str | Path,
-) -> tuple[dict[str, Any], bytes]:
+) -> tuple[dict[str, Any], bytes | None]:
     import torch
 
     from kimodo.bridge import bridge_server as bridge_runtime_helpers
     from kimodo.tools import seed_everything
 
-    if bridge_runtime_helpers._resolve_requested_output_format(task_request) != "flatbuf_motion_v1":
-        raise ArdyBackendError("ARDY generate requires output_format='flatbuf_motion_v1'.")
+    output_format = bridge_runtime_helpers._resolve_requested_output_format(task_request)
+    if output_format not in {"flatbuf_motion_v1", "kmb_handle_v1"}:
+        raise ArdyBackendError("ARDY generate requires a KMB output format.")
     diffusion_steps = int(task_request.get("diffusion_steps", profile.max_diffusion_steps))
     if not 1 <= diffusion_steps <= int(profile.max_diffusion_steps):
         raise ArdyBackendError(
@@ -578,7 +520,7 @@ def execute_generate(
             cfg_weight=(cfg_text_weight, profile.cfg_constraint_weight),
             texts=[prompt],
             init_history_sequence=init_history,
-            cancel_callback=check_cancel,
+            cancel_callback=None,
         )
         generated = motion[:, history_len : history_len + int(profile.horizon_frames)]
         output = model.motion_rep.inverse(generated, is_normalized=True)
@@ -591,20 +533,21 @@ def execute_generate(
     check_cancel()
     payload = bridge_runtime_helpers._build_generate_flatbuffer_payload(model, output, sample_index=0)
     check_cancel()
-    handle = spool.publish(
+    handle_info = spool.publish(
         payload,
-        model_name=profile.model_name,
-        fingerprint=profile.motion_rep_fingerprint,
-        fps=profile.source_fps,
+        description=prompt,
+        motion_rep_fingerprint=profile.motion_rep_fingerprint,
     )
+    handle = handle_info["handle"] if isinstance(handle_info, dict) else handle_info
     return {
         "status": "done",
-        "output_format": "flatbuf_motion_v1",
-        "byte_length": len(payload),
+        "output_format": output_format,
+        "byte_length": len(payload) if output_format == "flatbuf_motion_v1" else 0,
         "clip_handle": handle,
+        "handle_info": handle_info if isinstance(handle_info, dict) else None,
         "motion_rep_fingerprint": profile.motion_rep_fingerprint,
         "resolved_seed": resolved_seed,
-    }, payload
+    }, payload if output_format == "flatbuf_motion_v1" else None
 
 
 def load_runtime(profile: Any, config: dict[str, Any], quickserver_root: str | Path, device: str):

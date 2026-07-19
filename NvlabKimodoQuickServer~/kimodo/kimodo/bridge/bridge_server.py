@@ -554,7 +554,7 @@ def _resolve_bridge_output_format() -> str:
 def _resolve_requested_output_format(req: dict | None = None) -> str:
     if isinstance(req, dict):
         raw = str(req.get("output_format", "") or "").strip().lower()
-        if raw in ("json_compact", "bvh", "flatbuf_motion_v1"):
+        if raw in ("json_compact", "bvh", "flatbuf_motion_v1", "kmb_handle_v1"):
             return raw
     return _resolve_bridge_output_format()
 

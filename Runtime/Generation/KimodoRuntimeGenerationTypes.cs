@@ -22,6 +22,7 @@ namespace KimodoBridge
         public string models_root;
         public bool force_hf_download;
         public int owner_pid;
+        public string output_format = "kmb_handle_v1";
     }
 
     public static class KimodoTextEncoderModeProtocol
@@ -47,5 +48,6 @@ namespace KimodoBridge
         public string clipHandle;
         public string motionRepFingerprint;
         public int? resolvedSeed;
+        [NonSerialized] public AnimationHandleOperator handleOperator;
     }
 }

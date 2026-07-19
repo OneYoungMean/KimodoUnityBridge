@@ -138,7 +138,8 @@ namespace KimodoBridge.Editor
                 clip.clip = result.GeneratedClip;
                 ApplyGeneratedMetadata(clip, result.Prompt, result.MotionJsonCompact);
                 clip.ardyMotionCachePath = result.ArdyMotionCachePath ?? string.Empty;
-                clip.ardyClipHandles = result.ArdyClipHandles ?? new List<string>();
+                // Per-window KMB handles are released after the final clip is materialized.
+                clip.ardyClipHandles = new List<string>();
                 clip.ardyMotionRepFingerprint = result.ArdyMotionRepFingerprint ?? string.Empty;
                 clip.ardyResolvedSeeds = result.ArdyResolvedSeeds ?? new List<int>();
                 EditorUtility.SetDirty(clip);

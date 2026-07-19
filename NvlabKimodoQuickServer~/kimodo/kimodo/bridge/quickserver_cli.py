@@ -10,6 +10,7 @@ from itertools import count
 import io
 import math
 from pathlib import Path
+import secrets
 import socket
 import threading
 import time
@@ -18,6 +19,7 @@ from typing import Any
 
 from . import bridge_server as bridge_runtime_helpers
 from . import ardy_backend
+from . import animation_handles
 from . import quickserver_assets as assets
 from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 
@@ -476,7 +478,7 @@ def _execute_generate(
     model: Any,
     cancel_event: threading.Event,
     motion_profile: assets.MotionModelProfile | None,
-    spool: ardy_backend.ArdyClipSpool,
+    spool: animation_handles.AnimationHandleStore,
     kimodo_root: str,
 ) -> tuple[dict[str, Any], bytes | None]:
     if motion_profile is not None and motion_profile.backend == "ardy":
@@ -525,8 +527,17 @@ def _execute_generate(
         raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
 
     output_format = bridge_runtime_helpers._resolve_requested_output_format(task_request)
-    if output_format == "flatbuf_motion_v1":
+    if output_format in {"flatbuf_motion_v1", "kmb_handle_v1"}:
         payload = bridge_runtime_helpers._build_generate_flatbuffer_payload(model, output, sample_index=0)
+        if output_format == "kmb_handle_v1":
+            handle_info = spool.publish(payload, description=prompt)
+            return {
+                "status": "done",
+                "output_format": output_format,
+                "byte_length": 0,
+                "clip_handle": handle_info["handle"],
+                "handle_info": handle_info,
+            }, None
         return {
             "status": "done",
             "output_format": "flatbuf_motion_v1",
@@ -595,11 +606,23 @@ def _write_protocol_message(file, writer_lock: threading.Lock, payload: dict[str
             file.flush()
 
 
+def _read_exact(file, byte_length: int) -> bytes:
+    chunks = bytearray()
+    while len(chunks) < byte_length:
+        chunk = file.read(byte_length - len(chunks))
+        if not chunk:
+            break
+        chunks.extend(chunk)
+    return bytes(chunks)
+
+
 def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger) -> int:
     host = "127.0.0.1"
     kimodo_root = str(Path(root_dir).resolve())
     serverport_path = Path(kimodo_root) / "serverport"
     idle_timeout_seconds = max(0, int(float(os.environ.get("KIMODO_IDLE_TIMEOUT_SEC", "600"))))
+    default_session_id = "session:default"
+    session_queue_limit = 32
 
     os.environ["KIMODO_ROOT_PATH"] = kimodo_root
     os.environ["KIMODO_BRIDGE_LOG"] = str((Path(kimodo_root) / "log" / SUPERVISOR_LOG_FILE_NAME).resolve())
@@ -615,33 +638,41 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     _write_serverport(serverport_path, host, int(port), "boot")
     logger.log(f"[INFO] quickserver_cli listening on {host}:{port}")
 
+    default_config = {
+        "model": str(args.model or assets.DEFAULT_MODEL_NAME).strip() or assets.DEFAULT_MODEL_NAME,
+        "text_encoder_mode": assets.normalize_text_encoder_mode(args.text_encoder_mode),
+        "models_root": str(args.models_root or "").strip(),
+        "force_hf_download": bool(args.force_hf_download),
+        "simulate_vram_gb": 0.0 if str(args.device or "").strip().lower() == "cpu" else None,
+    }
+
+    def new_session(session_id: str, *, explicit: bool, connection_id: str = "") -> dict[str, Any]:
+        return {
+            "session_id": session_id,
+            "explicit": explicit,
+            "connection_id": connection_id,
+            "default_config": dict(default_config),
+            "queue": deque(),
+            "active": None,
+            "ready": False,
+            "closed": False,
+        }
+
     state: dict[str, Any] = {
         "shutdown": False,
         "owner_pid": max(0, int(args.watchpid or 0)),
         "last_activity": time.time(),
-        "default_config": {
-            "model": str(args.model or assets.DEFAULT_MODEL_NAME).strip() or assets.DEFAULT_MODEL_NAME,
-            "text_encoder_mode": assets.normalize_text_encoder_mode(args.text_encoder_mode),
-            "models_root": str(args.models_root or "").strip(),
-            "force_hf_download": bool(args.force_hf_download),
-            "simulate_vram_gb": 0.0 if str(args.device or "").strip().lower() == "cpu" else None,
-        },
-        "runtime_signature": "",
-        "runtime_config": None,
-        "resolved_model_name": "",
-        "runtime_device": "",
-        "motion_profile": None,
-        "text_encoder_decision": None,
-        "model": None,
-        "fps": 30,
-        "queue": deque(),
+        "runtimes": {},
+        "sessions": {default_session_id: new_session(default_session_id, explicit=False)},
+        "ready_sessions": deque(),
         "tasks": {},
         "active_task_id": "",
-        "active_cancel_event": None,
         "active_command_count": 0,
         "server_state": "boot",
         "task_counter": count(1),
-        "ardy_spool": ardy_backend.create_spool(kimodo_root),
+        "session_counter": count(1),
+        "connection_counter": count(1),
+        "ardy_spool": animation_handles.create_store(),
     }
     state_lock = threading.Lock()
     queue_changed = threading.Condition(state_lock)
@@ -665,23 +696,97 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             state["active_command_count"] = max(0, int(state.get("active_command_count") or 0) - 1)
             state["last_activity"] = time.time()
 
+    def attach_request_id(payload: dict[str, Any], request_id: str) -> dict[str, Any]:
+        result = dict(payload or {})
+        if request_id:
+            result["request_id"] = request_id
+        return result
+
+    def mark_session_ready_locked(session: dict[str, Any]) -> None:
+        if session["ready"]:
+            return
+        active = session.get("active")
+        if state["shutdown"] or session["closed"]:
+            if active is None or not active["cancel_event"].is_set():
+                return
+            session["ready"] = True
+            state["ready_sessions"].append(session["session_id"])
+            queue_changed.notify_all()
+            return
+        if active is None and not session["queue"]:
+            return
+        if active is not None and active.get("stream_handle"):
+            if not active["cancel_event"].is_set() and state["ardy_spool"].stream_is_full(active["stream_handle"]):
+                return
+        session["ready"] = True
+        state["ready_sessions"].append(session["session_id"])
+        queue_changed.notify_all()
+
+    def finish_task_locked(
+        session: dict[str, Any],
+        task: dict[str, Any],
+        response: dict[str, Any] | None = None,
+        binary_payload: bytes | None = None,
+    ) -> None:
+        stream_context = task.get("stream_context")
+        if stream_context is not None:
+            stream_context.close()
+        stream_handle = str(task.get("stream_handle") or "")
+        if stream_handle:
+            state["ardy_spool"].close_stream(stream_handle, notify=False)
+        state["ardy_spool"].unpin(task.get("pinned_handles") or ())
+        if not task.get("response_sent"):
+            final_response = response or {"status": "cancelled", "message": "Task closed."}
+            task["response"] = attach_request_id(
+                _attach_task_id(final_response, task["task_id"]),
+                task["request_id"],
+            )
+            task["binary"] = binary_payload
+            task["event"].set()
+        task["state"] = str((response or {}).get("status") or "closed")
+        state["tasks"].pop(task["task_id"], None)
+        if session.get("active") is task:
+            session["active"] = None
+        state["active_task_id"] = ""
+        if session["closed"] and not session["queue"]:
+            state["sessions"].pop(session["session_id"], None)
+        else:
+            mark_session_ready_locked(session)
+
+    def close_session_locked(session: dict[str, Any], reason: str) -> None:
+        session["closed"] = True
+        while session["queue"]:
+            task = session["queue"].popleft()
+            task["state"] = "cancelled"
+            finish_task_locked(session, task, {"status": "cancelled", "message": reason})
+        active = session.get("active")
+        if active is not None:
+            active["cancel_event"].set()
+            active["state"] = "cancelling"
+            mark_session_ready_locked(session)
+        else:
+            state["sessions"].pop(session["session_id"], None)
+
     def request_shutdown(reason: str) -> None:
         logger.log(f"[INFO] Supervisor shutdown requested: {reason}")
         with state_lock:
             if state["shutdown"]:
                 return
             state["shutdown"] = True
-            active_cancel_event = state.get("active_cancel_event")
-            if active_cancel_event is not None:
-                active_cancel_event.set()
-            pending_tasks = list(state["tasks"].values())
-            for task in pending_tasks:
-                state["ardy_spool"].unpin(task.get("pinned_handles") or ())
-                task["response"] = {"status": "cancelled", "message": "Server shutting down."}
-                task["binary"] = None
-                task["event"].set()
-            state["tasks"].clear()
-            state["queue"].clear()
+            for session in list(state["sessions"].values()):
+                session["closed"] = True
+                while session["queue"]:
+                    task = session["queue"].popleft()
+                    finish_task_locked(
+                        session,
+                        task,
+                        {"status": "cancelled", "message": "Server shutting down."},
+                    )
+                if session.get("active") is not None:
+                    session["active"]["cancel_event"].set()
+                    if not session["ready"]:
+                        session["ready"] = True
+                        state["ready_sessions"].append(session["session_id"])
             queue_changed.notify_all()
 
         try:
@@ -697,8 +802,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     return
                 owner_pid = int(state.get("owner_pid") or 0)
                 idle_seconds = time.time() - float(state.get("last_activity") or 0.0)
-                runtime_loaded = state.get("model") is not None
-                work_in_flight = bool(state["queue"]) or bool(state.get("active_task_id")) or int(state.get("active_command_count") or 0) > 0
+                runtime_loaded = any(runtime.get("model") is not None for runtime in state["runtimes"].values())
+                work_in_flight = any(
+                    session["queue"] or session.get("active") is not None
+                    for session in state["sessions"].values()
+                ) or int(state.get("active_command_count") or 0) > 0
 
             if owner_pid > 0 and not _pid_is_running(owner_pid):
                 request_shutdown(f"owner pid {owner_pid} exited")
@@ -711,74 +819,181 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             if not work_in_flight and runtime_loaded and idle_seconds >= max(30, idle_timeout_seconds // 2 if idle_timeout_seconds > 0 else 300):
                 with runtime_gate:
                     with state_lock:
-                        if (
-                            state["model"] is not None
-                            and not state["queue"]
-                            and not state["active_task_id"]
-                            and int(state.get("active_command_count") or 0) == 0
-                        ):
-                            _unload_runtime_model(state, logger)
+                        if not any(
+                            session["queue"] or session.get("active") is not None
+                            for session in state["sessions"].values()
+                        ) and int(state.get("active_command_count") or 0) == 0:
+                            for runtime in state["runtimes"].values():
+                                _unload_runtime_model(runtime, logger)
+                            state["runtimes"].clear()
+
+    def get_runtime(runtime_config: dict[str, Any]) -> dict[str, Any]:
+        signature = _build_signature(runtime_config)
+        with runtime_gate:
+            runtime = state["runtimes"].get(signature)
+            if runtime is None:
+                runtime = {}
+                _ensure_runtime(runtime, runtime_config, kimodo_root, logger)
+                state["runtimes"][signature] = runtime
+            return runtime
+
+    def wake_session(session_id: str) -> None:
+        with queue_changed:
+            session = state["sessions"].get(session_id)
+            if session is not None:
+                mark_session_ready_locked(session)
+
+    def run_one_shot(task: dict[str, Any], runtime: dict[str, Any]) -> tuple[dict[str, Any], bytes | None]:
+        fallback_reason = ""
+        try:
+            return _execute_generate(
+                task["request"],
+                runtime["model"],
+                task["cancel_event"],
+                runtime.get("motion_profile"),
+                state["ardy_spool"],
+                kimodo_root,
+            )
+        except Exception as generation_error:
+            decision = runtime.get("text_encoder_decision")
+            if decision is not None and decision.encoder_device != "cpu" and _is_accelerator_oom(generation_error):
+                fallback_reason = str(generation_error)
+            else:
+                raise
+        logger.log("[WARN] Accelerator OOM; retrying with the text encoder on CPU. " + fallback_reason)
+        fallback_config = dict(task["runtime_config"])
+        fallback_config["_force_text_encoder_cpu"] = True
+        with runtime_gate:
+            _unload_runtime_model(runtime, logger)
+            _ensure_runtime(runtime, fallback_config, kimodo_root, logger)
+        return _execute_generate(
+            task["request"],
+            runtime["model"],
+            task["cancel_event"],
+            runtime.get("motion_profile"),
+            state["ardy_spool"],
+            kimodo_root,
+        )
 
     def worker_loop() -> None:
         while True:
             with queue_changed:
-                while not state["shutdown"] and not state["queue"]:
+                while not state["shutdown"] and not state["ready_sessions"]:
                     queue_changed.wait(timeout=0.5)
-                if state["shutdown"]:
+                if state["shutdown"] and not state["ready_sessions"]:
                     return
-                task = state["queue"].popleft()
+                session_id = state["ready_sessions"].popleft()
+                session = state["sessions"].get(session_id)
+                if session is None:
+                    continue
+                session["ready"] = False
+                task = session.get("active")
+                if task is None:
+                    if not session["queue"]:
+                        continue
+                    task = session["queue"].popleft()
+                    session["active"] = task
                 task_id = task["task_id"]
-                cancel_event = task["cancel_event"]
                 state["active_task_id"] = task_id
-                state["active_cancel_event"] = cancel_event
                 publish_state("generating")
 
             try:
-                with state_lock:
-                    runtime_config = dict(task["runtime_config"])
-                with runtime_gate:
-                    publish_state("loading_runtime")
-                    _ensure_runtime(state, runtime_config, kimodo_root, logger)
-                    publish_state("generating")
-                fallback_reason = ""
-                try:
-                    response, binary_payload = _execute_generate(
-                        task["request"],
-                        state["model"],
-                        cancel_event,
-                        state.get("motion_profile"),
-                        state["ardy_spool"],
-                        kimodo_root,
-                    )
-                except Exception as generation_error:
-                    decision = state.get("text_encoder_decision")
-                    if (
-                        decision is not None
-                        and decision.encoder_device != "cpu"
-                        and _is_accelerator_oom(generation_error)
-                    ):
-                        fallback_reason = str(generation_error)
-                    else:
-                        raise
+                publish_state("loading_runtime")
+                runtime = get_runtime(task["runtime_config"])
+                task["runtime"] = runtime
+                publish_state("generating")
+                profile = runtime.get("motion_profile")
+                is_ardy_stream = (
+                    profile is not None
+                    and profile.backend == "ardy"
+                    and bridge_runtime_helpers._resolve_requested_output_format(task["request"]) == "kmb_handle_v1"
+                )
 
-                if fallback_reason:
-                    logger.log(
-                        "[WARN] Accelerator OOM; reloading the text encoder on CPU and retrying once. "
-                        + fallback_reason
-                    )
-                    fallback_config = dict(runtime_config)
-                    fallback_config["_force_text_encoder_cpu"] = True
-                    with runtime_gate:
-                        _unload_runtime_model(state, logger)
-                        _ensure_runtime(state, fallback_config, kimodo_root, logger)
-                    response, binary_payload = _execute_generate(
+                if is_ardy_stream and task.get("stream_context") is None:
+                    stream_context = ardy_backend.ArdyStreamGenerator(
                         task["request"],
-                        state["model"],
-                        cancel_event,
-                        state.get("motion_profile"),
+                        runtime["model"],
+                        profile,
                         state["ardy_spool"],
                         kimodo_root,
                     )
+                    capacity_frames = ardy_backend.resolve_stream_capacity_frames(task["request"], profile)
+                    joint_parents, joint_names = bridge_runtime_helpers._parents_and_names(
+                        runtime["model"],
+                        len(runtime["model"].motion_rep.skeleton.bone_order_names),
+                    )
+                    handle_info = state["ardy_spool"].create_stream(
+                        task_id=task_id,
+                        session_id=session_id,
+                        capacity_frames=capacity_frames,
+                        horizon_frames=int(profile.horizon_frames),
+                        fps=float(profile.source_fps),
+                        model_name=profile.model_name,
+                        joint_names=joint_names,
+                        joint_parents=joint_parents,
+                        motion_rep_fingerprint=profile.motion_rep_fingerprint,
+                        description=stream_context.prompt,
+                        serializer=lambda output, model=runtime["model"]: bridge_runtime_helpers._build_generate_flatbuffer_payload(
+                            model, output, sample_index=0
+                        ),
+                        cancel=lambda event=task["cancel_event"], sid=session_id: (
+                            event.set(),
+                            wake_session(sid),
+                        ),
+                        resume=lambda sid=session_id: wake_session(sid),
+                    )
+                    task["stream_context"] = stream_context
+                    task["stream_handle"] = handle_info["handle"]
+                    task["state"] = "streaming"
+                    task["response"] = attach_request_id(
+                        _attach_task_id(
+                            _attach_runtime_metadata(
+                                {
+                                    "status": "done",
+                                    "output_format": "kmb_handle_v1",
+                                    "byte_length": 0,
+                                    "clip_handle": handle_info["handle"],
+                                    "handle_info": handle_info,
+                                    "motion_rep_fingerprint": profile.motion_rep_fingerprint,
+                                    "resolved_seed": stream_context.resolved_seed,
+                                },
+                                runtime.get("text_encoder_decision"),
+                            ),
+                            task_id,
+                        ),
+                        task["request_id"],
+                    )
+                    task["response_sent"] = True
+                    task["event"].set()
+                    with queue_changed:
+                        if task["cancel_event"].is_set():
+                            finish_task_locked(session, task)
+                        else:
+                            mark_session_ready_locked(session)
+                        publish_state("idle")
+                    continue
+
+                if is_ardy_stream:
+                    if task["cancel_event"].is_set():
+                        with queue_changed:
+                            finish_task_locked(session, task)
+                            publish_state("idle")
+                        continue
+                    output = task["stream_context"].generate_horizon()
+                    if task["cancel_event"].is_set():
+                        with queue_changed:
+                            finish_task_locked(session, task)
+                            publish_state("idle")
+                        continue
+                    state["ardy_spool"].append_stream(task["stream_handle"], output)
+                    with queue_changed:
+                        state["last_activity"] = time.time()
+                        mark_session_ready_locked(session)
+                        publish_state("idle")
+                    continue
+
+                response, binary_payload = run_one_shot(task, runtime)
+                response = _attach_runtime_metadata(response, runtime.get("text_encoder_decision"))
             except bridge_runtime_helpers.GenerateCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
                 binary_payload = None
@@ -796,26 +1011,15 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 }
                 binary_payload = None
                 logger.log(f"[ERROR] Generate task {task_id} failed: {exc}")
-            finally:
-                with queue_changed:
-                    state["ardy_spool"].unpin(task.get("pinned_handles") or ())
-                    task["state"] = str(response.get("status") or "done")
-                    task["status_message"] = str(response.get("message") or "")
-                    task["response"] = _attach_task_id(
-                        _attach_runtime_metadata(response, state.get("text_encoder_decision")),
-                        task_id,
-                    )
-                    task["binary"] = binary_payload
-                    task["event"].set()
-                    state["tasks"].pop(task_id, None)
-                    state["active_task_id"] = ""
-                    state["active_cancel_event"] = None
-                    state["last_activity"] = time.time()
-                    publish_state("idle")
-                    queue_changed.notify_all()
+            with queue_changed:
+                finish_task_locked(session, task, response, binary_payload)
+                state["last_activity"] = time.time()
+                publish_state("idle")
+                queue_changed.notify_all()
 
     threading.Thread(target=lifecycle_monitor_loop, daemon=True).start()
-    threading.Thread(target=worker_loop, daemon=True).start()
+    worker_thread = threading.Thread(target=worker_loop, daemon=True)
+    worker_thread.start()
 
     def resolve_request_task_id(request: dict[str, Any]) -> str:
         raw_task_id = str(request.get("task_id") or request.get("id") or "").strip()
@@ -825,24 +1029,15 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         sequence = next(state["task_counter"])
         return f"{DEFAULT_TASK_ID_PREFIX}-{int(time.time() * 1000)}-{sequence}"
 
-    def select_cancel_target_locked() -> dict[str, Any] | None:
-        if state["queue"]:
-            return state["queue"][0]
-
-        active_task_id = str(state.get("active_task_id") or "")
-        if active_task_id:
-            return state["tasks"].get(active_task_id)
-
-        return None
-
-    def cancel_task(task_id: str) -> dict[str, Any]:
+    def cancel_task(session: dict[str, Any], task_id: str) -> dict[str, Any]:
         with queue_changed:
-            resolved_task = None
             normalized_task_id = str(task_id or "").strip()
             if normalized_task_id:
                 resolved_task = state["tasks"].get(normalized_task_id)
+                if resolved_task is not None and resolved_task["session_id"] != session["session_id"]:
+                    resolved_task = None
             else:
-                resolved_task = select_cancel_target_locked()
+                resolved_task = session.get("active") or (session["queue"][0] if session["queue"] else None)
 
             task = resolved_task
             if task is None:
@@ -850,27 +1045,26 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
 
             resolved_task_id = str(task["task_id"])
 
-            if state.get("active_task_id") == resolved_task_id:
+            if session.get("active") is task:
                 task["cancel_event"].set()
                 task["state"] = "cancelling"
                 task["status_message"] = f"Cancellation requested for '{resolved_task_id}'."
+                mark_session_ready_locked(session)
                 return _attach_task_id(
                     {"status": "cancelling", "message": task["status_message"]},
                     resolved_task_id)
 
             try:
-                state["queue"].remove(task)
+                session["queue"].remove(task)
             except ValueError:
                 pass
             task["state"] = "cancelled"
             task["status_message"] = f"Task '{resolved_task_id}' was removed from queue."
-            state["ardy_spool"].unpin(task.get("pinned_handles") or ())
-            task["response"] = _attach_task_id(
+            finish_task_locked(
+                session,
+                task,
                 {"status": "cancelled", "message": task["status_message"]},
-                resolved_task_id)
-            task["binary"] = None
-            task["event"].set()
-            state["tasks"].pop(resolved_task_id, None)
+            )
             return _attach_task_id(
                 {"status": "cancelled", "message": task["status_message"]},
                 resolved_task_id)
@@ -890,8 +1084,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     if state["shutdown"]:
                         break
                     current_state = str(state.get("server_state") or "")
-                    active_task_id = str(state.get("active_task_id") or "")
-                    queue_snapshot = list(state.get("queue") or [])
+                    session = state["sessions"].get(task["session_id"])
+                    active_task_id = str(((session or {}).get("active") or {}).get("task_id") or "")
+                    queue_snapshot = list((session or {}).get("queue") or [])
 
                 queue_index = -1
                 for index, queued_task in enumerate(queue_snapshot):
@@ -918,12 +1113,15 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     _write_protocol_message(
                         file,
                         writer_lock,
-                        _attach_task_id(
-                            {
-                                "status": stream_status,
-                                "message": stream_message,
-                            },
-                            task_id))
+                        attach_request_id(
+                            _attach_task_id(
+                                {
+                                    "status": stream_status,
+                                    "message": stream_message,
+                                },
+                                task_id),
+                            task["request_id"],
+                        ))
                     last_stream_status = stream_status
                     last_stream_message = stream_message
                     last_stream_time = now
@@ -937,78 +1135,211 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             return
 
     def client_worker(conn: socket.socket, addr: tuple[str, int]) -> None:
+        connection_id = f"connection:{next(state['connection_counter'])}"
+        bound_session_id = default_session_id
         with conn:
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             file = conn.makefile("rwb")
             writer_lock = threading.Lock()
-            while True:
-                try:
-                    line = file.readline()
-                except (ConnectionResetError, BrokenPipeError, OSError):
-                    return
-                if not line:
-                    return
-
-                try:
-                    request = json.loads(line.decode("utf-8").strip())
-                except Exception as exc:
-                    _write_protocol_message(file, writer_lock, {"status": "error", "message": f"Bad JSON: {exc}"})
-                    continue
-
-                touch_activity()
-                cmd = str(request.get("cmd", "") or "").strip().lower()
-
-                try:
-                    if cmd == "generate":
-                        task_id = resolve_request_task_id(request)
-                        request["task_id"] = task_id
-
-                        with queue_changed:
-                            active_config = _normalize_runtime_config(request, state.get("default_config") or {})
-                            state["default_config"] = dict(active_config)
-                            owner_pid = int(request.get("owner_pid") or 0)
-                            if owner_pid > 0:
-                                state["owner_pid"] = owner_pid
-                            if task_id in state["tasks"]:
-                                _write_protocol_message(
-                                    file,
-                                    writer_lock,
-                                    _attach_task_id(
-                                        {"status": "error", "message": f"Duplicate task_id '{task_id}'."},
-                                        task_id))
-                                continue
-
-                            pinned_handles = state["ardy_spool"].pin(
-                                ardy_backend.extract_handle_refs(request.get("constraints_json", ""))
-                            )
-                            task = {
-                                "task_id": task_id,
-                                "request": dict(request),
-                                "runtime_config": dict(active_config),
-                                "cancel_event": threading.Event(),
-                                "event": threading.Event(),
-                                "response": None,
-                                "binary": None,
-                                "state": "queued",
-                                "status_message": f"Task '{task_id}' waiting in queue.",
-                                "pinned_handles": pinned_handles,
-                            }
-                            state["tasks"][task_id] = task
-                            state["queue"].append(task)
-                            queue_changed.notify_all()
-
-                        threading.Thread(target=stream_task_to_client, args=(task, file, writer_lock), daemon=True).start()
-                    elif cmd == "cancel":
-                        task_id = str(request.get("task_id") or request.get("id") or "").strip()
-                        _write_protocol_message(file, writer_lock, cancel_task(task_id))
-                    elif cmd == "quit":
-                        _write_protocol_message(file, writer_lock, {"status": "bye"})
-                        request_shutdown("quit command")
+            try:
+                while True:
+                    try:
+                        line = file.readline()
+                    except (ConnectionResetError, BrokenPipeError, OSError):
                         return
-                    else:
-                        _write_protocol_message(file, writer_lock, {"status": "error", "message": f"Unknown cmd: {cmd!r}"})
-                except Exception as exc:
-                    logger.log(f"[ERROR] Command '{cmd}' failed: {exc}")
-                    _write_protocol_message(file, writer_lock, {"status": "error", "message": str(exc)})
+                    if not line:
+                        return
+
+                    try:
+                        request = json.loads(line.decode("utf-8").strip())
+                    except Exception as exc:
+                        _write_protocol_message(file, writer_lock, {"status": "error", "message": f"Bad JSON: {exc}"})
+                        continue
+
+                    touch_activity()
+                    cmd = str(request.get("cmd", "") or "").strip().lower()
+                    request_id = str(request.get("request_id") or "").strip()
+
+                    def reply(payload: dict[str, Any], binary_payload: bytes | None = None) -> None:
+                        _write_protocol_message(
+                            file,
+                            writer_lock,
+                            attach_request_id(payload, request_id),
+                            binary_payload,
+                        )
+
+                    try:
+                        with state_lock:
+                            session = state["sessions"].get(bound_session_id)
+                        if session is None:
+                            raise ValueError("The TCP Session is closed.")
+
+                        if cmd == "session.open":
+                            if bound_session_id != default_session_id:
+                                reply({"status": "done", "session_id": bound_session_id})
+                                continue
+                            session_id = f"session:{next(state['session_counter'])}-{secrets.token_urlsafe(12)}"
+                            with queue_changed:
+                                state["sessions"][session_id] = new_session(
+                                    session_id,
+                                    explicit=True,
+                                    connection_id=connection_id,
+                                )
+                            bound_session_id = session_id
+                            reply({"status": "done", "session_id": session_id})
+                        elif cmd == "session.close":
+                            if bound_session_id == default_session_id:
+                                reply({"status": "done", "session_id": default_session_id, "server_closing": True})
+                                request_shutdown("default session closed")
+                            else:
+                                with queue_changed:
+                                    close_session_locked(session, "Session closed.")
+                                reply({"status": "done", "session_id": bound_session_id})
+                            return
+                        elif cmd == "animation.upload":
+                            upload_started = time.monotonic()
+                            conn.settimeout(3.0)
+                            if str(request.get("format") or "") != "flatbuf_motion_v1":
+                                raise animation_handles.AnimationHandleError(
+                                    "animation.upload requires format='flatbuf_motion_v1'."
+                                )
+                            byte_length = int(request.get("byte_length") or 0)
+                            if byte_length <= 0 or byte_length > animation_handles.MAX_KMB_BYTES:
+                                raise animation_handles.AnimationHandleError(
+                                    f"animation.upload byte_length must be in [1, {animation_handles.MAX_KMB_BYTES}]."
+                                )
+                            payload = _read_exact(file, byte_length)
+                            conn.settimeout(None)
+                            if payload is None or len(payload) != byte_length:
+                                raise animation_handles.AnimationHandleError(
+                                    f"animation.upload ended after {len(payload or b'')} of {byte_length} bytes."
+                                )
+                            info = state["ardy_spool"].publish(
+                                payload,
+                                description=str(request.get("description") or ""),
+                                motion_rep_fingerprint=str(request.get("motion_rep_fingerprint") or ""),
+                            )
+                            if time.monotonic() - upload_started > 3.0:
+                                state["ardy_spool"].release(info["handle"])
+                                raise animation_handles.AnimationHandleError("animation.upload exceeded the 3 second limit.")
+                            reply({"status": "done", "output_format": "kmb_handle_v1", "handle_info": info})
+                        elif cmd == "animation.info":
+                            info = state["ardy_spool"].info(str(request.get("handle") or ""))
+                            if info.get("is_stream") and info.get("session_id") != bound_session_id:
+                                raise animation_handles.AnimationHandleNotFoundError("Animation stream belongs to another Session.")
+                            reply({"status": "done", "handle_info": info})
+                        elif cmd == "animation.download":
+                            handle = str(request.get("handle") or "")
+                            info = state["ardy_spool"].info(handle)
+                            if info.get("is_stream") and info.get("session_id") != bound_session_id:
+                                raise animation_handles.AnimationHandleNotFoundError("Animation stream belongs to another Session.")
+                            payload, info = state["ardy_spool"].download(handle)
+                            reply(
+                                {
+                                    "status": "done",
+                                    "output_format": "flatbuf_motion_v1",
+                                    "byte_length": len(payload),
+                                    "handle_info": info,
+                                },
+                                payload,
+                            )
+                        elif cmd == "animation.release":
+                            handle = str(request.get("handle") or "")
+                            info = state["ardy_spool"].info(handle)
+                            if info.get("is_stream") and info.get("session_id") != bound_session_id:
+                                raise animation_handles.AnimationHandleNotFoundError("Animation stream belongs to another Session.")
+                            expected_instance = str(request.get("server_instance_id") or "")
+                            if expected_instance and expected_instance != state["ardy_spool"].server_instance_id:
+                                raise animation_handles.AnimationHandleNotFoundError(
+                                    "Animation handle belongs to a different QuickServer instance."
+                                )
+                            released = state["ardy_spool"].release(handle)
+                            reply({"status": "done", "released": released, "handle": handle})
+                        elif cmd == "generate":
+                            task_id = resolve_request_task_id(request)
+                            request["task_id"] = task_id
+
+                            with queue_changed:
+                                if len(session["queue"]) + (1 if session.get("active") is not None else 0) >= session_queue_limit:
+                                    reply({
+                                        "status": "error",
+                                        "error_code": "session_queue_full",
+                                        "message": f"Session Generate queue limit is {session_queue_limit}.",
+                                    })
+                                    continue
+                                active_config = _normalize_runtime_config(request, session["default_config"])
+                                session["default_config"] = dict(active_config)
+                                owner_pid = int(request.get("owner_pid") or 0)
+                                if owner_pid > 0:
+                                    state["owner_pid"] = owner_pid
+                                if task_id in state["tasks"]:
+                                    reply(
+                                        _attach_task_id(
+                                            {"status": "error", "message": f"Duplicate task_id '{task_id}'."},
+                                            task_id))
+                                    continue
+
+                                pinned_handles = state["ardy_spool"].pin(
+                                    ardy_backend.extract_handle_refs(request.get("constraints_json", ""))
+                                )
+                                task = {
+                                    "task_id": task_id,
+                                    "session_id": bound_session_id,
+                                    "connection_id": connection_id,
+                                    "request_id": request_id,
+                                    "request": dict(request),
+                                    "runtime_config": dict(active_config),
+                                    "cancel_event": threading.Event(),
+                                    "event": threading.Event(),
+                                    "response": None,
+                                    "binary": None,
+                                    "state": "queued",
+                                    "status_message": f"Task '{task_id}' waiting in queue.",
+                                    "pinned_handles": pinned_handles,
+                                    "response_sent": False,
+                                    "stream_context": None,
+                                    "stream_handle": "",
+                                }
+                                state["tasks"][task_id] = task
+                                session["queue"].append(task)
+                                mark_session_ready_locked(session)
+
+                            threading.Thread(target=stream_task_to_client, args=(task, file, writer_lock), daemon=True).start()
+                        elif cmd == "cancel":
+                            task_id = str(request.get("task_id") or request.get("id") or "").strip()
+                            reply(cancel_task(session, task_id))
+                        elif cmd == "quit":
+                            reply({"status": "done", "session_id": default_session_id, "server_closing": True})
+                            request_shutdown("legacy quit command")
+                            return
+                        else:
+                            reply({"status": "error", "message": f"Unknown cmd: {cmd!r}"})
+                    except animation_handles.AnimationHandleError as exc:
+                        conn.settimeout(None)
+                        logger.log(f"[ERROR] Command '{cmd}' failed: {exc}")
+                        reply({"status": "error", "error_code": exc.code, "message": str(exc)})
+                    except Exception as exc:
+                        conn.settimeout(None)
+                        logger.log(f"[ERROR] Command '{cmd}' failed: {exc}")
+                        reply({"status": "error", "message": str(exc)})
+            finally:
+                with queue_changed:
+                    session = state["sessions"].get(bound_session_id)
+                    if session is not None and session["explicit"]:
+                        close_session_locked(session, "TCP connection closed.")
+                    elif session is not None:
+                        for task in list(session["queue"]):
+                            if task["connection_id"] == connection_id:
+                                session["queue"].remove(task)
+                                finish_task_locked(
+                                    session,
+                                    task,
+                                    {"status": "cancelled", "message": "Submitting TCP connection closed."},
+                                )
+                        active = session.get("active")
+                        if active is not None and active["connection_id"] == connection_id:
+                            active["cancel_event"].set()
+                            mark_session_ready_locked(session)
 
     try:
         publish_state("boot")
@@ -1025,9 +1356,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 raise
             threading.Thread(target=client_worker, args=(conn, addr), daemon=True).start()
     finally:
+        worker_thread.join()
         with runtime_gate:
-            with state_lock:
-                _unload_runtime_model(state, logger)
+            for runtime in list(state["runtimes"].values()):
+                _unload_runtime_model(runtime, logger)
+            state["runtimes"].clear()
         _remove_file(serverport_path)
         try:
             server.close()

@@ -22,9 +22,10 @@ namespace KimodoBridge
         public string ClipHandle { get; set; }
         public string MotionRepFingerprint { get; set; }
         public int? ResolvedSeed { get; set; }
+        public AnimationHandleOperator HandleOperator { get; set; }
     }
 
-    public sealed class KimodoBridgeService
+    public sealed class KimodoBridgeService : IDisposable
     {
         private sealed class ActiveLogPump
         {
@@ -38,15 +39,21 @@ namespace KimodoBridge
             public string LauncherPath = string.Empty;
         }
 
+        private static readonly object RegistryLock = new object();
+        private static readonly HashSet<KimodoBridgeService> Registry = new HashSet<KimodoBridgeService>();
+        private static readonly Lazy<BridgeProcessManager> GlobalProcessManager =
+            new Lazy<BridgeProcessManager>(
+                () => new BridgeProcessManager(CreatePlatformProcess()),
+                LazyThreadSafetyMode.ExecutionAndPublication);
         private static readonly Lazy<KimodoBridgeService> SharedInstance =
-            new Lazy<KimodoBridgeService>(() => new KimodoBridgeService(), LazyThreadSafetyMode.ExecutionAndPublication);
+            new Lazy<KimodoBridgeService>(() => new KimodoBridgeService(true), LazyThreadSafetyMode.ExecutionAndPublication);
 
         private readonly BridgeProtocolClient protocolClient;
         private readonly BridgeProcessManager processManager;
         private readonly SemaphoreSlim lifecycleGate = new SemaphoreSlim(1, 1);
-        private readonly SemaphoreSlim generationGate = new SemaphoreSlim(1, 1);
         private readonly SynchronizationContext creationContext;
         private readonly List<ActiveLogPump> logPumps = new List<ActiveLogPump>(4);
+        private readonly bool isDefaultSession;
 
         private string currentHost = DefaultHost;
         private int currentPort = -1;
@@ -55,19 +62,34 @@ namespace KimodoBridge
         private string textEncoderStatusMessage = string.Empty;
         private int sessionVersion;
         private int stopRequested;
+        private int disposeStarted;
+        private bool explicitSessionOpened;
+        private string protocolSessionId = "session:default";
 
         private const string DefaultHost = "127.0.0.1";
 
-        private KimodoBridgeService()
+        private KimodoBridgeService(bool isDefaultSession)
         {
+            this.isDefaultSession = isDefaultSession;
             protocolClient = new BridgeProtocolClient();
-            processManager = new BridgeProcessManager(CreatePlatformProcess());
+            processManager = GlobalProcessManager.Value;
             creationContext = SynchronizationContext.Current;
+            lock (RegistryLock)
+            {
+                Registry.Add(this);
+            }
         }
 
         public static KimodoBridgeService Shared => SharedInstance.Value;
 
+        public static KimodoBridgeService CreateOwned()
+        {
+            return new KimodoBridgeService(false);
+        }
+
         public bool IsConnected => protocolClient.IsConnected;
+        public bool IsDefaultSession => isDefaultSession;
+        public bool IsDisposed => Volatile.Read(ref disposeStarted) != 0;
         public string TextEncoderStatusMessage => Volatile.Read(ref textEncoderStatusMessage) ?? string.Empty;
 
         public Task<KimodoBridgeGenerationResult> GenerateAsync(
@@ -111,7 +133,6 @@ namespace KimodoBridge
 
             ThrowIfStopRequested();
             int requestSessionVersion = Volatile.Read(ref sessionVersion);
-            await generationGate.WaitAsync(token).ConfigureAwait(false);
             string taskId = string.Empty;
             try
             {
@@ -189,19 +210,78 @@ namespace KimodoBridge
                     {
                         throw new Exception($"Failed to parse bridge FlatBuffer motion: {parseError}");
                     }
-
-                    ReportProgress(progress, "Bridge generation complete.");
-                    return new KimodoBridgeGenerationResult
+                    AnimationHandleOperator handleOperator = null;
+                    try
                     {
-                        MotionData = motionData,
-                        MotionBytes = payload,
-                        MotionFormat = outputFormat,
-                        RawStatus = status,
-                        Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage,
-                        ClipHandle = header?.Value<string>("clip_handle") ?? string.Empty,
-                        MotionRepFingerprint = header?.Value<string>("motion_rep_fingerprint") ?? string.Empty,
-                        ResolvedSeed = header?.Value<int?>("resolved_seed")
-                    };
+                        if (header?["handle_info"] is JObject handleInfoJson)
+                        {
+                            handleOperator = new AnimationHandleOperator(this, AnimationHandleInfo.FromJson(handleInfoJson));
+                        }
+                        ReportProgress(progress, "Bridge generation complete.");
+                        return new KimodoBridgeGenerationResult
+                        {
+                            MotionData = motionData,
+                            MotionBytes = payload,
+                            MotionFormat = outputFormat,
+                            RawStatus = status,
+                            Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage,
+                            ClipHandle = handleOperator?.Info.Handle ?? header?.Value<string>("clip_handle") ?? string.Empty,
+                            MotionRepFingerprint = header?.Value<string>("motion_rep_fingerprint") ?? string.Empty,
+                            ResolvedSeed = header?.Value<int?>("resolved_seed"),
+                            HandleOperator = handleOperator
+                        };
+                    }
+                    catch
+                    {
+                        handleOperator?.Dispose();
+                        throw;
+                    }
+                }
+
+                if (string.Equals(outputFormat, "kmb_handle_v1", StringComparison.OrdinalIgnoreCase))
+                {
+                    AnimationHandleInfo handleInfo = AnimationHandleInfo.FromJson(header?["handle_info"] as JObject);
+                    var handleOperator = new AnimationHandleOperator(this, handleInfo);
+                    if (handleInfo.IsStream)
+                    {
+                        ReportProgress(progress, "Bridge stream created.");
+                        return new KimodoBridgeGenerationResult
+                        {
+                            MotionFormat = outputFormat,
+                            RawStatus = status,
+                            Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge stream created." : responseMessage,
+                            ClipHandle = handleInfo.Handle,
+                            MotionRepFingerprint = header?.Value<string>("motion_rep_fingerprint") ?? handleInfo.MotionRepFingerprint,
+                            ResolvedSeed = header?.Value<int?>("resolved_seed"),
+                            HandleOperator = handleOperator
+                        };
+                    }
+                    try
+                    {
+                        byte[] payload = await handleOperator.DownloadAsync(token).ConfigureAwait(false);
+                        if (!KimodoRawMotionUtility.TryParseFlatBuffer(payload, out KimodoRawMotionData motionData, out string parseError))
+                        {
+                            throw new Exception($"Failed to parse downloaded bridge KMB: {parseError}");
+                        }
+                        ReportProgress(progress, "Bridge generation complete.");
+                        return new KimodoBridgeGenerationResult
+                        {
+                            MotionData = motionData,
+                            MotionBytes = payload,
+                            MotionFormat = outputFormat,
+                            RawStatus = status,
+                            Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage,
+                            ClipHandle = handleInfo.Handle,
+                            MotionRepFingerprint = header?.Value<string>("motion_rep_fingerprint") ?? handleInfo.MotionRepFingerprint,
+                            ResolvedSeed = header?.Value<int?>("resolved_seed"),
+                            HandleOperator = handleOperator
+                        };
+                    }
+                    catch
+                    {
+                        handleOperator.Dispose();
+                        throw;
+                    }
                 }
 
                 if (string.IsNullOrWhiteSpace(motionJson))
@@ -225,13 +305,93 @@ namespace KimodoBridge
                     Interlocked.CompareExchange(ref activeTaskId, string.Empty, taskId);
                 }
 
-                generationGate.Release();
             }
         }
 
         public Task CancelActiveAsync(CancellationToken token = default)
         {
-            return CancelTaskAsync(Volatile.Read(ref activeTaskId), token);
+            return CancelTaskAsync(string.Empty, token);
+        }
+
+        public async Task<AnimationHandleOperator> UploadAnimationAsync(
+            byte[] kmbPayload,
+            string description = "",
+            string motionRepFingerprint = "",
+            CancellationToken token = default)
+        {
+            await EnsureConnectedAsync(null, token).ConfigureAwait(false);
+            BridgeProtocolResponse response = await protocolClient.UploadAnimationAsync(
+                currentHost,
+                currentPort,
+                kmbPayload,
+                description,
+                motionRepFingerprint,
+                token).ConfigureAwait(false);
+            return new AnimationHandleOperator(
+                this,
+                AnimationHandleInfo.FromJson(response?.Header?["handle_info"] as JObject));
+        }
+
+        public async Task<AnimationHandleInfo> GetAnimationInfoAsync(
+            string handle,
+            CancellationToken token = default)
+        {
+            await EnsureConnectedAsync(null, token).ConfigureAwait(false);
+            BridgeProtocolResponse response = await protocolClient.GetAnimationInfoAsync(
+                currentHost,
+                currentPort,
+                handle,
+                token).ConfigureAwait(false);
+            return AnimationHandleInfo.FromJson(response?.Header?["handle_info"] as JObject);
+        }
+
+        internal async Task<byte[]> DownloadAnimationAsync(
+            string handle,
+            string expectedServerInstanceId,
+            CancellationToken token)
+        {
+            await EnsureConnectedAsync(null, token).ConfigureAwait(false);
+            BridgeProtocolResponse response = await protocolClient.DownloadAnimationAsync(
+                currentHost,
+                currentPort,
+                handle,
+                token).ConfigureAwait(false);
+            AnimationHandleInfo info = AnimationHandleInfo.FromJson(response?.Header?["handle_info"] as JObject);
+            ValidateServerInstance(expectedServerInstanceId, info.ServerInstanceId);
+            return response.BinaryPayload ?? Array.Empty<byte>();
+        }
+
+        internal bool QueueReleaseAnimation(
+            string handle,
+            string expectedServerInstanceId)
+        {
+            if (!TryResolveCurrentEndpoint(out string host, out int port))
+            {
+                return false;
+            }
+            return protocolClient.QueueReleaseAnimation(
+                currentHost,
+                currentPort,
+                handle,
+                expectedServerInstanceId);
+        }
+
+        internal bool QueueCancelTask(string taskId)
+        {
+            if (!TryResolveCurrentEndpoint(out string host, out int port) || !protocolClient.IsConnected)
+            {
+                return false;
+            }
+            _ = protocolClient.TryCancelGenerateAsync(host, port, taskId, CancellationToken.None);
+            return true;
+        }
+
+        private static void ValidateServerInstance(string expected, string actual)
+        {
+            if (!string.IsNullOrWhiteSpace(expected) && !string.Equals(expected, actual, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Animation handle belongs to a different QuickServer instance.");
+            }
         }
 
         public async Task StopAsync(CancellationToken token = default)
@@ -241,18 +401,27 @@ namespace KimodoBridge
             {
                 Volatile.Write(ref stopRequested, 1);
                 Interlocked.Increment(ref sessionVersion);
-                await CancelTaskAsync(Volatile.Read(ref activeTaskId), token).ConfigureAwait(false);
-                await WaitForGenerationIdleAsync(token).ConfigureAwait(false);
 
-                if (TryResolveCurrentEndpoint(out string host, out int port))
+                if (TryResolveCurrentEndpoint(out string host, out int port) && protocolClient.IsConnected)
                 {
-                    await protocolClient.TrySendQuitAsync(host, port, token).ConfigureAwait(false);
+                    try
+                    {
+                        await protocolClient.CloseSessionAsync(host, port, token).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Disconnect cleanup is the fallback for a lost server.
+                    }
                 }
 
                 await protocolClient.DetachAsync().ConfigureAwait(false);
-                await StopLogPumpsAsync(token).ConfigureAwait(false);
-                processManager.DetachProcess();
-                DeleteServerPortFile();
+                if (isDefaultSession)
+                {
+                    await DetachOwnedConnectionsAsync().ConfigureAwait(false);
+                    await StopLogPumpsAsync(token).ConfigureAwait(false);
+                    processManager.DetachProcess();
+                    DeleteServerPortFile();
+                }
                 ResetConnectionState();
             }
             finally
@@ -267,7 +436,7 @@ namespace KimodoBridge
             await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                if (IsConnected && currentPort > 0)
+                if (IsConnected && currentPort > 0 && (isDefaultSession || explicitSessionOpened))
                 {
                     return;
                 }
@@ -282,6 +451,7 @@ namespace KimodoBridge
                         await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
                         currentHost = host;
                         currentPort = port;
+                        await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
                         StartLogPumpsIfNeeded();
                         ReportProgress(progress, $"Bridge attached to {host}:{port}.");
                         return;
@@ -324,6 +494,7 @@ namespace KimodoBridge
                 await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
                 currentHost = host;
                 currentPort = port;
+                await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
                 ReportProgress(progress, $"Bridge attached to {host}:{port}.");
             }
             finally
@@ -332,10 +503,18 @@ namespace KimodoBridge
             }
         }
 
-        private async Task WaitForGenerationIdleAsync(CancellationToken token)
+        private async Task EnsureProtocolSessionAsync(string host, int port, CancellationToken token)
         {
-            await generationGate.WaitAsync(token).ConfigureAwait(false);
-            generationGate.Release();
+            if (isDefaultSession || explicitSessionOpened)
+            {
+                return;
+            }
+            protocolSessionId = await protocolClient.OpenSessionAsync(host, port, token).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(protocolSessionId))
+            {
+                throw new InvalidOperationException("QuickServer did not return an explicit Session id.");
+            }
+            explicitSessionOpened = true;
         }
 
         private async Task<BridgeProtocolResponse> AwaitGenerateCompletionAsync(
@@ -374,11 +553,6 @@ namespace KimodoBridge
 
         private async Task CancelTaskAsync(string taskId, CancellationToken token)
         {
-            if (string.IsNullOrWhiteSpace(taskId))
-            {
-                return;
-            }
-
             if (!TryResolveCurrentEndpoint(out string host, out int port))
             {
                 return;
@@ -439,6 +613,8 @@ namespace KimodoBridge
             currentHost = DefaultHost;
             currentPort = -1;
             currentRuntimeRoot = string.Empty;
+            explicitSessionOpened = false;
+            protocolSessionId = isDefaultSession ? "session:default" : string.Empty;
             Interlocked.Exchange(ref activeTaskId, string.Empty);
         }
 
@@ -476,6 +652,10 @@ namespace KimodoBridge
 
         private void StartLogPumpsIfNeeded()
         {
+            if (!isDefaultSession)
+            {
+                return;
+            }
             if (string.IsNullOrWhiteSpace(currentRuntimeRoot))
             {
                 return;
@@ -614,9 +794,71 @@ namespace KimodoBridge
 
         private void ThrowIfStopRequested()
         {
+            if (IsDisposed)
+            {
+                throw new ObjectDisposedException(nameof(KimodoBridgeService));
+            }
             if (Volatile.Read(ref stopRequested) != 0)
             {
                 throw new OperationCanceledException("Bridge is stopping.");
+            }
+        }
+
+        private static async Task DetachOwnedConnectionsAsync()
+        {
+            KimodoBridgeService[] snapshot;
+            lock (RegistryLock)
+            {
+                snapshot = new List<KimodoBridgeService>(Registry).FindAll(item => !item.isDefaultSession).ToArray();
+            }
+            for (int i = 0; i < snapshot.Length; i++)
+            {
+                try
+                {
+                    await snapshot[i].protocolClient.DetachAsync().ConfigureAwait(false);
+                    snapshot[i].ResetConnectionState();
+                }
+                catch
+                {
+                    // The server is already closing; disconnect cleanup is sufficient.
+                }
+            }
+        }
+
+        public async Task DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref disposeStarted, 1) != 0)
+            {
+                return;
+            }
+            try
+            {
+                if (!isDefaultSession)
+                {
+                    await StopAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await protocolClient.DisposeAsync().ConfigureAwait(false);
+                lifecycleGate.Dispose();
+                lock (RegistryLock)
+                {
+                    Registry.Remove(this);
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposeStarted, 1) != 0)
+            {
+                return;
+            }
+            protocolClient.Dispose();
+            lock (RegistryLock)
+            {
+                Registry.Remove(this);
             }
         }
 

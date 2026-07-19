@@ -7,7 +7,7 @@
 ## 功能介绍
 - 使用 `uv` 构建运行环境。
 - 启动 QuickServer TCP supervisor，并在其内部排队执行 bridge 生成任务。
-- 复用同一条 TCP 连接处理 `generate / cancel / quit`。
+- 复用同一条 TCP 连接处理 Session、Generate、Cancel 和动画 Handle 命令。
 - 返回按任务 id 归属的 `queued / loading / progress / cancelling / cancelled / done / error` 状态。
 
 ## 环境要求
@@ -67,8 +67,26 @@ set KIMODO_BRIDGE_BVH_STANDARD_TPOSE=1
 - 开启后响应中将返回 `motion_bvh`，不再返回 `motion_json_compact`。这个模式适合直接接 QuickServer TCP 协议的外部客户端，不适用于当前 Unity 客户端链路。
 
 TCP 协议补充：
+- 所有请求都可携带 `request_id`，该请求的全部响应会原样回传，用于在一条持久 TCP 上安全复用命令。
+- `session.open` 会为当前 TCP 创建并绑定显式 Session；未调用时使用 `session:default`。
+- 每个 Session 维护上限为 32 的 Generate FIFO。Kimodo 单次任务原子执行；持久 ARDY 流每轮公平调度一个完整 Horizon。
+- `session.close` 只关闭显式 Session；关闭 `session:default` 会关闭 QuickServer。旧 `quit` 保持相同的全局关闭效果。
 - `generate` 使用 `text_encoder_mode`，不再接受 `highvram` 或 `force_cpu`；Force CPU UI 会发送 `simulate_vram_gb=0`。
 - `generate` 的 `task_id` 现在是可选的；如果调用方不传，QuickServer 会在入队前自动补一个稳定任务标识。
+
+## 动画 Handle
+
+QuickServer 会把上传或生成的 KMB 动画保存在进程内、受容量限制的资源库中。存在二进制请求体时，协议为一行 JSON，随后紧跟 `byte_length` 个原始字节。
+
+- `animation.upload`：发送 `format=flatbuf_motion_v1`、`byte_length`、可选 `description`，然后发送 KMB；返回 `handle_info`。
+- `animation.info`：发送 `handle`；返回 `handle_info`。
+- `animation.download`：发送 `handle`；返回 JSON 头和后续 KMB 字节。
+- `animation.release`：发送 `handle`；无任务引用时立即释放，否则在任务解除 pin 后释放。
+- `generate` 使用 `output_format=kmb_handle_v1` 时只返回 `handle_info`，不内联 KMB；`flatbuf_motion_v1` 保留为旧的二进制直返模式。
+
+`animation.upload` 的端到端上限为 3 秒。静态 Handle 在同一服务器实例内全局可见、不可变、可重复下载，并使用基于容量的 LRU 兜底。ARDY 的 `kmb_handle_v1` 是 Session 绑定的流式 Handle，内部使用两个固定缓冲区：Generate 无需等待首个 Horizon 即返回 Handle；下载会交换缓冲并破坏性消费当前有效帧；Cancel 关闭整个流，正在计算的完整 Horizon 会运行完毕但结果被丢弃。缓冲容量按 `duration × FPS` 向上补齐到 Horizon 整数倍。
+
+QuickServer 重启后 Handle 失效；基于容量的 LRU 只负责清理未显式释放的资源，Handle 不会因存放时间过长而过期。生产 clip constraint 使用 `format=kmb_handle_v1`，`ardy_file_v1` 仅在显式测试开关下可用。
 - 一旦任务标识确定，该任务后续所有响应都会带同一个 `task_id`。
 - 任务会先后经历 `queued`、`loading`、`progress`、`cancelling` 等中间态，并最终落到 `done`、`error` 或 `cancelled`。
 - `cancel` 同样支持可选 `task_id`；若未传，则取消当前队列中第一个可取消任务，并在响应里回传实际命中的任务标识。

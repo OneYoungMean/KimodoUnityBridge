@@ -7,7 +7,7 @@
 ## Features
 - Build runtime environment with `uv` pipeline.
 - Start the QuickServer TCP supervisor and let it queue bridge generate tasks.
-- Reuse a single TCP connection for `generate / cancel / quit` commands.
+- Reuse a single TCP connection for Session, Generate, Cancel, and animation Handle commands.
 - Return task-scoped `queued / loading / progress / cancelling / cancelled / done / error` messages.
 
 ## Requirements
@@ -58,11 +58,29 @@ example\example_run_server_tpose_console_live.bat
 ```
 
 ## TCP protocol notes
+- Every request may carry `request_id`; every response for that request echoes it, so one persistent TCP connection can multiplex commands safely.
+- `session.open` binds the current TCP connection to a new explicit Session. Without it, commands use `session:default`.
+- Every Session owns a FIFO Generate queue with a limit of 32. Kimodo runs atomically; persistent ARDY streams advance one complete Horizon per fair scheduler turn.
+- `session.close` closes only an explicit Session. Closing `session:default` shuts down QuickServer. Legacy `quit` has the same server-wide effect.
 - `generate` uses `text_encoder_mode`; `highvram` and `force_cpu` are removed. The Force CPU UI sends `simulate_vram_gb=0`.
 - `generate` accepts optional `task_id`. If omitted, QuickServer assigns a stable task id before queueing.
 - Once a task id is assigned, every response for that task carries the same `task_id`.
 - A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.
 - `cancel` accepts an optional `task_id`. If omitted, QuickServer cancels the first cancellable queued task and returns the resolved task id.
+
+## Animation handles
+
+QuickServer keeps uploaded/generated KMB animations in a process-local, quota-limited store. Requests use a JSON line followed by `byte_length` raw bytes when a binary body is present.
+
+- `animation.upload`: send `format=flatbuf_motion_v1`, `byte_length`, optional `description`, then KMB bytes; returns `handle_info`.
+- `animation.info`: send `handle`; returns `handle_info`.
+- `animation.download`: send `handle`; returns a JSON header followed by KMB bytes.
+- `animation.release`: send `handle`; releases immediately or after an active task unpins it.
+- `generate` with `output_format=kmb_handle_v1` returns `handle_info` without inline KMB bytes. `flatbuf_motion_v1` remains the legacy inline-binary mode.
+
+`animation.upload` has a three-second end-to-end limit. Static Handles are server-instance-global, immutable, repeat-downloadable, and use capacity-based LRU fallback. ARDY `kmb_handle_v1` results are Session-bound streams backed by two fixed buffers: Generate returns the Handle before the first Horizon is ready, download destructively swaps and returns the currently valid frames, and Cancel closes the whole stream after any in-flight Horizon finishes. Buffer capacity is `duration × FPS` rounded up to a Horizon multiple.
+
+Handles expire when QuickServer restarts. Capacity-based LRU cleanup is a fallback for clients that fail to release; handles do not expire by age. Production clip constraints use `format=kmb_handle_v1`; `ardy_file_v1` is available only behind the explicit test-file flag.
 - FlatBuffer responses still use `byte_length` followed immediately by the binary payload for that same task.
 
 ## Parameters

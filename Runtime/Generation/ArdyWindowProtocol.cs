@@ -139,48 +139,10 @@ namespace KimodoBridge
                     output.Add(new JObject
                     {
                         ["type"] = "clip",
-                        ["format"] = "ardy_handle_v1",
+                        ["format"] = "kmb_handle_v1",
                         ["handle"] = handle.Trim(),
                         ["start_frame"] = 0,
                         ["end_frame_exclusive"] = horizonFrames
-                    });
-                }
-            }
-
-            AppendJson(output, futureConstraintsJson);
-            return output.Count > 0 ? output.ToString(Formatting.None) : string.Empty;
-        }
-
-        internal static string MergeFiles(IReadOnlyList<string> paths, string futureConstraintsJson)
-        {
-            var output = new JArray();
-            if (paths != null)
-            {
-                for (int i = 0; i < paths.Count; i++)
-                {
-                    string path = paths[i];
-                    if (string.IsNullOrWhiteSpace(path))
-                    {
-                        continue;
-                    }
-
-                    string fullPath = Path.GetFullPath(path.Trim());
-                    if (!KimodoRawMotionUtility.TryParseFlatBuffer(
-                            File.ReadAllBytes(fullPath),
-                            out KimodoRawMotionData motion,
-                            out string error))
-                    {
-                        throw new InvalidOperationException($"Invalid ARDY file history '{fullPath}': {error}");
-                    }
-
-                    output.Add(new JObject
-                    {
-                        ["type"] = "clip",
-                        ["format"] = "ardy_file_v1",
-                        ["path"] = fullPath,
-                        ["start_frame"] = 0,
-                        ["end_frame_exclusive"] = motion.FrameCount,
-                        ["duration_seconds"] = motion.DurationSeconds
                     });
                 }
             }

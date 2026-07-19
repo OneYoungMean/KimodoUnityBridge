@@ -13,6 +13,7 @@ import numpy as np
 import torch
 
 from kimodo.bridge import ardy_backend
+from kimodo.bridge import animation_handles
 from kimodo.bridge import bridge_server
 from kimodo.bridge import quickserver_assets
 from kimodo.bridge import quickserver_setup
@@ -41,6 +42,60 @@ class _ContactMotionRep:
         return features
 
 
+class _StreamingMotionRep:
+    def __init__(self):
+        self.skeleton = SimpleNamespace(
+            bone_order_names=["Root", "Spine"],
+            joint_parents=torch.tensor([-1, 0]),
+        )
+
+    def inverse(self, motion, *, is_normalized):
+        assert is_normalized
+        frames = int(motion.shape[1])
+        posed = torch.zeros(1, frames, 2, 3)
+        posed[0, :, 0, 0] = motion[0, :, 0]
+        rotations = torch.eye(3).reshape(1, 1, 1, 3, 3).expand(1, frames, 2, 3, 3).clone()
+        return {
+            "posed_joints": posed,
+            "root_positions": posed[:, :, 0],
+            "local_rot_mats": rotations,
+            "foot_contacts": torch.zeros(1, frames, 4),
+        }
+
+
+class _StreamingModel:
+    def __init__(self):
+        self.device = torch.device("cpu")
+        self.motion_rep = _StreamingMotionRep()
+        self.skeleton = self.motion_rep.skeleton
+        self.name = "ardy-stream-test"
+        self.fps = 20.0
+        self.requested_frames = []
+
+    def autoregressive_step(self, *, num_frames, init_history_sequence, cancel_callback, **_kwargs):
+        assert cancel_callback is None
+        self.requested_frames.append(int(num_frames))
+        result = torch.zeros(1, int(num_frames), 3)
+        result[0, :, 0] = torch.arange(int(num_frames))
+        if init_history_sequence is not None:
+            result[:, : init_history_sequence.shape[1]] = init_history_sequence
+        return result
+
+
+def _stream_profile():
+    return SimpleNamespace(
+        model_name="ardy-stream-test",
+        source_fps=20.0,
+        motion_rep_fingerprint="stream-rep-v1",
+        frames_per_token=2,
+        horizon_frames=4,
+        max_context_frames=12,
+        max_diffusion_steps=10,
+        cfg_constraint_weight=2.0,
+        postprocess=False,
+    )
+
+
 def _payload(model, root_x: float, foot_contacts=None) -> bytes:
     frames = 4
     joints = len(model.skeleton.bone_order_names)
@@ -54,6 +109,131 @@ def _payload(model, root_x: float, foot_contacts=None) -> bytes:
 
 
 class ArdyBackendSelfCheck(unittest.TestCase):
+    def test_ardy_generate_returns_kmb(self):
+        model = _StreamingModel()
+        response, payload = ardy_backend.execute_generate(
+            {
+                "prompt": "T pose",
+                "duration": 0.25,
+                "output_format": "flatbuf_motion_v1",
+                "diffusion_steps": 1,
+                "seed": 7,
+            },
+            model,
+            _stream_profile(),
+            threading.Event(),
+            animation_handles.AnimationHandleStore(byte_quota=1024 * 1024),
+            Path(__file__).parent,
+        )
+        motion = ardy_backend.parse_kmb1(payload)
+        self.assertEqual(response["status"], "done")
+        self.assertEqual((motion.num_frames, motion.model_name), (4, "ardy-stream-test"))
+        self.assertEqual(model.requested_frames, [4])
+
+    def test_ardy_stream_generate_retains_history_and_rounds_capacity(self):
+        model = _StreamingModel()
+        generator = ardy_backend.ArdyStreamGenerator(
+            {"prompt": "T pose", "diffusion_steps": 1, "seed": 7},
+            model,
+            _stream_profile(),
+            animation_handles.AnimationHandleStore(byte_quota=1024),
+            Path(__file__).parent,
+        )
+        first = generator.generate_horizon()
+        second = generator.generate_horizon()
+        self.assertEqual(first["posed_joints"].shape[1], 4)
+        self.assertEqual(second["posed_joints"].shape[1], 4)
+        self.assertEqual(model.requested_frames, [4, 8])
+        self.assertEqual(
+            ardy_backend.resolve_stream_capacity_frames({"duration": 0.25}, _stream_profile()),
+            8,
+        )
+    def test_animation_handle_store_lifecycle_and_pending_release(self):
+        skeleton = SimpleNamespace(
+            bone_order_names=["Hips", "LeftFoot"],
+            joint_parents=torch.tensor([-1, 0]),
+        )
+        model = SimpleNamespace(name="handle-test", fps=20.0, skeleton=skeleton)
+        payload = _payload(model, 1.0)
+        store = animation_handles.AnimationHandleStore(
+            byte_quota=len(payload) * 2,
+            server_instance_id="test-server",
+        )
+        info = store.publish(payload, description="test", motion_rep_fingerprint="rep-v1")
+        self.assertEqual(info["server_instance_id"], "test-server")
+        self.assertEqual(info["num_frames"], 4)
+        self.assertEqual(info["joint_count"], 2)
+        self.assertEqual(store.read(info["handle"]), payload)
+        with self.assertRaises(animation_handles.AnimationHandleNotFoundError):
+            store.pin([info["handle"], "animation:missing"])
+        pinned = store.pin([info["handle"]])
+        self.assertTrue(store.release(info["handle"]))
+        self.assertEqual(store.read(info["handle"]), payload)
+        store.unpin(pinned)
+        with self.assertRaises(animation_handles.AnimationHandleNotFoundError):
+            store.info(info["handle"])
+
+    def test_animation_handle_store_rejects_invalid_kmb(self):
+        store = animation_handles.AnimationHandleStore(byte_quota=1024)
+        with self.assertRaises(animation_handles.AnimationHandleError):
+            store.publish(b"not-kmb")
+
+    def test_stream_handle_double_buffer_is_destructive_and_resumable(self):
+        store = animation_handles.AnimationHandleStore(byte_quota=1024)
+        cancelled = []
+        resumed = []
+        serialized_frames = []
+
+        def serialize(output):
+            serialized_frames.append(output["posed_joints"].shape[1])
+            return b"KMB"
+
+        info = store.create_stream(
+            task_id="task-1",
+            session_id="session-1",
+            capacity_frames=8,
+            horizon_frames=4,
+            fps=20.0,
+            model_name="ardy-test",
+            joint_names=["Root", "Spine"],
+            joint_parents=[-1, 0],
+            motion_rep_fingerprint="rep-v1",
+            description="test",
+            serializer=serialize,
+            cancel=lambda: cancelled.append(True),
+            resume=lambda: resumed.append(True),
+        )
+        output = {
+            "posed_joints": np.zeros((1, 4, 2, 3), dtype=np.float32),
+            "local_rot_mats": np.broadcast_to(
+                np.eye(3, dtype=np.float32), (1, 4, 2, 3, 3)
+            ).copy(),
+        }
+        self.assertTrue(store.append_stream(info["handle"], output))
+        self.assertTrue(store.append_stream(info["handle"], output))
+        self.assertTrue(store.stream_is_full(info["handle"]))
+
+        payload, read_info = store.download(info["handle"])
+        self.assertEqual(payload, b"KMB")
+        self.assertEqual(read_info["num_frames"], 8)
+        self.assertEqual(serialized_frames, [8])
+        self.assertEqual(len(resumed), 1)
+        self.assertEqual(store.download(info["handle"])[0], b"")
+        self.assertTrue(store.append_stream(info["handle"], output))
+        self.assertTrue(store.release(info["handle"]))
+        self.assertEqual(cancelled, [True])
+
+    def test_extract_handle_refs_accepts_new_and_legacy_formats(self):
+        self.assertEqual(
+            ardy_backend.extract_handle_refs(
+                json_text(
+                    {"type": "clip", "format": "kmb_handle_v1", "handle": "animation:new"},
+                    {"type": "clip", "format": "ardy_handle_v1", "handle": "animation:old"},
+                    {"type": "clip", "format": "ardy_file_v1", "path": "ignored"},
+                )
+            ),
+            ("animation:new", "animation:old"),
+        )
     def test_text_weight_protocol_maps_exponent_and_rejects_out_of_range(self):
         self.assertEqual(bridge_server._resolve_cfg_text_weight({}), 2.0)
         self.assertEqual(bridge_server._resolve_cfg_text_weight({"text_weight": 0}), 1.0)
@@ -95,7 +275,7 @@ class ArdyBackendSelfCheck(unittest.TestCase):
 
     def test_cancelled_request_does_not_publish_handle(self):
         archive = Path(__file__).resolve().parents[3] / "archive" / "test_artifacts" / f"cancel-{os.getpid()}"
-        spool = ardy_backend.ArdyClipSpool(archive, byte_quota=1024 * 1024, minimum_retention=0)
+        spool = animation_handles.AnimationHandleStore(byte_quota=1024 * 1024)
         profile = SimpleNamespace(
             model_name="ARDY-G1-RP-25FPS-Horizon52",
             source_fps=25.0,
@@ -118,7 +298,7 @@ class ArdyBackendSelfCheck(unittest.TestCase):
                 spool,
                 archive,
             )
-        self.assertEqual(list(archive.glob("*.kmb")), [])
+        self.assertEqual(spool._entries, {})
 
     def test_duplicate_conditioning_uses_later_value(self):
         from ardy.motion_rep.conditioning import get_unique_index_and_data
@@ -132,7 +312,6 @@ class ArdyBackendSelfCheck(unittest.TestCase):
 
     def test_handle_and_file_round_trip_and_terminal_miss(self):
         archive = Path(__file__).resolve().parents[3] / "archive" / "test_artifacts" / str(os.getpid())
-        spool_root = archive / "spool"
         file_root = archive / "files"
         file_root.mkdir(parents=True, exist_ok=True)
 
@@ -156,15 +335,13 @@ class ArdyBackendSelfCheck(unittest.TestCase):
             max_context_frames=16,
         )
         payload = _payload(model, 10.0)
-        spool = ardy_backend.ArdyClipSpool(spool_root, byte_quota=1024 * 1024, minimum_retention=1)
+        spool = animation_handles.AnimationHandleStore(byte_quota=1024 * 1024)
         handle = spool.publish(
             payload,
-            model_name=profile.model_name,
-            fingerprint=profile.motion_rep_fingerprint,
-            fps=profile.source_fps,
-        )
+            motion_rep_fingerprint=profile.motion_rep_fingerprint,
+        )["handle"]
         handle_json = json_text(
-            {"type": "clip", "format": "ardy_handle_v1", "handle": handle}
+            {"type": "clip", "format": "kmb_handle_v1", "handle": handle}
         )
         history, _, _, _, history_len, _ = ardy_backend.prepare_generation_inputs(
             model, profile, handle_json, spool, archive
@@ -198,12 +375,10 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         for root_x in (20.0, 30.0, 40.0, 50.0):
             clip_handle = spool.publish(
                 _payload(model, root_x),
-                model_name=profile.model_name,
-                fingerprint=profile.motion_rep_fingerprint,
-                fps=profile.source_fps,
-            )
+                motion_rep_fingerprint=profile.motion_rep_fingerprint,
+            )["handle"]
             clip_items.append(
-                {"type": "clip", "format": "ardy_handle_v1", "handle": clip_handle}
+                {"type": "clip", "format": "kmb_handle_v1", "handle": clip_handle}
             )
         cropped, _, _, _, cropped_len, _ = ardy_backend.prepare_generation_inputs(
             model, profile, json_text(*clip_items), spool, archive
@@ -214,26 +389,6 @@ class ArdyBackendSelfCheck(unittest.TestCase):
             [30, 31, 32, 33, 40, 41, 42, 43, 50, 51, 52, 53],
         )
 
-        kmb_path, _ = spool._paths(handle)
-        corrupted = bytearray(payload)
-        corrupted[-1] ^= 1
-        kmb_path.write_bytes(corrupted)
-        with self.assertRaises(ardy_backend.ClipHandleNotFoundError):
-            spool.read(
-                handle,
-                model_name=profile.model_name,
-                fingerprint=profile.motion_rep_fingerprint,
-                fps=profile.source_fps,
-            )
-        self.assertEqual(
-            spool.publish(
-                payload,
-                model_name=profile.model_name,
-                fingerprint=profile.motion_rep_fingerprint,
-                fps=profile.source_fps,
-            ),
-            handle,
-        )
         self.assertEqual(
             spool.read(
                 handle,
@@ -244,16 +399,16 @@ class ArdyBackendSelfCheck(unittest.TestCase):
             payload,
         )
 
-        with self.assertRaises(ardy_backend.ClipHandleNotFoundError) as caught:
+        with self.assertRaises(animation_handles.AnimationHandleNotFoundError) as caught:
             spool.read(
-                "ardy:sha256:" + "0" * 64,
+                "animation:missing",
                 model_name=profile.model_name,
                 fingerprint=profile.motion_rep_fingerprint,
                 fps=profile.source_fps,
             )
-        self.assertEqual(caught.exception.code, "clip_handle_not_found")
+        self.assertEqual(caught.exception.code, "animation_handle_not_found")
 
-        with self.assertRaises(ardy_backend.ClipHandleNotFoundError):
+        with self.assertRaises(animation_handles.AnimationHandleNotFoundError):
             spool.read(
                 handle,
                 model_name=profile.model_name,
@@ -338,17 +493,15 @@ class ArdyBackendSelfCheck(unittest.TestCase):
             max_context_frames=16,
         )
         contacts = np.asarray([[[1, 0, 0, 1], [1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]]], dtype=np.float32)
-        spool = ardy_backend.ArdyClipSpool(archive, byte_quota=1024 * 1024, minimum_retention=0)
+        spool = animation_handles.AnimationHandleStore(byte_quota=1024 * 1024)
         handle = spool.publish(
             _payload(model, 0.0, contacts),
-            model_name=profile.model_name,
-            fingerprint=profile.motion_rep_fingerprint,
-            fps=profile.source_fps,
-        )
+            motion_rep_fingerprint=profile.motion_rep_fingerprint,
+        )["handle"]
         history, _, _, _, history_len, _ = ardy_backend.prepare_generation_inputs(
             model,
             profile,
-            json_text({"type": "clip", "format": "ardy_handle_v1", "handle": handle}),
+            json_text({"type": "clip", "format": "kmb_handle_v1", "handle": handle}),
             spool,
             archive,
         )
@@ -362,31 +515,24 @@ class ArdyBackendSelfCheck(unittest.TestCase):
             joint_parents=torch.tensor([-1, 0]),
         )
         model = SimpleNamespace(name="ARDY-G1-RP-25FPS-Horizon52", fps=25.0, skeleton=skeleton)
-        spool = ardy_backend.ArdyClipSpool(
-            archive,
-            byte_quota=1024 * 1024,
-            minimum_retention=0,
-        )
+        spool = animation_handles.AnimationHandleStore(byte_quota=1024 * 1024)
 
         def publish(root_x):
             return spool.publish(
                 _payload(model, root_x),
-                model_name=model.name,
-                fingerprint="self-check",
-                fps=model.fps,
-            )
+                motion_rep_fingerprint="self-check",
+            )["handle"]
 
         first = publish(10.0)
-        first_paths = spool._paths(first)
-        record_size = sum(path.stat().st_size for path in first_paths)
+        record_size = len(spool.read(first))
         spool.byte_quota = record_size * 2 + 32
         pinned = spool.pin([first])
         second = publish(20.0)
         third = publish(30.0)
 
-        self.assertTrue(all(path.is_file() for path in spool._paths(first)))
-        self.assertTrue(all(path.is_file() for path in spool._paths(third)))
-        with self.assertRaises(ardy_backend.ClipHandleNotFoundError):
+        self.assertTrue(spool.info(first))
+        self.assertTrue(spool.info(third))
+        with self.assertRaises(animation_handles.AnimationHandleNotFoundError):
             spool.read(
                 second,
                 model_name=model.name,

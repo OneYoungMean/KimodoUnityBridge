@@ -11,10 +11,10 @@ namespace KimodoBridge.Editor
         internal static bool TryEncode(
             ArdyEditorHistorySource source,
             KimodoMotionModelProfile profile,
-            out string cachePath,
+            out byte[] payload,
             out string error)
         {
-            cachePath = string.Empty;
+            payload = null;
             error = string.Empty;
             if (source?.TimelineContext == null || source.RangeEndSeconds <= source.RangeStartSeconds)
             {
@@ -121,8 +121,7 @@ namespace KimodoBridge.Editor
                     rotations,
                     rootJointIndex: 0,
                     footContacts: hasFootContacts ? footContacts : null);
-                byte[] payload = KimodoRawMotionUtility.ToFlatBuffer(motion, profile.ModelName);
-                cachePath = ArdyUnityMotionCache.Write(payload, "timeline-history");
+                payload = KimodoRawMotionUtility.ToFlatBuffer(motion, profile.ModelName);
                 return true;
             }
             catch (Exception ex)
