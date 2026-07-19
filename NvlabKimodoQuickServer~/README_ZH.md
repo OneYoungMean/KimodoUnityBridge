@@ -90,6 +90,7 @@ QuickServer 重启后 Handle 失效；基于容量的 LRU 只负责清理未显�
 - 一旦任务标识确定，该任务后续所有响应都会带同一个 `task_id`。
 - 任务会先后经历 `queued`、`loading`、`progress`、`cancelling` 等中间态，并最终落到 `done`、`error` 或 `cancelled`。
 - `cancel` 同样支持可选 `task_id`；若未传，则取消当前队列中第一个可取消任务，并在响应里回传实际命中的任务标识。
+- ARDY Cancel 会先返回 `cancelling`；不可中断的 Horizon 完成并清理资源后，同一 TCP 会收到一个不带 `request_id` 的异步 `{"status":"event","event":"task.closed",...}` 消息。
 - FlatBuffer 返回仍保持 `byte_length` 后紧跟该任务自己的二进制 payload，不会夹入其他任务的数据头。
 
 ## 参数文档

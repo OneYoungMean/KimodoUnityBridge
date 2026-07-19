@@ -622,7 +622,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     serverport_path = Path(kimodo_root) / "serverport"
     idle_timeout_seconds = max(0, int(float(os.environ.get("KIMODO_IDLE_TIMEOUT_SEC", "600"))))
     default_session_id = "session:default"
-    session_queue_limit = 32
+    session_queue_limit = max(1, int(os.environ.get("KIMODO_SESSION_QUEUE_LIMIT", "32")))
 
     os.environ["KIMODO_ROOT_PATH"] = kimodo_root
     os.environ["KIMODO_BRIDGE_LOG"] = str((Path(kimodo_root) / "log" / SUPERVISOR_LOG_FILE_NAME).resolve())
@@ -722,6 +722,28 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         state["ready_sessions"].append(session["session_id"])
         queue_changed.notify_all()
 
+    def emit_task_closed(task: dict[str, Any], task_status: str, message: str) -> None:
+        writer = task.get("event_writer")
+        if writer is None or task.get("closed_event_sent"):
+            return
+        task["closed_event_sent"] = True
+        payload = {
+            "status": "event",
+            "event": "task.closed",
+            "task_id": task["task_id"],
+            "session_id": task["session_id"],
+            "task_status": task_status,
+            "message": message,
+        }
+        stream_handle = str(task.get("stream_handle") or "")
+        if stream_handle:
+            payload["handle"] = stream_handle
+
+        try:
+            writer(payload)
+        except Exception:
+            pass
+
     def finish_task_locked(
         session: dict[str, Any],
         task: dict[str, Any],
@@ -743,7 +765,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             )
             task["binary"] = binary_payload
             task["event"].set()
-        task["state"] = str((response or {}).get("status") or "closed")
+        task_status = str((response or {}).get("status") or ("cancelled" if task["cancel_event"].is_set() else "closed"))
+        message = str((response or {}).get("message") or task.get("status_message") or "Task closed.")
+        task["state"] = task_status
+        if task.get("response_sent"):
+            emit_task_closed(task, task_status, message)
         state["tasks"].pop(task["task_id"], None)
         if session.get("active") is task:
             session["active"] = None
@@ -1049,7 +1075,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 task["cancel_event"].set()
                 task["state"] = "cancelling"
                 task["status_message"] = f"Cancellation requested for '{resolved_task_id}'."
-                mark_session_ready_locked(session)
                 return _attach_task_id(
                     {"status": "cancelling", "message": task["status_message"]},
                     resolved_task_id)
@@ -1299,6 +1324,10 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     "response_sent": False,
                                     "stream_context": None,
                                     "stream_handle": "",
+                                    "event_writer": lambda payload, f=file, lock=writer_lock: _write_protocol_message(
+                                        f, lock, payload
+                                    ),
+                                    "closed_event_sent": False,
                                 }
                                 state["tasks"][task_id] = task
                                 session["queue"].append(task)
@@ -1307,7 +1336,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             threading.Thread(target=stream_task_to_client, args=(task, file, writer_lock), daemon=True).start()
                         elif cmd == "cancel":
                             task_id = str(request.get("task_id") or request.get("id") or "").strip()
-                            reply(cancel_task(session, task_id))
+                            cancel_response = cancel_task(session, task_id)
+                            reply(cancel_response)
+                            if cancel_response.get("status") == "cancelling":
+                                with queue_changed:
+                                    mark_session_ready_locked(session)
                         elif cmd == "quit":
                             reply({"status": "done", "session_id": default_session_id, "server_closing": True})
                             request_shutdown("legacy quit command")

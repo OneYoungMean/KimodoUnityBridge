@@ -38,7 +38,7 @@ namespace KimodoBridge
             FramesPerToken = 4,
             MaxContextFrames = 200,
             JointCount = 27,
-            MaxDiffusionSteps = 10,
+            MaxDiffusionSteps = 50,
             MotionRepFingerprint = "ardy-core-rp-20fps-h40:nfpt4:motionrep-v1"
         };
 
@@ -50,7 +50,7 @@ namespace KimodoBridge
             FramesPerToken = 4,
             MaxContextFrames = 248,
             JointCount = 34,
-            MaxDiffusionSteps = 10,
+            MaxDiffusionSteps = 50,
             MotionRepFingerprint = "ardy-g1-rp-25fps-h52:nfpt4:motionrep-v1"
         };
 
@@ -62,7 +62,7 @@ namespace KimodoBridge
             FramesPerToken = 4,
             MaxContextFrames = 200,
             JointCount = 27,
-            MaxDiffusionSteps = 10,
+            MaxDiffusionSteps = 50,
             MotionRepFingerprint = "ardy-core-rp-20fps-h8:nfpt4:motionrep-v1"
         };
 
@@ -74,7 +74,7 @@ namespace KimodoBridge
             FramesPerToken = 4,
             MaxContextFrames = 248,
             JointCount = 34,
-            MaxDiffusionSteps = 10,
+            MaxDiffusionSteps = 50,
             MotionRepFingerprint = "ardy-g1-rp-25fps-h8:nfpt4:motionrep-v1"
         };
 

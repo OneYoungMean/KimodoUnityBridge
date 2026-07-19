@@ -425,6 +425,10 @@ namespace KimodoBridge
 
         private void DispatchResponse(BridgeProtocolResponse response)
         {
+            if (string.Equals(response?.Header?.Value<string>("status"), "event", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
             string requestId = response?.RequestId ?? string.Empty;
             if (string.IsNullOrWhiteSpace(requestId) || !pending.TryGetValue(requestId, out PendingRequest item))
             {

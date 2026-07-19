@@ -67,6 +67,7 @@ example\example_run_server_tpose_console_live.bat
 - Once a task id is assigned, every response for that task carries the same `task_id`.
 - A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.
 - `cancel` accepts an optional `task_id`. If omitted, QuickServer cancels the first cancellable queued task and returns the resolved task id.
+- ARDY Cancel first returns `cancelling`. After the non-interruptible Horizon finishes and cleanup completes, the same TCP receives an asynchronous `{"status":"event","event":"task.closed",...}` message without a `request_id`.
 
 ## Animation handles
 

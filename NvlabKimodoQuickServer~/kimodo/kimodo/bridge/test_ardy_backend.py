@@ -223,6 +223,50 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         self.assertTrue(store.release(info["handle"]))
         self.assertEqual(cancelled, [True])
 
+    def test_stream_handle_rejects_a_second_concurrent_download(self):
+        store = animation_handles.AnimationHandleStore(byte_quota=1024)
+        serializing = threading.Event()
+        release_serializer = threading.Event()
+
+        def serialize(_output):
+            serializing.set()
+            release_serializer.wait(timeout=2)
+            return b"KMB"
+
+        info = store.create_stream(
+            task_id="task-1",
+            session_id="session-1",
+            capacity_frames=4,
+            horizon_frames=4,
+            fps=20.0,
+            model_name="ardy-test",
+            joint_names=["Root"],
+            joint_parents=[-1],
+            motion_rep_fingerprint="rep-v1",
+            description="test",
+            serializer=serialize,
+            cancel=lambda: None,
+            resume=lambda: None,
+        )
+        store.append_stream(
+            info["handle"],
+            {
+                "posed_joints": np.zeros((1, 4, 1, 3), dtype=np.float32),
+                "local_rot_mats": np.broadcast_to(
+                    np.eye(3, dtype=np.float32), (1, 4, 1, 3, 3)
+                ).copy(),
+            },
+        )
+        first_result = []
+        first = threading.Thread(target=lambda: first_result.append(store.download(info["handle"])))
+        first.start()
+        self.assertTrue(serializing.wait(timeout=1))
+        with self.assertRaises(animation_handles.AnimationHandleBusyError):
+            store.download(info["handle"])
+        release_serializer.set()
+        first.join(timeout=1)
+        self.assertEqual(first_result[0][0], b"KMB")
+
     def test_extract_handle_refs_accepts_new_and_legacy_formats(self):
         self.assertEqual(
             ardy_backend.extract_handle_refs(
@@ -250,6 +294,7 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         self.assertEqual((core.source_fps, core.horizon_frames, core.rig_profile), (20.0, 40, "cskel27"))
         self.assertEqual((core8.source_fps, core8.horizon_frames, core8.rig_profile), (20.0, 8, "cskel27"))
         self.assertEqual((g18.source_fps, g18.horizon_frames, g18.rig_profile), (25.0, 8, "g1skel34"))
+        self.assertEqual({core.max_diffusion_steps, core8.max_diffusion_steps, g1.max_diffusion_steps, g18.max_diffusion_steps}, {50})
         self.assertEqual(core.max_context_frames, 200)
         self.assertTrue(core.postprocess)
         self.assertFalse(g1.postprocess)
