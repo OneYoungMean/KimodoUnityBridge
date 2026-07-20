@@ -32,6 +32,8 @@ namespace KimodoBridge.Editor
             TimelineClip sourceClip,
             KimodoInOutConstraintMode mode,
             bool normalizeConstraintOrigin,
+            bool enableIn,
+            bool enableOut,
             int generationFrames,
             out string constraintsJson,
             out string error)
@@ -41,6 +43,8 @@ namespace KimodoBridge.Editor
                     sourceClip,
                     mode,
                     normalizeConstraintOrigin,
+                    enableIn,
+                    enableOut,
                     generationFrames,
                     out KimodoInOutConstraintResult result,
                     out error))
@@ -56,6 +60,8 @@ namespace KimodoBridge.Editor
             TimelineClip sourceClip,
             KimodoInOutConstraintMode mode,
             bool normalizeConstraintOrigin,
+            bool enableIn,
+            bool enableOut,
             int generationFrames,
             out KimodoInOutConstraintResult result,
             out string error)
@@ -80,6 +86,8 @@ namespace KimodoBridge.Editor
                 context,
                 mode,
                 normalizeConstraintOrigin,
+                enableIn,
+                enableOut,
                 generationFrames,
                 manualSamples);
             if (request == null)
@@ -97,13 +105,15 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            EmitNeighborWarningsIfNeeded(context, mode, warning);
+            EmitNeighborWarningsIfNeeded(context, mode, enableIn, enableOut, warning);
             return true;
         }
 
         internal static bool TryBuildBoundarySamplesForPreview(
             TimelineClip sourceClip,
             KimodoInOutConstraintMode mode,
+            bool enableIn,
+            bool enableOut,
             int generationFrames,
             out KimodoMarkerSampleResult beginBoundaryPose,
             out KimodoMarkerSampleResult endBoundaryPose,
@@ -128,6 +138,8 @@ namespace KimodoBridge.Editor
                 context,
                 mode,
                 normalizeConstraintOrigin: false,
+                enableIn,
+                enableOut,
                 generationFrames,
                 manualSamples: null);
             if (request == null)
@@ -431,6 +443,8 @@ namespace KimodoBridge.Editor
             KimodoTimelineInOutConstraintContext context,
             KimodoInOutConstraintMode mode,
             bool normalizeConstraintOrigin,
+            bool enableIn,
+            bool enableOut,
             int generationFrames,
             List<KimodoMarkerSampleResult> manualSamples)
         {
@@ -450,15 +464,15 @@ namespace KimodoBridge.Editor
                 case KimodoInOutConstraintMode.Inside:
                     beginSegment = BuildSegment(context.CurrentClip, context.SourceClip);
                     endSegment = BuildSegment(context.CurrentClip, context.SourceClip);
-                    enableBegin = beginSegment != null;
-                    enableEnd = endSegment != null;
+                    enableBegin = enableIn && beginSegment != null;
+                    enableEnd = enableOut && endSegment != null;
                     break;
 
                 case KimodoInOutConstraintMode.Outside:
                     beginSegment = BuildSegment(context.PreviousClip, context.PreviousTimelineClip);
                     endSegment = BuildSegment(context.NextClip, context.NextTimelineClip);
-                    enableBegin = context.PreviousTimelineClip != null;
-                    enableEnd = context.NextTimelineClip != null;
+                    enableBegin = enableIn && context.PreviousTimelineClip != null;
+                    enableEnd = enableOut && context.NextTimelineClip != null;
                     break;
             }
 
@@ -484,6 +498,7 @@ namespace KimodoBridge.Editor
                 GenerationFrames = ClampFrameCount(generationFrames),
                 // Normalize against the first available first-frame constraint anchor.
                 NormalizeConstraintOrigin = normalizeConstraintOrigin,
+                AllowNormalizeConstraintOrigin = enableIn,
                 IsLoop = false,
                 TimelineContext = context,
                 ManualSamples = KimodoInOutConstraintTools.BuildLocalManualSamples(
@@ -522,6 +537,8 @@ namespace KimodoBridge.Editor
         private static void EmitNeighborWarningsIfNeeded(
             KimodoTimelineInOutConstraintContext context,
             KimodoInOutConstraintMode mode,
+            bool enableIn,
+            bool enableOut,
             string buildWarning)
         {
             if (mode != KimodoInOutConstraintMode.Outside)
@@ -534,12 +551,12 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(context?.PreviousClipWarning))
+            if (enableIn && !string.IsNullOrWhiteSpace(context?.PreviousClipWarning))
             {
                 Debug.LogWarning($"[Kimodo][InOutConstraint] {context.PreviousClipWarning}");
             }
 
-            if (!string.IsNullOrWhiteSpace(context?.NextClipWarning))
+            if (enableOut && !string.IsNullOrWhiteSpace(context?.NextClipWarning))
             {
                 Debug.LogWarning($"[Kimodo][InOutConstraint] {context.NextClipWarning}");
             }

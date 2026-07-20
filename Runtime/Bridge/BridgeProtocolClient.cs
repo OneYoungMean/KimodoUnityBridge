@@ -57,6 +57,8 @@ namespace KimodoBridge
         private bool disposed;
         private int disposeStarted;
 
+        internal event Action<JObject> ProtocolEvent;
+
         public BridgeProtocolClient(
             int connectTimeoutMs = BridgeRuntimeDefaults.ConnectTimeoutMs,
             int ioTimeoutMs = BridgeRuntimeDefaults.IoTimeoutMs,
@@ -136,6 +138,12 @@ namespace KimodoBridge
 
             string taskId = string.IsNullOrWhiteSpace(request.task_id) ? Guid.NewGuid().ToString("N") : request.task_id.Trim();
             request.task_id = taskId;
+            string constraintsJson = request.constraints_json ?? string.Empty;
+            if (request.ardy_future_clips != null && request.ardy_future_clips.Count > 0)
+            {
+                string futureClips = KimodoArdyClipConstraintProtocol.SerializeFuture(request.model, request.ardy_future_clips);
+                constraintsJson = KimodoArdyClipConstraintProtocol.Append(constraintsJson, futureClips);
+            }
             var payload = new JObject
             {
                 ["cmd"] = "generate",
@@ -147,7 +155,7 @@ namespace KimodoBridge
                     : request.output_format.Trim(),
                 ["diffusion_steps"] = request.steps,
                 ["text_weight"] = Math.Min(4f, Math.Max(0f, request.text_weight)),
-                ["constraints_json"] = request.constraints_json ?? string.Empty,
+                ["constraints_json"] = constraintsJson,
                 ["seed"] = request.seed.HasValue ? request.seed.Value : null,
                 ["transition_duration"] = request.transition_duration,
                 ["model"] = string.IsNullOrWhiteSpace(request.model) ? null : request.model,
@@ -427,6 +435,7 @@ namespace KimodoBridge
         {
             if (string.Equals(response?.Header?.Value<string>("status"), "event", StringComparison.OrdinalIgnoreCase))
             {
+                try { ProtocolEvent?.Invoke(response.Header); } catch { }
                 return;
             }
             string requestId = response?.RequestId ?? string.Empty;

@@ -496,6 +496,8 @@ def _load_constraints(constraints_json: str, model):
         parsed = [parsed]
     if not isinstance(parsed, list):
         raise ValueError("constraints_json inline payload must be JSON array/object.")
+    if any(isinstance(item, dict) and item.get("type") == "clip" for item in parsed):
+        raise ValueError("Clip constraints are supported only by ARDY models.")
 
     return load_constraints_lst(parsed, model.skeleton)
 

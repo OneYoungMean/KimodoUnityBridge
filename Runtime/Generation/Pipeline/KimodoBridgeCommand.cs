@@ -36,7 +36,9 @@ namespace KimodoBridge
                 result.motionJsonCompact = KimodoRawMotionUtility.ToCompactJson(result.motionData);
             }
 
-            if (string.IsNullOrWhiteSpace(result.motionJsonCompact))
+            bool hasStreamHandle = result.handleOperator?.Info?.IsStream == true &&
+                !string.IsNullOrWhiteSpace(result.clipHandle);
+            if (string.IsNullOrWhiteSpace(result.motionJsonCompact) && !hasStreamHandle)
             {
                 throw new InvalidOperationException(result.message ?? "No motion json found in runtime generation result.");
             }

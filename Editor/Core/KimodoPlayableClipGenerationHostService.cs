@@ -274,7 +274,9 @@ namespace KimodoBridge.Editor
 
         private static void TryMatchOffsetsToPreviousClip(KimodoPlayableClip playableClip, TimelineClip timelineClip)
         {
-            if (playableClip == null || playableClip.inOutConstraintMode != KimodoInOutConstraintMode.Outside)
+            if (playableClip == null ||
+                playableClip.inOutConstraintMode != KimodoInOutConstraintMode.Outside ||
+                !playableClip.enableInConstraint)
             {
                 return;
             }
@@ -555,7 +557,7 @@ namespace KimodoBridge.Editor
             out ArdyEditorHistorySource source)
         {
             source = null;
-            if (clip.inOutConstraintMode != KimodoInOutConstraintMode.Outside)
+            if (clip.inOutConstraintMode != KimodoInOutConstraintMode.Outside || !clip.enableInConstraint)
             {
                 return;
             }

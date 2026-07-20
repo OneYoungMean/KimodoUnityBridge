@@ -152,6 +152,43 @@ KimodoGenerationResultDto result =
 service.Dispose();
 ```
 
+### ARDY Future Clip API
+
+ARDY 可把上传后的静态 KMB Handle 作为 future partial-body position constraint。运行时请求使用强类型字段，序列化时会自动追加到 `constraints_json`：
+
+```csharp
+var request = new KimodoGenerationRequestDto
+{
+    model = "ardy-core",
+    prompt = "a person runs while holding a T pose",
+    duration = 2f,
+    steps = 10,
+    ardy_future_clips = new List<KimodoArdyClipConstraint>
+    {
+        new KimodoArdyClipConstraint
+        {
+            animation = uploadedStaticHandle,
+            startFrame = 0,
+            endFrameExclusive = 40,
+            mask = KimodoArdyConstraintMask.UpperBody("ardy-core")
+        }
+    }
+};
+```
+
+`UpperBody`、`LowerBody`、`FullBody` 与 `FromAvatarMask` 会展开成 Profile 顺序的一维 mask；非 ARDY model、未知骨骼、已释放/流式 Handle、FPS 或骨架不匹配都会在发送前报错。编辑器可用 `ArdyFutureClipUploader.UploadAsync(...)` 按目标 ARDY Profile 重定向采样 `AnimationClip` 并上传为静态 KMB Handle；Python 负责 FK，Unity 不需要计算 root-relative position。
+
+Future mask 只控制 Root XYZ、Root heading 与非 Root 骨骼的 root-relative XYZ，不控制旋转、速度或脚接触。多个 future clip 按列表顺序合并，后者覆盖前者；`false` 也会清除较早的同通道约束。
+
+ARDY 流被 Cancel 后会在真正完成清理时触发服务事件：
+
+```csharp
+service.TaskClosed += value =>
+    Debug.Log($"{value.TaskId}: {value.TaskStatus}, handle={value.Handle}");
+```
+
+事件会回到创建 `KimodoBridgeService` 时捕获的 Unity 同步上下文。
+
 `result.motionJsonCompact` 里是生成出来的动作数据，拿到之后解析、重定向到你的角色、播放即可（Demo 里的处理流程可以直接参考）。
 
 ### 几个关键类型

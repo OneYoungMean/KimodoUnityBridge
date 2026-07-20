@@ -36,6 +36,8 @@ namespace KimodoBridge.Editor
                 sourceClip,
                 clip.inOutConstraintMode,
                 clip.normalizeConstraintOrigin,
+                clip.enableInConstraint,
+                clip.enableOutConstraint,
                 generationFramesOverride ?? clip.generationFrames,
                 out KimodoInOutConstraintResult result,
                 out string error);

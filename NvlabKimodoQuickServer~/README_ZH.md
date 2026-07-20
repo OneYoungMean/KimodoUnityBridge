@@ -87,6 +87,34 @@ QuickServer 会把上传或生成的 KMB 动画保存在进程内、受容量限
 `animation.upload` 的端到端上限为 3 秒。静态 Handle 在同一服务器实例内全局可见、不可变、可重复下载，并使用基于容量的 LRU 兜底。ARDY 的 `kmb_handle_v1` 是 Session 绑定的流式 Handle，内部使用两个固定缓冲区：Generate 无需等待首个 Horizon 即返回 Handle；下载会交换缓冲并破坏性消费当前有效帧；Cancel 关闭整个流，正在计算的完整 Horizon 会运行完毕但结果被丢弃。缓冲容量按 `duration × FPS` 向上补齐到 Horizon 整数倍。
 
 QuickServer 重启后 Handle 失效；基于容量的 LRU 只负责清理未显式释放的资源，Handle 不会因存放时间过长而过期。生产 clip constraint 使用 `format=kmb_handle_v1`，`ardy_file_v1` 仅在显式测试开关下可用。
+
+### ARDY clip constraint
+
+旧 clip 缺少 `is_history` 时仍按完整 history 处理，且 history 不能携带 mask。Future clip 使用已上传的静态 KMB Handle：
+
+```json
+{
+  "type": "clip",
+  "format": "kmb_handle_v1",
+  "handle": "animation:...",
+  "start_frame": 0,
+  "end_frame_exclusive": 40,
+  "is_history": false,
+  "mask": [false, false, false, false, true, true, true]
+}
+```
+
+Future mask 必须是完整的一维 bool 数组，长度为 `4 + (joint_count - 1) * 3`，顺序严格为 `Root.x, Root.y, Root.z, RootHeading`，随后按 KMB/ARDY Profile 骨骼顺序排列每个非 Root 骨骼的 `x, y, z`。`RootHeading` 同时控制内部 cos/sin；`true` 表示约束，`false` 表示自由生成。多个 clip 从 future 第 0 帧开始写入，后出现的 clip 会覆盖同帧同通道，后者的 `false` 也会清除前者约束。
+
+Python 会对 KMB 的 Root position 与 local quaternion 做 FK，再写入 ARDY root-relative joint-position 通道。只要 future clip 打开任意骨骼位置通道，就自动先自由生成 Root，再锁定该 Root 的 XYZ 与 heading 生成 Body。约束生效的 Horizon 跳过 ARDY postprocess，不做生成后的外部覆盖。扩散步数受 checkpoint 的原生 10-step 时间轴限制，合法范围为 1–10。
+
+真实 checkpoint 冒烟测试：
+
+```bat
+Env~\Scripts\python.exe tools\test_ardy_clip_constraint_tpose.py --models-root C:\nvlab\models~ --model ardy-core --steps 10
+```
+
+该测试使用同 seed 比较自由生成与上半身静态 T Pose mask；当前 Core40 结果的 root-relative XYZ RMSE 从 `0.489 m` 降到 `0.159 m`，下降 `67.6%`。
 - 一旦任务标识确定，该任务后续所有响应都会带同一个 `task_id`。
 - 任务会先后经历 `queued`、`loading`、`progress`、`cancelling` 等中间态，并最终落到 `done`、`error` 或 `cancelled`。
 - `cancel` 同样支持可选 `task_id`；若未传，则取消当前队列中第一个可取消任务，并在响应里回传实际命中的任务标识。

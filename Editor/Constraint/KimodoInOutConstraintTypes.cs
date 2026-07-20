@@ -38,6 +38,7 @@ namespace KimodoBridge.Editor
         public string ModelName = KimodoPlayableClip.DefaultBridgeModelName;
         public int GenerationFrames = 1;
         public bool NormalizeConstraintOrigin;
+        public bool AllowNormalizeConstraintOrigin = true;
         public bool IsLoop;
         public KimodoTimelineInOutConstraintContext TimelineContext;
         public List<KimodoMarkerSampleResult> ManualSamples = new List<KimodoMarkerSampleResult>();

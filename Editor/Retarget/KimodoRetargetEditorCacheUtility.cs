@@ -53,7 +53,7 @@ namespace KimodoBridge.Editor
             string typeName = SanitizeCacheToken(clipType, "cache");
             if (string.Equals(typeName, MuscleCacheType, StringComparison.OrdinalIgnoreCase))
             {
-                return $"{sourceName}-{MuscleCacheType}-cache";
+                return $"{sourceName}-49d-{MuscleCacheType}-cache";
             }
 
             string avatarName = SanitizeCacheToken(targetAvatar != null ? targetAvatar.name : "Avatar", "Avatar");

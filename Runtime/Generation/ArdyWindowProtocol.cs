@@ -7,6 +7,191 @@ using UnityEngine;
 
 namespace KimodoBridge
 {
+    [Serializable]
+    public sealed class KimodoArdyPositionMask
+    {
+        public bool x;
+        public bool y;
+        public bool z;
+    }
+
+    [Serializable]
+    public sealed class KimodoArdyJointPositionMask
+    {
+        public string jointName = string.Empty;
+        public KimodoArdyPositionMask position = new KimodoArdyPositionMask();
+    }
+
+    [Serializable]
+    public sealed class KimodoArdyConstraintMask
+    {
+        public KimodoArdyPositionMask rootPosition = new KimodoArdyPositionMask();
+        public bool rootHeading;
+        public List<KimodoArdyJointPositionMask> joints = new List<KimodoArdyJointPositionMask>();
+
+        public static KimodoArdyConstraintMask FromAvatarMask(
+            string modelName,
+            AvatarMask avatarMask,
+            bool rootPosition = false,
+            bool rootHeading = false)
+        {
+            if (avatarMask == null)
+            {
+                throw new ArgumentNullException(nameof(avatarMask));
+            }
+            string[] names = GetJointNames(modelName);
+            var known = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+            var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int index = 0; index < avatarMask.transformCount; index++)
+            {
+                if (!avatarMask.GetTransformActive(index))
+                {
+                    continue;
+                }
+                string path = avatarMask.GetTransformPath(index) ?? string.Empty;
+                int separator = path.LastIndexOf('/');
+                string jointName = separator >= 0 ? path.Substring(separator + 1) : path;
+                bool hasActiveChild = false;
+                string childPrefix = path + "/";
+                for (int child = index + 1; child < avatarMask.transformCount; child++)
+                {
+                    string childPath = avatarMask.GetTransformPath(child) ?? string.Empty;
+                    if (!childPath.StartsWith(childPrefix, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    if (avatarMask.GetTransformActive(child))
+                    {
+                        hasActiveChild = true;
+                        break;
+                    }
+                }
+                if (!known.Contains(jointName) && !hasActiveChild)
+                {
+                    throw new InvalidOperationException(
+                        $"AvatarMask joint '{jointName}' does not exist in ARDY profile '{modelName}'.");
+                }
+                selected.Add(jointName);
+            }
+            var result = new KimodoArdyConstraintMask
+            {
+                rootPosition = new KimodoArdyPositionMask { x = rootPosition, y = rootPosition, z = rootPosition },
+                rootHeading = rootHeading
+            };
+            for (int index = 1; index < names.Length; index++)
+            {
+                bool enabled = selected.Contains(names[index]);
+                result.joints.Add(new KimodoArdyJointPositionMask
+                {
+                    jointName = names[index],
+                    position = new KimodoArdyPositionMask { x = enabled, y = enabled, z = enabled }
+                });
+            }
+            return result;
+        }
+
+        public static KimodoArdyConstraintMask UpperBody(string modelName)
+        {
+            string[] names = GetJointNames(modelName);
+            int[] parents = KimodoRigProfileDatabase.GetParentIndicesForModel(modelName);
+            int upperRoot = Array.FindIndex(names, name =>
+                name.IndexOf("spine", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("waist", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (upperRoot < 0)
+            {
+                throw new InvalidOperationException($"ARDY profile '{modelName}' has no upper-body root joint.");
+            }
+            var result = new KimodoArdyConstraintMask();
+            for (int index = 1; index < names.Length; index++)
+            {
+                bool enabled = IsDescendant(index, upperRoot, parents);
+                result.joints.Add(new KimodoArdyJointPositionMask
+                {
+                    jointName = names[index],
+                    position = new KimodoArdyPositionMask { x = enabled, y = enabled, z = enabled }
+                });
+            }
+            return result;
+        }
+
+        public static KimodoArdyConstraintMask LowerBody(string modelName)
+        {
+            KimodoArdyConstraintMask upper = UpperBody(modelName);
+            foreach (KimodoArdyJointPositionMask joint in upper.joints)
+            {
+                bool enabled = !(joint.position.x || joint.position.y || joint.position.z);
+                joint.position = new KimodoArdyPositionMask { x = enabled, y = enabled, z = enabled };
+            }
+            return upper;
+        }
+
+        public static KimodoArdyConstraintMask FullBody(string modelName, bool includeRoot = false)
+        {
+            string[] names = GetJointNames(modelName);
+            var result = new KimodoArdyConstraintMask
+            {
+                rootPosition = new KimodoArdyPositionMask { x = includeRoot, y = includeRoot, z = includeRoot },
+                rootHeading = includeRoot
+            };
+            for (int index = 1; index < names.Length; index++)
+            {
+                result.joints.Add(new KimodoArdyJointPositionMask
+                {
+                    jointName = names[index],
+                    position = new KimodoArdyPositionMask { x = true, y = true, z = true }
+                });
+            }
+            return result;
+        }
+
+        private static bool IsDescendant(int joint, int ancestor, int[] parents)
+        {
+            for (int current = joint; current >= 0; current = parents[current])
+            {
+                if (current == ancestor)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static string[] GetJointNames(string modelName)
+        {
+            if (!KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
+            {
+                throw new InvalidOperationException($"Model '{modelName}' is not a registered ARDY rig.");
+            }
+            return KimodoRigProfileDatabase.GetJointNamesForModel(modelName);
+        }
+    }
+
+    [Serializable]
+    public sealed class KimodoArdyClipConstraint
+    {
+        [NonSerialized]
+        public AnimationHandleOperator animation;
+        public int startFrame;
+        public int endFrameExclusive;
+        public KimodoArdyConstraintMask mask = new KimodoArdyConstraintMask();
+    }
+
+    public static class KimodoArdyClipConstraintProtocol
+    {
+        public static string SerializeFuture(string modelName, IReadOnlyList<KimodoArdyClipConstraint> clips)
+        {
+            return ArdyClipConstraintSerializer.SerializeFuture(modelName, clips);
+        }
+
+        public static string Append(string constraintsJson, string futureClipConstraintsJson)
+        {
+            var output = new JArray();
+            ArdyClipConstraintSerializer.AppendJson(output, constraintsJson);
+            ArdyClipConstraintSerializer.AppendJson(output, futureClipConstraintsJson);
+            return output.Count > 0 ? output.ToString(Formatting.None) : string.Empty;
+        }
+    }
+
     internal sealed class KimodoMotionModelProfile
     {
         internal string ModelName;
@@ -38,7 +223,7 @@ namespace KimodoBridge
             FramesPerToken = 4,
             MaxContextFrames = 200,
             JointCount = 27,
-            MaxDiffusionSteps = 50,
+            MaxDiffusionSteps = 10,
             MotionRepFingerprint = "ardy-core-rp-20fps-h40:nfpt4:motionrep-v1"
         };
 
@@ -50,7 +235,7 @@ namespace KimodoBridge
             FramesPerToken = 4,
             MaxContextFrames = 248,
             JointCount = 34,
-            MaxDiffusionSteps = 50,
+            MaxDiffusionSteps = 10,
             MotionRepFingerprint = "ardy-g1-rp-25fps-h52:nfpt4:motionrep-v1"
         };
 
@@ -62,7 +247,7 @@ namespace KimodoBridge
             FramesPerToken = 4,
             MaxContextFrames = 200,
             JointCount = 27,
-            MaxDiffusionSteps = 50,
+            MaxDiffusionSteps = 10,
             MotionRepFingerprint = "ardy-core-rp-20fps-h8:nfpt4:motionrep-v1"
         };
 
@@ -74,7 +259,7 @@ namespace KimodoBridge
             FramesPerToken = 4,
             MaxContextFrames = 248,
             JointCount = 34,
-            MaxDiffusionSteps = 50,
+            MaxDiffusionSteps = 10,
             MotionRepFingerprint = "ardy-g1-rp-25fps-h8:nfpt4:motionrep-v1"
         };
 
@@ -118,6 +303,77 @@ namespace KimodoBridge
 
     internal static class ArdyClipConstraintSerializer
     {
+        internal static string SerializeFuture(string modelName, IReadOnlyList<KimodoArdyClipConstraint> clips)
+        {
+            var output = new JArray();
+            if (clips == null)
+            {
+                return string.Empty;
+            }
+            string[] jointNames = KimodoRigProfileDatabase.GetJointNamesForModel(modelName);
+            if (!KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile) ||
+                jointNames.Length != profile.JointCount)
+            {
+                throw new InvalidOperationException($"Model '{modelName}' is not a registered ARDY rig.");
+            }
+            for (int index = 0; index < clips.Count; index++)
+            {
+                KimodoArdyClipConstraint clip = clips[index] ?? throw new InvalidOperationException("Future clip is null.");
+                AnimationHandleInfo info = clip.animation?.Info ?? throw new InvalidOperationException("Future clip has no animation Handle.");
+                if (clip.animation.IsReleased || info.IsStream)
+                {
+                    throw new InvalidOperationException("Future clip requires an accessible static KMB Handle.");
+                }
+                if (!string.Equals(info.ModelName, profile.ModelName, StringComparison.Ordinal) ||
+                    info.JointCount != profile.JointCount ||
+                    !Mathf.Approximately(info.Fps, profile.SourceFps))
+                {
+                    throw new InvalidOperationException("Future clip Handle does not match the selected ARDY profile.");
+                }
+                int end = clip.endFrameExclusive > 0 ? clip.endFrameExclusive : info.FrameCount;
+                if (clip.startFrame < 0 || end <= clip.startFrame || end > info.FrameCount)
+                {
+                    throw new InvalidOperationException($"Invalid future clip slice [{clip.startFrame}, {end}).");
+                }
+                output.Add(new JObject
+                {
+                    ["type"] = "clip",
+                    ["format"] = "kmb_handle_v1",
+                    ["handle"] = info.Handle,
+                    ["start_frame"] = clip.startFrame,
+                    ["end_frame_exclusive"] = end,
+                    ["is_history"] = false,
+                    ["mask"] = SerializeMask(clip.mask, jointNames)
+                });
+            }
+            return output.Count > 0 ? output.ToString(Formatting.None) : string.Empty;
+        }
+
+        private static JArray SerializeMask(KimodoArdyConstraintMask value, string[] jointNames)
+        {
+            value ??= new KimodoArdyConstraintMask();
+            var byName = new Dictionary<string, KimodoArdyPositionMask>(StringComparer.OrdinalIgnoreCase);
+            foreach (KimodoArdyJointPositionMask joint in value.joints ?? new List<KimodoArdyJointPositionMask>())
+            {
+                if (joint == null || string.IsNullOrWhiteSpace(joint.jointName) || !Array.Exists(jointNames, name => string.Equals(name, joint.jointName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException($"Future clip mask contains unknown ARDY joint '{joint?.jointName}'.");
+                }
+                byName[joint.jointName] = joint.position ?? new KimodoArdyPositionMask();
+            }
+            KimodoArdyPositionMask root = value.rootPosition ?? new KimodoArdyPositionMask();
+            var result = new JArray(root.x, root.y, root.z, value.rootHeading);
+            for (int index = 1; index < jointNames.Length; index++)
+            {
+                byName.TryGetValue(jointNames[index], out KimodoArdyPositionMask position);
+                position ??= new KimodoArdyPositionMask();
+                result.Add(position.x);
+                result.Add(position.y);
+                result.Add(position.z);
+            }
+            return result;
+        }
+
         internal static string MergeHandles(
             IReadOnlyList<string> handles,
             int maxHandles,
@@ -142,7 +398,8 @@ namespace KimodoBridge
                         ["format"] = "kmb_handle_v1",
                         ["handle"] = handle.Trim(),
                         ["start_frame"] = 0,
-                        ["end_frame_exclusive"] = horizonFrames
+                        ["end_frame_exclusive"] = horizonFrames,
+                        ["is_history"] = true
                     });
                 }
             }
@@ -151,7 +408,7 @@ namespace KimodoBridge
             return output.Count > 0 ? output.ToString(Formatting.None) : string.Empty;
         }
 
-        private static void AppendJson(JArray output, string json)
+        internal static void AppendJson(JArray output, string json)
         {
             if (string.IsNullOrWhiteSpace(json))
             {

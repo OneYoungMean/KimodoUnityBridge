@@ -345,13 +345,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (sourceClip.isHumanMotion)
-            {
-                muscleClip = sourceClip;
-                frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
-                return true;
-            }
-
             string cacheName = KimodoRetargetEditorCacheUtility.BuildNamedCacheName(
                 sourceClip,
                 KimodoRetargetEditorCacheUtility.MuscleCacheType,

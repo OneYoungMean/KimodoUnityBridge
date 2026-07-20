@@ -452,7 +452,7 @@ namespace KimodoBridge.Editor
             string sourceName = SanitizeAssetFileName(sourceClip != null ? sourceClip.name : "Clip", "Clip");
             if (isMuscleClip)
             {
-                return $"{sourceName}{MuscleCacheNameSuffix}";
+                return $"{sourceName}-49d{MuscleCacheNameSuffix}";
             }
 
             string avatarName = SanitizeAssetFileName(targetAvatar != null ? targetAvatar.name : "Avatar", "Avatar");

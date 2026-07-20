@@ -21,6 +21,8 @@ namespace KimodoBridge.Editor
         private SerializedProperty randomProp;
         private SerializedProperty seed;
         private SerializedProperty inOutConstraintModeProp;
+        private SerializedProperty enableInConstraint;
+        private SerializedProperty enableOutConstraint;
         private SerializedProperty showConstraint;
         private SerializedProperty normalizeConstraintOrigin;
 
@@ -67,6 +69,8 @@ namespace KimodoBridge.Editor
             randomProp = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("seed");
             inOutConstraintModeProp = serializedObject.FindProperty("inOutConstraintMode");
+            enableInConstraint = serializedObject.FindProperty("enableInConstraint");
+            enableOutConstraint = serializedObject.FindProperty("enableOutConstraint");
             showConstraint = serializedObject.FindProperty("showConstraint");
             normalizeConstraintOrigin = serializedObject.FindProperty("normalizeConstraintOrigin");
 
@@ -181,6 +185,15 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.PropertyField(
                     inOutConstraintModeProp,
                     new GUIContent("InOut Constraint", "None disables boundary constraints. Inside uses this clip's own start/end poses. Outside uses neighboring clip boundary poses."));
+                if ((KimodoInOutConstraintMode)inOutConstraintModeProp.enumValueIndex != KimodoInOutConstraintMode.None)
+                {
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        EditorGUILayout.PrefixLabel("Boundaries");
+                        EditorGUILayout.PropertyField(enableInConstraint, new GUIContent("In"), GUILayout.Width(42f));
+                        EditorGUILayout.PropertyField(enableOutConstraint, new GUIContent("Out"), GUILayout.Width(50f));
+                    }
+                }
             }
             if (showConstraint != null)
             {
@@ -685,6 +698,8 @@ namespace KimodoBridge.Editor
                 KimodoInOutConstraintAdapter.TryBuildBoundarySamplesForPreview(
                     timelineClip,
                     clip.inOutConstraintMode,
+                    clip.enableInConstraint,
+                    clip.enableOutConstraint,
                     KimodoInOutConstraintAdapter.ClampFrameCount(previewGenerationFrames),
                     out KimodoMarkerSampleResult beginBoundaryPose,
                     out KimodoMarkerSampleResult endBoundaryPose,

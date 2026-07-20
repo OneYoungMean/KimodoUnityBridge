@@ -65,6 +65,10 @@ namespace KimodoBridge
         private Avatar customRetargetAvatar;
         [Tooltip("Choose whether to disable InOutConstraint, use this clip's own start/end poses, or use neighboring clip boundary poses.")]
         public KimodoInOutConstraintMode inOutConstraintMode = KimodoInOutConstraintMode.None;
+        [Tooltip("Generate the In boundary constraint when InOut Constraint is Inside or Outside.")]
+        public bool enableInConstraint = true;
+        [Tooltip("Generate the Out boundary constraint when InOut Constraint is Inside or Outside.")]
+        public bool enableOutConstraint = true;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
         [Tooltip("Normalize constraint root positions around the first available first-frame constraint anchor before export.")]

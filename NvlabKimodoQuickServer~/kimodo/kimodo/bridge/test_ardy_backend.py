@@ -42,6 +42,34 @@ class _ContactMotionRep:
         return features
 
 
+class _FutureMotionRep:
+    def __init__(self, skeleton):
+        self.skeleton = skeleton
+        self.motion_rep_dim = 11
+        self.slice_dict = {
+            "root_pos": slice(0, 3),
+            "global_root_heading": slice(3, 5),
+            "local_joints_positions": slice(5, 11),
+        }
+
+    def __call__(self, *, local_joint_rots, root_positions, to_normalize):
+        assert to_normalize
+        frames = int(local_joint_rots.shape[0])
+        global_rots = torch.empty_like(local_joint_rots)
+        positions = torch.zeros(frames, 3, 3, dtype=local_joint_rots.dtype)
+        offsets = torch.tensor([[0, 0, 0], [0, 1, 0], [1, 0, 0]], dtype=local_joint_rots.dtype)
+        global_rots[:, 0] = local_joint_rots[:, 0]
+        for joint in (1, 2):
+            parent = int(self.skeleton.joint_parents[joint])
+            global_rots[:, joint] = global_rots[:, parent] @ local_joint_rots[:, joint]
+            positions[:, joint] = positions[:, parent] + (global_rots[:, parent] @ offsets[joint].reshape(3, 1)).reshape(frames, 3)
+        ground = torch.zeros_like(root_positions)
+        ground[:, 1] = root_positions[:, 1]
+        local_positions = positions[:, 1:] + ground[:, None]
+        heading = torch.stack((global_rots[:, 0, 0, 0], global_rots[:, 0, 0, 2]), dim=-1)
+        return torch.cat((root_positions, heading, local_positions.reshape(frames, -1)), dim=-1)
+
+
 class _StreamingMotionRep:
     def __init__(self):
         self.skeleton = SimpleNamespace(
@@ -62,6 +90,8 @@ class _StreamingMotionRep:
             "foot_contacts": torch.zeros(1, frames, 4),
         }
 
+    root_slice = slice(0, 1)
+
 
 class _StreamingModel:
     def __init__(self):
@@ -80,6 +110,21 @@ class _StreamingModel:
         if init_history_sequence is not None:
             result[:, : init_history_sequence.shape[1]] = init_history_sequence
         return result
+
+
+class _TwoPassModel:
+    def __init__(self, first_pass_frames=None):
+        self.motion_rep = SimpleNamespace(root_slice=slice(0, 5))
+        self.calls = []
+        self.first_pass_frames = first_pass_frames
+
+    def autoregressive_step(self, *, motion_mask, observed_motion, **kwargs):
+        self.calls.append((motion_mask, observed_motion))
+        if len(self.calls) == 1:
+            value = torch.zeros(1, self.first_pass_frames or kwargs["num_frames"], 8)
+            value[..., :5] = 7
+            return value
+        return observed_motion.clone()
 
 
 def _stream_profile():
@@ -148,6 +193,78 @@ class ArdyBackendSelfCheck(unittest.TestCase):
             ardy_backend.resolve_stream_capacity_frames({"duration": 0.25}, _stream_profile()),
             8,
         )
+
+    def test_ardy_stream_slices_future_constraints_by_horizon(self):
+        model = _StreamingModel()
+        profile = _stream_profile()
+        generator = ardy_backend.ArdyStreamGenerator.__new__(ardy_backend.ArdyStreamGenerator)
+        generator.model = model
+        generator.profile = profile
+        generator.prompt = "test."
+        generator.diffusion_steps = 1
+        generator.cfg_text_weight = 2.0
+        generator.history = None
+        generator.history_len = 0
+        generator.total_frames = 6
+        generator.postprocess_constraints = []
+        generator._first_horizon = True
+        generator._root_body_pass = False
+        generator._future_clip = True
+        generator._windowed_constraints = True
+        generator._future_offset = 0
+        generator.observed_motion = torch.zeros(1, 6, 3)
+        generator.observed_motion[0, :, 0] = torch.arange(6) + 10
+        generator.motion_mask = torch.ones_like(generator.observed_motion)
+        generator._cpu_rng_state = torch.Generator(device="cpu").manual_seed(1).get_state()
+        generator._cuda_rng_state = None
+        masks = []
+        original = model.autoregressive_step
+
+        def capture(**kwargs):
+            masks.append(kwargs["motion_mask"].clone())
+            return original(**kwargs)
+
+        model.autoregressive_step = capture
+        generator.generate_horizon()
+        generator.generate_horizon()
+        generator.generate_horizon()
+        np.testing.assert_array_equal(masks[0][0, :, 0].numpy(), [1, 1, 1, 1])
+        np.testing.assert_array_equal(masks[1][0, -4:, 0].numpy(), [1, 1, 0, 0])
+        np.testing.assert_array_equal(masks[2][0, -4:, 0].numpy(), [0, 0, 0, 0])
+
+    def test_ardy_stream_slices_standard_constraints_by_horizon(self):
+        generator = ardy_backend.ArdyStreamGenerator.__new__(ardy_backend.ArdyStreamGenerator)
+        generator.model = _StreamingModel()
+        generator.profile = _stream_profile()
+        generator.prompt = "test."
+        generator.diffusion_steps = 1
+        generator.cfg_text_weight = 2.0
+        generator.history = None
+        generator.history_len = 0
+        generator.total_frames = 8
+        generator.postprocess_constraints = []
+        generator._first_horizon = True
+        generator._root_body_pass = False
+        generator._future_clip = False
+        generator._windowed_constraints = True
+        generator._future_offset = 0
+        generator.observed_motion = torch.zeros(1, 8, 3)
+        generator.motion_mask = torch.ones_like(generator.observed_motion)
+        generator._cpu_rng_state = torch.Generator(device="cpu").manual_seed(1).get_state()
+        generator._cuda_rng_state = None
+        masks = []
+        original = generator.model.autoregressive_step
+
+        def capture(**kwargs):
+            masks.append(kwargs["motion_mask"].clone())
+            return original(**kwargs)
+
+        generator.model.autoregressive_step = capture
+        generator.generate_horizon()
+        generator.generate_horizon()
+        np.testing.assert_array_equal(masks[0][0, -4:, 0].numpy(), [1, 1, 1, 1])
+        np.testing.assert_array_equal(masks[1][0, -4:, 0].numpy(), [1, 1, 1, 1])
+
     def test_animation_handle_store_lifecycle_and_pending_release(self):
         skeleton = SimpleNamespace(
             bone_order_names=["Hips", "LeftFoot"],
@@ -278,6 +395,22 @@ class ArdyBackendSelfCheck(unittest.TestCase):
             ),
             ("animation:new", "animation:old"),
         )
+
+    def test_kimodo_rejects_ardy_clip_constraint(self):
+        with self.assertRaisesRegex(ValueError, "only by ARDY"):
+            bridge_server._load_constraints(
+                json_text(
+                    {
+                        "type": "clip",
+                        "format": "kmb_handle_v1",
+                        "handle": "animation:test",
+                        "is_history": False,
+                        "mask": [],
+                    }
+                ),
+                SimpleNamespace(skeleton=SimpleNamespace()),
+            )
+
     def test_text_weight_protocol_maps_exponent_and_rejects_out_of_range(self):
         self.assertEqual(bridge_server._resolve_cfg_text_weight({}), 2.0)
         self.assertEqual(bridge_server._resolve_cfg_text_weight({"text_weight": 0}), 1.0)
@@ -294,7 +427,7 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         self.assertEqual((core.source_fps, core.horizon_frames, core.rig_profile), (20.0, 40, "cskel27"))
         self.assertEqual((core8.source_fps, core8.horizon_frames, core8.rig_profile), (20.0, 8, "cskel27"))
         self.assertEqual((g18.source_fps, g18.horizon_frames, g18.rig_profile), (25.0, 8, "g1skel34"))
-        self.assertEqual({core.max_diffusion_steps, core8.max_diffusion_steps, g1.max_diffusion_steps, g18.max_diffusion_steps}, {50})
+        self.assertEqual({core.max_diffusion_steps, core8.max_diffusion_steps, g1.max_diffusion_steps, g18.max_diffusion_steps}, {10})
         self.assertEqual(core.max_context_frames, 200)
         self.assertTrue(core.postprocess)
         self.assertFalse(g1.postprocess)
@@ -354,6 +487,49 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         )
         np.testing.assert_array_equal(indices.numpy(), [[0], [1]])
         np.testing.assert_allclose(values.numpy(), [2.0, 3.0])
+
+    def test_root_body_pass_locks_generated_root_and_preserves_body_mask(self):
+        model = _TwoPassModel()
+        observed = torch.zeros(1, 4, 8)
+        observed[..., 6] = 3
+        mask = torch.zeros_like(observed)
+        mask[..., 6] = 1
+        result = ardy_backend._autoregressive_step(
+            model,
+            num_frames=4,
+            num_denoising_steps=1,
+            motion_mask=mask,
+            observed_motion=observed,
+            cfg_weight=(2.0, 2.0),
+            texts=["test"],
+            init_history_sequence=None,
+            root_body_pass=True,
+        )
+        self.assertEqual(len(model.calls), 2)
+        self.assertIsNone(model.calls[0][0])
+        np.testing.assert_allclose(model.calls[1][1][..., :5].numpy(), 7)
+        np.testing.assert_allclose(result[..., 6].numpy(), 3)
+        np.testing.assert_array_equal(model.calls[1][0][0, 0].numpy(), [1, 1, 1, 1, 1, 0, 1, 0])
+
+    def test_root_body_pass_only_locks_root_frames_produced_by_current_horizon(self):
+        model = _TwoPassModel(first_pass_frames=4)
+        observed = torch.ones(1, 8, 8)
+        mask = torch.ones_like(observed)
+        ardy_backend._autoregressive_step(
+            model,
+            num_frames=8,
+            num_denoising_steps=1,
+            motion_mask=mask,
+            observed_motion=observed,
+            cfg_weight=(2.0, 2.0),
+            texts=["test"],
+            init_history_sequence=None,
+            root_body_pass=True,
+        )
+        np.testing.assert_allclose(model.calls[1][1][0, :4, :5].numpy(), 7)
+        np.testing.assert_allclose(model.calls[1][1][0, 4:, :5].numpy(), 0)
+        np.testing.assert_allclose(model.calls[1][0][0, :4, :5].numpy(), 1)
+        np.testing.assert_allclose(model.calls[1][0][0, 4:, :5].numpy(), 0)
 
     def test_handle_and_file_round_trip_and_terminal_miss(self):
         archive = Path(__file__).resolve().parents[3] / "archive" / "test_artifacts" / str(os.getpid())
@@ -460,6 +636,68 @@ class ArdyBackendSelfCheck(unittest.TestCase):
                 fingerprint="wrong-fingerprint",
                 fps=profile.source_fps,
             )
+
+    def test_future_kmb_mask_uses_root_relative_positions_and_later_clip_overrides(self):
+        archive = Path(__file__).resolve().parents[3] / "archive" / "test_artifacts" / f"future-{os.getpid()}"
+        skeleton = SimpleNamespace(
+            bone_order_names=["Hips", "Spine", "Hand"],
+            joint_parents=torch.tensor([-1, 0, 1]),
+        )
+        model = SimpleNamespace(
+            name="ardy-future-test",
+            fps=20.0,
+            skeleton=skeleton,
+            motion_rep=_FutureMotionRep(skeleton),
+            device="cpu",
+        )
+        profile = SimpleNamespace(
+            model_name=model.name,
+            source_fps=20.0,
+            motion_rep_fingerprint="future-rep-v1",
+            frames_per_token=4,
+            horizon_frames=4,
+            max_context_frames=12,
+        )
+        spool = animation_handles.AnimationHandleStore(byte_quota=1024 * 1024)
+        first = spool.publish(_payload(model, 10.0), motion_rep_fingerprint=profile.motion_rep_fingerprint)["handle"]
+        second = spool.publish(_payload(model, 20.0), motion_rep_fingerprint=profile.motion_rep_fingerprint)["handle"]
+        constraints = json_text(
+            {
+                "type": "clip",
+                "format": "kmb_handle_v1",
+                "handle": first,
+                "is_history": False,
+                "start_frame": 0,
+                "end_frame_exclusive": 4,
+                "mask": [True] * 10,
+            },
+            {
+                "type": "clip",
+                "format": "kmb_handle_v1",
+                "handle": second,
+                "is_history": False,
+                "start_frame": 0,
+                "end_frame_exclusive": 4,
+                "mask": [True, False, False, False, False, True, False, False, False, False],
+            },
+        )
+        history, observed, mask, total, history_len, _ = ardy_backend.prepare_generation_inputs(
+            model, profile, constraints, spool, archive
+        )
+        self.assertIsNone(history)
+        self.assertEqual((total, history_len), (4, 0))
+        np.testing.assert_allclose(observed[0, :, 0].numpy(), [20, 21, 22, 23])
+        np.testing.assert_allclose(observed[0, :, 6].numpy(), 1.0)
+        np.testing.assert_array_equal(
+            mask[0, 0].numpy(),
+            [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+        )
+
+        missing_mask = json_text(
+            {"type": "clip", "format": "kmb_handle_v1", "handle": first, "is_history": False}
+        )
+        with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "Future clip mask"):
+            ardy_backend.prepare_generation_inputs(model, profile, missing_mask, spool, archive)
 
     def test_kmb_preserves_foot_contacts(self):
         skeleton = SimpleNamespace(

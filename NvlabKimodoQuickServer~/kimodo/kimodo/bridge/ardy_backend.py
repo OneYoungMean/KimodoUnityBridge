@@ -51,7 +51,7 @@ class ArdyStreamGenerator:
             self.history,
             self.observed_motion,
             self.motion_mask,
-            _,
+            self.total_frames,
             self.history_len,
             self.postprocess_constraints,
         ) = prepare_generation_inputs(
@@ -60,8 +60,16 @@ class ArdyStreamGenerator:
             task_request.get("constraints_json", ""),
             spool,
             quickserver_root,
+            window_future_clips=True,
         )
         self._first_horizon = True
+        self._root_body_pass = _has_future_clip_body_constraints(task_request.get("constraints_json", ""))
+        self._future_clip = _has_future_clips(task_request.get("constraints_json", ""))
+        self._windowed_constraints = self.observed_motion is not None
+        self._future_offset = 0
+        if self._windowed_constraints:
+            self.observed_motion = self.observed_motion[:, self.history_len :].clone()
+            self.motion_mask = self.motion_mask[:, self.history_len :].clone()
         self._cpu_rng_state = torch.Generator(device="cpu").manual_seed(self.resolved_seed).get_state()
         self._cuda_rng_state = None
         if str(model.device).startswith("cuda"):
@@ -71,28 +79,55 @@ class ArdyStreamGenerator:
         import torch
 
         history_len = int(self.history.shape[1]) if self.history is not None else 0
-        total_frames = history_len + int(self.profile.horizon_frames)
+        horizon = int(self.profile.horizon_frames)
+        total_frames = history_len + horizon
+        observed_motion = None
+        motion_mask = None
+        root_body_pass = self._root_body_pass
+        future_clip_active = False
+        if self._windowed_constraints:
+            future_observed = self.observed_motion[:, self._future_offset : self._future_offset + horizon]
+            future_mask = self.motion_mask[:, self._future_offset : self._future_offset + horizon]
+            if future_observed.shape[1] < horizon:
+                pad = horizon - int(future_observed.shape[1])
+                shape = (1, pad, int(self.observed_motion.shape[-1]))
+                future_observed = torch.cat(
+                    (future_observed, torch.zeros(shape, dtype=self.observed_motion.dtype, device=self.model.device)),
+                    dim=1,
+                )
+                future_mask = torch.cat(
+                    (future_mask, torch.zeros(shape, dtype=self.motion_mask.dtype, device=self.model.device)),
+                    dim=1,
+                )
+            observed_motion = torch.cat(
+                (torch.zeros(1, history_len, future_observed.shape[-1], device=self.model.device), future_observed),
+                dim=1,
+            )
+            motion_mask = torch.cat((torch.zeros_like(observed_motion[:, :history_len]), future_mask), dim=1)
+            future_clip_active = bool(future_mask.any())
+            root_body_pass = self._root_body_pass and bool(future_mask[..., self.model.motion_rep.root_slice.stop :].any())
         devices = [torch.device(self.model.device).index or 0] if str(self.model.device).startswith("cuda") else []
         with torch.random.fork_rng(devices=devices):
             torch.random.set_rng_state(self._cpu_rng_state)
             if self._cuda_rng_state is not None:
                 torch.cuda.set_rng_state(self._cuda_rng_state, device=self.model.device)
             with torch.no_grad():
-                motion = self.model.autoregressive_step(
+                motion = _autoregressive_step(
+                    self.model,
                     num_frames=total_frames,
                     num_denoising_steps=self.diffusion_steps,
-                    motion_mask=self.motion_mask if self._first_horizon else None,
-                    observed_motion=self.observed_motion if self._first_horizon else None,
+                    motion_mask=motion_mask,
+                    observed_motion=observed_motion,
                     cfg_weight=(self.cfg_text_weight, self.profile.cfg_constraint_weight),
                     texts=[self.prompt],
                     init_history_sequence=self.history,
-                    cancel_callback=None,
+                    root_body_pass=root_body_pass,
                 )
             self._cpu_rng_state = torch.random.get_rng_state()
             if self._cuda_rng_state is not None:
                 self._cuda_rng_state = torch.cuda.get_rng_state(device=self.model.device)
 
-        generated = motion[:, history_len : history_len + int(self.profile.horizon_frames)]
+        generated = motion[:, history_len : history_len + horizon]
         max_history = (
             (int(self.profile.max_context_frames) - int(self.profile.horizon_frames))
             // int(self.profile.frames_per_token)
@@ -100,16 +135,28 @@ class ArdyStreamGenerator:
         )
         self.history = motion[:, -min(max_history, int(motion.shape[1])) :].detach() if max_history > 0 else None
         output = self.model.motion_rep.inverse(generated, is_normalized=True)
+        postprocess_constraints = (
+            [
+                constraint.crop_move(self._future_offset, self._future_offset + horizon)
+                for constraint in self.postprocess_constraints
+            ]
+            if self._windowed_constraints
+            else (self.postprocess_constraints if self._first_horizon else [])
+        )
         output = _finalize_output(
             output,
             self.model,
-            self.postprocess_constraints if self._first_horizon else [],
-            bool(getattr(self.profile, "postprocess", False)),
+            postprocess_constraints,
+            bool(getattr(self.profile, "postprocess", False)) and not future_clip_active,
         )
+        if self._windowed_constraints:
+            self._future_offset += horizon
         self._first_horizon = False
-        self.observed_motion = None
-        self.motion_mask = None
-        self.postprocess_constraints = []
+        if not self._windowed_constraints:
+            self.observed_motion = None
+            self.motion_mask = None
+        if not self._windowed_constraints:
+            self.postprocess_constraints = []
         return output
 
     def close(self) -> None:
@@ -291,6 +338,137 @@ def _future_frame_indices(constraints: list[dict[str, Any]]) -> list[int]:
     return result
 
 
+def _clip_is_history(item: dict[str, Any]) -> bool:
+    value = item.get("is_history", True)
+    if not isinstance(value, bool):
+        raise ArdyBackendError("clip is_history must be a boolean.")
+    return value
+
+
+def _clip_slice(item: dict[str, Any], motion: KmbMotion) -> tuple[int, int]:
+    start_value = item.get("start_frame", 0)
+    end_value = item.get("end_frame_exclusive", motion.num_frames)
+    if (
+        isinstance(start_value, bool)
+        or isinstance(end_value, bool)
+        or not isinstance(start_value, int)
+        or not isinstance(end_value, int)
+    ):
+        raise ArdyBackendError("Clip slice bounds must be integers.")
+    start = int(start_value)
+    end = int(end_value)
+    if not 0 <= start < end <= motion.num_frames:
+        raise ArdyBackendError(
+            f"Invalid half-open clip slice [{start}, {end}) for {motion.num_frames} frames."
+        )
+    return start, end
+
+
+def _future_clip_mask(item: dict[str, Any], joint_count: int) -> list[bool]:
+    values = item.get("mask")
+    expected = 4 + max(0, int(joint_count) - 1) * 3
+    if not isinstance(values, list) or len(values) != expected or any(not isinstance(value, bool) for value in values):
+        raise ArdyBackendError(
+            "Future clip mask must be a boolean array with "
+            f"{expected} entries: Root XYZ, heading, then non-Root joint XYZ in KMB joint order."
+        )
+    return values
+
+
+def _apply_future_clip(
+    observed_motion: Any,
+    motion_mask: Any,
+    source: Any,
+    mask: list[bool],
+    history_len: int,
+    motion_rep: Any,
+) -> None:
+    frame_count = int(source.shape[1])
+    target = slice(history_len, history_len + frame_count)
+    root_slice = motion_rep.slice_dict["root_pos"]
+    heading_slice = motion_rep.slice_dict["global_root_heading"]
+    joints_slice = motion_rep.slice_dict["local_joints_positions"]
+
+    for axis in range(3):
+        channel = root_slice.start + axis
+        enabled = mask[axis]
+        observed_motion[:, target, channel] = source[:, :, channel] if enabled else 0
+        motion_mask[:, target, channel] = float(enabled)
+
+    heading_enabled = mask[3]
+    observed_motion[:, target, heading_slice] = source[:, :, heading_slice] if heading_enabled else 0
+    motion_mask[:, target, heading_slice] = float(heading_enabled)
+
+    joint_mask = source.new_tensor(mask[4:], dtype=motion_mask.dtype).reshape(1, 1, -1)
+    observed_motion[:, target, joints_slice] = source[:, :, joints_slice] * joint_mask
+    motion_mask[:, target, joints_slice] = joint_mask
+
+
+def _has_future_clip_body_constraints(constraints_json: Any) -> bool:
+    return any(
+        item.get("type") == "clip"
+        and item.get("is_history") is False
+        and isinstance(item.get("mask"), list)
+        and any(value is True for value in item["mask"][4:])
+        for item in _parse_constraints(constraints_json)
+    )
+
+
+def _has_future_clips(constraints_json: Any) -> bool:
+    return any(
+        item.get("type") == "clip" and item.get("is_history") is False
+        for item in _parse_constraints(constraints_json)
+    )
+
+
+def _autoregressive_step(
+    model: Any,
+    *,
+    num_frames: int,
+    num_denoising_steps: int,
+    motion_mask: Any,
+    observed_motion: Any,
+    cfg_weight: tuple[float, float],
+    texts: list[str],
+    init_history_sequence: Any,
+    root_body_pass: bool,
+):
+    kwargs = {
+        "num_frames": num_frames,
+        "num_denoising_steps": num_denoising_steps,
+        "cfg_weight": cfg_weight,
+        "texts": texts,
+        "init_history_sequence": init_history_sequence,
+        "cancel_callback": None,
+    }
+    if not root_body_pass:
+        return model.autoregressive_step(
+            motion_mask=motion_mask,
+            observed_motion=observed_motion,
+            **kwargs,
+        )
+
+    root_motion = model.autoregressive_step(
+        motion_mask=None,
+        observed_motion=None,
+        **kwargs,
+    )
+    body_observed = observed_motion.clone()
+    body_mask = motion_mask.clone()
+    history_len = 0 if init_history_sequence is None else int(init_history_sequence.shape[1])
+    root_slice = model.motion_rep.root_slice
+    root_end = min(int(body_observed.shape[1]), int(root_motion.shape[1]))
+    body_observed[:, history_len:, root_slice] = 0
+    body_mask[:, history_len:, root_slice] = 0
+    body_observed[:, history_len:root_end, root_slice] = root_motion[:, history_len:root_end, root_slice]
+    body_mask[:, history_len:root_end, root_slice] = 1
+    return model.autoregressive_step(
+        motion_mask=body_mask,
+        observed_motion=body_observed,
+        **kwargs,
+    )
+
+
 def _clip_payload(item: dict[str, Any], spool: Any, profile: Any, quickserver_root: str | Path) -> bytes:
     clip_format = str(item.get("format") or "")
     if clip_format in {"ardy_handle_v1", "kmb_handle_v1"}:
@@ -328,6 +506,7 @@ def prepare_generation_inputs(
     constraints_json: Any,
     spool: Any,
     quickserver_root: str | Path,
+    window_future_clips: bool = False,
 ):
     import torch
     from ardy.constraints import load_constraints_lst
@@ -336,10 +515,29 @@ def prepare_generation_inputs(
     items = _parse_constraints(constraints_json)
     future_items = [item for item in items if item.get("type") != "clip"]
     future_indices = _future_frame_indices(future_items)
+    clips: list[tuple[dict[str, Any], KmbMotion, int, int, list[bool] | None]] = []
+    future_clip_frames = 0
+    for item in items:
+        if item.get("type") != "clip":
+            continue
+        motion = parse_kmb1(_clip_payload(item, spool, profile, quickserver_root))
+        _validate_kmb(motion, model, profile)
+        start, end = _clip_slice(item, motion)
+        is_history = _clip_is_history(item)
+        mask = None
+        if is_history:
+            if "mask" in item:
+                raise ArdyBackendError("History clips are complete KMB motion and cannot specify mask.")
+        else:
+            mask = _future_clip_mask(item, len(motion.joint_names))
+            future_clip_frames = max(future_clip_frames, end - start)
+        clips.append((item, motion, start, end, mask))
+
     patch = int(profile.frames_per_token)
-    future_frames = max(int(profile.horizon_frames), max(future_indices, default=-1) + 1)
+    future_frames = max(int(profile.horizon_frames), max(future_indices, default=-1) + 1, future_clip_frames)
     future_frames = int(math.ceil(future_frames / patch) * patch)
-    max_history = ((int(profile.max_context_frames) - future_frames) // patch) * patch
+    context_future_frames = int(profile.horizon_frames) if window_future_clips else future_frames
+    max_history = ((int(profile.max_context_frames) - context_future_frames) // patch) * patch
     if max_history < 0:
         raise ArdyBackendError("Future constraints exceed the registered ARDY context window.")
 
@@ -347,26 +545,9 @@ def prepare_generation_inputs(
     quats: list[np.ndarray] = []
     contacts: list[np.ndarray] = []
     has_stored_contacts = True
-    for item in items:
-        if item.get("type") != "clip":
+    for item, motion, start, end, _ in clips:
+        if not _clip_is_history(item):
             continue
-        motion = parse_kmb1(_clip_payload(item, spool, profile, quickserver_root))
-        _validate_kmb(motion, model, profile)
-        start_value = item.get("start_frame", 0)
-        end_value = item.get("end_frame_exclusive", motion.num_frames)
-        if (
-            isinstance(start_value, bool)
-            or isinstance(end_value, bool)
-            or not isinstance(start_value, int)
-            or not isinstance(end_value, int)
-        ):
-            raise ArdyBackendError("Clip slice bounds must be integers.")
-        start = int(start_value)
-        end = int(end_value)
-        if not 0 <= start < end <= motion.num_frames:
-            raise ArdyBackendError(
-                f"Invalid half-open clip slice [{start}, {end}) for {motion.num_frames} frames."
-            )
         roots.append(motion.root_positions[start:end])
         quats.append(motion.local_rot_quats[start:end])
         if motion.foot_contacts is None:
@@ -448,6 +629,27 @@ def prepare_generation_inputs(
         if history_len:
             observed_motion[:, :history_len] = 0
             motion_mask[:, :history_len] = 0
+
+    future_clips = [entry for entry in clips if not _clip_is_history(entry[0])]
+    if future_clips:
+        if observed_motion is None:
+            observed_motion = torch.zeros(
+                1, total_frames, model.motion_rep.motion_rep_dim, dtype=torch.float32, device=model.device
+            )
+            motion_mask = torch.zeros_like(observed_motion)
+        for _, motion, start, end, mask in future_clips:
+            local_quats = torch.as_tensor(motion.local_rot_quats[start:end], dtype=torch.float32, device=model.device)
+            norms = torch.linalg.vector_norm(local_quats, dim=-1, keepdim=True)
+            if (norms < 1e-6).any():
+                raise ArdyBackendError("KMB1 contains a zero-length local rotation quaternion.")
+            source = model.motion_rep(
+                local_joint_rots=quaternion_to_matrix(local_quats / norms),
+                root_positions=torch.as_tensor(motion.root_positions[start:end], dtype=torch.float32, device=model.device),
+                to_normalize=True,
+            )
+            if source.ndim == 2:
+                source = source.unsqueeze(0)
+            _apply_future_clip(observed_motion, motion_mask, source, mask or [], history_len, model.motion_rep)
     return init_history, observed_motion, motion_mask, total_frames, history_len, postprocess_constraints
 
 
@@ -512,7 +714,8 @@ def execute_generate(
 
     check_cancel()
     with torch.no_grad():
-        motion = model.autoregressive_step(
+        motion = _autoregressive_step(
+            model,
             num_frames=total_frames,
             num_denoising_steps=diffusion_steps,
             motion_mask=motion_mask,
@@ -520,7 +723,7 @@ def execute_generate(
             cfg_weight=(cfg_text_weight, profile.cfg_constraint_weight),
             texts=[prompt],
             init_history_sequence=init_history,
-            cancel_callback=None,
+            root_body_pass=_has_future_clip_body_constraints(task_request.get("constraints_json", "")),
         )
         generated = motion[:, history_len : history_len + int(profile.horizon_frames)]
         output = model.motion_rep.inverse(generated, is_normalized=True)
@@ -528,7 +731,7 @@ def execute_generate(
             output,
             model,
             postprocess_constraints,
-            bool(getattr(profile, "postprocess", False)),
+            bool(getattr(profile, "postprocess", False)) and not _has_future_clips(task_request.get("constraints_json", "")),
         )
     check_cancel()
     payload = bridge_runtime_helpers._build_generate_flatbuffer_payload(model, output, sample_index=0)

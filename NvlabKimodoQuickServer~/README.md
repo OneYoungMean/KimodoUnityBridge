@@ -82,6 +82,12 @@ QuickServer keeps uploaded/generated KMB animations in a process-local, quota-li
 `animation.upload` has a three-second end-to-end limit. Static Handles are server-instance-global, immutable, repeat-downloadable, and use capacity-based LRU fallback. ARDY `kmb_handle_v1` results are Session-bound streams backed by two fixed buffers: Generate returns the Handle before the first Horizon is ready, download destructively swaps and returns the currently valid frames, and Cancel closes the whole stream after any in-flight Horizon finishes. Buffer capacity is `duration × FPS` rounded up to a Horizon multiple.
 
 Handles expire when QuickServer restarts. Capacity-based LRU cleanup is a fallback for clients that fail to release; handles do not expire by age. Production clip constraints use `format=kmb_handle_v1`; `ardy_file_v1` is available only behind the explicit test-file flag.
+
+### ARDY clip constraints
+
+A clip without `is_history` remains a complete history clip for compatibility, and history clips cannot carry a mask. A future clip uses an uploaded static KMB Handle and sets `is_history=false`. Its required flat boolean mask has `4 + (joint_count - 1) * 3` entries ordered as `Root.x, Root.y, Root.z, RootHeading`, followed by non-Root joint XYZ channels in strict KMB/ARDY Profile order. `RootHeading` controls both internal cos/sin channels. `true` constrains a channel and `false` leaves it free. Later clips overwrite earlier clips at the same frame/channel; a later `false` also clears an earlier constraint.
+
+Python runs FK from KMB root positions and local quaternions into ARDY root-relative joint positions. Any future body-position mask automatically runs a free Root pass followed by a Body pass with generated Root XYZ and heading locked. ARDY postprocess is skipped while a future clip is active, with no external output overwrite. Diffusion steps remain in the checkpoint-native range 1–10. Run `Env~\Scripts\python.exe tools\test_ardy_clip_constraint_tpose.py --models-root C:\nvlab\models~ --model ardy-core --steps 10` for the real-checkpoint upper-body T-pose smoke test.
 - FlatBuffer responses still use `byte_length` followed immediately by the binary payload for that same task.
 
 ## Parameters

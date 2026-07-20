@@ -25,6 +25,15 @@ namespace KimodoBridge
         public AnimationHandleOperator HandleOperator { get; set; }
     }
 
+    public sealed class KimodoTaskClosedEvent
+    {
+        public string TaskId { get; internal set; } = string.Empty;
+        public string SessionId { get; internal set; } = string.Empty;
+        public string TaskStatus { get; internal set; } = string.Empty;
+        public string Message { get; internal set; } = string.Empty;
+        public string Handle { get; internal set; } = string.Empty;
+    }
+
     public sealed class KimodoBridgeService : IDisposable
     {
         private sealed class ActiveLogPump
@@ -72,6 +81,7 @@ namespace KimodoBridge
         {
             this.isDefaultSession = isDefaultSession;
             protocolClient = new BridgeProtocolClient();
+            protocolClient.ProtocolEvent += OnProtocolEvent;
             processManager = GlobalProcessManager.Value;
             creationContext = SynchronizationContext.Current;
             lock (RegistryLock)
@@ -91,6 +101,7 @@ namespace KimodoBridge
         public bool IsDefaultSession => isDefaultSession;
         public bool IsDisposed => Volatile.Read(ref disposeStarted) != 0;
         public string TextEncoderStatusMessage => Volatile.Read(ref textEncoderStatusMessage) ?? string.Empty;
+        public event Action<KimodoTaskClosedEvent> TaskClosed;
 
         public Task<KimodoBridgeGenerationResult> GenerateAsync(
             string prompt,
@@ -330,6 +341,24 @@ namespace KimodoBridge
             return new AnimationHandleOperator(
                 this,
                 AnimationHandleInfo.FromJson(response?.Header?["handle_info"] as JObject));
+        }
+
+        public Task<AnimationHandleOperator> UploadAnimationAsync(
+            KimodoRawMotionData motion,
+            string modelName,
+            string description = "",
+            string motionRepFingerprint = "",
+            CancellationToken token = default)
+        {
+            if (motion == null)
+            {
+                throw new ArgumentNullException(nameof(motion));
+            }
+            return UploadAnimationAsync(
+                KimodoRawMotionUtility.ToFlatBuffer(motion, modelName),
+                description,
+                motionRepFingerprint,
+                token);
         }
 
         public async Task<AnimationHandleInfo> GetAnimationInfoAsync(
@@ -632,6 +661,33 @@ namespace KimodoBridge
             }
 
             Debug.Log(message);
+        }
+
+        private void OnProtocolEvent(JObject header)
+        {
+            if (!string.Equals(header?.Value<string>("event"), "task.closed", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            var value = new KimodoTaskClosedEvent
+            {
+                TaskId = header.Value<string>("task_id") ?? string.Empty,
+                SessionId = header.Value<string>("session_id") ?? string.Empty,
+                TaskStatus = header.Value<string>("task_status") ?? string.Empty,
+                Message = header.Value<string>("message") ?? string.Empty,
+                Handle = header.Value<string>("handle") ?? string.Empty
+            };
+            if (creationContext != null)
+            {
+                creationContext.Post(_ => SafeInvokeTaskClosed(value), null);
+                return;
+            }
+            SafeInvokeTaskClosed(value);
+        }
+
+        private void SafeInvokeTaskClosed(KimodoTaskClosedEvent value)
+        {
+            try { TaskClosed?.Invoke(value); } catch { }
         }
 
         private void ReportProgress(Action<string> progress, string message)

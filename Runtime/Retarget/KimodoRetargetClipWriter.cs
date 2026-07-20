@@ -6,6 +6,17 @@ namespace KimodoBridge
 {
     internal static class KimodoRetargetClipWriter
     {
+        // Keep generated Unity muscle clips aligned with the 49-dimension body representation.
+        // Unity's remaining humanoid muscles cover jaw, eyes and fingers and must not be exported.
+        private static readonly int[] GeneratedMuscleIndices =
+        {
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+            21, 22, 23, 24, 25, 26, 27, 28,
+            29, 30, 31, 32, 33, 34, 35, 36,
+            37, 38, 39, 40, 41, 42, 43, 44, 45,
+            46, 47, 48, 49, 50, 51, 52, 53, 54
+        };
+
         internal static bool WriteMuscleCurves(IReadOnlyList<MuscleSample> samples, AnimationClip clip, out string error)
         {
             error = string.Empty;
@@ -16,11 +27,19 @@ namespace KimodoBridge
             }
 
             string[] muscleNames = HumanTrait.MuscleName;
-            int muscleCount = Mathf.Min(HumanTrait.MuscleCount, muscleNames != null ? muscleNames.Length : 0);
-            if (muscleCount <= 0)
+            if (muscleNames == null || muscleNames.Length == 0)
             {
                 error = "HumanTrait muscle list is empty.";
                 return false;
+            }
+
+            for (int i = 0; i < GeneratedMuscleIndices.Length; i++)
+            {
+                if (GeneratedMuscleIndices[i] < 0 || GeneratedMuscleIndices[i] >= muscleNames.Length)
+                {
+                    error = $"Generated muscle index {GeneratedMuscleIndices[i]} is not available in this Unity version.";
+                    return false;
+                }
             }
 
             AnimationCurve rootTx = new AnimationCurve();
@@ -45,8 +64,8 @@ namespace KimodoBridge
             AnimationCurve rightFootQz = new AnimationCurve();
             AnimationCurve rightFootQw = new AnimationCurve();
 
-            var muscleCurves = new AnimationCurve[muscleCount];
-            for (int i = 0; i < muscleCount; i++)
+            var muscleCurves = new AnimationCurve[GeneratedMuscleIndices.Length];
+            for (int i = 0; i < muscleCurves.Length; i++)
             {
                 muscleCurves[i] = new AnimationCurve();
             }
@@ -86,9 +105,10 @@ namespace KimodoBridge
                 rightFootQz.AddKey(time, sample.rightFootRotation.z);
                 rightFootQw.AddKey(time, sample.rightFootRotation.w);
 
-                for (int muscle = 0; muscle < muscleCount; muscle++)
+                for (int muscle = 0; muscle < muscleCurves.Length; muscle++)
                 {
-                    float value = muscle < pose.muscles.Length ? pose.muscles[muscle] : 0f;
+                    int unityMuscleIndex = GeneratedMuscleIndices[muscle];
+                    float value = unityMuscleIndex < pose.muscles.Length ? pose.muscles[unityMuscleIndex] : 0f;
                     muscleCurves[muscle].AddKey(time, value);
                 }
             }
@@ -115,9 +135,9 @@ namespace KimodoBridge
             SetFloatCurve(clip, "RightFootQ.z", rightFootQz);
             SetFloatCurve(clip, "RightFootQ.w", rightFootQw);
 
-            for (int muscle = 0; muscle < muscleCount; muscle++)
+            for (int muscle = 0; muscle < muscleCurves.Length; muscle++)
             {
-                string muscleName = GetAnimatorMusclePropertyName(muscleNames[muscle]);
+                string muscleName = GetAnimatorMusclePropertyName(muscleNames[GeneratedMuscleIndices[muscle]]);
                 if (!string.IsNullOrWhiteSpace(muscleName))
                 {
                     SetFloatCurve(clip, muscleName, muscleCurves[muscle]);

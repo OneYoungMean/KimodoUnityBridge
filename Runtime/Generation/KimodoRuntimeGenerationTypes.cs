@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace KimodoBridge
@@ -13,6 +14,7 @@ namespace KimodoBridge
         public int steps;
         public float text_weight = 1f;
         public string constraints_json;
+        [NonSerialized] public List<KimodoArdyClipConstraint> ardy_future_clips;
         // Optional desired transition overlap in seconds.
         public float transition_duration;
         // Runtime configuration is sent together with generate under the current bridge protocol.
