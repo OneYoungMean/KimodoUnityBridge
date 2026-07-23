@@ -68,16 +68,16 @@ class _Client:
 class _FakeArdyStream:
     def __init__(self, request: dict, model, profile, *_args):
         self.request = request
-        self.model = model
+        self.joint_count = len(model.motion_rep.skeleton.bone_order_names)
         self.profile = profile
         self.prompt = str(request.get("prompt") or "test")
         self.resolved_seed = int(request.get("seed") or 1)
         self.closed = False
 
-    def generate_horizon(self):
+    def generate_horizon(self, _model):
         time.sleep(0.03)
         frames = int(self.profile.horizon_frames)
-        joints = len(self.model.motion_rep.skeleton.bone_order_names)
+        joints = self.joint_count
         return {
             "posed_joints": np.zeros((1, frames, joints, 3), dtype=np.float32),
             "local_rot_mats": np.broadcast_to(
@@ -97,13 +97,15 @@ class _SupervisorHarness:
         self.root = Path(self.temp.name)
         self.slow_kimodo_gate = threading.Event()
         self.store = animation_handles.AnimationHandleStore(byte_quota=64 * 1024 * 1024)
+        self.runtime_loads: list[tuple[str, int]] = []
         self.thread = None
         self.port = 0
         self._patches = []
 
     def start(self) -> None:
-        def ensure_runtime(runtime: dict, config: dict, *_args):
+        def ensure_runtime(runtime: dict, config: dict, *_args, text_encoder=None, **_kwargs):
             model_name = str(config["model"])
+            shared_encoder = text_encoder if text_encoder is not None else object()
             skeleton = SimpleNamespace(
                 bone_order_names=["Root", "Spine"],
                 joint_parents=[-1, 0],
@@ -114,7 +116,9 @@ class _SupervisorHarness:
                 skeleton=skeleton,
                 motion_rep=SimpleNamespace(skeleton=skeleton),
                 device="cpu",
+                text_encoder=shared_encoder,
             )
+            self.runtime_loads.append((model_name, id(shared_encoder)))
             profile = None
             if model_name.startswith("ardy"):
                 profile = SimpleNamespace(
@@ -142,6 +146,8 @@ class _SupervisorHarness:
             return {"model": model_name, "device": "cpu", "fps": 20, "reused": False}
 
         def execute_generate(request, model, cancel_event, *_args):
+            if model.name == "kimodo-oom":
+                raise RuntimeError("CUDA out of memory")
             if model.name == "kimodo-slow":
                 self.slow_kimodo_gate.wait(timeout=5)
             if cancel_event.is_set():
@@ -393,6 +399,36 @@ class QuickServerSessionTests(unittest.TestCase):
         ardy_thread.join(timeout=2)
         self.assertEqual(kimodo_result["value"][0]["status"], "done")
         self.assertEqual(ardy_result["value"]["status"], "done")
+
+    def test_model_workers_switch_one_active_runtime_and_reuse_encoder(self):
+        client = self.client()
+        for index, model_name in enumerate(("kimodo-a", "kimodo-b", "kimodo-a")):
+            response, _ = client.request(
+                f"generate-{index}",
+                "generate",
+                task_id=f"task-{index}",
+                model=model_name,
+                duration=0.1,
+                output_format="json_compact",
+            )
+            self.assertEqual(response["status"], "done")
+        recent = self.server.runtime_loads[-3:]
+        self.assertEqual([item[0] for item in recent], ["kimodo-a", "kimodo-b", "kimodo-a"])
+        self.assertEqual(len({item[1] for item in recent}), 1)
+
+    def test_gpu_oom_is_reported_without_animation(self):
+        client = self.client()
+        response, binary = client.request(
+            "generate-oom",
+            "generate",
+            task_id="task-oom",
+            model="kimodo-oom",
+            duration=0.1,
+            output_format="flatbuf_motion_v1",
+        )
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(response["error_code"], "gpu_out_of_memory")
+        self.assertEqual(binary, b"")
 
 
 if __name__ == "__main__":

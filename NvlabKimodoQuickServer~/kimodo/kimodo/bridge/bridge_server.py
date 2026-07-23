@@ -44,20 +44,21 @@ def _default_bridge_log_path(root: str) -> str:
     return os.path.join(root, "log", "bridge_server.log")
 
 
-def _detect_total_vram_gb(device: str | None = None) -> float:
-    """Best-effort accelerator memory in GiB for CUDA/ROCm, MPS, or XPU."""
+def _detect_free_vram_gb(device: str | None = None) -> float:
+    """Best-effort currently free accelerator memory in GiB."""
     try:
         import torch
 
         target = str(device or "").strip().lower()
         if target.startswith("cuda") and torch.cuda.is_available() and torch.cuda.device_count() > 0:
             index = int(target.split(":", 1)[1]) if ":" in target else 0
-            props = torch.cuda.get_device_properties(index)
-            return float(props.total_memory) / (1024 ** 3)
+            free, _ = torch.cuda.mem_get_info(index)
+            return float(free) / (1024 ** 3)
         if target.startswith("mps") and torch.backends.mps.is_available():
             recommended = getattr(torch.mps, "recommended_max_memory", None)
             if callable(recommended):
-                return float(recommended()) / (1024 ** 3)
+                allocated = getattr(torch.mps, "current_allocated_memory", lambda: 0)()
+                return max(0.0, float(recommended() - allocated) / (1024 ** 3))
             return assets.KIMODO_ACCELERATOR_MIN_GB
         if target.startswith("xpu") and hasattr(torch, "xpu") and torch.xpu.is_available():
             index = int(target.split(":", 1)[1]) if ":" in target else 0
@@ -67,6 +68,11 @@ def _detect_total_vram_gb(device: str | None = None) -> float:
     except Exception:
         pass
     return 0.0
+
+
+def _detect_total_vram_gb(device: str | None = None) -> float:
+    """Compatibility alias retained for external diagnostics."""
+    return _detect_free_vram_gb(device)
 
 
 def _detect_mps_available() -> bool:
@@ -171,7 +177,12 @@ class _RuntimeSelfCheckResult:
     nf4_available: bool
     int8_accelerator_available: bool
     fp16_accelerator_available: bool
-    total_vram_gb: float
+    free_vram_gb: float
+
+    @property
+    def total_vram_gb(self) -> float:
+        """Compatibility alias; routing now uses current free memory."""
+        return self.free_vram_gb
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -212,6 +223,7 @@ def _build_bridge_provision_plan(
     requested_model: str,
     *,
     runtime_profile: _RuntimeSelfCheckResult,
+    encoder_free_vram_gb: float | None = None,
 ) -> _BridgeProvisionPlan:
     root_path = Path(kimodo_root).resolve()
     resolved_model = assets.resolve_main_model(requested_model)
@@ -219,10 +231,20 @@ def _build_bridge_provision_plan(
         root_path,
         os.environ.get("KIMODO_MODELS_ROOT"),
     )
+    if encoder_free_vram_gb is None:
+        motion_required_gb = assets.motion_model_min_free_vram_gb(resolved_model.local_name)
+        free_vram_gb = runtime_profile.free_vram_gb
+        if runtime_profile.runtime_device != "cpu" and free_vram_gb < motion_required_gb:
+            raise RuntimeError(
+                "GPU out of memory before model load: "
+                f"{resolved_model.local_name} needs at least {motion_required_gb:g}GB free, "
+                f"but only {free_vram_gb:.2f}GB is available."
+            )
+        encoder_free_vram_gb = max(0.0, free_vram_gb - motion_required_gb)
     runtime_decision = assets.resolve_text_encoder_runtime(
         os.environ.get("KIMODO_TEXT_ENCODER_MODE"),
         runtime_profile.runtime_device,
-        runtime_profile.total_vram_gb,
+        encoder_free_vram_gb,
         nf4_available=runtime_profile.nf4_available,
         int8_accelerator_available=runtime_profile.int8_accelerator_available,
         fp16_accelerator_available=runtime_profile.fp16_accelerator_available,
@@ -267,11 +289,13 @@ def _provision_bridge_assets(
     *,
     runtime_profile: _RuntimeSelfCheckResult,
     force_download_site: assets.DownloadSite | None = None,
+    encoder_free_vram_gb: float | None = None,
 ) -> _BridgeProvisionPlan:
     plan = _build_bridge_provision_plan(
         kimodo_root,
         requested_model,
         runtime_profile=runtime_profile,
+        encoder_free_vram_gb=encoder_free_vram_gb,
     )
     logger = _BridgeAssetLogger()
     recovery_flag_dir = Path(kimodo_root).resolve() / "archive" / "recovery_flags"
@@ -649,7 +673,10 @@ def _probe_fp16_kernel(device: str) -> bool:
 def _runtime_self_check(requested_device: str | None) -> _RuntimeSelfCheckResult:
     requested = str(requested_device or "").strip().lower()
     simulated_vram_gb: float | None = None
-    raw_simulated_vram = os.environ.get("KIMODO_SIMULATE_VRAM_GB", "").strip()
+    raw_simulated_vram = (
+        os.environ.get("KIMODO_SIMULATE_FREE_VRAM_GB", "").strip()
+        or os.environ.get("KIMODO_SIMULATE_VRAM_GB", "").strip()
+    )
     if raw_simulated_vram:
         try:
             simulated_vram_gb = max(0.0, float(raw_simulated_vram))
@@ -699,11 +726,15 @@ def _runtime_self_check(requested_device: str | None) -> _RuntimeSelfCheckResult
             kernel_ok = True
             break
 
-    total_vram_gb = (
+    free_vram_gb = (
         simulated_vram_gb
         if simulated_vram_gb is not None
-        else _detect_total_vram_gb(selected_device)
+        else _detect_free_vram_gb(selected_device)
     )
+    if simulated_vram_gb == 0.0:
+        selected_profile = "cpu"
+        selected_device = "cpu"
+        kernel_ok = False
     bnb_present, nf4_bnb_ok, int8_bnb_ok = _probe_bitsandbytes(selected_device)
     nf4_available = selected_profile == "cuda" and kernel_ok and bnb_present and nf4_bnb_ok
     int8_accelerator_available = (
@@ -719,7 +750,7 @@ def _runtime_self_check(requested_device: str | None) -> _RuntimeSelfCheckResult
         nf4_available=nf4_available,
         int8_accelerator_available=int8_accelerator_available,
         fp16_accelerator_available=fp16_accelerator_available,
-        total_vram_gb=total_vram_gb,
+        free_vram_gb=free_vram_gb,
     )
 
 
@@ -772,6 +803,8 @@ def _build_generate_flatbuffer_payload(model: Any, output: dict, sample_index: i
     sample_joints = np.asarray(output["posed_joints"][sample_index], dtype=np.float32)
     if sample_joints.ndim != 3 or sample_joints.shape[2] < 3:
         raise ValueError(f"Unexpected posed_joints shape for flatbuffer export: {sample_joints.shape!r}")
+    if not np.isfinite(sample_joints).all():
+        raise ValueError("FlatBuffer posed_joints contains NaN or Infinity.")
 
     num_frames = int(sample_joints.shape[0])
     num_joints = int(sample_joints.shape[1])
@@ -786,6 +819,11 @@ def _build_generate_flatbuffer_payload(model: Any, output: dict, sample_index: i
     local_rot_quats = _extract_local_rot_quats_array(model, output, sample_index)
     if local_rot_quats is None or int(local_rot_quats.size) == 0:
         raise ValueError("FlatBuffer export requires local_rot_quats, but none were available in model output.")
+    if not np.isfinite(local_rot_quats).all():
+        raise ValueError("FlatBuffer local_rot_quats contains NaN or Infinity.")
+    quat_norms = np.linalg.norm(local_rot_quats.reshape(-1, 4), axis=1)
+    if np.any(quat_norms < 1e-6):
+        raise ValueError("FlatBuffer local_rot_quats contains a zero-length quaternion.")
 
     foot_contacts = np.asarray(output.get("foot_contacts", []))
     if foot_contacts.ndim == 3:
@@ -975,14 +1013,14 @@ def main():
             return
 
         runtime_profile = _runtime_self_check(args.device)
-        total_vram_gb = runtime_profile.total_vram_gb
+        free_vram_gb = runtime_profile.free_vram_gb
         os.environ["KIMODO_RUNTIME_BACKEND_PROFILE"] = runtime_profile.backend_profile
         _log(
             "[bridge] runtime self-check: "
             f"profile={runtime_profile.backend_profile} device={runtime_profile.runtime_device} "
             f"kernel_ok={runtime_profile.kernel_ok} "
             f"bnb_present={runtime_profile.bnb_present} bnb_ok={runtime_profile.bnb_ok} "
-            f"nf4_available={runtime_profile.nf4_available} vram={total_vram_gb:.2f}GB"
+            f"nf4_available={runtime_profile.nf4_available} free_vram={free_vram_gb:.2f}GB"
         )
         if args.device and runtime_profile.runtime_device == "cpu" and str(args.device).strip().lower() != "cpu":
             _out({"status": "loading", "message": f"Requested device {args.device} is unavailable; running on CPU."})
@@ -1009,7 +1047,7 @@ def main():
         os.environ["KIMODO_RUNTIME_DEVICE"] = device
         use_int8_encoder = provision_plan.encoder_route == assets.ENCODER_ROUTE_INT8
         _log(
-            f"[bridge] route decision: profile={runtime_profile.backend_profile} vram={total_vram_gb:.2f}GB device={device} "
+            f"[bridge] route decision: profile={runtime_profile.backend_profile} free_vram={free_vram_gb:.2f}GB device={device} "
             f"encoder_route={provision_plan.encoder_route} "
             f"encoder_device={decision.encoder_device} "
             f"encoder_layout={provision_plan.text_encoder_layout.layout_id} reason={decision.reason}"
@@ -1058,6 +1096,7 @@ def main():
             "text_encoder_route": decision.encoder_route,
             "text_encoder_device": decision.encoder_device,
             "text_encoder_reason": decision.reason,
+            "effective_free_vram_gb": decision.effective_free_vram_gb,
             "fps": int(model.fps),
             "host": host,
             "port": int(port)

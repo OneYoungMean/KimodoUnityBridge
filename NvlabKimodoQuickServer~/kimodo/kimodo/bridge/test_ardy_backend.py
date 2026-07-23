@@ -101,6 +101,11 @@ class _StreamingModel:
         self.name = "ardy-stream-test"
         self.fps = 20.0
         self.requested_frames = []
+        self.text_encode_count = 0
+
+    def _encode_text(self, _texts):
+        self.text_encode_count += 1
+        return torch.ones(1, 2, 3), torch.ones(1, 2, dtype=torch.bool)
 
     def autoregressive_step(self, *, num_frames, init_history_sequence, cancel_callback, **_kwargs):
         assert cancel_callback is None
@@ -175,6 +180,18 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         self.assertEqual((motion.num_frames, motion.model_name), (4, "ardy-stream-test"))
         self.assertEqual(model.requested_frames, [4])
 
+    def test_kmb_export_rejects_non_finite_motion(self):
+        model = _StreamingModel()
+        frames = 2
+        posed = np.zeros((1, frames, 2, 3), dtype=np.float32)
+        rotations = np.broadcast_to(np.eye(3, dtype=np.float32), (1, frames, 2, 3, 3)).copy()
+        posed[0, -1, 0, 0] = np.nan
+        with self.assertRaisesRegex(ValueError, "NaN or Infinity"):
+            bridge_server._build_generate_flatbuffer_payload(
+                model,
+                {"posed_joints": posed, "local_rot_mats": rotations},
+            )
+
     def test_ardy_stream_generate_retains_history_and_rounds_capacity(self):
         model = _StreamingModel()
         generator = ardy_backend.ArdyStreamGenerator(
@@ -184,11 +201,13 @@ class ArdyBackendSelfCheck(unittest.TestCase):
             animation_handles.AnimationHandleStore(byte_quota=1024),
             Path(__file__).parent,
         )
-        first = generator.generate_horizon()
-        second = generator.generate_horizon()
+        first = generator.generate_horizon(model)
+        second = generator.generate_horizon(model)
+        self.assertFalse(hasattr(generator, "model"))
         self.assertEqual(first["posed_joints"].shape[1], 4)
         self.assertEqual(second["posed_joints"].shape[1], 4)
         self.assertEqual(model.requested_frames, [4, 8])
+        self.assertEqual(model.text_encode_count, 1)
         self.assertEqual(
             ardy_backend.resolve_stream_capacity_frames({"duration": 0.25}, _stream_profile()),
             8,
@@ -198,7 +217,6 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         model = _StreamingModel()
         profile = _stream_profile()
         generator = ardy_backend.ArdyStreamGenerator.__new__(ardy_backend.ArdyStreamGenerator)
-        generator.model = model
         generator.profile = profile
         generator.prompt = "test."
         generator.diffusion_steps = 1
@@ -225,16 +243,16 @@ class ArdyBackendSelfCheck(unittest.TestCase):
             return original(**kwargs)
 
         model.autoregressive_step = capture
-        generator.generate_horizon()
-        generator.generate_horizon()
-        generator.generate_horizon()
+        generator.generate_horizon(model)
+        generator.generate_horizon(model)
+        generator.generate_horizon(model)
         np.testing.assert_array_equal(masks[0][0, :, 0].numpy(), [1, 1, 1, 1])
         np.testing.assert_array_equal(masks[1][0, -4:, 0].numpy(), [1, 1, 0, 0])
         np.testing.assert_array_equal(masks[2][0, -4:, 0].numpy(), [0, 0, 0, 0])
 
     def test_ardy_stream_slices_standard_constraints_by_horizon(self):
         generator = ardy_backend.ArdyStreamGenerator.__new__(ardy_backend.ArdyStreamGenerator)
-        generator.model = _StreamingModel()
+        model = _StreamingModel()
         generator.profile = _stream_profile()
         generator.prompt = "test."
         generator.diffusion_steps = 1
@@ -253,15 +271,15 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         generator._cpu_rng_state = torch.Generator(device="cpu").manual_seed(1).get_state()
         generator._cuda_rng_state = None
         masks = []
-        original = generator.model.autoregressive_step
+        original = model.autoregressive_step
 
         def capture(**kwargs):
             masks.append(kwargs["motion_mask"].clone())
             return original(**kwargs)
 
-        generator.model.autoregressive_step = capture
-        generator.generate_horizon()
-        generator.generate_horizon()
+        model.autoregressive_step = capture
+        generator.generate_horizon(model)
+        generator.generate_horizon(model)
         np.testing.assert_array_equal(masks[0][0, -4:, 0].numpy(), [1, 1, 1, 1])
         np.testing.assert_array_equal(masks[1][0, -4:, 0].numpy(), [1, 1, 1, 1])
 

@@ -769,11 +769,11 @@ def run_setup_cli(root_dir: str | os.PathLike[str], options: SetupCliOptions) ->
             _write_sentinel(paths, requested_mode, torch_runtime)
             logger.log("[OK] setup complete.")
     except SetupError as exc:
-        with SetupLogger(options.output_mode or "console", log_path) as logger:
+        with SetupLogger(options.output_mode or "console", log_path, append=True) as logger:
             logger.log(f"[ERROR] {exc}")
         return SetupCliResult(ok=False, exit_code=1, venv_python="")
     except Exception as exc:
-        with SetupLogger(options.output_mode or "console", log_path) as logger:
+        with SetupLogger(options.output_mode or "console", log_path, append=True) as logger:
             logger.log(f"[ERROR] Unexpected setup failure: {exc}")
         return SetupCliResult(ok=False, exit_code=1, venv_python="")
     return SetupCliResult(ok=True, exit_code=0, venv_python=str(paths.venv_python))

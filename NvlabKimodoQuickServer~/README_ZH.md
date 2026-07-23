@@ -45,7 +45,7 @@ cd /mnt/c/nvlab/NvlabKimodoQuickServer1
 ./run_server.sh --model Kimodo-SOMA-RP-v1 --output console
 ```
 
-文本编码器由 `text_encoder_mode=high_precision|high_performance` 选择精度偏好，再按有效显存和设备能力自动放置。Kimodo 预留约 2GB；NF4/INT8/FP16 的加速器门槛分别为 6GB/8GB/18GB，显式 `simulate_vram_gb=0` 会让整个运行时走 CPU。
+文本编码器由 `text_encoder_mode=high_precision|high_performance` 选择精度偏好，再按实时剩余显存和设备能力自动放置。QuickServer 先确保 motion 模型至少有约 2GB 可用空间，加载后再次检查剩余显存；NF4/INT8/FP16 的 GPU 预算分别为 6GB/8GB/16GB。显式 `simulate_free_vram_gb=0` 会让整个运行时走 CPU。
 
 TCP 冒烟测试：
 ```bat
@@ -71,7 +71,7 @@ TCP 协议补充：
 - `session.open` 会为当前 TCP 创建并绑定显式 Session；未调用时使用 `session:default`。
 - 每个 Session 维护上限为 32 的 Generate FIFO。Kimodo 单次任务原子执行；持久 ARDY 流每轮公平调度一个完整 Horizon。
 - `session.close` 只关闭显式 Session；关闭 `session:default` 会关闭 QuickServer。旧 `quit` 保持相同的全局关闭效果。
-- `generate` 使用 `text_encoder_mode`，不再接受 `highvram` 或 `force_cpu`；Force CPU UI 会发送 `simulate_vram_gb=0`。
+- `generate` 使用 `text_encoder_mode`，不再接受 `highvram` 或 `force_cpu`；Force CPU UI 会发送 `simulate_free_vram_gb=0`。
 - `generate` 的 `task_id` 现在是可选的；如果调用方不传，QuickServer 会在入队前自动补一个稳定任务标识。
 
 ## 动画 Handle

@@ -176,9 +176,9 @@ def _list_cases() -> list[TestCase]:
         TestCase("T36", "No Cached Models", ("cache", "models"), "basic", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS),
         TestCase("T37", "No Cached UV", ("cache", "uv"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"uncached_uv": True}),
         TestCase("T38", "High Precision", ("runtime", "text-encoder"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"text_encoder_mode": "high_precision"}),
-        TestCase("T39", "Force CPU With Simulated VRAM 0G", ("runtime", "simulate-vram"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"simulate_vram_gb": 0, "text_encoder_mode": "high_precision"}),
-        TestCase("T40", "Reserve Kimodo With Simulated VRAM 2G", ("runtime", "simulate-vram"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"simulate_vram_gb": 2}),
-        TestCase("T41", "Simulate VRAM 6G", ("runtime", "simulate-vram"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"simulate_vram_gb": 6}),
+        TestCase("T39", "Force CPU With Simulated Free VRAM 0G", ("runtime", "simulate-vram"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"simulate_free_vram_gb": 0, "text_encoder_mode": "high_precision"}),
+        TestCase("T40", "Reserve Motion With Simulated Free VRAM 2G", ("runtime", "simulate-vram"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"simulate_free_vram_gb": 2}),
+        TestCase("T41", "Simulate Free VRAM 6G", ("runtime", "simulate-vram"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"simulate_free_vram_gb": 6}),
         TestCase("T42", "Force HuggingFace Download", ("download", "hf"), "basic", POLICY_REUSE_EXISTING_ENV_ISOLATED_MODELS, {"force_hf_download": True}),
         TestCase("T43", "No Existing Env", ("env", "setup"), "basic", POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS),
         TestCase("T44", "Reuse Existing Env", ("env", "reusable"), "basic", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
@@ -533,7 +533,7 @@ def _wait_for_server_shutdown(ctx: TestContext, timeout_sec: float = 60.0) -> No
     _wait_for(_stopped, timeout_sec, "server shutdown")
 
 
-def _start_runtime(ctx: TestContext, *, text_encoder_mode: str = "high_performance", force_hf_download: bool = False, simulate_vram_gb: int | None = None, reuse_existing_models: bool = True, owner_pid: int = 0) -> tuple[str, int]:
+def _start_runtime(ctx: TestContext, *, text_encoder_mode: str = "high_performance", force_hf_download: bool = False, simulate_free_vram_gb: int | None = None, reuse_existing_models: bool = True, owner_pid: int = 0) -> tuple[str, int]:
     host, port = _wait_for_server(ctx)
     ctx.runtime_request_defaults = {
         "model": "Kimodo-SOMA-RP-v1",
@@ -543,8 +543,8 @@ def _start_runtime(ctx: TestContext, *, text_encoder_mode: str = "high_performan
     }
     if reuse_existing_models and ctx.reusable_models_path:
         ctx.runtime_request_defaults["models_root"] = ctx.reusable_models_path
-    if simulate_vram_gb is not None:
-        ctx.runtime_request_defaults["simulate_vram_gb"] = int(simulate_vram_gb)
+    if simulate_free_vram_gb is not None:
+        ctx.runtime_request_defaults["simulate_free_vram_gb"] = int(simulate_free_vram_gb)
     return host, port
 
 
@@ -594,7 +594,7 @@ def _post_recovery_generate(ctx: TestContext, params: dict[str, Any]) -> None:
         ctx,
         text_encoder_mode=params.get("text_encoder_mode", "high_performance"),
         force_hf_download=params.get("force_hf_download", False),
-        simulate_vram_gb=params.get("simulate_vram_gb"),
+        simulate_free_vram_gb=params.get("simulate_free_vram_gb"),
         reuse_existing_models=params.get("reuse_existing_models", True),
     )
     _generate_tpose(ctx, host, port, duration=1.0)
@@ -905,7 +905,7 @@ def _run_basic(ctx: TestContext, params: dict[str, Any]) -> dict[str, Any]:
         ctx,
         text_encoder_mode=params.get("text_encoder_mode", "high_performance"),
         force_hf_download=params.get("force_hf_download", False),
-        simulate_vram_gb=params.get("simulate_vram_gb"),
+        simulate_free_vram_gb=params.get("simulate_free_vram_gb"),
         reuse_existing_models=params.get("reuse_existing_models", True),
     )
     header = _generate_tpose(ctx, host, port)
@@ -1036,7 +1036,7 @@ def _run_idle_timeout_override(ctx: TestContext, params: dict[str, Any]) -> dict
         ctx,
         text_encoder_mode=params.get("text_encoder_mode", "high_performance"),
         force_hf_download=params.get("force_hf_download", False),
-        simulate_vram_gb=params.get("simulate_vram_gb"),
+        simulate_free_vram_gb=params.get("simulate_free_vram_gb"),
         reuse_existing_models=params.get("reuse_existing_models", True),
     )
     _generate_tpose(ctx, host, port)

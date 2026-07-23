@@ -45,7 +45,7 @@ cd /mnt/c/nvlab/NvlabKimodoQuickServer1
 ./run_server.sh --model Kimodo-SOMA-RP-v1 --output console
 ```
 
-`text_encoder_mode=high_precision|high_performance` selects the precision preference; QuickServer then places the encoder from effective VRAM and backend capabilities. Kimodo reserves about 2 GB, accelerator thresholds are 6/8/18 GB for NF4/INT8/FP16, and explicit `simulate_vram_gb=0` moves the entire runtime to CPU.
+`text_encoder_mode=high_precision|high_performance` selects the precision preference; QuickServer then places the encoder from current free VRAM and backend capabilities. It first requires about 2 GB for the motion model, rechecks free VRAM after loading it, and uses GPU budgets of 6/8/16 GB for NF4/INT8/FP16. Explicit `simulate_free_vram_gb=0` moves the entire runtime to CPU.
 
 TCP smoke test:
 ```bat
@@ -62,7 +62,7 @@ example\example_run_server_tpose_console_live.bat
 - `session.open` binds the current TCP connection to a new explicit Session. Without it, commands use `session:default`.
 - Every Session owns a FIFO Generate queue with a limit of 32. Kimodo runs atomically; persistent ARDY streams advance one complete Horizon per fair scheduler turn.
 - `session.close` closes only an explicit Session. Closing `session:default` shuts down QuickServer. Legacy `quit` has the same server-wide effect.
-- `generate` uses `text_encoder_mode`; `highvram` and `force_cpu` are removed. The Force CPU UI sends `simulate_vram_gb=0`.
+- `generate` uses `text_encoder_mode`; `highvram` and `force_cpu` are removed. The Force CPU UI sends `simulate_free_vram_gb=0`.
 - `generate` accepts optional `task_id`. If omitted, QuickServer assigns a stable task id before queueing.
 - Once a task id is assigned, every response for that task carries the same `task_id`.
 - A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.

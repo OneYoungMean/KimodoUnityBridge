@@ -20,7 +20,7 @@ class ArdyBackendError(ValueError):
 
 
 class ArdyStreamGenerator:
-    """Per-session eager ARDY state; compatible sessions still share the model."""
+    """Per-session eager ARDY state; the GPU worker owns and supplies the model."""
 
     def __init__(
         self,
@@ -34,7 +34,6 @@ class ArdyStreamGenerator:
 
         from kimodo.bridge import bridge_server as bridge_runtime_helpers
 
-        self.model = model
         self.profile = profile
         self.prompt = str(task_request.get("prompt") or "A person walks forward.").strip()
         if not self.prompt.endswith("."):
@@ -74,8 +73,14 @@ class ArdyStreamGenerator:
         self._cuda_rng_state = None
         if str(model.device).startswith("cuda"):
             self._cuda_rng_state = torch.Generator(device=model.device).manual_seed(self.resolved_seed).get_state()
+        encode_text = getattr(model, "_encode_text", None)
+        if callable(encode_text):
+            self.text_feat, self.text_pad_mask = encode_text([self.prompt])
+        else:
+            self.text_feat = None
+            self.text_pad_mask = None
 
-    def generate_horizon(self) -> dict[str, Any]:
+    def generate_horizon(self, model: Any) -> dict[str, Any]:
         import torch
 
         history_len = int(self.history.shape[1]) if self.history is not None else 0
@@ -92,40 +97,42 @@ class ArdyStreamGenerator:
                 pad = horizon - int(future_observed.shape[1])
                 shape = (1, pad, int(self.observed_motion.shape[-1]))
                 future_observed = torch.cat(
-                    (future_observed, torch.zeros(shape, dtype=self.observed_motion.dtype, device=self.model.device)),
+                    (future_observed, torch.zeros(shape, dtype=self.observed_motion.dtype, device=model.device)),
                     dim=1,
                 )
                 future_mask = torch.cat(
-                    (future_mask, torch.zeros(shape, dtype=self.motion_mask.dtype, device=self.model.device)),
+                    (future_mask, torch.zeros(shape, dtype=self.motion_mask.dtype, device=model.device)),
                     dim=1,
                 )
             observed_motion = torch.cat(
-                (torch.zeros(1, history_len, future_observed.shape[-1], device=self.model.device), future_observed),
+                (torch.zeros(1, history_len, future_observed.shape[-1], device=model.device), future_observed),
                 dim=1,
             )
             motion_mask = torch.cat((torch.zeros_like(observed_motion[:, :history_len]), future_mask), dim=1)
             future_clip_active = bool(future_mask.any())
-            root_body_pass = self._root_body_pass and bool(future_mask[..., self.model.motion_rep.root_slice.stop :].any())
-        devices = [torch.device(self.model.device).index or 0] if str(self.model.device).startswith("cuda") else []
+            root_body_pass = self._root_body_pass and bool(future_mask[..., model.motion_rep.root_slice.stop :].any())
+        devices = [torch.device(model.device).index or 0] if str(model.device).startswith("cuda") else []
         with torch.random.fork_rng(devices=devices):
             torch.random.set_rng_state(self._cpu_rng_state)
             if self._cuda_rng_state is not None:
-                torch.cuda.set_rng_state(self._cuda_rng_state, device=self.model.device)
+                torch.cuda.set_rng_state(self._cuda_rng_state, device=model.device)
             with torch.no_grad():
                 motion = _autoregressive_step(
-                    self.model,
+                    model,
                     num_frames=total_frames,
                     num_denoising_steps=self.diffusion_steps,
                     motion_mask=motion_mask,
                     observed_motion=observed_motion,
                     cfg_weight=(self.cfg_text_weight, self.profile.cfg_constraint_weight),
                     texts=[self.prompt],
+                    text_feat=getattr(self, "text_feat", None),
+                    text_pad_mask=getattr(self, "text_pad_mask", None),
                     init_history_sequence=self.history,
                     root_body_pass=root_body_pass,
                 )
             self._cpu_rng_state = torch.random.get_rng_state()
             if self._cuda_rng_state is not None:
-                self._cuda_rng_state = torch.cuda.get_rng_state(device=self.model.device)
+                self._cuda_rng_state = torch.cuda.get_rng_state(device=model.device)
 
         generated = motion[:, history_len : history_len + horizon]
         max_history = (
@@ -134,7 +141,7 @@ class ArdyStreamGenerator:
             * int(self.profile.frames_per_token)
         )
         self.history = motion[:, -min(max_history, int(motion.shape[1])) :].detach() if max_history > 0 else None
-        output = self.model.motion_rep.inverse(generated, is_normalized=True)
+        output = model.motion_rep.inverse(generated, is_normalized=True)
         postprocess_constraints = (
             [
                 constraint.crop_move(self._future_offset, self._future_offset + horizon)
@@ -145,7 +152,7 @@ class ArdyStreamGenerator:
         )
         output = _finalize_output(
             output,
-            self.model,
+            model,
             postprocess_constraints,
             bool(getattr(self.profile, "postprocess", False)) and not future_clip_active,
         )
@@ -163,6 +170,8 @@ class ArdyStreamGenerator:
         self.history = None
         self.observed_motion = None
         self.motion_mask = None
+        self.text_feat = None
+        self.text_pad_mask = None
         self.postprocess_constraints = []
 
 
@@ -173,7 +182,7 @@ def resolve_stream_capacity_frames(task_request: dict[str, Any], profile: Any) -
     requested_frames = max(1, int(math.ceil(duration * float(profile.source_fps))))
     horizon = int(profile.horizon_frames)
     capacity = int(math.ceil(requested_frames / horizon) * horizon)
-    max_frames = int(os.environ.get("KIMODO_ARDY_STREAM_MAX_FRAMES", int(float(profile.source_fps) * 60)))
+    max_frames = int(os.environ.get("KIMODO_ARDY_STREAM_MAX_FRAMES", "36000"))
     if capacity > max_frames:
         raise ArdyBackendError(
             f"ARDY stream capacity {capacity} exceeds KIMODO_ARDY_STREAM_MAX_FRAMES={max_frames}."
@@ -430,6 +439,8 @@ def _autoregressive_step(
     observed_motion: Any,
     cfg_weight: tuple[float, float],
     texts: list[str],
+    text_feat: Any = None,
+    text_pad_mask: Any = None,
     init_history_sequence: Any,
     root_body_pass: bool,
 ):
@@ -441,6 +452,9 @@ def _autoregressive_step(
         "init_history_sequence": init_history_sequence,
         "cancel_callback": None,
     }
+    if text_feat is not None:
+        kwargs["text_feat"] = text_feat
+        kwargs["text_pad_mask"] = text_pad_mask
     if not root_body_pass:
         return model.autoregressive_step(
             motion_mask=motion_mask,
@@ -586,6 +600,11 @@ def prepare_generation_inputs(
         if rebuilt.ndim == 2:
             rebuilt = rebuilt.unsqueeze(0)
         init_history = rebuilt[:, -history_len:]
+        print(
+            f"[ARDY] History applied: clips={len(roots)} source_frames={len(all_roots)} "
+            f"context_frames={history_len}",
+            flush=True,
+        )
 
     ordered: list[dict[str, Any]] = []
     for item in future_items:
@@ -753,7 +772,14 @@ def execute_generate(
     }, payload if output_format == "flatbuf_motion_v1" else None
 
 
-def load_runtime(profile: Any, config: dict[str, Any], quickserver_root: str | Path, device: str):
+def load_runtime(
+    profile: Any,
+    config: dict[str, Any],
+    quickserver_root: str | Path,
+    device: str,
+    *,
+    text_encoder: Any = None,
+):
     from ardy.model import load_model
     from kimodo.model.load_model import _select_text_encoder_conf
     from kimodo.model.loading import DEFAULT_TEXT_ENCODER_URL, get_env_var, instantiate_from_dict
@@ -787,12 +813,13 @@ def load_runtime(profile: Any, config: dict[str, Any], quickserver_root: str | P
                     f"modelscope={modelscope_error}; huggingface={huggingface_error}"
                 ) from huggingface_error
 
-    text_encoder = instantiate_from_dict(
-        _select_text_encoder_conf(
-            get_env_var("TEXT_ENCODER_URL", DEFAULT_TEXT_ENCODER_URL),
-            device,
+    if text_encoder is None:
+        text_encoder = instantiate_from_dict(
+            _select_text_encoder_conf(
+                get_env_var("TEXT_ENCODER_URL", DEFAULT_TEXT_ENCODER_URL),
+                device,
+            )
         )
-    )
     model = load_model(
         profile.model_name,
         device=device,

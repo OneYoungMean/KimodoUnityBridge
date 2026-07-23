@@ -23,6 +23,7 @@
 - `KIMODO_MODELS_ROOT`: 默认 models 根目录（可被 `--models-root` 覆盖）。
 - `KIMODO_ALLOW_MULTI_SERVER=0|1`: 默认 `0`，同一份 QuickServer 根目录只允许一个 `run server` 实例；设为 `1` 时跳过运行单例锁。兼容别名 `ALLOWMULTISERVER` / `allowmultiserver`。
 - `KIMODO_IDLE_TIMEOUT_SEC`: 服务空闲退出秒数（当前设定 `600`）。
+- `KIMODO_RUNTIME_IDLE_UNLOAD_SEC`: 模型资源空闲回收秒数，默认 `900`；设为更大值可延后显存释放。
 - `KIMODO_BRIDGE_OUTPUT_FORMAT=json_compact|bvh`: bridge TCP `generate` 返回格式。默认 `json_compact`；设为 `bvh` 时，仅返回 `motion_bvh`，不再返回 `motion_json_compact`。
 - `KIMODO_BRIDGE_BVH_STANDARD_TPOSE=0|1`: 仅在 `KIMODO_BRIDGE_OUTPUT_FORMAT=bvh` 时生效。设为 `1` 时，BVH 以标准 T-pose 作为 rest pose 导出。
 - 下载站点默认是自动探测 HF / ModelScope 后择优；`--force-hf-download` 会跳过探测并强制走 HF。
@@ -34,13 +35,14 @@ INT8 资产说明：
 - 对外部 `--models-root`：不会自动下载，缺失时直接报错。
 
 文本编码器路由说明：
-- Kimodo 在加速设备上固定预留约 `2GB`；有效显存 `< 2GB` 时 Kimodo 和文本编码器全部走 CPU。
-- `high_precision`：有效显存 `>= 18GB` 且设备支持 FP16 时使用 FP16 加速器，否则 FP16 文本编码器走 CPU。
+- QuickServer 使用实时剩余显存，先要求 motion 模型至少有约 `2GB` 可用空间；不足时直接返回显存不足错误。
+- motion 模型加载后会再次读取剩余显存，再决定文本编码器放在 GPU 还是 CPU。
+- `high_precision`：剩余显存 `>= 16GB` 且设备支持 FP16 时使用 FP16 GPU，否则 FP16 文本编码器走 CPU。
 - `high_performance`：
-  - 设备支持 NF4 且有效显存 `>= 6GB`：NF4 加速器。
-  - 不支持 NF4、支持 INT8 且有效显存 `>= 8GB`：INT8 加速器。
+  - 设备支持 NF4 且剩余显存 `>= 6GB`：NF4 GPU。
+  - NF4 放不下但支持 INT8 且剩余显存 `>= 8GB`：INT8 GPU。
   - 其他情况：INT8 CPU。
-- `simulate_vram_gb` 未发送表示自动检测；显式发送 `0` 表示全部强制 CPU。
+- `simulate_free_vram_gb` 模拟的是当前剩余显存；未发送表示自动检测，显式发送 `0` 表示全部强制 CPU。旧 `simulate_vram_gb` 仅作为协议兼容别名。
 - 不检测系统内存；CPU 路径允许操作系统使用虚拟内存。
 
 ### 启动说明

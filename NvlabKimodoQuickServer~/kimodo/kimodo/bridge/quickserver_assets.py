@@ -25,10 +25,15 @@ ENCODER_ROUTE_FP16 = "fp16"
 TEXT_ENCODER_MODE_HIGH_PERFORMANCE = "high_performance"
 TEXT_ENCODER_MODE_HIGH_PRECISION = "high_precision"
 DEFAULT_TEXT_ENCODER_MODE = TEXT_ENCODER_MODE_HIGH_PRECISION
-KIMODO_ACCELERATOR_MIN_GB = 2.0
-NF4_ACCELERATOR_MIN_GB = 6.0
-INT8_ACCELERATOR_MIN_GB = 8.0
-FP16_ACCELERATOR_MIN_GB = 18.0
+MOTION_MODEL_MIN_FREE_GB = 2.0
+NF4_ENCODER_MIN_FREE_GB = 6.0
+INT8_ENCODER_MIN_FREE_GB = 8.0
+FP16_ENCODER_MIN_FREE_GB = 16.0
+# Compatibility aliases for callers outside QuickServer.
+KIMODO_ACCELERATOR_MIN_GB = MOTION_MODEL_MIN_FREE_GB
+NF4_ACCELERATOR_MIN_GB = NF4_ENCODER_MIN_FREE_GB
+INT8_ACCELERATOR_MIN_GB = INT8_ENCODER_MIN_FREE_GB
+FP16_ACCELERATOR_MIN_GB = FP16_ENCODER_MIN_FREE_GB
 DOWNLOAD_PROBE_TIMEOUT_SECONDS = 1.0
 LEGACY_GGUF_ENV_VARS = (
     "KIMODO_GGUF_MODEL_PATH",
@@ -85,7 +90,12 @@ class TextEncoderRuntimeDecision:
     encoder_route: str
     encoder_device: str
     reason: str
-    effective_vram_gb: float
+    effective_free_vram_gb: float
+
+    @property
+    def effective_vram_gb(self) -> float:
+        """Compatibility alias; the value has always meant the routing budget."""
+        return self.effective_free_vram_gb
 
 
 @dataclass(frozen=True)
@@ -123,7 +133,7 @@ def normalize_text_encoder_mode(value: str | None) -> str:
 def resolve_text_encoder_runtime(
     mode: str | None,
     runtime_device: str | None,
-    effective_vram_gb: float,
+    effective_free_vram_gb: float,
     *,
     nf4_available: bool,
     int8_accelerator_available: bool,
@@ -131,15 +141,15 @@ def resolve_text_encoder_runtime(
 ) -> TextEncoderRuntimeDecision:
     resolved_mode = normalize_text_encoder_mode(mode)
     device = str(runtime_device or "cpu").strip().lower() or "cpu"
-    vram = max(0.0, float(effective_vram_gb))
-    has_accelerator = device != "cpu" and vram >= KIMODO_ACCELERATOR_MIN_GB
+    free_vram = max(0.0, float(effective_free_vram_gb))
+    has_accelerator = device != "cpu"
     motion_device = device if has_accelerator else "cpu"
 
     if resolved_mode == TEXT_ENCODER_MODE_HIGH_PRECISION:
         use_accelerator = (
             has_accelerator
             and fp16_accelerator_available
-            and vram >= FP16_ACCELERATOR_MIN_GB
+            and free_vram >= FP16_ENCODER_MIN_FREE_GB
         )
         return TextEncoderRuntimeDecision(
             mode=resolved_mode,
@@ -151,23 +161,23 @@ def resolve_text_encoder_runtime(
                 if use_accelerator
                 else "fp16_cpu_insufficient_vram_or_capability"
             ),
-            effective_vram_gb=vram,
+            effective_free_vram_gb=free_vram,
         )
 
-    if has_accelerator and nf4_available and vram >= NF4_ACCELERATOR_MIN_GB:
+    if has_accelerator and nf4_available and free_vram >= NF4_ENCODER_MIN_FREE_GB:
         return TextEncoderRuntimeDecision(
             mode=resolved_mode,
             motion_device=motion_device,
             encoder_route=ENCODER_ROUTE_NF4,
             encoder_device=device,
             reason="nf4_accelerator",
-            effective_vram_gb=vram,
+            effective_free_vram_gb=free_vram,
         )
 
     use_int8_accelerator = (
         has_accelerator
         and int8_accelerator_available
-        and vram >= INT8_ACCELERATOR_MIN_GB
+        and free_vram >= INT8_ENCODER_MIN_FREE_GB
     )
     return TextEncoderRuntimeDecision(
         mode=resolved_mode,
@@ -179,7 +189,7 @@ def resolve_text_encoder_runtime(
             if use_int8_accelerator
             else "int8_cpu_insufficient_vram_or_capability"
         ),
-        effective_vram_gb=vram,
+        effective_free_vram_gb=free_vram,
     )
 
 
@@ -197,8 +207,14 @@ def force_text_encoder_cpu(
         ),
         encoder_device="cpu",
         reason=reason,
-        effective_vram_gb=decision.effective_vram_gb,
+        effective_free_vram_gb=decision.effective_free_vram_gb,
     )
+
+
+def motion_model_min_free_vram_gb(model_name: str | None) -> float:
+    """Conservative load-time budget shared by the current Kimodo/ARDY checkpoints."""
+    _ = model_name
+    return MOTION_MODEL_MIN_FREE_GB
 
 
 @dataclass(frozen=True)

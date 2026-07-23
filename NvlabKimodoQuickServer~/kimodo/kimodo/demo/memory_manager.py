@@ -13,7 +13,7 @@ import torch
 log = logging.getLogger(__name__)
 
 def release_system_memory():
-    """Force garbage collection and instruct glibc (Linux) or Windows to return freed heap to the OS."""
+    """Release unreachable Python memory without trimming the whole process working set."""
     gc.collect()
     if platform.system() == "Linux":
         try:
@@ -21,20 +21,6 @@ def release_system_memory():
             ctypes.CDLL("libc.so.6").malloc_trim(0)
         except Exception as e:
             log.debug(f"malloc_trim failed: {e}")
-    elif platform.system() == "Windows":
-        try:
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            # Explicitly define types to avoid handle truncation on 64-bit systems
-            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-            kernel32.SetProcessWorkingSetSize.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t]
-            kernel32.SetProcessWorkingSetSize.restype = ctypes.c_int
-            
-            handle = kernel32.GetCurrentProcess()
-            # -1, -1 triggers the OS to empty the working set of the process.
-            kernel32.SetProcessWorkingSetSize(handle, -1, -1)
-        except Exception as e:
-            log.debug(f"Windows memory reclamation failed: {e}")
 
 # Constants
 RESERVED_VRAM_WINDOWS = 600 * 1024 * 1024
