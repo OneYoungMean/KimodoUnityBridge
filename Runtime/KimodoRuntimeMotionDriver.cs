@@ -590,7 +590,7 @@ namespace KimodoBridge
                     transition_duration = 0f,
                     model = modelName,
                     text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode),
-                    simulate_vram_gb = forceCpu ? 0 : (int?)null,
+                    simulate_free_vram_gb = forceCpu ? 0 : (int?)null,
                     models_root = string.IsNullOrWhiteSpace(modelsRoot) ? string.Empty : Path.GetFullPath(modelsRoot),
                     force_hf_download = false,
                     owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id

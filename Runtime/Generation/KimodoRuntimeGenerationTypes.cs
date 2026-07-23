@@ -20,7 +20,7 @@ namespace KimodoBridge
         // Runtime configuration is sent together with generate under the current bridge protocol.
         public string model;
         public string text_encoder_mode = KimodoTextEncoderModeProtocol.HighPrecision;
-        public int? simulate_vram_gb;
+        public int? simulate_free_vram_gb;
         public string models_root;
         public bool force_hf_download;
         public int owner_pid;

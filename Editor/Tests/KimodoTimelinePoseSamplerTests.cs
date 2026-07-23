@@ -37,5 +37,28 @@ namespace KimodoBridge.Editor.Tests
                 UnityEngine.Object.DestroyImmediate(root);
             }
         }
+
+        [Test]
+        public void ArdyHistoryRoot_UsesSamePlanarAnchorAsConstraints()
+        {
+            var source = new ArdyEditorHistorySource
+            {
+                NormalizeRootToAnchor = true,
+                AnchorRootPosition = new Vector3(10f, 0f, 20f),
+                AnchorRootRotation = Quaternion.Euler(0f, 90f, 0f)
+            };
+            Vector3 position = new Vector3(12f, 3f, 25f);
+            Quaternion rotation = Quaternion.Euler(0f, 120f, 0f);
+            Quaternion inverseAnchor = Quaternion.Inverse(source.AnchorRootRotation);
+
+            ArdyEditorHistoryEncoder.NormalizeRootPose(source, ref position, ref rotation);
+
+            Assert.That(
+                Vector3.Distance(position, inverseAnchor * new Vector3(2f, 3f, 5f)),
+                Is.LessThan(1e-5f));
+            Assert.That(
+                Quaternion.Angle(rotation, inverseAnchor * Quaternion.Euler(0f, 120f, 0f)),
+                Is.LessThan(1e-4f));
+        }
     }
 }

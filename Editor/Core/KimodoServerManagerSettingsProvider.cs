@@ -76,7 +76,7 @@ namespace KimodoBridge.Editor
 
             EditorGUILayout.LabelField("Kimodo Server Manager", EditorStyles.boldLabel);
             EditorGUILayout.Space(4f);
-            EditorGUILayout.LabelField("Runtime Root", runtimeRoot, EditorStyles.wordWrappedMiniLabel);
+            DrawQuickServerDirectory();
 
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(new GUIContent("Refresh", "Rescan runtime/model folders and request latest bridge server status."), GUILayout.Width(100f)))
@@ -109,6 +109,38 @@ namespace KimodoBridge.Editor
             DrawServerSection();
             DrawModelSection();
             DrawActionsSection();
+        }
+
+        private void DrawQuickServerDirectory()
+        {
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            string path = runtimeRoot;
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUI.BeginChangeCheck();
+            path = EditorGUILayout.DelayedTextField(
+                new GUIContent("QuickServer Directory", "Directory containing run_server and package.json."),
+                path);
+            bool changed = EditorGUI.EndChangeCheck();
+            if (GUILayout.Button("Browse...", GUILayout.Width(90f)))
+            {
+                string selected = EditorUtility.OpenFolderPanel("Select QuickServer Directory", path, string.Empty);
+                if (!string.IsNullOrWhiteSpace(selected))
+                {
+                    path = selected;
+                    changed = true;
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if (changed)
+            {
+                settings.QuickServerPath = path;
+                settings.SaveSettings();
+                Refresh();
+            }
+
+            EditorGUILayout.LabelField("Server Version", KimodoServerRuntimeUtil.ReadQuickServerVersion(runtimeRoot));
         }
 
         private void DrawStatusMessages()
@@ -212,7 +244,7 @@ namespace KimodoBridge.Editor
             bool keepCpuForceExperimental = EditorGUILayout.Toggle(
                 new GUIContent(
                     "Force CPU",
-                    "Send simulate_vram_gb=0 so Kimodo and the text encoder both run on CPU."),
+                    "Send simulate_free_vram_gb=0 so Kimodo and the text encoder both run on CPU."),
                 settings.KeepCpuForceExperimental);
             if (EditorGUI.EndChangeCheck())
             {
@@ -746,5 +778,3 @@ namespace KimodoBridge.Editor
 
     }
 }
-
-

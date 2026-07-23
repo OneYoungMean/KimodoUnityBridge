@@ -375,9 +375,8 @@ namespace KimodoBridge
         }
 
         internal static string MergeHandles(
-            IReadOnlyList<string> handles,
+            IReadOnlyList<AnimationHandleInfo> handles,
             int maxHandles,
-            int horizonFrames,
             string futureConstraintsJson)
         {
             var output = new JArray();
@@ -386,19 +385,23 @@ namespace KimodoBridge
             {
                 for (int i = first; i < handles.Count; i++)
                 {
-                    string handle = handles[i];
-                    if (string.IsNullOrWhiteSpace(handle))
+                    AnimationHandleInfo info = handles[i];
+                    if (info == null || string.IsNullOrWhiteSpace(info.Handle))
                     {
                         continue;
+                    }
+                    if (info.FrameCount <= 0)
+                    {
+                        throw new InvalidOperationException("ARDY history Handle has no frames.");
                     }
 
                     output.Add(new JObject
                     {
                         ["type"] = "clip",
                         ["format"] = "kmb_handle_v1",
-                        ["handle"] = handle.Trim(),
+                        ["handle"] = info.Handle.Trim(),
                         ["start_frame"] = 0,
-                        ["end_frame_exclusive"] = horizonFrames,
+                        ["end_frame_exclusive"] = info.FrameCount,
                         ["is_history"] = true
                     });
                 }

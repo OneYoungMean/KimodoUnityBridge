@@ -170,7 +170,7 @@ namespace KimodoBridge
                     $"promptLen={(request.prompt ?? string.Empty).Length}, duration={request.duration:F3}, " +
                     $"steps={request.steps}, seed={(request.seed.HasValue ? request.seed.Value.ToString() : "null")}, " +
                     $"model='{request.model ?? string.Empty}', text_encoder_mode='{request.text_encoder_mode ?? string.Empty}', " +
-                    $"simulate_vram_gb={(request.simulate_vram_gb.HasValue ? request.simulate_vram_gb.Value.ToString() : "auto")}, " +
+                    $"simulate_free_vram_gb={(request.simulate_free_vram_gb.HasValue ? request.simulate_free_vram_gb.Value.ToString() : "auto")}, " +
                     $"models_root='{request.models_root ?? string.Empty}'");
 
                 Task<BridgeProtocolResponse> protocolTask = SendGenerateRequestAsync(request, progress, CancellationToken.None);
@@ -309,6 +309,12 @@ namespace KimodoBridge
                     Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage
                 };
             }
+            catch (IOException exception) when (requestSessionVersion != Volatile.Read(ref sessionVersion))
+            {
+                ReportProgress(progress, "Server has been stopped.");
+                EmitDebugLog("[KimodoBridge] Server has been stopped.");
+                throw new OperationCanceledException("Server has been stopped.", exception);
+            }
             finally
             {
                 if (!string.IsNullOrWhiteSpace(taskId))
@@ -431,10 +437,35 @@ namespace KimodoBridge
                 Volatile.Write(ref stopRequested, 1);
                 Interlocked.Increment(ref sessionVersion);
 
-                if (TryResolveCurrentEndpoint(out string host, out int port) && protocolClient.IsConnected)
+                bool hasEndpoint = TryResolveCurrentEndpoint(out string host, out int port);
+                int serverProcessId = -1;
+                if (isDefaultSession && !hasEndpoint)
                 {
                     try
                     {
+                        currentRuntimeRoot = ResolveRuntimeContext().RuntimeRoot;
+                        hasEndpoint = TryReadRuntimeEndpoint(currentRuntimeRoot, out host, out port);
+                    }
+                    catch
+                    {
+                        // There may be no installed runtime to stop.
+                    }
+                }
+                if (isDefaultSession &&
+                    IsLoopbackHost(host) &&
+                    !string.IsNullOrWhiteSpace(currentRuntimeRoot))
+                {
+                    BridgeEndpointResolver.TryReadServerProcessId(currentRuntimeRoot, out serverProcessId);
+                }
+
+                if (hasEndpoint)
+                {
+                    try
+                    {
+                        if (!protocolClient.IsConnected)
+                        {
+                            await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
+                        }
                         await protocolClient.CloseSessionAsync(host, port, token).ConfigureAwait(false);
                     }
                     catch
@@ -448,6 +479,16 @@ namespace KimodoBridge
                 {
                     await DetachOwnedConnectionsAsync().ConfigureAwait(false);
                     await StopLogPumpsAsync(token).ConfigureAwait(false);
+                    if (hasEndpoint)
+                    {
+                        await BridgeProcessManager.WaitUntilStoppedAsync(
+                            host,
+                            port,
+                            serverProcessId,
+                            BridgeRuntimeDefaults.ShutdownTimeoutMs,
+                            BridgeRuntimeDefaults.PollIntervalMs,
+                            token).ConfigureAwait(false);
+                    }
                     processManager.DetachProcess();
                     DeleteServerPortFile();
                 }
@@ -614,6 +655,13 @@ namespace KimodoBridge
         private bool TryReadRuntimeEndpoint(string runtimeRoot, out string host, out int port)
         {
             return BridgeEndpointResolver.TryReadServerEndpoint(runtimeRoot, DefaultHost, out host, out port, out _);
+        }
+
+        private static bool IsLoopbackHost(string host)
+        {
+            return string.Equals(host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(host, "::1", StringComparison.OrdinalIgnoreCase);
         }
 
         private void DeleteServerPortFile()

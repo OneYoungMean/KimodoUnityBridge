@@ -104,10 +104,39 @@ namespace KimodoBridge
 
                 if (process != null && process.HasExited)
                 {
-                    throw new Exception($"Bridge exited with code {process.ExitCode}.");
+                    throw new Exception(BuildExitMessage(runtimeRoot, process.ExitCode));
                 }
 
                 await Task.Delay(Math.Max(BridgeRuntimeDefaults.PollIntervalMs / 2, pollIntervalMs), waitToken).ConfigureAwait(false);
+            }
+        }
+
+        public static async Task WaitUntilStoppedAsync(
+            string host,
+            int port,
+            int processId,
+            int timeoutMs,
+            int pollIntervalMs,
+            CancellationToken token)
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(Math.Max(1000, timeoutMs));
+            CancellationToken waitToken = timeoutCts.Token;
+
+            try
+            {
+                while (IsProcessRunning(processId) || await CanOpenConnectionAsync(
+                           host,
+                           port,
+                           BridgeRuntimeDefaults.StatusConnectTimeoutMs,
+                           waitToken).ConfigureAwait(false))
+                {
+                    await Task.Delay(Math.Max(100, pollIntervalMs), waitToken).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                throw new TimeoutException($"QuickServer at {host}:{port} did not stop within {timeoutMs}ms.");
             }
         }
 
@@ -175,6 +204,49 @@ namespace KimodoBridge
             {
                 token.ThrowIfCancellationRequested();
                 return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string BuildExitMessage(string runtimeRoot, int exitCode)
+        {
+            string message = $"Bridge exited with code {exitCode}.";
+            try
+            {
+                string setupLog = Path.Combine(runtimeRoot ?? string.Empty, "log", "setup.log");
+                if (!File.Exists(setupLog))
+                {
+                    return message;
+                }
+
+                string detail = File.ReadAllText(setupLog).Trim();
+                if (detail.Length > 2000)
+                {
+                    detail = detail.Substring(detail.Length - 2000);
+                }
+                return string.IsNullOrWhiteSpace(detail)
+                    ? message
+                    : $"{message}\n{detail}";
+            }
+            catch
+            {
+                return message;
+            }
+        }
+
+        private static bool IsProcessRunning(int processId)
+        {
+            if (processId <= 0)
+            {
+                return false;
+            }
+            try
+            {
+                using Process target = Process.GetProcessById(processId);
+                return !target.HasExited;
             }
             catch
             {

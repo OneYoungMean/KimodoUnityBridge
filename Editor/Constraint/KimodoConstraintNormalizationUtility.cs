@@ -218,7 +218,7 @@ namespace KimodoBridge.Editor
             return Math.Abs(sampleTime - earliestTime) <= FirstFrameTimeEpsilonSeconds;
         }
 
-        private static Quaternion ResolvePlanarRootRotation(KimodoMarkerSampleResult sample)
+        internal static Quaternion ResolvePlanarRootRotation(KimodoMarkerSampleResult sample)
         {
             Vector3 forward = sample != null && sample.hasRootHeading
                 ? new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y)

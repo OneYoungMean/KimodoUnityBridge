@@ -166,9 +166,9 @@ namespace KimodoBridge
                 ["force_hf_download"] = request.force_hf_download,
                 ["owner_pid"] = request.owner_pid
             };
-            if (request.simulate_vram_gb.HasValue)
+            if (request.simulate_free_vram_gb.HasValue)
             {
-                payload["simulate_vram_gb"] = Math.Max(0, request.simulate_vram_gb.Value);
+                payload["simulate_free_vram_gb"] = Math.Max(0, request.simulate_free_vram_gb.Value);
             }
 
             UnityEngine.Debug.Log($"[KimodoBridge] Generate JSON: {payload.ToString(Formatting.None)}");

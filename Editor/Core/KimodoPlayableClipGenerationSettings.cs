@@ -23,6 +23,7 @@ namespace KimodoBridge.Editor
         [SerializeField] private bool floatingUiEnabled = true;
         [SerializeField] private bool keepCpuForceExperimental;
         [SerializeField] private bool setupWizardCompleted;
+        [SerializeField] private string quickServerPath = string.Empty;
         [SerializeField, HideInInspector] private bool advancedCurveFilterFoldout = true;
 
         internal int MaxGeneratedClips
@@ -83,6 +84,12 @@ namespace KimodoBridge.Editor
             set => setupWizardCompleted = value;
         }
 
+        internal string QuickServerPath
+        {
+            get => quickServerPath?.Trim() ?? string.Empty;
+            set => quickServerPath = value?.Trim() ?? string.Empty;
+        }
+
         internal void SaveSettings()
         {
             bool effectiveKeepCpuForce = KeepCpuForceExperimental;
@@ -91,10 +98,10 @@ namespace KimodoBridge.Editor
             defaultBridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(defaultBridgeModelName);
             generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);
             keepCpuForceExperimental = effectiveKeepCpuForce;
+            quickServerPath = quickServerPath?.Trim() ?? string.Empty;
             EditorPrefs.SetBool(KeepCpuForceEditorPrefsKey, effectiveKeepCpuForce);
             Save(true);
         }
     }
 }
-
 

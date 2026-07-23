@@ -42,6 +42,9 @@ namespace KimodoBridge.Editor
         public KimodoTimelineInOutConstraintContext TimelineContext;
         public double RangeStartSeconds;
         public double RangeEndSeconds;
+        public bool NormalizeRootToAnchor;
+        public Vector3 AnchorRootPosition;
+        public Quaternion AnchorRootRotation = Quaternion.identity;
     }
 
     internal sealed class KimodoEditorGenerateOutputPlan

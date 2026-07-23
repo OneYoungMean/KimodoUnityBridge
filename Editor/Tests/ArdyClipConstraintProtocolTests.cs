@@ -47,6 +47,25 @@ namespace KimodoBridge.Editor.Tests
                 Throws.InvalidOperationException.With.Message.Contains("not a registered ARDY rig"));
         }
 
+        [Test]
+        public void MergeHandles_UsesCompleteHistoryHandle()
+        {
+            AnimationHandleOperator handle = CreateHandle(
+                KimodoMotionModelProfiles.ArdyCoreModelName,
+                27,
+                20f,
+                160);
+
+            string json = ArdyClipConstraintSerializer.MergeHandles(
+                new List<AnimationHandleInfo> { handle.Info },
+                maxHandles: 4,
+                futureConstraintsJson: string.Empty);
+
+            Assert.That(json, Does.Contain("\"start_frame\":0"));
+            Assert.That(json, Does.Contain("\"end_frame_exclusive\":160"));
+            Assert.That(json, Does.Contain("\"is_history\":true"));
+        }
+
         private static AnimationHandleOperator CreateHandle(
             string modelName,
             int jointCount,

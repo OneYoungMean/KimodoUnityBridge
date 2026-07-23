@@ -175,7 +175,7 @@ namespace KimodoBridge.Editor
             string prompt,
             KimodoMotionModelProfile profile)
         {
-            var initialHandles = new List<string>();
+            var initialHandles = new List<AnimationHandleInfo>();
             var handleOperators = new List<AnimationHandleOperator>();
             try
             {
@@ -196,7 +196,7 @@ namespace KimodoBridge.Editor
                         profile.MotionRepFingerprint,
                         request.Token);
                     handleOperators.Add(historyHandle);
-                    initialHandles.Add(historyHandle.Info.Handle);
+                    initialHandles.Add(historyHandle.Info);
                 }
 
                 int targetSourceFrames = Mathf.Max(1, (int)Math.Floor(request.DurationSeconds * profile.SourceFps + 1e-9));
@@ -204,7 +204,6 @@ namespace KimodoBridge.Editor
                 string constraintsJson = ArdyClipConstraintSerializer.MergeHandles(
                     initialHandles,
                     profile.MaxHistoryHandles,
-                    profile.HorizonFrames,
                     request.ConstraintsJson);
                 int streamCapacityFrames = ((targetSourceFrames + profile.HorizonFrames - 1) /
                     profile.HorizonFrames) * profile.HorizonFrames;
@@ -375,7 +374,7 @@ namespace KimodoBridge.Editor
                 constraints_json = request.ConstraintsJson ?? string.Empty,
                 model = modelName,
                 text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(request.TextEncoderMode),
-                simulate_vram_gb = KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental ? 0 : (int?)null,
+                simulate_free_vram_gb = KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental ? 0 : (int?)null,
                 models_root = modelsRoot,
                 force_hf_download = false,
                 owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id

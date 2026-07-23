@@ -108,6 +108,29 @@ namespace KimodoBridge.Editor
             }
         }
 
+        internal bool TryGetSourceHipsPose(
+            out Vector3 position,
+            out Quaternion rotation,
+            out string error)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            Transform sourceHips = ResolveSourceHumanBone(
+                context.Animator,
+                context.SourceAvatar,
+                HumanBodyBones.Hips);
+            if (sourceHips == null)
+            {
+                error = "Timeline source Animator has no Hips bone.";
+                return false;
+            }
+
+            position = sourceHips.position;
+            rotation = sourceHips.rotation;
+            error = string.Empty;
+            return true;
+        }
+
         internal bool TrySampleMarker(
             double timelineTime,
             double exportedSampleTime,
@@ -135,17 +158,15 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            Transform sourceHips = ResolveSourceHumanBone(
-                context.Animator,
-                context.SourceAvatar,
-                HumanBodyBones.Hips);
-            if (sourceHips == null)
+            if (!TryGetSourceHipsPose(
+                    out Vector3 sourceHipsPosition,
+                    out Quaternion sourceHipsRotation,
+                    out error))
             {
-                error = "Timeline source Animator has no Hips bone.";
                 return false;
             }
 
-            Vector3 sourceForward = Vector3.ProjectOnPlane(sourceHips.forward, Vector3.up);
+            Vector3 sourceForward = Vector3.ProjectOnPlane(sourceHipsRotation * Vector3.forward, Vector3.up);
             if (sourceForward.sqrMagnitude <= 1e-8f)
             {
                 sourceForward = Vector3.forward;
@@ -154,10 +175,10 @@ namespace KimodoBridge.Editor
 
             // ponytail: SetHumanPose drops Timeline root motion, so keep source Hips XZ/yaw.
             sample.kimodoRootPosition = new Vector3(
-                sourceHips.position.x,
+                sourceHipsPosition.x,
                 sample.kimodoRootPosition.y,
-                sourceHips.position.z);
-            sample.unityRootPos = sourceHips.position;
+                sourceHipsPosition.z);
+            sample.unityRootPos = sourceHipsPosition;
             sample.unityRootRot = Quaternion.LookRotation(sourceForward, Vector3.up);
             sample.rootHeading = new Vector2(sourceForward.x, sourceForward.z);
             sample.hasRootHeading = true;

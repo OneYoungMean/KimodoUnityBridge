@@ -60,7 +60,7 @@ namespace KimodoBridge
             }
 
             value = rootPositions[frameIndex];
-            return true;
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
         }
 
         internal bool TryReadUnityLocalRotation(int frameIndex, int jointIndex, int rotationJointCount, out Quaternion value)
@@ -85,9 +85,20 @@ namespace KimodoBridge
             float x = localRotQuats[baseIndex + 1];
             float y = localRotQuats[baseIndex + 2];
             float z = localRotQuats[baseIndex + 3];
+            float lengthSquared = x * x + y * y + z * z + w * w;
+            if (!IsFinite(x) || !IsFinite(y) || !IsFinite(z) || !IsFinite(w) ||
+                !IsFinite(lengthSquared) || lengthSquared < 1e-12f)
+            {
+                return false;
+            }
             Quaternion source = new Quaternion(x, y, z, w).normalized;
             value = new Quaternion(source.x, -source.y, -source.z, source.w);
             return true;
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         internal bool TryReadFootContact(int frameIndex, int channel, out float value)
@@ -148,6 +159,11 @@ namespace KimodoBridge
 
     public static class KimodoRawMotionUtility
     {
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
         private const string FullBodyConstraintType = "fullbody";
 
         [Serializable]
@@ -538,6 +554,13 @@ namespace KimodoBridge
             for (int frameIndex = 0; frameIndex < frameCount; frameIndex++)
             {
                 int baseIndex = frameIndex * 3;
+                if (!IsFinite(rootPositionScalars[baseIndex + 0]) ||
+                    !IsFinite(rootPositionScalars[baseIndex + 1]) ||
+                    !IsFinite(rootPositionScalars[baseIndex + 2]))
+                {
+                    error = $"FlatBuffer root_positions contains a non-finite value at frame {frameIndex}.";
+                    return false;
+                }
                 rootPositions[frameIndex] = new Vector3(
                     -rootPositionScalars[baseIndex + 0],
                     rootPositionScalars[baseIndex + 1],
@@ -549,6 +572,21 @@ namespace KimodoBridge
             {
                 error = $"FlatBuffer local_rot_quats is too small. Expected at least {frameCount * jointCount * 4}, got {localRotQuatArray?.Length ?? 0}.";
                 return false;
+            }
+            for (int baseIndex = 0; baseIndex < frameCount * jointCount * 4; baseIndex += 4)
+            {
+                float w = localRotQuatArray[baseIndex + 0];
+                float x = localRotQuatArray[baseIndex + 1];
+                float y = localRotQuatArray[baseIndex + 2];
+                float z = localRotQuatArray[baseIndex + 3];
+                float lengthSquared = x * x + y * y + z * z + w * w;
+                if (!IsFinite(x) || !IsFinite(y) || !IsFinite(z) || !IsFinite(w) ||
+                    !IsFinite(lengthSquared) || lengthSquared < 1e-12f)
+                {
+                    int quaternionIndex = baseIndex / 4;
+                    error = $"FlatBuffer local_rot_quats contains an invalid quaternion at frame {quaternionIndex / jointCount}, joint {quaternionIndex % jointCount}.";
+                    return false;
+                }
             }
 
             byte[] footContacts = packet.GetFootContactsArray();

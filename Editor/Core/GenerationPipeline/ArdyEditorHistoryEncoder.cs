@@ -82,10 +82,22 @@ namespace KimodoBridge.Editor
                         return false;
                     }
 
-                    rootPositions[frame] = joints[0].position;
+                    if (!sampler.TryGetSourceHipsPose(
+                            out Vector3 rootPosition,
+                            out Quaternion rootRotation,
+                            out error))
+                    {
+                        return false;
+                    }
+                    NormalizeRootPose(source, ref rootPosition, ref rootRotation);
+                    rootPositions[frame] = rootPosition;
                     for (int joint = 0; joint < joints.Length; joint++)
                     {
-                        Quaternion unity = joints[joint] != null ? joints[joint].localRotation.normalized : Quaternion.identity;
+                        Quaternion unity = joint == 0
+                            ? rootRotation.normalized
+                            : joints[joint] != null
+                                ? joints[joint].localRotation.normalized
+                                : Quaternion.identity;
                         rotations.Add(unity.w);
                         rotations.Add(unity.x);
                         rotations.Add(-unity.y);
@@ -133,6 +145,21 @@ namespace KimodoBridge.Editor
             {
                 sampler.Dispose();
             }
+        }
+
+        internal static void NormalizeRootPose(
+            ArdyEditorHistorySource source,
+            ref Vector3 rootPosition,
+            ref Quaternion rootRotation)
+        {
+            if (source == null || !source.NormalizeRootToAnchor)
+            {
+                return;
+            }
+
+            Quaternion inverseAnchor = Quaternion.Inverse(source.AnchorRootRotation);
+            rootPosition = inverseAnchor * (rootPosition - source.AnchorRootPosition);
+            rootRotation = inverseAnchor * rootRotation;
         }
     }
 }

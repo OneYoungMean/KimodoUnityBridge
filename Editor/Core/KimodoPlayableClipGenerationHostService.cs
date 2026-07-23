@@ -90,7 +90,12 @@ namespace KimodoBridge.Editor
                     durationSeconds,
                     ardyProfile.SourceFps);
                 }
-                ResolveArdyInitialHistory(clip, ardyProfile, out initialHistorySource);
+                ResolveArdyInitialHistory(
+                    clip,
+                    ardyProfile,
+                    normalizeConstraintOriginApplied,
+                    normalizationAnchorSample,
+                    out initialHistorySource);
             }
             int effectiveSeed = ResolveEffectiveSeed(clip);
             return new KimodoEditorGenerateRequest
@@ -554,6 +559,8 @@ namespace KimodoBridge.Editor
         private static void ResolveArdyInitialHistory(
             KimodoPlayableClip clip,
             KimodoMotionModelProfile profile,
+            bool normalizeRootToAnchor,
+            KimodoMarkerSampleResult normalizationAnchorSample,
             out ArdyEditorHistorySource source)
         {
             source = null;
@@ -583,7 +590,13 @@ namespace KimodoBridge.Editor
                 RangeStartSeconds = Math.Max(
                     0.0,
                     timelineClip.start - (profile.MaxContextFrames - profile.HorizonFrames) / profile.SourceFps),
-                RangeEndSeconds = Math.Max(0.0, timelineClip.start)
+                RangeEndSeconds = Math.Max(0.0, timelineClip.start),
+                NormalizeRootToAnchor = normalizeRootToAnchor && normalizationAnchorSample != null,
+                AnchorRootPosition = normalizationAnchorSample != null
+                    ? new Vector3(normalizationAnchorSample.unityRootPos.x, 0f, normalizationAnchorSample.unityRootPos.z)
+                    : Vector3.zero,
+                AnchorRootRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRootRotation(
+                    normalizationAnchorSample)
             };
         }
 

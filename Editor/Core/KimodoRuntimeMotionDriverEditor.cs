@@ -71,7 +71,7 @@ namespace KimodoBridge.Editor
                 KimodoGenerationInspectorGui.DrawResolvedTextEncoderStatus();
                 EditorGUILayout.PropertyField(
                     forceCpu,
-                    new GUIContent("Force CPU", "Send simulate_vram_gb=0 so Kimodo and the text encoder both run on CPU."));
+                    new GUIContent("Force CPU", "Send simulate_free_vram_gb=0 so Kimodo and the text encoder both run on CPU."));
             }
             if (Application.isPlaying)
             {

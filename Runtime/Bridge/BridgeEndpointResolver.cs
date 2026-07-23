@@ -64,6 +64,35 @@ namespace KimodoBridge
             return TryReadServerEndpointFromFile(GetServerPortFilePath(runtimeRoot), hostFallback, out host, out port, out error);
         }
 
+        internal static bool TryReadServerProcessId(string runtimeRoot, out int processId)
+        {
+            processId = -1;
+            try
+            {
+                string path = GetServerPortFilePath(runtimeRoot);
+                if (!File.Exists(path))
+                {
+                    return false;
+                }
+
+                foreach (string line in File.ReadAllLines(path))
+                {
+                    int eqIndex = line.IndexOf('=');
+                    if (eqIndex <= 0 || !line.Substring(0, eqIndex).Trim().Equals("pid", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    return int.TryParse(line.Substring(eqIndex + 1).Trim(), out processId) && processId > 0;
+                }
+            }
+            catch
+            {
+                // The endpoint file may disappear while the server is shutting down.
+            }
+            return false;
+        }
+
         internal static bool TryReadServerEndpointFromFile(string serverPortPath, string hostFallback, out string host, out int port, out string error)
         {
             host = string.IsNullOrWhiteSpace(hostFallback) ? "127.0.0.1" : hostFallback.Trim();

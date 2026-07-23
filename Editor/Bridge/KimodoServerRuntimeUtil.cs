@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Text.RegularExpressions;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 using PackageInfo = UnityEditor.PackageManager.PackageInfo;
@@ -61,7 +62,34 @@ namespace KimodoBridge.Editor
             {
                 return Path.GetFullPath(RuntimeRootOverrideForTests);
             }
+
+            string configuredPath = KimodoPlayableClipGenerationSettings.instance.QuickServerPath;
+            if (!string.IsNullOrWhiteSpace(configuredPath))
+            {
+                try
+                {
+                    return Path.GetFullPath(configuredPath);
+                }
+                catch
+                {
+                    return configuredPath;
+                }
+            }
             return Path.Combine(ResolveProjectRoot(), "NvlabKimodoQuickServer~");
+        }
+
+        internal static string ReadQuickServerVersion(string runtimeRoot)
+        {
+            try
+            {
+                string packagePath = Path.Combine(runtimeRoot ?? string.Empty, "package.json");
+                string version = JObject.Parse(File.ReadAllText(packagePath)).Value<string>("version");
+                return string.IsNullOrWhiteSpace(version) ? "unknown" : version.Trim();
+            }
+            catch
+            {
+                return "unknown";
+            }
         }
 
         internal static bool BootstrapRuntimeRootIfMissing()
@@ -292,7 +320,7 @@ namespace KimodoBridge.Editor
 
             foreach (string file in Directory.GetFiles(runtimeRoot))
             {
-                TryDeleteFileQuiet(file);
+                File.Delete(file);
             }
 
             foreach (string dir in Directory.GetDirectories(runtimeRoot))
@@ -303,7 +331,7 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                TryDeleteDirectoryQuiet(dir);
+                Directory.Delete(dir, recursive: true);
             }
         }
 

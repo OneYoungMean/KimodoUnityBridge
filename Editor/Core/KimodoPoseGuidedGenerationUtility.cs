@@ -50,7 +50,7 @@ namespace KimodoBridge.Editor
                 constraints_json = constraintsJson,
                 model = resolvedModelName,
                 text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode),
-                simulate_vram_gb = settings != null && settings.KeepCpuForceExperimental ? 0 : (int?)null,
+                simulate_free_vram_gb = settings != null && settings.KeepCpuForceExperimental ? 0 : (int?)null,
                 models_root = modelsRoot,
                 owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id
             };

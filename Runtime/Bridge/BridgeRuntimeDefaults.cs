@@ -3,6 +3,7 @@ namespace KimodoBridge
     internal static class BridgeRuntimeDefaults
     {
         internal const int StartupTimeoutMs = 600000;
+        internal const int ShutdownTimeoutMs = 120000;
         internal const int PollIntervalMs = 1000;
         internal const int ConnectTimeoutMs = 3000;
         internal const int IoTimeoutMs = 600000;
