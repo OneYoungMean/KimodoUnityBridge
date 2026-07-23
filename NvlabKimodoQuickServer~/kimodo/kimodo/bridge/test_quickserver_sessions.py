@@ -97,7 +97,8 @@ class _SupervisorHarness:
         self.root = Path(self.temp.name)
         self.slow_kimodo_gate = threading.Event()
         self.store = animation_handles.AnimationHandleStore(byte_quota=64 * 1024 * 1024)
-        self.runtime_loads: list[tuple[str, int]] = []
+        self.runtime_loads: list[tuple[str, int, int]] = []
+        self.unloaded_model_ids: list[int] = []
         self.thread = None
         self.port = 0
         self._patches = []
@@ -118,9 +119,9 @@ class _SupervisorHarness:
                 device="cpu",
                 text_encoder=shared_encoder,
             )
-            self.runtime_loads.append((model_name, id(shared_encoder)))
+            self.runtime_loads.append((model_name, id(shared_encoder), id(model)))
             profile = None
-            if model_name.startswith("ardy"):
+            if model_name.lower().startswith("ardy"):
                 profile = SimpleNamespace(
                     backend="ardy",
                     model_name=model_name,
@@ -137,13 +138,21 @@ class _SupervisorHarness:
                 model=model,
                 motion_profile=profile,
                 text_encoder_decision=None,
-                runtime_signature=model_name,
+                runtime_signature=quickserver_cli._build_signature(config),
                 resolved_model_name=model_name,
                 runtime_device="cpu",
                 fps=20,
                 runtime_config=dict(config),
             )
             return {"model": model_name, "device": "cpu", "fps": 20, "reused": False}
+
+        unload_runtime = quickserver_cli._unload_runtime_model
+
+        def unload(runtime: dict, logger) -> None:
+            model = runtime.get("model")
+            if model is not None:
+                self.unloaded_model_ids.append(id(model))
+            unload_runtime(runtime, logger)
 
         def execute_generate(request, model, cancel_event, *_args):
             if model.name == "kimodo-oom":
@@ -160,6 +169,7 @@ class _SupervisorHarness:
 
         self._patches = [
             patch.object(quickserver_cli, "_ensure_runtime", ensure_runtime),
+            patch.object(quickserver_cli, "_unload_runtime_model", unload),
             patch.object(quickserver_cli, "_execute_generate", execute_generate),
             patch.object(quickserver_cli.ardy_backend, "ArdyStreamGenerator", _FakeArdyStream),
             patch.object(quickserver_cli.animation_handles, "create_store", return_value=self.store),
@@ -237,7 +247,7 @@ class QuickServerSessionTests(unittest.TestCase):
             request_id,
             "generate",
             task_id=task_id,
-            model="ardy-test",
+            model="ARDY-Core-RP-20FPS-Horizon40",
             prompt="T pose",
             duration=duration,
             diffusion_steps=1,
@@ -255,7 +265,7 @@ class QuickServerSessionTests(unittest.TestCase):
             "cmd": "generate",
             "request_id": "generate-2",
             "task_id": "task-2",
-            "model": "ardy-test",
+            "model": "ARDY-Core-RP-20FPS-Horizon40",
             "duration": 0.2,
             "output_format": "kmb_handle_v1",
             "diffusion_steps": 1,
@@ -288,7 +298,7 @@ class QuickServerSessionTests(unittest.TestCase):
             "cmd": "generate",
             "request_id": "generate-2",
             "task_id": "task-2",
-            "model": "ardy-test",
+            "model": "ARDY-Core-RP-20FPS-Horizon40",
             "duration": 0.2,
             "output_format": "kmb_handle_v1",
         })
@@ -296,7 +306,7 @@ class QuickServerSessionTests(unittest.TestCase):
             "generate-3",
             "generate",
             task_id="task-3",
-            model="ardy-test",
+            model="ARDY-Core-RP-20FPS-Horizon40",
             duration=0.2,
             output_format="kmb_handle_v1",
         )
@@ -307,6 +317,13 @@ class QuickServerSessionTests(unittest.TestCase):
         right = self.client()
         left_stream = self.generate_stream(left, "left-generate", "left-task", duration=0.4)
         right_stream = self.generate_stream(right, "right-generate", "right-task", duration=0.4)
+        ardy_loads = [
+            item for item in self.server.runtime_loads
+            if item[0] == "ARDY-Core-RP-20FPS-Horizon40"
+        ]
+        self.assertEqual(len(ardy_loads), 2)
+        self.assertEqual(len({item[1] for item in ardy_loads}), 1)
+        self.assertEqual(len({item[2] for item in ardy_loads}), 2)
         left_download, left_bytes = left.request(
             "left-download", "animation.download", handle=left_stream["handle_info"]["handle"]
         )
@@ -356,16 +373,18 @@ class QuickServerSessionTests(unittest.TestCase):
     def test_explicit_disconnect_reclaims_stream_and_other_session_survives(self):
         disconnected = self.client()
         stream = self.generate_stream(disconnected, "generate", "orphan-task")
+        model_id = self.server.runtime_loads[-1][2]
         disconnected.close()
         self.clients.remove(disconnected)
         survivor = self.client()
-        deadline = time.monotonic() + 2
+        deadline = time.monotonic() + 3
         handle = stream["handle_info"]["handle"]
         while time.monotonic() < deadline:
-            if handle not in self.server.store._streams:
+            if handle not in self.server.store._streams and model_id in self.server.unloaded_model_ids:
                 break
             time.sleep(0.02)
         self.assertNotIn(handle, self.server.store._streams)
+        self.assertIn(model_id, self.server.unloaded_model_ids)
         self.generate_stream(survivor, "survivor-generate", "survivor-task")
 
     def test_kimodo_one_shot_blocks_ardy_until_atomic_task_finishes(self):

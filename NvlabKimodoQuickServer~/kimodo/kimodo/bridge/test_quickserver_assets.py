@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import call, patch
 
 from kimodo.bridge import quickserver_assets as assets
 from kimodo.bridge import bridge_server
+from kimodo.bridge import quickserver_cli
 from kimodo.bridge.quickserver_cli import _is_accelerator_oom, _is_encoder_oom, _normalize_runtime_config
 
 
@@ -117,8 +120,6 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
         self.assertFalse(_is_encoder_oom(RuntimeError("CUDA out of memory")))
 
     def test_simulated_memory_is_treated_as_current_free_vram(self):
-        from unittest.mock import patch
-
         with patch.dict("os.environ", {"KIMODO_SIMULATE_FREE_VRAM_GB": "6"}, clear=False), patch(
             "torch.cuda.is_available", return_value=True
         ), patch.object(bridge_server, "_probe_device_kernel", return_value=True
@@ -129,8 +130,6 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
         self.assertEqual(profile.free_vram_gb, 6.0)
 
     def test_motion_model_requires_two_gb_before_encoder_routing(self):
-        from unittest.mock import patch
-
         profile = bridge_server._RuntimeSelfCheckResult(
             backend_profile="cuda",
             runtime_device="cuda:0",
@@ -149,6 +148,63 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
                     assets.DEFAULT_MODEL_NAME,
                     runtime_profile=profile,
                 )
+
+    def test_quickserver_moves_motion_runtime_to_cpu_when_free_vram_is_too_low(self):
+        gpu = bridge_server._RuntimeSelfCheckResult(
+            backend_profile="cuda",
+            runtime_device="cuda:0",
+            kernel_ok=True,
+            bnb_present=True,
+            bnb_ok=True,
+            nf4_available=True,
+            int8_accelerator_available=True,
+            fp16_accelerator_available=True,
+            free_vram_gb=1.0,
+        )
+        cpu = bridge_server._RuntimeSelfCheckResult(
+            backend_profile="cpu",
+            runtime_device="cpu",
+            kernel_ok=False,
+            bnb_present=False,
+            bnb_ok=False,
+            nf4_available=False,
+            int8_accelerator_available=False,
+            fp16_accelerator_available=False,
+            free_vram_gb=0.0,
+        )
+        profile = SimpleNamespace(backend="ardy", model_name="ardy-test", source_fps=20.0)
+        layout = SimpleNamespace(layout_id="fp16", download_assets=())
+        model = SimpleNamespace(text_encoder=object())
+        config = {
+            "model": "ardy-test",
+            "text_encoder_mode": "high_precision",
+            "models_root": "",
+            "force_hf_download": False,
+            "simulate_free_vram_gb": None,
+        }
+        logger = SimpleNamespace(log=lambda _message: None)
+        with patch.dict("os.environ", {}, clear=False), patch.object(
+            quickserver_cli.bridge_runtime_helpers,
+            "_runtime_self_check",
+            side_effect=(gpu, cpu),
+        ) as self_check, patch.object(
+            quickserver_cli.assets, "resolve_motion_model_profile", return_value=profile
+        ), patch.object(
+            quickserver_cli.assets, "resolve_models_root", return_value=(Path("."), True)
+        ), patch.object(
+            quickserver_cli.assets, "select_text_encoder_layout_for_route", return_value=layout
+        ), patch.object(
+            quickserver_cli.assets, "build_runtime_env", return_value={}
+        ), patch.object(
+            quickserver_cli.ardy_backend, "load_runtime", return_value=model
+        ) as load_runtime, patch.object(
+            quickserver_cli, "_refresh_encoder_route_after_motion_load", side_effect=lambda _m, _c, d, *_a: d
+        ):
+            result = quickserver_cli._ensure_runtime({}, config, ".", logger)
+
+        self.assertEqual(self_check.call_args_list, [call(None), call("cpu")])
+        self.assertEqual(result["device"], "cpu")
+        self.assertEqual(load_runtime.call_args.args[3], "cpu")
 
 
 if __name__ == "__main__":

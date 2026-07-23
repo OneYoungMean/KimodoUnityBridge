@@ -442,7 +442,8 @@ def main() -> int:
         "official_vs_quickserver_raw": (official_raw, stream_raw, None),
         "official_vs_quickserver_postprocess": (official_post, stream_post, None),
         "quickserver_postprocess_effect": (stream_raw, stream_post, None),
-        "history160_vs_interactive4": (stream_raw, interactive4_raw, None),
+        "history160_vs_interactive4": (official_interactive160_raw, interactive4_raw, None),
+        "official_interactive4_vs_quickserver_raw": (interactive4_raw, stream_raw, None),
         "official_interactive160_vs_quickserver_raw": (official_interactive160_raw, stream_raw, None),
         "first_horizon_official_vs_quickserver_raw": (official_raw, stream_raw, int(profile.horizon_frames)),
     }

@@ -135,11 +135,8 @@ class ArdyStreamGenerator:
                 self._cuda_rng_state = torch.cuda.get_rng_state(device=model.device)
 
         generated = motion[:, history_len : history_len + horizon]
-        max_history = (
-            (int(self.profile.max_context_frames) - int(self.profile.horizon_frames))
-            // int(self.profile.frames_per_token)
-            * int(self.profile.frames_per_token)
-        )
+        # Match the official interactive default: keep one complete motion token.
+        max_history = int(self.profile.frames_per_token)
         self.history = motion[:, -min(max_history, int(motion.shape[1])) :].detach() if max_history > 0 else None
         output = model.motion_rep.inverse(generated, is_normalized=True)
         postprocess_constraints = (

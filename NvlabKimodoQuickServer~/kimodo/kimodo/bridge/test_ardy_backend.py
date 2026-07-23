@@ -206,7 +206,8 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         self.assertFalse(hasattr(generator, "model"))
         self.assertEqual(first["posed_joints"].shape[1], 4)
         self.assertEqual(second["posed_joints"].shape[1], 4)
-        self.assertEqual(model.requested_frames, [4, 8])
+        self.assertEqual(model.requested_frames, [4, 6])
+        self.assertEqual(generator.history.shape[1], 2)
         self.assertEqual(model.text_encode_count, 1)
         self.assertEqual(
             ardy_backend.resolve_stream_capacity_frames({"duration": 0.25}, _stream_profile()),

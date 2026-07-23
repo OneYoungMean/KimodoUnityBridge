@@ -256,6 +256,13 @@ def _build_model_worker_key(config: dict[str, Any]) -> str:
     )
 
 
+def _build_task_worker_key(config: dict[str, Any], session_id: str) -> str:
+    profile = assets.resolve_motion_model_profile(config["model"])
+    if profile is not None and profile.backend == "ardy":
+        return f"ardy_session={session_id}"
+    return _build_model_worker_key(config)
+
+
 def _build_text_encoder_signature(config: dict[str, Any]) -> str:
     return "|".join(
         [
@@ -473,6 +480,7 @@ def _ensure_runtime(
     kimodo_root: str,
     logger: SetupLogger,
     text_encoder: Any = None,
+    text_encoder_decision: assets.TextEncoderRuntimeDecision | None = None,
 ) -> dict[str, Any]:
     signature = _build_signature(config)
     existing_signature = str(state.get("runtime_signature") or "")
@@ -505,11 +513,12 @@ def _ensure_runtime(
     motion_required_gb = assets.motion_model_min_free_vram_gb(config["model"])
     free_vram_gb = runtime_profile.free_vram_gb
     if runtime_profile.runtime_device != "cpu" and free_vram_gb < motion_required_gb:
-        raise RuntimeError(
-            "GPU out of memory before model load: "
-            f"{config['model']} needs at least {motion_required_gb:g}GB free, "
-            f"but only {free_vram_gb:.2f}GB is available."
+        logger.log(
+            "[WARN] Motion runtime does not fit in current free VRAM; loading it on CPU: "
+            f"model={config['model']} required={motion_required_gb:g}GB free={free_vram_gb:.2f}GB"
         )
+        runtime_profile = bridge_runtime_helpers._runtime_self_check("cpu")
+        free_vram_gb = runtime_profile.free_vram_gb
     encoder_free_vram_gb = max(0.0, free_vram_gb - motion_required_gb)
     runtime_decision = assets.resolve_text_encoder_runtime(
         config["text_encoder_mode"],
@@ -519,7 +528,16 @@ def _ensure_runtime(
         int8_accelerator_available=runtime_profile.int8_accelerator_available,
         fp16_accelerator_available=runtime_profile.fp16_accelerator_available,
     )
-    if config.get("_force_text_encoder_cpu"):
+    if text_encoder is not None and text_encoder_decision is not None:
+        runtime_decision = assets.TextEncoderRuntimeDecision(
+            mode=text_encoder_decision.mode,
+            motion_device=runtime_profile.runtime_device,
+            encoder_route=text_encoder_decision.encoder_route,
+            encoder_device=text_encoder_decision.encoder_device,
+            reason="shared_server_encoder",
+            effective_free_vram_gb=encoder_free_vram_gb,
+        )
+    elif config.get("_force_text_encoder_cpu"):
         runtime_decision = assets.force_text_encoder_cpu(runtime_decision)
         os.environ["KIMODO_TEXT_ENCODER_FORCE_CPU"] = "1"
     else:
@@ -872,6 +890,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             "default_config": dict(default_config),
             "queue": deque(),
             "active": None,
+            "ardy_runtime": {},
             "ready": False,
             "closed": False,
         }
@@ -881,12 +900,16 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "owner_pid": max(0, int(args.watchpid or 0)),
         "last_activity": time.time(),
         "active_runtime": {},
+        "shared_text_encoder": None,
+        "shared_text_encoder_signature": "",
+        "shared_text_encoder_decision": None,
         "active_text_encoder_signature": "",
         "active_model_worker_key": "",
         "model_workers": {},
         "sessions": {default_session_id: new_session(default_session_id, explicit=False)},
         "ready_model_workers": deque(),
         "tasks": {},
+        "retired_runtimes": deque(),
         "active_task_id": "",
         "active_command_count": 0,
         "server_state": "boot",
@@ -898,6 +921,34 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     state_lock = threading.Lock()
     queue_changed = threading.Condition(state_lock)
     runtime_gate = threading.Lock()
+
+    def retire_session_locked(session: dict[str, Any]) -> None:
+        runtime = session.get("ardy_runtime")
+        if runtime is not None and runtime.get("model") is not None:
+            state["retired_runtimes"].append(runtime)
+        session["ardy_runtime"] = {}
+        state["sessions"].pop(session["session_id"], None)
+        state["model_workers"].pop(f"ardy_session={session['session_id']}", None)
+
+    def bind_shared_text_encoder(runtime: dict[str, Any], encoder_signature: str) -> None:
+        model = runtime.get("model")
+        encoder = getattr(model, "text_encoder", None) if model is not None else None
+        if encoder is None:
+            return
+        decision = runtime.get("text_encoder_decision")
+        with state_lock:
+            runtimes = [state["active_runtime"]] + [
+                session.get("ardy_runtime") or {} for session in state["sessions"].values()
+            ]
+            state["shared_text_encoder"] = encoder
+            state["shared_text_encoder_signature"] = encoder_signature
+            state["shared_text_encoder_decision"] = decision
+            state["active_text_encoder_signature"] = encoder_signature
+            for candidate in runtimes:
+                candidate_model = candidate.get("model")
+                if candidate_model is not None:
+                    candidate_model.text_encoder = encoder
+                    candidate["text_encoder_decision"] = decision
 
     def touch_activity() -> None:
         with state_lock:
@@ -1010,7 +1061,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             session["active"] = None
         state["active_task_id"] = ""
         if session["closed"] and not session["queue"]:
-            state["sessions"].pop(session["session_id"], None)
+            retire_session_locked(session)
         else:
             mark_session_ready_locked(session)
 
@@ -1026,7 +1077,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             active["state"] = "cancelling"
             mark_session_ready_locked(session)
         else:
-            state["sessions"].pop(session["session_id"], None)
+            retire_session_locked(session)
 
     def request_shutdown(reason: str) -> None:
         logger.log(f"[INFO] Supervisor shutdown requested: {reason}")
@@ -1053,15 +1104,29 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         except Exception:
             pass
 
+    def drain_retired_runtimes() -> None:
+        with state_lock:
+            retired = list(state["retired_runtimes"])
+            state["retired_runtimes"].clear()
+        if not retired:
+            return
+        with runtime_gate:
+            for runtime in retired:
+                _unload_runtime_model(runtime, logger)
+
     def lifecycle_monitor_loop() -> None:
         while True:
             time.sleep(1.0)
+            drain_retired_runtimes()
             with state_lock:
                 if state["shutdown"]:
                     return
                 owner_pid = int(state.get("owner_pid") or 0)
                 idle_seconds = time.time() - float(state.get("last_activity") or 0.0)
-                runtime_loaded = state["active_runtime"].get("model") is not None
+                runtime_loaded = state["active_runtime"].get("model") is not None or any(
+                    (session.get("ardy_runtime") or {}).get("model") is not None
+                    for session in state["sessions"].values()
+                )
                 work_in_flight = any(
                     session["queue"] or session.get("active") is not None
                     for session in state["sessions"].values()
@@ -1082,27 +1147,53 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             session["queue"] or session.get("active") is not None
                             for session in state["sessions"].values()
                         ) and int(state.get("active_command_count") or 0) == 0:
-                            _unload_runtime_model(state["active_runtime"], logger)
+                            runtimes = [state["active_runtime"]] + [
+                                session.get("ardy_runtime") or {} for session in state["sessions"].values()
+                            ]
+                            state["shared_text_encoder"] = None
+                            state["shared_text_encoder_signature"] = ""
+                            state["shared_text_encoder_decision"] = None
                             state["active_text_encoder_signature"] = ""
                             state["active_model_worker_key"] = ""
+                        else:
+                            runtimes = []
+                    for runtime in runtimes:
+                        _unload_runtime_model(runtime, logger)
 
-    def get_runtime(runtime_config: dict[str, Any]) -> dict[str, Any]:
+    def get_runtime(session: dict[str, Any], runtime_config: dict[str, Any]) -> dict[str, Any]:
         signature = _build_signature(runtime_config)
         encoder_signature = _build_text_encoder_signature(runtime_config)
+        profile = assets.resolve_motion_model_profile(runtime_config["model"])
+        is_ardy = profile is not None and profile.backend == "ardy"
         with runtime_gate:
-            runtime = state["active_runtime"]
+            runtime = session["ardy_runtime"] if is_ardy else state["active_runtime"]
+            shared_encoder = state.get("shared_text_encoder")
+            shared_signature = str(state.get("shared_text_encoder_signature") or "")
+            shared_decision = state.get("shared_text_encoder_decision")
+            if shared_encoder is not None and shared_signature != encoder_signature:
+                raise RuntimeError(
+                    "TextEncoder is shared server-wide; all live Sessions must use the same "
+                    "text_encoder_mode, models_root, and simulated-memory settings."
+                )
             if runtime.get("model") is not None and runtime.get("runtime_signature") == signature:
+                if shared_encoder is not None:
+                    runtime["model"].text_encoder = shared_encoder
+                state["active_model_worker_key"] = _build_task_worker_key(
+                    runtime_config, session["session_id"]
+                )
                 return runtime
-            shared_encoder = None
-            if (
-                runtime.get("model") is not None
-                and state["active_text_encoder_signature"] == encoder_signature
-            ):
-                shared_encoder = _detach_runtime_text_encoder(runtime)
-            _unload_runtime_model(runtime, logger)
-            _ensure_runtime(runtime, runtime_config, kimodo_root, logger, text_encoder=shared_encoder)
-            state["active_text_encoder_signature"] = encoder_signature
-            state["active_model_worker_key"] = _build_model_worker_key(runtime_config)
+            _ensure_runtime(
+                runtime,
+                runtime_config,
+                kimodo_root,
+                logger,
+                text_encoder=shared_encoder,
+                text_encoder_decision=shared_decision,
+            )
+            bind_shared_text_encoder(runtime, encoder_signature)
+            state["active_model_worker_key"] = _build_task_worker_key(
+                runtime_config, session["session_id"]
+            )
             return runtime
 
     def wake_session(session_id: str) -> None:
@@ -1129,6 +1220,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 logger,
             ):
                 raise
+            bind_shared_text_encoder(
+                runtime, _build_text_encoder_signature(task["runtime_config"])
+            )
             return _execute_generate(
                 task["request"],
                 runtime["model"],
@@ -1175,7 +1269,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
 
             try:
                 publish_state("loading_runtime")
-                runtime = get_runtime(task["runtime_config"])
+                runtime = get_runtime(session, task["runtime_config"])
                 publish_state("generating")
                 profile = runtime.get("motion_profile")
                 is_ardy_stream = (
@@ -1201,6 +1295,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             logger,
                         ):
                             raise
+                        bind_shared_text_encoder(
+                            runtime, _build_text_encoder_signature(task["runtime_config"])
+                        )
                         stream_context = ardy_backend.ArdyStreamGenerator(
                             task["request"],
                             runtime["model"],
@@ -1594,7 +1691,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     "request_id": request_id,
                                     "request": dict(request),
                                     "runtime_config": dict(active_config),
-                                    "model_worker_key": _build_model_worker_key(active_config),
+                                    "model_worker_key": _build_task_worker_key(
+                                        active_config, bound_session_id
+                                    ),
                                     "cancel_event": threading.Event(),
                                     "event": threading.Event(),
                                     "response": None,
@@ -1671,8 +1770,21 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             threading.Thread(target=client_worker, args=(conn, addr), daemon=True).start()
     finally:
         worker_thread.join()
+        with state_lock:
+            runtimes = [state["active_runtime"]] + [
+                session.get("ardy_runtime") or {} for session in state["sessions"].values()
+            ] + list(state["retired_runtimes"])
+            state["retired_runtimes"].clear()
+            state["shared_text_encoder"] = None
+            state["shared_text_encoder_signature"] = ""
+            state["shared_text_encoder_decision"] = None
         with runtime_gate:
-            _unload_runtime_model(state["active_runtime"], logger)
+            seen: set[int] = set()
+            for runtime in runtimes:
+                if id(runtime) in seen:
+                    continue
+                seen.add(id(runtime))
+                _unload_runtime_model(runtime, logger)
         _remove_file(serverport_path)
         try:
             server.close()
