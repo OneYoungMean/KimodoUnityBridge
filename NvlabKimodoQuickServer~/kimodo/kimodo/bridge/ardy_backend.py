@@ -135,8 +135,9 @@ class ArdyStreamGenerator:
                 self._cuda_rng_state = torch.cuda.get_rng_state(device=model.device)
 
         generated = motion[:, history_len : history_len + horizon]
-        # Match the official interactive default: keep one complete motion token.
-        max_history = int(self.profile.frames_per_token)
+        # Keep the same bounded context as official ARDY: history + next horizon
+        # must fit the profile's trained context window.
+        max_history = resolve_history_frame_limit(self.profile)
         self.history = motion[:, -min(max_history, int(motion.shape[1])) :].detach() if max_history > 0 else None
         output = model.motion_rep.inverse(generated, is_normalized=True)
         postprocess_constraints = (
@@ -185,6 +186,16 @@ def resolve_stream_capacity_frames(task_request: dict[str, Any], profile: Any) -
             f"ARDY stream capacity {capacity} exceeds KIMODO_ARDY_STREAM_MAX_FRAMES={max_frames}."
         )
     return capacity
+
+
+def resolve_history_frame_limit(profile: Any, future_frames: int | None = None) -> int:
+    """Return the token-aligned history budget that leaves room for a future horizon."""
+    patch = int(profile.frames_per_token)
+    future = int(profile.horizon_frames) if future_frames is None else int(future_frames)
+    limit = ((int(profile.max_context_frames) - future) // patch) * patch
+    if limit < 0:
+        raise ArdyBackendError("Future constraints exceed the registered ARDY context window.")
+    return limit
 
 
 @dataclass(frozen=True)
@@ -548,9 +559,7 @@ def prepare_generation_inputs(
     future_frames = max(int(profile.horizon_frames), max(future_indices, default=-1) + 1, future_clip_frames)
     future_frames = int(math.ceil(future_frames / patch) * patch)
     context_future_frames = int(profile.horizon_frames) if window_future_clips else future_frames
-    max_history = ((int(profile.max_context_frames) - context_future_frames) // patch) * patch
-    if max_history < 0:
-        raise ArdyBackendError("Future constraints exceed the registered ARDY context window.")
+    max_history = resolve_history_frame_limit(profile, context_future_frames)
 
     roots: list[np.ndarray] = []
     quats: list[np.ndarray] = []

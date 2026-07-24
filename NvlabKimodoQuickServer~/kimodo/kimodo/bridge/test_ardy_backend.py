@@ -192,7 +192,7 @@ class ArdyBackendSelfCheck(unittest.TestCase):
                 {"posed_joints": posed, "local_rot_mats": rotations},
             )
 
-    def test_ardy_stream_generate_retains_history_and_rounds_capacity(self):
+    def test_ardy_stream_generate_retains_official_history_window_and_rounds_capacity(self):
         model = _StreamingModel()
         generator = ardy_backend.ArdyStreamGenerator(
             {"prompt": "T pose", "diffusion_steps": 1, "seed": 7},
@@ -203,11 +203,16 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         )
         first = generator.generate_horizon(model)
         second = generator.generate_horizon(model)
+        third = generator.generate_horizon(model)
+        fourth = generator.generate_horizon(model)
         self.assertFalse(hasattr(generator, "model"))
         self.assertEqual(first["posed_joints"].shape[1], 4)
         self.assertEqual(second["posed_joints"].shape[1], 4)
-        self.assertEqual(model.requested_frames, [4, 6])
-        self.assertEqual(generator.history.shape[1], 2)
+        self.assertEqual(third["posed_joints"].shape[1], 4)
+        self.assertEqual(fourth["posed_joints"].shape[1], 4)
+        self.assertEqual(model.requested_frames, [4, 8, 12, 12])
+        self.assertEqual(generator.history.shape[1], 8)
+        self.assertEqual(ardy_backend.resolve_history_frame_limit(_stream_profile()), 8)
         self.assertEqual(model.text_encode_count, 1)
         self.assertEqual(
             ardy_backend.resolve_stream_capacity_frames({"duration": 0.25}, _stream_profile()),
@@ -448,6 +453,7 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         self.assertEqual((g18.source_fps, g18.horizon_frames, g18.rig_profile), (25.0, 8, "g1skel34"))
         self.assertEqual({core.max_diffusion_steps, core8.max_diffusion_steps, g1.max_diffusion_steps, g18.max_diffusion_steps}, {10})
         self.assertEqual(core.max_context_frames, 200)
+        self.assertEqual(ardy_backend.resolve_history_frame_limit(core), 160)
         self.assertTrue(core.postprocess)
         self.assertFalse(g1.postprocess)
 
