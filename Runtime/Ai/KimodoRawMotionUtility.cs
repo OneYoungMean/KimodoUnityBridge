@@ -11,10 +11,10 @@ namespace KimodoBridge
     {
         internal readonly string[] jointNames;
         internal readonly int[] jointParents;
-        internal readonly Vector3[] rootPositions;
+        internal Vector3[] rootPositions;
         internal readonly List<float> localRotQuats;
         internal readonly int rootJointIndex;
-        internal readonly byte[] footContacts;
+        internal byte[] footContacts;
 
         internal KimodoRawMotionData(
             int frameCount,
@@ -40,14 +40,79 @@ namespace KimodoBridge
                 : Array.Empty<byte>();
         }
 
-        public int FrameCount { get; }
+        public int FrameCount { get; private set; }
         public int JointCount { get; }
         public float FrameRate { get; }
         public float DurationSeconds => FrameCount > 0 ? FrameCount / FrameRate : 0f;
         public float LastFrameTimeSeconds => FrameCount > 1 ? (FrameCount - 1) / FrameRate : 0f;
         public int RootJointIndex => rootJointIndex;
         public IReadOnlyList<string> JointNames => jointNames;
-        public bool HasFootContacts => footContacts.Length == FrameCount * KimodoFootContactTrackUtility.ChannelCount;
+        public bool HasFootContacts => footContacts.Length >= FrameCount * KimodoFootContactTrackUtility.ChannelCount;
+
+        internal bool TryAppend(KimodoRawMotionData segment, int expectedStartFrame, out string error)
+        {
+            error = string.Empty;
+            if (segment == null || expectedStartFrame != FrameCount ||
+                segment.JointCount != JointCount ||
+                Mathf.Abs(segment.FrameRate - FrameRate) > 1e-4f ||
+                segment.jointNames.Length != jointNames.Length ||
+                segment.jointParents.Length != jointParents.Length)
+            {
+                error = "ARDY KMB segment is not contiguous or has incompatible FPS/rig metadata.";
+                return false;
+            }
+            for (int index = 0; index < jointNames.Length; index++)
+            {
+                if (!string.Equals(segment.jointNames[index], jointNames[index], StringComparison.Ordinal) ||
+                    segment.jointParents[index] != jointParents[index])
+                {
+                    error = "ARDY KMB segment rig metadata changed.";
+                    return false;
+                }
+            }
+
+            int oldFrames = FrameCount;
+            int newFrames = oldFrames + segment.FrameCount;
+            if (rootPositions.Length < newFrames)
+            {
+                int capacity = Mathf.Max(newFrames, Mathf.Max(16, rootPositions.Length * 2));
+                Array.Resize(ref rootPositions, capacity);
+            }
+            Array.Copy(segment.rootPositions, 0, rootPositions, oldFrames, segment.FrameCount);
+
+            int scalarCount = segment.FrameCount * JointCount * 4;
+            if (localRotQuats.Capacity < localRotQuats.Count + scalarCount)
+            {
+                localRotQuats.Capacity = Mathf.Max(localRotQuats.Count + scalarCount, Mathf.Max(64, localRotQuats.Capacity * 2));
+            }
+            for (int scalar = 0; scalar < scalarCount; scalar++)
+            {
+                localRotQuats.Add(segment.localRotQuats[scalar]);
+            }
+
+            if (HasFootContacts && segment.HasFootContacts)
+            {
+                int channelCount = KimodoFootContactTrackUtility.ChannelCount;
+                int required = newFrames * channelCount;
+                if (footContacts.Length < required)
+                {
+                    int capacity = Mathf.Max(required, Mathf.Max(64, footContacts.Length * 2));
+                    Array.Resize(ref footContacts, capacity);
+                }
+                Array.Copy(
+                    segment.footContacts,
+                    0,
+                    footContacts,
+                    oldFrames * channelCount,
+                    segment.FrameCount * channelCount);
+            }
+            else
+            {
+                footContacts = Array.Empty<byte>();
+            }
+            FrameCount = newFrames;
+            return true;
+        }
 
         internal bool TryReadUnityRootPosition(int frameIndex, out Vector3 value)
         {
@@ -306,7 +371,12 @@ namespace KimodoBridge
             float[] rotations = motion.localRotQuats != null
                 ? motion.localRotQuats.ToArray()
                 : Array.Empty<float>();
-            byte[] contacts = motion.HasFootContacts ? motion.footContacts : Array.Empty<byte>();
+            byte[] contacts = Array.Empty<byte>();
+            if (motion.HasFootContacts)
+            {
+                contacts = new byte[frameCount * KimodoFootContactTrackUtility.ChannelCount];
+                Array.Copy(motion.footContacts, contacts, contacts.Length);
+            }
             var builder = new FlatBufferBuilder(Mathf.Max(1024, roots.Length * 4 + rotations.Length * 4 + contacts.Length + 512));
             var nameOffsets = new StringOffset[jointCount];
             for (int i = 0; i < jointCount; i++)
@@ -656,7 +726,8 @@ namespace KimodoBridge
                 return values;
             }
 
-            for (int i = 0; i < motion.footContacts.Length; i++)
+            int count = motion.FrameCount * KimodoFootContactTrackUtility.ChannelCount;
+            for (int i = 0; i < count; i++)
             {
                 values.Add(motion.footContacts[i] > 0 ? 1f : 0f);
             }

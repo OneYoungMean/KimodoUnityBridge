@@ -15,12 +15,10 @@ import socket
 import threading
 import time
 import sys
-from types import SimpleNamespace
 from typing import Any
 
 from . import bridge_server as bridge_runtime_helpers
 from . import ardy_backend
-from . import animation_handles
 from . import quickserver_assets as assets
 from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 
@@ -690,20 +688,7 @@ def _execute_generate(
     task_request: dict[str, Any],
     model: Any,
     cancel_event: threading.Event,
-    motion_profile: assets.MotionModelProfile | None,
-    spool: animation_handles.AnimationHandleStore,
-    kimodo_root: str,
 ) -> tuple[dict[str, Any], bytes | None]:
-    if motion_profile is not None and motion_profile.backend == "ardy":
-        return ardy_backend.execute_generate(
-            task_request,
-            model,
-            motion_profile,
-            cancel_event,
-            spool,
-            kimodo_root,
-        )
-
     from kimodo.tools import seed_everything
 
     prompt = str(task_request.get("prompt", "A person walks forward.")).strip()
@@ -740,20 +725,11 @@ def _execute_generate(
         raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
 
     output_format = bridge_runtime_helpers._resolve_requested_output_format(task_request)
-    if output_format in {"flatbuf_motion_v1", "kmb_handle_v1"}:
+    if output_format == "kmb_v1":
         payload = bridge_runtime_helpers._build_generate_flatbuffer_payload(model, output, sample_index=0)
-        if output_format == "kmb_handle_v1":
-            handle_info = spool.publish(payload, description=prompt)
-            return {
-                "status": "done",
-                "output_format": output_format,
-                "byte_length": 0,
-                "clip_handle": handle_info["handle"],
-                "handle_info": handle_info,
-            }, None
         return {
             "status": "done",
-            "output_format": "flatbuf_motion_v1",
+            "output_format": "kmb_v1",
             "byte_length": len(payload),
         }, payload
 
@@ -856,6 +832,38 @@ def _read_exact(file, byte_length: int) -> bytes:
     return bytes(chunks)
 
 
+def _read_kmb_attachments(file, request: dict[str, Any]) -> tuple[bytes, ...]:
+    total = int(request.get("attachment_byte_length") or 0)
+    manifest = request.get("kmb_attachments") or []
+    if total == 0 and not manifest:
+        return ()
+    if total <= 0 or total > ardy_backend.MAX_KMB_BYTES:
+        raise ardy_backend.ArdyBackendError(
+            f"attachment_byte_length must be in [1, {ardy_backend.MAX_KMB_BYTES}]."
+        )
+    if not isinstance(manifest, list):
+        raise ardy_backend.ArdyBackendError("kmb_attachments must be an array.")
+    payload = _read_exact(file, total)
+    if len(payload) != total:
+        raise ardy_backend.ArdyBackendError(
+            f"Generate attachments ended after {len(payload)} of {total} bytes."
+        )
+    result: list[bytes] = []
+    expected_offset = 0
+    for index, item in enumerate(manifest):
+        if not isinstance(item, dict) or int(item.get("index", -1)) != index:
+            raise ardy_backend.ArdyBackendError("KMB attachment indices must be contiguous and zero-based.")
+        offset = int(item.get("offset", -1))
+        length = int(item.get("byte_length", 0))
+        if offset != expected_offset or length <= 0 or offset + length > total:
+            raise ardy_backend.ArdyBackendError("KMB attachment offsets or lengths are invalid.")
+        result.append(payload[offset : offset + length])
+        expected_offset += length
+    if expected_offset != total:
+        raise ardy_backend.ArdyBackendError("KMB attachment manifest does not cover the binary request payload.")
+    return tuple(result)
+
+
 def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger) -> int:
     host = "127.0.0.1"
     kimodo_root = str(Path(root_dir).resolve())
@@ -866,7 +874,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         int(float(os.environ.get("KIMODO_RUNTIME_IDLE_UNLOAD_SEC", str(DEFAULT_RUNTIME_IDLE_UNLOAD_SEC)))),
     )
     default_session_id = "session:default"
-    session_queue_limit = max(1, int(os.environ.get("KIMODO_SESSION_QUEUE_LIMIT", "32")))
 
     os.environ["KIMODO_ROOT_PATH"] = kimodo_root
     os.environ["KIMODO_BRIDGE_LOG"] = str((Path(kimodo_root) / "log" / SUPERVISOR_LOG_FILE_NAME).resolve())
@@ -899,7 +906,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             "queue": deque(),
             "active": None,
             "ardy_runtime": {},
-            "ardy_stream_task": None,
+            "ardy_stream": None,
+            "ardy_stream_signature": "",
             "ready": False,
             "closed": False,
         }
@@ -926,7 +934,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "task_counter": count(1),
         "session_counter": count(1),
         "connection_counter": count(1),
-        "ardy_spool": animation_handles.create_store(),
     }
     state_lock = threading.Lock()
     queue_changed = threading.Condition(state_lock)
@@ -943,6 +950,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     logger.on_log = capture_task_download_progress
 
     def retire_session_locked(session: dict[str, Any]) -> None:
+        stream = session.get("ardy_stream")
+        if stream is not None:
+            stream.close()
+        session["ardy_stream"] = None
+        session["ardy_stream_signature"] = ""
         runtime = session.get("ardy_runtime")
         if runtime is not None and runtime.get("model") is not None:
             state["retired_runtimes"].append(runtime)
@@ -1013,10 +1025,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             task = active
         elif active is None and not session["queue"]:
             return
-        elif active is not None and active.get("stream_handle"):
-            if not active["cancel_event"].is_set() and state["ardy_spool"].stream_is_full(active["stream_handle"]):
-                return
-            task = active
         else:
             task = active or session["queue"][0]
         session["ready"] = True
@@ -1030,56 +1038,22 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 state["ready_model_workers"].append(worker["worker_key"])
         queue_changed.notify_all()
 
-    def emit_task_closed(task: dict[str, Any], task_status: str, message: str) -> None:
-        writer = task.get("event_writer")
-        if writer is None or task.get("closed_event_sent"):
-            return
-        task["closed_event_sent"] = True
-        payload = {
-            "status": "event",
-            "event": "task.closed",
-            "task_id": task["task_id"],
-            "session_id": task["session_id"],
-            "task_status": task_status,
-            "message": message,
-        }
-        stream_handle = str(task.get("stream_handle") or "")
-        if stream_handle:
-            payload["handle"] = stream_handle
-
-        try:
-            writer(payload)
-        except Exception:
-            pass
-
     def finish_task_locked(
         session: dict[str, Any],
         task: dict[str, Any],
         response: dict[str, Any] | None = None,
         binary_payload: bytes | None = None,
     ) -> None:
-        stream_context = task.get("stream_context")
-        if stream_context is not None:
-            stream_context.close()
-        stream_handle = str(task.get("stream_handle") or "")
-        if stream_handle:
-            state["ardy_spool"].close_stream(stream_handle, notify=False)
-        if session.get("ardy_stream_task") is task:
-            session["ardy_stream_task"] = None
-        state["ardy_spool"].unpin(task.get("pinned_handles") or ())
-        if not task.get("response_sent"):
-            final_response = response or {"status": "cancelled", "message": "Task closed."}
-            task["response"] = attach_request_id(
-                _attach_task_id(final_response, task["task_id"]),
-                task["request_id"],
-            )
-            task["binary"] = binary_payload
-            task["event"].set()
+        final_response = response or {"status": "cancelled", "message": "Task closed."}
+        task["response"] = attach_request_id(
+            _attach_task_id(final_response, task["task_id"]),
+            task["request_id"],
+        )
+        task["binary"] = binary_payload
+        task["event"].set()
         task_status = str((response or {}).get("status") or ("cancelled" if task["cancel_event"].is_set() else "closed"))
         message = str((response or {}).get("message") or task.get("status_message") or "Task closed.")
         task["state"] = task_status
-        if task.get("response_sent"):
-            emit_task_closed(task, task_status, message)
         state["tasks"].pop(task["task_id"], None)
         if session.get("active") is task:
             session["active"] = None
@@ -1152,7 +1126,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     for session in state["sessions"].values()
                 )
                 work_in_flight = any(
-                    session["queue"] or session.get("active") is not None
+                    session["queue"]
+                    or session.get("active") is not None
+                    or session.get("ardy_stream") is not None
                     for session in state["sessions"].values()
                 ) or int(state.get("active_command_count") or 0) > 0
 
@@ -1231,22 +1207,37 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             )
             return runtime
 
-    def wake_session(session_id: str) -> None:
-        with queue_changed:
-            session = state["sessions"].get(session_id)
-            if session is not None:
-                mark_session_ready_locked(session)
-
-    def run_one_shot(task: dict[str, Any], runtime: dict[str, Any]) -> tuple[dict[str, Any], bytes | None]:
-        try:
-            return _execute_generate(
+    def run_one_shot(
+        task: dict[str, Any],
+        runtime: dict[str, Any],
+        session: dict[str, Any],
+    ) -> tuple[dict[str, Any], bytes | None]:
+        def execute() -> tuple[dict[str, Any], bytes | None]:
+            profile = runtime.get("motion_profile")
+            if profile is None or profile.backend != "ardy":
+                return _execute_generate(task["request"], runtime["model"], task["cancel_event"])
+            signature = str(runtime.get("runtime_signature") or "")
+            existing = session.get("ardy_stream")
+            existing_signature = str(session.get("ardy_stream_signature") or "")
+            if existing is not None and existing_signature != signature:
+                raise ardy_backend.ArdyBackendError(
+                    "An active ARDY Session cannot change its model or runtime configuration."
+                )
+            stream, response, payload = ardy_backend.execute_stream_generate(
+                existing,
                 task["request"],
+                tuple(task.get("attachments") or ()),
                 runtime["model"],
+                profile,
                 task["cancel_event"],
-                runtime.get("motion_profile"),
-                state["ardy_spool"],
                 kimodo_root,
             )
+            session["ardy_stream"] = stream
+            session["ardy_stream_signature"] = signature
+            return response, payload
+
+        try:
+            return execute()
         except Exception as exc:
             if not _is_encoder_oom(exc) or not _fallback_runtime_text_encoder_to_cpu(
                 runtime,
@@ -1258,14 +1249,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             bind_shared_text_encoder(
                 runtime, _build_text_encoder_signature(task["runtime_config"])
             )
-            return _execute_generate(
-                task["request"],
-                runtime["model"],
-                task["cancel_event"],
-                runtime.get("motion_profile"),
-                state["ardy_spool"],
-                kimodo_root,
-            )
+            return execute()
 
     def worker_loop() -> None:
         while True:
@@ -1306,160 +1290,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 publish_state("loading_runtime")
                 runtime = get_runtime(session, task["runtime_config"])
                 publish_state("generating")
-                profile = runtime.get("motion_profile")
-                is_ardy_stream = (
-                    profile is not None
-                    and profile.backend == "ardy"
-                    and bridge_runtime_helpers._resolve_requested_output_format(task["request"]) == "kmb_handle_v1"
-                )
-
-                if is_ardy_stream and task.get("stream_context") is None:
-                    try:
-                        stream_context = ardy_backend.ArdyStreamGenerator(
-                            task["request"],
-                            runtime["model"],
-                            profile,
-                            state["ardy_spool"],
-                            kimodo_root,
-                        )
-                    except Exception as exc:
-                        if not _is_encoder_oom(exc) or not _fallback_runtime_text_encoder_to_cpu(
-                            runtime,
-                            task["runtime_config"],
-                            kimodo_root,
-                            logger,
-                        ):
-                            raise
-                        bind_shared_text_encoder(
-                            runtime, _build_text_encoder_signature(task["runtime_config"])
-                        )
-                        stream_context = ardy_backend.ArdyStreamGenerator(
-                            task["request"],
-                            runtime["model"],
-                            profile,
-                            state["ardy_spool"],
-                            kimodo_root,
-                        )
-                    capacity_frames = ardy_backend.resolve_stream_capacity_frames(task["request"], profile)
-                    joint_parents, joint_names = bridge_runtime_helpers._parents_and_names(
-                        runtime["model"],
-                        len(runtime["model"].motion_rep.skeleton.bone_order_names),
-                    )
-                    handle_info = state["ardy_spool"].create_stream(
-                        task_id=task_id,
-                        session_id=session_id,
-                        capacity_frames=capacity_frames,
-                        horizon_frames=int(profile.horizon_frames),
-                        token_frames=int(profile.frames_per_token),
-                        fps=float(profile.source_fps),
-                        model_name=profile.model_name,
-                        joint_names=joint_names,
-                        joint_parents=joint_parents,
-                        motion_rep_fingerprint=profile.motion_rep_fingerprint,
-                        description=stream_context.prompt,
-                        serializer=lambda output, metadata=SimpleNamespace(
-                            name=profile.model_name,
-                            fps=float(profile.source_fps),
-                            skeleton=SimpleNamespace(
-                                bone_order_names=tuple(joint_names),
-                                joint_parents=tuple(joint_parents),
-                            ),
-                        ): bridge_runtime_helpers._build_generate_flatbuffer_payload(
-                            metadata, output, sample_index=0
-                        ),
-                        cancel=lambda event=task["cancel_event"], sid=session_id: (
-                            event.set(),
-                            wake_session(sid),
-                        ),
-                        resume=lambda sid=session_id: wake_session(sid),
-                        delivered=lambda _count: None,
-                    )
-                    state["ardy_spool"].set_stream_delivered(
-                        handle_info["handle"], stream_context.commit_frames
-                    )
-                    task["stream_context"] = stream_context
-                    task["stream_handle"] = handle_info["handle"]
-                    task["state"] = "streaming"
-                    task["response"] = attach_request_id(
-                        _attach_task_id(
-                            _attach_runtime_metadata(
-                                {
-                                    "status": "done",
-                                    "output_format": "kmb_handle_v1",
-                                    "byte_length": 0,
-                                    "clip_handle": handle_info["handle"],
-                                    "handle_info": handle_info,
-                                    "motion_rep_fingerprint": profile.motion_rep_fingerprint,
-                                    "resolved_seed": stream_context.resolved_seed,
-                                },
-                                runtime.get("text_encoder_decision"),
-                            ),
-                            task_id,
-                        ),
-                        task["request_id"],
-                    )
-                    task["response_sent"] = True
-                    task["event"].set()
-                    with queue_changed:
-                        session["ardy_stream_task"] = task
-                        if task["cancel_event"].is_set():
-                            finish_task_locked(session, task)
-                        else:
-                            mark_session_ready_locked(session)
-                        publish_state("idle")
-                    continue
-
-                if is_ardy_stream:
-                    if task["cancel_event"].is_set():
-                        with queue_changed:
-                            finish_task_locked(session, task)
-                            publish_state("idle")
-                        continue
-                    with task["update_lock"]:
-                        pending_update = task.pop("pending_update", None)
-                    if pending_update is not None:
-                        state["ardy_spool"].wait_stream_read_idle(task["stream_handle"])
-                        state["ardy_spool"].discard_stream_unread(task["stream_handle"])
-                        task["stream_context"].update(
-                            pending_update,
-                            runtime["model"],
-                            state["ardy_spool"],
-                            kimodo_root,
-                        )
-                        state["ardy_spool"].update_stream_description(
-                            task["stream_handle"], task["stream_context"].prompt
-                        )
-                        state["ardy_spool"].resume_stream_delivery(task["stream_handle"])
-                    output = task["stream_context"].generate_horizon(runtime["model"])
-                    if task["cancel_event"].is_set():
-                        with queue_changed:
-                            finish_task_locked(session, task)
-                            publish_state("idle")
-                        continue
-                    with task["update_lock"]:
-                        pending_update = task.pop("pending_update", None)
-                        if pending_update is None:
-                            state["ardy_spool"].append_stream(task["stream_handle"], output)
-                    if pending_update is not None:
-                        state["ardy_spool"].wait_stream_read_idle(task["stream_handle"])
-                        state["ardy_spool"].discard_stream_unread(task["stream_handle"])
-                        task["stream_context"].update(
-                            pending_update,
-                            runtime["model"],
-                            state["ardy_spool"],
-                            kimodo_root,
-                        )
-                        state["ardy_spool"].update_stream_description(
-                            task["stream_handle"], task["stream_context"].prompt
-                        )
-                        state["ardy_spool"].resume_stream_delivery(task["stream_handle"])
-                    with queue_changed:
-                        state["last_activity"] = time.time()
-                        mark_session_ready_locked(session)
-                        publish_state("idle")
-                    continue
-
-                response, binary_payload = run_one_shot(task, runtime)
+                response, binary_payload = run_one_shot(task, runtime, session)
                 response = _attach_runtime_metadata(response, runtime.get("text_encoder_decision"))
             except bridge_runtime_helpers.GenerateCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
@@ -1675,133 +1506,29 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     close_session_locked(session, "Session closed.")
                                 reply({"status": "done", "session_id": bound_session_id})
                             return
-                        elif cmd == "animation.upload":
-                            upload_started = time.monotonic()
-                            conn.settimeout(3.0)
-                            if str(request.get("format") or "") != "flatbuf_motion_v1":
-                                raise animation_handles.AnimationHandleError(
-                                    "animation.upload requires format='flatbuf_motion_v1'."
-                                )
-                            byte_length = int(request.get("byte_length") or 0)
-                            if byte_length <= 0 or byte_length > animation_handles.MAX_KMB_BYTES:
-                                raise animation_handles.AnimationHandleError(
-                                    f"animation.upload byte_length must be in [1, {animation_handles.MAX_KMB_BYTES}]."
-                                )
-                            payload = _read_exact(file, byte_length)
-                            conn.settimeout(None)
-                            if payload is None or len(payload) != byte_length:
-                                raise animation_handles.AnimationHandleError(
-                                    f"animation.upload ended after {len(payload or b'')} of {byte_length} bytes."
-                                )
-                            info = state["ardy_spool"].publish(
-                                payload,
-                                description=str(request.get("description") or ""),
-                                motion_rep_fingerprint=str(request.get("motion_rep_fingerprint") or ""),
-                            )
-                            if time.monotonic() - upload_started > 3.0:
-                                state["ardy_spool"].release(info["handle"])
-                                raise animation_handles.AnimationHandleError("animation.upload exceeded the 3 second limit.")
-                            reply({"status": "done", "output_format": "kmb_handle_v1", "handle_info": info})
-                        elif cmd == "animation.info":
-                            info = state["ardy_spool"].info(str(request.get("handle") or ""))
-                            if info.get("is_stream") and info.get("session_id") != bound_session_id:
-                                raise animation_handles.AnimationHandleNotFoundError("Animation stream belongs to another Session.")
-                            reply({"status": "done", "handle_info": info})
-                        elif cmd == "animation.download":
-                            handle = str(request.get("handle") or "")
-                            info = state["ardy_spool"].info(handle)
-                            if info.get("is_stream") and info.get("session_id") != bound_session_id:
-                                raise animation_handles.AnimationHandleNotFoundError("Animation stream belongs to another Session.")
-                            max_frames = request.get("max_frames")
-                            payload, info = state["ardy_spool"].download(
-                                handle,
-                                max_frames=None if max_frames is None else int(max_frames),
-                            )
-                            reply(
-                                {
-                                    "status": "done",
-                                    "output_format": "flatbuf_motion_v1",
-                                    "byte_length": len(payload),
-                                    "handle_info": info,
-                                },
-                                payload,
-                            )
-                        elif cmd == "animation.release":
-                            handle = str(request.get("handle") or "")
-                            info = state["ardy_spool"].info(handle)
-                            if info.get("is_stream") and info.get("session_id") != bound_session_id:
-                                raise animation_handles.AnimationHandleNotFoundError("Animation stream belongs to another Session.")
-                            expected_instance = str(request.get("server_instance_id") or "")
-                            if expected_instance and expected_instance != state["ardy_spool"].server_instance_id:
-                                raise animation_handles.AnimationHandleNotFoundError(
-                                    "Animation handle belongs to a different QuickServer instance."
-                                )
-                            released = state["ardy_spool"].release(handle)
-                            reply({"status": "done", "released": released, "handle": handle})
                         elif cmd == "generate":
+                            attachments = _read_kmb_attachments(file, request)
                             task_id = resolve_request_task_id(request)
                             request["task_id"] = task_id
 
                             with queue_changed:
-                                active_stream = session.get("ardy_stream_task")
-                                active_stream_handle = str((active_stream or {}).get("stream_handle") or "")
                                 requested_profile = assets.resolve_motion_model_profile(
                                     str(request.get("model") or session["default_config"].get("model") or "")
                                 )
-                                is_stream_update = (
-                                    active_stream is not None
-                                    and active_stream.get("state") == "streaming"
-                                    and active_stream_handle
-                                    and requested_profile is not None
-                                    and requested_profile.backend == "ardy"
-                                    and bridge_runtime_helpers._resolve_requested_output_format(request) == "kmb_handle_v1"
-                                )
-                                if is_stream_update:
-                                    active_config = _normalize_runtime_config(request, session["default_config"])
-                                    if not active_config.get("models_root"):
-                                        active_config["models_root"] = active_stream["runtime_config"].get("models_root", "")
-                                    if _build_signature(active_config) != _build_signature(active_stream["runtime_config"]):
-                                        reply({
-                                            "status": "error",
-                                            "error_code": "ardy_stream_config_mismatch",
-                                            "message": "ARDY stream updates must keep the active model and runtime configuration.",
-                                        })
-                                        continue
-                                    stream_context = active_stream.get("stream_context")
-                                    if stream_context is None:
-                                        reply({
-                                            "status": "error",
-                                            "error_code": "ardy_stream_not_ready",
-                                            "message": "ARDY stream is not ready for an update.",
-                                        })
-                                        continue
-                                    update_handles = state["ardy_spool"].pin(
-                                        ardy_backend.extract_handle_refs(request.get("constraints_json", ""))
-                                    )
-                                    with active_stream["update_lock"]:
-                                        active_stream["pending_update"] = dict(request)
-                                        active_stream["update_revision"] = int(active_stream.get("update_revision") or 0) + 1
-                                        active_stream["pinned_handles"] = tuple(dict.fromkeys(
-                                            (*active_stream.get("pinned_handles", ()), *update_handles)
-                                        ))
-                                        state["ardy_spool"].pause_stream_delivery(active_stream_handle)
-                                    reply({
-                                        "status": "done",
-                                        "output_format": "kmb_handle_v1",
-                                        "clip_handle": active_stream_handle,
-                                        "handle_info": state["ardy_spool"].info(active_stream_handle),
-                                        "resolved_seed": stream_context.resolved_seed,
-                                        "motion_rep_fingerprint": requested_profile.motion_rep_fingerprint,
-                                        "updated": True,
-                                        "update_revision": active_stream["update_revision"],
-                                    })
-                                    mark_session_ready_locked(session)
+                                is_ardy_request = requested_profile is not None and requested_profile.backend == "ardy"
+                                if task_id in state["tasks"]:
+                                    reply(
+                                        _attach_task_id(
+                                            {"status": "error", "message": f"Duplicate task_id '{task_id}'."},
+                                            task_id))
                                     continue
-                                if len(session["queue"]) + (1 if session.get("active") is not None else 0) >= session_queue_limit:
+                                if not is_ardy_request and len(session["queue"]) + (
+                                    1 if session.get("active") is not None else 0
+                                ) >= 32:
                                     reply({
                                         "status": "error",
                                         "error_code": "session_queue_full",
-                                        "message": f"Session Generate queue limit is {session_queue_limit}.",
+                                        "message": "Session Generate queue limit is 32.",
                                     })
                                     continue
                                 active_config = _normalize_runtime_config(request, session["default_config"])
@@ -1809,22 +1536,35 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                 owner_pid = int(request.get("owner_pid") or 0)
                                 if owner_pid > 0:
                                     state["owner_pid"] = owner_pid
-                                if task_id in state["tasks"]:
-                                    reply(
-                                        _attach_task_id(
-                                            {"status": "error", "message": f"Duplicate task_id '{task_id}'."},
-                                            task_id))
-                                    continue
+                                if is_ardy_request:
+                                    active = session.get("active")
+                                    if active is not None:
+                                        active["cancel_event"].set()
+                                        active["state"] = "cancelling"
+                                        active["status_message"] = (
+                                            f"Task '{active['task_id']}' was superseded by newer ARDY Generate '{task_id}'."
+                                        )
+                                    while session["queue"]:
+                                        superseded = session["queue"].popleft()
+                                        finish_task_locked(
+                                            session,
+                                            superseded,
+                                            {
+                                                "status": "cancelled",
+                                                "message": (
+                                                    f"Task '{superseded['task_id']}' was superseded by newer "
+                                                    f"ARDY Generate '{task_id}'."
+                                                ),
+                                            },
+                                        )
 
-                                pinned_handles = state["ardy_spool"].pin(
-                                    ardy_backend.extract_handle_refs(request.get("constraints_json", ""))
-                                )
                                 task = {
                                     "task_id": task_id,
                                     "session_id": bound_session_id,
                                     "connection_id": connection_id,
                                     "request_id": request_id,
                                     "request": dict(request),
+                                    "attachments": attachments,
                                     "runtime_config": dict(active_config),
                                     "model_worker_key": _build_task_worker_key(
                                         active_config, bound_session_id
@@ -1835,17 +1575,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     "binary": None,
                                     "state": "queued",
                                     "status_message": f"Task '{task_id}' waiting in queue.",
-                                    "pinned_handles": pinned_handles,
-                                    "response_sent": False,
-                                    "stream_context": None,
-                                    "stream_handle": "",
-                                    "pending_update": None,
-                                    "update_revision": 0,
-                                    "update_lock": threading.Lock(),
-                                    "event_writer": lambda payload, f=file, lock=writer_lock: _write_protocol_message(
-                                        f, lock, payload
-                                    ),
-                                    "closed_event_sent": False,
                                 }
                                 state["tasks"][task_id] = task
                                 session["queue"].append(task)
@@ -1865,12 +1594,10 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             return
                         else:
                             reply({"status": "error", "message": f"Unknown cmd: {cmd!r}"})
-                    except animation_handles.AnimationHandleError as exc:
-                        conn.settimeout(None)
+                    except ardy_backend.ArdyBackendError as exc:
                         logger.log(f"[ERROR] Command '{cmd}' failed: {exc}")
                         reply({"status": "error", "error_code": exc.code, "message": str(exc)})
                     except Exception as exc:
-                        conn.settimeout(None)
                         logger.log(f"[ERROR] Command '{cmd}' failed: {exc}")
                         reply({"status": "error", "message": str(exc)})
             finally:
@@ -1909,6 +1636,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     finally:
         worker_thread.join()
         with state_lock:
+            for session in state["sessions"].values():
+                stream = session.get("ardy_stream")
+                if stream is not None:
+                    stream.close()
+                session["ardy_stream"] = None
             runtimes = [state["active_runtime"]] + [
                 session.get("ardy_runtime") or {} for session in state["sessions"].values()
             ] + list(state["retired_runtimes"])

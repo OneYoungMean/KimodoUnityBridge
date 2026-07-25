@@ -68,7 +68,7 @@ def _run_child(args: argparse.Namespace) -> dict:
             "diffusion_steps": args.steps,
             "text_weight": 1.0,
             "constraints_json": "",
-            "output_format": "flatbuf_motion_v1",
+            "output_format": "kmb_v1",
         }
         started = time.perf_counter()
         response, payload = _execute_generate(request, model, threading.Event(), None, None, "")

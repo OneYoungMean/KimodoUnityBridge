@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using UnityEngine;
 
 namespace KimodoBridge
 {
@@ -10,11 +9,13 @@ namespace KimodoBridge
         public string task_id;
         public string prompt;
         public float duration;
+        public double time_as_double;
         public int? seed;
         public int steps;
         public float text_weight = 1f;
         public string constraints_json;
         [NonSerialized] public List<KimodoArdyClipConstraint> ardy_future_clips;
+        [NonSerialized] public byte[] ardy_history_kmb;
         // Optional desired transition overlap in seconds.
         public float transition_duration;
         // Runtime configuration is sent together with generate under the current bridge protocol.
@@ -24,7 +25,13 @@ namespace KimodoBridge
         public string models_root;
         public bool force_hf_download;
         public int owner_pid;
-        public string output_format = "kmb_handle_v1";
+        public double? ardy_history_crop_seconds;
+        public double? ardy_future_crop_seconds;
+        public double? ardy_replan_buffer_seconds;
+        public double? ardy_replan_trigger_seconds;
+        public double? ardy_generate_sync_interval_seconds;
+        public bool? ardy_auto_replan;
+        public string output_format = "kmb_v1";
     }
 
     public static class KimodoTextEncoderModeProtocol
@@ -47,9 +54,12 @@ namespace KimodoBridge
         public string motionFormat;
         public string rawStatus;
         public string message;
-        public string clipHandle;
         public string motionRepFingerprint;
         public int? resolvedSeed;
-        [NonSerialized] public AnimationHandleOperator handleOperator;
+        public int startFrame;
+        public int endFrameExclusive;
+        public int applyFromFrame;
+        public double applyFromTimeSeconds;
+        public int updateRevision;
     }
 }

@@ -25,7 +25,6 @@ namespace KimodoBridge.Editor
         public AnimationClip GeneratedClip;
         public AnimationClip RawBoneClip;
         public string ArdyMotionCachePath;
-        public List<string> ArdyClipHandles;
         public string ArdyMotionRepFingerprint;
         public List<int> ArdyResolvedSeeds;
     }

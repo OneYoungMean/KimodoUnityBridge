@@ -170,7 +170,7 @@ namespace KimodoBridge
     public sealed class KimodoArdyClipConstraint
     {
         [NonSerialized]
-        public AnimationHandleOperator animation;
+        public byte[] motionBytes;
         public int startFrame;
         public int endFrameExclusive;
         public KimodoArdyConstraintMask mask = new KimodoArdyConstraintMask();
@@ -178,9 +178,17 @@ namespace KimodoBridge
 
     public static class KimodoArdyClipConstraintProtocol
     {
-        public static string SerializeFuture(string modelName, IReadOnlyList<KimodoArdyClipConstraint> clips)
+        public static string SerializeFuture(
+            string modelName,
+            IReadOnlyList<KimodoArdyClipConstraint> clips,
+            List<byte[]> attachments)
         {
-            return ArdyClipConstraintSerializer.SerializeFuture(modelName, clips);
+            return ArdyClipConstraintSerializer.SerializeFuture(modelName, clips, attachments);
+        }
+
+        public static string SerializeHistory(byte[] payload, List<byte[]> attachments)
+        {
+            return ArdyClipConstraintSerializer.SerializeHistory(payload, attachments);
         }
 
         public static string Append(string constraintsJson, string futureClipConstraintsJson)
@@ -203,9 +211,6 @@ namespace KimodoBridge
         internal int MaxDiffusionSteps;
         internal string MotionRepFingerprint;
 
-        internal int MaxHistoryHandles => Mathf.Max(
-            0,
-            Mathf.CeilToInt((MaxContextFrames - HorizonFrames) / (float)HorizonFrames));
     }
 
     internal static class KimodoMotionModelProfiles
@@ -303,7 +308,10 @@ namespace KimodoBridge
 
     internal static class ArdyClipConstraintSerializer
     {
-        internal static string SerializeFuture(string modelName, IReadOnlyList<KimodoArdyClipConstraint> clips)
+        internal static string SerializeFuture(
+            string modelName,
+            IReadOnlyList<KimodoArdyClipConstraint> clips,
+            List<byte[]> attachments)
         {
             var output = new JArray();
             if (clips == null)
@@ -319,27 +327,34 @@ namespace KimodoBridge
             for (int index = 0; index < clips.Count; index++)
             {
                 KimodoArdyClipConstraint clip = clips[index] ?? throw new InvalidOperationException("Future clip is null.");
-                AnimationHandleInfo info = clip.animation?.Info ?? throw new InvalidOperationException("Future clip has no animation Handle.");
-                if (clip.animation.IsReleased || info.IsStream)
+                byte[] payload = clip.motionBytes;
+                if (payload == null || payload.Length == 0)
                 {
-                    throw new InvalidOperationException("Future clip requires an accessible static KMB Handle.");
+                    throw new InvalidOperationException("Future clip KMB is empty.");
                 }
-                if (!string.Equals(info.ModelName, profile.ModelName, StringComparison.Ordinal) ||
-                    info.JointCount != profile.JointCount ||
-                    !Mathf.Approximately(info.Fps, profile.SourceFps))
+                if (!KimodoRawMotionUtility.TryParseFlatBuffer(
+                        payload,
+                        out KimodoRawMotionData motion,
+                        out string parseError))
                 {
-                    throw new InvalidOperationException("Future clip Handle does not match the selected ARDY profile.");
+                    throw new InvalidOperationException($"Future clip KMB is invalid: {parseError}");
                 }
-                int end = clip.endFrameExclusive > 0 ? clip.endFrameExclusive : info.FrameCount;
-                if (clip.startFrame < 0 || end <= clip.startFrame || end > info.FrameCount)
+                if (motion.JointCount != profile.JointCount || !Mathf.Approximately(motion.FrameRate, profile.SourceFps))
+                {
+                    throw new InvalidOperationException("Future clip KMB does not match the selected ARDY profile.");
+                }
+                int end = clip.endFrameExclusive > 0 ? clip.endFrameExclusive : motion.FrameCount;
+                if (clip.startFrame < 0 || end <= clip.startFrame || end > motion.FrameCount)
                 {
                     throw new InvalidOperationException($"Invalid future clip slice [{clip.startFrame}, {end}).");
                 }
+                int attachment = attachments.Count;
+                attachments.Add(payload);
                 output.Add(new JObject
                 {
                     ["type"] = "clip",
-                    ["format"] = "kmb_handle_v1",
-                    ["handle"] = info.Handle,
+                    ["format"] = "kmb_attachment_v1",
+                    ["attachment"] = attachment,
                     ["start_frame"] = clip.startFrame,
                     ["end_frame_exclusive"] = end,
                     ["is_history"] = false,
@@ -347,6 +362,35 @@ namespace KimodoBridge
                 });
             }
             return output.Count > 0 ? output.ToString(Formatting.None) : string.Empty;
+        }
+
+        internal static string SerializeHistory(byte[] payload, List<byte[]> attachments)
+        {
+            if (payload == null || payload.Length == 0)
+            {
+                throw new InvalidOperationException("ARDY History KMB is empty.");
+            }
+            if (!KimodoRawMotionUtility.TryParseFlatBuffer(
+                    payload,
+                    out KimodoRawMotionData motion,
+                    out string error))
+            {
+                throw new InvalidOperationException($"ARDY History KMB is invalid: {error}");
+            }
+            int attachment = attachments.Count;
+            attachments.Add(payload);
+            return new JArray
+            {
+                new JObject
+                {
+                    ["type"] = "clip",
+                    ["format"] = "kmb_attachment_v1",
+                    ["attachment"] = attachment,
+                    ["start_frame"] = 0,
+                    ["end_frame_exclusive"] = motion.FrameCount,
+                    ["is_history"] = true
+                }
+            }.ToString(Formatting.None);
         }
 
         private static JArray SerializeMask(KimodoArdyConstraintMask value, string[] jointNames)
@@ -372,43 +416,6 @@ namespace KimodoBridge
                 result.Add(position.z);
             }
             return result;
-        }
-
-        internal static string MergeHandles(
-            IReadOnlyList<AnimationHandleInfo> handles,
-            int maxHandles,
-            string futureConstraintsJson)
-        {
-            var output = new JArray();
-            int first = handles != null ? Mathf.Max(0, handles.Count - Mathf.Max(0, maxHandles)) : 0;
-            if (handles != null)
-            {
-                for (int i = first; i < handles.Count; i++)
-                {
-                    AnimationHandleInfo info = handles[i];
-                    if (info == null || string.IsNullOrWhiteSpace(info.Handle))
-                    {
-                        continue;
-                    }
-                    if (info.FrameCount <= 0)
-                    {
-                        throw new InvalidOperationException("ARDY history Handle has no frames.");
-                    }
-
-                    output.Add(new JObject
-                    {
-                        ["type"] = "clip",
-                        ["format"] = "kmb_handle_v1",
-                        ["handle"] = info.Handle.Trim(),
-                        ["start_frame"] = 0,
-                        ["end_frame_exclusive"] = info.FrameCount,
-                        ["is_history"] = true
-                    });
-                }
-            }
-
-            AppendJson(output, futureConstraintsJson);
-            return output.Count > 0 ? output.ToString(Formatting.None) : string.Empty;
         }
 
         internal static void AppendJson(JArray output, string json)

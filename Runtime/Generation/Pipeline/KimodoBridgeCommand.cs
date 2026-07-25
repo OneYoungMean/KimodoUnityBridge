@@ -36,9 +36,9 @@ namespace KimodoBridge
                 result.motionJsonCompact = KimodoRawMotionUtility.ToCompactJson(result.motionData);
             }
 
-            bool hasStreamHandle = result.handleOperator?.Info?.IsStream == true &&
-                !string.IsNullOrWhiteSpace(result.clipHandle);
-            if (string.IsNullOrWhiteSpace(result.motionJsonCompact) && !hasStreamHandle)
+            bool emptyKmbResult = string.Equals(result.motionFormat, "kmb_v1", StringComparison.OrdinalIgnoreCase) &&
+                result.motionBytes != null && result.motionBytes.Length == 0;
+            if (string.IsNullOrWhiteSpace(result.motionJsonCompact) && !emptyKmbResult)
             {
                 throw new InvalidOperationException(result.message ?? "No motion json found in runtime generation result.");
             }
@@ -53,10 +53,13 @@ namespace KimodoBridge
                 Message = result.message ?? string.Empty,
                 RawStatus = result.rawStatus ?? string.Empty,
                 MotionBytes = result.motionBytes,
-                ClipHandle = result.clipHandle ?? string.Empty,
                 MotionRepFingerprint = result.motionRepFingerprint ?? string.Empty,
                 ResolvedSeed = result.resolvedSeed,
-                HandleOperator = result.handleOperator
+                StartFrame = result.startFrame,
+                EndFrameExclusive = result.endFrameExclusive,
+                ApplyFromFrame = result.applyFromFrame,
+                ApplyFromTimeSeconds = result.applyFromTimeSeconds,
+                UpdateRevision = result.updateRevision
             };
         }
 
@@ -80,10 +83,13 @@ namespace KimodoBridge
                 motionData = bridgeResult?.MotionData,
                 motionBytes = bridgeResult?.MotionBytes,
                 motionFormat = bridgeResult?.MotionFormat,
-                clipHandle = bridgeResult?.ClipHandle,
                 motionRepFingerprint = bridgeResult?.MotionRepFingerprint,
                 resolvedSeed = bridgeResult?.ResolvedSeed,
-                handleOperator = bridgeResult?.HandleOperator
+                startFrame = bridgeResult?.StartFrame ?? 0,
+                endFrameExclusive = bridgeResult?.EndFrameExclusive ?? 0,
+                applyFromFrame = bridgeResult?.ApplyFromFrame ?? 0,
+                applyFromTimeSeconds = bridgeResult?.ApplyFromTimeSeconds ?? 0.0,
+                updateRevision = bridgeResult?.UpdateRevision ?? 0
             };
         }
     }
@@ -96,10 +102,13 @@ namespace KimodoBridge
         public string Message;
         public string RawStatus;
         public byte[] MotionBytes;
-        public string ClipHandle;
         public string MotionRepFingerprint;
         public int? ResolvedSeed;
-        public AnimationHandleOperator HandleOperator;
+        public int StartFrame;
+        public int EndFrameExclusive;
+        public int ApplyFromFrame;
+        public double ApplyFromTimeSeconds;
+        public int UpdateRevision;
     }
 
     public enum KimodoBridgeCommandStage

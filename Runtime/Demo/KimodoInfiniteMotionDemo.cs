@@ -394,7 +394,6 @@ namespace KimodoBridge
 
             generationInFlight = true;
             int requestVersion = generationRequestVersion;
-            AnimationHandleOperator generatedHandle = null;
             try
             {
                 string prompt = ResolvePrompt();
@@ -416,7 +415,6 @@ namespace KimodoBridge
 
                 OnProgress($"Generating segment {segmentIndex}...");
                 KimodoBridgeGenerationResult bridgeResult = await KimodoBridgeService.Shared.GenerateAsync(request, OnProgress, token);
-                generatedHandle = bridgeResult?.HandleOperator;
 
                 KimodoRawMotionMetadata metadata = await Task.Run(() =>
                 {
@@ -512,17 +510,6 @@ namespace KimodoBridge
             }
             finally
             {
-                if (generatedHandle != null)
-                {
-                    try
-                    {
-                        await generatedHandle.ReleaseAsync(CancellationToken.None);
-                    }
-                    catch
-                    {
-                        // QuickServer LRU is the final cleanup fallback.
-                    }
-                }
                 generationInFlight = false;
             }
         }

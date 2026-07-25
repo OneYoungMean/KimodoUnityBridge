@@ -18,16 +18,11 @@ def build_condition_dicts(constraints_lst: list):
 def get_unique_index_and_data(indices_lst, data):
     # unique + sort them by t
     indices_unique, inverse = torch.unique(indices_lst, dim=0, return_inverse=True)
-    # Later constraints intentionally override earlier values for the same channel.
-    last_idx = torch.full((indices_unique.size(0),), -1, dtype=torch.long, device=inverse.device)
-    last_idx.scatter_reduce_(
-        0,
-        inverse,
-        torch.arange(len(inverse), device=inverse.device),
-        reduce="amax",
-        include_self=True,
-    )
-    assert (indices_lst[last_idx] == indices_unique).all()
-    indices_lst = indices_lst[last_idx]
-    data = data[last_idx]
+    # pick first value for each unique (t, j)
+    first_idx = torch.zeros(indices_unique.size(0), dtype=torch.long, device=inverse.device)
+    first_idx.scatter_(0, inverse, torch.arange(len(inverse), device=inverse.device))
+    assert (indices_lst[first_idx] == indices_unique).all()
+    # get the data
+    indices_lst = indices_lst[first_idx]
+    data = data[first_idx]
     return indices_lst, data

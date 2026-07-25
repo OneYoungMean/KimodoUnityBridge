@@ -13,6 +13,11 @@ namespace KimodoBridge.Editor
         private SerializedProperty prompt;
         private SerializedProperty generationFrames;
         private SerializedProperty ardyPlaybackDelaySeconds;
+        private SerializedProperty ardyHistoryCropSeconds;
+        private SerializedProperty ardyFutureCropSeconds;
+        private SerializedProperty ardyGenerateSyncIntervalSeconds;
+        private SerializedProperty ardyReplanTriggerSeconds;
+        private SerializedProperty ardyAutoReplan;
         private SerializedProperty diffusionSteps;
         private SerializedProperty textWeight;
         private SerializedProperty randomSeed;
@@ -32,6 +37,11 @@ namespace KimodoBridge.Editor
             prompt = serializedObject.FindProperty("defaultPrompt");
             generationFrames = serializedObject.FindProperty("generationFrames");
             ardyPlaybackDelaySeconds = serializedObject.FindProperty("ardyPlaybackDelaySeconds");
+            ardyHistoryCropSeconds = serializedObject.FindProperty("ardyHistoryCropSeconds");
+            ardyFutureCropSeconds = serializedObject.FindProperty("ardyFutureCropSeconds");
+            ardyGenerateSyncIntervalSeconds = serializedObject.FindProperty("ardyGenerateSyncIntervalSeconds");
+            ardyReplanTriggerSeconds = serializedObject.FindProperty("ardyReplanTriggerSeconds");
+            ardyAutoReplan = serializedObject.FindProperty("ardyAutoReplan");
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
             textWeight = serializedObject.FindProperty("textWeight");
             randomSeed = serializedObject.FindProperty("randomSeed");
@@ -92,7 +102,22 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.PropertyField(
                     ardyPlaybackDelaySeconds,
-                    new GUIContent("Playback Delay", "Unity-only ARDY safety buffer. QuickServer does not use this value."));
+                    new GUIContent("Playback Delay", "Future lead preserved by ARDY when replanning; default 0.2 seconds."));
+                EditorGUILayout.Space(2f);
+                EditorGUILayout.LabelField("ARDY Settings (seconds)", EditorStyles.miniBoldLabel);
+                EditorGUILayout.PropertyField(
+                    ardyHistoryCropSeconds,
+                    new GUIContent("History Crop", "0 uses the selected profile maximum."));
+                EditorGUILayout.PropertyField(
+                    ardyFutureCropSeconds,
+                    new GUIContent("Future Crop", "0 uses the selected profile maximum."));
+                EditorGUILayout.PropertyField(
+                    ardyGenerateSyncIntervalSeconds,
+                    new GUIContent("Generate Sync Interval", "Minimum interval between automatic Generate cursor updates; minimum 0.2 seconds."));
+                EditorGUILayout.PropertyField(
+                    ardyReplanTriggerSeconds,
+                    new GUIContent("Replan Trigger Threshold", "Send the next Generate when Unity's remaining ARDY timeline reaches this duration."));
+                EditorGUILayout.PropertyField(ardyAutoReplan, new GUIContent("Auto Replan"));
             }
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, modelName);
             KimodoGenerationInspectorGui.DrawTextWeight(textWeight);

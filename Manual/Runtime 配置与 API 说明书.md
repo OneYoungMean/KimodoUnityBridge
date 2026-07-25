@@ -154,12 +154,12 @@ service.Dispose();
 
 ### ARDY Future Clip API
 
-ARDY 可把上传后的静态 KMB Handle 作为 future partial-body position constraint。运行时请求使用强类型字段，序列化时会自动追加到 `constraints_json`：
+ARDY 可把 KMB 数据作为 future partial-body position constraint。运行时请求使用强类型字段，序列化时会把 KMB 作为 Generate 二进制附件追加到 `constraints_json`：
 
 ```csharp
 var request = new KimodoGenerationRequestDto
 {
-    model = "ardy-core",
+    model = "ARDY-Core-RP-20FPS-Horizon40",
     prompt = "a person runs while holding a T pose",
     duration = 2f,
     steps = 10,
@@ -167,27 +167,20 @@ var request = new KimodoGenerationRequestDto
     {
         new KimodoArdyClipConstraint
         {
-            animation = uploadedStaticHandle,
+            motionBytes = referenceKmb,
             startFrame = 0,
             endFrameExclusive = 40,
-            mask = KimodoArdyConstraintMask.UpperBody("ardy-core")
+            mask = KimodoArdyConstraintMask.UpperBody("ARDY-Core-RP-20FPS-Horizon40")
         }
     }
 };
 ```
 
-`UpperBody`、`LowerBody`、`FullBody` 与 `FromAvatarMask` 会展开成 Profile 顺序的一维 mask；非 ARDY model、未知骨骼、已释放/流式 Handle、FPS 或骨架不匹配都会在发送前报错。编辑器可用 `ArdyFutureClipUploader.UploadAsync(...)` 按目标 ARDY Profile 重定向采样 `AnimationClip` 并上传为静态 KMB Handle；Python 负责 FK，Unity 不需要计算 root-relative position。
+`UpperBody`、`LowerBody`、`FullBody` 与 `FromAvatarMask` 会展开成 Profile 顺序的一维 mask；非 ARDY model、未知骨骼、空 KMB、FPS 或骨架不匹配都会在发送前报错。编辑器可用 `ArdyFutureClipEncoder.Encode(...)` 按目标 ARDY Profile 重定向采样 `AnimationClip` 并编码为 KMB；Python 负责 FK，Unity 不需要计算 root-relative position。
 
 Future mask 只控制 Root XYZ、Root heading 与非 Root 骨骼的 root-relative XYZ，不控制旋转、速度或脚接触。多个 future clip 按列表顺序合并，后者覆盖前者；`false` 也会清除较早的同通道约束。
 
-ARDY 流被 Cancel 后会在真正完成清理时触发服务事件：
-
-```csharp
-service.TaskClosed += value =>
-    Debug.Log($"{value.TaskId}: {value.TaskStatus}, handle={value.Handle}");
-```
-
-事件会回到创建 `KimodoBridgeService` 时捕获的 Unity 同步上下文。
+ARDY 的每次 Generate 恰好返回一个 `kmb_v1` 结果；缓冲已经足够时允许返回零字节结果。Cancel 只取消当前 Generate 的等待，ARDY Session、history 与 timeline 会保留；`session.close` 才销毁整个 ARDY Session。
 
 `result.motionJsonCompact` 里是生成出来的动作数据，拿到之后解析、重定向到你的角色、播放即可（Demo 里的处理流程可以直接参考）。
 

@@ -7,7 +7,7 @@
 ## 功能介绍
 - 使用 `uv` 构建运行环境。
 - 启动 QuickServer TCP supervisor，并在其内部排队执行 bridge 生成任务。
-- 复用同一条 TCP 连接处理 Session、Generate、Cancel 和动画 Handle 命令。
+- 复用同一条 TCP 连接处理 Session、Generate、Cancel 和直接 KMB 结果。
 - 返回按任务 id 归属的 `queued / loading / progress / cancelling / cancelled / done / error` 状态。
 
 ## 环境要求
@@ -69,34 +69,30 @@ set KIMODO_BRIDGE_BVH_STANDARD_TPOSE=1
 TCP 协议补充：
 - 所有请求都可携带 `request_id`，该请求的全部响应会原样回传，用于在一条持久 TCP 上安全复用命令。
 - `session.open` 会为当前 TCP 创建并绑定显式 Session；未调用时使用 `session:default`。
-- 每个 Session 维护上限为 32 的 Generate FIFO。Kimodo 单次任务原子执行；持久 ARDY 流每轮公平调度一个完整 Horizon。
+- 每个 Session 维护上限为 32 的 Generate 指令 FIFO；每次 Generate 只返回一个最终 result。
 - `session.close` 只关闭显式 Session；关闭 `session:default` 会关闭 QuickServer。旧 `quit` 保持相同的全局关闭效果。
 - `generate` 使用 `text_encoder_mode`，不再接受 `highvram` 或 `force_cpu`；Force CPU UI 会发送 `simulate_free_vram_gb=0`。
 - `generate` 的 `task_id` 现在是可选的；如果调用方不传，QuickServer 会在入队前自动补一个稳定任务标识。
 
-## 动画 Handle
+## KMB 直接传输
 
-QuickServer 会把上传或生成的 KMB 动画保存在进程内、受容量限制的资源库中。存在二进制请求体时，协议为一行 JSON，随后紧跟 `byte_length` 个原始字节。
+`generate` 使用 `output_format=kmb_v1`。成功响应是一行带 `byte_length` 的 JSON，后面立即跟随对应长度的 KMB1；ARDY 缓冲已经足够时允许 `byte_length=0`。
 
-- `animation.upload`：发送 `format=flatbuf_motion_v1`、`byte_length`、可选 `description`，然后发送 KMB；返回 `handle_info`。
-- `animation.info`：发送 `handle`；返回 `handle_info`。
-- `animation.download`：发送 `handle`；返回 JSON 头和后续 KMB 字节。
-- `animation.release`：发送 `handle`；无任务引用时立即释放，否则在任务解除 pin 后释放。
-- `generate` 使用 `output_format=kmb_handle_v1` 时只返回 `handle_info`，不内联 KMB；`flatbuf_motion_v1` 保留为旧的二进制直返模式。
+ARDY 客户端每次 Generate 都发送 Session 相对的 `time_as_double`。QuickServer 根据当前模型 FPS 转帧，只在 GPU 保留 profile 对应的 history，并在 CPU 缓存时间线以支持 seek。缺省 `prompt` 或 `constraints_json` 表示保持；`[]` 表示清空完整 constraint 快照。更新 prompt/constraint 时会丢弃尚未发布的旧 future，并在响应的 `apply_from_frame` 生效。
 
-`animation.upload` 的端到端上限为 3 秒。静态 Handle 在同一服务器实例内全局可见、不可变、可重复下载，并使用基于容量的 LRU 兜底。ARDY 的 `kmb_handle_v1` 是 Session 绑定的游标流：Generate 无需等待首个 Horizon 即返回 Handle；`animation.download` 可携带 `max_frames` 并推进交付游标；同一 Session 后续的 Generate 会在 Horizon 边界更新同一个 Handle 的 prompt/constraint。已经交付的帧不可修改，尚未读取的旧 future 会被丢弃；Cancel 在当前 Horizon 完成后关闭整个流。流容量按 `duration × FPS` 向上补齐到 Horizon 整数倍。
+`time_as_double` 减小视为 seek。缓存 KMB 可能与之前返回的帧重叠，因此支持 seek 的客户端必须从 `start_frame` 替换时间线；Runtime Motion Driver 的游标保持单调，只追加连续区间。
 
-QuickServer 重启后 Handle 失效；基于容量的 LRU 只负责清理未显式释放的资源，Handle 不会因存放时间过长而过期。生产 clip constraint 使用 `format=kmb_handle_v1`，`ardy_file_v1` 仅在显式测试开关下可用。
+History/Future KMB 输入使用 JSON `kmb_attachments` 清单描述连续 offset/length，随后发送拼接的 KMB1 数据；clip constraint 用 `format=kmb_attachment_v1` 和从 0 开始的 `attachment` 索引引用。KMB1 FlatBuffer schema 不变。`ardy_file_v1` 仍只用于显式调试。
 
 ### ARDY clip constraint
 
-旧 clip 缺少 `is_history` 时仍按完整 history 处理，且 history 不能携带 mask。Future clip 使用已上传的静态 KMB Handle：
+clip 缺少 `is_history` 时按完整 history 处理，且 history 不能携带 mask。Future clip 示例：
 
 ```json
 {
   "type": "clip",
-  "format": "kmb_handle_v1",
-  "handle": "animation:...",
+  "format": "kmb_attachment_v1",
+  "attachment": 0,
   "start_frame": 0,
   "end_frame_exclusive": 40,
   "is_history": false,
@@ -106,20 +102,12 @@ QuickServer 重启后 Handle 失效；基于容量的 LRU 只负责清理未显�
 
 Future mask 必须是完整的一维 bool 数组，长度为 `4 + (joint_count - 1) * 3`，顺序严格为 `Root.x, Root.y, Root.z, RootHeading`，随后按 KMB/ARDY Profile 骨骼顺序排列每个非 Root 骨骼的 `x, y, z`。`RootHeading` 同时控制内部 cos/sin；`true` 表示约束，`false` 表示自由生成。多个 clip 从 future 第 0 帧开始写入，后出现的 clip 会覆盖同帧同通道，后者的 `false` 也会清除前者约束。
 
-Python 会对 KMB 的 Root position 与 local quaternion 做 FK，再写入 ARDY root-relative joint-position 通道。只要 future clip 打开任意骨骼位置通道，就自动先自由生成 Root，再锁定该 Root 的 XYZ 与 heading 生成 Body。约束生效的 Horizon 跳过 ARDY postprocess，不做生成后的外部覆盖。扩散步数受 checkpoint 的原生 10-step 时间轴限制，合法范围为 1–10。
-
-真实 checkpoint 冒烟测试：
-
-```bat
-Env~\Scripts\python.exe tools\test_ardy_clip_constraint_tpose.py --models-root C:\nvlab\models~ --model ardy-core --steps 10
-```
-
-该测试使用同 seed 比较自由生成与上半身静态 T Pose mask；当前 Core40 结果的 root-relative XYZ RMSE 从 `0.489 m` 降到 `0.159 m`，下降 `67.6%`。
+Python 会从 KMB 的 Root position 与 local quaternion 重建 ARDY 特征。扩散步数受 checkpoint 原生 10-step 时间轴限制，合法范围为 1–10。
 - 一旦任务标识确定，该任务后续所有响应都会带同一个 `task_id`。
 - 任务会先后经历 `queued`、`loading`、`progress`、`cancelling` 等中间态，并最终落到 `done`、`error` 或 `cancelled`。
 - `cancel` 同样支持可选 `task_id`；若未传，则取消当前队列中第一个可取消任务，并在响应里回传实际命中的任务标识。
-- ARDY Cancel 会先返回 `cancelling`；不可中断的 Horizon 完成并清理资源后，同一 TCP 会收到一个不带 `request_id` 的异步 `{"status":"event","event":"task.closed",...}` 消息。
-- FlatBuffer 返回仍保持 `byte_length` 后紧跟该任务自己的二进制 payload，不会夹入其他任务的数据头。
+- ARDY 在 Horizon 内不可中断；Cancel 只取消当前等待中的 Generate 响应，Session 时间线由 `session.close` 销毁。
+- KMB 返回保持 `byte_length` 后紧跟该任务的二进制 payload。
 
 ## 参数文档
 - 见 `PARAMETERS.md`

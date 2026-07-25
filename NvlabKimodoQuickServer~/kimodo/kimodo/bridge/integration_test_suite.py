@@ -559,7 +559,7 @@ def _generate_tpose(ctx: TestContext, host: str, port: int, *, task_id: str | No
             "prompt": TPROMPT,
             "duration": duration,
             "diffusion_steps": 20,
-            "output_format": "flatbuf_motion_v1",
+            "output_format": "kmb_v1",
             "constraints_json": "",
             "seed": 42,
         }
@@ -808,7 +808,7 @@ def _run_prepare(ctx: TestContext) -> dict[str, Any]:
                 "prompt": TPROMPT,
                 "duration": 1.0,
                 "diffusion_steps": 20,
-                "output_format": "flatbuf_motion_v1",
+                "output_format": "kmb_v1",
                 "constraints_json": "",
                 "seed": 42,
                 "model": "Kimodo-SOMA-RP-v1",

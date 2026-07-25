@@ -16,6 +16,7 @@ namespace KimodoBridge
         private Vector3 currentSegmentRootBaseline;
         private Vector3 lastCompletedWorldOffset;
         private KimodoRuntimeGeneratedSegment currentSegment;
+        private KimodoRuntimeGeneratedSegment queuedArdyTimeline;
         private TargetRetargetState targetState;
         private float timeSeconds;
         private bool playing;
@@ -68,6 +69,7 @@ namespace KimodoBridge
         public Vector3 CurrentRootPosition => sourceRootJoint != null ? sourceRootJoint.position : Vector3.zero;
         public Transform ConstraintSkeletonRoot => sourceCache != null ? sourceCache.skeletonRoot : null;
         public int LastCompletedSegmentIndex { get; private set; } = -1;
+        public double PlaybackTimeAsDouble => timeSeconds;
         public float BufferedDurationSeconds
         {
             get
@@ -114,11 +116,54 @@ namespace KimodoBridge
             }
         }
 
+        public bool AppendArdy(
+            KimodoRuntimeGeneratedSegment segment,
+            int startFrame,
+            bool verboseLogging,
+            out string error)
+        {
+            error = string.Empty;
+            if (segment?.Motion == null)
+            {
+                error = "ARDY KMB segment is empty.";
+                return false;
+            }
+
+            KimodoRuntimeGeneratedSegment timeline = currentSegment != null && currentSegment.UseRawRootPosition
+                ? currentSegment
+                : queuedArdyTimeline;
+            if (timeline == null)
+            {
+                if (startFrame != 0)
+                {
+                    error = $"First ARDY KMB segment must start at frame 0, got {startFrame}.";
+                    return false;
+                }
+                queuedArdyTimeline = segment;
+                Enqueue(segment, verboseLogging);
+                return true;
+            }
+
+            if (!timeline.Motion.TryAppend(segment.Motion, startFrame, out error))
+            {
+                return false;
+            }
+            timeline.LastRootPosition = segment.LastRootPosition;
+            timeline.PromptText = segment.PromptText;
+            timeline.EffectiveLastFrameIndex = timeline.Motion.FrameCount - 1;
+            timeline.EffectiveLastFrameTimeSeconds = timeline.Motion.DurationSeconds;
+            timeline.MotionBytes = null;
+            timeline.MotionRepFingerprint = segment.MotionRepFingerprint;
+            timeline.ResolvedSeed = segment.ResolvedSeed;
+            return true;
+        }
+
         public void ClearQueue()
         {
             lock (queueGate)
             {
                 queuedSegments.Clear();
+                queuedArdyTimeline = null;
             }
         }
 
@@ -182,6 +227,7 @@ namespace KimodoBridge
         public void Stop()
         {
             StopActiveMotion();
+            queuedArdyTimeline = null;
             DisposeRetargetCache();
         }
 
@@ -334,6 +380,10 @@ namespace KimodoBridge
 
             if (reachedEnd)
             {
+                if (currentSegment != null && currentSegment.UseRawRootPosition)
+                {
+                    return;
+                }
                 completedSegment = MarkCurrentSegmentCompleted();
                 StopActiveMotion();
             }
@@ -350,6 +400,10 @@ namespace KimodoBridge
                 }
 
                 segment = queuedSegments.Dequeue();
+                if (ReferenceEquals(segment, queuedArdyTimeline))
+                {
+                    queuedArdyTimeline = null;
+                }
                 return true;
             }
         }

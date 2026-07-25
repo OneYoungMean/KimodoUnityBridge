@@ -7,7 +7,7 @@
 ## Features
 - Build runtime environment with `uv` pipeline.
 - Start the QuickServer TCP supervisor and let it queue bridge generate tasks.
-- Reuse a single TCP connection for Session, Generate, Cancel, and animation Handle commands.
+- Reuse a single TCP connection for Session, Generate, Cancel, and direct KMB results.
 - Return task-scoped `queued / loading / progress / cancelling / cancelled / done / error` messages.
 
 ## Requirements
@@ -60,35 +60,30 @@ example\example_run_server_tpose_console_live.bat
 ## TCP protocol notes
 - Every request may carry `request_id`; every response for that request echoes it, so one persistent TCP connection can multiplex commands safely.
 - `session.open` binds the current TCP connection to a new explicit Session. Without it, commands use `session:default`.
-- Every Session owns a FIFO Generate queue with a limit of 32. Kimodo runs atomically; persistent ARDY streams advance one complete Horizon per fair scheduler turn.
+- Every Session owns a FIFO Generate command queue with a limit of 32. Each Generate produces exactly one final result.
 - `session.close` closes only an explicit Session. Closing `session:default` shuts down QuickServer. Legacy `quit` has the same server-wide effect.
 - `generate` uses `text_encoder_mode`; `highvram` and `force_cpu` are removed. The Force CPU UI sends `simulate_free_vram_gb=0`.
 - `generate` accepts optional `task_id`. If omitted, QuickServer assigns a stable task id before queueing.
 - Once a task id is assigned, every response for that task carries the same `task_id`.
 - A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.
 - `cancel` accepts an optional `task_id`. If omitted, QuickServer cancels the first cancellable queued task and returns the resolved task id.
-- ARDY Cancel first returns `cancelling`. After the non-interruptible Horizon finishes and cleanup completes, the same TCP receives an asynchronous `{"status":"event","event":"task.closed",...}` message without a `request_id`.
+- ARDY generation is non-interruptible inside a Horizon. Cancel stops the waiting Generate response at the next Horizon boundary but keeps the Session timeline until `session.close`.
 
-## Animation handles
+## Direct KMB transport
 
-QuickServer keeps uploaded/generated KMB animations in a process-local, quota-limited store. Requests use a JSON line followed by `byte_length` raw bytes when a binary body is present.
+`generate` uses `output_format=kmb_v1`. A successful response is one JSON line with `byte_length`, immediately followed by that many KMB1 bytes. `byte_length=0` is valid when the ARDY client already has enough buffered motion.
 
-- `animation.upload`: send `format=flatbuf_motion_v1`, `byte_length`, optional `description`, then KMB bytes; returns `handle_info`.
-- `animation.info`: send `handle`; returns `handle_info`.
-- `animation.download`: send `handle`; returns a JSON header followed by KMB bytes.
-- `animation.release`: send `handle`; releases immediately or after an active task unpins it.
-- `generate` with `output_format=kmb_handle_v1` returns `handle_info` without inline KMB bytes. `flatbuf_motion_v1` remains the legacy inline-binary mode.
+ARDY clients send session-relative `time_as_double` on every Generate. QuickServer converts seconds with the selected model FPS, keeps only the profile-sized GPU history, and caches the CPU timeline for seek. Missing `prompt` or `constraints_json` keeps the current value; `[]` clears the complete constraint snapshot. Prompt or constraint changes discard unpublished future motion and take effect at the returned `apply_from_frame`.
 
-`animation.upload` has a three-second end-to-end limit. Static Handles are server-instance-global, immutable, repeat-downloadable, and use capacity-based LRU fallback. ARDY `kmb_handle_v1` results are Session-bound cursor streams: Generate returns the Handle before the first Horizon is ready; `animation.download` accepts optional `max_frames` and advances the delivery cursor; a later Generate in the same Session updates prompt/constraints on that same Handle at a Horizon boundary. Already delivered frames remain immutable, unread future frames are discarded, and Cancel closes the stream after any in-flight Horizon finishes. Stream capacity is `duration × FPS` rounded up to a Horizon multiple.
+A decreasing `time_as_double` is a seek. Its cached KMB response may overlap previously returned frames, so seek-capable clients replace their timeline from `start_frame`; the runtime motion driver keeps a monotonic cursor and only appends contiguous ranges.
 
-Handles expire when QuickServer restarts. Capacity-based LRU cleanup is a fallback for clients that fail to release; handles do not expire by age. Production clip constraints use `format=kmb_handle_v1`; `ardy_file_v1` is available only behind the explicit test-file flag.
+Optional History/Future KMB inputs use a JSON `kmb_attachments` manifest with contiguous offsets and lengths, followed by concatenated KMB1 blobs. Clip constraints reference `format=kmb_attachment_v1` and a zero-based `attachment` index. The KMB1 FlatBuffer schema itself is unchanged. `ardy_file_v1` remains debug-only behind `KIMODO_ARDY_ALLOW_TEST_FILES`.
 
 ### ARDY clip constraints
 
-A clip without `is_history` remains a complete history clip for compatibility, and history clips cannot carry a mask. A future clip uses an uploaded static KMB Handle and sets `is_history=false`. Its required flat boolean mask has `4 + (joint_count - 1) * 3` entries ordered as `Root.x, Root.y, Root.z, RootHeading`, followed by non-Root joint XYZ channels in strict KMB/ARDY Profile order. `RootHeading` controls both internal cos/sin channels. `true` constrains a channel and `false` leaves it free. Later clips overwrite earlier clips at the same frame/channel; a later `false` also clears an earlier constraint.
+A clip without `is_history` is treated as complete History; History clips cannot carry a mask. A Future clip sets `is_history=false`. Its flat boolean mask has `4 + (joint_count - 1) * 3` entries ordered as `Root.x, Root.y, Root.z, RootHeading`, followed by non-Root joint XYZ channels in KMB/ARDY profile order.
 
-Python runs FK from KMB root positions and local quaternions into ARDY root-relative joint positions. Any future body-position mask automatically runs a free Root pass followed by a Body pass with generated Root XYZ and heading locked. ARDY postprocess is skipped while a future clip is active, with no external output overwrite. Diffusion steps remain in the checkpoint-native range 1–10. Run `Env~\Scripts\python.exe tools\test_ardy_clip_constraint_tpose.py --models-root C:\nvlab\models~ --model ardy-core --steps 10` for the real-checkpoint upper-body T-pose smoke test.
-- FlatBuffer responses still use `byte_length` followed immediately by the binary payload for that same task.
+Python reconstructs ARDY features from KMB root positions and local quaternions. Diffusion steps remain in the checkpoint-native range 1–10.
 
 ## Parameters
 - See `PARAMETERS.md`

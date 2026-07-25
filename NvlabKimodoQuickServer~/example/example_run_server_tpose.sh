@@ -90,7 +90,7 @@ request = {
     "prompt": "tpose",
     "duration": 1.0,
     "diffusion_steps": 20,
-    "output_format": "flatbuf_motion_v1",
+    "output_format": "kmb_v1",
     "constraints_json": "",
     "seed": 42,
 }

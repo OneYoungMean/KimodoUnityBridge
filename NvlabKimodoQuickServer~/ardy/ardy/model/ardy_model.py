@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -716,16 +716,12 @@ class Ardy(nn.Module):
         init_history_sequence: Optional[torch.Tensor] = None,
         init_global_translation: Optional[torch.Tensor] = None,  # [B, 3]
         init_first_heading_angle: Optional[torch.Tensor] = None,  # [B,]
-        cancel_callback: Optional[Callable[[], None]] = None,
     ) -> torch.Tensor:
         """Perform a single autoregressive generation step.
 
         Returns:
             torch.Tensor: motions in the generated window
         """
-        if cancel_callback is not None:
-            cancel_callback()
-
         # Encode text if not provided
         if text_feat is None:
             assert text_pad_mask is None
@@ -768,12 +764,6 @@ class Ardy(nn.Module):
         # Generate a single window on top of the (optional) history.
         history_end_frame = init_history_len
         history_start_frame = 0
-        def cancelable_progress(iterable):
-            for item in iterable:
-                if cancel_callback is not None:
-                    cancel_callback()
-                yield item
-
         history_sequence = self._generate_window(
             history_sequence,
             global_transl,
@@ -788,7 +778,7 @@ class Ardy(nn.Module):
             num_denoising_steps_tensor,
             cfg_weight,
             indices,
-            progress_bar=cancelable_progress,
+            progress_bar=lambda iterable: iterable,
             target_motion=None,
             cfg_type=None,
         )
@@ -815,6 +805,4 @@ class Ardy(nn.Module):
             motion_len,
             motion_mask=motion_mask,
         )
-        if cancel_callback is not None:
-            cancel_callback()
         return motion_output

@@ -29,12 +29,6 @@ namespace KimodoBridge.Editor
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating motion...");
 
             KimodoBridgeCommandResult runtimeResult = await ExecuteRuntimePipelineAsync(request, prompt, modelName);
-            AnimationHandleOperator runtimeHandle = runtimeResult.HandleOperator;
-            if (runtimeHandle != null)
-            {
-                runtimeHandle.Dispose();
-                runtimeResult.HandleOperator = null;
-            }
             string motionJson = runtimeResult.MotionJsonCompact;
             if (string.IsNullOrWhiteSpace(motionJson))
             {
@@ -175,178 +169,86 @@ namespace KimodoBridge.Editor
             string prompt,
             KimodoMotionModelProfile profile)
         {
-            var initialHandles = new List<AnimationHandleInfo>();
-            var handleOperators = new List<AnimationHandleOperator>();
-            try
+            byte[] historyPayload = null;
+            if (request.InitialArdyHistorySource != null)
             {
-                if (request.InitialArdyHistorySource != null)
+                request.Progress?.Invoke(KimodoBridgeCommandStage.Constraint, "Sampling Timeline history to ARDY KMB1...");
+                if (!ArdyEditorHistoryEncoder.TryEncode(
+                        request.InitialArdyHistorySource,
+                        profile,
+                        out historyPayload,
+                        out string redirectError))
                 {
-                    request.Progress?.Invoke(KimodoBridgeCommandStage.Constraint, "Sampling Timeline history to ARDY KMB1...");
-                    if (!ArdyEditorHistoryEncoder.TryEncode(
-                            request.InitialArdyHistorySource,
-                            profile,
-                            out byte[] historyPayload,
-                            out string redirectError))
-                    {
-                        throw new InvalidOperationException($"Build ARDY history failed: {redirectError}");
-                    }
-                    AnimationHandleOperator historyHandle = await KimodoBridgeService.Shared.UploadAnimationAsync(
-                        historyPayload,
-                        "timeline-history",
-                        profile.MotionRepFingerprint,
-                        request.Token);
-                    handleOperators.Add(historyHandle);
-                    initialHandles.Add(historyHandle.Info);
+                    throw new InvalidOperationException($"Build ARDY history failed: {redirectError}");
                 }
-
-                int targetSourceFrames = Mathf.Max(1, (int)Math.Floor(request.DurationSeconds * profile.SourceFps + 1e-9));
-                var motions = new List<KimodoRawMotionData>();
-                string constraintsJson = ArdyClipConstraintSerializer.MergeHandles(
-                    initialHandles,
-                    profile.MaxHistoryHandles,
-                    request.ConstraintsJson);
-                int streamCapacityFrames = ((targetSourceFrames + profile.HorizonFrames - 1) /
-                    profile.HorizonFrames) * profile.HorizonFrames;
-                KimodoBridgeCommandRequest commandRequest = CreateRuntimePipelineRequest(
-                    request,
-                    prompt,
-                    profile.ModelName);
-                commandRequest.GenerationRequest.duration = streamCapacityFrames / profile.SourceFps;
-                commandRequest.GenerationRequest.seed = request.EffectiveSeed;
-                commandRequest.GenerationRequest.steps = request.DiffusionSteps <= 0
-                    ? profile.MaxDiffusionSteps
-                    : Mathf.Clamp(request.DiffusionSteps, 1, profile.MaxDiffusionSteps);
-                commandRequest.GenerationRequest.constraints_json = constraintsJson;
-
-                request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Starting ARDY stream...");
-                var pipeline = new KimodoBridgeCommand();
-                KimodoBridgeCommandResult streamResult = await pipeline.ExecuteAsync(
-                    commandRequest,
-                    (stage, message) => request.Progress?.Invoke(stage, message),
-                    request.Token);
-                AnimationHandleOperator stream = streamResult.HandleOperator;
-                if (stream != null)
-                {
-                    handleOperators.Add(stream);
-                }
-                ValidateArdyStreamResult(streamResult, profile, request.EffectiveSeed);
-                request.GeneratedArdyHandles.Add(streamResult.ClipHandle);
-                request.GeneratedArdySeeds.Add(streamResult.ResolvedSeed.Value);
-                request.GeneratedArdyFingerprint = streamResult.MotionRepFingerprint;
-
-                int downloadedFrames = 0;
-                while (downloadedFrames < targetSourceFrames)
-                {
-                    ThrowIfCanceled(request);
-                    byte[] payload = await WaitForArdyStreamDataAsync(stream, request.Token);
-                    if (!KimodoRawMotionUtility.TryParseFlatBuffer(
-                            payload,
-                            out KimodoRawMotionData motion,
-                            out string parseError))
-                    {
-                        throw new InvalidOperationException($"Failed to parse ARDY stream KMB: {parseError}");
-                    }
-                    ValidateArdyStreamChunk(motion, profile);
-                    motions.Add(motion);
-                    downloadedFrames += motion.FrameCount;
-                    request.Progress?.Invoke(
-                        KimodoBridgeCommandStage.InvokeBackend,
-                        $"Downloaded {Mathf.Min(downloadedFrames, targetSourceFrames)}/{targetSourceFrames} ARDY frames...");
-                }
-
-                if (!KimodoRawMotionUtility.TryConcatenate(
-                        motions,
-                        targetSourceFrames,
-                        out KimodoRawMotionData sourceMotion,
-                        out string concatenateError))
-                {
-                    throw new InvalidOperationException(concatenateError);
-                }
-                byte[] sourcePayload = KimodoRawMotionUtility.ToFlatBuffer(sourceMotion, profile.ModelName);
-                request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(sourcePayload, "timeline-final");
-
-                return new KimodoBridgeCommandResult
-                {
-                    MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(sourceMotion),
-                    MotionData = sourceMotion,
-                    MotionBytes = sourcePayload,
-                    MotionFormat = "flatbuf_motion_v1",
-                    Message = "ARDY window generation complete.",
-                    RawStatus = "done",
-                    ClipHandle = string.Empty,
-                    MotionRepFingerprint = profile.MotionRepFingerprint,
-                    ResolvedSeed = streamResult.ResolvedSeed
-                };
             }
-            finally
+
+            int targetSourceFrames = Mathf.Max(1, (int)Math.Floor(request.DurationSeconds * profile.SourceFps + 1e-9));
+            int requestedFrames = ((targetSourceFrames + profile.FramesPerToken - 1) /
+                profile.FramesPerToken) * profile.FramesPerToken;
+            KimodoBridgeCommandRequest commandRequest = CreateRuntimePipelineRequest(request, prompt, profile.ModelName);
+            commandRequest.GenerationRequest.duration = request.DurationSeconds;
+            commandRequest.GenerationRequest.time_as_double = 0.0;
+            commandRequest.GenerationRequest.seed = request.EffectiveSeed;
+            commandRequest.GenerationRequest.steps = request.DiffusionSteps <= 0
+                ? profile.MaxDiffusionSteps
+                : Mathf.Clamp(request.DiffusionSteps, 1, profile.MaxDiffusionSteps);
+            commandRequest.GenerationRequest.ardy_history_kmb = historyPayload;
+            commandRequest.GenerationRequest.ardy_generate_sync_interval_seconds = requestedFrames / profile.SourceFps;
+            commandRequest.GenerationRequest.ardy_replan_buffer_seconds = 0.0;
+
+            request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating complete ARDY KMB...");
+            var pipeline = new KimodoBridgeCommand();
+            KimodoBridgeCommandResult directResult = await pipeline.ExecuteAsync(
+                commandRequest,
+                (stage, message) => request.Progress?.Invoke(stage, message),
+                request.Token);
+            ValidateArdyResult(directResult, profile, request.EffectiveSeed);
+            request.GeneratedArdySeeds.Add(directResult.ResolvedSeed.Value);
+            request.GeneratedArdyFingerprint = directResult.MotionRepFingerprint;
+
+            if (!KimodoRawMotionUtility.TryConcatenate(
+                    new List<KimodoRawMotionData> { directResult.MotionData },
+                    targetSourceFrames,
+                    out KimodoRawMotionData sourceMotion,
+                    out string concatenateError))
             {
-                for (int i = 0; i < handleOperators.Count; i++)
-                {
-                    try
-                    {
-                        await handleOperators[i].ReleaseAsync(CancellationToken.None);
-                    }
-                    catch
-                    {
-                        // QuickServer LRU is the final cleanup fallback.
-                    }
-                }
-                request.GeneratedArdyHandles.Clear();
+                throw new InvalidOperationException(concatenateError);
             }
+            byte[] sourcePayload = KimodoRawMotionUtility.ToFlatBuffer(sourceMotion, profile.ModelName);
+            request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(sourcePayload, "timeline-final");
+            return new KimodoBridgeCommandResult
+            {
+                MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(sourceMotion),
+                MotionData = sourceMotion,
+                MotionBytes = sourcePayload,
+                MotionFormat = "kmb_v1",
+                Message = "ARDY generation complete.",
+                RawStatus = "done",
+                MotionRepFingerprint = profile.MotionRepFingerprint,
+                ResolvedSeed = directResult.ResolvedSeed
+            };
         }
 
-        private static async Task<byte[]> WaitForArdyStreamDataAsync(
-            AnimationHandleOperator stream,
-            CancellationToken token)
-        {
-            while (true)
-            {
-                token.ThrowIfCancellationRequested();
-                byte[] payload = await stream.DownloadAsync(token);
-                if (payload != null && payload.Length > 0)
-                {
-                    return payload;
-                }
-                await Task.Delay(10, token);
-            }
-        }
-
-        private static void ValidateArdyStreamResult(
+        private static void ValidateArdyResult(
             KimodoBridgeCommandResult result,
             KimodoMotionModelProfile profile,
             int requestedSeed)
         {
-            AnimationHandleInfo info = result?.HandleOperator?.Info;
-            if (info == null ||
-                !info.IsStream ||
-                string.IsNullOrWhiteSpace(result.ClipHandle) ||
-                info.HorizonFrames != profile.HorizonFrames ||
-                info.JointCount != profile.JointCount ||
-                Mathf.Abs(info.Fps - profile.SourceFps) > 1e-4f)
+            if (result?.MotionData == null ||
+                result.MotionData.FrameCount <= 0 ||
+                result.MotionData.JointCount != profile.JointCount ||
+                Mathf.Abs(result.MotionData.FrameRate - profile.SourceFps) > 1e-4f)
             {
-                throw new InvalidOperationException("ARDY Generate did not return a compatible stream Handle.");
+                throw new InvalidOperationException("ARDY Generate did not return compatible KMB motion.");
             }
             if (!string.Equals(result.MotionRepFingerprint, profile.MotionRepFingerprint, StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("ARDY stream motion representation fingerprint mismatch.");
+                throw new InvalidOperationException("ARDY motion representation fingerprint mismatch.");
             }
             if (!result.ResolvedSeed.HasValue || result.ResolvedSeed.Value != requestedSeed)
             {
-                throw new InvalidOperationException("ARDY stream resolved_seed mismatch.");
-            }
-        }
-
-        private static void ValidateArdyStreamChunk(
-            KimodoRawMotionData motion,
-            KimodoMotionModelProfile profile)
-        {
-            if (motion == null ||
-                motion.FrameCount <= 0 ||
-                motion.FrameCount % profile.HorizonFrames != 0 ||
-                motion.JointCount != profile.JointCount ||
-                Mathf.Abs(motion.FrameRate - profile.SourceFps) > 1e-4f)
-            {
-                throw new InvalidOperationException("ARDY stream returned incompatible Horizon, FPS, or rig metadata.");
+                throw new InvalidOperationException("ARDY resolved_seed mismatch.");
             }
         }
 
@@ -406,7 +308,6 @@ namespace KimodoBridge.Editor
                 GeneratedClip = generatedClip,
                 RawBoneClip = rawBoneClip,
                 ArdyMotionCachePath = request.GeneratedArdyMotionCachePath,
-                ArdyClipHandles = new List<string>(request.GeneratedArdyHandles),
                 ArdyMotionRepFingerprint = request.GeneratedArdyFingerprint,
                 ArdyResolvedSeeds = new List<int>(request.GeneratedArdySeeds)
             };

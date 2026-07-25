@@ -19,19 +19,13 @@ namespace KimodoBridge
         public string RawStatus { get; set; }
         public string Message { get; set; }
         public byte[] MotionBytes { get; set; }
-        public string ClipHandle { get; set; }
         public string MotionRepFingerprint { get; set; }
         public int? ResolvedSeed { get; set; }
-        public AnimationHandleOperator HandleOperator { get; set; }
-    }
-
-    public sealed class KimodoTaskClosedEvent
-    {
-        public string TaskId { get; internal set; } = string.Empty;
-        public string SessionId { get; internal set; } = string.Empty;
-        public string TaskStatus { get; internal set; } = string.Empty;
-        public string Message { get; internal set; } = string.Empty;
-        public string Handle { get; internal set; } = string.Empty;
+        public int StartFrame { get; set; }
+        public int EndFrameExclusive { get; set; }
+        public int ApplyFromFrame { get; set; }
+        public double ApplyFromTimeSeconds { get; set; }
+        public int UpdateRevision { get; set; }
     }
 
     public sealed class KimodoBridgeService : IDisposable
@@ -81,7 +75,6 @@ namespace KimodoBridge
         {
             this.isDefaultSession = isDefaultSession;
             protocolClient = new BridgeProtocolClient();
-            protocolClient.ProtocolEvent += OnProtocolEvent;
             processManager = GlobalProcessManager.Value;
             creationContext = SynchronizationContext.Current;
             lock (RegistryLock)
@@ -101,7 +94,6 @@ namespace KimodoBridge
         public bool IsDefaultSession => isDefaultSession;
         public bool IsDisposed => Volatile.Read(ref disposeStarted) != 0;
         public string TextEncoderStatusMessage => Volatile.Read(ref textEncoderStatusMessage) ?? string.Empty;
-        public event Action<KimodoTaskClosedEvent> TaskClosed;
 
         public Task<KimodoBridgeGenerationResult> GenerateAsync(
             string prompt,
@@ -209,90 +201,31 @@ namespace KimodoBridge
                         $"Unexpected bridge response status: {status}. error_code={errorCode}. message={responseMessage}");
                 }
 
-                if (string.Equals(outputFormat, "flatbuf_motion_v1", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(outputFormat, "kmb_v1", StringComparison.OrdinalIgnoreCase))
                 {
-                    byte[] payload = response.BinaryPayload;
-                    if (payload == null || payload.Length == 0)
+                    byte[] payload = response.BinaryPayload ?? Array.Empty<byte>();
+                    KimodoRawMotionData motionData = null;
+                    if (payload.Length > 0 &&
+                        !KimodoRawMotionUtility.TryParseFlatBuffer(payload, out motionData, out string parseError))
                     {
-                        throw new Exception("Bridge completed without FlatBuffer payload bytes.");
+                        throw new Exception($"Failed to parse bridge KMB: {parseError}");
                     }
-
-                    if (!KimodoRawMotionUtility.TryParseFlatBuffer(payload, out KimodoRawMotionData motionData, out string parseError))
+                    ReportProgress(progress, "Bridge generation complete.");
+                    return new KimodoBridgeGenerationResult
                     {
-                        throw new Exception($"Failed to parse bridge FlatBuffer motion: {parseError}");
-                    }
-                    AnimationHandleOperator handleOperator = null;
-                    try
-                    {
-                        if (header?["handle_info"] is JObject handleInfoJson)
-                        {
-                            handleOperator = new AnimationHandleOperator(this, AnimationHandleInfo.FromJson(handleInfoJson));
-                        }
-                        ReportProgress(progress, "Bridge generation complete.");
-                        return new KimodoBridgeGenerationResult
-                        {
-                            MotionData = motionData,
-                            MotionBytes = payload,
-                            MotionFormat = outputFormat,
-                            RawStatus = status,
-                            Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage,
-                            ClipHandle = handleOperator?.Info.Handle ?? header?.Value<string>("clip_handle") ?? string.Empty,
-                            MotionRepFingerprint = header?.Value<string>("motion_rep_fingerprint") ?? string.Empty,
-                            ResolvedSeed = header?.Value<int?>("resolved_seed"),
-                            HandleOperator = handleOperator
-                        };
-                    }
-                    catch
-                    {
-                        handleOperator?.Dispose();
-                        throw;
-                    }
-                }
-
-                if (string.Equals(outputFormat, "kmb_handle_v1", StringComparison.OrdinalIgnoreCase))
-                {
-                    AnimationHandleInfo handleInfo = AnimationHandleInfo.FromJson(header?["handle_info"] as JObject);
-                    var handleOperator = new AnimationHandleOperator(this, handleInfo);
-                    if (handleInfo.IsStream)
-                    {
-                        ReportProgress(progress, "Bridge stream created.");
-                        return new KimodoBridgeGenerationResult
-                        {
-                            MotionFormat = outputFormat,
-                            RawStatus = status,
-                            Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge stream created." : responseMessage,
-                            ClipHandle = handleInfo.Handle,
-                            MotionRepFingerprint = header?.Value<string>("motion_rep_fingerprint") ?? handleInfo.MotionRepFingerprint,
-                            ResolvedSeed = header?.Value<int?>("resolved_seed"),
-                            HandleOperator = handleOperator
-                        };
-                    }
-                    try
-                    {
-                        byte[] payload = await handleOperator.DownloadAsync(token).ConfigureAwait(false);
-                        if (!KimodoRawMotionUtility.TryParseFlatBuffer(payload, out KimodoRawMotionData motionData, out string parseError))
-                        {
-                            throw new Exception($"Failed to parse downloaded bridge KMB: {parseError}");
-                        }
-                        ReportProgress(progress, "Bridge generation complete.");
-                        return new KimodoBridgeGenerationResult
-                        {
-                            MotionData = motionData,
-                            MotionBytes = payload,
-                            MotionFormat = outputFormat,
-                            RawStatus = status,
-                            Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage,
-                            ClipHandle = handleInfo.Handle,
-                            MotionRepFingerprint = header?.Value<string>("motion_rep_fingerprint") ?? handleInfo.MotionRepFingerprint,
-                            ResolvedSeed = header?.Value<int?>("resolved_seed"),
-                            HandleOperator = handleOperator
-                        };
-                    }
-                    catch
-                    {
-                        handleOperator.Dispose();
-                        throw;
-                    }
+                        MotionData = motionData,
+                        MotionBytes = payload,
+                        MotionFormat = outputFormat,
+                        RawStatus = status,
+                        Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage,
+                        MotionRepFingerprint = header?.Value<string>("motion_rep_fingerprint") ?? string.Empty,
+                        ResolvedSeed = header?.Value<int?>("resolved_seed"),
+                        StartFrame = header?.Value<int?>("start_frame") ?? 0,
+                        EndFrameExclusive = header?.Value<int?>("end_frame_exclusive") ?? 0,
+                        ApplyFromFrame = header?.Value<int?>("apply_from_frame") ?? 0,
+                        ApplyFromTimeSeconds = header?.Value<double?>("apply_from_time_seconds") ?? 0.0,
+                        UpdateRevision = header?.Value<int?>("update_revision") ?? 0
+                    };
                 }
 
                 if (string.IsNullOrWhiteSpace(motionJson))
@@ -330,89 +263,6 @@ namespace KimodoBridge
             return CancelTaskAsync(string.Empty, token);
         }
 
-        public async Task<AnimationHandleOperator> UploadAnimationAsync(
-            byte[] kmbPayload,
-            string description = "",
-            string motionRepFingerprint = "",
-            CancellationToken token = default)
-        {
-            await EnsureConnectedAsync(null, token).ConfigureAwait(false);
-            BridgeProtocolResponse response = await protocolClient.UploadAnimationAsync(
-                currentHost,
-                currentPort,
-                kmbPayload,
-                description,
-                motionRepFingerprint,
-                token).ConfigureAwait(false);
-            return new AnimationHandleOperator(
-                this,
-                AnimationHandleInfo.FromJson(response?.Header?["handle_info"] as JObject));
-        }
-
-        public Task<AnimationHandleOperator> UploadAnimationAsync(
-            KimodoRawMotionData motion,
-            string modelName,
-            string description = "",
-            string motionRepFingerprint = "",
-            CancellationToken token = default)
-        {
-            if (motion == null)
-            {
-                throw new ArgumentNullException(nameof(motion));
-            }
-            return UploadAnimationAsync(
-                KimodoRawMotionUtility.ToFlatBuffer(motion, modelName),
-                description,
-                motionRepFingerprint,
-                token);
-        }
-
-        public async Task<AnimationHandleInfo> GetAnimationInfoAsync(
-            string handle,
-            CancellationToken token = default)
-        {
-            await EnsureConnectedAsync(null, token).ConfigureAwait(false);
-            BridgeProtocolResponse response = await protocolClient.GetAnimationInfoAsync(
-                currentHost,
-                currentPort,
-                handle,
-                token).ConfigureAwait(false);
-            return AnimationHandleInfo.FromJson(response?.Header?["handle_info"] as JObject);
-        }
-
-        internal async Task<byte[]> DownloadAnimationAsync(
-            string handle,
-            string expectedServerInstanceId,
-            int? maxFrames,
-            CancellationToken token)
-        {
-            await EnsureConnectedAsync(null, token).ConfigureAwait(false);
-            BridgeProtocolResponse response = await protocolClient.DownloadAnimationAsync(
-                currentHost,
-                currentPort,
-                handle,
-                maxFrames,
-                token).ConfigureAwait(false);
-            AnimationHandleInfo info = AnimationHandleInfo.FromJson(response?.Header?["handle_info"] as JObject);
-            ValidateServerInstance(expectedServerInstanceId, info.ServerInstanceId);
-            return response.BinaryPayload ?? Array.Empty<byte>();
-        }
-
-        internal bool QueueReleaseAnimation(
-            string handle,
-            string expectedServerInstanceId)
-        {
-            if (!TryResolveCurrentEndpoint(out string host, out int port))
-            {
-                return false;
-            }
-            return protocolClient.QueueReleaseAnimation(
-                currentHost,
-                currentPort,
-                handle,
-                expectedServerInstanceId);
-        }
-
         internal bool QueueCancelTask(string taskId)
         {
             if (!TryResolveCurrentEndpoint(out string host, out int port) || !protocolClient.IsConnected)
@@ -421,14 +271,6 @@ namespace KimodoBridge
             }
             _ = protocolClient.TryCancelGenerateAsync(host, port, taskId, CancellationToken.None);
             return true;
-        }
-
-        private static void ValidateServerInstance(string expected, string actual)
-        {
-            if (!string.IsNullOrWhiteSpace(expected) && !string.Equals(expected, actual, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("Animation handle belongs to a different QuickServer instance.");
-            }
         }
 
         public async Task StopAsync(CancellationToken token = default)
@@ -711,33 +553,6 @@ namespace KimodoBridge
             }
 
             Debug.Log(message);
-        }
-
-        private void OnProtocolEvent(JObject header)
-        {
-            if (!string.Equals(header?.Value<string>("event"), "task.closed", StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-            var value = new KimodoTaskClosedEvent
-            {
-                TaskId = header.Value<string>("task_id") ?? string.Empty,
-                SessionId = header.Value<string>("session_id") ?? string.Empty,
-                TaskStatus = header.Value<string>("task_status") ?? string.Empty,
-                Message = header.Value<string>("message") ?? string.Empty,
-                Handle = header.Value<string>("handle") ?? string.Empty
-            };
-            if (creationContext != null)
-            {
-                creationContext.Post(_ => SafeInvokeTaskClosed(value), null);
-                return;
-            }
-            SafeInvokeTaskClosed(value);
-        }
-
-        private void SafeInvokeTaskClosed(KimodoTaskClosedEvent value)
-        {
-            try { TaskClosed?.Invoke(value); } catch { }
         }
 
         private void ReportProgress(Action<string> progress, string message)

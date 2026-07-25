@@ -3,6 +3,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -56,8 +57,6 @@ namespace KimodoBridge
         private CancellationTokenSource readerCts;
         private bool disposed;
         private int disposeStarted;
-
-        internal event Action<JObject> ProtocolEvent;
 
         public BridgeProtocolClient(
             int connectTimeoutMs = BridgeRuntimeDefaults.ConnectTimeoutMs,
@@ -138,24 +137,33 @@ namespace KimodoBridge
 
             string taskId = string.IsNullOrWhiteSpace(request.task_id) ? Guid.NewGuid().ToString("N") : request.task_id.Trim();
             request.task_id = taskId;
-            string constraintsJson = request.constraints_json ?? string.Empty;
+            string constraintsJson = request.constraints_json;
+            var attachments = new List<byte[]>();
+            if (request.ardy_history_kmb != null && request.ardy_history_kmb.Length > 0)
+            {
+                constraintsJson = KimodoArdyClipConstraintProtocol.Append(
+                    constraintsJson,
+                    KimodoArdyClipConstraintProtocol.SerializeHistory(request.ardy_history_kmb, attachments));
+            }
             if (request.ardy_future_clips != null && request.ardy_future_clips.Count > 0)
             {
-                string futureClips = KimodoArdyClipConstraintProtocol.SerializeFuture(request.model, request.ardy_future_clips);
+                string futureClips = KimodoArdyClipConstraintProtocol.SerializeFuture(
+                    request.model,
+                    request.ardy_future_clips,
+                    attachments);
                 constraintsJson = KimodoArdyClipConstraintProtocol.Append(constraintsJson, futureClips);
             }
             var payload = new JObject
             {
                 ["cmd"] = "generate",
                 ["task_id"] = taskId,
-                ["prompt"] = request.prompt ?? string.Empty,
                 ["duration"] = request.duration,
+                ["time_as_double"] = request.time_as_double,
                 ["output_format"] = string.IsNullOrWhiteSpace(request.output_format)
-                    ? "kmb_handle_v1"
+                    ? "kmb_v1"
                     : request.output_format.Trim(),
                 ["diffusion_steps"] = request.steps,
                 ["text_weight"] = Math.Min(4f, Math.Max(0f, request.text_weight)),
-                ["constraints_json"] = constraintsJson,
                 ["seed"] = request.seed.HasValue ? request.seed.Value : null,
                 ["transition_duration"] = request.transition_duration,
                 ["model"] = string.IsNullOrWhiteSpace(request.model) ? null : request.model,
@@ -166,13 +174,63 @@ namespace KimodoBridge
                 ["force_hf_download"] = request.force_hf_download,
                 ["owner_pid"] = request.owner_pid
             };
+            if (request.prompt != null)
+            {
+                payload["prompt"] = request.prompt;
+            }
+            if (constraintsJson != null)
+            {
+                payload["constraints_json"] = constraintsJson;
+            }
             if (request.simulate_free_vram_gb.HasValue)
             {
                 payload["simulate_free_vram_gb"] = Math.Max(0, request.simulate_free_vram_gb.Value);
             }
+            AddOptional(payload, "ardy_history_crop_seconds", request.ardy_history_crop_seconds);
+            AddOptional(payload, "ardy_future_crop_seconds", request.ardy_future_crop_seconds);
+            AddOptional(payload, "ardy_replan_buffer_seconds", request.ardy_replan_buffer_seconds);
+            AddOptional(payload, "ardy_replan_trigger_seconds", request.ardy_replan_trigger_seconds);
+            AddOptional(payload, "ardy_generate_sync_interval_seconds", request.ardy_generate_sync_interval_seconds);
+            if (request.ardy_auto_replan.HasValue)
+            {
+                payload["ardy_auto_replan"] = request.ardy_auto_replan.Value;
+            }
+
+            byte[] binaryPayload = null;
+            if (attachments.Count > 0)
+            {
+                var manifest = new JArray();
+                using var stream = new MemoryStream();
+                for (int index = 0; index < attachments.Count; index++)
+                {
+                    byte[] attachment = attachments[index] ?? Array.Empty<byte>();
+                    if (attachment.Length == 0)
+                    {
+                        throw new InvalidOperationException("KMB attachment is empty.");
+                    }
+                    manifest.Add(new JObject
+                    {
+                        ["index"] = index,
+                        ["offset"] = stream.Length,
+                        ["byte_length"] = attachment.Length
+                    });
+                    stream.Write(attachment, 0, attachment.Length);
+                }
+                binaryPayload = stream.ToArray();
+                payload["kmb_attachments"] = manifest;
+                payload["attachment_byte_length"] = binaryPayload.Length;
+            }
 
             UnityEngine.Debug.Log($"[KimodoBridge] Generate JSON: {payload.ToString(Formatting.None)}");
-            return SendRequestAsync(host, port, payload, null, progress, token, reconnect: true);
+            return SendRequestAsync(host, port, payload, binaryPayload, progress, token, reconnect: true);
+        }
+
+        private static void AddOptional(JObject payload, string name, double? value)
+        {
+            if (value.HasValue)
+            {
+                payload[name] = value.Value;
+            }
         }
 
         internal async Task<bool> TryCancelGenerateAsync(
@@ -223,98 +281,6 @@ namespace KimodoBridge
             BridgeProtocolResponse response = await SendRequestAsync(
                 host, port, request, null, null, token, reconnect: true).ConfigureAwait(false);
             return response.Header;
-        }
-
-        internal async Task<BridgeProtocolResponse> UploadAnimationAsync(
-            string host,
-            int port,
-            byte[] payload,
-            string description,
-            string motionRepFingerprint,
-            CancellationToken token)
-        {
-            if (payload == null || payload.Length == 0)
-            {
-                throw new ArgumentException("Animation upload payload is empty.", nameof(payload));
-            }
-            using var uploadCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            uploadCts.CancelAfter(3000);
-            return await SendRequestAsync(
-                host,
-                port,
-                new JObject
-                {
-                    ["cmd"] = "animation.upload",
-                    ["format"] = "flatbuf_motion_v1",
-                    ["byte_length"] = payload.Length,
-                    ["description"] = description ?? string.Empty,
-                    ["motion_rep_fingerprint"] = motionRepFingerprint ?? string.Empty
-                },
-                payload,
-                null,
-                uploadCts.Token,
-                reconnect: true).ConfigureAwait(false);
-        }
-
-        internal Task<BridgeProtocolResponse> GetAnimationInfoAsync(
-            string host,
-            int port,
-            string handle,
-            CancellationToken token)
-        {
-            return SendRequestAsync(
-                host, port,
-                new JObject { ["cmd"] = "animation.info", ["handle"] = handle ?? string.Empty },
-                null, null, token, reconnect: true);
-        }
-
-        internal Task<BridgeProtocolResponse> DownloadAnimationAsync(
-            string host,
-            int port,
-            string handle,
-            int? maxFrames,
-            CancellationToken token)
-        {
-            var request = new JObject { ["cmd"] = "animation.download", ["handle"] = handle ?? string.Empty };
-            if (maxFrames.HasValue)
-            {
-                request["max_frames"] = Math.Max(1, maxFrames.Value);
-            }
-            return SendRequestAsync(
-                host, port, request,
-                null, null, token, reconnect: true);
-        }
-
-        internal bool QueueReleaseAnimation(
-            string host,
-            int port,
-            string handle,
-            string serverInstanceId)
-        {
-            if (!IsConnected)
-            {
-                return false;
-            }
-            Task<BridgeProtocolResponse> send = SendRequestAsync(
-                host,
-                port,
-                new JObject
-                {
-                    ["cmd"] = "animation.release",
-                    ["handle"] = handle ?? string.Empty,
-                    ["server_instance_id"] = serverInstanceId ?? string.Empty
-                },
-                null,
-                null,
-                CancellationToken.None,
-                reconnect: false);
-            _ = ObserveBestEffortAsync(send);
-            return true;
-        }
-
-        private static async Task ObserveBestEffortAsync(Task task)
-        {
-            try { await task.ConfigureAwait(false); } catch { }
         }
 
         private async Task<BridgeProtocolResponse> SendRequestAsync(
@@ -438,11 +404,6 @@ namespace KimodoBridge
 
         private void DispatchResponse(BridgeProtocolResponse response)
         {
-            if (string.Equals(response?.Header?.Value<string>("status"), "event", StringComparison.OrdinalIgnoreCase))
-            {
-                try { ProtocolEvent?.Invoke(response.Header); } catch { }
-                return;
-            }
             string requestId = response?.RequestId ?? string.Empty;
             if (string.IsNullOrWhiteSpace(requestId) || !pending.TryGetValue(requestId, out PendingRequest item))
             {

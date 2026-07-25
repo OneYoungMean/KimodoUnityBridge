@@ -574,13 +574,13 @@ class UnityMotionJsonResult:
 
 def _resolve_bridge_output_format() -> str:
     raw = os.environ.get("KIMODO_BRIDGE_OUTPUT_FORMAT", "json_compact").strip().lower()
-    return raw if raw in ("json_compact", "bvh", "flatbuf_motion_v1") else "json_compact"
+    return raw if raw in ("json_compact", "bvh", "kmb_v1") else "json_compact"
 
 
 def _resolve_requested_output_format(req: dict | None = None) -> str:
     if isinstance(req, dict):
         raw = str(req.get("output_format", "") or "").strip().lower()
-        if raw in ("json_compact", "bvh", "flatbuf_motion_v1", "kmb_handle_v1"):
+        if raw in ("json_compact", "bvh", "kmb_v1"):
             return raw
     return _resolve_bridge_output_format()
 
@@ -878,10 +878,10 @@ def _write_json_line(file, payload: dict) -> None:
     file.flush()
 
 
-def _write_flatbuffer_generate_response(file, payload: bytes) -> None:
+def _write_kmb_generate_response(file, payload: bytes) -> None:
     header = {
         "status": "done",
-        "output_format": "flatbuf_motion_v1",
+        "output_format": "kmb_v1",
         "byte_length": len(payload),
     }
     file.write((json.dumps(header) + "\n").encode("utf-8"))
@@ -1265,9 +1265,9 @@ def main():
                                 raise GenerateCancelledError("Generation canceled.")
 
                             requested_output_format = _resolve_requested_output_format(req)
-                            if requested_output_format == "flatbuf_motion_v1":
+                            if requested_output_format == "kmb_v1":
                                 payload = _build_generate_flatbuffer_payload(model, output, sample_index=0)
-                                _write_flatbuffer_generate_response(file, payload)
+                                _write_kmb_generate_response(file, payload)
                                 continue
 
                             resp = _build_generate_response(model, output, prompt, sample_index=0)

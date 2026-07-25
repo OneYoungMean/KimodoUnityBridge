@@ -1,23 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using System.Threading.Tasks;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
-    public static class ArdyFutureClipUploader
+    public static class ArdyFutureClipEncoder
     {
-        public static async Task<AnimationHandleOperator> UploadAsync(
-            KimodoBridgeService service,
+        public static byte[] Encode(
             AnimationClip sourceClip,
             Avatar sourceAvatar,
             Avatar targetArdyAvatar,
             string modelName,
-            string description = "future-clip",
             CancellationToken token = default)
         {
-            if (service == null) throw new ArgumentNullException(nameof(service));
             if (sourceClip == null) throw new ArgumentNullException(nameof(sourceClip));
             if (!KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile))
             {
@@ -102,12 +98,7 @@ namespace KimodoBridge.Editor
                     roots,
                     rotations,
                     rootJointIndex: 0);
-                return await service.UploadAnimationAsync(
-                    motion,
-                    profile.ModelName,
-                    description,
-                    profile.MotionRepFingerprint,
-                    token);
+                return KimodoRawMotionUtility.ToFlatBuffer(motion, profile.ModelName);
             }
             finally
             {

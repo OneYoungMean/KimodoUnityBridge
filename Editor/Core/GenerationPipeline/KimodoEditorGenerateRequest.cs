@@ -32,7 +32,6 @@ namespace KimodoBridge.Editor
         public ArdyEditorHistorySource InitialArdyHistorySource;
         public string GeneratedArdyMotionCachePath = string.Empty;
         public List<string> GeneratedArdyWindowCachePaths = new List<string>();
-        public List<string> GeneratedArdyHandles = new List<string>();
         public List<int> GeneratedArdySeeds = new List<int>();
         public string GeneratedArdyFingerprint = string.Empty;
     }

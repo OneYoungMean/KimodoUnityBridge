@@ -16,7 +16,6 @@ namespace KimodoBridge
         public int EffectiveLastFrameIndex;
         public float EffectiveLastFrameTimeSeconds;
         public byte[] MotionBytes;
-        public string ClipHandle;
         public string MotionRepFingerprint;
         public int? ResolvedSeed;
         public bool UseRawRootPosition;
