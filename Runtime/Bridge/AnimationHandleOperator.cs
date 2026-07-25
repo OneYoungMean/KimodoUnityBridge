@@ -28,6 +28,7 @@ namespace KimodoBridge
         public string SessionId { get; internal set; } = string.Empty;
         public int CapacityFrames { get; internal set; }
         public int HorizonFrames { get; internal set; }
+        public int TokenFrames { get; internal set; }
         public bool IsClosed { get; internal set; }
 
         internal static AnimationHandleInfo FromJson(JObject value)
@@ -59,6 +60,7 @@ namespace KimodoBridge
                 SessionId = value.Value<string>("session_id") ?? string.Empty,
                 CapacityFrames = value.Value<int?>("capacity_frames") ?? 0,
                 HorizonFrames = value.Value<int?>("horizon_frames") ?? 0,
+                TokenFrames = value.Value<int?>("token_frames") ?? 1,
                 IsClosed = value.Value<bool?>("closed") ?? false
             };
         }
@@ -80,11 +82,21 @@ namespace KimodoBridge
 
         public Task<byte[]> DownloadAsync(CancellationToken token = default)
         {
+            return DownloadAsync(null, token);
+        }
+
+        public Task<byte[]> DownloadAsync(int maxFrames, CancellationToken token = default)
+        {
+            return DownloadAsync((int?)Math.Max(1, maxFrames), token);
+        }
+
+        private Task<byte[]> DownloadAsync(int? maxFrames, CancellationToken token)
+        {
             if (IsReleased)
             {
                 throw new ObjectDisposedException(nameof(AnimationHandleOperator));
             }
-            return owner.DownloadAnimationAsync(Info.Handle, Info.ServerInstanceId, token);
+            return owner.DownloadAnimationAsync(Info.Handle, Info.ServerInstanceId, maxFrames, token);
         }
 
         public Task<bool> ReleaseAsync(CancellationToken token = default)
@@ -112,6 +124,11 @@ namespace KimodoBridge
                     owner.QueueReleaseAnimation(Info.Handle, Info.ServerInstanceId);
                 }
             }
+        }
+
+        internal void DisposeWithoutRelease()
+        {
+            Interlocked.Exchange(ref releaseStarted, 1);
         }
     }
 }

@@ -19,5 +19,6 @@ namespace KimodoBridge
         public string ClipHandle;
         public string MotionRepFingerprint;
         public int? ResolvedSeed;
+        public bool UseRawRootPosition;
     }
 }

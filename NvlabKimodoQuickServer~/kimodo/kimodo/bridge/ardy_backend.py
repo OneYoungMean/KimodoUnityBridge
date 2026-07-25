@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 import json
 import math
@@ -69,6 +70,9 @@ class ArdyStreamGenerator:
         if self._windowed_constraints:
             self.observed_motion = self.observed_motion[:, self.history_len :].clone()
             self.motion_mask = self.motion_mask[:, self.history_len :].clone()
+        self._committed_history = self.history.detach().clone() if self.history is not None else None
+        self._pending_history: deque[Any] = deque()
+        self._history_lock = threading.RLock()
         self._cpu_rng_state = torch.Generator(device="cpu").manual_seed(self.resolved_seed).get_state()
         self._cuda_rng_state = None
         if str(model.device).startswith("cuda"):
@@ -82,6 +86,11 @@ class ArdyStreamGenerator:
 
     def generate_horizon(self, model: Any) -> dict[str, Any]:
         import torch
+
+        if not hasattr(self, "_history_lock"):
+            self._history_lock = threading.RLock()
+            self._committed_history = self.history.detach().clone() if self.history is not None else None
+            self._pending_history = deque()
 
         history_len = int(self.history.shape[1]) if self.history is not None else 0
         horizon = int(self.profile.horizon_frames)
@@ -139,6 +148,8 @@ class ArdyStreamGenerator:
         # must fit the profile's trained context window.
         max_history = resolve_history_frame_limit(self.profile)
         self.history = motion[:, -min(max_history, int(motion.shape[1])) :].detach() if max_history > 0 else None
+        with self._history_lock:
+            self._pending_history.append(generated.detach())
         output = model.motion_rep.inverse(generated, is_normalized=True)
         postprocess_constraints = (
             [
@@ -164,6 +175,83 @@ class ArdyStreamGenerator:
             self.postprocess_constraints = []
         return output
 
+    def commit_frames(self, frame_count: int) -> None:
+        """Advance the immutable client-delivery boundary by ``frame_count`` frames."""
+        import torch
+
+        with self._history_lock:
+            remaining = int(frame_count)
+            committed: list[Any] = []
+            while remaining > 0:
+                if not self._pending_history:
+                    raise ArdyBackendError("ARDY stream delivered beyond its generated history.")
+                chunk = self._pending_history[0]
+                take = min(remaining, int(chunk.shape[1]))
+                committed.append(chunk[:, :take])
+                if take == int(chunk.shape[1]):
+                    self._pending_history.popleft()
+                else:
+                    self._pending_history[0] = chunk[:, take:]
+                remaining -= take
+            if committed:
+                addition = committed[0] if len(committed) == 1 else torch.cat(committed, dim=1)
+                combined = addition if self._committed_history is None else torch.cat((self._committed_history, addition), dim=1)
+                keep = resolve_history_frame_limit(self.profile) + int(self.profile.frames_per_token) - 1
+                self._committed_history = combined[:, -min(keep, int(combined.shape[1])) :].detach()
+
+    def update(self, task_request: dict[str, Any], model: Any, spool: Any, quickserver_root: str | Path) -> None:
+        """Apply prompt/constraint changes at a Horizon boundary without resetting RNG or Handle."""
+        with self._history_lock:
+            committed_len = 0 if self._committed_history is None else int(self._committed_history.shape[1])
+            patch = int(self.profile.frames_per_token)
+            usable = committed_len // patch * patch
+            self.history = self._committed_history[:, -usable:].detach() if usable > 0 else None
+            self._pending_history.clear()
+
+        self.prompt = str(task_request.get("prompt") or self.prompt).strip()
+        if not self.prompt.endswith("."):
+            self.prompt += "."
+        self.diffusion_steps = int(task_request.get("diffusion_steps", self.diffusion_steps))
+        if not 1 <= self.diffusion_steps <= int(self.profile.max_diffusion_steps):
+            raise ArdyBackendError(
+                f"diffusion_steps must be in [1, {self.profile.max_diffusion_steps}]; got {self.diffusion_steps}."
+            )
+        from kimodo.bridge import bridge_server as bridge_runtime_helpers
+
+        self.cfg_text_weight = bridge_runtime_helpers._resolve_cfg_text_weight(task_request)
+        (
+            _request_history,
+            self.observed_motion,
+            self.motion_mask,
+            self.total_frames,
+            request_history_len,
+            self.postprocess_constraints,
+        ) = prepare_generation_inputs(
+            model,
+            self.profile,
+            task_request.get("constraints_json", ""),
+            spool,
+            quickserver_root,
+            window_future_clips=True,
+        )
+        if request_history_len:
+            raise ArdyBackendError("An active ARDY stream update cannot replace its committed History.")
+        self.history_len = usable
+        self._first_horizon = True
+        self._root_body_pass = _has_future_clip_body_constraints(task_request.get("constraints_json", ""))
+        self._future_clip = _has_future_clips(task_request.get("constraints_json", ""))
+        self._windowed_constraints = self.observed_motion is not None
+        self._future_offset = 0
+        if self._windowed_constraints:
+            self.observed_motion = self.observed_motion.clone()
+            self.motion_mask = self.motion_mask.clone()
+        encode_text = getattr(model, "_encode_text", None)
+        if callable(encode_text):
+            self.text_feat, self.text_pad_mask = encode_text([self.prompt])
+        else:
+            self.text_feat = None
+            self.text_pad_mask = None
+
     def close(self) -> None:
         self.history = None
         self.observed_motion = None
@@ -171,6 +259,9 @@ class ArdyStreamGenerator:
         self.text_feat = None
         self.text_pad_mask = None
         self.postprocess_constraints = []
+        with self._history_lock:
+            self._committed_history = None
+            self._pending_history.clear()
 
 
 def resolve_stream_capacity_frames(task_request: dict[str, Any], profile: Any) -> int:

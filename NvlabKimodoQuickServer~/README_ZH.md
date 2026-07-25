@@ -84,7 +84,7 @@ QuickServer 会把上传或生成的 KMB 动画保存在进程内、受容量限
 - `animation.release`：发送 `handle`；无任务引用时立即释放，否则在任务解除 pin 后释放。
 - `generate` 使用 `output_format=kmb_handle_v1` 时只返回 `handle_info`，不内联 KMB；`flatbuf_motion_v1` 保留为旧的二进制直返模式。
 
-`animation.upload` 的端到端上限为 3 秒。静态 Handle 在同一服务器实例内全局可见、不可变、可重复下载，并使用基于容量的 LRU 兜底。ARDY 的 `kmb_handle_v1` 是 Session 绑定的流式 Handle，内部使用两个固定缓冲区：Generate 无需等待首个 Horizon 即返回 Handle；下载会交换缓冲并破坏性消费当前有效帧；Cancel 关闭整个流，正在计算的完整 Horizon 会运行完毕但结果被丢弃。缓冲容量按 `duration × FPS` 向上补齐到 Horizon 整数倍。
+`animation.upload` 的端到端上限为 3 秒。静态 Handle 在同一服务器实例内全局可见、不可变、可重复下载，并使用基于容量的 LRU 兜底。ARDY 的 `kmb_handle_v1` 是 Session 绑定的游标流：Generate 无需等待首个 Horizon 即返回 Handle；`animation.download` 可携带 `max_frames` 并推进交付游标；同一 Session 后续的 Generate 会在 Horizon 边界更新同一个 Handle 的 prompt/constraint。已经交付的帧不可修改，尚未读取的旧 future 会被丢弃；Cancel 在当前 Horizon 完成后关闭整个流。流容量按 `duration × FPS` 向上补齐到 Horizon 整数倍。
 
 QuickServer 重启后 Handle 失效；基于容量的 LRU 只负责清理未显式释放的资源，Handle 不会因存放时间过长而过期。生产 clip constraint 使用 `format=kmb_handle_v1`，`ardy_file_v1` 仅在显式测试开关下可用。
 

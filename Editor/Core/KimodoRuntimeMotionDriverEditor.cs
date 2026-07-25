@@ -12,6 +12,7 @@ namespace KimodoBridge.Editor
         private SerializedProperty forceCpu;
         private SerializedProperty prompt;
         private SerializedProperty generationFrames;
+        private SerializedProperty ardyPlaybackDelaySeconds;
         private SerializedProperty diffusionSteps;
         private SerializedProperty textWeight;
         private SerializedProperty randomSeed;
@@ -30,6 +31,7 @@ namespace KimodoBridge.Editor
             forceCpu = serializedObject.FindProperty("forceCpu");
             prompt = serializedObject.FindProperty("defaultPrompt");
             generationFrames = serializedObject.FindProperty("generationFrames");
+            ardyPlaybackDelaySeconds = serializedObject.FindProperty("ardyPlaybackDelaySeconds");
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
             textWeight = serializedObject.FindProperty("textWeight");
             randomSeed = serializedObject.FindProperty("randomSeed");
@@ -77,19 +79,7 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.LabelField("Target, model, and text encoder mode are applied when entering Play Mode.", EditorStyles.miniLabel);
             }
-            if (Application.isPlaying)
-            {
-                KimodoRuntimeMotionDriver driver = (KimodoRuntimeMotionDriver)target;
-                EditorGUILayout.LabelField(new GUIContent("Current Prompt", "Prompt used by the currently playing motion."));
-                using (new EditorGUI.DisabledScope(true))
-                {
-                    EditorGUILayout.TextArea(driver.GetCurrentPrompt(out _), GUILayout.Height(60f));
-                }
-            }
-            else
-            {
-                KimodoGenerationInspectorGui.DrawPrompt(prompt);
-            }
+            KimodoGenerationInspectorGui.DrawPrompt(prompt);
             if (!isArdy)
             {
                 KimodoGenerationInspectorGui.DrawDuration(
@@ -97,6 +87,12 @@ namespace KimodoBridge.Editor
                     1f,
                     10f,
                     "Duration of each generated motion segment.");
+            }
+            else
+            {
+                EditorGUILayout.PropertyField(
+                    ardyPlaybackDelaySeconds,
+                    new GUIContent("Playback Delay", "Unity-only ARDY safety buffer. QuickServer does not use this value."));
             }
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, modelName);
             KimodoGenerationInspectorGui.DrawTextWeight(textWeight);
@@ -117,14 +113,6 @@ namespace KimodoBridge.Editor
                 {
                     serializedObject.ApplyModifiedProperties();
                     driver.ApplyGenerationSettings();
-                }
-
-                bool promptLocked = EditorGUILayout.ToggleLeft(
-                    new GUIContent("Lock Prompt", "Keep using the current motion prompt; unlock to return to idle."),
-                    driver.PromptLocked);
-                if (promptLocked != driver.PromptLocked)
-                {
-                    driver.PromptLocked = promptLocked;
                 }
 
                 if (GUILayout.Button("Reset Motion", GUILayout.Height(24f)))

@@ -70,6 +70,7 @@ class SetupLogger:
         self.append = bool(append)
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._stream = None
+        self.on_log = None
 
     def __enter__(self):
         self._stream = self.log_path.open("a" if self.append else "w", encoding="utf-8", newline="\n")
@@ -86,6 +87,8 @@ class SetupLogger:
         assert self._stream is not None
         self._stream.write(text + "\n")
         self._stream.flush()
+        if self.on_log is not None:
+            self.on_log(text)
         if self.output_mode == "console":
             print(text, flush=True)
 

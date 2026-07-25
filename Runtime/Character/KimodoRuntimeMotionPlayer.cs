@@ -68,6 +68,23 @@ namespace KimodoBridge
         public Vector3 CurrentRootPosition => sourceRootJoint != null ? sourceRootJoint.position : Vector3.zero;
         public Transform ConstraintSkeletonRoot => sourceCache != null ? sourceCache.skeletonRoot : null;
         public int LastCompletedSegmentIndex { get; private set; } = -1;
+        public float BufferedDurationSeconds
+        {
+            get
+            {
+                float total = currentSegment != null
+                    ? Mathf.Max(0f, currentSegment.EffectiveLastFrameTimeSeconds - timeSeconds)
+                    : 0f;
+                lock (queueGate)
+                {
+                    foreach (KimodoRuntimeGeneratedSegment segment in queuedSegments)
+                    {
+                        total += Mathf.Max(0f, segment?.EffectiveLastFrameTimeSeconds ?? 0f);
+                    }
+                }
+                return total;
+            }
+        }
 
         public int QueuedSegmentCount
         {
@@ -500,10 +517,12 @@ namespace KimodoBridge
             }
 
             Vector3 delta = rootPosition - currentSegmentRootBaseline;
-            sourceBinding.joints[0].localPosition = new Vector3(
-                currentSegment.WorldAccumulatedOffset.x + delta.x,
-                rootPosition.y,
-                currentSegment.WorldAccumulatedOffset.z + delta.z);
+            sourceBinding.joints[0].localPosition = currentSegment.UseRawRootPosition
+                ? rootPosition
+                : new Vector3(
+                    currentSegment.WorldAccumulatedOffset.x + delta.x,
+                    rootPosition.y,
+                    currentSegment.WorldAccumulatedOffset.z + delta.z);
             return true;
         }
 
@@ -522,10 +541,12 @@ namespace KimodoBridge
             }
 
             Vector3 delta = rootPosition - currentSegmentRootBaseline;
-            sourceBinding.joints[0].localPosition = new Vector3(
-                currentSegment.WorldAccumulatedOffset.x + delta.x,
-                rootPosition.y,
-                currentSegment.WorldAccumulatedOffset.z + delta.z);
+            sourceBinding.joints[0].localPosition = currentSegment.UseRawRootPosition
+                ? rootPosition
+                : new Vector3(
+                    currentSegment.WorldAccumulatedOffset.x + delta.x,
+                    rootPosition.y,
+                    currentSegment.WorldAccumulatedOffset.z + delta.z);
             return true;
         }
 

@@ -383,6 +383,7 @@ namespace KimodoBridge
         internal async Task<byte[]> DownloadAnimationAsync(
             string handle,
             string expectedServerInstanceId,
+            int? maxFrames,
             CancellationToken token)
         {
             await EnsureConnectedAsync(null, token).ConfigureAwait(false);
@@ -390,6 +391,7 @@ namespace KimodoBridge
                 currentHost,
                 currentPort,
                 handle,
+                maxFrames,
                 token).ConfigureAwait(false);
             AnimationHandleInfo info = AnimationHandleInfo.FromJson(response?.Header?["handle_info"] as JObject);
             ValidateServerInstance(expectedServerInstanceId, info.ServerInstanceId);

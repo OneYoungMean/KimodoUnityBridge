@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEditor.Compilation;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
@@ -50,6 +51,7 @@ namespace KimodoBridge.Editor
             AssemblyReloadEvents.beforeAssemblyReload += () => CancelAll("Generation canceled: assembly reload.");
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
             EditorApplication.quitting += () => CancelAll("Generation canceled: editor quitting.");
+            EditorSceneManager.activeSceneChangedInEditMode += (_, _) => CancelAll("Generation canceled: active scene changed.");
         }
 
         public static bool Start(

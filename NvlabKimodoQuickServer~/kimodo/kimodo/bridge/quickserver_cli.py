@@ -760,9 +760,17 @@ def _execute_generate(
     return bridge_runtime_helpers._build_generate_response(model, output, prompt, sample_index=0), None
 
 
-def _build_streaming_status_message(server_state: str, queue_index: int, task_id: str) -> tuple[str, str]:
+def _build_streaming_status_message(
+    server_state: str,
+    queue_index: int,
+    task_id: str,
+    task_message: str = "",
+) -> tuple[str, str]:
     normalized = str(server_state or "").strip().lower()
     if normalized == "loading_runtime":
+        detail = str(task_message or "").strip()
+        if detail.startswith(("[STEP] Downloading", "[DOWNLOAD]")):
+            return "loading", detail
         return "loading", f"Preparing runtime for task '{task_id}'..."
     if normalized == "generating":
         if queue_index > 0:
@@ -891,6 +899,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             "queue": deque(),
             "active": None,
             "ardy_runtime": {},
+            "ardy_stream_task": None,
             "ready": False,
             "closed": False,
         }
@@ -903,6 +912,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "shared_text_encoder": None,
         "shared_text_encoder_signature": "",
         "shared_text_encoder_decision": None,
+        "shared_text_encoder_models_root": "",
         "active_text_encoder_signature": "",
         "active_model_worker_key": "",
         "model_workers": {},
@@ -922,6 +932,16 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     queue_changed = threading.Condition(state_lock)
     runtime_gate = threading.Lock()
 
+    def capture_task_download_progress(message: str) -> None:
+        text = str(message or "").strip()
+        if not text.startswith(("[STEP] Downloading", "[DOWNLOAD]")):
+            return
+        task = state["tasks"].get(str(state.get("active_task_id") or ""))
+        if task is not None:
+            task["status_message"] = text
+
+    logger.on_log = capture_task_download_progress
+
     def retire_session_locked(session: dict[str, Any]) -> None:
         runtime = session.get("ardy_runtime")
         if runtime is not None and runtime.get("model") is not None:
@@ -936,6 +956,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         if encoder is None:
             return
         decision = runtime.get("text_encoder_decision")
+        models_root = str((runtime.get("runtime_config") or {}).get("models_root") or "")
         with state_lock:
             runtimes = [state["active_runtime"]] + [
                 session.get("ardy_runtime") or {} for session in state["sessions"].values()
@@ -943,6 +964,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             state["shared_text_encoder"] = encoder
             state["shared_text_encoder_signature"] = encoder_signature
             state["shared_text_encoder_decision"] = decision
+            state["shared_text_encoder_models_root"] = models_root
             state["active_text_encoder_signature"] = encoder_signature
             for candidate in runtimes:
                 candidate_model = candidate.get("model")
@@ -1042,6 +1064,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         stream_handle = str(task.get("stream_handle") or "")
         if stream_handle:
             state["ardy_spool"].close_stream(stream_handle, notify=False)
+        if session.get("ardy_stream_task") is task:
+            session["ardy_stream_task"] = None
         state["ardy_spool"].unpin(task.get("pinned_handles") or ())
         if not task.get("response_sent"):
             final_response = response or {"status": "cancelled", "message": "Task closed."}
@@ -1153,6 +1177,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             state["shared_text_encoder"] = None
                             state["shared_text_encoder_signature"] = ""
                             state["shared_text_encoder_decision"] = None
+                            state["shared_text_encoder_models_root"] = ""
                             state["active_text_encoder_signature"] = ""
                             state["active_model_worker_key"] = ""
                         else:
@@ -1161,15 +1186,25 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                         _unload_runtime_model(runtime, logger)
 
     def get_runtime(session: dict[str, Any], runtime_config: dict[str, Any]) -> dict[str, Any]:
-        signature = _build_signature(runtime_config)
-        encoder_signature = _build_text_encoder_signature(runtime_config)
-        profile = assets.resolve_motion_model_profile(runtime_config["model"])
-        is_ardy = profile is not None and profile.backend == "ardy"
         with runtime_gate:
-            runtime = session["ardy_runtime"] if is_ardy else state["active_runtime"]
             shared_encoder = state.get("shared_text_encoder")
             shared_signature = str(state.get("shared_text_encoder_signature") or "")
             shared_decision = state.get("shared_text_encoder_decision")
+            shared_models_root = str(state.get("shared_text_encoder_models_root") or "")
+            requested_models_root = str(runtime_config.get("models_root") or "").strip()
+            if shared_encoder is not None and not requested_models_root and shared_models_root:
+                runtime_config["models_root"] = shared_models_root
+            elif requested_models_root:
+                runtime_config["models_root"] = str(
+                    assets.resolve_models_root(kimodo_root, requested_models_root)[0]
+                )
+            else:
+                runtime_config["models_root"] = str(assets.default_models_root(kimodo_root))
+            signature = _build_signature(runtime_config)
+            encoder_signature = _build_text_encoder_signature(runtime_config)
+            profile = assets.resolve_motion_model_profile(runtime_config["model"])
+            is_ardy = profile is not None and profile.backend == "ardy"
+            runtime = session["ardy_runtime"] if is_ardy else state["active_runtime"]
             if shared_encoder is not None and shared_signature != encoder_signature:
                 raise RuntimeError(
                     "TextEncoder is shared server-wide; all live Sessions must use the same "
@@ -1315,6 +1350,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                         session_id=session_id,
                         capacity_frames=capacity_frames,
                         horizon_frames=int(profile.horizon_frames),
+                        token_frames=int(profile.frames_per_token),
                         fps=float(profile.source_fps),
                         model_name=profile.model_name,
                         joint_names=joint_names,
@@ -1336,6 +1372,10 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             wake_session(sid),
                         ),
                         resume=lambda sid=session_id: wake_session(sid),
+                        delivered=lambda _count: None,
+                    )
+                    state["ardy_spool"].set_stream_delivered(
+                        handle_info["handle"], stream_context.commit_frames
                     )
                     task["stream_context"] = stream_context
                     task["stream_handle"] = handle_info["handle"]
@@ -1361,6 +1401,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     task["response_sent"] = True
                     task["event"].set()
                     with queue_changed:
+                        session["ardy_stream_task"] = task
                         if task["cancel_event"].is_set():
                             finish_task_locked(session, task)
                         else:
@@ -1374,13 +1415,44 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             finish_task_locked(session, task)
                             publish_state("idle")
                         continue
+                    with task["update_lock"]:
+                        pending_update = task.pop("pending_update", None)
+                    if pending_update is not None:
+                        state["ardy_spool"].wait_stream_read_idle(task["stream_handle"])
+                        state["ardy_spool"].discard_stream_unread(task["stream_handle"])
+                        task["stream_context"].update(
+                            pending_update,
+                            runtime["model"],
+                            state["ardy_spool"],
+                            kimodo_root,
+                        )
+                        state["ardy_spool"].update_stream_description(
+                            task["stream_handle"], task["stream_context"].prompt
+                        )
+                        state["ardy_spool"].resume_stream_delivery(task["stream_handle"])
                     output = task["stream_context"].generate_horizon(runtime["model"])
                     if task["cancel_event"].is_set():
                         with queue_changed:
                             finish_task_locked(session, task)
                             publish_state("idle")
                         continue
-                    state["ardy_spool"].append_stream(task["stream_handle"], output)
+                    with task["update_lock"]:
+                        pending_update = task.pop("pending_update", None)
+                        if pending_update is None:
+                            state["ardy_spool"].append_stream(task["stream_handle"], output)
+                    if pending_update is not None:
+                        state["ardy_spool"].wait_stream_read_idle(task["stream_handle"])
+                        state["ardy_spool"].discard_stream_unread(task["stream_handle"])
+                        task["stream_context"].update(
+                            pending_update,
+                            runtime["model"],
+                            state["ardy_spool"],
+                            kimodo_root,
+                        )
+                        state["ardy_spool"].update_stream_description(
+                            task["stream_handle"], task["stream_context"].prompt
+                        )
+                        state["ardy_spool"].resume_stream_delivery(task["stream_handle"])
                     with queue_changed:
                         state["last_activity"] = time.time()
                         mark_session_ready_locked(session)
@@ -1503,7 +1575,12 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     stream_status = "cancelling"
                     stream_message = str(task.get("status_message") or f"Cancellation requested for '{task_id}'.")
                 else:
-                    stream_status, stream_message = _build_streaming_status_message(current_state, queue_index, task_id)
+                    stream_status, stream_message = _build_streaming_status_message(
+                        current_state,
+                        queue_index,
+                        task_id,
+                        str(task.get("status_message") or ""),
+                    )
 
                 now = time.time()
                 should_emit = (
@@ -1635,7 +1712,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             info = state["ardy_spool"].info(handle)
                             if info.get("is_stream") and info.get("session_id") != bound_session_id:
                                 raise animation_handles.AnimationHandleNotFoundError("Animation stream belongs to another Session.")
-                            payload, info = state["ardy_spool"].download(handle)
+                            max_frames = request.get("max_frames")
+                            payload, info = state["ardy_spool"].download(
+                                handle,
+                                max_frames=None if max_frames is None else int(max_frames),
+                            )
                             reply(
                                 {
                                     "status": "done",
@@ -1662,6 +1743,60 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             request["task_id"] = task_id
 
                             with queue_changed:
+                                active_stream = session.get("ardy_stream_task")
+                                active_stream_handle = str((active_stream or {}).get("stream_handle") or "")
+                                requested_profile = assets.resolve_motion_model_profile(
+                                    str(request.get("model") or session["default_config"].get("model") or "")
+                                )
+                                is_stream_update = (
+                                    active_stream is not None
+                                    and active_stream.get("state") == "streaming"
+                                    and active_stream_handle
+                                    and requested_profile is not None
+                                    and requested_profile.backend == "ardy"
+                                    and bridge_runtime_helpers._resolve_requested_output_format(request) == "kmb_handle_v1"
+                                )
+                                if is_stream_update:
+                                    active_config = _normalize_runtime_config(request, session["default_config"])
+                                    if not active_config.get("models_root"):
+                                        active_config["models_root"] = active_stream["runtime_config"].get("models_root", "")
+                                    if _build_signature(active_config) != _build_signature(active_stream["runtime_config"]):
+                                        reply({
+                                            "status": "error",
+                                            "error_code": "ardy_stream_config_mismatch",
+                                            "message": "ARDY stream updates must keep the active model and runtime configuration.",
+                                        })
+                                        continue
+                                    stream_context = active_stream.get("stream_context")
+                                    if stream_context is None:
+                                        reply({
+                                            "status": "error",
+                                            "error_code": "ardy_stream_not_ready",
+                                            "message": "ARDY stream is not ready for an update.",
+                                        })
+                                        continue
+                                    update_handles = state["ardy_spool"].pin(
+                                        ardy_backend.extract_handle_refs(request.get("constraints_json", ""))
+                                    )
+                                    with active_stream["update_lock"]:
+                                        active_stream["pending_update"] = dict(request)
+                                        active_stream["update_revision"] = int(active_stream.get("update_revision") or 0) + 1
+                                        active_stream["pinned_handles"] = tuple(dict.fromkeys(
+                                            (*active_stream.get("pinned_handles", ()), *update_handles)
+                                        ))
+                                        state["ardy_spool"].pause_stream_delivery(active_stream_handle)
+                                    reply({
+                                        "status": "done",
+                                        "output_format": "kmb_handle_v1",
+                                        "clip_handle": active_stream_handle,
+                                        "handle_info": state["ardy_spool"].info(active_stream_handle),
+                                        "resolved_seed": stream_context.resolved_seed,
+                                        "motion_rep_fingerprint": requested_profile.motion_rep_fingerprint,
+                                        "updated": True,
+                                        "update_revision": active_stream["update_revision"],
+                                    })
+                                    mark_session_ready_locked(session)
+                                    continue
                                 if len(session["queue"]) + (1 if session.get("active") is not None else 0) >= session_queue_limit:
                                     reply({
                                         "status": "error",
@@ -1704,6 +1839,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     "response_sent": False,
                                     "stream_context": None,
                                     "stream_handle": "",
+                                    "pending_update": None,
+                                    "update_revision": 0,
+                                    "update_lock": threading.Lock(),
                                     "event_writer": lambda payload, f=file, lock=writer_lock: _write_protocol_message(
                                         f, lock, payload
                                     ),
@@ -1778,6 +1916,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             state["shared_text_encoder"] = None
             state["shared_text_encoder_signature"] = ""
             state["shared_text_encoder_decision"] = None
+            state["shared_text_encoder_models_root"] = ""
         with runtime_gate:
             seen: set[int] = set()
             for runtime in runtimes:

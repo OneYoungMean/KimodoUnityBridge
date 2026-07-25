@@ -272,11 +272,16 @@ namespace KimodoBridge
             string host,
             int port,
             string handle,
+            int? maxFrames,
             CancellationToken token)
         {
+            var request = new JObject { ["cmd"] = "animation.download", ["handle"] = handle ?? string.Empty };
+            if (maxFrames.HasValue)
+            {
+                request["max_frames"] = Math.Max(1, maxFrames.Value);
+            }
             return SendRequestAsync(
-                host, port,
-                new JObject { ["cmd"] = "animation.download", ["handle"] = handle ?? string.Empty },
+                host, port, request,
                 null, null, token, reconnect: true);
         }
 

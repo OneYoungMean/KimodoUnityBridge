@@ -84,13 +84,6 @@ namespace KimodoBridge
             GUILayout.Label($"Duration: {driver.GetAnimationDurationSeconds():0.###}s");
             GUILayout.Label($"Status: {driver.StatusMessage}");
 
-            bool nextPromptLocked = GUILayout.Toggle(driver.PromptLocked, "Prompt Locked");
-            if (nextPromptLocked != driver.PromptLocked)
-            {
-                driver.PromptLocked = nextPromptLocked;
-                lastResult = $"PromptLocked = {nextPromptLocked}";
-            }
-
             bool nextDrawDebugSkeleton = GUILayout.Toggle(driver.DrawDebugSkeleton, "Draw Debug Skeleton");
             if (nextDrawDebugSkeleton != driver.DrawDebugSkeleton)
             {

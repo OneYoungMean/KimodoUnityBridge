@@ -17,6 +17,19 @@ from kimodo.bridge import animation_handles
 from kimodo.bridge import quickserver_cli
 
 
+class StreamingStatusMessageTests(unittest.TestCase):
+    def test_loading_runtime_prefers_download_progress(self):
+        status, message = quickserver_cli._build_streaming_status_message(
+            "loading_runtime",
+            0,
+            "task-1",
+            "[DOWNLOAD] FP16 text encoder: 1.0 GiB/14.0 GiB (7%)",
+        )
+
+        self.assertEqual(status, "loading")
+        self.assertEqual(message, "[DOWNLOAD] FP16 text encoder: 1.0 GiB/14.0 GiB (7%)")
+
+
 class _Client:
     def __init__(self, port: int):
         self.socket = socket.create_connection(("127.0.0.1", port), timeout=5)
@@ -73,6 +86,8 @@ class _FakeArdyStream:
         self.prompt = str(request.get("prompt") or "test")
         self.resolved_seed = int(request.get("seed") or 1)
         self.closed = False
+        self.committed_frames = 0
+        self.update_count = 0
 
     def generate_horizon(self, _model):
         time.sleep(0.03)
@@ -90,6 +105,14 @@ class _FakeArdyStream:
     def close(self) -> None:
         self.closed = True
 
+    def commit_frames(self, frame_count: int) -> None:
+        self.committed_frames += int(frame_count)
+
+    def update(self, request: dict, *_args) -> None:
+        self.request = request
+        self.prompt = str(request.get("prompt") or self.prompt)
+        self.update_count += 1
+
 
 class _SupervisorHarness:
     def __init__(self):
@@ -98,6 +121,7 @@ class _SupervisorHarness:
         self.slow_kimodo_gate = threading.Event()
         self.store = animation_handles.AnimationHandleStore(byte_quota=64 * 1024 * 1024)
         self.runtime_loads: list[tuple[str, int, int]] = []
+        self.runtime_configs: list[dict] = []
         self.unloaded_model_ids: list[int] = []
         self.thread = None
         self.port = 0
@@ -120,6 +144,7 @@ class _SupervisorHarness:
                 text_encoder=shared_encoder,
             )
             self.runtime_loads.append((model_name, id(shared_encoder), id(model)))
+            self.runtime_configs.append(dict(config))
             profile = None
             if model_name.lower().startswith("ardy"):
                 profile = SimpleNamespace(
@@ -158,7 +183,10 @@ class _SupervisorHarness:
             if model.name == "kimodo-oom":
                 raise RuntimeError("CUDA out of memory")
             if model.name == "kimodo-slow":
-                self.slow_kimodo_gate.wait(timeout=5)
+                deadline = time.monotonic() + 5
+                while not self.slow_kimodo_gate.wait(timeout=0.01):
+                    if cancel_event.is_set() or time.monotonic() >= deadline:
+                        break
             if cancel_event.is_set():
                 raise bridge_server.GenerateCancelledError("Generation canceled.")
             return {
@@ -258,57 +286,79 @@ class QuickServerSessionTests(unittest.TestCase):
         self.assertTrue(header["handle_info"]["is_stream"])
         return header
 
-    def test_cancel_emits_task_closed_before_next_fifo_task_runs(self):
+    def test_stream_partial_download_and_generate_update_keep_handle(self):
+        client = self.client()
+        stream = self.generate_stream(client, "generate-first", "task-first", duration=0.6)
+        handle = stream["handle_info"]["handle"]
+
+        deadline = time.monotonic() + 2
+        first_header = None
+        first_payload = b""
+        while time.monotonic() < deadline:
+            first_header, first_payload = client.request(
+                "download-first", "animation.download", handle=handle, max_frames=2
+            )
+            if first_payload:
+                break
+            time.sleep(0.01)
+        self.assertTrue(first_payload)
+        self.assertEqual(first_header["handle_info"]["num_frames"], 2)
+        self.assertEqual(first_header["handle_info"]["delivered_frames"], 2)
+
+        update, _ = client.request(
+            "generate-update",
+            "generate",
+            task_id="task-update",
+            model="ARDY-Core-RP-20FPS-Horizon40",
+            prompt="Walk left",
+            duration=0.6,
+            diffusion_steps=1,
+            output_format="kmb_handle_v1",
+            seed=999,
+        )
+        self.assertEqual(update["status"], "done")
+        self.assertTrue(update["updated"])
+        self.assertEqual(update["handle_info"]["handle"], handle)
+        self.assertEqual(update["resolved_seed"], 1)
+
+    def test_cancel_emits_task_closed_for_stream(self):
         client = self.client()
         first = self.generate_stream(client, "generate-1", "task-1")
-        client.send({
-            "cmd": "generate",
-            "request_id": "generate-2",
-            "task_id": "task-2",
-            "model": "ARDY-Core-RP-20FPS-Horizon40",
-            "duration": 0.2,
-            "output_format": "kmb_handle_v1",
-            "diffusion_steps": 1,
-        })
         cancel, _ = client.request("cancel", "cancel", task_id="task-1")
         self.assertEqual(cancel["status"], "cancelling")
-        ordered = []
-        while len(ordered) < 2:
-            header, binary = client.receive()
-            if header.get("event") == "task.closed" or (
-                header.get("request_id") == "generate-2" and header.get("status") == "done"
-            ):
-                ordered.append((header, binary))
-            else:
-                client.messages.append((header, binary))
-        closed, _ = ordered[0]
-        second, _ = ordered[1]
+        closed, _ = client.wait_for(lambda header: header.get("event") == "task.closed")
         self.assertEqual(closed["event"], "task.closed")
         self.assertNotIn("request_id", closed)
         self.assertEqual(
             (closed["task_id"], closed["task_status"], closed["handle"]),
             ("task-1", "cancelled", first["handle_info"]["handle"]),
         )
-        self.assertEqual(second["task_id"], "task-2")
 
     def test_session_queue_limit_counts_active_and_queued_tasks(self):
         client = self.client()
-        self.generate_stream(client, "generate-1", "task-1")
+        client.send({
+            "cmd": "generate",
+            "request_id": "generate-1",
+            "task_id": "task-1",
+            "model": "kimodo-slow",
+            "duration": 0.2,
+            "output_format": "json_compact",
+        })
         client.send({
             "cmd": "generate",
             "request_id": "generate-2",
             "task_id": "task-2",
-            "model": "ARDY-Core-RP-20FPS-Horizon40",
+            "model": "kimodo-test",
             "duration": 0.2,
-            "output_format": "kmb_handle_v1",
+            "output_format": "json_compact",
         })
         rejected, _ = client.request(
             "generate-3",
             "generate",
             task_id="task-3",
-            model="ARDY-Core-RP-20FPS-Horizon40",
+            model="kimodo-test",
             duration=0.2,
-            output_format="kmb_handle_v1",
+            output_format="json_compact",
         )
         self.assertEqual(rejected["error_code"], "session_queue_full")
 
@@ -434,6 +484,64 @@ class QuickServerSessionTests(unittest.TestCase):
         recent = self.server.runtime_loads[-3:]
         self.assertEqual([item[0] for item in recent], ["kimodo-a", "kimodo-b", "kimodo-a"])
         self.assertEqual(len({item[1] for item in recent}), 1)
+
+    def test_empty_models_root_inherits_shared_encoder_root(self):
+        first = self.client()
+        second = self.client()
+        shared_root = self.server.root / "shared-models"
+        common = {
+            "model": "ARDY-Core-RP-20FPS-Horizon40",
+            "duration": 0.1,
+            "output_format": "json_compact",
+        }
+
+        first_response, _ = first.request(
+            "generate-first",
+            "generate",
+            task_id="task-first",
+            models_root=str(shared_root),
+            **common,
+        )
+        second_response, _ = second.request(
+            "generate-second",
+            "generate",
+            task_id="task-second",
+            **common,
+        )
+
+        self.assertEqual(first_response["status"], "done")
+        self.assertEqual(second_response["status"], "done")
+        self.assertEqual(self.server.runtime_configs[-2]["models_root"], str(shared_root.resolve()))
+        self.assertEqual(self.server.runtime_configs[-1]["models_root"], str(shared_root.resolve()))
+        self.assertEqual(len({item[1] for item in self.server.runtime_loads[-2:]}), 1)
+
+    def test_different_explicit_models_root_still_conflicts(self):
+        first = self.client()
+        second = self.client()
+        common = {
+            "model": "ARDY-Core-RP-20FPS-Horizon40",
+            "duration": 0.1,
+            "output_format": "json_compact",
+        }
+
+        first_response, _ = first.request(
+            "generate-first",
+            "generate",
+            task_id="task-first",
+            models_root=str(self.server.root / "models-a"),
+            **common,
+        )
+        second_response, _ = second.request(
+            "generate-second",
+            "generate",
+            task_id="task-second",
+            models_root=str(self.server.root / "models-b"),
+            **common,
+        )
+
+        self.assertEqual(first_response["status"], "done")
+        self.assertEqual(second_response["status"], "error")
+        self.assertIn("TextEncoder is shared server-wide", second_response["message"])
 
     def test_gpu_oom_is_reported_without_animation(self):
         client = self.client()

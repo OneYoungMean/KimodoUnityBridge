@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -47,6 +48,7 @@ class _StreamEntry:
         session_id: str,
         capacity_frames: int,
         horizon_frames: int,
+        token_frames: int,
         fps: float,
         model_name: str,
         joint_names: Iterable[str],
@@ -57,12 +59,14 @@ class _StreamEntry:
         serializer: Callable[[dict[str, np.ndarray]], bytes],
         cancel: Callable[[], None],
         resume: Callable[[], None],
+        delivered: Callable[[int], None],
     ):
         self.handle = handle
         self.task_id = str(task_id)
         self.session_id = str(session_id)
         self.capacity_frames = int(capacity_frames)
         self.horizon_frames = int(horizon_frames)
+        self.token_frames = int(token_frames)
         self.fps = float(fps)
         self.model_name = str(model_name)
         self.joint_names = tuple(str(value) for value in joint_names)
@@ -73,28 +77,40 @@ class _StreamEntry:
         self._serializer = serializer
         self._cancel = cancel
         self._resume = resume
-        self._buffers: list[dict[str, np.ndarray] | None] = [None, None]
-        self._counts = [0, 0]
-        self._producer = 0
+        self._delivered = delivered
+        self._chunks: deque[dict[str, np.ndarray]] = deque()
+        self._fields: frozenset[str] | None = None
+        self._available_frames = 0
+        self._generated_frames = 0
+        self._delivered_frames = 0
         self._read_in_progress = False
+        self._delivery_paused = False
         self._closed = False
         self._lock = threading.RLock()
+        self._read_idle = threading.Condition(self._lock)
         self._created_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self._skeleton_id = hashlib.sha256(
             ("\0".join(self.joint_names) + "\0" + ",".join(map(str, self.joint_parents))).encode("utf-8")
         ).hexdigest()
 
+    def set_delivered(self, delivered: Callable[[int], None]) -> None:
+        with self._lock:
+            self._delivered = delivered
+
     def info(self, *, num_frames: int | None = None, byte_length: int = 0) -> dict[str, Any]:
         with self._lock:
-            available = self._counts[self._producer] if num_frames is None else int(num_frames)
+            available = self._available_frames
+            returned = available if num_frames is None else int(num_frames)
             closed = self._closed
+            generated = self._generated_frames
+            delivered = self._delivered_frames
         return {
             "handle": self.handle,
             "format": "flatbuf_motion_v1",
             "description": self.description,
             "byte_length": int(byte_length),
-            "num_frames": int(available),
-            "duration_seconds": int(available) / self.fps,
+            "num_frames": int(returned),
+            "duration_seconds": int(returned) / self.fps,
             "fps": self.fps,
             "created_utc": self._created_utc,
             "model_name": self.model_name,
@@ -109,21 +125,25 @@ class _StreamEntry:
             "session_id": self.session_id,
             "capacity_frames": self.capacity_frames,
             "horizon_frames": self.horizon_frames,
+            "token_frames": self.token_frames,
+            "available_frames": int(available),
+            "generated_frames": int(generated),
+            "delivered_frames": int(delivered),
             "closed": closed,
         }
 
     def is_full(self) -> bool:
         with self._lock:
-            return self._closed or self._counts[self._producer] + self.horizon_frames > self.capacity_frames
+            return self._closed or self._available_frames + self.horizon_frames > self.capacity_frames
 
     def append(self, output: dict[str, Any]) -> bool:
         arrays = {
-            "posed_joints": np.asarray(output["posed_joints"]),
-            "local_rot_mats": np.asarray(output["local_rot_mats"]),
+            "posed_joints": np.array(output["posed_joints"], copy=True),
+            "local_rot_mats": np.array(output["local_rot_mats"], copy=True),
         }
         contacts = np.asarray(output.get("foot_contacts", []))
         if contacts.size:
-            arrays["foot_contacts"] = contacts
+            arrays["foot_contacts"] = np.array(contacts, copy=True)
         frame_count = int(arrays["posed_joints"].shape[1])
         if frame_count != self.horizon_frames:
             raise AnimationHandleError(
@@ -131,62 +151,115 @@ class _StreamEntry:
             )
 
         with self._lock:
-            if self._closed or self._counts[self._producer] + frame_count > self.capacity_frames:
+            if self._closed or self._available_frames + frame_count > self.capacity_frames:
                 return False
-            buffer = self._buffers[self._producer]
-            if buffer is None:
-                buffer = {
-                    key: np.empty(
-                        (value.shape[0], self.capacity_frames, *value.shape[2:]),
-                        dtype=value.dtype,
-                    )
-                    for key, value in arrays.items()
-                }
-                self._buffers[self._producer] = buffer
-            elif set(buffer) != set(arrays):
+            fields = frozenset(arrays)
+            if self._fields is None:
+                self._fields = fields
+            elif self._fields != fields:
                 raise AnimationHandleError("Stream output fields changed between Horizons.")
-            offset = self._counts[self._producer]
-            for key, value in arrays.items():
-                buffer[key][:, offset : offset + frame_count] = value
-            self._counts[self._producer] += frame_count
+            self._chunks.append(arrays)
+            self._available_frames += frame_count
+            self._generated_frames += frame_count
             return True
 
-    def download(self) -> tuple[bytes, dict[str, Any]]:
+    def download(self, *, max_frames: int | None = None) -> tuple[bytes, dict[str, Any]]:
+        if max_frames is not None and int(max_frames) <= 0:
+            raise AnimationHandleError("animation.download max_frames must be greater than zero.")
         with self._lock:
             if self._closed:
                 raise AnimationHandleNotFoundError(f"Animation stream is closed: {self.handle!r}.")
+            if self._delivery_paused:
+                return b"", self.info(num_frames=0)
             if self._read_in_progress:
                 raise AnimationHandleBusyError(f"Animation stream already has a read in progress: {self.handle!r}.")
-            read_index = self._producer
-            frame_count = self._counts[read_index]
+            frame_count = self._available_frames
+            if max_frames is not None:
+                frame_count = min(frame_count, int(max_frames))
             if frame_count == 0:
                 return b"", self.info(num_frames=0)
-            next_producer = 1 - read_index
-            if self._counts[next_producer] != 0:
-                raise AnimationHandleBusyError("Animation stream has no idle output buffer.")
-            self._producer = next_producer
-            self._counts[read_index] = 0
             self._read_in_progress = True
-            buffer = self._buffers[read_index]
-
-        self._resume()
+            snapshot = self._snapshot_locked(frame_count)
         try:
-            if buffer is None:
-                raise AnimationHandleError("Animation stream buffer was not initialized.")
-            snapshot = {key: value[:, :frame_count] for key, value in buffer.items()}
             payload = self._serializer(snapshot)
-            return payload, self.info(num_frames=frame_count, byte_length=len(payload))
+            with self._lock:
+                self._consume_locked(frame_count)
+                self._delivered(frame_count)
+                info = self.info(num_frames=frame_count, byte_length=len(payload))
         finally:
             with self._lock:
                 self._read_in_progress = False
+                self._read_idle.notify_all()
+        self._resume()
+        return payload, info
+
+    def discard_unread(self) -> int:
+        with self._lock:
+            if self._read_in_progress:
+                raise AnimationHandleBusyError(f"Animation stream already has a read in progress: {self.handle!r}.")
+            dropped = self._available_frames
+            self._chunks.clear()
+            self._available_frames = 0
+            return dropped
+
+    def pause_delivery(self) -> None:
+        with self._lock:
+            self._delivery_paused = True
+            if not self._read_in_progress:
+                self._chunks.clear()
+                self._available_frames = 0
+
+    def resume_delivery(self) -> None:
+        with self._lock:
+            self._delivery_paused = False
+
+    def wait_read_idle(self) -> None:
+        with self._read_idle:
+            while self._read_in_progress:
+                self._read_idle.wait()
+
+    def update_description(self, description: str) -> None:
+        with self._lock:
+            self.description = str(description or "")
+
+    def _snapshot_locked(self, frame_count: int) -> dict[str, np.ndarray]:
+        pieces: dict[str, list[np.ndarray]] = {key: [] for key in (self._fields or ())}
+        remaining = frame_count
+        for chunk in self._chunks:
+            take = min(remaining, int(chunk["posed_joints"].shape[1]))
+            for key, value in chunk.items():
+                pieces[key].append(value[:, :take])
+            remaining -= take
+            if remaining == 0:
+                break
+        if remaining != 0:
+            raise AnimationHandleError("Animation stream cursor exceeded available frames.")
+        return {
+            key: values[0] if len(values) == 1 else np.concatenate(values, axis=1)
+            for key, values in pieces.items()
+        }
+
+    def _consume_locked(self, frame_count: int) -> None:
+        remaining = frame_count
+        while remaining > 0:
+            chunk = self._chunks[0]
+            chunk_frames = int(chunk["posed_joints"].shape[1])
+            if remaining >= chunk_frames:
+                self._chunks.popleft()
+                remaining -= chunk_frames
+            else:
+                self._chunks[0] = {key: value[:, remaining:] for key, value in chunk.items()}
+                remaining = 0
+        self._available_frames -= frame_count
+        self._delivered_frames += frame_count
 
     def close(self, *, notify: bool) -> bool:
         with self._lock:
             if self._closed:
                 return False
             self._closed = True
-            self._counts[0] = 0
-            self._counts[1] = 0
+            self._chunks.clear()
+            self._available_frames = 0
         if notify:
             self._cancel()
         return True
@@ -209,6 +282,7 @@ class AnimationHandleStore:
         session_id: str,
         capacity_frames: int,
         horizon_frames: int,
+        token_frames: int = 1,
         fps: float,
         model_name: str,
         joint_names: Iterable[str],
@@ -218,8 +292,15 @@ class AnimationHandleStore:
         serializer: Callable[[dict[str, np.ndarray]], bytes],
         cancel: Callable[[], None],
         resume: Callable[[], None],
+        delivered: Callable[[int], None] = lambda _count: None,
     ) -> dict[str, Any]:
-        if capacity_frames <= 0 or horizon_frames <= 0 or capacity_frames % horizon_frames:
+        if (
+            capacity_frames <= 0
+            or horizon_frames <= 0
+            or token_frames <= 0
+            or capacity_frames % horizon_frames
+            or horizon_frames % token_frames
+        ):
             raise AnimationHandleError("Stream capacity must be a positive Horizon multiple.")
         handle = STREAM_HANDLE_PREFIX + secrets.token_urlsafe(24)
         stream = _StreamEntry(
@@ -228,6 +309,7 @@ class AnimationHandleStore:
             session_id=session_id,
             capacity_frames=capacity_frames,
             horizon_frames=horizon_frames,
+            token_frames=token_frames,
             fps=fps,
             model_name=model_name,
             joint_names=joint_names,
@@ -238,6 +320,7 @@ class AnimationHandleStore:
             serializer=serializer,
             cancel=cancel,
             resume=resume,
+            delivered=delivered,
         )
         with self._lock:
             self._streams[handle] = stream
@@ -248,6 +331,24 @@ class AnimationHandleStore:
 
     def stream_is_full(self, handle: str) -> bool:
         return self._get_stream(handle).is_full()
+
+    def set_stream_delivered(self, handle: str, delivered: Callable[[int], None]) -> None:
+        self._get_stream(handle).set_delivered(delivered)
+
+    def discard_stream_unread(self, handle: str) -> int:
+        return self._get_stream(handle).discard_unread()
+
+    def pause_stream_delivery(self, handle: str) -> None:
+        self._get_stream(handle).pause_delivery()
+
+    def resume_stream_delivery(self, handle: str) -> None:
+        self._get_stream(handle).resume_delivery()
+
+    def wait_stream_read_idle(self, handle: str) -> None:
+        self._get_stream(handle).wait_read_idle()
+
+    def update_stream_description(self, handle: str, description: str) -> None:
+        self._get_stream(handle).update_description(description)
 
     def close_stream(self, handle: str, *, notify: bool = False) -> bool:
         normalized = str(handle or "").strip()
@@ -320,7 +421,8 @@ class AnimationHandleStore:
         with self._lock:
             stream = self._streams.get(normalized)
         if stream is not None:
-            return stream.download()
+            max_frames = _compat.get("max_frames")
+            return stream.download(max_frames=None if max_frames is None else int(max_frames))
         with self._lock:
             entry = self._get_locked(handle)
             expected_model = str(_compat.get("model_name") or "")

@@ -159,6 +159,50 @@ def _payload(model, root_x: float, foot_contacts=None) -> bytes:
 
 
 class ArdyBackendSelfCheck(unittest.TestCase):
+    def test_stream_update_rewinds_to_token_aligned_delivered_history(self):
+        model = _StreamingModel()
+        profile = _stream_profile()
+        store = animation_handles.AnimationHandleStore(byte_quota=1024)
+        with patch.object(
+            ardy_backend,
+            "prepare_generation_inputs",
+            return_value=(None, None, None, profile.horizon_frames, 0, []),
+        ):
+            generator = ardy_backend.ArdyStreamGenerator(
+                {
+                    "prompt": "Walk",
+                    "diffusion_steps": 1,
+                    "text_weight": 1.0,
+                    "seed": 7,
+                    "constraints_json": "",
+                },
+                model,
+                profile,
+                store,
+                Path.cwd(),
+            )
+            generator.generate_horizon(model)
+            generator.generate_horizon(model)
+            generator.commit_frames(3)
+            self.assertEqual(sum(int(chunk.shape[1]) for chunk in generator._pending_history), 5)
+
+            generator.update(
+                {
+                    "prompt": "Turn left",
+                    "diffusion_steps": 1,
+                    "text_weight": 1.0,
+                    "constraints_json": "",
+                },
+                model,
+                store,
+                Path.cwd(),
+            )
+
+        self.assertEqual(int(generator.history.shape[1]), 2)
+        self.assertEqual(len(generator._pending_history), 0)
+        self.assertEqual(generator.resolved_seed, 7)
+        self.assertEqual(generator.prompt, "Turn left.")
+
     def test_ardy_generate_returns_kmb(self):
         model = _StreamingModel()
         response, payload = ardy_backend.execute_generate(
@@ -319,7 +363,7 @@ class ArdyBackendSelfCheck(unittest.TestCase):
         with self.assertRaises(animation_handles.AnimationHandleError):
             store.publish(b"not-kmb")
 
-    def test_stream_handle_double_buffer_is_destructive_and_resumable(self):
+    def test_stream_handle_cursor_download_is_destructive_and_resumable(self):
         store = animation_handles.AnimationHandleStore(byte_quota=1024)
         cancelled = []
         resumed = []
