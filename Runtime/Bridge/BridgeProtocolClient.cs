@@ -61,13 +61,11 @@ namespace KimodoBridge
         public BridgeProtocolClient(
             int connectTimeoutMs = BridgeRuntimeDefaults.ConnectTimeoutMs,
             int ioTimeoutMs = BridgeRuntimeDefaults.IoTimeoutMs,
-            int modelLoadingTimeoutMs = BridgeRuntimeDefaults.ModelLoadingTimeoutMs,
-            int modelLoadingPollIntervalMs = BridgeRuntimeDefaults.ModelLoadingPollIntervalMs)
+            int modelLoadingTimeoutMs = BridgeRuntimeDefaults.ModelLoadingTimeoutMs)
         {
             this.connectTimeoutMs = Math.Max(500, connectTimeoutMs);
             this.ioTimeoutMs = Math.Max(1000, ioTimeoutMs);
             this.modelLoadingTimeoutMs = Math.Max(10000, modelLoadingTimeoutMs);
-            _ = modelLoadingPollIntervalMs;
         }
 
         public bool IsConnected
@@ -274,30 +272,6 @@ namespace KimodoBridge
             {
                 return false;
             }
-        }
-
-        public async Task<bool> TrySendQuitAsync(string host, int port, CancellationToken token)
-        {
-            if (!IsConnected)
-            {
-                return false;
-            }
-            try
-            {
-                await CloseSessionAsync(host, port, token).ConfigureAwait(false);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        public async Task<JObject> SendAsync(string host, int port, JObject request, CancellationToken token)
-        {
-            BridgeProtocolResponse response = await SendRequestAsync(
-                host, port, request, null, null, token, reconnect: true).ConfigureAwait(false);
-            return response.Header;
         }
 
         private async Task<BridgeProtocolResponse> SendRequestAsync(

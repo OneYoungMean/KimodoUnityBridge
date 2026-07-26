@@ -28,34 +28,6 @@ namespace KimodoBridge.Editor
 
     internal static class KimodoInOutConstraintAdapter
     {
-        internal static bool TryBuildConstraintsJson(
-            TimelineClip sourceClip,
-            KimodoInOutConstraintMode mode,
-            bool normalizeConstraintOrigin,
-            bool enableIn,
-            bool enableOut,
-            int generationFrames,
-            out string constraintsJson,
-            out string error)
-        {
-            constraintsJson = string.Empty;
-            if (!TryBuildConstraints(
-                    sourceClip,
-                    mode,
-                    normalizeConstraintOrigin,
-                    enableIn,
-                    enableOut,
-                    generationFrames,
-                    out KimodoInOutConstraintResult result,
-                    out error))
-            {
-                return false;
-            }
-
-            constraintsJson = result != null ? result.ConstraintsJson ?? string.Empty : string.Empty;
-            return true;
-        }
-
         internal static bool TryBuildConstraints(
             TimelineClip sourceClip,
             KimodoInOutConstraintMode mode,

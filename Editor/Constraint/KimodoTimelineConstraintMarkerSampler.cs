@@ -312,46 +312,6 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        internal static bool TryBuildOverrideMarkerSamplesWithoutTimelineSampling(
-            TimelineClip clipRange,
-            out List<KimodoMarkerSampleResult> samples,
-            out bool requiresTimelineSampling,
-            out string error)
-        {
-            samples = new List<KimodoMarkerSampleResult>();
-            requiresTimelineSampling = false;
-            error = string.Empty;
-
-            TrackAsset track = clipRange != null ? clipRange.GetParentTrack() : null;
-            if (track == null)
-            {
-                error = "Cannot resolve parent animation track.";
-                return false;
-            }
-
-            List<KimodoConstraintMarkerBase> markers = GatherKimodoMarkers(track, clipRange);
-            for (int i = 0; i < markers.Count; i++)
-            {
-                KimodoConstraintMarkerBase marker = markers[i];
-                if (!CanUseOverrideWithoutTimelineSampling(marker))
-                {
-                    requiresTimelineSampling = true;
-                    return true;
-                }
-
-                KimodoMarkerSampleResult sample = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, marker.SampleData);
-                if (sample == null)
-                {
-                    error = "failed to read override marker data";
-                    return false;
-                }
-
-                samples.Add(sample);
-            }
-
-            return true;
-        }
-
         private static bool TryBuildMarkerSample(
             KimodoConstraintMarkerBase marker,
             KimodoTimelineInOutConstraintContext context,

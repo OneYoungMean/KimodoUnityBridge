@@ -39,7 +39,7 @@
 2. 用 Unity 打开工程，直接运行查看效果。
 3. 插件组件已放在 `KimodoUnityBridge_FullDemo/Packages` 目录下，无需再装。
 
-> **环境要求**：Unity 2021+（FullDemo 工程为 2022.3），Windows / macOS / Linux。内存 ≥ 8G，硬盘可用空间 ≥ 10G。NVIDIA 显存 ≥ 6G 可走 CUDA（非强制，CPU 也能跑，只是慢）。
+> **环境要求**：Unity 2022.3+，Windows / macOS / Linux。内存 ≥ 8G，硬盘可用空间 ≥ 10G。NVIDIA 显存 ≥ 6G 可走 CUDA（非强制，CPU 也能跑，只是慢）。
 
 ---
 

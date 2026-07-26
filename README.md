@@ -3,7 +3,7 @@
 # License
 [Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
 
-# 1.2.13更新点速览    
+# 2.0.0更新点速览
 * 修复了大部分已知问题  
 * **支持amd显卡，xpu显卡支持（Experimental）**
 * **增加Mac 平台支持，现在Linux，windows，mac 都可以正常工作了（Experimental）**
@@ -12,7 +12,6 @@
 * **大幅度优化Generate pipe不稳定的问题**
 * **小幅度优化Quick Server性能,使用FaltPatten优化QickServer与Bridge通讯机制**
 * 修复了若干前后动画不匹配的问题.
-* 增加了RuntimeDemo新的api,方便用户调用.
 * 完善了说明书.
 
 ## 更新注意事项
@@ -29,7 +28,7 @@
 * 一款开源AI插件, 可以根据提示词生成你想要的人物角色动画！
 
 ## 要求
-- Unity2021+（更低的平台尚未测试），Windows和Linux 平台。
+- Unity 2022.3+，Windows、macOS 和 Linux 平台。
 - 内存>=8G,硬盘空间>=16G
 - Windows,Mac,Linux平台
 - 对部分平台（Nvidia10系以上， AMD7000以上，部分XPU）会启动CUDA加速
@@ -64,7 +63,7 @@
 ### Bug Report
 由于项目较大且开发时间较短，bug难免有所疏漏，在这里提前给用户老爷抱歉啦，如果你很不幸（或者说很幸运）遇到了bug，请提交一下log，方便作者改进和维护，感激不尽：  
 如果你遇到的是unity报错：请提交[Editor.log](https://blog.csdn.net/codingriver/article/details/86551964)  
-如果你遇到的是server报错（例如server exit with code 1）请将项目路径\NvlabKimodoQuickServer~\log下的内容发送给我（Runtime在StreamingAseets目录下）  
+如果你遇到的是server报错（例如server exit with code 1）请将项目路径\NvlabKimodoQuickServer~\log下的内容发送给我。
 再次诚恳表示抱歉！Orz
 
 ### 最后,如果你喜欢本项目记得给本项目star!

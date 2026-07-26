@@ -4,19 +4,6 @@ using UnityEngine;
 
 namespace TimelineInject
 {
-    public static class KimodoVectorExtensions
-    {
-        public static float[] ToArray(this Vector2 value)
-        {
-            return new[] { value.x, value.y };
-        }
-
-        public static float[] ToArray(this Vector3 value)
-        {
-            return new[] { value.x, value.y, value.z };
-        }
-    }
-
     [Serializable]
     public class KimodoConstraintJson
     {

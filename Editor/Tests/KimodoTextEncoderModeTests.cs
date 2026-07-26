@@ -22,7 +22,6 @@ namespace KimodoBridge.Editor.Tests
 
         [TestCase(typeof(KimodoPlayableClip), "textEncoderMode", "bridgeVramMode")]
         [TestCase(typeof(KimodoRuntimeMotionDriver), "textEncoderMode", "highVram")]
-        [TestCase(typeof(KimodoInfiniteMotionDemo), "textEncoderMode", "highVram")]
         [TestCase(typeof(KimodoPlayableClipGenerationSettings), "defaultTextEncoderMode", "defaultBridgeVramMode")]
         public void RenamedRuntimeFieldsDeclareLegacySerializedName(
             System.Type type,

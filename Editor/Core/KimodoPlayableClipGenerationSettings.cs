@@ -20,7 +20,6 @@ namespace KimodoBridge.Editor
         [FormerlySerializedAs("defaultBridgeVramMode")]
         [SerializeField] private KimodoTextEncoderMode defaultTextEncoderMode = KimodoTextEncoderMode.HighPrecision;
         [SerializeField] private float generationTimeoutSeconds = DefaultGenerationTimeoutSeconds;
-        [SerializeField] private bool floatingUiEnabled = true;
         [SerializeField] private bool keepCpuForceExperimental;
         [SerializeField] private bool setupWizardCompleted;
         [SerializeField] private string quickServerPath = string.Empty;
@@ -54,12 +53,6 @@ namespace KimodoBridge.Editor
         {
             get => advancedCurveFilterFoldout;
             set => advancedCurveFilterFoldout = value;
-        }
-
-        internal bool FloatingUiEnabled
-        {
-            get => floatingUiEnabled;
-            set => floatingUiEnabled = value;
         }
 
         internal bool KeepCpuForceExperimental
@@ -104,4 +97,3 @@ namespace KimodoBridge.Editor
         }
     }
 }
-

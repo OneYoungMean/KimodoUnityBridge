@@ -82,16 +82,6 @@ namespace KimodoBridge
             return true;
         }
 
-        internal static Vector3 ComputeRootTFromHumanoidIkGoalPose(
-            Vector3 worldGoalPosition,
-            Quaternion rootQ,
-            Vector3 goalPosition,
-            float humanScale)
-        {
-            float scale = Mathf.Max(1e-6f, humanScale);
-            return (worldGoalPosition - rootQ * (goalPosition * scale)) / scale;
-        }
-
         internal static Transform ResolveHumanBoneTransform(SkeletonCache cache, HumanBodyBones bone)
         {
             if (cache == null)

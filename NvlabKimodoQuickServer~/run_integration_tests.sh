@@ -22,10 +22,6 @@ if [[ -z "${PYTHON_EXE:-}" ]]; then
   exit 1
 fi
 
-if [[ "${1:-}" == "--archive-legacy" ]]; then
-  exec "$PYTHON_EXE" "$SCRIPT" --archive-legacy
-fi
-
 if [[ $# -gt 0 ]]; then
   exec "$PYTHON_EXE" "$SCRIPT" "$@"
 fi

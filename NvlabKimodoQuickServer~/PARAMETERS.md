@@ -30,7 +30,6 @@
 
 INT8 资产说明：
 - 默认低显存文本编码器目录为 `models\KIMODO-Meta3_llm2vec_INT8`。
-- 若本地已有 `C:\nvlab\LLMVec-GGUF\KIMODO-Meta3_llm2vec_FP16`，可先执行 `tools\build_llm2vec_int8.py` 生成 INT8 资产。
 - 对默认 `models\` 目录：若缺少 INT8 资产，会尝试从 `oneyoungmean/KIMODO-Meta3_llm2vec_INT8` 下载。
 - 对外部 `--models-root`：不会自动下载，缺失时直接报错。
 
@@ -61,22 +60,8 @@ INT8 资产说明：
 - `KIMODO_TEST_SETUP_DEVICE`: 改用 `KIMODO_SETUP_DEVICE`。
 - `KIMODO_TEST_VENV_PATH`: 改用 `KIMODO_VENV_PATH`。
 
-## 3. `example\example_run_server_tpose.bat`
-- 当前 `example\` 目录仍保留旧示例脚本，尚未完全迁移到最新 TCP 生命周期；请优先使用 `run_integration_tests.bat/.sh` 与 `integration_test_suite.py`。
-- 通过判定：客户端退出码 `0` 且出现 `status=done`。
-
-相关环境变量：
-- `KIMODO_TEST_OUTPUT=console|file`（默认 `console`）
-- `KIMODO_TEST_WAIT_TIMEOUT_SEC`（默认 `1800`）
-- `KIMODO_TEST_MODEL`
-- `KIMODO_TEST_FORCE_HF_DOWNLOAD=0|1`
-- `KIMODO_TEST_MODELS_ROOT=<path>`
-- `KIMODO_TEST_SERVER_WINDOW_STYLE=Normal|Hidden|Minimized|Maximized`
-
-## 4. 日志约定
+## 3. 日志约定
 - 默认所有日志写入 `log\`。
 - 典型文件：
   - `log\setup.log`
   - `log\bridge_server.log`（run/bridge 主日志）
-  - `log\example_run_server_tpose.log`
-  - `log\example_run_server_tpose_client.log`

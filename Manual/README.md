@@ -33,7 +33,7 @@
 ### 配置与运行时
 
 - **[Kimodo Server Manager](Kimodo%20Server%20Manager%20说明书.md)** — 本地服务器、模型管理与全局选项的控制台（位于 Project Settings）。
-- **[Runtime 配置与 API](Runtime%20配置与%20API%20说明书.md)** — 让发布版游戏在运行时实时生成动画，含 InfiniteMotionDemo 配置与代码接口。
+- 旧版 InfiniteMotionDemo 与 Runtime API 文档已移入仓库 `Archive~`。
 
 ### 排查问题
 
@@ -43,7 +43,7 @@
 
 ## 环境要求
 
-- Unity 2021 及以上，支持 Windows、macOS、Linux 平台。
+- Unity 2022.3 及以上，支持 Windows、macOS、Linux 平台。
 - 内存 ≥ 8G，硬盘可用空间 ≥ 10G。
 - NVIDIA 显卡显存 ≥ 6G 时可运行 CUDA 版本（不做强制限制，CPU 也能跑，只是更慢）。
 

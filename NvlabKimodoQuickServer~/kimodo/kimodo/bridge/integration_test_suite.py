@@ -144,7 +144,6 @@ def _list_cases() -> list[TestCase]:
         TestCase("T04", "Queue Order", ("basic", "queue"), "queue_order", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
         TestCase("T05", "Stop Idle", ("basic", "stop"), "stop_idle", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
         TestCase("T06", "Stop Generating", ("basic", "stop"), "stop_generating", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
-        TestCase("T07", "Cancel NonCurrent Boot", ("cancel", "boot"), "skip_placeholder", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
         TestCase("T08", "Cancel NonCurrent CLI", ("cancel", "cli"), "cancel_queued", POLICY_REUSE_EXISTING_ENV_AND_MODELS),
         TestCase("T09", "Cancel Current Boot", ("cancel", "boot"), "abort_phase", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"phase": "boot"}),
         TestCase("T10", "Cancel Current SettingUpEnv Immediate", ("cancel", "setting_up_env"), "abort_phase", POLICY_ISOLATED_ENV_REUSE_EXISTING_MODELS, {"phase": "setting_up_env", "delay_sec": 0}),
@@ -186,16 +185,6 @@ def _list_cases() -> list[TestCase]:
         TestCase("T46", "Download Source Health Probe", ("probe", "network", "manual"), "download_probe", POLICY_DOWNLOAD_PROBE),
         TestCase("T47", "Force Downloaded UV", ("cache", "uv", "download", "network", "manual"), "basic", POLICY_FORCE_DOWNLOADED_UV, {"uncached_uv": True, "force_download_uv": True}),
         TestCase("T48", "Short Idle Timeout Override", ("timeout", "idle"), "idle_timeout_override", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"idle_timeout_sec": 3}),
-        TestCase("T49", "Example Default T-Pose Batch", ("example", "smoke"), "example_tpose_batch", ResourcePolicy(
-            env_policy="isolated-env-setup",
-            model_policy="isolated-models",
-            uv_policy="reuse-available-uv",
-        )),
-        TestCase("T50", "Example Default Startup Batch", ("example", "startup"), "example_startup_batch", ResourcePolicy(
-            env_policy="isolated-env-setup",
-            model_policy="isolated-models",
-            uv_policy="reuse-available-uv",
-        )),
         TestCase("T51", "Reject Legacy Start Command", ("protocol", "legacy"), "legacy_command_reject", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"cmd": "start"}),
         TestCase("T52", "Reject Legacy Stop Command", ("protocol", "legacy"), "legacy_command_reject", POLICY_REUSE_EXISTING_ENV_AND_MODELS, {"cmd": "stop"}),
         TestCase("T53", "Basic T-Pose Generate Cold Start", ("cold-start", "smoke"), "basic", ResourcePolicy(
@@ -633,90 +622,6 @@ def _run_download_probe(ctx: TestContext) -> dict[str, Any]:
         "status": "passed",
         "summary_path": str(summary_path),
         "probe_results": summary.get("results", []),
-    }
-
-
-def _run_example_tpose_batch(ctx: TestContext) -> dict[str, Any]:
-    if os.name != "nt":
-        return {"status": "skipped", "reason": "example_run_server_tpose.bat is Windows-only."}
-
-    example_script = ctx.workspace_runtime / "example" / "example_run_server_tpose.bat"
-    stdout_path = ctx.logs_dir / "example_tpose_batch.out.log"
-    stderr_path = ctx.logs_dir / "example_tpose_batch.err.log"
-    env = os.environ.copy()
-
-    completed = subprocess.run(
-        ["cmd.exe", "/d", "/c", "call", f".\\{example_script.name}"],
-        cwd=str(example_script.parent),
-        env=env,
-        stdout=stdout_path.open("w", encoding="utf-8", newline="\n"),
-        stderr=stderr_path.open("w", encoding="utf-8", newline="\n"),
-        text=True,
-        timeout=TEST_TIMEOUT_SEC,
-        check=False,
-    )
-
-    stdout_text = stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path.exists() else ""
-    stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "example_run_server_tpose.bat failed with "
-            f"exit code {completed.returncode}.\nstdout:\n{stdout_text[-4000:]}\nstderr:\n{stderr_text[-4000:]}"
-        )
-
-    if "[OK] QuickServer T-pose example passed." not in stdout_text:
-        raise RuntimeError(
-            "example_run_server_tpose.bat did not emit the expected success marker.\n"
-            f"stdout:\n{stdout_text[-4000:]}"
-        )
-
-    return {
-        "status": "passed",
-        "exit_code": completed.returncode,
-        "stdout_log": str(stdout_path),
-        "stderr_log": str(stderr_path),
-    }
-
-
-def _run_example_startup_batch(ctx: TestContext) -> dict[str, Any]:
-    if os.name != "nt":
-        return {"status": "skipped", "reason": "example_run_server_startup.bat is Windows-only."}
-
-    example_script = ctx.workspace_runtime / "example" / "example_run_server_startup.bat"
-    stdout_path = ctx.logs_dir / "example_startup_batch.out.log"
-    stderr_path = ctx.logs_dir / "example_startup_batch.err.log"
-    env = os.environ.copy()
-
-    completed = subprocess.run(
-        ["cmd.exe", "/d", "/c", "call", f".\\{example_script.name}"],
-        cwd=str(example_script.parent),
-        env=env,
-        stdout=stdout_path.open("w", encoding="utf-8", newline="\n"),
-        stderr=stderr_path.open("w", encoding="utf-8", newline="\n"),
-        text=True,
-        timeout=TEST_TIMEOUT_SEC,
-        check=False,
-    )
-
-    stdout_text = stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path.exists() else ""
-    stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "example_run_server_startup.bat failed with "
-            f"exit code {completed.returncode}.\nstdout:\n{stdout_text[-4000:]}\nstderr:\n{stderr_text[-4000:]}"
-        )
-
-    if "[OK] QuickServer startup ready:" not in stdout_text:
-        raise RuntimeError(
-            "example_run_server_startup.bat did not emit the expected success marker.\n"
-            f"stdout:\n{stdout_text[-4000:]}"
-        )
-
-    return {
-        "status": "passed",
-        "exit_code": completed.returncode,
-        "stdout_log": str(stdout_path),
-        "stderr_log": str(stderr_path),
     }
 
 
@@ -1232,14 +1137,8 @@ def _run_case(ctx: TestContext) -> dict[str, Any]:
         return _run_download_probe(ctx)
     if kind == "idle_timeout_override":
         return _run_idle_timeout_override(ctx, params)
-    if kind == "example_tpose_batch":
-        return _run_example_tpose_batch(ctx)
-    if kind == "example_startup_batch":
-        return _run_example_startup_batch(ctx)
     if kind == "legacy_command_reject":
         return _run_legacy_command_reject(ctx, str(params["cmd"]))
-    if kind == "skip_placeholder":
-        return {"status": "skipped", "reason": "Not represented cleanly in the new lifecycle yet."}
     raise RuntimeError(f"Unsupported test kind: {kind}")
 
 
@@ -1295,16 +1194,6 @@ def _prepend_prepare_case(selected: list[TestCase], prepare_case: TestCase | Non
     return [prepare_case, *selected]
 
 
-def _archive_legacy_tests(repo_root: Path) -> None:
-    legacy_dir = repo_root / "NvlabKimodoQuickServer~" / "test"
-    if not legacy_dir.exists():
-        return
-    archive_root = repo_root / "archive"
-    archive_root.mkdir(parents=True, exist_ok=True)
-    destination = archive_root / f"test_archive_{time.strftime('%Y%m%d_%H%M%S')}"
-    shutil.move(str(legacy_dir), str(destination))
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Kimodo QuickServer integration test suite")
     parser.add_argument("--list", action="store_true")
@@ -1313,12 +1202,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--range", nargs=2, metavar=("START", "END"))
     parser.add_argument("--tag")
     parser.add_argument("--full", action="store_true")
-    parser.add_argument("--archive-legacy", action="store_true")
     args = parser.parse_args(argv)
-
-    if args.archive_legacy:
-        _archive_legacy_tests(_repo_root())
-        return 0
 
     cases = _list_cases()
     if args.list:

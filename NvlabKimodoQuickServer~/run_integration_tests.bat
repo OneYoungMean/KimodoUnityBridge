@@ -8,8 +8,6 @@ set "SCRIPT=%ROOT_DIR%\kimodo\kimodo\bridge\integration_test_suite.py"
 set "PYTHON_EXE="
 set "PYTHON_ARGS="
 
-if "%~1"=="--archive-legacy" goto archive_legacy
-
 call :resolve_python
 if not defined PYTHON_EXE (
   echo [ERROR] Could not find a host Python interpreter.
@@ -55,15 +53,6 @@ if not errorlevel 1 (
 )
 
 "%PYTHON_EXE%" %PYTHON_ARGS% "%SCRIPT%" --case "%TEST_SELECTION%"
-exit /b %ERRORLEVEL%
-
-:archive_legacy
-call :resolve_python
-if not defined PYTHON_EXE (
-  echo [ERROR] Could not find a host Python interpreter.
-  exit /b 1
-)
-"%PYTHON_EXE%" %PYTHON_ARGS% "%SCRIPT%" --archive-legacy
 exit /b %ERRORLEVEL%
 
 :passthrough

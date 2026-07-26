@@ -412,7 +412,6 @@ class SkeletonBvh:
         self.root.offset_rot = mocap.joint_offset_rot(self.root.name)
         if self.root.offset_rot is not None:
             self.root.offset_rot = np.array(self.root.offset_rot)
-        # self.root.offset = np.zeros_like(self.root.offset) # TODO: remove this
         self.name2bone[self.root.name] = self.root
         self.bones.append(self.root)
         for i, joint in enumerate(joint_names[1:]):
@@ -430,9 +429,6 @@ class SkeletonBvh:
             self.bones.append(bone)
             self.name2bone[joint] = bone
 
-        # for bone in self.bones:
-        # print(bone.name, bone.channels, bone.offset)
-
         for bone in self.bones[1:]:
             parent_name = mocap.joint_parent(bone.name).name
             if parent_name in self.name2bone.keys():
@@ -448,8 +444,6 @@ class SkeletonBvh:
                     end_site_idx = child_vals.index("End Site")
                     end_site_offset = mocap.get_joint(bone.name).children[end_site_idx]["OFFSET"]
                     bone.end = bone.pos + np.array([float(x) for x in end_site_offset]) * self.len_scale
-                else:
-                    pass
             else:
                 bone.end = sum([bone_c.pos for bone_c in bone.child]) / len(bone.child)
 

@@ -30,24 +30,6 @@ namespace KimodoBridge.Editor
             normalizationInfo = BuildNormalizationInfo(anchor);
         }
 
-        internal static void CopyPoseAxes(KimodoMarkerSampleResult sourceSample, KimodoMarkerSampleResult destinationSample)
-        {
-            if (sourceSample == null || destinationSample == null)
-            {
-                return;
-            }
-
-            destinationSample.localAxisAngles = sourceSample.localAxisAngles != null
-                ? new List<Vector3>(sourceSample.localAxisAngles)
-                : new List<Vector3>();
-            destinationSample.sampledJointIndices = sourceSample.sampledJointIndices != null
-                ? new List<int>(sourceSample.sampledJointIndices)
-                : new List<int>();
-            destinationSample.jointNames = sourceSample.jointNames != null
-                ? new List<string>(sourceSample.jointNames)
-                : new List<string>();
-        }
-
         private static ResolvedNormalizationAnchor ResolveNormalizationAnchor(
             List<KimodoMarkerSampleResult> samples,
             out string warning)

@@ -222,9 +222,6 @@ namespace KimodoBridge
                 RestoreAnimatorAfterClipSampling(context.cache, context.originalAnimatorAvatar);
             }
 
-            if (context.cache != null)
-            {
-            }
         }
 
         internal static bool TryEvaluateClipSamplingContext(ClipSamplingContext context, float sampleTime, out string error)
@@ -326,26 +323,6 @@ namespace KimodoBridge
             }
         }
 
-        internal static Quaternion NormalizeSafe(Quaternion rotation)
-        {
-            float magnitude = Mathf.Sqrt(
-                rotation.x * rotation.x +
-                rotation.y * rotation.y +
-                rotation.z * rotation.z +
-                rotation.w * rotation.w);
-
-            if (magnitude <= 1e-8f)
-            {
-                return Quaternion.identity;
-            }
-
-            float invMagnitude = 1f / magnitude;
-            return new Quaternion(
-                rotation.x * invMagnitude,
-                rotation.y * invMagnitude,
-                rotation.z * invMagnitude,
-                rotation.w * invMagnitude);
-        }
     }
     internal static class KimodoRetargetSamplingUtility
     {

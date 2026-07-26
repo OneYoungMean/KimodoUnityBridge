@@ -28,4 +28,3 @@ pip install -e .
 import motion_correction
 print("Installation successful!")
 ```
-You can also run `python run_test.py` for a simple test.

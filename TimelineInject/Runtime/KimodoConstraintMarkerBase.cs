@@ -100,10 +100,6 @@ public abstract class KimodoConstraintMarkerBase : Marker
         EnsureSampleData();
     }
 
-    protected virtual void OnDisable()
-    {
-        // no-op: marker lifecycle event hub has been removed.
-    }
 }
 
 [Serializable]

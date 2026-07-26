@@ -13,7 +13,6 @@ from .loading import (
     DEFAULT_MODEL,
     DEFAULT_TEXT_ENCODER_URL,
     MODEL_NAMES,
-    TMR_MODELS,
     get_env_var,
     instantiate_from_dict,
 )
@@ -29,7 +28,6 @@ TEXT_ENCODER_PRESETS = {
             "peft_model_name_or_path": "McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised",
             "dtype": "bfloat16",
             "llm_dim": 4096,
-            #"device": "auto",
         },
     },
     "llm2vec_int8": {
@@ -202,10 +200,6 @@ def load_model(
         raise FileNotFoundError(f"The model checkpoint folder exists but config.yaml is missing: {model_config_path}")
 
     model_conf = OmegaConf.load(model_config_path)
-
-    if modelname in TMR_MODELS:
-        # Same process at the moment for TMR and Kimodo
-        pass
 
     if text_encoder is not None:
         runtime_conf = OmegaConf.create({"checkpoint_dir": str(model_path)})

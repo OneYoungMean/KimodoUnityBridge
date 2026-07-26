@@ -312,7 +312,6 @@ class TMR(nn.Module):
         lengths: Optional[torch.Tensor] = None,
         unit_vector: Optional[bool] = None,
     ):
-        # TODO here.
         convert_ctx = torch.no_grad() if not self.compute_grads else contextlib.nullcontext()
 
         if original_skeleton is None:
@@ -349,7 +348,6 @@ class TMR(nn.Module):
         x_dict: Dict,
         unit_vector: Optional[bool] = None,
     ):
-        # TODO: make it ensure batched
         convert_ctx = torch.no_grad() if not self.compute_grads else contextlib.nullcontext()
 
         with convert_ctx:

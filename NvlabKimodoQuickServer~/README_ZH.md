@@ -21,12 +21,6 @@ cd /d C:\nvlab\NvlabKimodoQuickServer1
 run_server.bat setup --output console
 ```
 
-如果你已经有 `C:\nvlab\LLMVec-GGUF\KIMODO-Meta3_llm2vec_FP16` 这份 baked FP16 文本编码器，可以先本地生成 CPU INT8 资产：
-```bat
-cd /d C:\nvlab\NvlabKimodoQuickServer1
-program\exe\uv\uv.exe run --python 3.12 --no-project python tools\build_llm2vec_int8.py --verify
-```
-
 Linux：
 ```bash
 cd /mnt/c/nvlab/NvlabKimodoQuickServer1
@@ -46,16 +40,6 @@ cd /mnt/c/nvlab/NvlabKimodoQuickServer1
 ```
 
 文本编码器由 `text_encoder_mode=high_precision|high_performance` 选择精度偏好，再按实时剩余显存和设备能力自动放置。QuickServer 先确保 motion 模型至少有约 2GB 可用空间，加载后再次检查剩余显存；NF4/INT8/FP16 的 GPU 预算分别为 6GB/8GB/16GB。显式 `simulate_free_vram_gb=0` 会让整个运行时走 CPU。
-
-TCP 冒烟测试：
-```bat
-example\example_run_server_tpose.bat
-```
-
-控制台实时日志版本：
-```bat
-example\example_run_server_tpose_console_live.bat
-```
 
 Bridge TCP 返回格式：
 - 默认 `generate` 返回 `motion_json_compact`。

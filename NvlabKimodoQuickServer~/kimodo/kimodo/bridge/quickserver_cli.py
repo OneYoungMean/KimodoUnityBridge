@@ -322,16 +322,6 @@ def _unload_runtime_model(state: dict[str, Any], logger: SetupLogger) -> None:
     _release_accelerator_cache()
 
 
-def _detach_runtime_text_encoder(state: dict[str, Any]) -> Any:
-    model = state.get("model")
-    if model is None:
-        return None
-    encoder = getattr(model, "text_encoder", None)
-    if encoder is not None:
-        model.text_encoder = None
-    return encoder
-
-
 def _clear_shared_text_encoder_state(state: dict[str, Any]) -> Any:
     encoder = state.get("shared_text_encoder")
     runtimes = [state["active_runtime"]] + [

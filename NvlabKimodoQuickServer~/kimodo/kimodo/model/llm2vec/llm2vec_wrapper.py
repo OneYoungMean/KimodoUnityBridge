@@ -71,11 +71,6 @@ class LLM2VecEncoder(nn.Module):
                 os.path.abspath(os.path.join(kimodo_root, "models", NF4_LOCAL_DIR))
             )
 
-        # Keep compatibility with the original README override placeholder.
-        manual_placeholder = r"path_to_your_Llama_text-encoders"
-        if manual_placeholder and os.path.isdir(manual_placeholder):
-            candidates.append(os.path.abspath(manual_placeholder))
-
         # Derive from package location.
         this_dir = os.path.dirname(os.path.abspath(__file__))
         candidates.append(
@@ -153,10 +148,6 @@ class LLM2VecEncoder(nn.Module):
                         ctypes.CDLL("libc.so.6").malloc_trim(0)
                     except Exception:
                         pass
-                elif platform.system() == "Windows":
-                    from kimodo.demo.memory_manager import release_system_memory
-                    release_system_memory()
-
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                     torch.cuda.ipc_collect()
@@ -202,19 +193,12 @@ class LLM2VecEncoder(nn.Module):
                     ctypes.CDLL("libc.so.6").malloc_trim(0)
                 except Exception:
                     pass
-            elif platform.system() == "Windows":
-                from kimodo.demo.memory_manager import release_system_memory
-                release_system_memory()
-
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
             if torch.backends.mps.is_available():
                 torch.mps.empty_cache()
             
-            if self.target_device.startswith("cuda"):
-                from kimodo.demo.memory_manager import manager
-                manager.log_memory_usage("Encoder Transfer Complete (RAM Reclaimed)")
             print(f"[LLM2VecEncoder] Text encoder ready on {self.target_device}.", flush=True)
         else:
             print(f"[LLM2VecEncoder] Model already on target device ({curr_device})")

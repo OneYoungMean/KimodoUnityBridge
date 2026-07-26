@@ -93,31 +93,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        internal static void DestroyPoseRig(PoseRigInstance instance)
-        {
-            if (instance == null)
-            {
-                return;
-            }
-
-            if (instance.Root != null)
-            {
-                UnityEngine.Object.DestroyImmediate(instance.Root);
-            }
-
-            if (instance.GeneratedMaterials != null)
-            {
-                for (int i = 0; i < instance.GeneratedMaterials.Count; i++)
-                {
-                    Material material = instance.GeneratedMaterials[i];
-                    if (material != null)
-                    {
-                        UnityEngine.Object.DestroyImmediate(material);
-                    }
-                }
-            }
-        }
-
         private static GameObject LoadRigPrefab(KimodoConstraintRigType rigType)
         {
             string path = ResolveRigModelPath(rigType);

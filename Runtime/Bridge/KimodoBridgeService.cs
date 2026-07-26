@@ -59,7 +59,6 @@ namespace KimodoBridge
         private string currentHost = DefaultHost;
         private int currentPort = -1;
         private string currentRuntimeRoot = string.Empty;
-        private string activeTaskId = string.Empty;
         private string textEncoderStatusMessage = string.Empty;
         private int sessionVersion;
         private int stopRequested;
@@ -153,7 +152,6 @@ namespace KimodoBridge
                 }
 
                 taskId = request.task_id;
-                Interlocked.Exchange(ref activeTaskId, taskId);
                 EmitDebugLog(
                     $"[KimodoBridge] Generate request: host={currentHost}:{currentPort}, " +
                     $"taskId='{request.task_id}', " +
@@ -245,14 +243,6 @@ namespace KimodoBridge
                 ReportProgress(progress, "Server has been stopped.");
                 EmitDebugLog("[KimodoBridge] Server has been stopped.");
                 throw new OperationCanceledException("Server has been stopped.", exception);
-            }
-            finally
-            {
-                if (!string.IsNullOrWhiteSpace(taskId))
-                {
-                    Interlocked.CompareExchange(ref activeTaskId, string.Empty, taskId);
-                }
-
             }
         }
 
@@ -534,7 +524,6 @@ namespace KimodoBridge
             currentRuntimeRoot = string.Empty;
             explicitSessionOpened = false;
             protocolSessionId = isDefaultSession ? "session:default" : string.Empty;
-            Interlocked.Exchange(ref activeTaskId, string.Empty);
         }
 
         private void EmitDebugLog(string message)

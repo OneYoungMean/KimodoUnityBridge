@@ -14,11 +14,6 @@ namespace KimodoBridge.Editor
 
         public static IReadOnlyList<KimodoConstraintMarkerBase> LatestMarkers => LatestMarkerSnapshot;
 
-        public string BuildConstraintsJsonOrThrow(KimodoPlayableClip clip)
-        {
-            return BuildConstraintDataOrThrow(clip).ConstraintsJson ?? string.Empty;
-        }
-
         public KimodoInOutConstraintResult BuildConstraintDataOrThrow(
             KimodoPlayableClip clip,
             int? generationFramesOverride = null)

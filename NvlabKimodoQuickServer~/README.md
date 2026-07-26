@@ -21,12 +21,6 @@ cd /d C:\nvlab\NvlabKimodoQuickServer1
 run_server.bat setup --output console
 ```
 
-If you already have a baked FP16 text encoder at `C:\nvlab\LLMVec-GGUF\KIMODO-Meta3_llm2vec_FP16`, you can build the local CPU INT8 asset first:
-```bat
-cd /d C:\nvlab\NvlabKimodoQuickServer1
-program\exe\uv\uv.exe run --python 3.12 --no-project python tools\build_llm2vec_int8.py --verify
-```
-
 Linux:
 ```bash
 cd /mnt/c/nvlab/NvlabKimodoQuickServer1
@@ -46,16 +40,6 @@ cd /mnt/c/nvlab/NvlabKimodoQuickServer1
 ```
 
 `text_encoder_mode=high_precision|high_performance` selects the precision preference; QuickServer then places the encoder from current free VRAM and backend capabilities. It first requires about 2 GB for the motion model, rechecks free VRAM after loading it, and uses GPU budgets of 6/8/16 GB for NF4/INT8/FP16. Explicit `simulate_free_vram_gb=0` moves the entire runtime to CPU.
-
-TCP smoke test:
-```bat
-example\example_run_server_tpose.bat
-```
-
-Live console variant:
-```bat
-example\example_run_server_tpose_console_live.bat
-```
 
 ## TCP protocol notes
 - Every request may carry `request_id`; every response for that request echoes it, so one persistent TCP connection can multiplex commands safely.

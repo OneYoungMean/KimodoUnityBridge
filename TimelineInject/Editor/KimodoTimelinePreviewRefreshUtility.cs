@@ -44,11 +44,6 @@ namespace TimelineInject
             return EditorUtility.InstantiateForAnimatorPreview(original) as GameObject;
         }
 
-        public static Vector3 InstantiateForAnimatorPreview(Animator animator)
-        {
-            return animator.bodyPositionInternal;
-        }
-
         public static Vector3 GetBodyPosition(Animator animator)
         {
             return animator != null ? animator.bodyPositionInternal : Vector3.zero;

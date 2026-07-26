@@ -28,32 +28,13 @@ dependencies = [
   "packaging>=21.0",
   "pydantic>=2.0",
   "filelock>=3.20.3",
-  "gradio>=6.8.0",
-  "gradio_client>=2.0",
-  "trimesh>=3.21.7",
-  "scenepic>=1.1.0",
-  "pillow>=9.0",
-  "av>=16.1.0",
   "bvhio",
 ]
 
 [project.optional-dependencies]
-demo = [
-  "viser @ git+https://github.com/nv-tlabs/kimodo-viser.git",
+text-api = [
+  "gradio_client>=2.0",
 ]
-soma = [
-  "py-soma-x @ git+https://github.com/NVlabs/SOMA-X.git"
-]
-all = [
-  "viser @ git+https://github.com/nv-tlabs/kimodo-viser.git",
-  "py-soma-x @ git+https://github.com/NVlabs/SOMA-X.git"
-]
-
-[project.scripts]
-kimodo_gen = "kimodo.scripts.generate:main"
-kimodo_demo = "kimodo.demo:main"
-kimodo_textencoder = "kimodo.scripts.run_text_encoder_server:main"
-kimodo_convert = "kimodo.scripts.motion_convert:main"
 
 [tool.setuptools]
 include-package-data = true

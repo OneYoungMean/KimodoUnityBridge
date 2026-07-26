@@ -232,16 +232,6 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUI.BeginChangeCheck();
-            bool floatingUiEnabled = EditorGUILayout.Toggle(
-                new GUIContent("Enable Floating UI", "Show the Kimodo floating prompt UI overlay on Timeline and Animator windows."),
-                settings.FloatingUiEnabled);
-            if (EditorGUI.EndChangeCheck())
-            {
-                settings.FloatingUiEnabled = floatingUiEnabled;
-                settings.SaveSettings();
-            }
-
-            EditorGUI.BeginChangeCheck();
             bool keepCpuForceExperimental = EditorGUILayout.Toggle(
                 new GUIContent(
                     "Force CPU",
