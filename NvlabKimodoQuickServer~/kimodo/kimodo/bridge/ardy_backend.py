@@ -14,6 +14,8 @@ import numpy as np
 
 
 MAX_KMB_BYTES = 256 * 1024**2
+TARGET_VELOCITY_PREDICTION_SECONDS = 2.0
+TARGET_VELOCITY_GOAL_FRAME_INTERVAL = 10
 
 
 def _install_bundled_ardy_path() -> Path:
@@ -51,6 +53,15 @@ class KmbMotion:
     @property
     def num_frames(self) -> int:
         return int(self.root_positions.shape[0])
+
+
+@dataclass(frozen=True)
+class Root2DTarget:
+    position: tuple[float, float]
+    max_speed: float
+    max_acceleration: float
+    arrival_threshold: float
+    include_heading: bool
 
 
 @dataclass(frozen=True)
@@ -265,6 +276,174 @@ def _normalize_root_heading(item: dict[str, Any]) -> None:
     ]
 
 
+def _parse_root_2d_target(item: dict[str, Any]) -> Root2DTarget:
+    position = item.get("target_root_2d")
+    if not isinstance(position, (list, tuple)) or len(position) != 2:
+        raise ArdyBackendError("root2d_target target_root_2d must contain exactly two coordinates.")
+
+    values = {
+        "max_speed": float(item.get("max_speed", 1.25)),
+        "max_acceleration": float(item.get("max_acceleration", 1.5)),
+        "arrival_threshold": float(item.get("arrival_threshold", 0.1)),
+    }
+    point = (float(position[0]), float(position[1]))
+    if not all(math.isfinite(value) for value in (*point, *values.values())):
+        raise ArdyBackendError("root2d_target values must be finite.")
+    if values["max_speed"] <= 0.0 or values["max_acceleration"] <= 0.0:
+        raise ArdyBackendError("root2d_target speed and acceleration must be positive.")
+    if values["arrival_threshold"] < 0.0:
+        raise ArdyBackendError("root2d_target arrival_threshold must be non-negative.")
+    include_heading = item.get("include_heading", True)
+    if not isinstance(include_heading, bool):
+        raise ArdyBackendError("root2d_target include_heading must be a boolean.")
+    return Root2DTarget(
+        position=point,
+        max_speed=values["max_speed"],
+        max_acceleration=values["max_acceleration"],
+        arrival_threshold=values["arrival_threshold"],
+        include_heading=include_heading,
+    )
+
+
+def _plan_root_2d_target(
+    target: Root2DTarget,
+    anchor_root_2d: tuple[float, float],
+    current_velocity_2d: tuple[float, float],
+    anchor_frame: int,
+    fps: float,
+) -> dict[str, Any] | None:
+    position = np.asarray(anchor_root_2d, dtype=np.float64)
+    goal = np.asarray(target.position, dtype=np.float64)
+    delta = goal - position
+    distance = float(np.linalg.norm(delta))
+    if distance <= target.arrival_threshold:
+        return None
+
+    direction = delta / distance
+    velocity = np.asarray(current_velocity_2d, dtype=np.float64)
+    speed = float(np.linalg.norm(velocity))
+    if speed > target.max_speed:
+        velocity *= target.max_speed / speed
+
+    prediction_frames = max(1, int(math.floor(TARGET_VELOCITY_PREDICTION_SECONDS * fps + 1e-6)))
+    dt = 1.0 / fps
+    frame_indices: list[int] = []
+    positions: list[list[float]] = []
+    headings: list[float] = []
+    for step in range(1, prediction_frames + 1):
+        remaining_delta = goal - position
+        remaining_distance = float(np.linalg.norm(remaining_delta))
+        if remaining_distance <= target.arrival_threshold:
+            position = goal.copy()
+            remaining_distance = 0.0
+        else:
+            direction = remaining_delta / remaining_distance
+            stopping_speed = math.sqrt(max(0.0, 2.0 * target.max_acceleration * remaining_distance))
+            desired_velocity = direction * min(target.max_speed, stopping_speed)
+            velocity_delta = desired_velocity - velocity
+            max_velocity_delta = target.max_acceleration * dt
+            velocity_delta_length = float(np.linalg.norm(velocity_delta))
+            if velocity_delta_length > max_velocity_delta:
+                velocity_delta *= max_velocity_delta / velocity_delta_length
+            velocity += velocity_delta
+            displacement = velocity * dt
+            if float(np.dot(displacement, direction)) >= remaining_distance:
+                position = goal.copy()
+                velocity[:] = 0.0
+            else:
+                position += displacement
+
+        if step % TARGET_VELOCITY_GOAL_FRAME_INTERVAL == 0 or step == prediction_frames:
+            frame_indices.append(anchor_frame + step)
+            positions.append([float(position[0]), float(position[1])])
+            if target.include_heading:
+                velocity_length = float(np.linalg.norm(velocity))
+                if velocity_length > 1e-8:
+                    heading_direction = velocity / velocity_length
+                else:
+                    heading_direction = direction
+                headings.append(math.atan2(float(heading_direction[0]), float(heading_direction[1])))
+
+    result: dict[str, Any] = {
+        "type": "root2d",
+        "frame_indices": frame_indices,
+        "smooth_root_2d": positions,
+    }
+    if target.include_heading:
+        result["global_root_heading"] = headings
+    return result
+
+
+def _expand_dense_root_constraint(
+    item: dict[str, Any],
+    anchor_frame: int,
+    anchor_root_2d: tuple[float, float] | None,
+) -> list[dict[str, Any]]:
+    dense_path = item.pop("dense_path", None)
+    if dense_path is None or dense_path is False:
+        return [item]
+    if dense_path is not True:
+        raise ArdyBackendError("root2d dense_path must be a boolean.")
+    if anchor_root_2d is None:
+        return [item]
+
+    root_key = "root_2d" if "root_2d" in item else "smooth_root_2d"
+    indices = item.get("frame_indices")
+    roots = item.get(root_key)
+    if not isinstance(indices, list) or not isinstance(roots, list) or len(indices) != len(roots):
+        raise ArdyBackendError("Dense root2d frame_indices and positions must have equal lengths.")
+
+    targets: dict[int, tuple[float, float]] = {}
+    for frame, root in zip(indices, roots):
+        if isinstance(frame, bool) or not isinstance(frame, int):
+            raise ArdyBackendError("Dense root2d frame indices must be integers.")
+        if not isinstance(root, (list, tuple)) or len(root) != 2:
+            raise ArdyBackendError("Dense root2d positions must contain two coordinates.")
+        point = (float(root[0]), float(root[1]))
+        if not all(math.isfinite(value) for value in point):
+            raise ArdyBackendError("Dense root2d positions must be finite.")
+        if frame > anchor_frame:
+            targets[frame] = point
+    if not targets:
+        return [item]
+
+    dense_indices: list[int] = []
+    dense_roots: list[list[float]] = []
+    previous_frame = anchor_frame
+    previous_root = (float(anchor_root_2d[0]), float(anchor_root_2d[1]))
+    for target_frame, target_root in sorted(targets.items()):
+        span = target_frame - previous_frame
+        for frame in range(previous_frame + 1, target_frame + 1):
+            alpha = (frame - previous_frame) / span
+            dense_indices.append(frame)
+            dense_roots.append(
+                [
+                    previous_root[0] + (target_root[0] - previous_root[0]) * alpha,
+                    previous_root[1] + (target_root[1] - previous_root[1]) * alpha,
+                ]
+            )
+        previous_frame = target_frame
+        previous_root = target_root
+
+    dense = {"type": "root2d", "frame_indices": dense_indices, root_key: dense_roots}
+    if "global_root_heading" not in item:
+        return [dense]
+    return [dense, item]
+
+
+def _history_limit_for_future(profile: Any, settings: ArdySettings, frame_count: int, furthest: int) -> int:
+    history_limit = int(settings.history_crop_frames)
+    horizon = int(profile.horizon_frames)
+    future_needed = furthest - (frame_count + horizon) + 1
+    if future_needed <= 0:
+        return history_limit
+    future_needed = min(int(settings.future_crop_frames), future_needed)
+    patch = int(profile.frames_per_token)
+    available = int(profile.max_context_frames) - horizon - future_needed
+    available = max(patch, available // patch * patch)
+    return min(history_limit, available)
+
+
 def _future_clip_mask(item: dict[str, Any], joint_count: int) -> list[bool]:
     values = item.get("mask")
     expected = 4 + max(0, joint_count - 1) * 3
@@ -319,6 +498,8 @@ class ArdySession:
         self.initial_history_cpu = None
         self.history_cpu = None
         self.constraints: list[Any] = []
+        self.constraint_items: list[dict[str, Any]] = []
+        self.root_2d_target: Root2DTarget | None = None
         self.future_clips: list[tuple[int, Any, list[bool]]] = []
         self._cpu_rng_state = torch.Generator(device="cpu").manual_seed(self.resolved_seed).get_state()
         self._cuda_rng_state = None
@@ -381,12 +562,19 @@ class ArdySession:
         initial: bool,
     ) -> None:
         import torch
-        from ardy.constraints import load_constraints_lst
 
         plain: list[dict[str, Any]] = []
+        root_2d_target = None
         history_tensors: list[Any] = []
         future_clips: list[tuple[int, Any, list[bool]]] = []
+        anchor_root_2d = None
+        if apply_from > 0 and self.outputs is not None and "root_positions" in self.outputs:
+            anchor = self.outputs["root_positions"][0, apply_from - 1]
+            anchor_root_2d = (float(anchor[0]), float(anchor[2]))
         for item in _parse_constraints(value):
+            if item.get("type") == "root2d_target":
+                root_2d_target = _parse_root_2d_target(item)
+                continue
             if item.get("type") != "clip":
                 copied = dict(item)
                 _normalize_root_heading(copied)
@@ -394,7 +582,7 @@ class ArdySession:
                 if not isinstance(indices, list):
                     raise ArdyBackendError("Constraint frame_indices must be an array.")
                 copied["frame_indices"] = [int(index) + apply_from for index in indices]
-                plain.append(copied)
+                plain.extend(_expand_dense_root_constraint(copied, apply_from - 1, anchor_root_2d))
                 continue
 
             motion = parse_kmb1(_clip_payload(item, attachments, self.quickserver_root))
@@ -415,7 +603,9 @@ class ArdySession:
                     (apply_from, tensor.detach().cpu(), _future_clip_mask(item, len(motion.joint_names)))
                 )
 
-        self.constraints = load_constraints_lst(plain, model.motion_rep.skeleton) if plain else []
+        self.constraint_items = plain
+        self.root_2d_target = root_2d_target
+        self._refresh_root_2d_target_constraints(model, apply_from)
         self.future_clips = future_clips
         if history_tensors:
             combined = torch.cat(history_tensors, dim=1)
@@ -424,6 +614,38 @@ class ArdySession:
             if keep <= 0:
                 raise ArdyBackendError("Explicit History must contain at least one complete motion token.")
             self.initial_history_cpu = combined[:, -keep:].detach().cpu()
+
+    def _root_state_at_boundary(self, boundary_frame: int) -> tuple[tuple[float, float], tuple[float, float]]:
+        fps = float(self.profile.source_fps)
+        if self.outputs is None or "root_positions" not in self.outputs or boundary_frame <= 0:
+            return (0.0, 0.0), (0.0, 0.0)
+        roots = self.outputs["root_positions"][0]
+        current_index = min(boundary_frame, int(roots.shape[0])) - 1
+        current = roots[current_index]
+        velocity = np.zeros(2, dtype=np.float64)
+        if current_index > 0:
+            previous = roots[current_index - 1]
+            velocity = (current[[0, 2]] - previous[[0, 2]]) * fps
+        return (float(current[0]), float(current[2])), (float(velocity[0]), float(velocity[1]))
+
+    def _refresh_root_2d_target_constraints(self, model: Any, boundary_frame: int) -> None:
+        from ardy.constraints import load_constraints_lst
+
+        plain = list(self.constraint_items)
+        if self.root_2d_target is not None:
+            root_2d, velocity_2d = self._root_state_at_boundary(boundary_frame)
+            target_constraint = _plan_root_2d_target(
+                self.root_2d_target,
+                root_2d,
+                velocity_2d,
+                boundary_frame - 1,
+                float(self.profile.source_fps),
+            )
+            if target_constraint is None:
+                self.root_2d_target = None
+            else:
+                plain.append(target_constraint)
+        self.constraints = load_constraints_lst(plain, model.motion_rep.skeleton) if plain else []
 
     def _apply_patch(
         self,
@@ -481,7 +703,7 @@ class ArdySession:
         keep -= keep % int(self.profile.frames_per_token)
         self.history_cpu = combined[:, -keep:].clone() if keep > 0 else None
 
-    def _history(self, model: Any):
+    def _history(self, model: Any, frame_limit: int | None = None):
         import torch
 
         pieces = [self.history_cpu] if self.history_cpu is not None else [
@@ -491,6 +713,8 @@ class ArdySession:
             return None, 0, 0
         combined = pieces[0] if len(pieces) == 1 else torch.cat(pieces, dim=1)
         keep = min(self.settings.history_crop_frames, int(combined.shape[1]))
+        if frame_limit is not None:
+            keep = min(keep, frame_limit)
         keep -= keep % int(self.profile.frames_per_token)
         if keep <= 0:
             return None, 0, self.frame_count
@@ -550,15 +774,16 @@ class ArdySession:
         from ardy.postprocess import post_process_motion
         from ardy.tools import to_numpy
 
-        history, history_len, window_start = self._history(model)
         horizon = int(self.profile.horizon_frames)
-        num_frames = history_len + horizon
         max_constraint = max(
             (int(constraint.frame_indices.max()) for constraint in self.constraints if len(constraint.frame_indices)),
             default=-1,
         )
         max_clip = max((start + int(source.shape[1]) - 1 for start, source, _ in self.future_clips), default=-1)
         furthest = max(max_constraint, max_clip)
+        history_limit = _history_limit_for_future(self.profile, self.settings, self.frame_count, furthest)
+        history, history_len, window_start = self._history(model, history_limit)
+        num_frames = history_len + horizon
         if furthest >= self.frame_count:
             num_frames = max(num_frames, furthest - window_start + 1)
             num_frames = min(num_frames, history_len + horizon + self.settings.future_crop_frames)
@@ -669,6 +894,11 @@ class ArdySession:
             return_start = played
         else:
             return_start = max(self.returned_until, played)
+        if self.root_2d_target is not None:
+            plan_from = return_start // patch * patch
+            if self.frame_count > plan_from:
+                self._truncate(plan_from)
+            self._refresh_root_2d_target_constraints(model, plan_from)
         target = played_exact + self.settings.generate_sync_frames + self.settings.replan_buffer_frames
         target = max(return_start, target // patch * patch)
         if updated:
@@ -695,6 +925,8 @@ class ArdySession:
         self.initial_history_cpu = None
         self.history_cpu = None
         self.constraints = []
+        self.constraint_items = []
+        self.root_2d_target = None
         self.future_clips = []
         self.text_feat = self.text_pad_mask = None
 

@@ -13,6 +13,9 @@ namespace KimodoBridge
         private SkeletonCache sourceCache;
         private string sourceCacheModelName;
         private Transform sourceRootJoint;
+        private Transform sourceHipsBone;
+        private Transform sourceLeftFootBone;
+        private Transform sourceRightFootBone;
         private Vector3 currentSegmentRootBaseline;
         private Vector3 lastCompletedWorldOffset;
         private KimodoRuntimeGeneratedSegment currentSegment;
@@ -26,7 +29,12 @@ namespace KimodoBridge
             public Animator Animator;
             public Avatar Avatar;
             public HumanPoseHandler PoseHandler;
+            public Transform HipsBone;
+            public Transform LeftUpperLegBone;
+            public Transform LeftLowerLegBone;
             public Transform LeftFootBone;
+            public Transform RightUpperLegBone;
+            public Transform RightLowerLegBone;
             public Transform RightFootBone;
             public Transform LeftFootIkTarget;
             public Transform RightFootIkTarget;
@@ -52,7 +60,12 @@ namespace KimodoBridge
                 }
 
                 PoseHandler = null;
+                HipsBone = null;
+                LeftUpperLegBone = null;
+                LeftLowerLegBone = null;
                 LeftFootBone = null;
+                RightUpperLegBone = null;
+                RightLowerLegBone = null;
                 RightFootBone = null;
                 LeftFootIkTarget = null;
                 RightFootIkTarget = null;
@@ -222,6 +235,32 @@ namespace KimodoBridge
 
                 startedSegment = next;
             }
+        }
+
+        public void ApplyLateRetargetCorrection()
+        {
+            if (!playing ||
+                targetState?.Animator == null ||
+                !targetState.Animator.applyRootMotion ||
+                sourceHipsBone == null ||
+                targetState.HipsBone == null)
+            {
+                return;
+            }
+
+            Vector3 hipsOffset = sourceHipsBone.position - targetState.HipsBone.position;
+            targetState.Animator.transform.position += new Vector3(hipsOffset.x, 0f, hipsOffset.z);
+
+            SolveTwoBoneLeg(
+                targetState.LeftUpperLegBone,
+                targetState.LeftLowerLegBone,
+                targetState.LeftFootBone,
+                sourceLeftFootBone);
+            SolveTwoBoneLeg(
+                targetState.RightUpperLegBone,
+                targetState.RightLowerLegBone,
+                targetState.RightFootBone,
+                sourceRightFootBone);
         }
 
         public void Stop()
@@ -443,6 +482,9 @@ namespace KimodoBridge
         private void DisposeSourceRetargetCache()
         {
             sourceBinding = null;
+            sourceHipsBone = null;
+            sourceLeftFootBone = null;
+            sourceRightFootBone = null;
             sourceCache?.Dispose();
             sourceCache = null;
             sourceCacheModelName = null;
@@ -521,6 +563,9 @@ namespace KimodoBridge
             sourceRootJoint = sourceBinding.joints != null && sourceBinding.joints.Length > 0
                 ? sourceBinding.joints[0]
                 : null;
+            sourceHipsBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.Hips);
+            sourceLeftFootBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            sourceRightFootBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.RightFoot);
 
             return true;
         }
@@ -683,7 +728,12 @@ namespace KimodoBridge
                 targetState.PoseHandler = new HumanPoseHandler(avatar, animator.transform);
             }
 
+            targetState.HipsBone = animator.GetBoneTransform(HumanBodyBones.Hips);
+            targetState.LeftUpperLegBone = animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg);
+            targetState.LeftLowerLegBone = animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg);
             targetState.LeftFootBone = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            targetState.RightUpperLegBone = animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
+            targetState.RightLowerLegBone = animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
             targetState.RightFootBone = animator.GetBoneTransform(HumanBodyBones.RightFoot);
             targetState.LeftFootIkTarget = driveFootIkTargets
                 ? FindChildByNameRecursive(animator.transform, leftFootIkTargetName)
@@ -807,6 +857,81 @@ namespace KimodoBridge
             ikTarget.SetPositionAndRotation(
                 targetBaselinePosition + deltaPosition,
                 deltaRotation * targetBaselineRotation);
+        }
+
+        private static void SolveTwoBoneLeg(
+            Transform upperLeg,
+            Transform lowerLeg,
+            Transform foot,
+            Transform sourceFoot)
+        {
+            if (upperLeg == null || lowerLeg == null || foot == null || sourceFoot == null)
+            {
+                return;
+            }
+
+            Vector3 upperPosition = upperLeg.position;
+            Vector3 upperToLower = lowerLeg.position - upperPosition;
+            Vector3 lowerToFoot = foot.position - lowerLeg.position;
+            float upperLength = upperToLower.magnitude;
+            float lowerLength = lowerToFoot.magnitude;
+            if (upperLength <= 1e-5f || lowerLength <= 1e-5f)
+            {
+                return;
+            }
+
+            Vector3 upperToTarget = sourceFoot.position - upperPosition;
+            float targetDistance = upperToTarget.magnitude;
+            Vector3 targetDirection = targetDistance > 1e-5f
+                ? upperToTarget / targetDistance
+                : (foot.position - upperPosition).normalized;
+            if (targetDirection.sqrMagnitude <= 1e-8f)
+            {
+                return;
+            }
+
+            float minimumReach = Mathf.Abs(upperLength - lowerLength) + 1e-4f;
+            float maximumReach = upperLength + lowerLength - 1e-4f;
+            if (maximumReach <= minimumReach)
+            {
+                return;
+            }
+
+            float reachableDistance = Mathf.Clamp(targetDistance, minimumReach, maximumReach);
+            Vector3 reachableTarget = upperPosition + targetDirection * reachableDistance;
+            Vector3 bendDirection = Vector3.ProjectOnPlane(upperToLower, targetDirection);
+            if (bendDirection.sqrMagnitude <= 1e-8f)
+            {
+                bendDirection = Vector3.ProjectOnPlane(upperLeg.forward, targetDirection);
+            }
+            if (bendDirection.sqrMagnitude <= 1e-8f)
+            {
+                bendDirection = Vector3.ProjectOnPlane(upperLeg.right, targetDirection);
+            }
+            if (bendDirection.sqrMagnitude <= 1e-8f)
+            {
+                return;
+            }
+            bendDirection.Normalize();
+
+            float alongTarget =
+                (upperLength * upperLength + reachableDistance * reachableDistance - lowerLength * lowerLength) /
+                (2f * reachableDistance);
+            float awayFromTarget = Mathf.Sqrt(Mathf.Max(0f, upperLength * upperLength - alongTarget * alongTarget));
+            Vector3 desiredLowerPosition =
+                upperPosition + targetDirection * alongTarget + bendDirection * awayFromTarget;
+            Quaternion footWorldRotation = foot.rotation;
+
+            upperLeg.rotation =
+                Quaternion.FromToRotation(upperToLower, desiredLowerPosition - upperPosition) * upperLeg.rotation;
+            Vector3 adjustedLowerToFoot = foot.position - lowerLeg.position;
+            Vector3 adjustedLowerToTarget = reachableTarget - lowerLeg.position;
+            if (adjustedLowerToFoot.sqrMagnitude > 1e-8f && adjustedLowerToTarget.sqrMagnitude > 1e-8f)
+            {
+                lowerLeg.rotation =
+                    Quaternion.FromToRotation(adjustedLowerToFoot, adjustedLowerToTarget) * lowerLeg.rotation;
+            }
+            foot.rotation = footWorldRotation;
         }
 
         private static Transform FindChildByNameRecursive(Transform root, string childName)

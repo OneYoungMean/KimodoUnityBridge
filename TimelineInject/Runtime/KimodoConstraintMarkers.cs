@@ -27,6 +27,12 @@ namespace TimelineInject
         public List<float[][]> local_joints_rot;
         public List<float[]> root_positions;
         public List<string> joint_names;
+        public bool? dense_path;
+        public float[] target_root_2d;
+        public float? max_speed;
+        public float? max_acceleration;
+        public float? arrival_threshold;
+        public bool? include_heading;
     }
 
     public enum KimodoConstraintRigType
@@ -47,6 +53,10 @@ namespace TimelineInject
         public bool hasRootHeading = true;
         public Vector3 kimodoRootPosition;
         public Vector2 rootHeading = Vector2.right;
+        public float rootTargetMaxSpeed = 1.25f;
+        public float rootTargetMaxAcceleration = 1.5f;
+        public float rootTargetArrivalThreshold = 0.1f;
+        public bool rootTargetIncludeHeading = true;
         public Vector3 unityRootPos;
         public Quaternion unityRootRot = Quaternion.identity;
         public List<string> jointNames = new List<string>();
@@ -63,6 +73,10 @@ namespace TimelineInject
                 hasRootHeading = hasRootHeading,
                 kimodoRootPosition = kimodoRootPosition,
                 rootHeading = rootHeading,
+                rootTargetMaxSpeed = rootTargetMaxSpeed,
+                rootTargetMaxAcceleration = rootTargetMaxAcceleration,
+                rootTargetArrivalThreshold = rootTargetArrivalThreshold,
+                rootTargetIncludeHeading = rootTargetIncludeHeading,
                 unityRootPos = unityRootPos,
                 unityRootRot = unityRootRot,
                 jointNames = jointNames != null ? new List<string>(jointNames) : new List<string>(),

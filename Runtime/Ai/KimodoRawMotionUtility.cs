@@ -52,13 +52,22 @@ namespace KimodoBridge
         internal bool TryAppend(KimodoRawMotionData segment, int expectedStartFrame, out string error)
         {
             error = string.Empty;
-            if (segment == null || expectedStartFrame != FrameCount ||
-                segment.JointCount != JointCount ||
+            if (segment == null)
+            {
+                error = "ARDY KMB segment is empty.";
+                return false;
+            }
+            if (expectedStartFrame != FrameCount)
+            {
+                error = $"ARDY KMB segment is not contiguous: response starts at frame {expectedStartFrame}, local timeline has {FrameCount} frames, segment has {segment.FrameCount} frames.";
+                return false;
+            }
+            if (segment.JointCount != JointCount ||
                 Mathf.Abs(segment.FrameRate - FrameRate) > 1e-4f ||
                 segment.jointNames.Length != jointNames.Length ||
                 segment.jointParents.Length != jointParents.Length)
             {
-                error = "ARDY KMB segment is not contiguous or has incompatible FPS/rig metadata.";
+                error = $"ARDY KMB segment metadata changed: local FPS/joints={FrameRate}/{JointCount}, segment FPS/joints={segment.FrameRate}/{segment.JointCount}.";
                 return false;
             }
             for (int index = 0; index < jointNames.Length; index++)

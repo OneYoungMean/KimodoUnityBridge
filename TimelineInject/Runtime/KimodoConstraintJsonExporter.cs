@@ -13,7 +13,8 @@ namespace TimelineInject
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double clipStartSeconds = 0.0,
             double? clipDurationSeconds = null,
-            double exportFps = DefaultExportFps)
+            double exportFps = DefaultExportFps,
+            bool denseRootPath = false)
         {
             List<KimodoConstraintJson> constraints = BuildConstraints(
                 samples,
@@ -21,6 +22,16 @@ namespace TimelineInject
                 clipStartSeconds: clipStartSeconds,
                 clipDurationSeconds: clipDurationSeconds,
                 exportFps: exportFps);
+            if (denseRootPath)
+            {
+                for (int i = 0; i < constraints.Count; i++)
+                {
+                    if (string.Equals(constraints[i].type, "root2d", StringComparison.OrdinalIgnoreCase))
+                    {
+                        constraints[i].dense_path = true;
+                    }
+                }
+            }
             if (constraints.Count == 0)
             {
                 return string.Empty;
@@ -89,6 +100,11 @@ namespace TimelineInject
                 return BuildRoot2D(sample, clipStartSeconds, clipDurationSeconds, exportFps);
             }
 
+            if (string.Equals(type, "root2d_target", StringComparison.OrdinalIgnoreCase))
+            {
+                return BuildRoot2DTarget(sample);
+            }
+
             if (string.Equals(type, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
                 return BuildFullBody(sample, clipStartSeconds, clipDurationSeconds, exportFps);
@@ -133,6 +149,20 @@ namespace TimelineInject
             }
 
             return json;
+        }
+
+        private static KimodoConstraintJson BuildRoot2DTarget(KimodoMarkerSampleResult sample)
+        {
+            return new KimodoConstraintJson
+            {
+                type = "root2d_target",
+                frame_indices = null,
+                target_root_2d = new[] { -sample.kimodoRootPosition.x, sample.kimodoRootPosition.z },
+                max_speed = Mathf.Max(0.01f, sample.rootTargetMaxSpeed),
+                max_acceleration = Mathf.Max(0.01f, sample.rootTargetMaxAcceleration),
+                arrival_threshold = Mathf.Max(0f, sample.rootTargetArrivalThreshold),
+                include_heading = sample.rootTargetIncludeHeading
+            };
         }
 
         private static KimodoConstraintJson BuildFullBody(
@@ -308,6 +338,11 @@ namespace TimelineInject
 
         private static KimodoConstraintJson BuildMergedConstraint(string type, List<KimodoConstraintJson> group)
         {
+            if (string.Equals(type, "root2d_target", StringComparison.OrdinalIgnoreCase))
+            {
+                return group[group.Count - 1];
+            }
+
             var merged = new KimodoConstraintJson
             {
                 type = type,

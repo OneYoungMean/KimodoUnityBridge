@@ -187,6 +187,8 @@ namespace KimodoBridge
                 EmitDebugLog(
                     $"[KimodoBridge] Generate response: status='{status}', format='{outputFormat}', hasJson={!string.IsNullOrWhiteSpace(motionJson)}, " +
                     $"hasBinary={(response?.BinaryPayload != null && response.BinaryPayload.Length > 0)}, message='{responseMessage}', " +
+                    $"frames=[{header?.Value<int?>("start_frame") ?? 0},{header?.Value<int?>("end_frame_exclusive") ?? 0}), " +
+                    $"applyFrom={header?.Value<int?>("apply_from_frame") ?? 0}, " +
                     $"text_encoder='{resolvedEncoderMode}/{resolvedEncoderRoute}/{resolvedEncoderDevice}'");
 
                 if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
