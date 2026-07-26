@@ -79,7 +79,9 @@ TCP 协议补充：
 
 `generate` 使用 `output_format=kmb_v1`。ARDY 成功响应是一行带 `byte_length` 的 JSON，后面立即跟随非空 KMB1 区间；返回后的可播放长度一定超过当前 Playback Reserve。
 
-ARDY 客户端每次 Generate 都发送 Session 相对的 `time_as_double`。QuickServer 根据当前模型 FPS 转帧，只在 GPU 保留 profile 对应的 history，并在 CPU 缓存时间线以支持 seek。`ardy_playback_reserve_seconds` 默认 1 秒；`ardy_adaptive_playback_reserve` 默认开启，根据后端实测响应耗时调整实际储备。缺省 `prompt` 或 `constraints_json` 表示保持；`[]` 表示清空完整 constraint 快照。更新 prompt/constraint 时保留到 `time_as_double + Playback Reserve`，再重新生成并返回受影响的绝对 KMB 区间。
+ARDY Generate 携带正数 `duration` 时采用固定长度语义：创建新的逻辑生成，可通过 clip constraint 初始化显式 History，后端按需执行多个 Horizon，返回精确长度的一份 KMB 后释放该逻辑时间线。ARDY Generate 缺省 `duration` 时采用流式语义：客户端发送 Session 相对的 `time_as_double`，QuickServer 保留该 Session 的 RNG、history 与时间线，后续 Generate 持续更新，直到 `session.close`。`duration: 0` 非法，不作为流式别名。
+
+在 ARDY 流式模式下，QuickServer 根据当前模型 FPS 转帧，只在 GPU 保留 profile 对应的 history，并在 CPU 缓存时间线以支持 seek。`ardy_playback_reserve_seconds` 默认 1 秒；`ardy_adaptive_playback_reserve` 默认开启，根据后端实测响应耗时调整实际储备。缺省 `prompt` 或 `constraints_json` 表示保持；`[]` 表示清空完整 constraint 快照。更新 prompt/constraint 时保留到 `time_as_double + Playback Reserve`，再重新生成并返回受影响的绝对 KMB 区间。
 
 `time_as_double` 减小视为 seek。普通响应从上次已交付尾部追加；seek 和重规划响应可能与旧帧重叠，客户端必须从 `start_frame` 替换时间线。
 

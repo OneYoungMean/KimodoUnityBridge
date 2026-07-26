@@ -7,6 +7,7 @@ namespace KimodoBridge.Editor
     internal sealed class KimodoRuntimeMotionDriverEditor : UnityEditor.Editor
     {
         private SerializedProperty targetAnimator;
+        private SerializedProperty modelsRoot;
         private SerializedProperty modelName;
         private SerializedProperty textEncoderMode;
         private SerializedProperty forceCpu;
@@ -30,6 +31,7 @@ namespace KimodoBridge.Editor
         private void OnEnable()
         {
             targetAnimator = serializedObject.FindProperty("targetHumanoidAnimator");
+            modelsRoot = serializedObject.FindProperty("modelsRoot");
             modelName = serializedObject.FindProperty("modelName");
             textEncoderMode = serializedObject.FindProperty("textEncoderMode");
             forceCpu = serializedObject.FindProperty("forceCpu");
@@ -72,20 +74,21 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.LabelField("Generate Motion", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
-            bool isArdy;
-            using (new EditorGUI.DisabledScope(Application.isPlaying))
-            {
-                EditorGUILayout.PropertyField(targetAnimator, new GUIContent("Target Animator"));
-                isArdy = KimodoGenerationInspectorGui.DrawModelSelector(modelName, diffusionSteps, textEncoderMode);
-                KimodoGenerationInspectorGui.DrawTextEncoderMode(textEncoderMode, isArdy);
-                KimodoGenerationInspectorGui.DrawResolvedTextEncoderStatus();
-                EditorGUILayout.PropertyField(
-                    forceCpu,
-                    new GUIContent("Force CPU", "Send simulate_free_vram_gb=0 so Kimodo and the text encoder both run on CPU."));
-            }
+            EditorGUILayout.PropertyField(targetAnimator, new GUIContent("Target Animator"));
+            bool isArdy = KimodoGenerationInspectorGui.DrawModelSelector(modelName, diffusionSteps, textEncoderMode);
+            EditorGUILayout.PropertyField(
+                modelsRoot,
+                new GUIContent("Models Root", "Optional model asset root. Empty uses the server default."));
+            KimodoGenerationInspectorGui.DrawTextEncoderMode(textEncoderMode, isArdy);
+            KimodoGenerationInspectorGui.DrawResolvedTextEncoderStatus();
+            EditorGUILayout.PropertyField(
+                forceCpu,
+                new GUIContent("Force CPU", "Send simulate_free_vram_gb=0 so Kimodo and the text encoder both run on CPU."));
             if (Application.isPlaying)
             {
-                EditorGUILayout.LabelField("Target, model, and text encoder mode are applied when entering Play Mode.", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField(
+                    "Target or runtime changes restart this driver's generation session when applied.",
+                    EditorStyles.miniLabel);
             }
             KimodoGenerationInspectorGui.DrawPrompt(prompt);
             if (!isArdy)
@@ -144,7 +147,7 @@ namespace KimodoBridge.Editor
 
             using (new EditorGUI.DisabledScope(!Application.isPlaying))
             {
-                if (GUILayout.Button(new GUIContent("Apply", "Apply these settings to the next generation."), GUILayout.Height(30f)))
+                if (GUILayout.Button(new GUIContent("Apply", "Apply settings now; restart this session when required."), GUILayout.Height(30f)))
                 {
                     serializedObject.ApplyModifiedProperties();
                     driver.ApplyGenerationSettings();

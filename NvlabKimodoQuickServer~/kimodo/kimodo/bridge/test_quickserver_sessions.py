@@ -31,6 +31,148 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             "removed_format",
         )
 
+    def test_runtime_loading_progress_uses_stage_details_without_task_ids(self):
+        self.assertEqual(
+            quickserver_cli._build_streaming_status_message(
+                "loading_runtime", -1, "private-task-id", "Task 'private-task-id' waiting in queue."
+            ),
+            ("loading", "Preparing motion runtime..."),
+        )
+        self.assertEqual(
+            quickserver_cli._build_streaming_status_message(
+                "loading_runtime", -1, "private-task-id", "[INFO] Preparing runtime: model=ARDY-Core"
+            ),
+            ("loading", "[INFO] Preparing runtime: model=ARDY-Core"),
+        )
+        self.assertEqual(
+            quickserver_cli._build_streaming_status_message(
+                "generating", -1, "private-task-id", "Loading TextEncoder weights..."
+            ),
+            ("progress", "Loading TextEncoder weights..."),
+        )
+
+    def test_cold_text_encoder_reports_loading_and_generation_stages(self):
+        session = object.__new__(ardy_backend.ArdySession)
+        session.prompt = "walk forward"
+        messages = []
+        model = SimpleNamespace(
+            text_encoder=SimpleNamespace(model=None),
+            _encode_text=lambda _prompts: ("text", "mask"),
+        )
+
+        session._encode_prompt(model, messages.append)
+
+        self.assertEqual(session.text_feat, "text")
+        self.assertEqual(session.text_pad_mask, "mask")
+        self.assertEqual(
+            messages,
+            [
+                "Loading TextEncoder weights and moving them to the accelerator...",
+                "TextEncoder ready. Generating ARDY motion...",
+            ],
+        )
+
+    def test_shared_text_encoder_signature_uses_mode_not_models_directory_or_placement(self):
+        base = {
+            "text_encoder_mode": "high_precision",
+            "models_root": "C:/runtime/models",
+            "simulate_free_vram_gb": None,
+        }
+        editor = {
+            **base,
+            "models_root": "D:/editor/models",
+            "simulate_free_vram_gb": 0.0,
+            "_force_text_encoder_cpu": True,
+        }
+        high_performance = {**base, "text_encoder_mode": "high_performance"}
+
+        self.assertEqual(
+            quickserver_cli._build_text_encoder_signature(base),
+            quickserver_cli._build_text_encoder_signature(editor),
+        )
+        self.assertNotEqual(
+            quickserver_cli._build_text_encoder_signature(base),
+            quickserver_cli._build_text_encoder_signature(high_performance),
+        )
+
+    def test_clearing_shared_text_encoder_detaches_every_runtime_reference(self):
+        encoder = object()
+        active_model = SimpleNamespace(text_encoder=encoder)
+        session_model = SimpleNamespace(text_encoder=encoder)
+        retired_model = SimpleNamespace(text_encoder=encoder)
+        state = {
+            "active_runtime": {"model": active_model},
+            "sessions": {"runtime": {"ardy_runtime": {"model": session_model}}},
+            "retired_runtimes": [{"model": retired_model}],
+            "shared_text_encoder": encoder,
+            "shared_text_encoder_signature": "text_encoder_mode=high_precision",
+            "shared_text_encoder_decision": object(),
+            "shared_text_encoder_models_root": "C:/runtime/models",
+            "active_text_encoder_signature": "text_encoder_mode=high_precision",
+        }
+
+        self.assertIs(quickserver_cli._clear_shared_text_encoder_state(state), encoder)
+        self.assertIsNone(active_model.text_encoder)
+        self.assertIsNone(session_model.text_encoder)
+        self.assertIsNone(retired_model.text_encoder)
+        self.assertIsNone(state["shared_text_encoder"])
+        self.assertEqual(state["shared_text_encoder_signature"], "")
+
+    def test_missing_encoder_is_rebuilt_without_reloading_the_motion_runtime(self):
+        config = {
+            "model": "ARDY-Core-RP-20FPS-Horizon40",
+            "text_encoder_mode": "high_precision",
+            "models_root": "D:/editor/models",
+            "force_hf_download": False,
+            "simulate_free_vram_gb": None,
+        }
+        model = SimpleNamespace(text_encoder=None)
+        runtime = {
+            "model": model,
+            "runtime_signature": quickserver_cli._build_signature(config),
+            "resolved_model_name": config["model"],
+            "runtime_device": "cpu",
+            "fps": 20,
+        }
+        profile = SimpleNamespace(
+            runtime_device="cpu",
+            free_vram_gb=64.0,
+            nf4_available=False,
+            int8_accelerator_available=False,
+            fp16_accelerator_available=False,
+            backend_profile="cpu",
+        )
+        decision = quickserver_cli.assets.resolve_text_encoder_runtime(
+            config["text_encoder_mode"],
+            "cpu",
+            62.0,
+            nf4_available=False,
+            int8_accelerator_available=False,
+            fp16_accelerator_available=False,
+        )
+
+        def attach_encoder(target, *_args):
+            target.text_encoder = object()
+
+        with (
+            patch.object(quickserver_cli.bridge_runtime_helpers, "_runtime_self_check", return_value=profile),
+            patch.object(quickserver_cli.assets, "motion_model_min_free_vram_gb", return_value=2.0),
+            patch.object(quickserver_cli.assets, "resolve_text_encoder_runtime", return_value=decision),
+            patch.object(quickserver_cli, "_replace_text_encoder", side_effect=attach_encoder) as replace_encoder,
+            patch.object(quickserver_cli, "_unload_runtime_model") as unload_runtime,
+        ):
+            result = quickserver_cli._ensure_runtime(
+                runtime,
+                config,
+                "C:/quickserver",
+                SimpleNamespace(log=lambda _message: None),
+            )
+
+        self.assertTrue(result["reused"])
+        self.assertIsNotNone(model.text_encoder)
+        replace_encoder.assert_called_once()
+        unload_runtime.assert_not_called()
+
     def test_attachment_manifest_splits_concatenated_kmb_blobs(self):
         request = {
             "attachment_byte_length": 5,
@@ -297,16 +439,67 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
     def test_editor_one_shot_duration_is_independent_from_stream_reserve(self):
         session = self._fake_ardy_session()
-        session.settings = ardy_backend.ArdySettings(160, 160, 0, False)
-        session.effective_playback_reserve_frames = 0
+        session.settings = ardy_backend.ArdySettings(160, 160, 20, False)
+        session.effective_playback_reserve_frames = 20
         session._initial_duration_frames = 60
 
         metadata, output = session.generate(
             {"time_as_double": 0.0}, (), SimpleNamespace(), threading.Event()
         )
 
-        self.assertEqual((metadata["start_frame"], metadata["end_frame_exclusive"]), (0, 80))
-        self.assertEqual(output["root_positions"].shape[1], 80)
+        self.assertEqual((metadata["start_frame"], metadata["end_frame_exclusive"]), (0, 60))
+        self.assertEqual(output["root_positions"].shape[1], 60)
+
+    def test_fixed_duration_replaces_stream_state_and_closes_after_result(self):
+        events = []
+
+        class FakeSession:
+            resolved_seed = 7
+            effective_playback_reserve_frames = 0
+            settings = SimpleNamespace(adaptive_playback_reserve=False)
+
+            def generate(self, request, _attachments, _model, _cancel_event):
+                events.append(("generate", dict(request)))
+                return {"start_frame": 0, "end_frame_exclusive": 20}, None
+
+            def record_response_duration(self, _elapsed, delivered_frames):
+                events.append(("record", delivered_frames))
+
+            def close(self):
+                events.append(("close", self))
+
+        previous = FakeSession()
+        fixed = FakeSession()
+        profile = SimpleNamespace(source_fps=20.0, motion_rep_fingerprint="test")
+        with patch.object(ardy_backend, "ArdySession", return_value=fixed):
+            returned, response, payload = ardy_backend.execute_stream_generate(
+                previous,
+                {"duration": 1.0, "prompt": "walk"},
+                (),
+                SimpleNamespace(),
+                profile,
+                threading.Event(),
+                ".",
+            )
+
+        self.assertIsNone(returned)
+        self.assertEqual((response["start_frame"], response["end_frame_exclusive"]), (0, 20))
+        self.assertIsNone(payload)
+        self.assertIn(("close", previous), events)
+        self.assertIn(("close", fixed), events)
+
+    def test_fixed_duration_rejects_zero_without_closing_the_stream(self):
+        stream = SimpleNamespace(close=lambda: self.fail("invalid duration closed the stream"))
+        with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "finite positive"):
+            ardy_backend.execute_stream_generate(
+                stream,
+                {"duration": 0.0},
+                (),
+                SimpleNamespace(),
+                SimpleNamespace(),
+                threading.Event(),
+                ".",
+            )
 
     def test_adaptive_playback_reserve_uses_measured_response_time(self):
         session = self._fake_ardy_session()

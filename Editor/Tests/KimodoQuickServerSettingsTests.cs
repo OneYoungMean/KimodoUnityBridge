@@ -32,5 +32,33 @@ namespace KimodoBridge.Editor.Tests
                 Directory.Delete(directory, recursive: true);
             }
         }
+
+        [Test]
+        public void EmptyDirectoriesDisplayDefaultServerAndModelsPaths()
+        {
+            string previousQuickServerPath = KimodoPlayableClipGenerationSettings.instance.QuickServerPath;
+            string previousModelsPath = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath;
+            string previousOverride = KimodoServerRuntimeUtil.RuntimeRootOverrideForTests;
+            try
+            {
+                KimodoServerRuntimeUtil.RuntimeRootOverrideForTests = null;
+                KimodoPlayableClipGenerationSettings.instance.QuickServerPath = string.Empty;
+                KimodoPlayableClipGenerationSettings.instance.LocalModelsPath = string.Empty;
+
+                string runtimeRoot = KimodoServerRuntimeUtil.GetRuntimeRootPath();
+                Assert.That(
+                    Path.GetFileName(runtimeRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                    Is.EqualTo("NvlabKimodoQuickServer~"));
+                Assert.That(
+                    KimodoServerManagerSettingsProvider.ResolveDisplayedModelsPath(string.Empty, runtimeRoot),
+                    Is.EqualTo(Path.Combine(runtimeRoot, "models")));
+            }
+            finally
+            {
+                KimodoPlayableClipGenerationSettings.instance.QuickServerPath = previousQuickServerPath;
+                KimodoPlayableClipGenerationSettings.instance.LocalModelsPath = previousModelsPath;
+                KimodoServerRuntimeUtil.RuntimeRootOverrideForTests = previousOverride;
+            }
+        }
     }
 }

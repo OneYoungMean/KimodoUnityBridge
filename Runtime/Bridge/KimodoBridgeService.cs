@@ -157,7 +157,8 @@ namespace KimodoBridge
                 EmitDebugLog(
                     $"[KimodoBridge] Generate request: host={currentHost}:{currentPort}, " +
                     $"taskId='{request.task_id}', " +
-                    $"promptLen={(request.prompt ?? string.Empty).Length}, duration={request.duration:F3}, " +
+                    $"promptLen={(request.prompt ?? string.Empty).Length}, " +
+                    $"duration={(request.duration.HasValue ? request.duration.Value.ToString("F3") : "<stream>")}, " +
                     $"steps={request.steps}, seed={(request.seed.HasValue ? request.seed.Value.ToString() : "null")}, " +
                     $"model='{request.model ?? string.Empty}', text_encoder_mode='{request.text_encoder_mode ?? string.Empty}', " +
                     $"simulate_free_vram_gb={(request.simulate_free_vram_gb.HasValue ? request.simulate_free_vram_gb.Value.ToString() : "auto")}, " +

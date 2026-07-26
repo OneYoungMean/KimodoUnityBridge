@@ -164,7 +164,15 @@ namespace KimodoBridge
                 payload["output_format"] = string.IsNullOrWhiteSpace(request.output_format)
                     ? "kmb_v1"
                     : request.output_format.Trim();
-                payload["duration"] = request.duration;
+                if (request.duration.HasValue)
+                {
+                    float duration = request.duration.Value;
+                    if (float.IsNaN(duration) || float.IsInfinity(duration) || duration <= 0f)
+                    {
+                        throw new InvalidOperationException("duration must be a finite positive number when provided.");
+                    }
+                    payload["duration"] = duration;
+                }
                 payload["diffusion_steps"] = request.steps;
                 payload["text_weight"] = Math.Min(4f, Math.Max(0f, request.text_weight));
                 payload["seed"] = request.seed.HasValue ? request.seed.Value : null;

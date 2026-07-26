@@ -8,7 +8,7 @@ namespace KimodoBridge
     {
         public string task_id;
         public string prompt;
-        public float duration;
+        public float? duration;
         public double time_as_double;
         public int? seed;
         public int steps;

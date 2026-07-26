@@ -124,6 +124,30 @@ namespace KimodoBridge.Editor.Tests
                 Is.EqualTo(expected));
         }
 
+        [TestCase(false, false, false, false, false, false)]
+        [TestCase(true, false, false, false, false, true)]
+        [TestCase(false, true, false, false, false, true)]
+        [TestCase(false, false, false, true, true, false)]
+        [TestCase(false, false, true, true, false, true)]
+        [TestCase(false, false, true, false, true, true)]
+        public void RuntimeSettings_RestartOnlyForTargetRuntimeSignatureOrArdySeed(
+            bool targetChanged,
+            bool runtimeSignatureChanged,
+            bool isArdy,
+            bool randomSeedModeChanged,
+            bool deterministicSeedChanged,
+            bool expected)
+        {
+            Assert.That(
+                KimodoRuntimeMotionDriver.RequiresNewGenerationSession(
+                    targetChanged,
+                    runtimeSignatureChanged,
+                    isArdy,
+                    randomSeedModeChanged,
+                    deterministicSeedChanged),
+                Is.EqualTo(expected));
+        }
+
         [Test]
         public void RawMotionAppend_GrowsOneContinuousTimeline()
         {

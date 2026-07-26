@@ -98,6 +98,14 @@ namespace KimodoBridge
         private float ardyEffectivePlaybackReserveSeconds = 1f;
         private KimodoRuntimeMotionPlayer motionPlayer;
         private bool generationBlocked;
+        private bool appliedRuntimeSettingsInitialized;
+        private Animator appliedTargetHumanoidAnimator;
+        private string appliedModelsRoot = string.Empty;
+        private string appliedModelName = string.Empty;
+        private KimodoTextEncoderMode appliedTextEncoderMode;
+        private bool appliedForceCpu;
+        private bool appliedRandomSeed;
+        private int appliedFixedSeed;
 
         public string StatusMessage => statusMessage;
         public bool IsRunning => running;
@@ -131,6 +139,7 @@ namespace KimodoBridge
             motionPlayer = new KimodoRuntimeMotionPlayer();
             promptDraft = ResolveInitialPrompt();
             SyncGenerationDurationFromCurrentSettings();
+            CaptureAppliedRuntimeSettings();
         }
 
         private void OnEnable()
@@ -246,6 +255,11 @@ namespace KimodoBridge
 
         public void ApplyGenerationSettings()
         {
+            _ = ApplyGenerationSettingsAsync();
+        }
+
+        private async Task ApplyGenerationSettingsAsync()
+        {
             EnsurePromptDraftInitialized();
             promptDraft = string.IsNullOrWhiteSpace(defaultPrompt) ? IdlePrompt : defaultPrompt.Trim();
             if (!KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
@@ -257,7 +271,19 @@ namespace KimodoBridge
                 ardyPromptDirty = true;
                 ardySettingsDirty = true;
             }
-            _ = RefreshUpcomingGenerationAsync(
+
+            if (RequiresRuntimeSessionRestart() &&
+                running &&
+                lifetimeCts != null &&
+                !lifetimeCts.IsCancellationRequested)
+            {
+                UpdateStatus("Runtime settings changed. Restarting generation session.");
+                await ResetMotionAsync();
+                return;
+            }
+
+            CaptureAppliedRuntimeSettings();
+            await RefreshUpcomingGenerationAsync(
                 "Generation settings applied.",
                 "Generation settings applied. Waiting for current generation to finish.",
                 "Generation settings applied. Generating fresh segment.");
@@ -379,12 +405,14 @@ namespace KimodoBridge
             stagedConstraintSamples.Clear();
             pendingConstraintSamples.Clear();
             ClearNextConstraintPoses();
+            segmentIndex = 0;
             generationRequestVersion++;
             lastGenerationWaitStatusSegment = -1;
-            generationBlocked = false;
+            generationBlocked = true;
 
             if (!running || lifetimeCts == null || lifetimeCts.IsCancellationRequested)
             {
+                generationBlocked = false;
                 UpdateStatus("Prompt reset.");
                 return;
             }
@@ -406,6 +434,8 @@ namespace KimodoBridge
             }
             bridgeService = KimodoBridgeService.CreateOwned();
             ResetArdySessionState();
+            CaptureAppliedRuntimeSettings();
+            generationBlocked = false;
             UpdateStatus("Prompt reset. Generating fresh segment.");
             await GenerateNextSegmentAsync(lifetimeCts.Token);
         }
@@ -447,6 +477,7 @@ namespace KimodoBridge
                 motionPlayer.ResetCompletionState();
                 motionPlayer.ClearQueue();
                 ResetArdySessionState();
+                CaptureAppliedRuntimeSettings();
 
                 running = true;
                 schedulerTask = RunSchedulerLoopAsync(lifetimeCts.Token);
@@ -644,7 +675,7 @@ namespace KimodoBridge
                 {
                     ardy_session_update_only = isArdy && ardySessionStarted && !sendSettings,
                     prompt = sendPrompt ? prompt : null,
-                    duration = isArdy ? 0f : ResolveGenerationDurationSeconds(),
+                    duration = isArdy ? (float?)null : ResolveGenerationDurationSeconds(),
                     seed = resolvedRequestSeed,
                     steps = Mathf.Clamp(diffusionSteps, 1, isArdy ? ardyProfile.MaxDiffusionSteps : 1000),
                     text_weight = Mathf.Clamp(textWeight, 0f, 4f),
@@ -879,7 +910,8 @@ namespace KimodoBridge
 
                 generationCts?.Dispose();
                 generationInFlight = false;
-                if (running && ardyRefreshPending && lifetimeCts != null && !lifetimeCts.IsCancellationRequested)
+                if (running && !generationBlocked && ardyRefreshPending &&
+                    lifetimeCts != null && !lifetimeCts.IsCancellationRequested)
                 {
                     _ = GenerateNextSegmentAsync(lifetimeCts.Token);
                 }
@@ -1049,6 +1081,53 @@ namespace KimodoBridge
             ardySettingsDirty = true;
             ardyRefreshPending = false;
             ardyEffectivePlaybackReserveSeconds = Mathf.Max(0.2f, ardyPlaybackReserveSeconds);
+        }
+
+        private bool RequiresRuntimeSessionRestart()
+        {
+            if (!appliedRuntimeSettingsInitialized)
+            {
+                return false;
+            }
+
+            string currentModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
+            string currentModelsRoot = (modelsRoot ?? string.Empty).Trim();
+            bool targetChanged = !ReferenceEquals(appliedTargetHumanoidAnimator, targetHumanoidAnimator);
+            bool runtimeSignatureChanged =
+                !string.Equals(appliedModelName, currentModelName, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(appliedModelsRoot, currentModelsRoot, StringComparison.Ordinal) ||
+                appliedTextEncoderMode != textEncoderMode ||
+                appliedForceCpu != forceCpu;
+            return RequiresNewGenerationSession(
+                targetChanged,
+                runtimeSignatureChanged,
+                KimodoMotionModelProfiles.TryGetArdy(currentModelName, out _),
+                appliedRandomSeed != randomSeed,
+                !randomSeed && appliedFixedSeed != fixedSeed);
+        }
+
+        internal static bool RequiresNewGenerationSession(
+            bool targetChanged,
+            bool runtimeSignatureChanged,
+            bool isArdy,
+            bool randomSeedModeChanged,
+            bool deterministicSeedChanged)
+        {
+            return targetChanged ||
+                runtimeSignatureChanged ||
+                (isArdy && (randomSeedModeChanged || deterministicSeedChanged));
+        }
+
+        private void CaptureAppliedRuntimeSettings()
+        {
+            appliedTargetHumanoidAnimator = targetHumanoidAnimator;
+            appliedModelsRoot = (modelsRoot ?? string.Empty).Trim();
+            appliedModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
+            appliedTextEncoderMode = textEncoderMode;
+            appliedForceCpu = forceCpu;
+            appliedRandomSeed = randomSeed;
+            appliedFixedSeed = fixedSeed;
+            appliedRuntimeSettingsInitialized = true;
         }
 
         internal static bool ShouldRequestArdyGeneration(

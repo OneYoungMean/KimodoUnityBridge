@@ -183,7 +183,6 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            int targetSourceFrames = Mathf.Max(1, (int)Math.Floor(request.DurationSeconds * profile.SourceFps + 1e-9));
             KimodoBridgeCommandRequest commandRequest = CreateRuntimePipelineRequest(request, prompt, profile.ModelName);
             commandRequest.GenerationRequest.duration = request.DurationSeconds;
             commandRequest.GenerationRequest.time_as_double = 0.0;
@@ -205,14 +204,7 @@ namespace KimodoBridge.Editor
             request.GeneratedArdySeeds.Add(directResult.ResolvedSeed.Value);
             request.GeneratedArdyFingerprint = directResult.MotionRepFingerprint;
 
-            if (!KimodoRawMotionUtility.TryConcatenate(
-                    new List<KimodoRawMotionData> { directResult.MotionData },
-                    targetSourceFrames,
-                    out KimodoRawMotionData sourceMotion,
-                    out string concatenateError))
-            {
-                throw new InvalidOperationException(concatenateError);
-            }
+            KimodoRawMotionData sourceMotion = directResult.MotionData;
             byte[] sourcePayload = KimodoRawMotionUtility.ToFlatBuffer(sourceMotion, profile.ModelName);
             request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(sourcePayload, "timeline-final");
             return new KimodoBridgeCommandResult

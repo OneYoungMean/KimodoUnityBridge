@@ -9,7 +9,7 @@ import secrets
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -471,6 +471,7 @@ class ArdySession:
         model: Any,
         profile: Any,
         quickserver_root: str | Path,
+        progress: Callable[[str], None] | None = None,
     ):
         import torch
 
@@ -492,7 +493,7 @@ class ArdySession:
         if not math.isfinite(duration_seconds) or duration_seconds < 0.0:
             raise ArdyBackendError("duration must be a finite non-negative number of seconds.")
         self._initial_duration_frames = 0
-        if self.settings.playback_reserve_frames == 0 and duration_seconds > 0.0:
+        if duration_seconds > 0.0:
             self._initial_duration_frames = int(math.ceil(duration_seconds * float(profile.source_fps) - 1e-6))
         self.motion_cpu = None
         self.outputs: dict[str, np.ndarray] | None = None
@@ -506,7 +507,7 @@ class ArdySession:
         self._cuda_rng_state = None
         if str(model.device).startswith("cuda"):
             self._cuda_rng_state = torch.Generator(device=model.device).manual_seed(self.resolved_seed).get_state()
-        self._encode_prompt(model)
+        self._encode_prompt(model, progress)
         self._set_constraints(request.get("constraints_json", []), attachments, model, apply_from=0, initial=True)
 
     @staticmethod
@@ -546,10 +547,20 @@ class ArdySession:
     def frame_count(self) -> int:
         return 0 if self.motion_cpu is None else int(self.motion_cpu.shape[1])
 
-    def _encode_prompt(self, model: Any) -> None:
+    def _encode_prompt(self, model: Any, progress: Callable[[str], None] | None = None) -> None:
         encode_text = getattr(model, "_encode_text", None)
         if callable(encode_text):
+            encoder = getattr(model, "text_encoder", None)
+            cold_start = encoder is not None and getattr(encoder, "model", object()) is None
+            if progress is not None:
+                progress(
+                    "Loading TextEncoder weights and moving them to the accelerator..."
+                    if cold_start
+                    else "Encoding prompt..."
+                )
             self.text_feat, self.text_pad_mask = encode_text([self.prompt])
+            if progress is not None:
+                progress("TextEncoder ready. Generating ARDY motion...")
         else:
             self.text_feat = self.text_pad_mask = None
 
@@ -925,7 +936,11 @@ class ArdySession:
             minimum_delivery = max(minimum_delivery, self._initial_duration_frames)
         target = generation_start + max(1, minimum_delivery)
         self._ensure_generated(target, model, cancel_event)
-        return_end = self.frame_count
+        return_end = (
+            min(self.frame_count, self._initial_duration_frames)
+            if self.returned_until == 0 and self._initial_duration_frames > 0
+            else self.frame_count
+        )
         result = None if return_end <= return_start else _slice_outputs(self.outputs or {}, return_start, return_end)
         self.returned_until = return_end
         self._initial_duration_frames = 0
@@ -955,33 +970,49 @@ def execute_stream_generate(
     profile: Any,
     cancel_event: threading.Event,
     quickserver_root: str | Path,
-) -> tuple[ArdySession, dict[str, Any], bytes | None]:
+    progress: Callable[[str], None] | None = None,
+) -> tuple[ArdySession | None, dict[str, Any], bytes | None]:
     from kimodo.bridge import bridge_server
 
+    fixed_length = "duration" in request
+    if fixed_length:
+        try:
+            duration_seconds = float(request.get("duration"))
+        except (TypeError, ValueError) as exc:
+            raise ArdyBackendError("duration must be a finite positive number of seconds.") from exc
+        if not math.isfinite(duration_seconds) or duration_seconds <= 0.0:
+            raise ArdyBackendError("duration must be a finite positive number of seconds.")
+        if session is not None:
+            session.close()
+        session = None
     if session is None:
-        session = ArdySession(request, attachments, model, profile, quickserver_root)
+        session = ArdySession(request, attachments, model, profile, quickserver_root, progress)
         request = {"time_as_double": request.get("time_as_double", 0.0)}
-    started = time.perf_counter()
-    metadata, output = session.generate(request, attachments, model, cancel_event)
-    payload = b""
-    if output:
-        payload = bridge_server._build_generate_flatbuffer_payload(model, output, sample_index=0)
-    elapsed = time.perf_counter() - started
-    session.record_response_duration(
-        elapsed,
-        int(metadata["end_frame_exclusive"]) - int(metadata["start_frame"]),
-    )
-    return session, {
-        "status": "done",
-        "output_format": "kmb_v1",
-        "byte_length": len(payload),
-        "motion_rep_fingerprint": profile.motion_rep_fingerprint,
-        "resolved_seed": session.resolved_seed,
-        "ardy_playback_reserve_seconds": session.effective_playback_reserve_frames / float(profile.source_fps),
-        "ardy_adaptive_playback_reserve": session.settings.adaptive_playback_reserve,
-        "ardy_server_response_seconds": elapsed,
-        **metadata,
-    }, payload or None
+    try:
+        started = time.perf_counter()
+        metadata, output = session.generate(request, attachments, model, cancel_event)
+        payload = b""
+        if output:
+            payload = bridge_server._build_generate_flatbuffer_payload(model, output, sample_index=0)
+        elapsed = time.perf_counter() - started
+        session.record_response_duration(
+            elapsed,
+            int(metadata["end_frame_exclusive"]) - int(metadata["start_frame"]),
+        )
+        return (None if fixed_length else session), {
+            "status": "done",
+            "output_format": "kmb_v1",
+            "byte_length": len(payload),
+            "motion_rep_fingerprint": profile.motion_rep_fingerprint,
+            "resolved_seed": session.resolved_seed,
+            "ardy_playback_reserve_seconds": session.effective_playback_reserve_frames / float(profile.source_fps),
+            "ardy_adaptive_playback_reserve": session.settings.adaptive_playback_reserve,
+            "ardy_server_response_seconds": elapsed,
+            **metadata,
+        }, payload or None
+    finally:
+        if fixed_length:
+            session.close()
 
 
 def load_runtime(

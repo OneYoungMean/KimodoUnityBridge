@@ -137,6 +137,7 @@ namespace KimodoBridge.Editor
             {
                 settings.QuickServerPath = path;
                 settings.SaveSettings();
+                GUI.FocusControl(null);
                 Refresh();
             }
 
@@ -256,7 +257,7 @@ namespace KimodoBridge.Editor
                 "These are default generation parameters. QuickServer now switches runtime behavior per request; starting the server no longer depends on these values.",
                 MessageType.Info);
 
-            string localModelsPath = settings.LocalModelsPath;
+            string localModelsPath = ResolveDisplayedModelsPath(settings.LocalModelsPath, runtimeRoot);
             EditorGUILayout.BeginHorizontal();
             EditorGUI.BeginChangeCheck();
             localModelsPath = EditorGUILayout.DelayedTextField(
@@ -280,8 +281,11 @@ namespace KimodoBridge.Editor
 
             if (textChanged)
             {
-                settings.LocalModelsPath = localModelsPath;
+                settings.LocalModelsPath = string.IsNullOrWhiteSpace(localModelsPath)
+                    ? string.Empty
+                    : localModelsPath;
                 settings.SaveSettings();
+                GUI.FocusControl(null);
                 RefreshModelList();
             }
 
@@ -304,6 +308,13 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("Setup Profile", setupProfile, EditorStyles.miniLabel);
 
             EditorGUILayout.EndVertical();
+        }
+
+        internal static string ResolveDisplayedModelsPath(string configuredPath, string runtimeRootPath)
+        {
+            return string.IsNullOrWhiteSpace(configuredPath)
+                ? Path.Combine(runtimeRootPath ?? string.Empty, "models")
+                : configuredPath;
         }
 
         private void DrawServerSection()
