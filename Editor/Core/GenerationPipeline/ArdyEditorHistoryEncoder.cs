@@ -29,6 +29,8 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
+            AnimationClip timelineMuscleClip = null;
+            KimodoRetargetClipSamplingUtility.ClipSamplingContext targetSamplingContext = null;
             try
             {
                 if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
@@ -70,6 +72,7 @@ namespace KimodoBridge.Editor
                 var rootPositions = new Vector3[frameCount];
                 var rotations = new List<float>(frameCount * jointNames.Length * 4);
                 var footContacts = new byte[frameCount * KimodoFootContactTrackUtility.ChannelCount];
+                var muscleSamples = new MuscleSample[frameCount];
                 bool hasFootContacts = true;
                 for (int frame = 0; frame < frameCount; frame++)
                 {
@@ -77,31 +80,15 @@ namespace KimodoBridge.Editor
                     double sampleTime = frame < availableFrames
                         ? timelineStart + frame / profile.SourceFps
                         : latestSampleTime;
-                    if (!sampler.TryEvaluate(sampleTime, out error))
-                    {
-                        return false;
-                    }
-
-                    if (!sampler.TryGetSourceHipsPose(
-                            out Vector3 rootPosition,
-                            out Quaternion rootRotation,
+                    if (!sampler.TryCaptureMuscleSample(
+                            sampleTime,
+                            source.NormalizeRootToAnchor,
+                            source.AnchorRootPosition,
+                            source.AnchorRootRotation,
+                            out muscleSamples[frame],
                             out error))
                     {
                         return false;
-                    }
-                    NormalizeRootPose(source, ref rootPosition, ref rootRotation);
-                    rootPositions[frame] = rootPosition;
-                    for (int joint = 0; joint < joints.Length; joint++)
-                    {
-                        Quaternion unity = joint == 0
-                            ? rootRotation.normalized
-                            : joints[joint] != null
-                                ? joints[joint].localRotation.normalized
-                                : Quaternion.identity;
-                        rotations.Add(unity.w);
-                        rotations.Add(unity.x);
-                        rotations.Add(-unity.y);
-                        rotations.Add(-unity.z);
                     }
 
                     if (hasFootContacts &&
@@ -120,6 +107,59 @@ namespace KimodoBridge.Editor
                     else
                     {
                         hasFootContacts = false;
+                    }
+                }
+
+                if (!KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
+                        muscleSamples,
+                        profile.SourceFps,
+                        out timelineMuscleClip,
+                        out error))
+                {
+                    return false;
+                }
+                if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+                        timelineMuscleClip,
+                        sampler.TargetCache,
+                        "ArdyEditorHistory_TargetHumanoid",
+                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                        out targetSamplingContext,
+                        out error))
+                {
+                    return false;
+                }
+
+                for (int frame = 0; frame < frameCount; frame++)
+                {
+                    if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
+                            targetSamplingContext,
+                            frame / profile.SourceFps,
+                            out error))
+                    {
+                        return false;
+                    }
+
+                    Transform rootJoint = joints[0];
+                    if (rootJoint == null)
+                    {
+                        error = "ARDY profile root joint is missing after Timeline retargeting.";
+                        return false;
+                    }
+
+                    // The Humanoid graph applies the baked Foot IK goals before KMB samples local rotations.
+                    Quaternion rootRotation = rootJoint.rotation.normalized;
+                    rootPositions[frame] = rootJoint.position;
+                    for (int joint = 0; joint < joints.Length; joint++)
+                    {
+                        Quaternion unity = joint == 0
+                            ? rootRotation
+                            : joints[joint] != null
+                                ? joints[joint].localRotation.normalized
+                                : Quaternion.identity;
+                        rotations.Add(unity.w);
+                        rotations.Add(unity.x);
+                        rotations.Add(-unity.y);
+                        rotations.Add(-unity.z);
                     }
                 }
 
@@ -143,23 +183,14 @@ namespace KimodoBridge.Editor
             }
             finally
             {
+                KimodoRetargetClipSamplingUtility.DestroyClipSamplingContext(targetSamplingContext);
+                if (timelineMuscleClip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(timelineMuscleClip);
+                }
                 sampler.Dispose();
             }
         }
 
-        internal static void NormalizeRootPose(
-            ArdyEditorHistorySource source,
-            ref Vector3 rootPosition,
-            ref Quaternion rootRotation)
-        {
-            if (source == null || !source.NormalizeRootToAnchor)
-            {
-                return;
-            }
-
-            Quaternion inverseAnchor = Quaternion.Inverse(source.AnchorRootRotation);
-            rootPosition = inverseAnchor * (rootPosition - source.AnchorRootPosition);
-            rootRotation = inverseAnchor * rootRotation;
-        }
     }
 }

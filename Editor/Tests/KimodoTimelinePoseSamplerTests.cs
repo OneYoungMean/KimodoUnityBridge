@@ -51,7 +51,11 @@ namespace KimodoBridge.Editor.Tests
             Quaternion rotation = Quaternion.Euler(0f, 120f, 0f);
             Quaternion inverseAnchor = Quaternion.Inverse(source.AnchorRootRotation);
 
-            ArdyEditorHistoryEncoder.NormalizeRootPose(source, ref position, ref rotation);
+            KimodoConstraintNormalizationUtility.NormalizeRootPose(
+                source.AnchorRootPosition,
+                source.AnchorRootRotation,
+                ref position,
+                ref rotation);
 
             Assert.That(
                 Vector3.Distance(position, inverseAnchor * new Vector3(2f, 3f, 5f)),
@@ -59,6 +63,47 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(
                 Quaternion.Angle(rotation, inverseAnchor * Quaternion.Euler(0f, 120f, 0f)),
                 Is.LessThan(1e-4f));
+        }
+
+        [Test]
+        public void HumanoidIkGoals_AreInvariantToSkeletonRootWorldPose()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoTimelineFootIkRootSpaceTest",
+                    out SkeletonCache cache,
+                    out error),
+                Is.True,
+                error);
+
+            try
+            {
+                var pose = new HumanPose();
+                cache.poseHandler.GetHumanPose(ref pose);
+                MuscleSample before = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, pose);
+
+                cache.skeletonRoot.SetPositionAndRotation(
+                    new Vector3(7f, 2f, -3f),
+                    Quaternion.Euler(0f, 73f, 0f));
+                MuscleSample after = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, pose);
+
+                Assert.That(Vector3.Distance(before.leftFootPosition, after.leftFootPosition), Is.LessThan(1e-5f));
+                Assert.That(Vector3.Distance(before.rightFootPosition, after.rightFootPosition), Is.LessThan(1e-5f));
+                Assert.That(Quaternion.Angle(before.leftFootRotation, after.leftFootRotation), Is.LessThan(1e-4f));
+                Assert.That(Quaternion.Angle(before.rightFootRotation, after.rightFootRotation), Is.LessThan(1e-4f));
+            }
+            finally
+            {
+                cache.Dispose();
+            }
         }
     }
 }

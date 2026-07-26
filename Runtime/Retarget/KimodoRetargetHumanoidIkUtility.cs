@@ -8,6 +8,21 @@ namespace KimodoBridge
     {
         internal static MuscleSample BuildMuscleSampleFromPose(SkeletonCache cache, HumanPose pose)
         {
+            return BuildMuscleSampleFromPose(
+                cache != null ? cache.avatar : null,
+                cache != null ? cache.humanScale : 1f,
+                pose,
+                cache != null ? cache.skeletonRoot : null,
+                bone => ResolveHumanBoneTransform(cache, bone));
+        }
+
+        internal static MuscleSample BuildMuscleSampleFromPose(
+            Avatar avatar,
+            float humanScale,
+            HumanPose pose,
+            Transform humanPoseRoot,
+            Func<HumanBodyBones, Transform> resolveHumanBone)
+        {
             var sample = new MuscleSample
             {
                 pose = pose,
@@ -21,16 +36,16 @@ namespace KimodoBridge
                 rightHandRotation = Quaternion.identity
             };
 
-            if (cache == null || cache.animator == null || cache.avatar == null)
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar) || resolveHumanBone == null)
             {
                 return sample;
             }
 
-            float humanScale = Mathf.Max(1e-6f, cache.humanScale);
-            TryGetHumanoidIkGoalPose(cache, AvatarIKGoal.LeftFoot, pose.bodyPosition, pose.bodyRotation, humanScale, out sample.leftFootPosition, out sample.leftFootRotation);
-            TryGetHumanoidIkGoalPose(cache, AvatarIKGoal.RightFoot, pose.bodyPosition, pose.bodyRotation, humanScale, out sample.rightFootPosition, out sample.rightFootRotation);
-            TryGetHumanoidIkGoalPose(cache, AvatarIKGoal.LeftHand, pose.bodyPosition, pose.bodyRotation, humanScale, out sample.leftHandPosition, out sample.leftHandRotation);
-            TryGetHumanoidIkGoalPose(cache, AvatarIKGoal.RightHand, pose.bodyPosition, pose.bodyRotation, humanScale, out sample.rightHandPosition, out sample.rightHandRotation);
+            float scale = Mathf.Max(1e-6f, humanScale);
+            TryGetHumanoidIkGoalPose(avatar, humanPoseRoot, resolveHumanBone, AvatarIKGoal.LeftFoot, pose.bodyPosition, pose.bodyRotation, scale, out sample.leftFootPosition, out sample.leftFootRotation);
+            TryGetHumanoidIkGoalPose(avatar, humanPoseRoot, resolveHumanBone, AvatarIKGoal.RightFoot, pose.bodyPosition, pose.bodyRotation, scale, out sample.rightFootPosition, out sample.rightFootRotation);
+            TryGetHumanoidIkGoalPose(avatar, humanPoseRoot, resolveHumanBone, AvatarIKGoal.LeftHand, pose.bodyPosition, pose.bodyRotation, scale, out sample.leftHandPosition, out sample.leftHandRotation);
+            TryGetHumanoidIkGoalPose(avatar, humanPoseRoot, resolveHumanBone, AvatarIKGoal.RightHand, pose.bodyPosition, pose.bodyRotation, scale, out sample.rightHandPosition, out sample.rightHandRotation);
             return sample;
         }
 
@@ -43,10 +58,33 @@ namespace KimodoBridge
             out Vector3 goalPosition,
             out Quaternion goalRotation)
         {
+            return TryGetHumanoidIkGoalPose(
+                cache != null ? cache.avatar : null,
+                cache != null ? cache.skeletonRoot : null,
+                bone => ResolveHumanBoneTransform(cache, bone),
+                avatarIKGoal,
+                bodyPosition,
+                bodyRotation,
+                humanScale,
+                out goalPosition,
+                out goalRotation);
+        }
+
+        private static bool TryGetHumanoidIkGoalPose(
+            Avatar avatar,
+            Transform humanPoseRoot,
+            Func<HumanBodyBones, Transform> resolveHumanBone,
+            AvatarIKGoal avatarIKGoal,
+            Vector3 bodyPosition,
+            Quaternion bodyRotation,
+            float humanScale,
+            out Vector3 goalPosition,
+            out Quaternion goalRotation)
+        {
             goalPosition = Vector3.zero;
             goalRotation = Quaternion.identity;
 
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(cache, out _))
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar) || resolveHumanBone == null)
             {
                 return false;
             }
@@ -57,27 +95,30 @@ namespace KimodoBridge
                 return false;
             }
 
-            Transform transform = ResolveHumanBoneTransform(cache, bone);
+            Transform transform = resolveHumanBone(bone);
             if (transform == null)
             {
                 return false;
             }
 
             int humanId = (int)bone;
-            Quaternion postRotation = AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(cache.avatar, humanId);
-            Quaternion boneWorldRotation = transform.rotation;
-            Quaternion worldGoalRotation = boneWorldRotation * postRotation;
-            Vector3 worldGoalPosition = transform.position;
+            Quaternion postRotation = AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(avatar, humanId);
+            Quaternion inverseRootRotation = Quaternion.Inverse(
+                humanPoseRoot != null ? humanPoseRoot.rotation : Quaternion.identity);
+            Vector3 rootGoalPosition = humanPoseRoot != null
+                ? humanPoseRoot.InverseTransformPoint(transform.position)
+                : transform.position;
+            Quaternion rootGoalRotation = inverseRootRotation * transform.rotation * postRotation;
 
             if (avatarIKGoal == AvatarIKGoal.LeftFoot || avatarIKGoal == AvatarIKGoal.RightFoot)
             {
-                float axisLength = AvatarRuntimeAccess.GetAvatarAxisLengthOrZero(cache.avatar, humanId);
-                worldGoalPosition += (boneWorldRotation * postRotation) * new Vector3(axisLength, 0f, 0f);
+                float axisLength = AvatarRuntimeAccess.GetAvatarAxisLengthOrZero(avatar, humanId);
+                rootGoalPosition += rootGoalRotation * new Vector3(axisLength, 0f, 0f);
             }
 
             Quaternion inverseBodyRotation = Quaternion.Inverse(bodyRotation);
-            goalPosition = inverseBodyRotation * (worldGoalPosition - bodyPosition*humanScale);
-            goalRotation = inverseBodyRotation * worldGoalRotation;
+            goalPosition = inverseBodyRotation * (rootGoalPosition - bodyPosition * humanScale);
+            goalRotation = inverseBodyRotation * rootGoalRotation;
             goalPosition /= humanScale;
             return true;
         }

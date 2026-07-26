@@ -84,6 +84,46 @@ namespace KimodoBridge.Editor
 
         internal bool TryEvaluate(double timelineTime, out string error)
         {
+            return TryEvaluate(
+                timelineTime,
+                normalizeRootToAnchor: false,
+                Vector3.zero,
+                Quaternion.identity,
+                out error);
+        }
+
+        internal bool TryEvaluate(
+            double timelineTime,
+            bool normalizeRootToAnchor,
+            Vector3 anchorRootPosition,
+            Quaternion anchorRootRotation,
+            out string error)
+        {
+            if (!TryCaptureMuscleSample(
+                    timelineTime,
+                    normalizeRootToAnchor,
+                    anchorRootPosition,
+                    anchorRootRotation,
+                    out MuscleSample sample,
+                    out error))
+            {
+                return false;
+            }
+
+            HumanPose pose = sample.pose;
+            TargetCache.poseHandler.SetHumanPose(ref pose);
+            return true;
+        }
+
+        internal bool TryCaptureMuscleSample(
+            double timelineTime,
+            bool normalizeRootToAnchor,
+            Vector3 anchorRootPosition,
+            Quaternion anchorRootRotation,
+            out MuscleSample sample,
+            out string error)
+        {
+            sample = null;
             error = string.Empty;
             if (disposed || double.IsNaN(timelineTime) || double.IsInfinity(timelineTime))
             {
@@ -98,11 +138,30 @@ namespace KimodoBridge.Editor
                 var pose = new HumanPose();
                 sourcePoseHandler.GetHumanPose(ref pose);
                 KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
-                TargetCache.poseHandler.SetHumanPose(ref pose);
+                sample = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(
+                    context.SourceAvatar,
+                    context.Animator.humanScale,
+                    pose,
+                    context.Animator.transform,
+                    bone => ResolveSourceHumanBone(context.Animator, context.SourceAvatar, bone));
+                if (normalizeRootToAnchor)
+                {
+                    Vector3 bodyPosition = pose.bodyPosition;
+                    Quaternion bodyRotation = pose.bodyRotation;
+                    KimodoConstraintNormalizationUtility.NormalizeRootPose(
+                        anchorRootPosition,
+                        anchorRootRotation,
+                        ref bodyPosition,
+                        ref bodyRotation);
+                    pose.bodyPosition = bodyPosition;
+                    pose.bodyRotation = bodyRotation;
+                }
+                sample.pose = pose;
                 return true;
             }
             catch (Exception ex)
             {
+                sample = null;
                 error = ex.Message;
                 return false;
             }
