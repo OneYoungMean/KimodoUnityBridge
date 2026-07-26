@@ -68,14 +68,15 @@ example\example_run_server_tpose_console_live.bat
 - A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.
 - `cancel` accepts an optional `task_id`. If omitted, QuickServer cancels the first cancellable queued task and returns the resolved task id.
 - ARDY generation is non-interruptible inside a Horizon. Cancel stops the waiting Generate response at the next Horizon boundary but keeps the Session timeline until `session.close`.
+- A newer ARDY Generate does not cancel the active Horizon. The active request finishes first, and only the newest queued ARDY update is retained.
 
 ## Direct KMB transport
 
-`generate` uses `output_format=kmb_v1`. A successful response is one JSON line with `byte_length`, immediately followed by that many KMB1 bytes. `byte_length=0` is valid when the ARDY client already has enough buffered motion.
+`generate` uses `output_format=kmb_v1`. A successful ARDY response is one JSON line with `byte_length`, immediately followed by a non-empty KMB1 range that extends beyond the current Playback Reserve.
 
-ARDY clients send session-relative `time_as_double` on every Generate. QuickServer converts seconds with the selected model FPS, keeps only the profile-sized GPU history, and caches the CPU timeline for seek. Missing `prompt` or `constraints_json` keeps the current value; `[]` clears the complete constraint snapshot. Prompt or constraint changes discard unpublished future motion and take effect at the returned `apply_from_frame`.
+ARDY clients send session-relative `time_as_double` on every Generate. QuickServer converts seconds with the selected model FPS, keeps only the profile-sized GPU history, and caches the CPU timeline for seek. `ardy_playback_reserve_seconds` defaults to 1 second; `ardy_adaptive_playback_reserve` defaults to true and adjusts the effective reserve from measured server response time. Missing `prompt` or `constraints_json` keeps the current value; `[]` clears the complete constraint snapshot. Prompt or constraint changes keep motion through `time_as_double + Playback Reserve`, then regenerate and return the affected absolute KMB range.
 
-A decreasing `time_as_double` is a seek. Its cached KMB response may overlap previously returned frames, so seek-capable clients replace their timeline from `start_frame`; the runtime motion driver keeps a monotonic cursor and only appends contiguous ranges.
+A decreasing `time_as_double` is a seek. Normal responses append from the previously delivered tail; seek and replan responses may overlap previously returned frames, so clients replace their timeline from `start_frame`.
 
 Optional History/Future KMB inputs use a JSON `kmb_attachments` manifest with contiguous offsets and lengths, followed by concatenated KMB1 blobs. Clip constraints reference `format=kmb_attachment_v1` and a zero-based `attachment` index. The KMB1 FlatBuffer schema itself is unchanged. `ardy_file_v1` remains debug-only behind `KIMODO_ARDY_ALLOW_TEST_FILES`.
 

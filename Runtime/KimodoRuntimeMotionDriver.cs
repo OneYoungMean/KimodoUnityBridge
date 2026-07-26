@@ -31,19 +31,18 @@ namespace KimodoBridge
         [SerializeField] private bool randomSeed = true;
         [SerializeField] private int fixedSeed = 42;
         [SerializeField][Min(0.1f)] private float segmentIntervalSeconds = 5f;
-        [SerializeField][Min(0f), Tooltip("ARDY future lead preserved when replanning. Default 0.2 seconds.")]
-        private float ardyPlaybackDelaySeconds = 0.2f;
+        [FormerlySerializedAs("ardyPlaybackDelaySeconds")]
+        [FormerlySerializedAs("ardySafeIntervalSeconds")]
+        [SerializeField][Min(0.2f), Tooltip("Request more ARDY motion when this much playable animation remains.")]
+        private float ardyPlaybackReserveSeconds = 1f;
+        [SerializeField, Tooltip("Let the ARDY backend adapt the playback reserve from measured response time.")]
+        private bool ardyAdaptivePlaybackReserve = true;
         [SerializeField][Min(0f), Tooltip("0 uses the selected ARDY profile maximum.")]
         private float ardyHistoryCropSeconds;
         [SerializeField][Min(0f), Tooltip("0 uses the selected ARDY profile maximum.")]
         private float ardyFutureCropSeconds;
         [SerializeField, Tooltip("Expand ARDY Root2D waypoints into the official dense per-frame root path.")]
         private bool ardyDenseRootPath;
-        [SerializeField][Min(0.2f), Tooltip("Minimum interval between automatic ARDY Generate cursor updates.")]
-        private float ardyGenerateSyncIntervalSeconds = 1f;
-        [SerializeField][Min(0f), Tooltip("Generate again when the remaining Unity ARDY timeline reaches this duration.")]
-        private float ardyReplanTriggerSeconds = 1f;
-        [SerializeField] private bool ardyAutoReplan = true;
         [SerializeField] private bool loopHint = true;
         [SerializeField] private KimodoSegmentOverlapHeadSettings segmentOverlapHeadSettings = new KimodoSegmentOverlapHeadSettings();
         [SerializeField] private bool allowPartialJoints;
@@ -95,7 +94,8 @@ namespace KimodoBridge
         private bool ardyPromptDirty = true;
         private bool ardyConstraintsDirty = true;
         private bool ardySettingsDirty = true;
-        private double ardyNextGenerateSyncTime;
+        private bool ardyRefreshPending;
+        private float ardyEffectivePlaybackReserveSeconds = 1f;
         private KimodoRuntimeMotionPlayer motionPlayer;
         private bool generationBlocked;
 
@@ -106,6 +106,11 @@ namespace KimodoBridge
         public event Action<KimodoRuntimeSegmentReport> SegmentReady;
         public event Action<KimodoRuntimeSegmentReport> SegmentStarted;
         public event Action<KimodoRuntimeSegmentReport> SegmentCompleted;
+        public bool FootIkEnabled
+        {
+            get => driveFootIkTargets;
+            set => driveFootIkTargets = value;
+        }
         public bool DrawDebugSkeleton
         {
             get => drawDebugSkeleton;
@@ -211,7 +216,7 @@ namespace KimodoBridge
 
         private void LateUpdate()
         {
-            motionPlayer?.ApplyLateRetargetCorrection();
+            motionPlayer?.ApplyLateRetargetCorrection(driveFootIkTargets);
         }
 
         public void SetPrompt(string prompt)
@@ -555,9 +560,10 @@ namespace KimodoBridge
             }
 
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
-            if (isArdy && (!ardyAutoReplan ||
-                motionPlayer.BufferedDurationSeconds > Mathf.Max(0f, ardyReplanTriggerSeconds) ||
-                Time.realtimeSinceStartupAsDouble < ardyNextGenerateSyncTime))
+            if (isArdy && !ShouldRequestArdyGeneration(
+                    motionPlayer.BufferedDurationSeconds,
+                    ardyEffectivePlaybackReserveSeconds,
+                    ardyRefreshPending))
             {
                 return;
             }
@@ -623,21 +629,22 @@ namespace KimodoBridge
                 bool sendPrompt = !isArdy || !ardySessionStarted || ardyPromptDirty;
                 bool sendConstraints = !isArdy || !ardySessionStarted || ardyConstraintsDirty;
                 bool sendSettings = isArdy && (!ardySessionStarted || ardySettingsDirty);
+                if (isArdy)
+                {
+                    ardyRefreshPending = false;
+                }
                 int resolvedRequestSeed = isArdy && ardyStreamResolvedSeed.HasValue
                     ? ardyStreamResolvedSeed.Value
                     : (randomSeed ? (Guid.NewGuid().GetHashCode() & int.MaxValue) : fixedSeed);
                 if (isArdy)
                 {
                     ardyStreamResolvedSeed = resolvedRequestSeed;
-                    ardyNextGenerateSyncTime = Time.realtimeSinceStartupAsDouble +
-                        Mathf.Max(0.2f, ardyGenerateSyncIntervalSeconds);
                 }
                 var request = new KimodoGenerationRequestDto
                 {
+                    ardy_session_update_only = isArdy && ardySessionStarted && !sendSettings,
                     prompt = sendPrompt ? prompt : null,
-                    duration = isArdy
-                        ? (ardyProfile.MaxContextFrames - ardyProfile.HorizonFrames) / ardyProfile.SourceFps
-                        : ResolveGenerationDurationSeconds(),
+                    duration = isArdy ? 0f : ResolveGenerationDurationSeconds(),
                     seed = resolvedRequestSeed,
                     steps = Mathf.Clamp(diffusionSteps, 1, isArdy ? ardyProfile.MaxDiffusionSteps : 1000),
                     text_weight = Mathf.Clamp(textWeight, 0f, 4f),
@@ -663,10 +670,8 @@ namespace KimodoBridge
                         request.ardy_future_crop_seconds = ardyFutureCropSeconds > 0f
                             ? ardyFutureCropSeconds
                             : (double?)null;
-                        request.ardy_replan_buffer_seconds = Mathf.Max(0f, ardyPlaybackDelaySeconds);
-                        request.ardy_replan_trigger_seconds = Mathf.Max(0f, ardyReplanTriggerSeconds);
-                        request.ardy_generate_sync_interval_seconds = Mathf.Max(0.2f, ardyGenerateSyncIntervalSeconds);
-                        request.ardy_auto_replan = ardyAutoReplan;
+                        request.ardy_playback_reserve_seconds = Mathf.Max(0.2f, ardyPlaybackReserveSeconds);
+                        request.ardy_adaptive_playback_reserve = ardyAdaptivePlaybackReserve;
                     }
                 }
 
@@ -692,6 +697,12 @@ namespace KimodoBridge
                 if (isArdy)
                 {
                     ValidateArdyResult(bridgeResult, ardyProfile, resolvedRequestSeed);
+                    if (bridgeResult.ArdyPlaybackReserveSeconds.HasValue)
+                    {
+                        ardyEffectivePlaybackReserveSeconds = Mathf.Max(
+                            0.2f,
+                            (float)bridgeResult.ArdyPlaybackReserveSeconds.Value);
+                    }
                     if (bridgeResult.MotionData == null)
                     {
                         ardySessionStarted = true;
@@ -811,7 +822,7 @@ namespace KimodoBridge
                 };
                 if (isArdy)
                 {
-                    if (!motionPlayer.AppendArdy(
+                    if (!motionPlayer.ReplaceArdy(
                             generatedSegment,
                             bridgeResult.StartFrame,
                             verboseLogging,
@@ -868,6 +879,10 @@ namespace KimodoBridge
 
                 generationCts?.Dispose();
                 generationInFlight = false;
+                if (running && ardyRefreshPending && lifetimeCts != null && !lifetimeCts.IsCancellationRequested)
+                {
+                    _ = GenerateNextSegmentAsync(lifetimeCts.Token);
+                }
             }
         }
 
@@ -875,9 +890,7 @@ namespace KimodoBridge
         {
             var samples = new List<KimodoMarkerSampleResult>();
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
-            double ardyApplyTime = isArdy
-                ? motionPlayer.PlaybackTimeAsDouble + motionPlayer.BufferedDurationSeconds
-                : 0.0;
+            double ardyApplyTime = isArdy ? motionPlayer.PlaybackTimeAsDouble : 0.0;
 
             if (loopHint &&
                 !KimodoMotionModelProfiles.TryGetArdy(modelName, out _) &&
@@ -947,6 +960,10 @@ namespace KimodoBridge
             lastGenerationWaitStatusSegment = -1;
             generationRequestVersion++;
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
+            if (isArdy)
+            {
+                ardyRefreshPending = true;
+            }
             if (!isArdy)
             {
                 int clearedQueuedSegmentCount = motionPlayer.QueuedSegmentCount;
@@ -963,6 +980,10 @@ namespace KimodoBridge
             if (generationInFlight)
             {
                 UpdateStatus(waitingStatus);
+                if (isArdy)
+                {
+                    return;
+                }
                 if (ShouldCancelActiveGenerationForRefresh(isArdy))
                 {
                     TryCancelActiveGeneration();
@@ -1026,7 +1047,16 @@ namespace KimodoBridge
             ardyPromptDirty = true;
             ardyConstraintsDirty = true;
             ardySettingsDirty = true;
-            ardyNextGenerateSyncTime = 0.0;
+            ardyRefreshPending = false;
+            ardyEffectivePlaybackReserveSeconds = Mathf.Max(0.2f, ardyPlaybackReserveSeconds);
+        }
+
+        internal static bool ShouldRequestArdyGeneration(
+            float bufferedDurationSeconds,
+            float playbackReserveSeconds,
+            bool refreshPending)
+        {
+            return refreshPending || bufferedDurationSeconds <= Mathf.Max(0.2f, playbackReserveSeconds);
         }
 
         internal static void ValidateArdyResult(

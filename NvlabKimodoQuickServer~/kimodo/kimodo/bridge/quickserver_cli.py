@@ -1537,13 +1537,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                 if owner_pid > 0:
                                     state["owner_pid"] = owner_pid
                                 if is_ardy_request:
-                                    active = session.get("active")
-                                    if active is not None:
-                                        active["cancel_event"].set()
-                                        active["state"] = "cancelling"
-                                        active["status_message"] = (
-                                            f"Task '{active['task_id']}' was superseded by newer ARDY Generate '{task_id}'."
-                                        )
                                     while session["queue"]:
                                         superseded = session["queue"].popleft()
                                         finish_task_locked(

@@ -56,10 +56,7 @@ namespace KimodoBridge
                 MotionRepFingerprint = result.motionRepFingerprint ?? string.Empty,
                 ResolvedSeed = result.resolvedSeed,
                 StartFrame = result.startFrame,
-                EndFrameExclusive = result.endFrameExclusive,
-                ApplyFromFrame = result.applyFromFrame,
-                ApplyFromTimeSeconds = result.applyFromTimeSeconds,
-                UpdateRevision = result.updateRevision
+                EndFrameExclusive = result.endFrameExclusive
             };
         }
 
@@ -86,10 +83,7 @@ namespace KimodoBridge
                 motionRepFingerprint = bridgeResult?.MotionRepFingerprint,
                 resolvedSeed = bridgeResult?.ResolvedSeed,
                 startFrame = bridgeResult?.StartFrame ?? 0,
-                endFrameExclusive = bridgeResult?.EndFrameExclusive ?? 0,
-                applyFromFrame = bridgeResult?.ApplyFromFrame ?? 0,
-                applyFromTimeSeconds = bridgeResult?.ApplyFromTimeSeconds ?? 0.0,
-                updateRevision = bridgeResult?.UpdateRevision ?? 0
+                endFrameExclusive = bridgeResult?.EndFrameExclusive ?? 0
             };
         }
     }
@@ -106,9 +100,6 @@ namespace KimodoBridge
         public int? ResolvedSeed;
         public int StartFrame;
         public int EndFrameExclusive;
-        public int ApplyFromFrame;
-        public double ApplyFromTimeSeconds;
-        public int UpdateRevision;
     }
 
     public enum KimodoBridgeCommandStage

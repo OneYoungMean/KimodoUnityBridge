@@ -17,7 +17,7 @@ namespace KimodoBridge.Editor.Tests
 
         [TestCase(KimodoMotionModelProfiles.ArdyCoreModelName, 4)]
         [TestCase(KimodoMotionModelProfiles.ArdyG1ModelName, 5)]
-        public void ValidateArdyResult_AcceptsPlaybackDelaySizedDownload(string modelName, int frameCount)
+        public void ValidateArdyResult_AcceptsPlaybackReserveSizedDownload(string modelName, int frameCount)
         {
             Assert.That(KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile), Is.True);
             var motion = new KimodoRawMotionData(
@@ -106,6 +106,24 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(KimodoRuntimeMotionDriver.ShouldCancelActiveGenerationForRefresh(isArdy: false), Is.True);
         }
 
+        [TestCase(1.01f, 1f, false, false)]
+        [TestCase(1f, 1f, false, true)]
+        [TestCase(0.5f, 1f, false, true)]
+        [TestCase(10f, 1f, true, true)]
+        public void PlaybackReserve_TriggersOnlyAtLowWaterOrForPendingRefresh(
+            float bufferedSeconds,
+            float reserveSeconds,
+            bool refreshPending,
+            bool expected)
+        {
+            Assert.That(
+                KimodoRuntimeMotionDriver.ShouldRequestArdyGeneration(
+                    bufferedSeconds,
+                    reserveSeconds,
+                    refreshPending),
+                Is.EqualTo(expected));
+        }
+
         [Test]
         public void RawMotionAppend_GrowsOneContinuousTimeline()
         {
@@ -139,6 +157,43 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(
                 json.foot_contacts.Count,
                 Is.EqualTo(7 * KimodoFootContactTrackUtility.ChannelCount));
+        }
+
+        [Test]
+        public void ArdyRingBuffer_ReplacesAcrossWrapWithoutTouchingProtectedFrames()
+        {
+            KimodoRawMotionData first = CreateMotion(6, 2, 20f, absoluteStartFrame: 0);
+            KimodoRawMotionData replacement = CreateMotion(6, 2, 20f, absoluteStartFrame: 4);
+            using var buffer = new KimodoArdyMotionBuffer(first, capacityFrames: 8);
+
+            Assert.That(buffer.TryReplace(first, 0, 0, out _, out string firstError), Is.True, firstError);
+            Assert.That(
+                buffer.TryReplace(replacement, 4, 6, out int writtenStart, out string replaceError),
+                Is.True,
+                replaceError);
+
+            Assert.That(writtenStart, Is.EqualTo(6));
+            Assert.That(buffer.StartFrame, Is.EqualTo(2));
+            Assert.That(buffer.EndFrameExclusive, Is.EqualTo(10));
+            Assert.That(buffer.TryReadRootPosition(5, out Vector3 protectedRoot), Is.True);
+            Assert.That(buffer.TryReadRootPosition(9, out Vector3 replacedRoot), Is.True);
+            Assert.That(protectedRoot.x, Is.EqualTo(5f));
+            Assert.That(replacedRoot.x, Is.EqualTo(9f));
+        }
+
+        [Test]
+        public void ArdyRingBuffer_LateReplacementDoesNotShrinkBufferedFuture()
+        {
+            KimodoRawMotionData first = CreateMotion(6, 2, 20f, absoluteStartFrame: 0);
+            KimodoRawMotionData late = CreateMotion(4, 2, 20f, absoluteStartFrame: 0);
+            using var buffer = new KimodoArdyMotionBuffer(first, capacityFrames: 8);
+
+            Assert.That(buffer.TryReplace(first, 0, 0, out _, out string firstError), Is.True, firstError);
+            Assert.That(buffer.TryReplace(late, 0, 6, out _, out string lateError), Is.True, lateError);
+
+            Assert.That(buffer.EndFrameExclusive, Is.EqualTo(6));
+            Assert.That(buffer.TryReadRootPosition(5, out Vector3 tail), Is.True);
+            Assert.That(tail.x, Is.EqualTo(5f));
         }
 
         [Test]
@@ -213,7 +268,85 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(constraints[0]["global_root_heading"]?[0]?[1]?.Value<float>(), Is.EqualTo(0f));
         }
 
-        private static KimodoRawMotionData CreateMotion(int frames, int joints, float fps, bool withContacts = false)
+        [Test]
+        public void FootIk_UsesSourceKneePoleAndKeepsItWhenTheSourceLegIsStraight()
+        {
+            var sourceHipsObject = new GameObject("SourceHips");
+            var targetHipsObject = new GameObject("TargetHips");
+            try
+            {
+                Transform sourceHips = sourceHipsObject.transform;
+                Transform sourceUpper = new GameObject("SourceUpper").transform;
+                Transform sourceKnee = new GameObject("SourceKnee").transform;
+                Transform sourceFoot = new GameObject("SourceFoot").transform;
+                sourceUpper.SetParent(sourceHips);
+                sourceKnee.SetParent(sourceUpper);
+                sourceFoot.SetParent(sourceKnee);
+                sourceUpper.position = new Vector3(0f, 1f, 0f);
+                sourceKnee.position = new Vector3(0f, 0.5f, 0.2f);
+                sourceFoot.position = Vector3.zero;
+
+                Transform targetHips = targetHipsObject.transform;
+                targetHips.rotation = Quaternion.Euler(0f, 90f, 0f);
+                Transform targetUpper = new GameObject("TargetUpper").transform;
+                Transform targetKnee = new GameObject("TargetKnee").transform;
+                Transform targetFoot = new GameObject("TargetFoot").transform;
+                targetUpper.SetParent(targetHips);
+                targetKnee.SetParent(targetUpper);
+                targetFoot.SetParent(targetKnee);
+                targetUpper.position = new Vector3(0f, 1f, 0f);
+                targetKnee.position = new Vector3(-0.2f, 0.5f, 0f);
+                targetFoot.position = Vector3.zero;
+                Quaternion originalFootRotation = targetFoot.rotation;
+
+                Vector3 previousPole = Vector3.zero;
+                bool poleInitialized = false;
+                KimodoRuntimeMotionPlayer.SolveTwoBoneLeg(
+                    targetHips,
+                    targetUpper,
+                    targetKnee,
+                    targetFoot,
+                    sourceHips,
+                    sourceUpper,
+                    sourceKnee,
+                    sourceFoot,
+                    ref previousPole,
+                    ref poleInitialized);
+
+                Assert.That(targetKnee.position.x, Is.GreaterThan(0f));
+                Assert.That(Quaternion.Angle(targetFoot.rotation, originalFootRotation), Is.LessThan(0.001f));
+
+                sourceKnee.position = new Vector3(0f, 0.5f, 0f);
+                sourceFoot.position = Vector3.zero;
+                targetKnee.position = new Vector3(-0.2f, 0.5f, 0f);
+                targetFoot.position = Vector3.zero;
+                KimodoRuntimeMotionPlayer.SolveTwoBoneLeg(
+                    targetHips,
+                    targetUpper,
+                    targetKnee,
+                    targetFoot,
+                    sourceHips,
+                    sourceUpper,
+                    sourceKnee,
+                    sourceFoot,
+                    ref previousPole,
+                    ref poleInitialized);
+
+                Assert.That(targetKnee.position.x, Is.GreaterThan(0f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(sourceHipsObject);
+                UnityEngine.Object.DestroyImmediate(targetHipsObject);
+            }
+        }
+
+        private static KimodoRawMotionData CreateMotion(
+            int frames,
+            int joints,
+            float fps,
+            bool withContacts = false,
+            int absoluteStartFrame = 0)
         {
             var rotations = new List<float>(frames * joints * 4);
             for (int frame = 0; frame < frames; frame++)
@@ -226,13 +359,18 @@ namespace KimodoBridge.Editor.Tests
                     rotations.Add(0f);
                 }
             }
+            var roots = new Vector3[frames];
+            for (int frame = 0; frame < frames; frame++)
+            {
+                roots[frame] = new Vector3(absoluteStartFrame + frame, 0f, 0f);
+            }
             return new KimodoRawMotionData(
                 frames,
                 joints,
                 fps,
                 new[] { "Root", "Child" },
                 new[] { -1, 0 },
-                new Vector3[frames],
+                roots,
                 rotations,
                 0,
                 withContacts ? new byte[frames * KimodoFootContactTrackUtility.ChannelCount] : null);

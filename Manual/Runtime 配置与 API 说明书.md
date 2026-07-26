@@ -55,6 +55,8 @@
 | **Diffusion Steps** | 采样步数，越高越精细也越慢。 |
 | **Random Seed / Fixed Seed** | 勾选 Random 每段都不同；取消勾选则用固定 Seed 复现。 |
 | **Segment Interval Seconds** | 每一段的目标时长（秒）。 |
+| **Playback Reserve** | ARDY 可播放动画剩余到该时长时请求下一段，默认 1 秒。 |
+| **Adaptive Playback Reserve** | 默认开启；由 ARDY 后端根据实测生成与 KMB 编码耗时自动调整播放储备。 |
 | **Loop Hint** | 提示后端这是连续/循环生成，有助于段与段之间更连贯。 |
 | **Overlap Constraint Samples** | 段与段衔接时，从上一段尾部取多少帧姿势作为下一段的约束，范围 1–10。值越大衔接越平滑。 |
 | **Allow Partial Joints** | 允许动作数据只包含部分关节。 |
@@ -180,7 +182,7 @@ var request = new KimodoGenerationRequestDto
 
 Future mask 只控制 Root XYZ、Root heading 与非 Root 骨骼的 root-relative XYZ，不控制旋转、速度或脚接触。多个 future clip 按列表顺序合并，后者覆盖前者；`false` 也会清除较早的同通道约束。
 
-ARDY 的每次 Generate 恰好返回一个 `kmb_v1` 结果；缓冲已经足够时允许返回零字节结果。Cancel 只取消当前 Generate 的等待，ARDY Session、history 与 timeline 会保留；`session.close` 才销毁整个 ARDY Session。
+ARDY 的每次 Generate 返回一个绝对帧区间 `kmb_v1`。普通补充结果从上次交付尾部追加；prompt、constraint 或 seek 会从响应的 `start_frame` 替换未播放区间。当前 Generate 不会被新的 ARDY 更新打断；运行时只保留最新 pending 更新，并在当前结果写入后立即发送。`session.close` 才销毁整个 ARDY Session。
 
 `result.motionJsonCompact` 里是生成出来的动作数据，拿到之后解析、重定向到你的角色、播放即可（Demo 里的处理流程可以直接参考）。
 

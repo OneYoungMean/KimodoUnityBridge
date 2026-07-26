@@ -16,6 +16,7 @@ namespace KimodoBridge
         public string constraints_json;
         [NonSerialized] public List<KimodoArdyClipConstraint> ardy_future_clips;
         [NonSerialized] public byte[] ardy_history_kmb;
+        [NonSerialized] public bool ardy_session_update_only;
         // Optional desired transition overlap in seconds.
         public float transition_duration;
         // Runtime configuration is sent together with generate under the current bridge protocol.
@@ -27,10 +28,8 @@ namespace KimodoBridge
         public int owner_pid;
         public double? ardy_history_crop_seconds;
         public double? ardy_future_crop_seconds;
-        public double? ardy_replan_buffer_seconds;
-        public double? ardy_replan_trigger_seconds;
-        public double? ardy_generate_sync_interval_seconds;
-        public bool? ardy_auto_replan;
+        public double? ardy_playback_reserve_seconds;
+        public bool? ardy_adaptive_playback_reserve;
         public string output_format = "kmb_v1";
     }
 
@@ -58,8 +57,5 @@ namespace KimodoBridge
         public int? resolvedSeed;
         public int startFrame;
         public int endFrameExclusive;
-        public int applyFromFrame;
-        public double applyFromTimeSeconds;
-        public int updateRevision;
     }
 }

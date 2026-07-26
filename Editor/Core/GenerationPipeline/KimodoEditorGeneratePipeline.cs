@@ -184,8 +184,6 @@ namespace KimodoBridge.Editor
             }
 
             int targetSourceFrames = Mathf.Max(1, (int)Math.Floor(request.DurationSeconds * profile.SourceFps + 1e-9));
-            int requestedFrames = ((targetSourceFrames + profile.FramesPerToken - 1) /
-                profile.FramesPerToken) * profile.FramesPerToken;
             KimodoBridgeCommandRequest commandRequest = CreateRuntimePipelineRequest(request, prompt, profile.ModelName);
             commandRequest.GenerationRequest.duration = request.DurationSeconds;
             commandRequest.GenerationRequest.time_as_double = 0.0;
@@ -194,8 +192,8 @@ namespace KimodoBridge.Editor
                 ? profile.MaxDiffusionSteps
                 : Mathf.Clamp(request.DiffusionSteps, 1, profile.MaxDiffusionSteps);
             commandRequest.GenerationRequest.ardy_history_kmb = historyPayload;
-            commandRequest.GenerationRequest.ardy_generate_sync_interval_seconds = requestedFrames / profile.SourceFps;
-            commandRequest.GenerationRequest.ardy_replan_buffer_seconds = 0.0;
+            commandRequest.GenerationRequest.ardy_playback_reserve_seconds = 0.0;
+            commandRequest.GenerationRequest.ardy_adaptive_playback_reserve = false;
 
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating complete ARDY KMB...");
             var pipeline = new KimodoBridgeCommand();

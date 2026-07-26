@@ -59,6 +59,9 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             )
             settings = ardy_backend.ArdySettings.from_request({}, profile)
             self.assertEqual(settings.history_crop_frames, expected_history)
+            expected_reserve = int(math.ceil(fps / 4) * 4)
+            self.assertEqual(settings.playback_reserve_frames, expected_reserve)
+            self.assertTrue(settings.adaptive_playback_reserve)
 
     def test_cursor_patch_pause_and_seek_use_one_cached_timeline(self):
         session = self._fake_ardy_session()
@@ -66,12 +69,13 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         cancel = threading.Event()
 
         first, output = session.generate({"time_as_double": 0.0}, (), model, cancel)
-        self.assertEqual((first["start_frame"], first["end_frame_exclusive"]), (0, 24))
-        self.assertEqual(output["root_positions"].shape[1], 24)
+        self.assertEqual((first["start_frame"], first["end_frame_exclusive"]), (0, 40))
+        self.assertEqual(set(first), {"start_frame", "end_frame_exclusive"})
+        self.assertEqual(output["root_positions"].shape[1], 40)
 
         paused, output = session.generate({"time_as_double": 0.0}, (), model, cancel)
-        self.assertEqual((paused["start_frame"], paused["end_frame_exclusive"]), (24, 24))
-        self.assertIsNone(output)
+        self.assertEqual((paused["start_frame"], paused["end_frame_exclusive"]), (40, 80))
+        self.assertEqual(output["root_positions"].shape[1], 40)
 
         patched, output = session.generate(
             {"time_as_double": 0.0, "prompt": "walk", "diffusion_steps": 12, "text_weight": 2.0},
@@ -79,24 +83,21 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             model,
             cancel,
         )
-        self.assertTrue(patched["updated"])
-        self.assertEqual(patched["apply_from_frame"], 24)
-        self.assertEqual((patched["start_frame"], patched["end_frame_exclusive"]), (24, 44))
+        self.assertEqual((patched["start_frame"], patched["end_frame_exclusive"]), (20, 60))
         self.assertEqual(session.diffusion_steps, 12)
         self.assertEqual(session.cfg_text_weight, 4.0)
 
         session.generate({"time_as_double": 1.0}, (), model, cancel)
         seek, output = session.generate({"time_as_double": 0.2}, (), model, cancel)
-        self.assertEqual((seek["start_frame"], seek["end_frame_exclusive"]), (4, 28))
-        self.assertEqual(output["root_positions"].shape[1], 24)
+        self.assertEqual((seek["start_frame"], seek["end_frame_exclusive"]), (24, 64))
+        self.assertEqual(output["root_positions"].shape[1], 40)
 
         session.generate({"time_as_double": 1.0}, (), model, cancel)
         seek_patch, output = session.generate(
             {"time_as_double": 0.2, "prompt": "idle"}, (), model, cancel
         )
-        self.assertEqual(seek_patch["apply_from_frame"], 4)
-        self.assertEqual((seek_patch["start_frame"], seek_patch["end_frame_exclusive"]), (4, 28))
-        self.assertEqual(session.frame_count, 28)
+        self.assertEqual((seek_patch["start_frame"], seek_patch["end_frame_exclusive"]), (24, 64))
+        self.assertEqual(session.frame_count, 64)
 
     def test_generation_uses_the_internal_autoregressive_history(self):
         session = self._fake_ardy_session()
@@ -216,10 +217,34 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             self.assertIsNone(session.root_2d_target)
             self.assertEqual(session.constraints, [])
 
-    def test_root_target_replan_discards_only_the_unreturned_suffix(self):
+    def test_root_target_cursor_sync_preserves_cached_future(self):
         session = self._fake_ardy_session()
         session.root_2d_target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, True)
-        session.returned_until = 24
+        session.motion_cpu = torch.zeros((1, 80, 1), dtype=torch.float32)
+        session.outputs = {"root_positions": np.zeros((1, 80, 3), dtype=np.float32)}
+        session.returned_until = 80
+        replanned_from = []
+        truncated_at = []
+
+        def refresh(self, _model, boundary_frame):
+            replanned_from.append(boundary_frame)
+
+        def truncate(self, frame):
+            truncated_at.append(frame)
+
+        session._refresh_root_2d_target_constraints = MethodType(refresh, session)
+        session._truncate = MethodType(truncate, session)
+        metadata, _ = session.generate(
+            {"time_as_double": 1.0}, (), SimpleNamespace(), threading.Event()
+        )
+
+        self.assertEqual(replanned_from, [])
+        self.assertEqual(truncated_at, [])
+        self.assertEqual((metadata["start_frame"], metadata["end_frame_exclusive"]), (80, 120))
+
+    def test_root_target_refreshes_when_extending_a_horizon(self):
+        session = self._fake_ardy_session()
+        session.root_2d_target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, True)
         session.motion_cpu = torch.zeros((1, 40, 1), dtype=torch.float32)
         session.outputs = {"root_positions": np.zeros((1, 40, 3), dtype=np.float32)}
         replanned_from = []
@@ -227,14 +252,133 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         def refresh(self, _model, boundary_frame):
             replanned_from.append(boundary_frame)
 
+        def generate_horizon(self, _model):
+            frame_count = self.frame_count + self.profile.horizon_frames
+            self.motion_cpu = torch.zeros((1, frame_count, 1), dtype=torch.float32)
+            self.outputs = {"root_positions": np.zeros((1, frame_count, 3), dtype=np.float32)}
+
         session._refresh_root_2d_target_constraints = MethodType(refresh, session)
-        metadata, _ = session.generate(
-            {"time_as_double": 1.0}, (), SimpleNamespace(), threading.Event()
+        session._generate_horizon = MethodType(generate_horizon, session)
+        ardy_backend.ArdySession._ensure_generated(
+            session, 44, SimpleNamespace(), threading.Event()
         )
 
-        self.assertEqual(replanned_from, [24])
-        self.assertEqual(metadata["start_frame"], 24)
-        self.assertGreaterEqual(session.frame_count, metadata["end_frame_exclusive"])
+        self.assertEqual(replanned_from, [40])
+        self.assertEqual(session.frame_count, 80)
+
+    def test_generate_returns_the_complete_computed_horizon(self):
+        session = self._fake_ardy_session()
+
+        def ensure_horizon(self, frame_exclusive, _model, _cancel_event):
+            frame_count = self.frame_count
+            while frame_count < frame_exclusive:
+                frame_count += self.profile.horizon_frames
+            self.motion_cpu = torch.zeros((1, frame_count, 1), dtype=torch.float32)
+            self.outputs = {"root_positions": np.zeros((1, frame_count, 3), dtype=np.float32)}
+
+        session._ensure_generated = MethodType(ensure_horizon, session)
+        metadata, output = session.generate(
+            {"time_as_double": 0.0}, (), SimpleNamespace(), threading.Event()
+        )
+
+        self.assertEqual((metadata["start_frame"], metadata["end_frame_exclusive"]), (0, 40))
+        self.assertEqual(output["root_positions"].shape[1], 40)
+
+    def test_horizontal8_generates_until_the_response_exceeds_the_reserve(self):
+        session = self._fake_ardy_session()
+        session.profile.horizon_frames = 8
+
+        metadata, output = session.generate(
+            {"time_as_double": 0.0}, (), SimpleNamespace(), threading.Event()
+        )
+
+        self.assertEqual((metadata["start_frame"], metadata["end_frame_exclusive"]), (0, 24))
+        self.assertGreater(output["root_positions"].shape[1], session.effective_playback_reserve_frames)
+
+    def test_editor_one_shot_duration_is_independent_from_stream_reserve(self):
+        session = self._fake_ardy_session()
+        session.settings = ardy_backend.ArdySettings(160, 160, 0, False)
+        session.effective_playback_reserve_frames = 0
+        session._initial_duration_frames = 60
+
+        metadata, output = session.generate(
+            {"time_as_double": 0.0}, (), SimpleNamespace(), threading.Event()
+        )
+
+        self.assertEqual((metadata["start_frame"], metadata["end_frame_exclusive"]), (0, 80))
+        self.assertEqual(output["root_positions"].shape[1], 80)
+
+    def test_adaptive_playback_reserve_uses_measured_response_time(self):
+        session = self._fake_ardy_session()
+        session.settings = ardy_backend.ArdySettings(160, 160, 20, True)
+
+        session.record_response_duration(1.0, delivered_frames=40)
+
+        self.assertEqual(session.effective_playback_reserve_frames, 36)
+        self.assertAlmostEqual(session.effective_playback_reserve_frames / session.profile.source_fps, 1.8)
+
+    def test_adaptive_playback_reserve_can_grow_beyond_the_previous_delivery(self):
+        session = self._fake_ardy_session()
+        session.profile.horizon_frames = 8
+        session.settings = ardy_backend.ArdySettings(192, 192, 20, True)
+
+        session.record_response_duration(1.0, delivered_frames=24)
+
+        self.assertEqual(session.effective_playback_reserve_frames, 36)
+
+    def test_adaptive_playback_reserve_decreases_one_token_at_a_time(self):
+        session = self._fake_ardy_session()
+        session.settings = ardy_backend.ArdySettings(160, 160, 20, True)
+        session.effective_playback_reserve_frames = 36
+        session._response_seconds_ema = 0.0
+
+        observed = []
+        for _ in range(4):
+            session.record_response_duration(0.0, delivered_frames=40)
+            observed.append(session.effective_playback_reserve_frames)
+
+        self.assertEqual(observed, [32, 28, 24, 20])
+
+    def test_constraint_returns_old_bridge_when_delivered_tail_is_inside_the_reserve(self):
+        session = self._fake_ardy_session()
+        session.motion_cpu = torch.zeros((1, 8, 1), dtype=torch.float32)
+        session.outputs = {"root_positions": np.zeros((1, 8, 3), dtype=np.float32)}
+        session.returned_until = 8
+
+        metadata, output = session.generate(
+            {"time_as_double": 0.0, "prompt": "walk"},
+            (),
+            SimpleNamespace(),
+            threading.Event(),
+        )
+
+        self.assertEqual((metadata["start_frame"], metadata["end_frame_exclusive"]), (8, 60))
+        self.assertEqual(output["root_positions"].shape[1], 52)
+
+    def test_settings_only_update_does_not_truncate_cached_future(self):
+        session = self._fake_ardy_session()
+        session.motion_cpu = torch.zeros((1, 80, 1), dtype=torch.float32)
+        session.outputs = {"root_positions": np.zeros((1, 80, 3), dtype=np.float32)}
+        session.returned_until = 40
+        truncated_at = []
+
+        def truncate(self, frame):
+            truncated_at.append(frame)
+
+        session._truncate = MethodType(truncate, session)
+        metadata, _ = session.generate(
+            {
+                "time_as_double": 1.0,
+                "ardy_playback_reserve_seconds": 1.0,
+                "ardy_adaptive_playback_reserve": True,
+            },
+            (),
+            SimpleNamespace(),
+            threading.Event(),
+        )
+
+        self.assertEqual(truncated_at, [])
+        self.assertEqual((metadata["start_frame"], metadata["end_frame_exclusive"]), (40, 80))
 
     def test_far_constraint_releases_history_for_future_context(self):
         profile = SimpleNamespace(
@@ -242,7 +386,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             frames_per_token=4,
             max_context_frames=200,
         )
-        settings = ardy_backend.ArdySettings(160, 160, 4, 20, 20, True)
+        settings = ardy_backend.ArdySettings(160, 160, 20, False)
 
         self.assertEqual(ardy_backend._history_limit_for_future(profile, settings, 100, 139), 160)
         self.assertEqual(ardy_backend._history_limit_for_future(profile, settings, 100, 232), 64)
@@ -259,13 +403,15 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         )
         session = ardy_backend.ArdySession.__new__(ardy_backend.ArdySession)
         session.profile = profile
-        session.settings = ardy_backend.ArdySettings(160, 160, 4, 20, 20, True)
+        session.settings = ardy_backend.ArdySettings(160, 160, 20, False)
         session.prompt = "idle"
         session.diffusion_steps = 10
         session.cfg_text_weight = 1.0
-        session.update_revision = 0
         session.returned_until = 0
         session.last_played_frame = 0
+        session.effective_playback_reserve_frames = 20
+        session._response_seconds_ema = None
+        session._initial_duration_frames = 0
         session.motion_cpu = torch.zeros((1, 0, 1), dtype=torch.float32)
         session.outputs = {"root_positions": np.zeros((1, 0, 3), dtype=np.float32)}
         session.initial_history_cpu = None
@@ -277,7 +423,9 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         session.text_feat = session.text_pad_mask = None
 
         def ensure_generated(self, frame_exclusive, _model, _cancel_event):
-            frame_count = max(self.frame_count, int(frame_exclusive))
+            frame_count = self.frame_count
+            while frame_count < int(frame_exclusive):
+                frame_count += self.profile.horizon_frames
             self.motion_cpu = torch.zeros((1, frame_count, 1), dtype=torch.float32)
             self.outputs = {
                 "root_positions": np.arange(frame_count * 3, dtype=np.float32).reshape(1, frame_count, 3)

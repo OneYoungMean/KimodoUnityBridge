@@ -157,23 +157,26 @@ namespace KimodoBridge
             {
                 ["cmd"] = "generate",
                 ["task_id"] = taskId,
-                ["duration"] = request.duration,
-                ["time_as_double"] = request.time_as_double,
-                ["output_format"] = string.IsNullOrWhiteSpace(request.output_format)
-                    ? "kmb_v1"
-                    : request.output_format.Trim(),
-                ["diffusion_steps"] = request.steps,
-                ["text_weight"] = Math.Min(4f, Math.Max(0f, request.text_weight)),
-                ["seed"] = request.seed.HasValue ? request.seed.Value : null,
-                ["transition_duration"] = request.transition_duration,
-                ["model"] = string.IsNullOrWhiteSpace(request.model) ? null : request.model,
-                ["text_encoder_mode"] = string.IsNullOrWhiteSpace(request.text_encoder_mode)
-                    ? KimodoTextEncoderModeProtocol.HighPrecision
-                    : request.text_encoder_mode,
-                ["models_root"] = request.models_root ?? string.Empty,
-                ["force_hf_download"] = request.force_hf_download,
-                ["owner_pid"] = request.owner_pid
+                ["time_as_double"] = request.time_as_double
             };
+            if (!request.ardy_session_update_only)
+            {
+                payload["output_format"] = string.IsNullOrWhiteSpace(request.output_format)
+                    ? "kmb_v1"
+                    : request.output_format.Trim();
+                payload["duration"] = request.duration;
+                payload["diffusion_steps"] = request.steps;
+                payload["text_weight"] = Math.Min(4f, Math.Max(0f, request.text_weight));
+                payload["seed"] = request.seed.HasValue ? request.seed.Value : null;
+                payload["transition_duration"] = request.transition_duration;
+                payload["model"] = string.IsNullOrWhiteSpace(request.model) ? null : request.model;
+                payload["text_encoder_mode"] = string.IsNullOrWhiteSpace(request.text_encoder_mode)
+                    ? KimodoTextEncoderModeProtocol.HighPrecision
+                    : request.text_encoder_mode;
+                payload["models_root"] = request.models_root ?? string.Empty;
+                payload["force_hf_download"] = request.force_hf_download;
+                payload["owner_pid"] = request.owner_pid;
+            }
             if (request.prompt != null)
             {
                 payload["prompt"] = request.prompt;
@@ -182,18 +185,16 @@ namespace KimodoBridge
             {
                 payload["constraints_json"] = constraintsJson;
             }
-            if (request.simulate_free_vram_gb.HasValue)
+            if (!request.ardy_session_update_only && request.simulate_free_vram_gb.HasValue)
             {
                 payload["simulate_free_vram_gb"] = Math.Max(0, request.simulate_free_vram_gb.Value);
             }
-            AddOptional(payload, "ardy_history_crop_seconds", request.ardy_history_crop_seconds);
-            AddOptional(payload, "ardy_future_crop_seconds", request.ardy_future_crop_seconds);
-            AddOptional(payload, "ardy_replan_buffer_seconds", request.ardy_replan_buffer_seconds);
-            AddOptional(payload, "ardy_replan_trigger_seconds", request.ardy_replan_trigger_seconds);
-            AddOptional(payload, "ardy_generate_sync_interval_seconds", request.ardy_generate_sync_interval_seconds);
-            if (request.ardy_auto_replan.HasValue)
+            if (!request.ardy_session_update_only)
             {
-                payload["ardy_auto_replan"] = request.ardy_auto_replan.Value;
+                AddOptional(payload, "ardy_history_crop_seconds", request.ardy_history_crop_seconds);
+                AddOptional(payload, "ardy_future_crop_seconds", request.ardy_future_crop_seconds);
+                AddOptional(payload, "ardy_playback_reserve_seconds", request.ardy_playback_reserve_seconds);
+                AddOptional(payload, "ardy_adaptive_playback_reserve", request.ardy_adaptive_playback_reserve);
             }
 
             byte[] binaryPayload = null;
@@ -226,6 +227,14 @@ namespace KimodoBridge
         }
 
         private static void AddOptional(JObject payload, string name, double? value)
+        {
+            if (value.HasValue)
+            {
+                payload[name] = value.Value;
+            }
+        }
+
+        private static void AddOptional(JObject payload, string name, bool? value)
         {
             if (value.HasValue)
             {
@@ -577,7 +586,7 @@ namespace KimodoBridge
         {
             if (Interlocked.Exchange(ref disposeStarted, 1) != 0) return;
             disposed = true;
-            CloseSharedConnectionSync(new ObjectDisposedException(nameof(BridgeProtocolClient)));
+            CloseSharedConnectionSync(new OperationCanceledException("Bridge protocol client is closing."));
         }
 
         public async Task DisposeAsync(int timeoutMs = 300)
@@ -585,7 +594,7 @@ namespace KimodoBridge
             if (Interlocked.Exchange(ref disposeStarted, 1) != 0) return;
             disposed = true;
             await Task.Yield();
-            CloseSharedConnectionSync(new ObjectDisposedException(nameof(BridgeProtocolClient)));
+            CloseSharedConnectionSync(new OperationCanceledException("Bridge protocol client is closing."));
             writeLock.Dispose();
             _ = timeoutMs;
         }

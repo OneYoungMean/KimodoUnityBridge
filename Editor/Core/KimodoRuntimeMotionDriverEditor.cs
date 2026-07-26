@@ -12,16 +12,15 @@ namespace KimodoBridge.Editor
         private SerializedProperty forceCpu;
         private SerializedProperty prompt;
         private SerializedProperty generationFrames;
-        private SerializedProperty ardyPlaybackDelaySeconds;
+        private SerializedProperty ardyPlaybackReserveSeconds;
+        private SerializedProperty ardyAdaptivePlaybackReserve;
         private SerializedProperty ardyHistoryCropSeconds;
         private SerializedProperty ardyFutureCropSeconds;
-        private SerializedProperty ardyGenerateSyncIntervalSeconds;
-        private SerializedProperty ardyReplanTriggerSeconds;
-        private SerializedProperty ardyAutoReplan;
         private SerializedProperty diffusionSteps;
         private SerializedProperty textWeight;
         private SerializedProperty randomSeed;
         private SerializedProperty seed;
+        private SerializedProperty driveFootIkTargets;
         private SerializedProperty drawDebugSkeleton;
         private SerializedProperty debugBoneColor;
         private SerializedProperty debugJointColor;
@@ -36,16 +35,15 @@ namespace KimodoBridge.Editor
             forceCpu = serializedObject.FindProperty("forceCpu");
             prompt = serializedObject.FindProperty("defaultPrompt");
             generationFrames = serializedObject.FindProperty("generationFrames");
-            ardyPlaybackDelaySeconds = serializedObject.FindProperty("ardyPlaybackDelaySeconds");
+            ardyPlaybackReserveSeconds = serializedObject.FindProperty("ardyPlaybackReserveSeconds");
+            ardyAdaptivePlaybackReserve = serializedObject.FindProperty("ardyAdaptivePlaybackReserve");
             ardyHistoryCropSeconds = serializedObject.FindProperty("ardyHistoryCropSeconds");
             ardyFutureCropSeconds = serializedObject.FindProperty("ardyFutureCropSeconds");
-            ardyGenerateSyncIntervalSeconds = serializedObject.FindProperty("ardyGenerateSyncIntervalSeconds");
-            ardyReplanTriggerSeconds = serializedObject.FindProperty("ardyReplanTriggerSeconds");
-            ardyAutoReplan = serializedObject.FindProperty("ardyAutoReplan");
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
             textWeight = serializedObject.FindProperty("textWeight");
             randomSeed = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("fixedSeed");
+            driveFootIkTargets = serializedObject.FindProperty("driveFootIkTargets");
             drawDebugSkeleton = serializedObject.FindProperty("drawDebugSkeleton");
             debugBoneColor = serializedObject.FindProperty("debugSkeletonBoneColor");
             debugJointColor = serializedObject.FindProperty("debugSkeletonJointColor");
@@ -101,8 +99,11 @@ namespace KimodoBridge.Editor
             else
             {
                 EditorGUILayout.PropertyField(
-                    ardyPlaybackDelaySeconds,
-                    new GUIContent("Playback Delay", "Future lead preserved by ARDY when replanning; default 0.2 seconds."));
+                    ardyPlaybackReserveSeconds,
+                    new GUIContent("Playback Reserve", "Request more motion when this much playable ARDY animation remains; default 1 second."));
+                EditorGUILayout.PropertyField(
+                    ardyAdaptivePlaybackReserve,
+                    new GUIContent("Adaptive Playback Reserve", "Let the backend adapt the reserve from measured response time."));
                 EditorGUILayout.Space(2f);
                 EditorGUILayout.LabelField("ARDY Settings (seconds)", EditorStyles.miniBoldLabel);
                 EditorGUILayout.PropertyField(
@@ -111,19 +112,28 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.PropertyField(
                     ardyFutureCropSeconds,
                     new GUIContent("Future Crop", "0 uses the selected profile maximum."));
-                EditorGUILayout.PropertyField(
-                    ardyGenerateSyncIntervalSeconds,
-                    new GUIContent("Generate Sync Interval", "Minimum interval between automatic Generate cursor updates; minimum 0.2 seconds."));
-                EditorGUILayout.PropertyField(
-                    ardyReplanTriggerSeconds,
-                    new GUIContent("Replan Trigger Threshold", "Send the next Generate when Unity's remaining ARDY timeline reaches this duration."));
-                EditorGUILayout.PropertyField(ardyAutoReplan, new GUIContent("Auto Replan"));
             }
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, modelName);
             KimodoGenerationInspectorGui.DrawTextWeight(textWeight);
             KimodoGenerationInspectorGui.DrawSeed(randomSeed, seed);
+            DrawFootIkSetting();
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
+        }
+
+        private void DrawFootIkSetting()
+        {
+            var label = new GUIContent(
+                "Foot IK",
+                "Enable foot target driving and runtime two-bone leg IK correction.");
+            if (!Application.isPlaying)
+            {
+                EditorGUILayout.PropertyField(driveFootIkTargets, label);
+                return;
+            }
+
+            KimodoRuntimeMotionDriver driver = (KimodoRuntimeMotionDriver)target;
+            driver.FootIkEnabled = EditorGUILayout.Toggle(label, driver.FootIkEnabled);
         }
 
         private void DrawRuntimeControls()
@@ -134,7 +144,7 @@ namespace KimodoBridge.Editor
 
             using (new EditorGUI.DisabledScope(!Application.isPlaying))
             {
-                if (GUILayout.Button(new GUIContent("Apply", "Cancel queued/in-flight generation and generate the next segment with these settings."), GUILayout.Height(30f)))
+                if (GUILayout.Button(new GUIContent("Apply", "Apply these settings to the next generation."), GUILayout.Height(30f)))
                 {
                     serializedObject.ApplyModifiedProperties();
                     driver.ApplyGenerationSettings();

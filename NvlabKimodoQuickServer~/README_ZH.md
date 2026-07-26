@@ -73,14 +73,15 @@ TCP 协议补充：
 - `session.close` 只关闭显式 Session；关闭 `session:default` 会关闭 QuickServer。旧 `quit` 保持相同的全局关闭效果。
 - `generate` 使用 `text_encoder_mode`，不再接受 `highvram` 或 `force_cpu`；Force CPU UI 会发送 `simulate_free_vram_gb=0`。
 - `generate` 的 `task_id` 现在是可选的；如果调用方不传，QuickServer 会在入队前自动补一个稳定任务标识。
+- 新的 ARDY Generate 不会取消正在执行的 Horizon；当前请求完成后再执行，并且等待队列只保留最新的 ARDY 更新。
 
 ## KMB 直接传输
 
-`generate` 使用 `output_format=kmb_v1`。成功响应是一行带 `byte_length` 的 JSON，后面立即跟随对应长度的 KMB1；ARDY 缓冲已经足够时允许 `byte_length=0`。
+`generate` 使用 `output_format=kmb_v1`。ARDY 成功响应是一行带 `byte_length` 的 JSON，后面立即跟随非空 KMB1 区间；返回后的可播放长度一定超过当前 Playback Reserve。
 
-ARDY 客户端每次 Generate 都发送 Session 相对的 `time_as_double`。QuickServer 根据当前模型 FPS 转帧，只在 GPU 保留 profile 对应的 history，并在 CPU 缓存时间线以支持 seek。缺省 `prompt` 或 `constraints_json` 表示保持；`[]` 表示清空完整 constraint 快照。更新 prompt/constraint 时会丢弃尚未发布的旧 future，并在响应的 `apply_from_frame` 生效。
+ARDY 客户端每次 Generate 都发送 Session 相对的 `time_as_double`。QuickServer 根据当前模型 FPS 转帧，只在 GPU 保留 profile 对应的 history，并在 CPU 缓存时间线以支持 seek。`ardy_playback_reserve_seconds` 默认 1 秒；`ardy_adaptive_playback_reserve` 默认开启，根据后端实测响应耗时调整实际储备。缺省 `prompt` 或 `constraints_json` 表示保持；`[]` 表示清空完整 constraint 快照。更新 prompt/constraint 时保留到 `time_as_double + Playback Reserve`，再重新生成并返回受影响的绝对 KMB 区间。
 
-`time_as_double` 减小视为 seek。缓存 KMB 可能与之前返回的帧重叠，因此支持 seek 的客户端必须从 `start_frame` 替换时间线；Runtime Motion Driver 的游标保持单调，只追加连续区间。
+`time_as_double` 减小视为 seek。普通响应从上次已交付尾部追加；seek 和重规划响应可能与旧帧重叠，客户端必须从 `start_frame` 替换时间线。
 
 History/Future KMB 输入使用 JSON `kmb_attachments` 清单描述连续 offset/length，随后发送拼接的 KMB1 数据；clip constraint 用 `format=kmb_attachment_v1` 和从 0 开始的 `attachment` 索引引用。KMB1 FlatBuffer schema 不变。`ardy_file_v1` 仍只用于显式调试。
 

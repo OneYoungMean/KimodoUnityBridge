@@ -1,14 +1,27 @@
 {
     "name": "KimodoTool.Editor.Tests",
+    "rootNamespace": "",
     "references": [
         "GUID:f06555f75b070af458a003d92f9efb00",
-        "KimodoTool.Editor",
-        "KimodoTool"
+        "GUID:54f114e602d205743a02438efbf668d9",
+        "GUID:ff86ae37735575640ba2ef5dc2b53cc9",
+        "GUID:27619889b8ba8c24980f49ee34dbb44a",
+        "GUID:0acc523941302664db1f4e527237feb3"
     ],
     "includePlatforms": [
         "Editor"
     ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
-    ]
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll",
+        "Newtonsoft.Json.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
 }

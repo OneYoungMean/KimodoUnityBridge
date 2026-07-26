@@ -23,9 +23,7 @@ namespace KimodoBridge
         public int? ResolvedSeed { get; set; }
         public int StartFrame { get; set; }
         public int EndFrameExclusive { get; set; }
-        public int ApplyFromFrame { get; set; }
-        public double ApplyFromTimeSeconds { get; set; }
-        public int UpdateRevision { get; set; }
+        public double? ArdyPlaybackReserveSeconds { get; set; }
     }
 
     public sealed class KimodoBridgeService : IDisposable
@@ -188,7 +186,6 @@ namespace KimodoBridge
                     $"[KimodoBridge] Generate response: status='{status}', format='{outputFormat}', hasJson={!string.IsNullOrWhiteSpace(motionJson)}, " +
                     $"hasBinary={(response?.BinaryPayload != null && response.BinaryPayload.Length > 0)}, message='{responseMessage}', " +
                     $"frames=[{header?.Value<int?>("start_frame") ?? 0},{header?.Value<int?>("end_frame_exclusive") ?? 0}), " +
-                    $"applyFrom={header?.Value<int?>("apply_from_frame") ?? 0}, " +
                     $"text_encoder='{resolvedEncoderMode}/{resolvedEncoderRoute}/{resolvedEncoderDevice}'");
 
                 if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
@@ -224,9 +221,7 @@ namespace KimodoBridge
                         ResolvedSeed = header?.Value<int?>("resolved_seed"),
                         StartFrame = header?.Value<int?>("start_frame") ?? 0,
                         EndFrameExclusive = header?.Value<int?>("end_frame_exclusive") ?? 0,
-                        ApplyFromFrame = header?.Value<int?>("apply_from_frame") ?? 0,
-                        ApplyFromTimeSeconds = header?.Value<double?>("apply_from_time_seconds") ?? 0.0,
-                        UpdateRevision = header?.Value<int?>("update_revision") ?? 0
+                        ArdyPlaybackReserveSeconds = header?.Value<double?>("ardy_playback_reserve_seconds")
                     };
                 }
 

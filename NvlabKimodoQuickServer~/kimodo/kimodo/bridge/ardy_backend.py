@@ -8,6 +8,7 @@ from pathlib import Path
 import secrets
 import sys
 import threading
+import time
 from typing import Any
 
 import numpy as np
@@ -68,10 +69,8 @@ class Root2DTarget:
 class ArdySettings:
     history_crop_frames: int
     future_crop_frames: int
-    replan_buffer_frames: int
-    replan_trigger_frames: int
-    generate_sync_frames: int
-    auto_replan: bool
+    playback_reserve_frames: int
+    adaptive_playback_reserve: bool
 
     @classmethod
     def from_request(cls, request: dict[str, Any], profile: Any) -> "ArdySettings":
@@ -89,29 +88,24 @@ class ArdySettings:
         history = min(crop_max, history // patch * patch)
         future = seconds_to_frames("ardy_future_crop_seconds", crop_max / fps)
         future = min(crop_max, future // patch * patch)
-        replan_buffer = seconds_to_frames("ardy_replan_buffer_seconds", 0.2)
-        replan_trigger = seconds_to_frames("ardy_replan_trigger_seconds", 1.0)
-        generate_sync = seconds_to_frames("ardy_generate_sync_interval_seconds", 1.0, minimum=1)
-        minimum_sync = max(1, int(math.ceil(0.2 * fps - 1e-6)))
-        if generate_sync < minimum_sync:
-            raise ArdyBackendError("ardy_generate_sync_interval_seconds must be at least 0.2 seconds.")
+        playback_reserve = seconds_to_frames("ardy_playback_reserve_seconds", 1.0)
+        if playback_reserve > 0:
+            minimum_reserve = max(1, int(math.ceil(0.2 * fps - 1e-6)))
+            playback_reserve = max(minimum_reserve, playback_reserve)
+            playback_reserve = int(math.ceil(playback_reserve / patch) * patch)
         return cls(
             history_crop_frames=history,
             future_crop_frames=future,
-            replan_buffer_frames=replan_buffer,
-            replan_trigger_frames=replan_trigger,
-            generate_sync_frames=generate_sync,
-            auto_replan=bool(request.get("ardy_auto_replan", True)),
+            playback_reserve_frames=playback_reserve,
+            adaptive_playback_reserve=bool(request.get("ardy_adaptive_playback_reserve", True)),
         )
 
-    def response_fields(self, fps: float) -> dict[str, Any]:
+    def request_fields(self, fps: float) -> dict[str, Any]:
         return {
             "ardy_history_crop_seconds": self.history_crop_frames / fps,
             "ardy_future_crop_seconds": self.future_crop_frames / fps,
-            "ardy_replan_buffer_seconds": self.replan_buffer_frames / fps,
-            "ardy_replan_trigger_seconds": self.replan_trigger_frames / fps,
-            "ardy_generate_sync_interval_seconds": self.generate_sync_frames / fps,
-            "ardy_auto_replan": self.auto_replan,
+            "ardy_playback_reserve_seconds": self.playback_reserve_frames / fps,
+            "ardy_adaptive_playback_reserve": self.adaptive_playback_reserve,
         }
 
 
@@ -490,9 +484,16 @@ class ArdySession:
         self.cfg_text_weight = self._resolve_cfg(request)
         requested_seed = request.get("seed")
         self.resolved_seed = secrets.randbelow(2**31) if requested_seed is None else int(requested_seed)
-        self.update_revision = 0
         self.returned_until = 0
         self.last_played_frame = 0
+        self.effective_playback_reserve_frames = self.settings.playback_reserve_frames
+        self._response_seconds_ema: float | None = None
+        duration_seconds = float(request.get("duration", 0.0) or 0.0)
+        if not math.isfinite(duration_seconds) or duration_seconds < 0.0:
+            raise ArdyBackendError("duration must be a finite non-negative number of seconds.")
+        self._initial_duration_frames = 0
+        if self.settings.playback_reserve_frames == 0 and duration_seconds > 0.0:
+            self._initial_duration_frames = int(math.ceil(duration_seconds * float(profile.source_fps) - 1e-6))
         self.motion_cpu = None
         self.outputs: dict[str, np.ndarray] | None = None
         self.initial_history_cpu = None
@@ -647,6 +648,23 @@ class ArdySession:
                 plain.append(target_constraint)
         self.constraints = load_constraints_lst(plain, model.motion_rep.skeleton) if plain else []
 
+    def _apply_settings(self, request: dict[str, Any]) -> bool:
+        settings_keys = {
+            "ardy_history_crop_seconds",
+            "ardy_future_crop_seconds",
+            "ardy_playback_reserve_seconds",
+            "ardy_adaptive_playback_reserve",
+        }
+        if not any(key in request for key in settings_keys):
+            return False
+        merged = dict(request)
+        for key, value in self.settings.request_fields(float(self.profile.source_fps)).items():
+            merged.setdefault(key, value)
+        self.settings = ArdySettings.from_request(merged, self.profile)
+        self.effective_playback_reserve_frames = self.settings.playback_reserve_frames
+        self._response_seconds_ema = None
+        return True
+
     def _apply_patch(
         self,
         request: dict[str, Any],
@@ -654,27 +672,12 @@ class ArdySession:
         model: Any,
         apply_from: int,
     ) -> bool:
-        settings_keys = {
-            "ardy_history_crop_seconds",
-            "ardy_future_crop_seconds",
-            "ardy_replan_buffer_seconds",
-            "ardy_replan_trigger_seconds",
-            "ardy_generate_sync_interval_seconds",
-            "ardy_auto_replan",
-        }
-        changed = "prompt" in request or "constraints_json" in request or any(key in request for key in settings_keys)
-        changed = changed or self._generation_parameters_changed(request)
+        changed = "prompt" in request or "constraints_json" in request or self._generation_parameters_changed(request)
         if not changed:
             return False
         if "prompt" in request:
             self.prompt = self._normalize_prompt(request.get("prompt"))
             self._encode_prompt(model)
-        if any(key in request for key in settings_keys):
-            merged = dict(request)
-            current = self.settings.response_fields(float(self.profile.source_fps))
-            for key, value in current.items():
-                merged.setdefault(key, value)
-            self.settings = ArdySettings.from_request(merged, self.profile)
         if "diffusion_steps" in request:
             self.diffusion_steps = self._resolve_steps(request.get("diffusion_steps"))
         if "text_weight" in request or "cfg_weight" in request:
@@ -683,7 +686,6 @@ class ArdySession:
             self._set_constraints(
                 request.get("constraints_json"), attachments, model, apply_from=apply_from, initial=False
             )
-        self.update_revision += 1
         return True
 
     def _truncate(self, frame: int) -> None:
@@ -851,9 +853,31 @@ class ArdySession:
         while self.frame_count < frame_exclusive:
             if cancel_event.is_set():
                 raise bridge_server.GenerateCancelledError("Generation canceled.")
+            if self.root_2d_target is not None:
+                self._refresh_root_2d_target_constraints(model, self.frame_count)
             self._generate_horizon(model)
         if cancel_event.is_set():
             raise bridge_server.GenerateCancelledError("Generation canceled.")
+
+    def record_response_duration(self, elapsed_seconds: float, delivered_frames: int) -> None:
+        if not self.settings.adaptive_playback_reserve or delivered_frames <= 0:
+            return
+        fps = float(self.profile.source_fps)
+        patch = int(self.profile.frames_per_token)
+        elapsed = max(0.0, float(elapsed_seconds))
+        self._response_seconds_ema = (
+            elapsed
+            if self._response_seconds_ema is None
+            else 0.75 * self._response_seconds_ema + 0.25 * elapsed
+        )
+        minimum = int(math.ceil(0.2 * fps / patch) * patch)
+        estimate = int(math.ceil((1.5 * self._response_seconds_ema * fps + patch) / patch) * patch)
+        hard_max = max(minimum, self.settings.history_crop_frames + self.settings.future_crop_frames)
+        estimate = max(minimum, min(estimate, hard_max))
+        current = max(minimum, self.effective_playback_reserve_frames)
+        if estimate < current:
+            estimate = max(estimate, current - patch)
+        self.effective_playback_reserve_frames = max(minimum, min(estimate, hard_max))
 
     def generate(
         self,
@@ -873,50 +897,42 @@ class ArdySession:
         patch_requested = (
             "prompt" in request
             or "constraints_json" in request
-            or any(key.startswith("ardy_") for key in request)
             or self._generation_parameters_changed(request)
         )
+        self._apply_settings(request)
+        reserve = self.effective_playback_reserve_frames
 
         if played > self.frame_count:
             self._ensure_generated(played, model, cancel_event)
-        if seek and patch_requested:
-            apply_from = min(played, self.frame_count) // patch * patch
-            self._truncate(apply_from)
-        elif patch_requested:
-            apply_from = max(self.returned_until, played) // patch * patch
+        apply_from = 0
+        if self.frame_count > 0:
+            reserve_end = played_exact + reserve
+            apply_from = int(math.ceil(reserve_end / patch) * patch)
             self._ensure_generated(apply_from, model, cancel_event)
+        if patch_requested or seek:
             self._truncate(apply_from)
-        else:
-            apply_from = min(played, self.frame_count) if seek else self.returned_until
 
-        updated = self._apply_patch(request, attachments, model, apply_from) if patch_requested else False
-        if seek:
-            return_start = played
+        if patch_requested:
+            self._apply_patch(request, attachments, model, apply_from)
+        if patch_requested or seek:
+            return_start = min(self.returned_until, apply_from)
+            generation_start = apply_from
         else:
-            return_start = max(self.returned_until, played)
-        if self.root_2d_target is not None:
-            plan_from = return_start // patch * patch
-            if self.frame_count > plan_from:
-                self._truncate(plan_from)
-            self._refresh_root_2d_target_constraints(model, plan_from)
-        target = played_exact + self.settings.generate_sync_frames + self.settings.replan_buffer_frames
-        target = max(return_start, target // patch * patch)
-        if updated:
-            target = max(target, apply_from + self.settings.generate_sync_frames)
-            target = target // patch * patch
+            return_start = max(self.returned_until, played_exact)
+            generation_start = return_start
+        minimum_delivery = reserve + 1
+        if self.returned_until == 0 and self._initial_duration_frames > 0:
+            minimum_delivery = max(minimum_delivery, self._initial_duration_frames)
+        target = generation_start + max(1, minimum_delivery)
         self._ensure_generated(target, model, cancel_event)
-        result = None if target <= return_start else _slice_outputs(self.outputs or {}, return_start, target)
-        self.returned_until = target
+        return_end = self.frame_count
+        result = None if return_end <= return_start else _slice_outputs(self.outputs or {}, return_start, return_end)
+        self.returned_until = return_end
+        self._initial_duration_frames = 0
         self.last_played_frame = played_exact
         return {
             "start_frame": return_start,
-            "end_frame_exclusive": target,
-            "played_frame_exclusive": played_exact,
-            "apply_from_frame": apply_from,
-            "apply_from_time_seconds": apply_from / fps,
-            "update_revision": self.update_revision,
-            "updated": updated,
-            **self.settings.response_fields(fps),
+            "end_frame_exclusive": return_end,
         }, result
 
     def close(self) -> None:
@@ -945,16 +961,25 @@ def execute_stream_generate(
     if session is None:
         session = ArdySession(request, attachments, model, profile, quickserver_root)
         request = {"time_as_double": request.get("time_as_double", 0.0)}
+    started = time.perf_counter()
     metadata, output = session.generate(request, attachments, model, cancel_event)
     payload = b""
     if output:
         payload = bridge_server._build_generate_flatbuffer_payload(model, output, sample_index=0)
+    elapsed = time.perf_counter() - started
+    session.record_response_duration(
+        elapsed,
+        int(metadata["end_frame_exclusive"]) - int(metadata["start_frame"]),
+    )
     return session, {
         "status": "done",
         "output_format": "kmb_v1",
         "byte_length": len(payload),
         "motion_rep_fingerprint": profile.motion_rep_fingerprint,
         "resolved_seed": session.resolved_seed,
+        "ardy_playback_reserve_seconds": session.effective_playback_reserve_frames / float(profile.source_fps),
+        "ardy_adaptive_playback_reserve": session.settings.adaptive_playback_reserve,
+        "ardy_server_response_seconds": elapsed,
         **metadata,
     }, payload or None
 

@@ -14,12 +14,17 @@ namespace KimodoBridge
         private string sourceCacheModelName;
         private Transform sourceRootJoint;
         private Transform sourceHipsBone;
+        private Transform sourceLeftUpperLegBone;
+        private Transform sourceLeftLowerLegBone;
         private Transform sourceLeftFootBone;
+        private Transform sourceRightUpperLegBone;
+        private Transform sourceRightLowerLegBone;
         private Transform sourceRightFootBone;
         private Vector3 currentSegmentRootBaseline;
         private Vector3 lastCompletedWorldOffset;
         private KimodoRuntimeGeneratedSegment currentSegment;
-        private KimodoRuntimeGeneratedSegment queuedArdyTimeline;
+        private KimodoRuntimeGeneratedSegment ardySegment;
+        private KimodoArdyMotionBuffer ardyBuffer;
         private TargetRetargetState targetState;
         private float timeSeconds;
         private bool playing;
@@ -48,6 +53,10 @@ namespace KimodoBridge
             public Quaternion SourceRightFootBaselineWorldRotation;
             public bool LeftFootIkInitialized;
             public bool RightFootIkInitialized;
+            public Vector3 LeftKneePoleLocalDirection;
+            public Vector3 RightKneePoleLocalDirection;
+            public bool LeftKneePoleInitialized;
+            public bool RightKneePoleInitialized;
             public bool AnimatorWasEnabled;
             public bool AnimatorDisabledForRetarget;
             public bool DriveFootIk;
@@ -87,6 +96,10 @@ namespace KimodoBridge
         {
             get
             {
+                if (ardyBuffer != null)
+                {
+                    return Mathf.Max(0f, ardyBuffer.EndTimeSeconds - timeSeconds);
+                }
                 float total = currentSegment != null
                     ? Mathf.Max(0f, currentSegment.EffectiveLastFrameTimeSeconds - timeSeconds)
                     : 0f;
@@ -129,7 +142,7 @@ namespace KimodoBridge
             }
         }
 
-        public bool AppendArdy(
+        public bool ReplaceArdy(
             KimodoRuntimeGeneratedSegment segment,
             int startFrame,
             bool verboseLogging,
@@ -142,32 +155,51 @@ namespace KimodoBridge
                 return false;
             }
 
-            KimodoRuntimeGeneratedSegment timeline = currentSegment != null && currentSegment.UseRawRootPosition
-                ? currentSegment
-                : queuedArdyTimeline;
-            if (timeline == null)
+            bool createdBuffer = ardyBuffer == null;
+            if (createdBuffer)
             {
                 if (startFrame != 0)
                 {
                     error = $"First ARDY KMB segment must start at frame 0, got {startFrame}.";
                     return false;
                 }
-                queuedArdyTimeline = segment;
-                Enqueue(segment, verboseLogging);
-                return true;
+                ardyBuffer = new KimodoArdyMotionBuffer(segment.Motion);
+                ardySegment = segment;
             }
 
-            if (!timeline.Motion.TryAppend(segment.Motion, startFrame, out error))
+            int protectedFrameExclusive = playing && ReferenceEquals(currentSegment, ardySegment)
+                ? ardyBuffer.ResolveProtectedFrameExclusive(timeSeconds)
+                : ardyBuffer.StartFrame;
+            if (!ardyBuffer.TryReplace(
+                    segment.Motion,
+                    startFrame,
+                    protectedFrameExclusive,
+                    out int writtenStartFrame,
+                    out error))
             {
+                if (createdBuffer)
+                {
+                    ardyBuffer.Dispose();
+                    ardyBuffer = null;
+                    ardySegment = null;
+                }
                 return false;
             }
-            timeline.LastRootPosition = segment.LastRootPosition;
-            timeline.PromptText = segment.PromptText;
-            timeline.EffectiveLastFrameIndex = timeline.Motion.FrameCount - 1;
-            timeline.EffectiveLastFrameTimeSeconds = timeline.Motion.DurationSeconds;
-            timeline.MotionBytes = null;
-            timeline.MotionRepFingerprint = segment.MotionRepFingerprint;
-            timeline.ResolvedSeed = segment.ResolvedSeed;
+            if (ardySegment != null)
+            {
+                ardySegment.PromptText = segment.PromptText;
+                ardySegment.LastRootPosition = segment.LastRootPosition;
+                ardySegment.EffectiveLastFrameIndex = ardyBuffer.EndFrameExclusive - 1;
+                ardySegment.EffectiveLastFrameTimeSeconds = ardyBuffer.EndTimeSeconds;
+                ardySegment.MotionRepFingerprint = segment.MotionRepFingerprint;
+                ardySegment.ResolvedSeed = segment.ResolvedSeed;
+            }
+            if (verboseLogging)
+            {
+                Debug.Log(
+                    $"[KimodoRuntimeMotionDriver] ARDY replace [{startFrame},{startFrame + segment.Motion.FrameCount}) " +
+                    $"wrote [{writtenStartFrame},{ardyBuffer.EndFrameExclusive}); protectedBefore={protectedFrameExclusive}.");
+            }
             return true;
         }
 
@@ -176,7 +208,6 @@ namespace KimodoBridge
             lock (queueGate)
             {
                 queuedSegments.Clear();
-                queuedArdyTimeline = null;
             }
         }
 
@@ -202,6 +233,7 @@ namespace KimodoBridge
             startedSegment = null;
             completedSegment = null;
             error = string.Empty;
+            SyncFootIkSetting(driveFootIkTargets, leftFootIkTargetName, rightFootIkTargetName);
 
             if (playing && sourceBinding != null)
             {
@@ -210,6 +242,25 @@ namespace KimodoBridge
                 {
                     return;
                 }
+            }
+
+            if (!playing && ardyBuffer != null && ardySegment != null)
+            {
+                if (!Play(
+                        ardySegment,
+                        modelName,
+                        targetAnimator,
+                        allowPartialJoints,
+                        driveFootIkTargets,
+                        leftFootIkTargetName,
+                        rightFootIkTargetName,
+                        out error,
+                        verboseLogging))
+                {
+                    return;
+                }
+                startedSegment = ardySegment;
+                return;
             }
 
             if (!playing && TryDequeue(out KimodoRuntimeGeneratedSegment next))
@@ -237,7 +288,7 @@ namespace KimodoBridge
             }
         }
 
-        public void ApplyLateRetargetCorrection()
+        public void ApplyLateRetargetCorrection(bool enableFootIk)
         {
             if (!playing ||
                 targetState?.Animator == null ||
@@ -251,22 +302,41 @@ namespace KimodoBridge
             Vector3 hipsOffset = sourceHipsBone.position - targetState.HipsBone.position;
             targetState.Animator.transform.position += new Vector3(hipsOffset.x, 0f, hipsOffset.z);
 
+            if (!enableFootIk)
+            {
+                return;
+            }
+
             SolveTwoBoneLeg(
+                targetState.HipsBone,
                 targetState.LeftUpperLegBone,
                 targetState.LeftLowerLegBone,
                 targetState.LeftFootBone,
-                sourceLeftFootBone);
+                sourceHipsBone,
+                sourceLeftUpperLegBone,
+                sourceLeftLowerLegBone,
+                sourceLeftFootBone,
+                ref targetState.LeftKneePoleLocalDirection,
+                ref targetState.LeftKneePoleInitialized);
             SolveTwoBoneLeg(
+                targetState.HipsBone,
                 targetState.RightUpperLegBone,
                 targetState.RightLowerLegBone,
                 targetState.RightFootBone,
-                sourceRightFootBone);
+                sourceHipsBone,
+                sourceRightUpperLegBone,
+                sourceRightLowerLegBone,
+                sourceRightFootBone,
+                ref targetState.RightKneePoleLocalDirection,
+                ref targetState.RightKneePoleInitialized);
         }
 
         public void Stop()
         {
             StopActiveMotion();
-            queuedArdyTimeline = null;
+            ardyBuffer?.Dispose();
+            ardyBuffer = null;
+            ardySegment = null;
             DisposeRetargetCache();
         }
 
@@ -274,13 +344,13 @@ namespace KimodoBridge
         {
             Transform[] joints = sourceBinding != null ? sourceBinding.joints : null;
             KimodoRawMotionData motion = sourceBinding != null ? sourceBinding.motion : null;
-            if (joints == null || motion == null)
+            int[] parents = ardyBuffer != null ? ardyBuffer.JointParents : motion?.jointParents;
+            if (joints == null || parents == null)
             {
                 return;
             }
 
-            int count = Mathf.Min(joints.Length, motion.JointCount);
-            int[] parents = motion.jointParents;
+            int count = Mathf.Min(joints.Length, parents.Length);
             for (int i = 0; i < count; i++)
             {
                 Transform joint = joints[i];
@@ -372,11 +442,12 @@ namespace KimodoBridge
             }
 
             currentSegment = segment;
+            bool isArdy = segment.UseRawRootPosition && ardyBuffer != null && ReferenceEquals(segment, ardySegment);
             currentSegment.WorldAccumulatedOffset = ResolveNextWorldOffset(segment.FirstRootPosition);
             currentSegmentRootBaseline = segment.FirstRootPosition;
             ResetTargetFootIkBaselines();
-            timeSeconds = 0f;
-            if (!TryApplyFrame(0, out error))
+            timeSeconds = isArdy ? ardyBuffer.StartFrame / ardyBuffer.FrameRate : 0f;
+            if (isArdy ? !TryApplyArdyTime(timeSeconds, out error) : !TryApplyFrame(0, out error))
             {
                 if (verboseLogging)
                 {
@@ -402,7 +473,9 @@ namespace KimodoBridge
 
             timeSeconds += Mathf.Max(0f, deltaTime);
             bool reachedEnd = false;
-            float segmentEndTime = currentSegment != null
+            float segmentEndTime = ardyBuffer != null
+                ? ardyBuffer.EndTimeSeconds
+                : currentSegment != null
                 ? Mathf.Max(0f, currentSegment.EffectiveLastFrameTimeSeconds)
                 : (sourceBinding.motion != null ? sourceBinding.motion.LastFrameTimeSeconds : 0f);
             if (sourceBinding.motion != null && timeSeconds >= segmentEndTime)
@@ -411,7 +484,9 @@ namespace KimodoBridge
                 reachedEnd = true;
             }
 
-            if (!TryApplyTime(timeSeconds, out error))
+            if (ardyBuffer != null
+                ? !TryApplyArdyTime(timeSeconds, out error)
+                : !TryApplyTime(timeSeconds, out error))
             {
                 StopActiveMotion();
                 return;
@@ -419,7 +494,7 @@ namespace KimodoBridge
 
             if (reachedEnd)
             {
-                if (currentSegment != null && currentSegment.UseRawRootPosition)
+                if (ardyBuffer != null)
                 {
                     return;
                 }
@@ -439,10 +514,6 @@ namespace KimodoBridge
                 }
 
                 segment = queuedSegments.Dequeue();
-                if (ReferenceEquals(segment, queuedArdyTimeline))
-                {
-                    queuedArdyTimeline = null;
-                }
                 return true;
             }
         }
@@ -483,7 +554,11 @@ namespace KimodoBridge
         {
             sourceBinding = null;
             sourceHipsBone = null;
+            sourceLeftUpperLegBone = null;
+            sourceLeftLowerLegBone = null;
             sourceLeftFootBone = null;
+            sourceRightUpperLegBone = null;
+            sourceRightLowerLegBone = null;
             sourceRightFootBone = null;
             sourceCache?.Dispose();
             sourceCache = null;
@@ -564,7 +639,11 @@ namespace KimodoBridge
                 ? sourceBinding.joints[0]
                 : null;
             sourceHipsBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.Hips);
+            sourceLeftUpperLegBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg);
+            sourceLeftLowerLegBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg);
             sourceLeftFootBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            sourceRightUpperLegBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
+            sourceRightLowerLegBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
             sourceRightFootBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.RightFoot);
 
             return true;
@@ -598,6 +677,56 @@ namespace KimodoBridge
                 return false;
             }
 
+            return TryApplyHumanoidPose(out error);
+        }
+
+        private bool TryApplyArdyTime(float sampleTimeSeconds, out string error)
+        {
+            error = string.Empty;
+            if (ardyBuffer == null ||
+                !ardyBuffer.TryResolveSampleFrames(sampleTimeSeconds, out int frame0, out int frame1, out float blend))
+            {
+                error = "ARDY motion buffer has no playable frames.";
+                return false;
+            }
+
+            if (sourceBinding != null)
+            {
+                for (int i = 0; i < sourceBinding.joints.Length; i++)
+                {
+                    Transform joint = sourceBinding.joints[i];
+                    int motionJoint = sourceBinding.motionJointIndices[i];
+                    if (joint == null || motionJoint < 0 ||
+                        !ardyBuffer.TryReadLocalRotation(frame0, motionJoint, out Quaternion q0))
+                    {
+                        continue;
+                    }
+
+                    if (blend > 0f && ardyBuffer.TryReadLocalRotation(frame1, motionJoint, out Quaternion q1))
+                    {
+                        joint.localRotation = Quaternion.Slerp(q0, q1, blend);
+                    }
+                    else
+                    {
+                        joint.localRotation = q0;
+                    }
+                }
+            }
+
+            if (!ardyBuffer.TryReadRootPosition(frame0, out Vector3 p0))
+            {
+                error = $"Failed to read ARDY root position at frame {frame0}.";
+                return false;
+            }
+            Vector3 rootPosition = p0;
+            if (blend > 0f && ardyBuffer.TryReadRootPosition(frame1, out Vector3 p1))
+            {
+                rootPosition = Vector3.Lerp(p0, p1, blend);
+            }
+            if (sourceBinding?.joints != null && sourceBinding.joints.Length > 0 && sourceBinding.joints[0] != null)
+            {
+                sourceBinding.joints[0].localPosition = rootPosition;
+            }
             return TryApplyHumanoidPose(out error);
         }
 
@@ -762,6 +891,28 @@ namespace KimodoBridge
 
             targetState.LeftFootIkInitialized = false;
             targetState.RightFootIkInitialized = false;
+            targetState.LeftKneePoleInitialized = false;
+            targetState.RightKneePoleInitialized = false;
+        }
+
+        private void SyncFootIkSetting(
+            bool driveFootIkTargets,
+            string leftFootIkTargetName,
+            string rightFootIkTargetName)
+        {
+            if (targetState == null || targetState.DriveFootIk == driveFootIkTargets)
+            {
+                return;
+            }
+
+            targetState.DriveFootIk = driveFootIkTargets;
+            targetState.LeftFootIkTarget = driveFootIkTargets
+                ? FindChildByNameRecursive(targetState.Animator.transform, leftFootIkTargetName)
+                : null;
+            targetState.RightFootIkTarget = driveFootIkTargets
+                ? FindChildByNameRecursive(targetState.Animator.transform, rightFootIkTargetName)
+                : null;
+            ResetTargetFootIkBaselines();
         }
 
         private static void BuildFootWorldPose(
@@ -795,7 +946,7 @@ namespace KimodoBridge
             Vector3 rightFootWorldPosition,
             Quaternion rightFootWorldRotation)
         {
-            if (state == null)
+            if (state == null || !state.DriveFootIk)
             {
                 return;
             }
@@ -859,13 +1010,19 @@ namespace KimodoBridge
                 deltaRotation * targetBaselineRotation);
         }
 
-        private static void SolveTwoBoneLeg(
+        internal static void SolveTwoBoneLeg(
+            Transform targetHips,
             Transform upperLeg,
             Transform lowerLeg,
             Transform foot,
-            Transform sourceFoot)
+            Transform sourceHips,
+            Transform sourceUpperLeg,
+            Transform sourceLowerLeg,
+            Transform sourceFoot,
+            ref Vector3 previousPoleLocalDirection,
+            ref bool poleInitialized)
         {
-            if (upperLeg == null || lowerLeg == null || foot == null || sourceFoot == null)
+            if (targetHips == null || upperLeg == null || lowerLeg == null || foot == null || sourceFoot == null)
             {
                 return;
             }
@@ -890,8 +1047,9 @@ namespace KimodoBridge
                 return;
             }
 
+            float totalLength = upperLength + lowerLength;
             float minimumReach = Mathf.Abs(upperLength - lowerLength) + 1e-4f;
-            float maximumReach = upperLength + lowerLength - 1e-4f;
+            float maximumReach = Mathf.Min(totalLength - 1e-4f, totalLength * 0.995f);
             if (maximumReach <= minimumReach)
             {
                 return;
@@ -899,7 +1057,35 @@ namespace KimodoBridge
 
             float reachableDistance = Mathf.Clamp(targetDistance, minimumReach, maximumReach);
             Vector3 reachableTarget = upperPosition + targetDirection * reachableDistance;
-            Vector3 bendDirection = Vector3.ProjectOnPlane(upperToLower, targetDirection);
+            Vector3 previousBendDirection = poleInitialized
+                ? Vector3.ProjectOnPlane(
+                    targetHips.TransformDirection(previousPoleLocalDirection),
+                    targetDirection)
+                : Vector3.zero;
+            Vector3 bendDirection = Vector3.zero;
+            if (sourceHips != null && sourceUpperLeg != null && sourceLowerLeg != null)
+            {
+                Vector3 sourceTargetDirection = sourceFoot.position - sourceUpperLeg.position;
+                Vector3 sourceBendDirection = Vector3.ProjectOnPlane(
+                    sourceLowerLeg.position - sourceUpperLeg.position,
+                    sourceTargetDirection);
+                if (sourceBendDirection.sqrMagnitude > 1e-8f)
+                {
+                    Vector3 sourcePoleLocalDirection =
+                        sourceHips.InverseTransformDirection(sourceBendDirection.normalized);
+                    bendDirection = Vector3.ProjectOnPlane(
+                        targetHips.TransformDirection(sourcePoleLocalDirection),
+                        targetDirection);
+                }
+            }
+            if (bendDirection.sqrMagnitude <= 1e-8f)
+            {
+                bendDirection = previousBendDirection;
+            }
+            if (bendDirection.sqrMagnitude <= 1e-8f)
+            {
+                bendDirection = Vector3.ProjectOnPlane(upperToLower, targetDirection);
+            }
             if (bendDirection.sqrMagnitude <= 1e-8f)
             {
                 bendDirection = Vector3.ProjectOnPlane(upperLeg.forward, targetDirection);
@@ -913,6 +1099,14 @@ namespace KimodoBridge
                 return;
             }
             bendDirection.Normalize();
+            if (previousBendDirection.sqrMagnitude > 1e-8f &&
+                Vector3.Dot(bendDirection, previousBendDirection) < 0f)
+            {
+                bendDirection = -bendDirection;
+            }
+            previousPoleLocalDirection =
+                targetHips.InverseTransformDirection(bendDirection).normalized;
+            poleInitialized = true;
 
             float alongTarget =
                 (upperLength * upperLength + reachableDistance * reachableDistance - lowerLength * lowerLength) /
