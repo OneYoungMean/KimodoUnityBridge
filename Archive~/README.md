@@ -1,9 +1,7 @@
 # Archived source
 
 This directory preserves retired Unity components and upstream Kimodo
-development utilities at their former repository-relative paths. The archived
-Unity tools also include disabled one-off editor utilities whose only entry
-point had already been removed.
+development utilities at their former repository-relative paths.
 
 Unity ignores directories whose names end in `~`, so archived C# files are
 kept in Git without being compiled into the package. QuickServer packaging

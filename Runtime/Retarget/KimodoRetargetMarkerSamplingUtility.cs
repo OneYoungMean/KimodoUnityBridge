@@ -1,3 +1,4 @@
+using System;
 using TimelineInject;
 using UnityEngine;
 
@@ -6,6 +7,95 @@ namespace KimodoBridge
     internal static class KimodoRetargetMarkerSamplingUtility
     {
         private const string DefaultModelName = "Kimodo-SOMA-RP-v1";
+
+        public static bool TrySampleMarkerFromClip(
+            AnimationClip sourceClip,
+            string markerType,
+            double sampleTime,
+            Avatar sourceAvatar,
+            Avatar explicitTargetAvatar,
+            Animator fallbackAnimator,
+            string modelName,
+            out KimodoMarkerSampleResult result,
+            out string error)
+        {
+            result = null;
+            error = string.Empty;
+
+            if (sourceClip == null)
+            {
+                error = "Source clip is null.";
+                return false;
+            }
+
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
+            {
+                error = "Source avatar is null/invalid/non-humanoid.";
+                return false;
+            }
+
+            if (!TryResolveTargetAvatar(explicitTargetAvatar, fallbackAnimator, modelName, out Avatar targetAvatar, out error))
+            {
+                return false;
+            }
+
+            SkeletonCache sourceCache = null;
+            SkeletonCache targetCache = null;
+            try
+            {
+                if (!KimodoRetargetSamplingUtility.TryResolveSourceHumanoidClip(
+                        sourceClip,
+                        sourceAvatar,
+                        "KimodoMarkerRetarget_SourceHumanoid",
+                        null,
+                        ref sourceCache,
+                        out AnimationClip sourceHumanoidClip,
+                        out error))
+                {
+                    return false;
+                }
+
+                try
+                {
+                    if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(targetAvatar, "KimodoMarkerRetarget_Target", out targetCache, out error))
+                    {
+                        return false;
+                    }
+
+                    if (!KimodoRetargetSamplingUtility.TrySampleTargetFromHumanoidClip(
+                            sourceHumanoidClip,
+                            targetCache,
+                            (float)sampleTime,
+                            out BoneSample targetSample,
+                            out _,
+                            out error))
+                    {
+                        return false;
+                    }
+
+                    return TryBuildMarkerSampleResultFromBoneSample(
+                        targetSample,
+                        targetCache,
+                        modelName,
+                        markerType,
+                        sampleTime,
+                        out result,
+                        out error);
+                }
+                finally
+                {
+                    if (!ReferenceEquals(sourceHumanoidClip, sourceClip))
+                    {
+                        UnityEngine.Object.DestroyImmediate(sourceHumanoidClip);
+                    }
+                }
+            }
+            finally
+            {
+                targetCache?.Dispose();
+                sourceCache?.Dispose();
+            }
+        }
 
         internal static bool TryResolveTargetAvatar(
             Avatar explicitTargetAvatar,

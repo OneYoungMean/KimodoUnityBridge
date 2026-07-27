@@ -17,9 +17,9 @@ namespace KimodoBridge
             int ownerProcessId)
         {
             string ext = Path.GetExtension(launcherPath)?.ToLowerInvariant() ?? string.Empty;
-            if (ext != ".sh")
+            if (ext != ".sh" && ext != ".bat")
             {
-                throw new NotSupportedException($"Linux launcher must be .sh, got: {ext}");
+                throw new NotSupportedException($"Linux launcher must be .sh/.bat (bash), got: {ext}");
             }
 
             EnsureExecutableByBash(launcherPath);
@@ -46,6 +46,10 @@ namespace KimodoBridge
             try
             {
                 using FileStream fs = File.Open(launcherPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                if (fs.Length < 0)
+                {
+                    throw new IOException("invalid file stream length.");
+                }
             }
             catch (Exception e)
             {

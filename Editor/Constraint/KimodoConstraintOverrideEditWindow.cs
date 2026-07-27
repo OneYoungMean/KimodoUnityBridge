@@ -84,6 +84,11 @@ namespace KimodoBridge.Editor
             return false;
         }
 
+        internal static bool HasAnyOpenWindow()
+        {
+            return Resources.FindObjectsOfTypeAll<KimodoConstraintOverrideEditWindow>().Length > 0;
+        }
+
         private void OnEnable()
         {
             currentWindow = this;

@@ -11,6 +11,7 @@ namespace KimodoBridge
     {
         private readonly IBridgePlatformProcess platformProcess;
         private Process process;
+        private int processId = -1;
         private bool disposed;
 
         internal BridgeProcessManager(IBridgePlatformProcess platformProcess)
@@ -42,6 +43,8 @@ namespace KimodoBridge
                 }
             }
         }
+
+        public int ProcessId => processId;
 
         public Process Start(
             string launcherPath,
@@ -75,6 +78,7 @@ namespace KimodoBridge
             }
 
             process = proc;
+            processId = proc.Id;
             return proc;
         }
 
@@ -140,6 +144,7 @@ namespace KimodoBridge
         {
             Process proc = process;
             process = null;
+            processId = -1;
 
             if (proc != null)
             {

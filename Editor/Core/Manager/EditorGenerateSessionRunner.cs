@@ -32,6 +32,8 @@ namespace KimodoBridge.Editor
 
         public bool IsRunning => Status == KimodoEditorRequestStatus.Running;
         public bool IsCompleted => Status == KimodoEditorRequestStatus.Completed;
+        public bool IsFailed => Status == KimodoEditorRequestStatus.Failed;
+        public bool IsCanceled => Status == KimodoEditorRequestStatus.Canceled;
     }
 
     [InitializeOnLoad]
