@@ -70,11 +70,6 @@ def _detect_free_vram_gb(device: str | None = None) -> float:
     return 0.0
 
 
-def _detect_total_vram_gb(device: str | None = None) -> float:
-    """Compatibility alias retained for external diagnostics."""
-    return _detect_free_vram_gb(device)
-
-
 def _detect_mps_available() -> bool:
     try:
         import torch
@@ -178,12 +173,6 @@ class _RuntimeSelfCheckResult:
     int8_accelerator_available: bool
     fp16_accelerator_available: bool
     free_vram_gb: float
-
-    @property
-    def total_vram_gb(self) -> float:
-        """Compatibility alias; routing now uses current free memory."""
-        return self.free_vram_gb
-
 
 def _env_flag(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name, "").strip().lower()

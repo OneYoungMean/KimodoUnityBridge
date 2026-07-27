@@ -41,7 +41,7 @@ INT8 资产说明：
   - 设备支持 NF4 且剩余显存 `>= 6GB`：NF4 GPU。
   - NF4 放不下但支持 INT8 且剩余显存 `>= 8GB`：INT8 GPU。
   - 其他情况：INT8 CPU。
-- `simulate_free_vram_gb` 模拟的是当前剩余显存；未发送表示自动检测，显式发送 `0` 表示全部强制 CPU。旧 `simulate_vram_gb` 仅作为协议兼容别名。
+- `simulate_free_vram_gb` 模拟的是当前剩余显存；未发送表示自动检测，显式发送 `0` 表示全部强制 CPU。
 - 不检测系统内存；CPU 路径允许操作系统使用虚拟内存。
 
 ### 启动说明

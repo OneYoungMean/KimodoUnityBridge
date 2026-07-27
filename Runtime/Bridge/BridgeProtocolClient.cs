@@ -15,7 +15,6 @@ namespace KimodoBridge
     {
         public JObject Header { get; set; }
         public byte[] BinaryPayload { get; set; }
-        public string TaskId { get; set; }
         public string RequestId { get; set; }
     }
 
@@ -23,10 +22,9 @@ namespace KimodoBridge
     {
         private sealed class PendingRequest
         {
-            internal PendingRequest(string requestId, string taskId, Action<string> progress, int loadingTimeoutMs)
+            internal PendingRequest(string requestId, Action<string> progress, int loadingTimeoutMs)
             {
                 RequestId = requestId;
-                TaskId = taskId;
                 Progress = progress;
                 LoadingTimeoutMs = loadingTimeoutMs;
                 CreatedAtUtc = DateTime.UtcNow;
@@ -34,7 +32,6 @@ namespace KimodoBridge
             }
 
             internal string RequestId { get; }
-            internal string TaskId { get; }
             internal Action<string> Progress { get; }
             internal int LoadingTimeoutMs { get; }
             internal DateTime CreatedAtUtc { get; }
@@ -289,8 +286,7 @@ namespace KimodoBridge
             }
             string requestId = Guid.NewGuid().ToString("N");
             request["request_id"] = requestId;
-            string taskId = request.Value<string>("task_id") ?? string.Empty;
-            var item = new PendingRequest(requestId, taskId, progress, modelLoadingTimeoutMs);
+            var item = new PendingRequest(requestId, progress, modelLoadingTimeoutMs);
             if (!pending.TryAdd(requestId, item))
             {
                 throw new InvalidOperationException("Bridge request id collision.");
@@ -469,7 +465,6 @@ namespace KimodoBridge
             {
                 Header = header,
                 BinaryPayload = byteLength > 0 ? await ReadExactBytesAsync(stream, byteLength, token).ConfigureAwait(false) : null,
-                TaskId = header.Value<string>("task_id") ?? string.Empty,
                 RequestId = header.Value<string>("request_id") ?? string.Empty
             };
         }

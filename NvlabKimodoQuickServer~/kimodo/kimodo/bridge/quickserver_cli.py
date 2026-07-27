@@ -275,12 +275,7 @@ def _normalize_runtime_config(req: dict[str, Any], defaults: dict[str, Any]) -> 
         )
     model = str(req.get("model") or defaults.get("model") or assets.DEFAULT_MODEL_NAME).strip() or assets.DEFAULT_MODEL_NAME
     models_root = str(req.get("models_root") or defaults.get("models_root") or "").strip()
-    if "simulate_free_vram_gb" in req:
-        raw_simulated_vram = req.get("simulate_free_vram_gb")
-    elif "simulate_vram_gb" in req:  # Legacy alias; semantics are now free VRAM.
-        raw_simulated_vram = req.get("simulate_vram_gb")
-    else:
-        raw_simulated_vram = defaults.get("simulate_free_vram_gb")
+    raw_simulated_vram = req.get("simulate_free_vram_gb", defaults.get("simulate_free_vram_gb"))
     simulated_vram_gb = None
     if raw_simulated_vram is not None and str(raw_simulated_vram).strip() != "":
         simulated_vram_gb = float(raw_simulated_vram)
@@ -1634,7 +1629,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     mark_session_ready_locked(session)
                         elif cmd == "quit":
                             reply({"status": "done", "session_id": default_session_id, "server_closing": True})
-                            request_shutdown("legacy quit command")
+                            request_shutdown("quit command")
                             return
                         else:
                             reply({"status": "error", "message": f"Unknown cmd: {cmd!r}"})

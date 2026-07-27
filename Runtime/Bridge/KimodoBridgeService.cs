@@ -64,7 +64,6 @@ namespace KimodoBridge
         private int stopRequested;
         private int disposeStarted;
         private bool explicitSessionOpened;
-        private string protocolSessionId = "session:default";
 
         private const string DefaultHost = "127.0.0.1";
 
@@ -251,16 +250,6 @@ namespace KimodoBridge
             return CancelTaskAsync(string.Empty, token);
         }
 
-        internal bool QueueCancelTask(string taskId)
-        {
-            if (!TryResolveCurrentEndpoint(out string host, out int port) || !protocolClient.IsConnected)
-            {
-                return false;
-            }
-            _ = protocolClient.TryCancelGenerateAsync(host, port, taskId, CancellationToken.None);
-            return true;
-        }
-
         public async Task StopAsync(CancellationToken token = default)
         {
             await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
@@ -411,8 +400,7 @@ namespace KimodoBridge
             {
                 return;
             }
-            protocolSessionId = await protocolClient.OpenSessionAsync(host, port, token).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(protocolSessionId))
+            if (string.IsNullOrWhiteSpace(await protocolClient.OpenSessionAsync(host, port, token).ConfigureAwait(false)))
             {
                 throw new InvalidOperationException("QuickServer did not return an explicit Session id.");
             }
@@ -523,7 +511,6 @@ namespace KimodoBridge
             currentPort = -1;
             currentRuntimeRoot = string.Empty;
             explicitSessionOpened = false;
-            protocolSessionId = isDefaultSession ? "session:default" : string.Empty;
         }
 
         private void EmitDebugLog(string message)
@@ -574,15 +561,7 @@ namespace KimodoBridge
                 return;
             }
 
-            StartLogPumpForPath(BridgeEndpointResolver.ResolveAttachLogPath(currentRuntimeRoot), "[Bridge]");
             StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "bridge_server.log"), "[BridgeServer]");
-            StartLogPumpForPath(
-                Path.Combine(currentRuntimeRoot, "log", "bridge_message.log"),
-                "[BridgeMessage]",
-                BridgeRuntimeDefaults.LogPumpWaitFileTimeoutMs * 3,
-                BridgeRuntimeDefaults.LogPumpMissingFilePollMinMs,
-                BridgeRuntimeDefaults.LogPumpMissingFilePollMinMs);
-            StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "run_server.log"), "[RunServer]");
             StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "setup.log"), "[Setup]");
         }
 

@@ -12,53 +12,6 @@ namespace KimodoBridge
             return Path.Combine(runtimeRoot, "serverport");
         }
 
-        internal static string ResolveAttachLogPath(string runtimeRoot)
-        {
-            if (string.IsNullOrWhiteSpace(runtimeRoot))
-            {
-                return string.Empty;
-            }
-
-            string logDir = Path.Combine(runtimeRoot, "log");
-            try
-            {
-                if (Directory.Exists(logDir))
-                {
-                    string bridgeServerLog = Path.Combine(logDir, "bridge_server.log");
-                    if (File.Exists(bridgeServerLog))
-                    {
-                        return bridgeServerLog;
-                    }
-
-                    string runServerLog = Path.Combine(logDir, "run_server.log");
-                    if (File.Exists(runServerLog))
-                    {
-                        return runServerLog;
-                    }
-
-                    string bridgeRuntimeLog = Path.Combine(logDir, "test_input_log.log");
-                    if (File.Exists(bridgeRuntimeLog))
-                    {
-                        return bridgeRuntimeLog;
-                    }
-
-                    string[] bridgeLogs = Directory.GetFiles(logDir, "unity_bridge_*.log");
-                    if (bridgeLogs.Length > 0)
-                    {
-                        Array.Sort(bridgeLogs, (a, b) => File.GetLastWriteTimeUtc(b).CompareTo(File.GetLastWriteTimeUtc(a)));
-                        return bridgeLogs[0];
-                    }
-                }
-            }
-            catch
-            {
-                // fall through to default path
-            }
-
-            // Default bridge log path used by bridge_server.py when KIMODO_BRIDGE_LOG is not provided.
-            return Path.Combine(logDir, "bridge_server.log");
-        }
-
         internal static bool TryReadServerEndpoint(string runtimeRoot, string hostFallback, out string host, out int port, out string error)
         {
             return TryReadServerEndpointFromFile(GetServerPortFilePath(runtimeRoot), hostFallback, out host, out port, out error);
@@ -115,7 +68,6 @@ namespace KimodoBridge
                 }
 
                 string[] lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                string firstLine = lines.Length > 0 ? lines[0].Trim() : text;
                 foreach (string line in lines)
                 {
                     int eqIndex = line.IndexOf('=');
@@ -147,33 +99,8 @@ namespace KimodoBridge
                     return true;
                 }
 
-                int split = firstLine.LastIndexOf(':');
-                if (split > 0 && split < firstLine.Length - 1)
-                {
-                    string rawHost = firstLine.Substring(0, split).Trim();
-                    string rawPort = firstLine.Substring(split + 1).Trim();
-                    if (!TryParsePort(rawPort, out port))
-                    {
-                        error = $"invalid port in serverport: '{rawPort}'";
-                        return false;
-                    }
-
-                    if (!TryParseHost(rawHost, out host))
-                    {
-                        error = $"invalid host in serverport: '{rawHost}'";
-                        return false;
-                    }
-
-                    return true;
-                }
-
-                if (!TryParsePort(firstLine, out port))
-                {
-                    error = $"invalid serverport content: '{firstLine}'";
-                    return false;
-                }
-
-                return true;
+                error = $"invalid serverport content: '{text}'";
+                return false;
             }
             catch (Exception e)
             {

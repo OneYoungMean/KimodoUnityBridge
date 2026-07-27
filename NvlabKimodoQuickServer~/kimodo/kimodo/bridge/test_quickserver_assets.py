@@ -103,10 +103,8 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
         }
         automatic = _normalize_runtime_config({}, defaults)
         forced_cpu = _normalize_runtime_config({"simulate_free_vram_gb": 0}, defaults)
-        legacy = _normalize_runtime_config({"simulate_vram_gb": 6}, defaults)
         self.assertIsNone(automatic["simulate_free_vram_gb"])
         self.assertEqual(forced_cpu["simulate_free_vram_gb"], 0.0)
-        self.assertEqual(legacy["simulate_free_vram_gb"], 6.0)
         for invalid in (-1, float("nan")):
             with self.assertRaises(ValueError):
                 _normalize_runtime_config({"simulate_free_vram_gb": invalid}, defaults)

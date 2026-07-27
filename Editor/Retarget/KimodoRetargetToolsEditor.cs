@@ -1067,31 +1067,6 @@ namespace KimodoBridge.Editor
             return null;
         }
 
-        private static Vector3 ResolveProfilePelvisPosition(Avatar profileAvatar)
-        {
-            if (profileAvatar == null || !profileAvatar.isValid || !profileAvatar.isHuman)
-            {
-                return Vector3.zero;
-            }
-
-            SkeletonBone[] skeleton = profileAvatar.humanDescription.skeleton;
-            if (skeleton == null || skeleton.Length == 0)
-            {
-                return Vector3.zero;
-            }
-
-            for (int i = 0; i < skeleton.Length; i++)
-            {
-                if (string.Equals(skeleton[i].name, "Hips", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(skeleton[i].name, "pelvis", StringComparison.OrdinalIgnoreCase))
-                {
-                    return skeleton[i].position;
-                }
-            }
-
-            return skeleton[0].position;
-        }
-
         private static Vector3 ReadPos(MotionJsonData data, int frame, int joint)
         {
             List<float> p = data.positions[frame][joint];
