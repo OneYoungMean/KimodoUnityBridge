@@ -359,9 +359,11 @@ namespace KimodoBridge.Editor
             float generationDurationSeconds,
             bool isLoop,
             out string constraintsJson,
+            out List<KimodoMarkerSampleResult> constraintSamples,
             out string error)
         {
             constraintsJson = string.Empty;
+            constraintSamples = new List<KimodoMarkerSampleResult>();
             error = string.Empty;
 
             if (mode == KimodoInOutConstraintMode.None)
@@ -423,7 +425,9 @@ namespace KimodoBridge.Editor
                     return false;
             }
 
-            int generatedFrameCount = KimodoInOutConstraintAdapter.DurationSecondsToFrameCount(generationDurationSeconds);
+            int generatedFrameCount = Mathf.Max(
+                1,
+                Mathf.RoundToInt(generationDurationSeconds * KimodoPlayableClip.FIXED_FRAME_RATE));
             var request = new KimodoInOutConstraintRequest
             {
                 Mode = mode,
@@ -447,6 +451,10 @@ namespace KimodoBridge.Editor
             }
 
             constraintsJson = result != null ? result.ConstraintsJson ?? string.Empty : string.Empty;
+            if (result?.CombinedSamples != null)
+            {
+                constraintSamples.AddRange(result.CombinedSamples);
+            }
             return true;
         }
 

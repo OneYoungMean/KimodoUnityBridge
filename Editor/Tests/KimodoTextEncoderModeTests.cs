@@ -20,6 +20,20 @@ namespace KimodoBridge.Editor.Tests
                 Is.EqualTo("high_precision"));
         }
 
+        [Test]
+        public void NewKimodoRequestsAndClipsDefaultToHighPerformance()
+        {
+            KimodoPlayableClip clip = UnityEngine.ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            try
+            {
+                Assert.That(clip.textEncoderMode, Is.EqualTo(KimodoTextEncoderMode.HighPerformance));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+            }
+        }
+
         [TestCase(typeof(KimodoPlayableClip), "textEncoderMode", "bridgeVramMode")]
         [TestCase(typeof(KimodoRuntimeMotionDriver), "textEncoderMode", "highVram")]
         [TestCase(typeof(KimodoPlayableClipGenerationSettings), "defaultTextEncoderMode", "defaultBridgeVramMode")]

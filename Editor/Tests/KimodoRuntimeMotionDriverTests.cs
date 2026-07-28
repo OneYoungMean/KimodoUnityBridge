@@ -4,6 +4,7 @@ using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using TimelineInject;
 using UnityEngine;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor.Tests
 {
@@ -181,6 +182,126 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(
                 json.foot_contacts.Count,
                 Is.EqualTo(7 * KimodoFootContactTrackUtility.ChannelCount));
+        }
+
+        [Test]
+        public void TimelineBatchRange_ReplacesPreviouslyGeneratedFuture()
+        {
+            KimodoRawMotionData initial = CreateMotion(8, 2, 20f, absoluteStartFrame: 0);
+            KimodoRawMotionData replacement = CreateMotion(6, 2, 20f, absoluteStartFrame: 4);
+
+            KimodoRawMotionData merged = KimodoPlayableClipGenerationExecutionService.MergeRange(
+                initial,
+                new KimodoBridgeCommandResult
+                {
+                    MotionData = replacement,
+                    StartFrame = 4,
+                    EndFrameExclusive = 10
+                });
+
+            Assert.That(merged.FrameCount, Is.EqualTo(10));
+            Assert.That(merged.TryReadUnityRootPosition(3, out Vector3 prefix), Is.True);
+            Assert.That(merged.TryReadUnityRootPosition(9, out Vector3 tail), Is.True);
+            Assert.That(prefix.x, Is.EqualTo(3f));
+            Assert.That(tail.x, Is.EqualTo(9f));
+        }
+
+        [Test]
+        public void TimelineBatchSelection_AcceptsConnectedCompatibleArdyClips()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip first = CreateArdyTimelineClip(track, 0.0, 2.0, 10);
+                TimelineClip second = CreateArdyTimelineClip(track, 2.0, 2.0, 10);
+
+                Assert.That(
+                    KimodoPlayableClipGenerationExecutionService.TryValidateContinuousSelection(
+                        new[] { second, first },
+                        out string reason),
+                    Is.True,
+                    reason);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void TimelineBatchSelection_ReportsParameterDifferenceBeforeSerialFallback()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip first = CreateArdyTimelineClip(track, 0.0, 2.0, 10);
+                TimelineClip second = CreateArdyTimelineClip(track, 2.0, 2.0, 5);
+
+                Assert.That(
+                    KimodoPlayableClipGenerationExecutionService.TryValidateContinuousSelection(
+                        new[] { first, second },
+                        out string reason),
+                    Is.False);
+                Assert.That(reason, Does.Contain("diffusion steps"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void TimelineBatchSelection_RejectsUnalignedPromptBoundary()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip first = CreateArdyTimelineClip(track, 0.0, 0.25, 10);
+                TimelineClip second = CreateArdyTimelineClip(track, 0.25, 2.0, 10);
+
+                Assert.That(
+                    KimodoPlayableClipGenerationExecutionService.TryValidateContinuousSelection(
+                        new[] { first, second },
+                        out string reason),
+                    Is.False);
+                Assert.That(reason, Does.Contain("motion token"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void TimelineBatchInOutOverride_KeepsManualConstraintsWithoutBoundaries()
+        {
+            var manual = new KimodoMarkerSampleResult
+            {
+                constraintType = "root2d",
+                sampleTime = 1.0,
+                kimodoRootPosition = new Vector3(2f, 0f, 3f)
+            };
+            KimodoInOutConstraintRequest request = KimodoInOutConstraintAdapter.BuildTimelineRequest(
+                new KimodoTimelineInOutConstraintContext
+                {
+                    ModelName = KimodoMotionModelProfiles.ArdyCoreModelName
+                },
+                KimodoInOutConstraintMode.None,
+                normalizeConstraintOrigin: true,
+                enableIn: true,
+                enableOut: false,
+                generationFrames: 40,
+                manualSamples: new List<KimodoMarkerSampleResult> { manual });
+
+            Assert.That(request, Is.Not.Null);
+            Assert.That(request.Mode, Is.EqualTo(KimodoInOutConstraintMode.None));
+            Assert.That(request.EnableBegin, Is.False);
+            Assert.That(request.EnableEnd, Is.False);
+            Assert.That(request.AllowNormalizeConstraintOrigin, Is.True);
+            Assert.That(request.ManualSamples, Has.Count.EqualTo(1));
         }
 
         [Test]
@@ -365,6 +486,144 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [TestCase(300, new[] { 300 })]
+        [TestCase(301, new[] { 151, 150 })]
+        [TestCase(600, new[] { 300, 300 })]
+        [TestCase(601, new[] { 201, 200, 200 })]
+        public void KimodoSegmentation_DistributesFramesWithoutAShortTail(int totalFrames, int[] expected)
+        {
+            Assert.That(KimodoEditorGeneratePipeline.PlanKimodoSegmentFrames(totalFrames), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void KimodoSegmentation_UsesPreviousRawTailAsInAndKeepsFinalOutOnLastSegment()
+        {
+            var first = new KimodoMarkerSampleResult
+            {
+                constraintType = "fullbody",
+                sampleTime = 0.0,
+                kimodoRootPosition = new Vector3(1f, 0f, 0f)
+            };
+            var finalOut = new KimodoMarkerSampleResult
+            {
+                constraintType = "fullbody",
+                sampleTime = 20.0,
+                kimodoRootPosition = new Vector3(3f, 0f, 0f)
+            };
+            var tail = new KimodoMarkerSampleResult
+            {
+                constraintType = "fullbody",
+                sampleTime = 9.9,
+                kimodoRootPosition = new Vector3(2f, 0f, 0f)
+            };
+            var source = new[] { first, finalOut };
+
+            List<KimodoMarkerSampleResult> segment0 = KimodoEditorGeneratePipeline.BuildKimodoSegmentConstraintSamples(
+                source,
+                previousTail: null,
+                totalFrameCount: 601,
+                segmentStartFrame: 0,
+                segmentFrameCount: 201,
+                frameRate: 30f);
+            List<KimodoMarkerSampleResult> segment1 = KimodoEditorGeneratePipeline.BuildKimodoSegmentConstraintSamples(
+                source,
+                tail,
+                totalFrameCount: 601,
+                segmentStartFrame: 201,
+                segmentFrameCount: 200,
+                frameRate: 30f);
+            List<KimodoMarkerSampleResult> segment2 = KimodoEditorGeneratePipeline.BuildKimodoSegmentConstraintSamples(
+                source,
+                tail,
+                totalFrameCount: 601,
+                segmentStartFrame: 401,
+                segmentFrameCount: 200,
+                frameRate: 30f);
+
+            Assert.That(segment0.Count, Is.EqualTo(1));
+            Assert.That(segment0[0].kimodoRootPosition.x, Is.EqualTo(1f));
+            Assert.That(segment1.Count, Is.EqualTo(1));
+            Assert.That(segment1[0].kimodoRootPosition.x, Is.EqualTo(2f));
+            Assert.That(segment1[0].sampleTime, Is.EqualTo(0.0));
+            Assert.That(segment2.Count, Is.EqualTo(2));
+            Assert.That(segment2[0].kimodoRootPosition.x, Is.EqualTo(2f));
+            Assert.That(segment2[1].kimodoRootPosition.x, Is.EqualTo(3f));
+            Assert.That(segment2[1].sampleTime, Is.EqualTo(199.0 / 30.0).Within(1e-9));
+        }
+
+        [Test]
+        public void TimelineRequest_DerivesKimodoLengthBeyondTenSecondsFromTimeline()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                timelineClip.duration = 12.0;
+                var playable = (KimodoPlayableClip)timelineClip.asset;
+                playable.bridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
+                playable.inOutConstraintMode = KimodoInOutConstraintMode.None;
+
+                KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    playable,
+                    "walk",
+                    externalConstraint: null,
+                    default);
+
+                Assert.That(request.TargetFrameRate, Is.EqualTo(30f));
+                Assert.That(request.TargetFrameCount, Is.EqualTo(360));
+                Assert.That(KimodoEditorGeneratePipeline.PlanKimodoSegmentFrames(request.TargetFrameCount), Is.EqualTo(new[] { 180, 180 }));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [TestCase(KimodoInOutConstraintMode.Inside, true, 31.0 / 30.0)]
+        [TestCase(KimodoInOutConstraintMode.Inside, false, 89.0 / 30.0)]
+        [TestCase(KimodoInOutConstraintMode.Outside, true, 29.0 / 30.0)]
+        [TestCase(KimodoInOutConstraintMode.Outside, false, 91.0 / 30.0)]
+        public void TimelineBoundarySampling_UsesOneFrameInsideOrOutside(
+            KimodoInOutConstraintMode mode,
+            bool isBegin,
+            double expected)
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip previous = track.CreateClip<AnimationPlayableAsset>();
+                previous.start = 0.0;
+                previous.duration = 1.0;
+                TimelineClip current = track.CreateClip<AnimationPlayableAsset>();
+                current.start = 1.0;
+                current.duration = 2.0;
+                TimelineClip next = track.CreateClip<AnimationPlayableAsset>();
+                next.start = 3.0;
+                next.duration = 1.0;
+                var request = new KimodoInOutConstraintRequest
+                {
+                    Mode = mode,
+                    ModelName = KimodoPlayableClip.DefaultBridgeModelName,
+                    TimelineContext = new KimodoTimelineInOutConstraintContext
+                    {
+                        SourceClip = current,
+                        PreviousTimelineClip = previous,
+                        NextTimelineClip = next
+                    }
+                };
+
+                Assert.That(
+                    KimodoInOutConstraintTools.ResolveTimelineBoundaryTime(request, isBegin),
+                    Is.EqualTo(expected).Within(1e-9));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
         private static KimodoRawMotionData CreateMotion(
             int frames,
             int joints,
@@ -398,6 +657,24 @@ namespace KimodoBridge.Editor.Tests
                 rotations,
                 0,
                 withContacts ? new byte[frames * KimodoFootContactTrackUtility.ChannelCount] : null);
+        }
+
+        private static TimelineClip CreateArdyTimelineClip(
+            AnimationTrack track,
+            double start,
+            double duration,
+            int diffusionSteps)
+        {
+            TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+            timelineClip.start = start;
+            timelineClip.duration = duration;
+            var playable = (KimodoPlayableClip)timelineClip.asset;
+            playable.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
+            playable.diffusionSteps = diffusionSteps;
+            playable.textWeight = 1f;
+            playable.randomSeed = false;
+            playable.seed = 42;
+            return timelineClip;
         }
     }
 }

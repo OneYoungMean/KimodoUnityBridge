@@ -505,6 +505,50 @@ namespace KimodoBridge
             }
         }
 
+        internal static bool TrySampleTargetFromSingleMuscleSample(
+            MuscleSample sourceSample,
+            float frameRate,
+            SkeletonCache targetCache,
+            out BoneSample targetSample,
+            out MuscleSample targetMuscleSample,
+            out string error)
+        {
+            targetSample = null;
+            targetMuscleSample = null;
+            error = string.Empty;
+            if (sourceSample == null)
+            {
+                error = "Source muscle sample is null.";
+                return false;
+            }
+
+            AnimationClip clip = null;
+            try
+            {
+                // Unity needs a non-zero clip duration for the Humanoid Foot IK pass.
+                var samples = new[] { sourceSample, sourceSample };
+                if (!TryCreateTransientMuscleClip(samples, frameRate, out clip, out error))
+                {
+                    return false;
+                }
+
+                return TrySampleTargetFromHumanoidClip(
+                    clip,
+                    targetCache,
+                    0f,
+                    out targetSample,
+                    out targetMuscleSample,
+                    out error);
+            }
+            finally
+            {
+                if (clip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(clip);
+                }
+            }
+        }
+
         internal static int ResolveFrameCount(float duration, float frameRate)
         {
             return Mathf.Max(2, Mathf.RoundToInt(Mathf.Max(0f, duration) * Mathf.Max(1f, frameRate)) + 1);

@@ -94,69 +94,63 @@ namespace KimodoBridge.Editor
             beginSample = null;
             endSample = null;
             warning = string.Empty;
-            if (!KimodoTimelinePoseSampler.TryCreate(
+            error = string.Empty;
+            if (request.EnableBegin &&
+                !KimodoTimelineConstraintClipCache.TrySampleMarker(
                     request.TimelineContext,
+                    ResolveTimelineBoundaryTime(request, isBegin: true),
+                    0.0,
+                    FullBodyConstraintType,
                     request.ModelName,
-                    out KimodoTimelinePoseSampler sampler,
+                    out beginSample,
                     out error))
             {
                 return false;
             }
 
-            try
+            if (request.EnableEnd &&
+                !KimodoTimelineConstraintClipCache.TrySampleMarker(
+                    request.TimelineContext,
+                    ResolveTimelineBoundaryTime(request, isBegin: false),
+                    ResolveConstraintEndSampleTimeSeconds(request.GenerationFrames),
+                    FullBodyConstraintType,
+                    request.ModelName,
+                    out endSample,
+                    out error))
             {
-                if (request.EnableBegin &&
-                    !sampler.TrySampleMarker(
-                        ResolveTimelineBoundaryTime(request, isBegin: true),
-                        0.0,
-                        FullBodyConstraintType,
-                        request.ModelName,
-                        out beginSample,
-                        out error))
-                {
-                    return false;
-                }
-
-                if (request.EnableEnd &&
-                    !sampler.TrySampleMarker(
-                        ResolveTimelineBoundaryTime(request, isBegin: false),
-                        ResolveConstraintEndSampleTimeSeconds(request.GenerationFrames),
-                        FullBodyConstraintType,
-                        request.ModelName,
-                        out endSample,
-                        out error))
-                {
-                    return false;
-                }
-
-                if (!request.EnableBegin && !request.EnableEnd)
-                {
-                    warning = "InOut constraint request has no enabled boundary segments.";
-                }
-                return true;
+                return false;
             }
-            finally
+
+            if (!request.EnableBegin && !request.EnableEnd)
             {
-                sampler.Dispose();
+                warning = "InOut constraint request has no enabled boundary segments.";
             }
+            return true;
         }
 
-        private static double ResolveTimelineBoundaryTime(KimodoInOutConstraintRequest request, bool isBegin)
+        internal static double ResolveTimelineBoundaryTime(KimodoInOutConstraintRequest request, bool isBegin)
         {
             KimodoTimelineInOutConstraintContext context = request.TimelineContext;
             double delta = 1.0 / ResolveModelFrameRate(request.ModelName);
             if (request.Mode == KimodoInOutConstraintMode.Outside)
             {
                 TimelineClip range = isBegin ? context.PreviousTimelineClip : context.NextTimelineClip;
-                return isBegin
-                    ? Math.Max(range.start, range.end - delta)
-                    : range.start;
+                double boundary = isBegin ? context.SourceClip.start : context.SourceClip.end;
+                return ClampTimelineSampleTime(range, boundary + (isBegin ? -delta : delta), delta);
             }
 
             TimelineClip current = context.SourceClip;
-            return isBegin
-                ? current.start
-                : Math.Max(current.start, current.end - delta);
+            return ClampTimelineSampleTime(
+                current,
+                isBegin ? current.start + delta : current.end - delta,
+                delta);
+        }
+
+        private static double ClampTimelineSampleTime(TimelineClip range, double value, double delta)
+        {
+            double first = range.start;
+            double last = Math.Max(first, range.end - delta);
+            return Math.Max(first, Math.Min(last, value));
         }
 
         private static float ResolveModelFrameRate(string modelName)
@@ -168,7 +162,7 @@ namespace KimodoBridge.Editor
 
         internal static int ClampFrameCount(int generationFrames)
         {
-            return Mathf.Clamp(generationFrames, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES);
+            return Mathf.Max(KimodoPlayableClip.MIN_FRAMES, generationFrames);
         }
 
         internal static int DurationSecondsToFrameCount(float durationSeconds)

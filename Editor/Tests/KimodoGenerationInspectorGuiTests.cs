@@ -1,5 +1,7 @@
 using System.Linq;
 using NUnit.Framework;
+using UnityEditor;
+using UnityEngine;
 
 namespace KimodoBridge.Editor.Tests
 {
@@ -18,6 +20,37 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(kimodo.Intersect(ardy), Is.Empty);
             Assert.That(ardy, Does.Contain(KimodoMotionModelProfiles.ArdyCore8ModelName));
             Assert.That(ardy, Does.Contain(KimodoMotionModelProfiles.ArdyG18ModelName));
+        }
+
+        [Test]
+        public void PromptEdit_PreservesMixedValuesUntilTheUserChangesTheField()
+        {
+            KimodoPlayableClip first = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            KimodoPlayableClip second = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            try
+            {
+                first.motionPrompt = "walk forward";
+                second.motionPrompt = "wave hello";
+                var serializedClips = new SerializedObject(new UnityEngine.Object[] { first, second });
+                SerializedProperty prompt = serializedClips.FindProperty("motionPrompt");
+
+                Assert.That(prompt.hasMultipleDifferentValues, Is.True);
+                KimodoGenerationInspectorGui.ApplyPromptEdit(prompt, prompt.stringValue, changed: false);
+                serializedClips.ApplyModifiedPropertiesWithoutUndo();
+
+                Assert.That(first.motionPrompt, Is.EqualTo("walk forward"));
+                Assert.That(second.motionPrompt, Is.EqualTo("wave hello"));
+
+                KimodoGenerationInspectorGui.ApplyPromptEdit(prompt, "run", changed: true);
+                serializedClips.ApplyModifiedPropertiesWithoutUndo();
+                Assert.That(first.motionPrompt, Is.EqualTo("run"));
+                Assert.That(second.motionPrompt, Is.EqualTo("run"));
+            }
+            finally
+            {
+                Object.DestroyImmediate(first);
+                Object.DestroyImmediate(second);
+            }
         }
     }
 }

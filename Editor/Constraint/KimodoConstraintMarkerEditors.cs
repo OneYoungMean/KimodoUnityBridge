@@ -38,6 +38,7 @@ namespace KimodoBridge.Editor
         private void OnDisable()
         {
             KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(target as KimodoConstraintMarkerBase, keepIfOverrideWindowOpen: true);
+            KimodoTimelineConstraintClipCache.Clear();
         }
 
         public override void OnInspectorGUI()
@@ -163,6 +164,7 @@ namespace KimodoBridge.Editor
         private void OnDisable()
         {
             KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(target as KimodoConstraintMarkerBase, keepIfOverrideWindowOpen: true);
+            KimodoTimelineConstraintClipCache.Clear();
         }
 
         public override void OnInspectorGUI()
@@ -294,6 +296,7 @@ namespace KimodoBridge.Editor
             public AnimationClip SourceClip;
             public Avatar SourceAvatar;
             public string ModelName;
+            public int CacheTimeFrames;
         }
 
         private sealed class AutoSampleCacheEntry
@@ -327,6 +330,7 @@ namespace KimodoBridge.Editor
             public double TimeScale;
             public float SourceClipLength;
             public float SourceClipFrameRate;
+            public int CacheTimeFrames;
             public bool HasRootHeading;
             public Vector3 KimodoRootPosition;
             public Vector3 UnityRootPos;
@@ -447,7 +451,8 @@ namespace KimodoBridge.Editor
                 Animator = animator,
                 SourceClip = sourceClip,
                 SourceAvatar = sourceAvatar,
-                ModelName = ResolveModelName(clipRange)
+                ModelName = ResolveModelName(clipRange),
+                CacheTimeFrames = KimodoPlayableClipGenerationSettings.instance.TimelineConstraintCacheTimeFrames
             };
 
             int id = marker.GetInstanceID();
@@ -460,14 +465,21 @@ namespace KimodoBridge.Editor
             }
 
             double sampleTime = marker.time;
-            double sourceSampleTime = KimodoMarkerSamplingUtility.ResolveSourceClipSampleTime(clipRange, sampleTime);
-            if (!KimodoRetargetToolsEditor.TrySampleMarkerForClip(
-                    sourceClip,
+            var timelineContext = new KimodoTimelineInOutConstraintContext
+            {
+                SourceClip = clipRange,
+                Track = track,
+                Director = director,
+                Animator = animator,
+                SourceAvatar = sourceAvatar,
+                ModelName = context.ModelName,
+                CurrentClip = sourceClip
+            };
+            if (!KimodoTimelineConstraintClipCache.TrySampleMarker(
+                    timelineContext,
+                    sampleTime,
+                    sampleTime,
                     marker.ConstraintType,
-                    sourceSampleTime,
-                    sourceAvatar,
-                    null,
-                    animator,
                     context.ModelName,
                     forceRefresh,
                     out KimodoMarkerSampleResult sample,
@@ -566,6 +578,7 @@ namespace KimodoBridge.Editor
                 TimeScale = context.ClipRange != null ? context.ClipRange.timeScale : 0.0,
                 SourceClipLength = context.SourceClip != null ? context.SourceClip.length : 0f,
                 SourceClipFrameRate = context.SourceClip != null ? context.SourceClip.frameRate : 0f,
+                CacheTimeFrames = context.CacheTimeFrames,
                 HasRootHeading = source != null && source.hasRootHeading,
                 KimodoRootPosition = source != null ? source.kimodoRootPosition : default,
                 UnityRootPos = source != null ? source.unityRootPos : default,
@@ -599,6 +612,7 @@ namespace KimodoBridge.Editor
                 Math.Abs(snapshot.TimeScale - (context.ClipRange != null ? context.ClipRange.timeScale : 0.0)) <= 1e-9 &&
                 Mathf.Abs(snapshot.SourceClipLength - (context.SourceClip != null ? context.SourceClip.length : 0f)) <= 1e-6f &&
                 Mathf.Abs(snapshot.SourceClipFrameRate - (context.SourceClip != null ? context.SourceClip.frameRate : 0f)) <= 1e-6f &&
+                snapshot.CacheTimeFrames == context.CacheTimeFrames &&
                 snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&
                 Vector3Approximately(snapshot.KimodoRootPosition, sample != null ? sample.kimodoRootPosition : default) &&
                 Vector3Approximately(snapshot.UnityRootPos, sample != null ? sample.unityRootPos : default) &&
@@ -1158,7 +1172,7 @@ namespace KimodoBridge.Editor
                 EditorUtility.SetDirty(inspectedAsset);
             }
 
-            TimelineEditor.Refresh(RefreshReason.ContentsModified | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+            TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
             SceneView.RepaintAll();
             Undo.CollapseUndoOperations(undoGroup);
             return true;

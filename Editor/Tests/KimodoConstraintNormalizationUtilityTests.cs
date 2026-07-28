@@ -32,7 +32,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void InOutComposer_DoesNotNormalizeWhenInIsDisabled()
+        public void InOutComposer_NormalizesManualConstraintWhenInIsDisabled()
         {
             var sample = new KimodoMarkerSampleResult
             {
@@ -51,8 +51,8 @@ namespace KimodoBridge.Editor.Tests
             };
 
             Assert.That(KimodoInOutConstraintComposer.TryBuild(request, out KimodoInOutConstraintResult result, out _, out _), Is.True);
-            Assert.That(result.NormalizationInfo.Applied, Is.False);
-            Assert.That(result.CombinedSamples[0].kimodoRootPosition, Is.EqualTo(new Vector3(10f, 1f, 20f)));
+            Assert.That(result.NormalizationInfo.Applied, Is.True);
+            Assert.That(result.CombinedSamples[0].kimodoRootPosition, Is.EqualTo(new Vector3(0f, 1f, 0f)));
         }
 
         [Test]

@@ -411,7 +411,7 @@ namespace KimodoBridge.Editor
             return string.Empty;
         }
 
-        private static KimodoInOutConstraintRequest BuildTimelineRequest(
+        internal static KimodoInOutConstraintRequest BuildTimelineRequest(
             KimodoTimelineInOutConstraintContext context,
             KimodoInOutConstraintMode mode,
             bool normalizeConstraintOrigin,

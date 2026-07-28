@@ -113,6 +113,7 @@ namespace KimodoBridge.Editor
 
         private void OnDisable()
         {
+            KimodoTimelineConstraintClipCache.Clear();
             KimodoConstraintMarkerBase restoreMarker = marker != null ? marker : lastKnownMarker;
             UnityEngine.Object restoreSelection = selectionBeforeOpen != null ? selectionBeforeOpen : restoreMarker as UnityEngine.Object;
 

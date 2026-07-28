@@ -327,9 +327,11 @@ namespace KimodoBridge.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 settings.DefaultBridgeModelName = options[Mathf.Clamp(newIndex, 0, options.Length - 1)];
-                if (modelChanged && KimodoGenerationInspectorGui.IsArdy(settings.DefaultBridgeModelName))
+                if (modelChanged)
                 {
-                    newEncoderMode = KimodoTextEncoderMode.HighPrecision;
+                    newEncoderMode = KimodoGenerationInspectorGui.IsArdy(settings.DefaultBridgeModelName)
+                        ? KimodoTextEncoderMode.HighPrecision
+                        : KimodoTextEncoderMode.HighPerformance;
                 }
                 settings.DefaultTextEncoderMode = newEncoderMode;
                 settings.SaveSettings();

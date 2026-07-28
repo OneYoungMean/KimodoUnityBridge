@@ -16,7 +16,9 @@ namespace KimodoBridge.Editor
 
         public KimodoInOutConstraintResult BuildConstraintDataOrThrow(
             KimodoPlayableClip clip,
-            int? generationFramesOverride = null)
+            int? generationFramesOverride = null,
+            bool? normalizeConstraintOriginOverride = null,
+            bool disableTimelineInOut = false)
         {
             TimelineClip sourceClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
             if (sourceClip == null)
@@ -29,10 +31,11 @@ namespace KimodoBridge.Editor
 
             bool ok = KimodoInOutConstraintAdapter.TryBuildConstraints(
                 sourceClip,
-                clip.inOutConstraintMode,
-                clip.normalizeConstraintOrigin,
-                clip.enableInConstraint,
-                clip.enableOutConstraint,
+                disableTimelineInOut ? KimodoInOutConstraintMode.None : clip.inOutConstraintMode,
+                normalizeConstraintOriginOverride ?? clip.normalizeConstraintOrigin,
+                // Mode=None prevents boundary sampling; true keeps manual-marker normalization independent of the In toggle.
+                disableTimelineInOut || clip.enableInConstraint,
+                !disableTimelineInOut && clip.enableOutConstraint,
                 generationFramesOverride ?? clip.generationFrames,
                 out KimodoInOutConstraintResult result,
                 out string error);

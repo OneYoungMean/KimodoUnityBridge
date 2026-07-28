@@ -343,7 +343,6 @@ namespace KimodoBridge.Editor
                 {
                     playableClip.bridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
                     playableClip.motionPrompt = prompt ?? string.Empty;
-                    playableClip.generationFrames = KimodoInOutConstraintAdapter.DurationSecondsToFrameCount(durationSeconds);
                     playableClip.inOutConstraintMode = groupIndex == 0
                         ? KimodoInOutConstraintMode.None
                         : KimodoInOutConstraintMode.Outside;
@@ -1099,7 +1098,7 @@ namespace KimodoBridge.Editor
                 EditorUtility.SetDirty(context.Director);
             }
 
-            TimelineEditor.Refresh(RefreshReason.ContentsModified | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+            TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
             KimodoTimelinePreviewRefreshUtility.RefreshIfPreviewing();
         }
 
@@ -1116,6 +1115,14 @@ namespace KimodoBridge.Editor
             {
                 EditorGUIUtility.PingObject(selectionTarget);
             }
+
+            EditorApplication.delayCall += () =>
+            {
+                if (director != null && TimelineEditor.inspectedDirector == director)
+                {
+                    TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+                }
+            };
         }
     }
 }

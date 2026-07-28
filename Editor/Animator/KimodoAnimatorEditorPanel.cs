@@ -15,8 +15,6 @@ namespace KimodoBridge.Editor
             ref string bridgeModelName,
             ref KimodoTextEncoderMode textEncoderMode,
             ref string motionPrompt,
-            ref bool autoDuration,
-            ref float customDurationSeconds,
             float suggestedDurationSeconds,
             ref int diffusionSteps,
             ref float textWeight,
@@ -53,8 +51,6 @@ namespace KimodoBridge.Editor
                         ref bridgeModelName,
                         ref textEncoderMode,
                         ref motionPrompt,
-                        ref autoDuration,
-                        ref customDurationSeconds,
                         suggestedDurationSeconds,
                         ref diffusionSteps,
                         ref textWeight,
@@ -83,8 +79,6 @@ namespace KimodoBridge.Editor
             ref string bridgeModelName,
             ref KimodoTextEncoderMode textEncoderMode,
             ref string motionPrompt,
-            ref bool autoDuration,
-            ref float customDurationSeconds,
             float suggestedDurationSeconds,
             ref int diffusionSteps,
             ref float textWeight,
@@ -106,30 +100,11 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("Prompt", EditorStyles.miniBoldLabel);
             motionPrompt = EditorGUILayout.TextArea(motionPrompt ?? string.Empty, GUILayout.Height(60f));
 
-            autoDuration = EditorGUILayout.ToggleLeft(
-                new GUIContent("Auto", "Use the original selected animation duration."),
-                autoDuration);
-
-            float minDuration = KimodoPlayableClip.MIN_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
-            float maxDuration = KimodoPlayableClip.MAX_FRAMES / KimodoPlayableClip.FIXED_FRAME_RATE;
-            if (autoDuration)
+            using (new EditorGUI.DisabledScope(true))
             {
-                using (new EditorGUI.DisabledScope(true))
-                {
-                    EditorGUILayout.Slider(
-                        new GUIContent("Duration (s)"),
-                        suggestedDurationSeconds,
-                        minDuration,
-                        maxDuration);
-                }
-            }
-            else
-            {
-                customDurationSeconds = EditorGUILayout.Slider(
-                    new GUIContent("Custom Duration (s)"),
-                    Mathf.Clamp(customDurationSeconds, minDuration, maxDuration),
-                    minDuration,
-                    maxDuration);
+                EditorGUILayout.FloatField(
+                    new GUIContent("Source Duration (s)", "Generation length is read from the selected clip or transition."),
+                    suggestedDurationSeconds);
             }
 
             diffusionSteps = Mathf.Clamp(
@@ -198,9 +173,11 @@ namespace KimodoBridge.Editor
 
                 int newIndex = EditorGUILayout.Popup(new GUIContent("Bridge Model"), currentIndex, options);
                 bridgeModelName = options[Mathf.Clamp(newIndex, 0, options.Length - 1)];
-                if (newIndex != currentIndex && KimodoGenerationInspectorGui.IsArdy(bridgeModelName))
+                if (newIndex != currentIndex)
                 {
-                    textEncoderMode = KimodoTextEncoderMode.HighPrecision;
+                    textEncoderMode = KimodoGenerationInspectorGui.IsArdy(bridgeModelName)
+                        ? KimodoTextEncoderMode.HighPrecision
+                        : KimodoTextEncoderMode.HighPerformance;
                 }
             }
             else

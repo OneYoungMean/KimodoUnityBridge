@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using TimelineInject;
 using UnityEditor;
 using UnityEngine;
 
@@ -29,6 +30,24 @@ namespace KimodoBridge.Editor
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating motion...");
 
             KimodoBridgeCommandResult runtimeResult = await ExecuteRuntimePipelineAsync(request, prompt, modelName);
+            return BakeRuntimeResult(request, prompt, modelName, runtimeResult);
+        }
+
+        internal static KimodoEditorGenerateResult BakeRuntimeResult(
+            KimodoEditorGenerateRequest request,
+            string prompt,
+            string modelName,
+            KimodoBridgeCommandResult runtimeResult)
+        {
+            if (request == null)
+            {
+                throw new InvalidOperationException("Generate request is null.");
+            }
+            if (runtimeResult == null)
+            {
+                throw new InvalidOperationException("Runtime generation returned null result.");
+            }
+
             string motionJson = runtimeResult.MotionJsonCompact;
             if (string.IsNullOrWhiteSpace(motionJson))
             {
@@ -151,17 +170,115 @@ namespace KimodoBridge.Editor
             string prompt,
             string modelName)
         {
+            ValidateTargetLength(request);
             if (KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile))
             {
                 return await ExecuteArdyRuntimePipelineAsync(request, prompt, profile);
             }
 
-            KimodoBridgeCommandRequest pipelineRequest = CreateRuntimePipelineRequest(request, prompt, modelName);
-            IKimodoGeneratePipeline pipeline = new KimodoBridgeCommand();
-            return await pipeline.ExecuteAsync(
-                pipelineRequest,
-                (stage, message) => request.Progress?.Invoke(stage, message),
-                request.Token);
+            return await ExecuteKimodoRuntimePipelineAsync(request, prompt, modelName);
+        }
+
+        private static async Task<KimodoBridgeCommandResult> ExecuteKimodoRuntimePipelineAsync(
+            KimodoEditorGenerateRequest request,
+            string prompt,
+            string modelName)
+        {
+            List<int> segmentFrameCounts = PlanKimodoSegmentFrames(request.TargetFrameCount);
+            var motions = new List<KimodoRawMotionData>(segmentFrameCounts.Count);
+            KimodoMarkerSampleResult previousTail = null;
+            KimodoBridgeCommandResult lastResult = null;
+            int segmentStartFrame = 0;
+            var pipeline = new KimodoBridgeCommand();
+            if (segmentFrameCounts.Count > 1 &&
+                (request.ConstraintSamples == null || request.ConstraintSamples.Count == 0) &&
+                HasConstraints(request.ConstraintsJson))
+            {
+                throw new InvalidOperationException(
+                    "Kimodo generation longer than 10 seconds requires sampled constraints so each segment can be remapped safely.");
+            }
+
+            for (int segmentIndex = 0; segmentIndex < segmentFrameCounts.Count; segmentIndex++)
+            {
+                ThrowIfCanceled(request);
+                int segmentFrameCount = segmentFrameCounts[segmentIndex];
+                List<KimodoMarkerSampleResult> segmentSamples = BuildKimodoSegmentConstraintSamples(
+                    request.ConstraintSamples,
+                    previousTail,
+                    request.TargetFrameCount,
+                    segmentStartFrame,
+                    segmentFrameCount,
+                    request.TargetFrameRate);
+                string segmentConstraints = segmentSamples.Count > 0
+                    ? KimodoConstraintJsonExporter.ToConstraintsJson(
+                        segmentSamples,
+                        0.0,
+                        segmentFrameCount / request.TargetFrameRate,
+                        request.TargetFrameRate)
+                    : segmentFrameCounts.Count == 1
+                        ? request.ConstraintsJson ?? string.Empty
+                        : string.Empty;
+
+                KimodoBridgeCommandRequest commandRequest = CreateRuntimePipelineRequest(request, prompt, modelName);
+                commandRequest.GenerationRequest.duration = segmentFrameCount / request.TargetFrameRate;
+                commandRequest.GenerationRequest.constraints_json = segmentConstraints;
+                request.Progress?.Invoke(
+                    KimodoBridgeCommandStage.InvokeBackend,
+                    segmentFrameCounts.Count > 1
+                        ? $"Generating Kimodo segment {segmentIndex + 1}/{segmentFrameCounts.Count}..."
+                        : "Generating Kimodo motion...");
+                lastResult = await pipeline.ExecuteAsync(
+                    commandRequest,
+                    (stage, message) => request.Progress?.Invoke(
+                        stage,
+                        segmentFrameCounts.Count > 1
+                            ? $"[{segmentIndex + 1}/{segmentFrameCounts.Count}] {message}"
+                            : message),
+                    request.Token);
+                if (lastResult?.MotionData == null || lastResult.MotionData.FrameCount != segmentFrameCount)
+                {
+                    throw new InvalidOperationException(
+                        $"Kimodo segment {segmentIndex + 1} returned {lastResult?.MotionData?.FrameCount ?? 0} frames; expected {segmentFrameCount}.");
+                }
+
+                motions.Add(lastResult.MotionData);
+                segmentStartFrame += segmentFrameCount;
+                if (segmentIndex + 1 < segmentFrameCounts.Count &&
+                    !KimodoRawMotionUtility.TryExtractTailMarkerSample(
+                        lastResult.MotionData,
+                        modelName,
+                        out previousTail,
+                        out string tailError,
+                        constraintType: "fullbody",
+                        sampleTime: 0.0))
+                {
+                    throw new InvalidOperationException($"Build Kimodo segment In Constraint failed: {tailError}");
+                }
+            }
+
+            if (!KimodoRawMotionUtility.TryConcatenate(
+                    motions,
+                    request.TargetFrameCount,
+                    out KimodoRawMotionData combined,
+                    out string concatenateError))
+            {
+                throw new InvalidOperationException(concatenateError);
+            }
+
+            byte[] payload = KimodoRawMotionUtility.ToFlatBuffer(combined, modelName);
+            return new KimodoBridgeCommandResult
+            {
+                MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(combined),
+                MotionData = combined,
+                MotionBytes = payload,
+                MotionFormat = "kmb_v1",
+                Message = segmentFrameCounts.Count > 1
+                    ? $"Kimodo generation complete ({segmentFrameCounts.Count} segments)."
+                    : lastResult?.Message ?? "Kimodo generation complete.",
+                RawStatus = lastResult?.RawStatus ?? "done",
+                MotionRepFingerprint = lastResult?.MotionRepFingerprint ?? string.Empty,
+                ResolvedSeed = lastResult?.ResolvedSeed
+            };
         }
 
         private static async Task<KimodoBridgeCommandResult> ExecuteArdyRuntimePipelineAsync(
@@ -169,22 +286,10 @@ namespace KimodoBridge.Editor
             string prompt,
             KimodoMotionModelProfile profile)
         {
-            byte[] historyPayload = null;
-            if (request.InitialArdyHistorySource != null)
-            {
-                request.Progress?.Invoke(KimodoBridgeCommandStage.Constraint, "Sampling Timeline history to ARDY KMB1...");
-                if (!ArdyEditorHistoryEncoder.TryEncode(
-                        request.InitialArdyHistorySource,
-                        profile,
-                        out historyPayload,
-                        out string redirectError))
-                {
-                    throw new InvalidOperationException($"Build ARDY history failed: {redirectError}");
-                }
-            }
+            byte[] historyPayload = BuildInitialArdyHistoryPayload(request, profile);
 
             KimodoBridgeCommandRequest commandRequest = CreateRuntimePipelineRequest(request, prompt, profile.ModelName);
-            commandRequest.GenerationRequest.duration = request.DurationSeconds;
+            commandRequest.GenerationRequest.duration = request.TargetFrameCount / request.TargetFrameRate;
             commandRequest.GenerationRequest.time_as_double = 0.0;
             commandRequest.GenerationRequest.seed = request.EffectiveSeed;
             commandRequest.GenerationRequest.steps = request.DiffusionSteps <= 0
@@ -220,7 +325,28 @@ namespace KimodoBridge.Editor
             };
         }
 
-        private static void ValidateArdyResult(
+        internal static byte[] BuildInitialArdyHistoryPayload(
+            KimodoEditorGenerateRequest request,
+            KimodoMotionModelProfile profile)
+        {
+            if (request?.InitialArdyHistorySource == null)
+            {
+                return null;
+            }
+
+            request.Progress?.Invoke(KimodoBridgeCommandStage.Constraint, "Sampling Timeline history to ARDY KMB1...");
+            if (!ArdyEditorHistoryEncoder.TryEncode(
+                    request.InitialArdyHistorySource,
+                    profile,
+                    out byte[] historyPayload,
+                    out string error))
+            {
+                throw new InvalidOperationException($"Build ARDY history failed: {error}");
+            }
+            return historyPayload;
+        }
+
+        internal static void ValidateArdyResult(
             KimodoBridgeCommandResult result,
             KimodoMotionModelProfile profile,
             int requestedSeed)
@@ -259,7 +385,7 @@ namespace KimodoBridge.Editor
             var generationRequest = new KimodoGenerationRequestDto
             {
                 prompt = prompt ?? string.Empty,
-                duration = request.DurationSeconds,
+                duration = request.TargetFrameCount / request.TargetFrameRate,
                 seed = request.EffectiveSeed,
                 steps = request.DiffusionSteps,
                 text_weight = Mathf.Clamp(request.TextWeight, 0f, 4f),
@@ -276,6 +402,96 @@ namespace KimodoBridge.Editor
             {
                 GenerationRequest = generationRequest
             };
+        }
+
+        internal static List<int> PlanKimodoSegmentFrames(int targetFrameCount)
+        {
+            int totalFrames = Mathf.Max(1, targetFrameCount);
+            int segmentCount = Mathf.CeilToInt(totalFrames / (float)KimodoPlayableClip.MAX_FRAMES);
+            int baseFrames = totalFrames / segmentCount;
+            int remainder = totalFrames % segmentCount;
+            var result = new List<int>(segmentCount);
+            for (int i = 0; i < segmentCount; i++)
+            {
+                result.Add(baseFrames + (i < remainder ? 1 : 0));
+            }
+            return result;
+        }
+
+        internal static List<KimodoMarkerSampleResult> BuildKimodoSegmentConstraintSamples(
+            IReadOnlyList<KimodoMarkerSampleResult> sourceSamples,
+            KimodoMarkerSampleResult previousTail,
+            int totalFrameCount,
+            int segmentStartFrame,
+            int segmentFrameCount,
+            float frameRate)
+        {
+            float fps = frameRate > 0f ? frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+            int safeTotalFrames = Mathf.Max(1, totalFrameCount);
+            int segmentEndFrame = segmentStartFrame + Mathf.Max(1, segmentFrameCount);
+            var result = new List<KimodoMarkerSampleResult>();
+            if (previousTail != null && segmentStartFrame > 0)
+            {
+                KimodoMarkerSampleResult continuity = previousTail.Clone();
+                continuity.constraintType = "fullbody";
+                continuity.sampleTime = 0.0;
+                result.Add(continuity);
+            }
+
+            if (sourceSamples == null)
+            {
+                return result;
+            }
+            for (int i = 0; i < sourceSamples.Count; i++)
+            {
+                KimodoMarkerSampleResult source = sourceSamples[i];
+                if (source == null)
+                {
+                    continue;
+                }
+                if (string.Equals(source.constraintType, "root2d_target", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(source.Clone());
+                    continue;
+                }
+
+                int sourceFrame = Mathf.Clamp(
+                    (int)Math.Floor(Math.Max(0.0, source.sampleTime) * fps + 1e-9),
+                    0,
+                    safeTotalFrames - 1);
+                if (sourceFrame < segmentStartFrame || sourceFrame >= segmentEndFrame)
+                {
+                    continue;
+                }
+
+                KimodoMarkerSampleResult local = source.Clone();
+                local.sampleTime = (sourceFrame - segmentStartFrame) / fps;
+                result.Add(local);
+            }
+            return result;
+        }
+
+        private static bool HasConstraints(string constraintsJson)
+        {
+            if (string.IsNullOrWhiteSpace(constraintsJson))
+            {
+                return false;
+            }
+            string value = constraintsJson.Trim();
+            return !string.Equals(value, "[]", StringComparison.Ordinal) &&
+                !string.Equals(value, "null", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void ValidateTargetLength(KimodoEditorGenerateRequest request)
+        {
+            if (request == null ||
+                request.TargetFrameCount <= 0 ||
+                request.TargetFrameRate <= 0f ||
+                float.IsNaN(request.TargetFrameRate) ||
+                float.IsInfinity(request.TargetFrameRate))
+            {
+                throw new InvalidOperationException("Generation requires a positive target frame count and frame rate.");
+            }
         }
 
         private static KimodoEditorGenerateResult Complete(

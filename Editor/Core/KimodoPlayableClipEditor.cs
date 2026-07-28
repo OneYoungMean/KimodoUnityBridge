@@ -9,6 +9,7 @@ using UnityEngine.Timeline;
 namespace KimodoBridge.Editor
 {
     [CustomEditor(typeof(KimodoPlayableClip))]
+    [CanEditMultipleObjects]
     public partial class KimodoPlayableClipEditor : UnityEditor.Editor
     {
         private const double RepaintIntervalSeconds = 0.2d;
@@ -107,6 +108,7 @@ namespace KimodoBridge.Editor
         private void OnDisable()
         {
             TryHideConstraintPreview();
+            KimodoTimelineConstraintClipCache.Clear();
             EditorUtility.ClearProgressBar();
             repaintQueued = false;
         }
@@ -149,32 +151,15 @@ namespace KimodoBridge.Editor
             }
             KimodoGenerationInspectorGui.DrawPrompt(motionPrompt);
 
-            bool hasArdyTimelineDuration = true;
-            if (isArdy)
+            TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
+            bool hasTimelineDuration = timelineClip != null && timelineClip.duration > 0.0;
+            if (hasTimelineDuration)
             {
-                TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
-                hasArdyTimelineDuration = timelineClip != null && timelineClip.duration > 0.0;
-                if (hasArdyTimelineDuration)
-                {
-                    EditorGUILayout.LabelField("Timeline Duration", $"{timelineClip.duration:F2}s");
-                }
-                else
-                {
-                    EditorGUILayout.HelpBox("ARDY duration is read from its Timeline clip.", MessageType.Error);
-                }
+                EditorGUILayout.LabelField("Timeline Duration", $"{timelineClip.duration:F2}s");
             }
             else
             {
-                float minDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(KimodoPlayableClip.MIN_FRAMES);
-                float maxDurationSeconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(KimodoPlayableClip.MAX_FRAMES);
-                if (KimodoGenerationInspectorGui.DrawDuration(
-                    generationFrames,
-                    minDurationSeconds,
-                    maxDurationSeconds,
-                    "Target generated clip length in seconds. Internally uses the fixed Kimodo sample rate and also syncs timeline clip duration when changed."))
-                {
-                    TrySyncTimelineDuration(generationFrames.intValue);
-                }
+                EditorGUILayout.HelpBox("Generation length is read from its Timeline clip.", MessageType.Error);
             }
 
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, bridgeModelName);
@@ -203,21 +188,21 @@ namespace KimodoBridge.Editor
             }
             DrawConstraintPreviewIfNeeded();
 
-            if (!isArdy)
-            {
-                float seconds = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(generationFrames.intValue);
-                EditorGUILayout.LabelField($"Duration: {seconds:F2}s", EditorStyles.miniLabel);
-            }
             DrawConstraintReferenceList();
 
             bool disableGenerate =
                 isGenerating ||
-                !hasArdyTimelineDuration ||
+                !hasTimelineDuration ||
                 KimodoBridgeServerTool.IsRuntimeMaintenanceInProgress ||
                 EditorCompilationStateGate.IsCompilingOrReloading;
+            int selectedClipCount = KimodoPlayableClipGenerationExecutionService.GetSelectedClipCount(clip);
+            string generateLabel = selectedClipCount > 1
+                ? $"Generate {selectedClipCount} Clips & Bake"
+                : "Generate & Bake";
             GUI.enabled = !disableGenerate;
-            if (GUILayout.Button(new GUIContent("Generate & Bake", "Generate motion using current settings and bake result back into this playable clip."), GUILayout.Height(32)))
+            if (GUILayout.Button(new GUIContent(generateLabel, "Generate selected Timeline clips. Compatible connected ARDY clips share one continuous Session; other selections run serially."), GUILayout.Height(32)))
             {
+                serializedObject.ApplyModifiedProperties();
                 bool accepted = KimodoPlayableClipGenerationExecutionService.TryStartGenerate(
                     clip,
                     out _,
@@ -226,7 +211,7 @@ namespace KimodoBridge.Editor
                 {
                     isGenerating = true;
                     lastError = string.Empty;
-                    lastStatus = "Queued generation...";
+                    lastStatus = string.IsNullOrWhiteSpace(error) ? "Queued generation..." : error;
                 }
                 else
                 {
@@ -377,7 +362,7 @@ namespace KimodoBridge.Editor
             string runtimeRoot = KimodoBridgeServerTool.GetRuntimeRootPath();
             KimodoTextEncoderMode encoderMode = clip != null
                 ? clip.textEncoderMode
-                : KimodoTextEncoderMode.HighPrecision;
+                : KimodoTextEncoderMode.HighPerformance;
             string modelName = clip == null ? KimodoPlayableClip.DefaultBridgeModelName : KimodoPlayableClip.NormalizeBridgeModelName(clip.bridgeModelName);
             string modelsRootOverride = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim();
             if (!KimodoBridgeServerTool.TryGetModelMissingSetupMinutes(runtimeRoot, encoderMode, modelName, modelsRootOverride, out int minutes))
@@ -610,19 +595,6 @@ namespace KimodoBridge.Editor
             EditorGUILayout.EndVertical();
         }
 
-        private void TrySyncTimelineDuration(int frames)
-        {
-            UnityEngine.Timeline.TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
-            if (timelineClip == null)
-            {
-                return;
-            }
-
-            float newDuration = KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(frames);
-            UndoExtensions.RegisterClip(timelineClip, L10n.Tr("Modify Clip Duration"));
-            timelineClip.duration = newDuration;
-        }
-
         private void DrawConstraintPreviewIfNeeded()
         {
             if (clip == null)
@@ -691,9 +663,9 @@ namespace KimodoBridge.Editor
                 });
             }
 
-            int previewGenerationFrames = KimodoMotionModelProfiles.TryGetArdy(context.ModelName, out _)
-                ? KimodoInOutConstraintAdapter.DurationSecondsToFrameCount((float)timelineClip.duration)
-                : clip.generationFrames;
+            int previewGenerationFrames = Mathf.Max(
+                1,
+                Mathf.RoundToInt((float)timelineClip.duration * KimodoPlayableClip.FIXED_FRAME_RATE));
             if (clip.inOutConstraintMode != KimodoInOutConstraintMode.None &&
                 KimodoInOutConstraintAdapter.TryBuildBoundarySamplesForPreview(
                     timelineClip,

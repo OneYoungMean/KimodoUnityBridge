@@ -47,7 +47,7 @@ namespace KimodoBridge.Editor
                 built.CombinedSamples.Add(endSample);
             }
 
-            if (request.NormalizeConstraintOrigin && request.AllowNormalizeConstraintOrigin)
+            if (request.NormalizeConstraintOrigin && built.CombinedSamples.Count > 0)
             {
                 KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
                     built.CombinedSamples,

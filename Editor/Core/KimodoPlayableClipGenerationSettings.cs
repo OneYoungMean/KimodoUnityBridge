@@ -10,15 +10,19 @@ namespace KimodoBridge.Editor
         internal const int MinGeneratedClipsLimit = 1;
         internal const int MaxGeneratedClipsLimit = 1000;
         internal const int DefaultGeneratedClipsLimit = 400;
+        internal const int MinTimelineConstraintCacheTimeFrames = 1;
+        internal const int MaxTimelineConstraintCacheTimeFrames = 900;
+        internal const int DefaultTimelineConstraintCacheTimeFrames = 60;
         internal const float MinGenerationTimeoutSeconds = 10f;
         internal const float DefaultGenerationTimeoutSeconds = 600f;
         private const string KeepCpuForceEditorPrefsKey = "KimodoBridge.KeepCpuForceExperimental";
 
         [SerializeField] private int maxGeneratedClips = DefaultGeneratedClipsLimit;
+        [SerializeField] private int timelineConstraintCacheTimeFrames = DefaultTimelineConstraintCacheTimeFrames;
         [SerializeField] private string localModelsPath = string.Empty;
         [SerializeField] private string defaultBridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
         [FormerlySerializedAs("defaultBridgeVramMode")]
-        [SerializeField] private KimodoTextEncoderMode defaultTextEncoderMode = KimodoTextEncoderMode.HighPrecision;
+        [SerializeField] private KimodoTextEncoderMode defaultTextEncoderMode = KimodoTextEncoderMode.HighPerformance;
         [SerializeField] private float generationTimeoutSeconds = DefaultGenerationTimeoutSeconds;
         [SerializeField] private bool keepCpuForceExperimental;
         [SerializeField] private bool setupWizardCompleted;
@@ -29,6 +33,18 @@ namespace KimodoBridge.Editor
         {
             get => Mathf.Clamp(maxGeneratedClips, MinGeneratedClipsLimit, MaxGeneratedClipsLimit);
             set => maxGeneratedClips = Mathf.Clamp(value, MinGeneratedClipsLimit, MaxGeneratedClipsLimit);
+        }
+
+        internal int TimelineConstraintCacheTimeFrames
+        {
+            get => Mathf.Clamp(
+                timelineConstraintCacheTimeFrames,
+                MinTimelineConstraintCacheTimeFrames,
+                MaxTimelineConstraintCacheTimeFrames);
+            set => timelineConstraintCacheTimeFrames = Mathf.Clamp(
+                value,
+                MinTimelineConstraintCacheTimeFrames,
+                MaxTimelineConstraintCacheTimeFrames);
         }
 
         internal string LocalModelsPath
@@ -87,6 +103,10 @@ namespace KimodoBridge.Editor
         {
             bool effectiveKeepCpuForce = KeepCpuForceExperimental;
             maxGeneratedClips = Mathf.Clamp(maxGeneratedClips, MinGeneratedClipsLimit, MaxGeneratedClipsLimit);
+            timelineConstraintCacheTimeFrames = Mathf.Clamp(
+                timelineConstraintCacheTimeFrames,
+                MinTimelineConstraintCacheTimeFrames,
+                MaxTimelineConstraintCacheTimeFrames);
             localModelsPath = localModelsPath ?? string.Empty;
             defaultBridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(defaultBridgeModelName);
             generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);

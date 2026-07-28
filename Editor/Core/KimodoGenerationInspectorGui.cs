@@ -23,11 +23,16 @@ namespace KimodoBridge.Editor
         {
             string current = KimodoPlayableClip.NormalizeBridgeModelName(modelName.stringValue);
             bool isArdy = IsArdy(current);
+            bool previousShowMixedValue = EditorGUI.showMixedValue;
+            EditorGUI.showMixedValue = modelName.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
             bool selectedArdy = EditorGUILayout.Popup(
                 new GUIContent("Base Model", "Select the Kimodo or ARDY model family."),
                 isArdy ? 1 : 0,
                 BaseModelOptions) == 1;
-            if (selectedArdy != isArdy)
+            bool baseModelChanged = EditorGUI.EndChangeCheck();
+            EditorGUI.showMixedValue = previousShowMixedValue;
+            if (baseModelChanged)
             {
                 current = selectedArdy
                     ? KimodoMotionModelProfiles.ArdyCoreModelName
@@ -35,21 +40,27 @@ namespace KimodoBridge.Editor
                 modelName.stringValue = current;
                 diffusionSteps.intValue = selectedArdy ? 10 : 100;
 
-                // ARDY is most sensitive to text-conditioning quality.  When the
-                // user switches model families, start with the high-precision
-                // encoder; they can still opt into high performance explicitly.
-                if (selectedArdy && textEncoderMode != null)
+                if (textEncoderMode != null)
                 {
-                    textEncoderMode.enumValueIndex = (int)KimodoTextEncoderMode.HighPrecision;
+                    textEncoderMode.enumValueIndex = (int)(selectedArdy
+                        ? KimodoTextEncoderMode.HighPrecision
+                        : KimodoTextEncoderMode.HighPerformance);
                 }
             }
 
             string[] options = GetModelOptions(selectedArdy);
             int index = Mathf.Max(0, Array.IndexOf(options, current));
-            modelName.stringValue = options[Mathf.Clamp(
+            EditorGUI.showMixedValue = modelName.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
+            int selectedIndex = Mathf.Clamp(
                 EditorGUILayout.Popup(new GUIContent("Model", "Model package used for generation."), index, options),
                 0,
-                options.Length - 1)];
+                options.Length - 1);
+            if (EditorGUI.EndChangeCheck())
+            {
+                modelName.stringValue = options[selectedIndex];
+            }
+            EditorGUI.showMixedValue = previousShowMixedValue;
             return selectedArdy;
         }
 
@@ -110,7 +121,20 @@ namespace KimodoBridge.Editor
         internal static void DrawPrompt(SerializedProperty prompt)
         {
             EditorGUILayout.LabelField(new GUIContent("Prompt", "Natural-language motion prompt sent to Kimodo Bridge."));
-            prompt.stringValue = EditorGUILayout.TextArea(prompt.stringValue, GUILayout.Height(60));
+            bool previousShowMixedValue = EditorGUI.showMixedValue;
+            EditorGUI.showMixedValue = prompt.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
+            string value = EditorGUILayout.TextArea(prompt.stringValue, GUILayout.Height(60));
+            ApplyPromptEdit(prompt, value, EditorGUI.EndChangeCheck());
+            EditorGUI.showMixedValue = previousShowMixedValue;
+        }
+
+        internal static void ApplyPromptEdit(SerializedProperty prompt, string value, bool changed)
+        {
+            if (changed)
+            {
+                prompt.stringValue = value;
+            }
         }
 
         internal static bool DrawDuration(
@@ -120,42 +144,69 @@ namespace KimodoBridge.Editor
             string tooltip)
         {
             int oldFrames = generationFrames.intValue;
+            bool previousShowMixedValue = EditorGUI.showMixedValue;
+            EditorGUI.showMixedValue = generationFrames.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
             float duration = EditorGUILayout.Slider(
                 new GUIContent("Duration (s)", tooltip),
                 KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(oldFrames),
                 minSeconds,
                 maxSeconds);
+            bool changed = EditorGUI.EndChangeCheck();
+            EditorGUI.showMixedValue = previousShowMixedValue;
+            if (!changed)
+            {
+                return false;
+            }
             generationFrames.intValue = KimodoInOutConstraintAdapter.DurationSecondsToFrameCount(duration);
-            return generationFrames.intValue != oldFrames;
+            return true;
         }
 
         internal static void DrawDiffusionSteps(
             SerializedProperty diffusionSteps,
             SerializedProperty modelName)
         {
+            bool previousShowMixedValue = EditorGUI.showMixedValue;
+            EditorGUI.showMixedValue = diffusionSteps.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
+            int value;
             if (KimodoMotionModelProfiles.TryGetArdy(
                     KimodoPlayableClip.NormalizeBridgeModelName(modelName.stringValue),
                     out KimodoMotionModelProfile profile))
             {
-                diffusionSteps.intValue = EditorGUILayout.IntSlider(
+                value = EditorGUILayout.IntSlider(
                     new GUIContent("Diffusion Steps", $"0 uses the model default ({profile.MaxDiffusionSteps})."),
                     Mathf.Clamp(diffusionSteps.intValue, 0, profile.MaxDiffusionSteps),
                     0,
                     profile.MaxDiffusionSteps);
-                return;
             }
-
-            diffusionSteps.intValue = Mathf.Clamp(
-                EditorGUILayout.IntField(
-                    new GUIContent("Diffusion Steps", "Sampling steps for generation. Higher values increase compute time and may improve fidelity."),
-                    diffusionSteps.intValue),
-                1,
-                1000);
+            else
+            {
+                value = Mathf.Clamp(
+                    EditorGUILayout.IntField(
+                        new GUIContent("Diffusion Steps", "Sampling steps for generation. Higher values increase compute time and may improve fidelity."),
+                        diffusionSteps.intValue),
+                    1,
+                    1000);
+            }
+            if (EditorGUI.EndChangeCheck())
+            {
+                diffusionSteps.intValue = value;
+            }
+            EditorGUI.showMixedValue = previousShowMixedValue;
         }
 
         internal static void DrawTextWeight(SerializedProperty textWeight)
         {
-            textWeight.floatValue = DrawTextWeight(textWeight.floatValue);
+            bool previousShowMixedValue = EditorGUI.showMixedValue;
+            EditorGUI.showMixedValue = textWeight.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
+            float value = DrawTextWeight(textWeight.floatValue);
+            if (EditorGUI.EndChangeCheck())
+            {
+                textWeight.floatValue = value;
+            }
+            EditorGUI.showMixedValue = previousShowMixedValue;
         }
 
         internal static float DrawTextWeight(float textWeight)
@@ -170,16 +221,31 @@ namespace KimodoBridge.Editor
         internal static void DrawSeed(SerializedProperty randomSeed, SerializedProperty seed)
         {
             EditorGUILayout.BeginHorizontal();
-            randomSeed.boolValue = EditorGUILayout.ToggleLeft(
+            bool previousShowMixedValue = EditorGUI.showMixedValue;
+            EditorGUI.showMixedValue = randomSeed.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
+            bool useRandomSeed = EditorGUILayout.ToggleLeft(
                 new GUIContent("Random", "Use a random seed on each generation run."),
                 randomSeed.boolValue,
                 GUILayout.Width(110f));
-            using (new EditorGUI.DisabledScope(randomSeed.boolValue))
+            if (EditorGUI.EndChangeCheck())
             {
-                seed.intValue = EditorGUILayout.IntField(
+                randomSeed.boolValue = useRandomSeed;
+            }
+
+            EditorGUI.showMixedValue = seed.hasMultipleDifferentValues;
+            using (new EditorGUI.DisabledScope(useRandomSeed))
+            {
+                EditorGUI.BeginChangeCheck();
+                int value = EditorGUILayout.IntField(
                     new GUIContent("Seed", "Deterministic seed used when Random is disabled."),
                     seed.intValue);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    seed.intValue = value;
+                }
             }
+            EditorGUI.showMixedValue = previousShowMixedValue;
             EditorGUILayout.EndHorizontal();
         }
     }

@@ -52,7 +52,7 @@ namespace KimodoBridge
         public string bridgeModelName = DefaultBridgeModelName;
         [FormerlySerializedAs("bridgeVramMode")]
         [Tooltip("High Performance uses NF4/INT8. High Precision uses FP16. Device placement is automatic.")]
-        public KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPrecision;
+        public KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPerformance;
 
         [TextArea(2, 6)]
         public string motionPrompt = "a man walk and say hello";

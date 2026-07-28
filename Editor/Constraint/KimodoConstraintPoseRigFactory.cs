@@ -43,6 +43,11 @@ namespace KimodoBridge.Editor
                 rootObject.name = $"__KimodoPoseCache_{clipId}_{animatorId}_{rigType}";
                 rootObject.hideFlags = HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
                 rootObject.SetActive(false);
+                Animator[] animators = rootObject.GetComponentsInChildren<Animator>(true);
+                for (int i = 0; i < animators.Length; i++)
+                {
+                    animators[i].enabled = false;
+                }
 
                 Transform root = rootObject.transform;
                 Transform[] transforms = root.GetComponentsInChildren<Transform>(true);

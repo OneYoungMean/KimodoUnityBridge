@@ -48,6 +48,8 @@ namespace KimodoBridge.Editor
             public Dictionary<string, Transform> NameMap;
             public List<Material> GeneratedMaterials;
             public bool PickingEnabled;
+            public bool HasRenderSignature;
+            public int RenderSignature;
         }
 
         private static readonly Dictionary<string, PoseCacheEntry> Entries = new Dictionary<string, PoseCacheEntry>(StringComparer.Ordinal);
@@ -98,6 +100,7 @@ namespace KimodoBridge.Editor
             }
 
             var desiredKeys = new HashSet<string>(StringComparer.Ordinal);
+            bool changed = false;
             for (int i = 0; i < items.Count; i++)
             {
                 PoseCacheRenderItem item = items[i];
@@ -115,19 +118,27 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (!ApplySampleToRig(item.SampleData, context.ModelName, entry, out error))
+                int renderSignature = ComputeRenderSignature(item, context.ModelName);
+                if (!entry.HasRenderSignature || entry.RenderSignature != renderSignature)
                 {
-                    int localAxisCount = item.SampleData != null && item.SampleData.localAxisAngles != null
-                        ? item.SampleData.localAxisAngles.Count
-                        : 0;
-                    error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}, localAxisAngles={localAxisCount}): {error}";
-                    return false;
+                    if (!ApplySampleToRig(item.SampleData, context.ModelName, entry, out error))
+                    {
+                        int localAxisCount = item.SampleData.localAxisAngles != null
+                            ? item.SampleData.localAxisAngles.Count
+                            : 0;
+                        error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}, localAxisAngles={localAxisCount}): {error}";
+                        return false;
+                    }
+
+                    var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
+                    ApplyConstraintColoring(entry, highlightedJoints);
+                    entry.RenderSignature = renderSignature;
+                    entry.HasRenderSignature = true;
+                    changed = true;
                 }
 
-                var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
-                ApplyConstraintColoring(entry, highlightedJoints);
-                SetEntryVisible(entry, true);
+                changed |= SetEntryVisible(entry, true);
             }
 
             List<string> keysToRemove = null;
@@ -143,6 +154,7 @@ namespace KimodoBridge.Editor
                     DestroyEntry(kv.Value);
                     keysToRemove ??= new List<string>();
                     keysToRemove.Add(kv.Key);
+                    changed = true;
                 }
             }
 
@@ -153,7 +165,10 @@ namespace KimodoBridge.Editor
                     Entries.Remove(keysToRemove[i]);
                 }
             }
-            SceneView.RepaintAll();
+            if (changed)
+            {
+                SceneView.RepaintAll();
+            }
             return true;
         }
 
@@ -562,17 +577,19 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static void SetEntryVisible(PoseCacheEntry entry, bool visible)
+        private static bool SetEntryVisible(PoseCacheEntry entry, bool visible)
         {
             if (entry?.Root == null || entry.Root.gameObject == null)
             {
-                return;
+                return false;
             }
 
             if (entry.Root.gameObject.activeSelf != visible)
             {
                 entry.Root.gameObject.SetActive(visible);
+                return true;
             }
+            return false;
         }
 
         private static void SetEntrySelectable(PoseCacheEntry entry, bool selectable)
@@ -702,6 +719,77 @@ namespace KimodoBridge.Editor
                 {
                     output.Add(name.Trim());
                 }
+            }
+        }
+
+        internal static int ComputeRenderSignature(PoseCacheRenderItem item, string modelName)
+        {
+            unchecked
+            {
+                int hash = 17;
+                AddHash(ref hash, modelName);
+                AddHash(ref hash, item?.ConstraintType);
+                AddHash(ref hash, item != null && item.Visible ? 1 : 0);
+                KimodoMarkerSampleResult sample = item?.SampleData;
+                if (sample != null)
+                {
+                    AddHash(ref hash, sample.constraintType);
+                    AddHash(ref hash, sample.sampleTime.GetHashCode());
+                    AddHash(ref hash, (int)sample.rigType);
+                    AddHash(ref hash, sample.hasRootHeading ? 1 : 0);
+                    AddHash(ref hash, sample.kimodoRootPosition.GetHashCode());
+                    AddHash(ref hash, sample.rootHeading.GetHashCode());
+                    AddHash(ref hash, sample.unityRootPos.GetHashCode());
+                    AddHash(ref hash, sample.unityRootRot.GetHashCode());
+                    AddHash(ref hash, sample.jointNames);
+                    AddHash(ref hash, sample.localAxisAngles);
+                    AddHash(ref hash, sample.sampledJointIndices);
+                }
+                AddHash(ref hash, item?.HighlightJoints);
+                return hash;
+            }
+        }
+
+        private static void AddHash(ref int hash, int value)
+        {
+            unchecked
+            {
+                hash = hash * 31 + value;
+            }
+        }
+
+        private static void AddHash(ref int hash, string value)
+        {
+            AddHash(ref hash, StringComparer.Ordinal.GetHashCode(value ?? string.Empty));
+        }
+
+        private static void AddHash(ref int hash, IReadOnlyList<string> values)
+        {
+            int count = values != null ? values.Count : 0;
+            AddHash(ref hash, count);
+            for (int i = 0; i < count; i++)
+            {
+                AddHash(ref hash, values[i]);
+            }
+        }
+
+        private static void AddHash(ref int hash, IReadOnlyList<Vector3> values)
+        {
+            int count = values != null ? values.Count : 0;
+            AddHash(ref hash, count);
+            for (int i = 0; i < count; i++)
+            {
+                AddHash(ref hash, values[i].GetHashCode());
+            }
+        }
+
+        private static void AddHash(ref int hash, IReadOnlyList<int> values)
+        {
+            int count = values != null ? values.Count : 0;
+            AddHash(ref hash, count);
+            for (int i = 0; i < count; i++)
+            {
+                AddHash(ref hash, values[i]);
             }
         }
 

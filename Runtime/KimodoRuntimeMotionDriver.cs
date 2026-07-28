@@ -19,7 +19,7 @@ namespace KimodoBridge
         [SerializeField] private string modelsRoot = string.Empty;
         [SerializeField] private string modelName = "Kimodo-SOMA-RP-v1";
         [FormerlySerializedAs("highVram")]
-        [SerializeField] private KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPrecision;
+        [SerializeField] private KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPerformance;
         [SerializeField] private bool forceCpu;
         [SerializeField][Min(1f)] private float startupTimeoutMinutes = 30f;
 

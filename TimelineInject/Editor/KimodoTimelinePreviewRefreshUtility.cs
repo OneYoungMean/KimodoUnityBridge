@@ -164,5 +164,10 @@ namespace TimelineInject
                 EditorGUI.indentLevel--;
             }
         }
+
+        public static int GetDirtyIndex(TrackAsset trackAsset)
+        {
+            return trackAsset != null ? trackAsset.DirtyIndex : -1;
+        }
     }
 }

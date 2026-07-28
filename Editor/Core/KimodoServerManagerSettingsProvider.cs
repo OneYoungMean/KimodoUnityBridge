@@ -182,9 +182,11 @@ namespace KimodoBridge.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 settings.DefaultBridgeModelName = options[Mathf.Clamp(newIdx, 0, options.Length - 1)];
-                if (modelChanged && KimodoGenerationInspectorGui.IsArdy(settings.DefaultBridgeModelName))
+                if (modelChanged)
                 {
-                    newEncoderMode = KimodoTextEncoderMode.HighPrecision;
+                    newEncoderMode = KimodoGenerationInspectorGui.IsArdy(settings.DefaultBridgeModelName)
+                        ? KimodoTextEncoderMode.HighPrecision
+                        : KimodoTextEncoderMode.HighPerformance;
                 }
                 settings.DefaultTextEncoderMode = newEncoderMode;
                 settings.SaveSettings();
@@ -219,6 +221,20 @@ namespace KimodoBridge.Editor
                         TryClearUnreferencedClipCaches();
                     }
                 }
+            }
+
+            EditorGUI.BeginChangeCheck();
+            int timelineCacheTimeFrames = EditorGUILayout.IntSlider(
+                new GUIContent(
+                    "Timeline Constraint Cache Time",
+                    "Number of 30 FPS Timeline frames in each fixed constraint-sampling cache interval."),
+                settings.TimelineConstraintCacheTimeFrames,
+                KimodoPlayableClipGenerationSettings.MinTimelineConstraintCacheTimeFrames,
+                KimodoPlayableClipGenerationSettings.MaxTimelineConstraintCacheTimeFrames);
+            if (EditorGUI.EndChangeCheck())
+            {
+                settings.TimelineConstraintCacheTimeFrames = timelineCacheTimeFrames;
+                settings.SaveSettings();
             }
 
             EditorGUI.BeginChangeCheck();

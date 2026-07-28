@@ -73,6 +73,13 @@ namespace KimodoBridge.Editor
                 var rotations = new List<float>(frameCount * jointNames.Length * 4);
                 var footContacts = new byte[frameCount * KimodoFootContactTrackUtility.ChannelCount];
                 var muscleSamples = new MuscleSample[frameCount];
+                var directRootPositions = new Vector3[frameCount];
+                Transform rootJoint = joints[0];
+                if (rootJoint == null)
+                {
+                    error = "ARDY profile root joint is missing after Timeline retargeting.";
+                    return false;
+                }
                 bool hasFootContacts = true;
                 for (int frame = 0; frame < frameCount; frame++)
                 {
@@ -90,6 +97,10 @@ namespace KimodoBridge.Editor
                     {
                         return false;
                     }
+
+                    HumanPose directPose = muscleSamples[frame].pose;
+                    sampler.TargetCache.poseHandler.SetHumanPose(ref directPose);
+                    directRootPositions[frame] = rootJoint.position;
 
                     if (hasFootContacts &&
                         KimodoTimelineFootContactSampler.TrySample(
@@ -139,16 +150,13 @@ namespace KimodoBridge.Editor
                         return false;
                     }
 
-                    Transform rootJoint = joints[0];
-                    if (rootJoint == null)
-                    {
-                        error = "ARDY profile root joint is missing after Timeline retargeting.";
-                        return false;
-                    }
-
                     // The Humanoid graph applies the baked Foot IK goals before KMB samples local rotations.
                     Quaternion rootRotation = rootJoint.rotation.normalized;
-                    rootPositions[frame] = rootJoint.position;
+                    Vector3 playableRootPosition = rootJoint.position;
+                    rootPositions[frame] = new Vector3(
+                        directRootPositions[frame].x,
+                        playableRootPosition.y,
+                        directRootPositions[frame].z);
                     for (int joint = 0; joint < joints.Length; joint++)
                     {
                         Quaternion unity = joint == 0

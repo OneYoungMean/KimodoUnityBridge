@@ -11,7 +11,8 @@ namespace KimodoBridge.Editor
         public string Prompt;
         public string ModelName;
         public KimodoTextEncoderMode TextEncoderMode;
-        public float DurationSeconds;
+        public int TargetFrameCount;
+        public float TargetFrameRate = KimodoPlayableClip.FIXED_FRAME_RATE;
         public int DiffusionSteps;
         public float TextWeight = 1f;
         public int EffectiveSeed;
@@ -30,6 +31,7 @@ namespace KimodoBridge.Editor
         public KimodoMarkerSampleResult NormalizationAnchorSample;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
         public ArdyEditorHistorySource InitialArdyHistorySource;
+        public bool DisableTimelineInOut;
         public string GeneratedArdyMotionCachePath = string.Empty;
         public List<string> GeneratedArdyWindowCachePaths = new List<string>();
         public List<int> GeneratedArdySeeds = new List<int>();

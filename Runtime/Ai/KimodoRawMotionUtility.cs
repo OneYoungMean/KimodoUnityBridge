@@ -493,6 +493,53 @@ namespace KimodoBridge
             return true;
         }
 
+        internal static bool TrySlice(
+            KimodoRawMotionData source,
+            int startFrame,
+            int frameCount,
+            out KimodoRawMotionData slice,
+            out string error)
+        {
+            slice = null;
+            error = string.Empty;
+            if (source == null || startFrame < 0 || frameCount <= 0 || startFrame + frameCount > source.FrameCount)
+            {
+                error = $"Motion slice [{startFrame},{startFrame + frameCount}) is outside the source range [0,{source?.FrameCount ?? 0}).";
+                return false;
+            }
+
+            var roots = new Vector3[frameCount];
+            Array.Copy(source.rootPositions, startFrame, roots, 0, frameCount);
+
+            int rotationScalarCount = frameCount * source.JointCount * 4;
+            int rotationScalarStart = startFrame * source.JointCount * 4;
+            var rotations = new List<float>(rotationScalarCount);
+            for (int scalar = 0; scalar < rotationScalarCount; scalar++)
+            {
+                rotations.Add(source.localRotQuats[rotationScalarStart + scalar]);
+            }
+
+            byte[] contacts = null;
+            if (source.HasFootContacts)
+            {
+                int channelCount = KimodoFootContactTrackUtility.ChannelCount;
+                contacts = new byte[frameCount * channelCount];
+                Array.Copy(source.footContacts, startFrame * channelCount, contacts, 0, contacts.Length);
+            }
+
+            slice = new KimodoRawMotionData(
+                frameCount,
+                source.JointCount,
+                source.FrameRate,
+                (string[])source.jointNames.Clone(),
+                (int[])source.jointParents.Clone(),
+                roots,
+                rotations,
+                source.rootJointIndex,
+                contacts);
+            return true;
+        }
+
         public static bool TryResample(
             KimodoRawMotionData source,
             float targetFrameRate,
