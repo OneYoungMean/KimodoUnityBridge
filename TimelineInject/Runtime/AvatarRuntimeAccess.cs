@@ -1,4 +1,6 @@
 using UnityEngine;
+using UnityEngine.Animations;
+using UnityEngine.Playables;
 
 namespace TimelineInject
 {
@@ -27,6 +29,31 @@ namespace TimelineInject
         public static string GetSkeletonBoneParentNameOrEmpty(SkeletonBone bone)
         {
             return string.IsNullOrWhiteSpace(bone.parentName) ? string.Empty : bone.parentName;
+        }
+    }
+
+    public static class AnimationOffsetPlayableAccess
+    {
+        public static Playable CreateAndConnect(
+            PlayableGraph graph,
+            Playable input,
+            Vector3 position,
+            Quaternion rotation)
+        {
+            rotation.Normalize();
+            AnimationOffsetPlayable offset = AnimationOffsetPlayable.Create(
+                graph,
+                position,
+                rotation,
+                1);
+            graph.Connect(input, 0, offset, 0);
+            offset.SetInputWeight(0, 1f);
+
+            AnimationMotionXToDeltaPlayable motion = AnimationMotionXToDeltaPlayable.Create(graph);
+            graph.Connect(offset, 0, motion, 0);
+            motion.SetInputWeight(0, 1f);
+            motion.SetAbsoluteMotion(true);
+            return motion;
         }
     }
 }

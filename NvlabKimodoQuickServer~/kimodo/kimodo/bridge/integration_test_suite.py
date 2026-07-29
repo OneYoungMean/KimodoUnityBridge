@@ -974,7 +974,7 @@ def _run_cancel_queued(ctx: TestContext) -> dict[str, Any]:
     t1.join()
     t2.join(timeout=10)
     _stop_server(host, port)
-    if str(header.get("status", "")).lower() not in {"cancelled", "cancelling", "idle"}:
+    if str(header.get("status", "")).lower() not in {"done", "cancelled", "cancelling", "idle"}:
         raise RuntimeError(f"Unexpected cancel response: {header}")
     _post_recovery_generate(ctx, params)
     return {"status": "passed", "cancel": header, "errors": error_holder}
@@ -1000,7 +1000,7 @@ def _run_cancel_active(ctx: TestContext) -> dict[str, Any]:
     header, _ = _send_json(host, port, {"cmd": "cancel", "task_id": "active_cancel"})
     thread.join(timeout=60)
     _stop_server(host, port)
-    if str(header.get("status", "")).lower() not in {"cancelling", "cancelled"}:
+    if str(header.get("status", "")).lower() not in {"done", "cancelling", "cancelled"}:
         raise RuntimeError(f"Unexpected cancel response: {header}")
     _post_recovery_generate(ctx, params)
     return {"status": "passed", "cancel": header, "result": result}

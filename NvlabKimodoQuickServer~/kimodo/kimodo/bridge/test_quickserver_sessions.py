@@ -13,9 +13,18 @@ import torch
 from kimodo.bridge import ardy_backend
 from kimodo.bridge import bridge_server
 from kimodo.bridge import quickserver_cli
+from kimodo.bridge.frame_time import seconds_to_frame_count
 
 
 class QuickServerProtocolV2Tests(unittest.TestCase):
+    def test_seconds_to_frame_count_uses_tolerance_protected_ceiling(self):
+        self.assertEqual(seconds_to_frame_count(4.5666666, 30.0), 137)
+        self.assertEqual(seconds_to_frame_count(5.0, 30.0), 150)
+        self.assertEqual(seconds_to_frame_count(1.00001, 30.0), 31)
+        self.assertEqual(seconds_to_frame_count(0.0, 30.0), 0)
+        with self.assertRaises(ValueError):
+            seconds_to_frame_count(float("nan"), 30.0)
+
     def test_ardy_imports_from_the_bundled_runtime(self):
         import ardy
 
@@ -71,6 +80,46 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 "TextEncoder ready. Generating ARDY motion...",
             ],
         )
+
+    def test_text_encoder_completion_observes_cancellation_before_generation(self):
+        session = object.__new__(ardy_backend.ArdySession)
+        session.prompt = "walk forward"
+        cancel = threading.Event()
+
+        def encode(_prompts):
+            cancel.set()
+            return "text", "mask"
+
+        model = SimpleNamespace(
+            text_encoder=SimpleNamespace(model=None),
+            _encode_text=encode,
+        )
+        with self.assertRaises(bridge_server.GenerateCancelledError):
+            session._encode_prompt(model, cancel_event=cancel)
+
+    def test_active_cancel_publishes_terminal_generate_response_immediately(self):
+        task = {
+            "task_id": "loading-text-encoder",
+            "request_id": "generate-request",
+            "event": threading.Event(),
+            "response": None,
+            "binary": b"stale",
+        }
+
+        quickserver_cli._publish_cancelled_task_to_client(task, "Cancellation requested.")
+
+        self.assertTrue(task["event"].is_set())
+        self.assertIsNone(task["binary"])
+        self.assertEqual(task["response"]["status"], "cancelled")
+        self.assertEqual(task["response"]["task_id"], "loading-text-encoder")
+        self.assertEqual(task["response"]["request_id"], "generate-request")
+
+    def test_cancelled_kimodo_task_does_not_enter_model(self):
+        cancel = threading.Event()
+        cancel.set()
+        model = SimpleNamespace(fps=30.0)
+        with self.assertRaises(bridge_server.GenerateCancelledError):
+            quickserver_cli._execute_generate({}, model, cancel)
 
     def test_shared_text_encoder_signature_uses_mode_not_models_directory_or_placement(self):
         base = {

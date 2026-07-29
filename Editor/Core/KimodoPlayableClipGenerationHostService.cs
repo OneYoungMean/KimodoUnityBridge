@@ -41,10 +41,12 @@ namespace KimodoBridge.Editor
             float targetFrameRate = isArdy ? ardyProfile.SourceFps : KimodoPlayableClip.FIXED_FRAME_RATE;
             int targetFrameCount = Mathf.Max(
                 KimodoPlayableClip.MIN_FRAMES,
-                Mathf.RoundToInt((float)timelineClip.duration * targetFrameRate));
+                KimodoFrameTimeUtility.SecondsToFrameCount(timelineClip.duration, targetFrameRate));
             int constraintFrames = Mathf.Max(
                 KimodoPlayableClip.MIN_FRAMES,
-                Mathf.RoundToInt((float)timelineClip.duration * KimodoPlayableClip.FIXED_FRAME_RATE));
+                KimodoFrameTimeUtility.SecondsToFrameCount(
+                    timelineClip.duration,
+                    KimodoPlayableClip.FIXED_FRAME_RATE));
             float targetLengthSeconds = targetFrameCount / targetFrameRate;
 
             string constraintsJson;

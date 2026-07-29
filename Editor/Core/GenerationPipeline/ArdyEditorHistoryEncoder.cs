@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using TimelineInject;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
@@ -51,7 +52,7 @@ namespace KimodoBridge.Editor
                 double timelineDuration = source.RangeEndSeconds - source.RangeStartSeconds;
                 int requestedFrames = Math.Max(
                     profile.FramesPerToken,
-                    (int)Math.Floor(timelineDuration * profile.SourceFps + 1e-9));
+                    KimodoFrameTimeUtility.SecondsToFrameCount(timelineDuration, profile.SourceFps));
                 int frameCount = Math.Min(maxFrames, requestedFrames);
                 frameCount -= frameCount % profile.FramesPerToken;
                 if (frameCount <= 0)
@@ -62,7 +63,9 @@ namespace KimodoBridge.Editor
 
                 int availableFrames = Math.Min(
                     frameCount,
-                    Math.Max(1, (int)Math.Floor(timelineDuration * profile.SourceFps + 1e-9)));
+                    Math.Max(
+                        1,
+                        KimodoFrameTimeUtility.SecondsToFrameCount(timelineDuration, profile.SourceFps)));
                 double latestSampleTime = Math.Max(
                     source.RangeStartSeconds,
                     source.RangeEndSeconds - TimelineBoundaryEpsilonSeconds);
@@ -73,7 +76,6 @@ namespace KimodoBridge.Editor
                 var rotations = new List<float>(frameCount * jointNames.Length * 4);
                 var footContacts = new byte[frameCount * KimodoFootContactTrackUtility.ChannelCount];
                 var muscleSamples = new MuscleSample[frameCount];
-                var directRootPositions = new Vector3[frameCount];
                 Transform rootJoint = joints[0];
                 if (rootJoint == null)
                 {
@@ -89,19 +91,14 @@ namespace KimodoBridge.Editor
                         : latestSampleTime;
                     if (!sampler.TryCaptureMuscleSample(
                             sampleTime,
-                            source.NormalizeRootToAnchor,
-                            source.AnchorRootPosition,
-                            source.AnchorRootRotation,
+                            normalizeRootToAnchor: false,
+                            Vector3.zero,
+                            Quaternion.identity,
                             out muscleSamples[frame],
                             out error))
                     {
                         return false;
                     }
-
-                    HumanPose directPose = muscleSamples[frame].pose;
-                    sampler.TargetCache.poseHandler.SetHumanPose(ref directPose);
-                    directRootPositions[frame] = rootJoint.position;
-
                     if (hasFootContacts &&
                         KimodoTimelineFootContactSampler.TrySample(
                             source.TimelineContext,
@@ -134,6 +131,9 @@ namespace KimodoBridge.Editor
                         sampler.TargetCache,
                         "ArdyEditorHistory_TargetHumanoid",
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                        applyRootOffset: true,
+                        sampler.RootOffsetPosition,
+                        sampler.RootOffsetRotation,
                         out targetSamplingContext,
                         out error))
                 {
@@ -152,11 +152,16 @@ namespace KimodoBridge.Editor
 
                     // The Humanoid graph applies the baked Foot IK goals before KMB samples local rotations.
                     Quaternion rootRotation = rootJoint.rotation.normalized;
-                    Vector3 playableRootPosition = rootJoint.position;
-                    rootPositions[frame] = new Vector3(
-                        directRootPositions[frame].x,
-                        playableRootPosition.y,
-                        directRootPositions[frame].z);
+                    Vector3 rootPosition = rootJoint.position;
+                    if (source.NormalizeRootToAnchor)
+                    {
+                        KimodoConstraintNormalizationUtility.NormalizeRootPose(
+                            source.AnchorRootPosition,
+                            source.AnchorRootRotation,
+                            ref rootPosition,
+                            ref rootRotation);
+                    }
+                    rootPositions[frame] = rootPosition;
                     for (int joint = 0; joint < joints.Length; joint++)
                     {
                         Quaternion unity = joint == 0

@@ -209,7 +209,9 @@ namespace KimodoBridge.Editor
                 }
 
                 double exactFrames = timelineClip.duration * profile.SourceFps;
-                int frameCount = (int)Math.Round(exactFrames, MidpointRounding.AwayFromZero);
+                int frameCount = KimodoFrameTimeUtility.SecondsToFrameCount(
+                    timelineClip.duration,
+                    profile.SourceFps);
                 if (frameCount <= 0 || Math.Abs(exactFrames - frameCount) > 1e-4)
                 {
                     AddDifference(differences, $"'{timelineClip.displayName}' duration is not aligned to {profile.SourceFps:g} FPS");

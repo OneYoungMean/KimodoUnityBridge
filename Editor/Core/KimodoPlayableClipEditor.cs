@@ -631,7 +631,7 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                if (marker.time < timelineClip.start || marker.time > timelineClip.end)
+                if (!KimodoConstraintMarkerEditorUtility.IsTimeInClipFrameRange(marker.time, timelineClip))
                 {
                     continue;
                 }
@@ -665,7 +665,9 @@ namespace KimodoBridge.Editor
 
             int previewGenerationFrames = Mathf.Max(
                 1,
-                Mathf.RoundToInt((float)timelineClip.duration * KimodoPlayableClip.FIXED_FRAME_RATE));
+                KimodoFrameTimeUtility.SecondsToFrameCount(
+                    timelineClip.duration,
+                    KimodoPlayableClip.FIXED_FRAME_RATE));
             if (clip.inOutConstraintMode != KimodoInOutConstraintMode.None &&
                 KimodoInOutConstraintAdapter.TryBuildBoundarySamplesForPreview(
                     timelineClip,

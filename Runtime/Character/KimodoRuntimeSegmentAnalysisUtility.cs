@@ -21,12 +21,12 @@ namespace KimodoBridge
 
             if (settings.Mode == KimodoSegmentSamplingMode.ByTime)
             {
-                int trimFrames = Mathf.RoundToInt(settings.TrimTimeSeconds * frameRate);
+                int trimFrames = KimodoFrameTimeUtility.SecondsToFrameCount(settings.TrimTimeSeconds, frameRate);
                 return Mathf.Clamp(lastFrameIndex - trimFrames, 1, lastFrameIndex);
             }
 
             int maxTrimFrames = Mathf.Clamp(
-                Mathf.RoundToInt(settings.MaxTrimTimeSeconds * frameRate),
+                KimodoFrameTimeUtility.SecondsToFrameCount(settings.MaxTrimTimeSeconds, frameRate),
                 0,
                 lastFrameIndex);
             if (maxTrimFrames <= 0)
@@ -118,12 +118,12 @@ namespace KimodoBridge
             effectiveLastFrameIndex = Mathf.Clamp(effectiveLastFrameIndex, 0, Mathf.Max(0, motion.FrameCount - 1));
             if (settings.Mode == KimodoSegmentSamplingMode.ByTime)
             {
-                int overlapFrames = Mathf.RoundToInt(settings.OverlapTimeSeconds * frameRate);
+                int overlapFrames = KimodoFrameTimeUtility.SecondsToFrameCount(settings.OverlapTimeSeconds, frameRate);
                 return Mathf.Clamp(effectiveLastFrameIndex - overlapFrames, 0, effectiveLastFrameIndex);
             }
 
             int maxOverlapFrames = Mathf.Clamp(
-                Mathf.RoundToInt(settings.MaxOverlapTimeSeconds * frameRate),
+                KimodoFrameTimeUtility.SecondsToFrameCount(settings.MaxOverlapTimeSeconds, frameRate),
                 0,
                 effectiveLastFrameIndex);
             if (maxOverlapFrames <= 0)

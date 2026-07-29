@@ -20,12 +20,27 @@ from typing import Any
 from . import bridge_server as bridge_runtime_helpers
 from . import ardy_backend
 from . import quickserver_assets as assets
+from .frame_time import seconds_to_frame_count
 from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 
 
 SUPERVISOR_LOG_FILE_NAME = "bridge_server.log"
 DEFAULT_TASK_ID_PREFIX = "task"
 DEFAULT_RUNTIME_IDLE_UNLOAD_SEC = 900
+
+
+def _publish_cancelled_task_to_client(task: dict[str, Any], message: str) -> None:
+    response = {
+        "status": "cancelled",
+        "message": message,
+        "task_id": str(task.get("task_id") or ""),
+    }
+    request_id = str(task.get("request_id") or "")
+    if request_id:
+        response["request_id"] = request_id
+    task["response"] = response
+    task["binary"] = None
+    task["event"].set()
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -704,6 +719,9 @@ def _execute_generate(
 ) -> tuple[dict[str, Any], bytes | None]:
     from kimodo.tools import seed_everything
 
+    if cancel_event.is_set():
+        raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
+
     prompt = str(task_request.get("prompt", "A person walks forward.")).strip()
     if not prompt.endswith("."):
         prompt += "."
@@ -717,7 +735,7 @@ def _execute_generate(
     if seed is not None:
         seed_everything(int(seed))
 
-    num_frames = max(1, int(duration * float(model.fps)))
+    num_frames = max(1, seconds_to_frame_count(duration, model.fps))
     constraints = bridge_runtime_helpers._load_constraints(constraints_json, model)
     progress_bar = bridge_runtime_helpers._make_cancelable_progress_bar(cancel_event)
 
@@ -1333,7 +1351,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             try:
                 publish_state("loading_runtime")
                 task["status_message"] = "Preparing motion runtime..."
+                if task["cancel_event"].is_set():
+                    raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
                 runtime = get_runtime(session, task["runtime_config"])
+                if task["cancel_event"].is_set():
+                    raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
                 task["status_message"] = "Generating motion..."
                 publish_state("generating")
                 response, binary_payload = run_one_shot(task, runtime, session)
@@ -1364,6 +1386,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 binary_payload = None
                 logger.log(f"[ERROR] Generate task {task_id} failed: {exc}")
             with queue_changed:
+                if task["cancel_event"].is_set():
+                    response = {"status": "cancelled", "message": "Generation canceled."}
+                    binary_payload = None
                 finish_task_locked(session, task, response, binary_payload)
                 state["last_activity"] = time.time()
                 publish_state("idle")
@@ -1401,8 +1426,13 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 task["cancel_event"].set()
                 task["state"] = "cancelling"
                 task["status_message"] = f"Cancellation requested for '{resolved_task_id}'."
+                _publish_cancelled_task_to_client(task, task["status_message"])
                 return _attach_task_id(
-                    {"status": "cancelling", "message": task["status_message"]},
+                    {
+                        "status": "done",
+                        "cancel_status": "cancelling",
+                        "message": task["status_message"],
+                    },
                     resolved_task_id)
 
             try:
@@ -1417,7 +1447,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 {"status": "cancelled", "message": task["status_message"]},
             )
             return _attach_task_id(
-                {"status": "cancelled", "message": task["status_message"]},
+                {
+                    "status": "done",
+                    "cancel_status": "cancelled",
+                    "message": task["status_message"],
+                },
                 resolved_task_id)
 
     def stream_task_to_client(task: dict[str, Any], file, writer_lock: threading.Lock) -> None:
@@ -1624,7 +1658,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             task_id = str(request.get("task_id") or request.get("id") or "").strip()
                             cancel_response = cancel_task(session, task_id)
                             reply(cancel_response)
-                            if cancel_response.get("status") == "cancelling":
+                            if cancel_response.get("cancel_status") == "cancelling":
                                 with queue_changed:
                                     mark_session_ready_locked(session)
                         elif cmd == "quit":

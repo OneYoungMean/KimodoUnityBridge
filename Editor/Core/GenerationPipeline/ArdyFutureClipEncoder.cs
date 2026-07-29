@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using TimelineInject;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
@@ -68,7 +69,9 @@ namespace KimodoBridge.Editor
                     throw new InvalidOperationException(error);
                 }
 
-                int frameCount = Math.Max(1, (int)Math.Floor(sourceClip.length * profile.SourceFps + 1e-9));
+                int frameCount = Math.Max(
+                    1,
+                    KimodoFrameTimeUtility.SecondsToFrameCount(sourceClip.length, profile.SourceFps));
                 var roots = new Vector3[frameCount];
                 var rotations = new List<float>(frameCount * jointNames.Length * 4);
                 for (int frame = 0; frame < frameCount; frame++)

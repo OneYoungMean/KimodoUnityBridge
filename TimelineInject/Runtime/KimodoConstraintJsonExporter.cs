@@ -5,6 +5,24 @@ using UnityEngine;
 
 namespace TimelineInject
 {
+    public static class KimodoFrameTimeUtility
+    {
+        public const double FrameTolerance = 1e-4;
+
+        public static int SecondsToFrameCount(double seconds, double frameRate)
+        {
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds) ||
+                double.IsNaN(frameRate) || double.IsInfinity(frameRate) ||
+                seconds <= 0.0 || frameRate <= 0.0)
+            {
+                return 0;
+            }
+
+            double frames = Math.Ceiling(seconds * frameRate - FrameTolerance);
+            return frames >= int.MaxValue ? int.MaxValue : Math.Max(0, (int)frames);
+        }
+    }
+
     public static class KimodoConstraintJsonExporter
     {
         private const double DefaultExportFps = 30.0;
@@ -230,10 +248,12 @@ namespace TimelineInject
         private static int ToFrameIndex(double sampleTime, double? clipDurationSeconds, double exportFps)
         {
             double fps = exportFps > 0.0 ? exportFps : DefaultExportFps;
-            int frame = Mathf.Max(0, (int)Math.Floor(sampleTime * fps + 1e-9));
+            int frame = KimodoFrameTimeUtility.SecondsToFrameCount(sampleTime, fps);
             if (clipDurationSeconds.HasValue)
             {
-                int maxFrame = Mathf.Max(0, Mathf.CeilToInt((float)(clipDurationSeconds.Value * fps)) - 1);
+                int maxFrame = Mathf.Max(
+                    0,
+                    KimodoFrameTimeUtility.SecondsToFrameCount(clipDurationSeconds.Value, fps) - 1);
                 frame = Mathf.Clamp(frame, 0, maxFrame);
             }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using TimelineInject;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
@@ -139,6 +140,29 @@ namespace KimodoBridge
             out ClipSamplingContext context,
             out string error)
         {
+            return TryBuildClipSamplingContext(
+                clip,
+                cache,
+                rootName,
+                samplingMode,
+                applyRootOffset: false,
+                Vector3.zero,
+                Quaternion.identity,
+                out context,
+                out error);
+        }
+
+        internal static bool TryBuildClipSamplingContext(
+            AnimationClip clip,
+            SkeletonCache cache,
+            string rootName,
+            ClipSamplingMode samplingMode,
+            bool applyRootOffset,
+            Vector3 rootOffsetPosition,
+            Quaternion rootOffsetRotation,
+            out ClipSamplingContext context,
+            out string error)
+        {
             context = null;
             error = string.Empty;
 
@@ -168,8 +192,17 @@ namespace KimodoBridge
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
                 clipPlayable.SetApplyFootIK(RetargetSamplingDefaultFootIk);
                 clipPlayable.SetApplyPlayableIK(RetargetSamplingDefaultPlayableIk);
+                Playable rootPlayable = clipPlayable;
+                if (applyRootOffset)
+                {
+                    rootPlayable = AnimationOffsetPlayableAccess.CreateAndConnect(
+                        graph,
+                        clipPlayable,
+                        rootOffsetPosition,
+                        rootOffsetRotation);
+                }
                 AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, rootName + "Output", cache.animator);
-                output.SetSourcePlayable(clipPlayable);
+                output.SetSourcePlayable(rootPlayable);
 
                 clipPlayable.SetTime(0f);
                 graph.Play();
@@ -452,6 +485,29 @@ namespace KimodoBridge
             out MuscleSample targetMuscleSample,
             out string error)
         {
+            return TrySampleTargetFromHumanoidClip(
+                sourceHumanoidClip,
+                targetCache,
+                sampleTime,
+                applyRootOffset: false,
+                Vector3.zero,
+                Quaternion.identity,
+                out targetSample,
+                out targetMuscleSample,
+                out error);
+        }
+
+        internal static bool TrySampleTargetFromHumanoidClip(
+            AnimationClip sourceHumanoidClip,
+            SkeletonCache targetCache,
+            float sampleTime,
+            bool applyRootOffset,
+            Vector3 rootOffsetPosition,
+            Quaternion rootOffsetRotation,
+            out BoneSample targetSample,
+            out MuscleSample targetMuscleSample,
+            out string error)
+        {
             targetSample = null;
             targetMuscleSample = null;
             error = string.Empty;
@@ -469,11 +525,14 @@ namespace KimodoBridge
 
             if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
                     sourceHumanoidClip,
-                    targetCache,
-                    "KimodoRetargetTools_TargetHumanoidSample",
-                    KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
-                    out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
-                    out error))
+                        targetCache,
+                        "KimodoRetargetTools_TargetHumanoidSample",
+                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                        applyRootOffset,
+                        rootOffsetPosition,
+                        rootOffsetRotation,
+                        out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
+                        out error))
             {
                 return false;
             }
@@ -551,7 +610,11 @@ namespace KimodoBridge
 
         internal static int ResolveFrameCount(float duration, float frameRate)
         {
-            return Mathf.Max(2, Mathf.RoundToInt(Mathf.Max(0f, duration) * Mathf.Max(1f, frameRate)) + 1);
+            return Mathf.Max(
+                2,
+                KimodoFrameTimeUtility.SecondsToFrameCount(
+                    Mathf.Max(0f, duration),
+                    Mathf.Max(1f, frameRate)) + 1);
         }
 
         internal static bool TryApplyBoneSampleToSkeletonCache(BoneSample sample, SkeletonCache cache, out string error)

@@ -427,7 +427,9 @@ namespace KimodoBridge.Editor
 
             int generatedFrameCount = Mathf.Max(
                 1,
-                Mathf.RoundToInt(generationDurationSeconds * KimodoPlayableClip.FIXED_FRAME_RATE));
+                KimodoFrameTimeUtility.SecondsToFrameCount(
+                    generationDurationSeconds,
+                    KimodoPlayableClip.FIXED_FRAME_RATE));
             var request = new KimodoInOutConstraintRequest
             {
                 Mode = mode,

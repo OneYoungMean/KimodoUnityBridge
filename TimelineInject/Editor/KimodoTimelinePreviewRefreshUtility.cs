@@ -1,6 +1,7 @@
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 namespace TimelineInject
@@ -74,12 +75,46 @@ namespace TimelineInject
             return Camera.PreviewCullingLayer;
         }
 
+        public static int TimelineTimeToFrame(double time, double frameRate)
+        {
+            return TimeUtility.ToFrames(time, frameRate);
+        }
+
+        public static double TimelineFrameToTime(int frame, double frameRate)
+        {
+            return TimeUtility.FromFrames(frame, frameRate);
+        }
+
         public static bool TimelineMatchClipsToPrevious(TimelineClip clip,out string error)
         {
             error=string.Empty;
             try
             {
-                UnityEditor.Timeline.AnimationOffsetMenu.MatchClipsToPrevious(new TimelineClip[] { clip });
+                PlayableDirector director = TimelineEditor.inspectedDirector;
+                if (clip == null || director == null)
+                {
+                    error = "Timeline clip or inspected director is null.";
+                    return false;
+                }
+
+                TimelineEditor.state.previewMode = true;
+                if (!TimelineEditor.state.previewMode)
+                {
+                    error = "Timeline preview mode could not be enabled.";
+                    return false;
+                }
+
+                GameObject sceneObject = TimelineUtility.GetSceneGameObject(director, clip.GetParentTrack());
+                if (sceneObject == null)
+                {
+                    error = "Timeline animation track has no scene binding.";
+                    return false;
+                }
+
+                Transform matchPoint = ResolveHumanoidHipsMatchPoint(sceneObject) ?? sceneObject.transform;
+                TimelineAnimationUtilities.MatchPrevious(clip, matchPoint, director);
+                InspectorWindow.RepaintAllInspectors();
+                TimelineEditor.Refresh(RefreshReason.ContentsModified);
             }
             catch (System.Exception e)
             {
@@ -88,6 +123,16 @@ namespace TimelineInject
             }
             return true;
 
+        }
+
+        internal static Transform ResolveHumanoidHipsMatchPoint(GameObject sceneObject)
+        {
+            Animator animator = sceneObject != null
+                ? sceneObject.GetComponent<Animator>() ?? sceneObject.GetComponentInChildren<Animator>(true)
+                : null;
+            return animator != null && animator.isHuman
+                ? animator.GetBoneTransform(HumanBodyBones.Hips)
+                : null;
         }
 
         public static bool GetTImelineWindowLockState()
@@ -168,6 +213,53 @@ namespace TimelineInject
         public static int GetDirtyIndex(TrackAsset trackAsset)
         {
             return trackAsset != null ? trackAsset.DirtyIndex : -1;
+        }
+
+        public static void ResolveAnimationTrackOffset(
+            AnimationTrack track,
+            Animator animator,
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            ResolveAnimationTrackOffset(
+                track,
+                animator,
+                out position,
+                out rotation,
+                out _);
+        }
+
+        public static void ResolveAnimationTrackOffset(
+            AnimationTrack track,
+            Animator animator,
+            out Vector3 position,
+            out Quaternion rotation,
+            out bool isSceneOffset)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            isSceneOffset = false;
+            if (track == null)
+            {
+                return;
+            }
+
+            bool useTransformOffset = track.trackOffset == TrackOffset.ApplyTransformOffsets ||
+                (track.trackOffset == TrackOffset.Auto &&
+                 (animator == null || animator.runtimeAnimatorController == null));
+            isSceneOffset = !useTransformOffset;
+            position = useTransformOffset ? track.position : track.sceneOffsetPosition;
+            rotation = useTransformOffset
+                ? track.rotation
+                : Quaternion.Euler(track.sceneOffsetRotation);
+            rotation.Normalize();
+
+            Transform parent = animator != null ? animator.transform.parent : null;
+            if (parent != null)
+            {
+                position = parent.TransformPoint(position);
+                rotation = (parent.rotation * rotation).normalized;
+            }
         }
     }
 }

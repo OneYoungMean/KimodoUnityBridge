@@ -13,6 +13,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from kimodo.bridge.frame_time import seconds_to_frame_count
+
 
 MAX_KMB_BYTES = 256 * 1024**2
 TARGET_VELOCITY_PREDICTION_SECONDS = 2.0
@@ -82,7 +84,7 @@ class ArdySettings:
             value = float(request.get(name, default_seconds))
             if not math.isfinite(value) or value < 0.0:
                 raise ArdyBackendError(f"{name} must be a finite non-negative number of seconds.")
-            return max(minimum, int(math.floor(value * fps + 1e-6)))
+            return max(minimum, seconds_to_frame_count(value, fps))
 
         history = seconds_to_frames("ardy_history_crop_seconds", crop_max / fps, minimum=patch)
         history = min(crop_max, history // patch * patch)
@@ -90,7 +92,7 @@ class ArdySettings:
         future = min(crop_max, future // patch * patch)
         playback_reserve = seconds_to_frames("ardy_playback_reserve_seconds", 1.0)
         if playback_reserve > 0:
-            minimum_reserve = max(1, int(math.ceil(0.2 * fps - 1e-6)))
+            minimum_reserve = max(1, seconds_to_frame_count(0.2, fps))
             playback_reserve = max(minimum_reserve, playback_reserve)
             playback_reserve = int(math.ceil(playback_reserve / patch) * patch)
         return cls(
@@ -319,7 +321,7 @@ def _plan_root_2d_target(
     if speed > target.max_speed:
         velocity *= target.max_speed / speed
 
-    prediction_frames = max(1, int(math.floor(TARGET_VELOCITY_PREDICTION_SECONDS * fps + 1e-6)))
+    prediction_frames = max(1, seconds_to_frame_count(TARGET_VELOCITY_PREDICTION_SECONDS, fps))
     dt = 1.0 / fps
     frame_indices: list[int] = []
     positions: list[list[float]] = []
@@ -472,6 +474,7 @@ class ArdySession:
         profile: Any,
         quickserver_root: str | Path,
         progress: Callable[[str], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ):
         import torch
 
@@ -494,7 +497,10 @@ class ArdySession:
             raise ArdyBackendError("duration must be a finite non-negative number of seconds.")
         self._initial_duration_frames = 0
         if duration_seconds > 0.0:
-            self._initial_duration_frames = int(math.ceil(duration_seconds * float(profile.source_fps) - 1e-6))
+            self._initial_duration_frames = seconds_to_frame_count(
+                duration_seconds,
+                profile.source_fps,
+            )
         self.motion_cpu = None
         self.outputs: dict[str, np.ndarray] | None = None
         self.initial_history_cpu = None
@@ -507,7 +513,7 @@ class ArdySession:
         self._cuda_rng_state = None
         if str(model.device).startswith("cuda"):
             self._cuda_rng_state = torch.Generator(device=model.device).manual_seed(self.resolved_seed).get_state()
-        self._encode_prompt(model, progress)
+        self._encode_prompt(model, progress, cancel_event)
         self._set_constraints(request.get("constraints_json", []), attachments, model, apply_from=0, initial=True)
 
     @staticmethod
@@ -547,7 +553,16 @@ class ArdySession:
     def frame_count(self) -> int:
         return 0 if self.motion_cpu is None else int(self.motion_cpu.shape[1])
 
-    def _encode_prompt(self, model: Any, progress: Callable[[str], None] | None = None) -> None:
+    def _encode_prompt(
+        self,
+        model: Any,
+        progress: Callable[[str], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
+        from kimodo.bridge import bridge_server
+
+        if cancel_event is not None and cancel_event.is_set():
+            raise bridge_server.GenerateCancelledError("Generation canceled.")
         encode_text = getattr(model, "_encode_text", None)
         if callable(encode_text):
             encoder = getattr(model, "text_encoder", None)
@@ -559,6 +574,8 @@ class ArdySession:
                     else "Encoding prompt..."
                 )
             self.text_feat, self.text_pad_mask = encode_text([self.prompt])
+            if cancel_event is not None and cancel_event.is_set():
+                raise bridge_server.GenerateCancelledError("Generation canceled.")
             if progress is not None:
                 progress("TextEncoder ready. Generating ARDY motion...")
         else:
@@ -682,13 +699,14 @@ class ArdySession:
         attachments: tuple[bytes, ...],
         model: Any,
         apply_from: int,
+        cancel_event: threading.Event,
     ) -> bool:
         changed = "prompt" in request or "constraints_json" in request or self._generation_parameters_changed(request)
         if not changed:
             return False
         if "prompt" in request:
             self.prompt = self._normalize_prompt(request.get("prompt"))
-            self._encode_prompt(model)
+            self._encode_prompt(model, cancel_event=cancel_event)
         if "diffusion_steps" in request:
             self.diffusion_steps = self._resolve_steps(request.get("diffusion_steps"))
         if "text_weight" in request or "cfg_weight" in request:
@@ -881,7 +899,7 @@ class ArdySession:
             if self._response_seconds_ema is None
             else 0.75 * self._response_seconds_ema + 0.25 * elapsed
         )
-        minimum = int(math.ceil(0.2 * fps / patch) * patch)
+        minimum = int(math.ceil(seconds_to_frame_count(0.2, fps) / patch) * patch)
         estimate = int(math.ceil((1.5 * self._response_seconds_ema * fps + patch) / patch) * patch)
         hard_max = max(minimum, self.settings.history_crop_frames + self.settings.future_crop_frames)
         estimate = max(minimum, min(estimate, hard_max))
@@ -902,7 +920,7 @@ class ArdySession:
         time_seconds = float(request.get("time_as_double", 0.0))
         if not math.isfinite(time_seconds) or time_seconds < 0.0:
             raise ArdyBackendError("time_as_double must be a finite non-negative number.")
-        played_exact = int(math.floor(time_seconds * fps + 1e-6))
+        played_exact = seconds_to_frame_count(time_seconds, fps)
         played = played_exact // patch * patch
         seek = played_exact < self.last_played_frame
         patch_requested = (
@@ -924,7 +942,7 @@ class ArdySession:
             self._truncate(apply_from)
 
         if patch_requested:
-            self._apply_patch(request, attachments, model, apply_from)
+            self._apply_patch(request, attachments, model, apply_from, cancel_event)
         if patch_requested or seek:
             return_start = min(self.returned_until, apply_from)
             generation_start = apply_from
@@ -986,7 +1004,15 @@ def execute_stream_generate(
             session.close()
         session = None
     if session is None:
-        session = ArdySession(request, attachments, model, profile, quickserver_root, progress)
+        session = ArdySession(
+            request,
+            attachments,
+            model,
+            profile,
+            quickserver_root,
+            progress,
+            cancel_event,
+        )
         request = {"time_as_double": request.get("time_as_double", 0.0)}
     try:
         started = time.perf_counter()

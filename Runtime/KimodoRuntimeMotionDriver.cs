@@ -1576,7 +1576,9 @@ namespace KimodoBridge
         {
             float clamped = Mathf.Clamp(durationSeconds, MinGenerationDurationSeconds, MaxGenerationDurationSeconds);
             segmentIntervalSeconds = clamped;
-            generationFrames = Mathf.Max(1, Mathf.RoundToInt(clamped * KimodoPlayableClip.FIXED_FRAME_RATE));
+            generationFrames = Mathf.Max(
+                1,
+                KimodoFrameTimeUtility.SecondsToFrameCount(clamped, KimodoPlayableClip.FIXED_FRAME_RATE));
         }
 
         private void ClearNextConstraintPoses()

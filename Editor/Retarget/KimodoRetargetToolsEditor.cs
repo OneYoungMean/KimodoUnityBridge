@@ -845,7 +845,9 @@ namespace KimodoBridge.Editor
 
             float effectiveFps = fps > 0f ? fps : KimodoPlayableClip.FIXED_FRAME_RATE;
             float duration = Mathf.Max(clip.length, 1f / effectiveFps);
-            return Mathf.Max(2, Mathf.RoundToInt(duration * effectiveFps) + 1);
+            return Mathf.Max(
+                2,
+                KimodoFrameTimeUtility.SecondsToFrameCount(duration, effectiveFps) + 1);
         }
 
         private static bool TryNormalizeRecordedBindingPath(string bindingPath, HashSet<string> allowedPaths, out string normalizedPath)

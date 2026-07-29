@@ -6,6 +6,7 @@ import os
 from typing import Any, Optional
 
 from kimodo.tools import load_json
+from kimodo.bridge.frame_time import seconds_to_frame_count
 
 from .sanitize import sanitize_text, sanitize_texts
 
@@ -53,7 +54,7 @@ def parse_prompts_from_meta(
         text = meta["text"]
         duration = float(meta["duration"])
         if fps is not None:
-            duration = int(duration * fps)
+            duration = seconds_to_frame_count(duration, fps)
         if isinstance(text, list):
             raise ValueError("meta has 'text' but it is a list; use 'texts' for multiple prompts")
 
@@ -71,7 +72,7 @@ def parse_prompts_from_meta(
             raise ValueError(f"meta 'texts' and 'durations' length mismatch: {len(texts)} vs {len(durations)}")
         durations = [float(d) for d in durations]
         if fps is not None:
-            durations = [int(d * fps) for d in durations]
+            durations = [seconds_to_frame_count(d, fps) for d in durations]
 
         if sanitize:
             texts = sanitize_texts(texts)

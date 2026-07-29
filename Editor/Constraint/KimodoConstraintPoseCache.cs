@@ -4,6 +4,7 @@ using TimelineInject;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
@@ -11,14 +12,16 @@ namespace KimodoBridge.Editor
     {
         public readonly int ClipId;
         public readonly int AnimatorId;
+        public readonly int TrackId;
         public readonly string ModelName;
         public readonly KimodoConstraintRigType RigType;
         public readonly string ContextKey;
 
-        public PoseCacheRenderContext(int clipId, int animatorId, string modelName, KimodoConstraintRigType rigType)
+        public PoseCacheRenderContext(int clipId, int animatorId, int trackId, string modelName, KimodoConstraintRigType rigType)
         {
             ClipId = clipId;
             AnimatorId = animatorId;
+            TrackId = trackId;
             ModelName = string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim();
             RigType = rigType;
             ContextKey = KimodoConstraintMarkerEditorUtility.GetCachedIntString(clipId) + ":" + KimodoConstraintMarkerEditorUtility.GetCachedIntString(animatorId);
@@ -43,6 +46,7 @@ namespace KimodoBridge.Editor
             public string ContextKey;
             public int ClipId;
             public int AnimatorId;
+            public int TrackId;
             public KimodoConstraintRigType RigType;
             public Transform Root;
             public Dictionary<string, Transform> NameMap;
@@ -53,6 +57,7 @@ namespace KimodoBridge.Editor
         }
 
         private static readonly Dictionary<string, PoseCacheEntry> Entries = new Dictionary<string, PoseCacheEntry>(StringComparer.Ordinal);
+        private static bool invalidContextCleanupQueued;
 
         private const float NonConstraintAlpha = 1.0f;
         private const float HighlightAlpha = 1.0f;
@@ -64,6 +69,8 @@ namespace KimodoBridge.Editor
             AssemblyReloadEvents.beforeAssemblyReload += DestroyAll;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
             EditorApplication.quitting += DestroyAll;
+            Selection.selectionChanged += ScheduleInvalidContextCleanup;
+            Undo.undoRedoPerformed += ScheduleInvalidContextCleanup;
         }
 
         internal static bool RenderBatch(PoseCacheRenderContext context, IReadOnlyList<PoseCacheRenderItem> items, out string error)
@@ -482,6 +489,71 @@ namespace KimodoBridge.Editor
             SceneView.RepaintAll();
         }
 
+        internal static bool IsClipStillOnTrack(int clipId, int trackId)
+        {
+            TrackAsset track = EditorUtility.InstanceIDToObject(trackId) as TrackAsset;
+            if (clipId == 0 || track == null || track.timelineAsset == null)
+            {
+                return false;
+            }
+
+            foreach (TimelineClip timelineClip in track.GetClips())
+            {
+                UnityEngine.Object asset = timelineClip?.asset as UnityEngine.Object;
+                if (asset != null && asset.GetInstanceID() == clipId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void ScheduleInvalidContextCleanup()
+        {
+            if (invalidContextCleanupQueued || Entries.Count == 0)
+            {
+                return;
+            }
+
+            invalidContextCleanupQueued = true;
+            EditorApplication.delayCall += DestroyInvalidContexts;
+        }
+
+        private static void DestroyInvalidContexts()
+        {
+            invalidContextCleanupQueued = false;
+            if (Entries.Count == 0)
+            {
+                return;
+            }
+
+            var keysToRemove = new List<string>();
+            foreach (KeyValuePair<string, PoseCacheEntry> kv in Entries)
+            {
+                PoseCacheEntry entry = kv.Value;
+                if (entry == null || !IsClipStillOnTrack(entry.ClipId, entry.TrackId))
+                {
+                    keysToRemove.Add(kv.Key);
+                }
+            }
+
+            for (int i = 0; i < keysToRemove.Count; i++)
+            {
+                string key = keysToRemove[i];
+                if (Entries.TryGetValue(key, out PoseCacheEntry entry))
+                {
+                    DestroyEntry(entry);
+                    Entries.Remove(key);
+                }
+            }
+
+            if (keysToRemove.Count > 0)
+            {
+                SceneView.RepaintAll();
+            }
+        }
+
         private static void OnPlayModeStateChanged(PlayModeStateChange _)
         {
             DestroyAll();
@@ -519,6 +591,7 @@ namespace KimodoBridge.Editor
                 ContextKey = contextKey,
                 ClipId = context.ClipId,
                 AnimatorId = context.AnimatorId,
+                TrackId = context.TrackId,
                 RigType = rigType,
                 Root = rigInstance.Root != null ? rigInstance.Root.transform : null,
                 NameMap = rigInstance.NameMap,

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -11,66 +10,35 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoTimelineTrackOffsetUtility
     {
-        private static readonly FieldInfo SceneOffsetPositionField = typeof(AnimationTrack).GetField(
-            "m_SceneOffsetPosition",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        private static readonly FieldInfo SceneOffsetRotationField = typeof(AnimationTrack).GetField(
-            "m_SceneOffsetRotation",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-
         internal static void ResolveWorldOffset(
             TrackAsset track,
             Animator animator,
             out Vector3 position,
             out Quaternion rotation)
         {
+            ResolveWorldOffset(track, animator, out position, out rotation, out _);
+        }
+
+        internal static void ResolveWorldOffset(
+            TrackAsset track,
+            Animator animator,
+            out Vector3 position,
+            out Quaternion rotation,
+            out bool isSceneOffset)
+        {
             position = Vector3.zero;
             rotation = Quaternion.identity;
+            isSceneOffset = false;
             if (track is not AnimationTrack animationTrack)
             {
                 return;
             }
-
-            if (UsesExplicitTransformOffset(animationTrack, animator))
-            {
-                position = animationTrack.position;
-                rotation = animationTrack.rotation;
-            }
-            else if (animator != null)
-            {
-                position = SceneOffsetPositionField?.GetValue(animationTrack) is Vector3 scenePosition
-                    ? scenePosition
-                    : animator.transform.localPosition;
-                rotation = SceneOffsetRotationField?.GetValue(animationTrack) is Vector3 sceneRotation
-                    ? Quaternion.Euler(sceneRotation)
-                    : animator.transform.localRotation;
-            }
-            rotation.Normalize();
-
-            Transform parent = animator != null ? animator.transform.parent : null;
-            if (parent != null)
-            {
-                position = parent.TransformPoint(position);
-                rotation = parent.rotation * rotation;
-                rotation.Normalize();
-            }
-        }
-
-        internal static void ApplyToRootPose(
-            Vector3 offsetPosition,
-            Quaternion offsetRotation,
-            ref Vector3 position,
-            ref Quaternion rotation)
-        {
-            position = offsetPosition + offsetRotation * position;
-            rotation = (offsetRotation * rotation).normalized;
-        }
-
-        private static bool UsesExplicitTransformOffset(AnimationTrack track, Animator animator)
-        {
-            return track.trackOffset == TrackOffset.ApplyTransformOffsets ||
-                (track.trackOffset == TrackOffset.Auto &&
-                 (animator == null || animator.runtimeAnimatorController == null));
+            KimodoTimelinePreviewRefreshUtility.ResolveAnimationTrackOffset(
+                animationTrack,
+                animator,
+                out position,
+                out rotation,
+                out isSceneOffset);
         }
     }
 
@@ -115,6 +83,8 @@ namespace KimodoBridge.Editor
         internal readonly float FrameRate;
         internal readonly string ModelName;
         internal readonly int TrackDirtyIndex;
+        internal readonly Vector3 TrackOffsetPosition;
+        internal readonly Quaternion TrackOffsetRotation;
 
         internal KimodoTimelineConstraintCacheKey(
             int trackId,
@@ -122,7 +92,9 @@ namespace KimodoBridge.Editor
             int avatarId,
             KimodoTimelineConstraintCacheRange range,
             string modelName,
-            int trackDirtyIndex = 0)
+            int trackDirtyIndex = 0,
+            Vector3 trackOffsetPosition = default,
+            Quaternion trackOffsetRotation = default)
         {
             TrackId = trackId;
             AnimatorId = animatorId;
@@ -132,6 +104,10 @@ namespace KimodoBridge.Editor
             FrameRate = range.FrameRate;
             ModelName = modelName ?? string.Empty;
             TrackDirtyIndex = trackDirtyIndex;
+            TrackOffsetPosition = trackOffsetPosition;
+            TrackOffsetRotation = trackOffsetRotation == default
+                ? Quaternion.identity
+                : trackOffsetRotation.normalized;
         }
 
         public bool Equals(KimodoTimelineConstraintCacheKey other)
@@ -143,6 +119,8 @@ namespace KimodoBridge.Editor
                 EndFrame == other.EndFrame &&
                 FrameRate.Equals(other.FrameRate) &&
                 TrackDirtyIndex == other.TrackDirtyIndex &&
+                TrackOffsetPosition.Equals(other.TrackOffsetPosition) &&
+                TrackOffsetRotation.Equals(other.TrackOffsetRotation) &&
                 string.Equals(ModelName, other.ModelName, StringComparison.Ordinal);
         }
 
@@ -162,6 +140,8 @@ namespace KimodoBridge.Editor
                 hash = hash * 397 ^ EndFrame;
                 hash = hash * 397 ^ FrameRate.GetHashCode();
                 hash = hash * 397 ^ TrackDirtyIndex;
+                hash = hash * 397 ^ TrackOffsetPosition.GetHashCode();
+                hash = hash * 397 ^ TrackOffsetRotation.GetHashCode();
                 hash = hash * 397 ^ StringComparer.Ordinal.GetHashCode(ModelName ?? string.Empty);
                 return hash;
             }
@@ -203,8 +183,10 @@ namespace KimodoBridge.Editor
     internal sealed class KimodoTimelineConstraintCacheEntry
     {
         internal AnimationClip Clip;
-        internal Vector3[] SourceHipsPositions;
-        internal Quaternion[] SourceHipsRotations;
+        internal Vector3 RootOffsetPosition;
+        internal Quaternion RootOffsetRotation = Quaternion.identity;
+        internal Vector3[] TargetRootPositions;
+        internal Quaternion[] TargetRootRotations;
         internal readonly Dictionary<KimodoTimelineConstraintSampleKey, KimodoMarkerSampleResult> MarkerSamples =
             new Dictionary<KimodoTimelineConstraintSampleKey, KimodoMarkerSampleResult>();
     }
@@ -231,9 +213,11 @@ namespace KimodoBridge.Editor
             int bucketFrames = Mathf.Max(1, cacheTimeFrames);
             int trackEndFrame = Mathf.Max(
                 1,
-                (int)Math.Ceiling(Math.Max(trackEndTime, 1.0 / fps) * fps - 1e-9));
+                KimodoFrameTimeUtility.SecondsToFrameCount(
+                    Math.Max(trackEndTime, 1.0 / fps),
+                    fps));
             int sampleFrame = Mathf.Clamp(
-                (int)Math.Floor(Math.Max(0.0, timelineTime) * fps + 1e-9),
+                ResolveTimelineSampleFrame(timelineTime, fps),
                 0,
                 trackEndFrame - 1);
             int startFrame = sampleFrame / bucketFrames * bucketFrames;
@@ -245,6 +229,29 @@ namespace KimodoBridge.Editor
                 endFrame,
                 bakedStartFrame,
                 bakedEndFrame,
+                fps);
+        }
+
+        internal static float ResolveTimelineFrameRate(KimodoTimelineInOutConstraintContext context)
+        {
+            TimelineAsset timelineAsset = context?.Director?.playableAsset as TimelineAsset ??
+                context?.Track?.timelineAsset;
+            double frameRate = timelineAsset?.editorSettings.frameRate ?? KimodoPlayableClip.FIXED_FRAME_RATE;
+            return (float)Math.Max(1.0, frameRate);
+        }
+
+        internal static int ResolveTimelineSampleFrame(double timelineTime, float frameRate)
+        {
+            return KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(
+                Math.Max(0.0, timelineTime),
+                Math.Max(1f, frameRate));
+        }
+
+        internal static double ResolveTimelineSampleTime(double timelineTime, float frameRate)
+        {
+            float fps = Math.Max(1f, frameRate);
+            return KimodoTimelinePreviewRefreshUtility.TimelineFrameToTime(
+                ResolveTimelineSampleFrame(timelineTime, fps),
                 fps);
         }
 
@@ -279,9 +286,12 @@ namespace KimodoBridge.Editor
             out string error)
         {
             sample = null;
+            float timelineFrameRate = ResolveTimelineFrameRate(context);
+            double timelineSampleTime = ResolveTimelineSampleTime(timelineTime, timelineFrameRate);
             if (!TryGetOrCreateMuscleClip(
                     context,
-                    timelineTime,
+                    timelineSampleTime,
+                    timelineFrameRate,
                     modelName,
                     forceRefresh,
                     out KimodoTimelineConstraintCacheEntry entry,
@@ -291,7 +301,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            var sampleKey = new KimodoTimelineConstraintSampleKey(timelineTime, markerType);
+            var sampleKey = new KimodoTimelineConstraintSampleKey(timelineSampleTime, markerType);
             if (entry.MarkerSamples.TryGetValue(sampleKey, out KimodoMarkerSampleResult cachedSample))
             {
                 sample = cachedSample.Clone();
@@ -324,7 +334,10 @@ namespace KimodoBridge.Editor
                 if (!KimodoRetargetSamplingUtility.TrySampleTargetFromHumanoidClip(
                         entry.Clip,
                         targetCache,
-                        range.ResolveLocalSampleTime(timelineTime),
+                        range.ResolveLocalSampleTime(timelineSampleTime),
+                        applyRootOffset: true,
+                        entry.RootOffsetPosition,
+                        entry.RootOffsetRotation,
                         out BoneSample targetSample,
                         out _,
                         out error))
@@ -344,25 +357,25 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (!TryResolveCachedSourceHipsPose(
+                if (!TryResolveCachedTargetRootPose(
                         entry,
                         range,
-                        timelineTime,
-                        out Vector3 sourceHipsPosition,
-                        out Quaternion sourceHipsRotation))
+                        timelineSampleTime,
+                        out Vector3 targetRootPosition,
+                        out Quaternion targetRootRotation))
                 {
                     sample = null;
-                    error = "Timeline source Hips pose cache is missing or invalid.";
+                    error = "Timeline target root pose cache is missing or invalid.";
                     return false;
                 }
 
-                KimodoTimelinePoseSampler.ApplySourceHipsPose(
+                ApplyTargetRootPose(
                     sample,
-                    sourceHipsPosition,
-                    sourceHipsRotation,
+                    targetRootPosition,
+                    targetRootRotation,
                     exportedSampleTime);
                 KimodoMarkerSampleResult cached = sample.Clone();
-                cached.sampleTime = timelineTime;
+                cached.sampleTime = timelineSampleTime;
                 entry.MarkerSamples[sampleKey] = cached;
                 return true;
             }
@@ -387,6 +400,7 @@ namespace KimodoBridge.Editor
         private static bool TryGetOrCreateMuscleClip(
             KimodoTimelineInOutConstraintContext context,
             double timelineTime,
+            float frameRate,
             string modelName,
             bool forceRefresh,
             out KimodoTimelineConstraintCacheEntry entry,
@@ -405,15 +419,23 @@ namespace KimodoBridge.Editor
             int cacheTimeFrames = KimodoPlayableClipGenerationSettings.instance.TimelineConstraintCacheTimeFrames;
             range = ResolveRange(
                 timelineTime,
-                ResolveTrackEndTime(context.Track, context.SourceClip),
-                cacheTimeFrames);
+                ResolveSamplingEndTime(context, timelineTime, frameRate),
+                cacheTimeFrames,
+                frameRate);
+            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                context.Track,
+                context.Animator,
+                out Vector3 trackOffsetPosition,
+                out Quaternion trackOffsetRotation);
             var key = new KimodoTimelineConstraintCacheKey(
                 context.Track.GetInstanceID(),
                 context.Animator.GetInstanceID(),
                 context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0,
                 range,
                 modelName,
-                KimodoTimelinePreviewRefreshUtility.GetDirtyIndex(context.Track));
+                KimodoTimelinePreviewRefreshUtility.GetDirtyIndex(context.Track),
+                trackOffsetPosition,
+                trackOffsetRotation);
             if (forceRefresh)
             {
                 Invalidate(key);
@@ -430,8 +452,29 @@ namespace KimodoBridge.Editor
             }
 
             var samples = new List<MuscleSample>(range.BakedFrameCount);
-            var sourceHipsPositions = new Vector3[range.BakedFrameCount];
-            var sourceHipsRotations = new Quaternion[range.BakedFrameCount];
+            if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
+                    modelName,
+                    sampler.TargetCache,
+                    out _,
+                    out _,
+                    out Transform[] targetJoints,
+                    out error) ||
+                targetJoints == null ||
+                targetJoints.Length == 0 ||
+                targetJoints[0] == null)
+            {
+                sampler.Dispose();
+                error = string.IsNullOrWhiteSpace(error)
+                    ? "Timeline target profile root joint is missing."
+                    : error;
+                return false;
+            }
+
+            Transform targetRootJoint = targetJoints[0];
+            var targetRootPositions = new Vector3[range.BakedFrameCount];
+            var targetRootRotations = new Quaternion[range.BakedFrameCount];
+            AnimationClip clip = null;
+            KimodoRetargetClipSamplingUtility.ClipSamplingContext targetSamplingContext = null;
             try
             {
                 for (int i = 0; i < range.BakedFrameCount; i++)
@@ -449,38 +492,65 @@ namespace KimodoBridge.Editor
                     }
 
                     samples.Add(muscleSample);
-                    if (!sampler.TryGetSourceHipsPose(
-                            out sourceHipsPositions[i],
-                            out sourceHipsRotations[i],
+                }
+
+                if (!KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
+                        samples,
+                        range.FrameRate,
+                        out clip,
+                        out error))
+                {
+                    return false;
+                }
+                if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+                        clip,
+                        sampler.TargetCache,
+                        "KimodoTimelineConstraintCache_TargetHumanoid",
+                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                        applyRootOffset: true,
+                        trackOffsetPosition,
+                        trackOffsetRotation,
+                        out targetSamplingContext,
+                        out error))
+                {
+                    return false;
+                }
+
+                for (int i = 0; i < range.BakedFrameCount; i++)
+                {
+                    if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
+                            targetSamplingContext,
+                            i / range.FrameRate,
                             out error))
                     {
                         return false;
                     }
+                    targetRootPositions[i] = targetRootJoint.position;
+                    targetRootRotations[i] = targetRootJoint.rotation.normalized;
                 }
+
+                clip.name = "KimodoTimelineConstraintCache";
+                entry = new KimodoTimelineConstraintCacheEntry
+                {
+                    Clip = clip,
+                    RootOffsetPosition = trackOffsetPosition,
+                    RootOffsetRotation = trackOffsetRotation,
+                    TargetRootPositions = targetRootPositions,
+                    TargetRootRotations = targetRootRotations
+                };
+                Entries[key] = entry;
+                clip = null;
+                return true;
             }
             finally
             {
+                KimodoRetargetClipSamplingUtility.DestroyClipSamplingContext(targetSamplingContext);
                 sampler.Dispose();
+                if (clip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(clip);
+                }
             }
-
-            if (!KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
-                    samples,
-                    range.FrameRate,
-                    out AnimationClip clip,
-                    out error))
-            {
-                return false;
-            }
-
-            clip.name = "KimodoTimelineConstraintCache";
-            entry = new KimodoTimelineConstraintCacheEntry
-            {
-                Clip = clip,
-                SourceHipsPositions = sourceHipsPositions,
-                SourceHipsRotations = sourceHipsRotations
-            };
-            Entries[key] = entry;
-            return true;
         }
 
         internal static bool Invalidate(KimodoTimelineConstraintCacheKey key)
@@ -510,6 +580,8 @@ namespace KimodoBridge.Editor
                 if (key.TrackDirtyIndex == current.TrackDirtyIndex &&
                     key.AvatarId == current.AvatarId &&
                     key.FrameRate.Equals(current.FrameRate) &&
+                    key.TrackOffsetPosition.Equals(current.TrackOffsetPosition) &&
+                    key.TrackOffsetRotation.Equals(current.TrackOffsetRotation) &&
                     string.Equals(key.ModelName, current.ModelName, StringComparison.Ordinal))
                 {
                     continue;
@@ -532,51 +604,77 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static bool TryResolveCachedSourceHipsPose(
+        private static bool TryResolveCachedTargetRootPose(
             KimodoTimelineConstraintCacheEntry entry,
             KimodoTimelineConstraintCacheRange range,
             double timelineTime,
             out Vector3 position,
             out Quaternion rotation)
         {
-            float frame = range.ResolveLocalSampleTime(timelineTime) * range.FrameRate;
-            return TryInterpolateSourceHipsPose(
-                entry?.SourceHipsPositions,
-                entry?.SourceHipsRotations,
-                frame,
-                out position,
-                out rotation);
-        }
-
-        internal static bool TryInterpolateSourceHipsPose(
-            IReadOnlyList<Vector3> positions,
-            IReadOnlyList<Quaternion> rotations,
-            float frame,
-            out Vector3 position,
-            out Quaternion rotation)
-        {
             position = Vector3.zero;
             rotation = Quaternion.identity;
+            IReadOnlyList<Vector3> positions = entry?.TargetRootPositions;
+            IReadOnlyList<Quaternion> rotations = entry?.TargetRootRotations;
             if (positions == null || rotations == null || positions.Count == 0 || positions.Count != rotations.Count)
             {
                 return false;
             }
 
-            float clampedFrame = Mathf.Clamp(frame, 0f, positions.Count - 1);
-            int first = Mathf.FloorToInt(clampedFrame);
+            float frame = Mathf.Clamp(
+                range.ResolveLocalSampleTime(timelineTime) * range.FrameRate,
+                0f,
+                positions.Count - 1);
+            int first = Mathf.FloorToInt(frame);
             int second = Mathf.Min(first + 1, positions.Count - 1);
-            float blend = clampedFrame - first;
+            float blend = frame - first;
             position = Vector3.Lerp(positions[first], positions[second], blend);
             rotation = Quaternion.Slerp(rotations[first], rotations[second], blend).normalized;
             return true;
         }
 
-        private static double ResolveTrackEndTime(TrackAsset track, TimelineClip sourceClip)
+        internal static void ApplyTargetRootPose(
+            KimodoMarkerSampleResult sample,
+            Vector3 targetRootPosition,
+            Quaternion targetRootRotation,
+            double exportedSampleTime)
         {
-            double endTime = sourceClip != null ? sourceClip.end : 0.0;
-            if (track != null)
+            if (sample == null)
             {
-                foreach (TimelineClip clip in track.GetClips())
+                return;
+            }
+
+            targetRootRotation.Normalize();
+            Vector3 forward = Vector3.ProjectOnPlane(targetRootRotation * Vector3.forward, Vector3.up);
+            if (forward.sqrMagnitude <= 1e-8f)
+            {
+                forward = Vector3.forward;
+            }
+            forward.Normalize();
+
+            sample.kimodoRootPosition = new Vector3(
+                targetRootPosition.x,
+                sample.kimodoRootPosition.y,
+                targetRootPosition.z);
+            sample.unityRootPos = targetRootPosition;
+            sample.unityRootRot = Quaternion.LookRotation(forward, Vector3.up);
+            sample.rootHeading = new Vector2(forward.x, forward.z);
+            sample.hasRootHeading = true;
+            if (sample.localAxisAngles != null && sample.localAxisAngles.Count > 0)
+            {
+                sample.localAxisAngles[0] = KimodoRuntimeUtility.QuaternionToAxisAngleVector(targetRootRotation);
+            }
+            sample.sampleTime = exportedSampleTime;
+        }
+
+        internal static double ResolveSamplingEndTime(
+            KimodoTimelineInOutConstraintContext context,
+            double timelineTime,
+            float frameRate = KimodoPlayableClip.FIXED_FRAME_RATE)
+        {
+            double endTime = context?.SourceClip != null ? context.SourceClip.end : 0.0;
+            if (context?.Track != null)
+            {
+                foreach (TimelineClip clip in context.Track.GetClips())
                 {
                     if (clip != null)
                     {
@@ -585,7 +683,19 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            return Math.Max(endTime, 1.0 / KimodoPlayableClip.FIXED_FRAME_RATE);
+            PlayableAsset playableAsset = context?.Director != null ? context.Director.playableAsset : null;
+            if (playableAsset != null && !double.IsNaN(playableAsset.duration) && !double.IsInfinity(playableAsset.duration))
+            {
+                endTime = Math.Max(endTime, playableAsset.duration);
+            }
+
+            double frameDuration = 1.0 / Mathf.Max(1f, frameRate);
+            if (timelineTime >= endTime - 1e-9)
+            {
+                endTime = Math.Max(endTime, timelineTime + frameDuration);
+            }
+
+            return Math.Max(endTime, frameDuration);
         }
     }
 
@@ -602,18 +712,27 @@ namespace KimodoBridge.Editor
             KimodoTimelineInOutConstraintContext context,
             HumanPoseHandler sourcePoseHandler,
             float sourceHumanScale,
-            SkeletonCache targetCache)
+            SkeletonCache targetCache,
+            Vector3 rootOffsetPosition,
+            Quaternion rootOffsetRotation,
+            bool rootPoseIncludesOffset)
         {
             this.context = context;
             this.sourcePoseHandler = sourcePoseHandler;
             this.sourceHumanScale = sourceHumanScale;
             TargetCache = targetCache;
+            RootOffsetPosition = rootOffsetPosition;
+            RootOffsetRotation = rootOffsetRotation;
+            RootPoseIncludesOffset = rootPoseIncludesOffset;
             originalTime = context.Director.time;
             originalWrapMode = context.Director.extrapolationMode;
             context.Director.extrapolationMode = DirectorWrapMode.Hold;
         }
 
         internal SkeletonCache TargetCache { get; }
+        internal Vector3 RootOffsetPosition { get; }
+        internal Quaternion RootOffsetRotation { get; }
+        internal bool RootPoseIncludesOffset { get; }
 
         internal static bool TryCreate(
             KimodoTimelineInOutConstraintContext context,
@@ -668,11 +787,20 @@ namespace KimodoBridge.Editor
                 sourceScaleCache.Dispose();
                 sourceScaleCache = null;
                 sourceHandler = new HumanPoseHandler(context.SourceAvatar, context.Animator.transform);
+                KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                    context.Track,
+                    context.Animator,
+                    out Vector3 rootOffsetPosition,
+                    out Quaternion rootOffsetRotation,
+                    out bool rootPoseIncludesOffset);
                 sampler = new KimodoTimelinePoseSampler(
                     context,
                     sourceHandler,
                     sourceHumanScale,
-                    targetCache);
+                    targetCache,
+                    rootOffsetPosition,
+                    rootOffsetRotation,
+                    rootPoseIncludesOffset);
                 return true;
             }
             catch (Exception ex)
@@ -741,13 +869,21 @@ namespace KimodoBridge.Editor
                 var pose = new HumanPose();
                 sourcePoseHandler.GetHumanPose(ref pose);
                 KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
+                Vector3 bodyPosition = pose.bodyPosition * sourceHumanScale;
+                Quaternion bodyRotation = pose.bodyRotation;
                 sample = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(
                     context.SourceAvatar,
                     sourceHumanScale,
                     pose,
                     bone => ResolveSourceHumanBone(context.Animator, context.SourceAvatar, bone));
-                Vector3 bodyPosition = pose.bodyPosition * sourceHumanScale;
-                Quaternion bodyRotation = pose.bodyRotation;
+                if (RootPoseIncludesOffset)
+                {
+                    KimodoConstraintNormalizationUtility.NormalizeRootPose(
+                        RootOffsetPosition,
+                        RootOffsetRotation,
+                        ref bodyPosition,
+                        ref bodyRotation);
+                }
                 if (normalizeRootToAnchor)
                 {
                     KimodoConstraintNormalizationUtility.NormalizeRootPose(
@@ -756,11 +892,8 @@ namespace KimodoBridge.Editor
                         ref bodyPosition,
                         ref bodyRotation);
                 }
-                if (normalizeRootToAnchor)
-                {
-                    pose.bodyPosition = bodyPosition / sourceHumanScale;
-                    pose.bodyRotation = bodyRotation;
-                }
+                pose.bodyPosition = bodyPosition / sourceHumanScale;
+                pose.bodyRotation = bodyRotation;
                 sample.pose = pose;
                 return true;
             }
@@ -770,72 +903,6 @@ namespace KimodoBridge.Editor
                 error = ex.Message;
                 return false;
             }
-        }
-
-        internal bool TryGetSourceHipsPose(
-            out Vector3 position,
-            out Quaternion rotation,
-            out string error)
-        {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            Transform sourceHips = ResolveSourceHumanBone(
-                context.Animator,
-                context.SourceAvatar,
-                HumanBodyBones.Hips);
-            if (sourceHips == null)
-            {
-                error = "Timeline source Animator has no Hips bone.";
-                return false;
-            }
-
-            position = sourceHips.position;
-            rotation = sourceHips.rotation;
-            error = string.Empty;
-            return true;
-        }
-
-        internal static void ApplySourceHipsPose(
-            KimodoMarkerSampleResult sample,
-            Vector3 sourceHipsPosition,
-            Quaternion sourceHipsRotation,
-            double exportedSampleTime)
-        {
-            if (sample == null)
-            {
-                return;
-            }
-
-            Vector3 sourceForward = Vector3.ProjectOnPlane(sourceHipsRotation * Vector3.forward, Vector3.up);
-            if (sourceForward.sqrMagnitude <= 1e-8f)
-            {
-                sourceForward = Vector3.forward;
-            }
-            sourceForward.Normalize();
-
-            Quaternion sampledRootRotation = sample.unityRootRot;
-            Quaternion restoredRootRotation = Quaternion.LookRotation(sourceForward, Vector3.up);
-            if (sample.localAxisAngles != null && sample.localAxisAngles.Count > 0)
-            {
-                Vector3 hipsAxisAngle = sample.localAxisAngles[0];
-                Quaternion sampledHipsRotation = hipsAxisAngle.sqrMagnitude > 1e-16f
-                    ? Quaternion.AngleAxis(hipsAxisAngle.magnitude * Mathf.Rad2Deg, hipsAxisAngle.normalized)
-                    : Quaternion.identity;
-                Quaternion rootDelta = restoredRootRotation * Quaternion.Inverse(sampledRootRotation);
-                Quaternion restoredHipsRotation = (rootDelta * sampledHipsRotation).normalized;
-                sample.localAxisAngles[0] = KimodoRuntimeUtility.QuaternionToAxisAngleVector(restoredHipsRotation);
-            }
-
-            // Humanoid Clip sampling keeps the pose and Foot IK but drops the Timeline clip's world root anchor.
-            sample.kimodoRootPosition = new Vector3(
-                sourceHipsPosition.x,
-                sample.kimodoRootPosition.y,
-                sourceHipsPosition.z);
-            sample.unityRootPos = sourceHipsPosition;
-            sample.unityRootRot = restoredRootRotation;
-            sample.rootHeading = new Vector2(sourceForward.x, sourceForward.z);
-            sample.hasRootHeading = true;
-            sample.sampleTime = exportedSampleTime;
         }
 
         internal bool TrySampleMarker(
@@ -896,19 +963,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!TryGetSourceHipsPose(
-                    out Vector3 sourceHipsPosition,
-                    out Quaternion sourceHipsRotation,
-                    out error))
-            {
-                return false;
-            }
-
-            ApplySourceHipsPose(
-                sample,
-                sourceHipsPosition,
-                sourceHipsRotation,
-                exportedSampleTime);
             return true;
         }
 

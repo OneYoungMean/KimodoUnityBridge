@@ -16,6 +16,20 @@ namespace KimodoBridge.Editor.Tests
             public List<float> foot_contacts;
         }
 
+        [TestCase(4.5666666, 30.0, 137)]
+        [TestCase(5.0, 30.0, 150)]
+        [TestCase(1.00001, 30.0, 31)]
+        [TestCase(0.0, 30.0, 0)]
+        public void SecondsToFrameCount_UsesToleranceProtectedCeiling(
+            double seconds,
+            double frameRate,
+            int expected)
+        {
+            Assert.That(
+                KimodoFrameTimeUtility.SecondsToFrameCount(seconds, frameRate),
+                Is.EqualTo(expected));
+        }
+
         [TestCase(KimodoMotionModelProfiles.ArdyCoreModelName, 4)]
         [TestCase(KimodoMotionModelProfiles.ArdyG1ModelName, 5)]
         public void ValidateArdyResult_AcceptsPlaybackReserveSizedDownload(string modelName, int frameCount)
@@ -364,6 +378,26 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void ConstraintJson_TimeBetweenFramesUsesTheNextFrame()
+        {
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintType = "root2d",
+                sampleTime = 5.00001,
+                kimodoRootPosition = Vector3.zero
+            };
+
+            JArray constraints = JArray.Parse(
+                KimodoConstraintJsonExporter.ToConstraintsJson(
+                    new[] { sample },
+                    clipStartSeconds: 4.0,
+                    clipDurationSeconds: 2.0,
+                    exportFps: 30.0));
+
+            Assert.That(constraints[0]["frame_indices"]?[0]?.Value<int>(), Is.EqualTo(31));
+        }
+
+        [Test]
         public void ConstraintJson_ARDYRootTargetKeepsTimingInTheBackend()
         {
             var sample = new KimodoMarkerSampleResult
@@ -580,11 +614,11 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
-        [TestCase(KimodoInOutConstraintMode.Inside, true, 31.0 / 30.0)]
+        [TestCase(KimodoInOutConstraintMode.Inside, true, 1.0)]
         [TestCase(KimodoInOutConstraintMode.Inside, false, 89.0 / 30.0)]
         [TestCase(KimodoInOutConstraintMode.Outside, true, 29.0 / 30.0)]
-        [TestCase(KimodoInOutConstraintMode.Outside, false, 91.0 / 30.0)]
-        public void TimelineBoundarySampling_UsesOneFrameInsideOrOutside(
+        [TestCase(KimodoInOutConstraintMode.Outside, false, 3.0)]
+        public void TimelineBoundarySampling_OffsetsOnlyTheOverlappingSideByOneFrame(
             KimodoInOutConstraintMode mode,
             bool isBegin,
             double expected)

@@ -456,7 +456,7 @@ namespace KimodoBridge.Editor
                 }
 
                 int sourceFrame = Mathf.Clamp(
-                    (int)Math.Floor(Math.Max(0.0, source.sampleTime) * fps + 1e-9),
+                    KimodoFrameTimeUtility.SecondsToFrameCount(Math.Max(0.0, source.sampleTime), fps),
                     0,
                     safeTotalFrames - 1);
                 if (sourceFrame < segmentStartFrame || sourceFrame >= segmentEndFrame)

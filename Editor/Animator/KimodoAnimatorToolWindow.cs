@@ -200,7 +200,9 @@ namespace KimodoBridge.Editor
             float targetFrameRate = KimodoMotionModelProfiles.TryGetArdy(resolvedModelName, out KimodoMotionModelProfile profile)
                 ? profile.SourceFps
                 : KimodoPlayableClip.FIXED_FRAME_RATE;
-            int generationFrameCount = Mathf.Max(1, Mathf.RoundToInt(generationDurationSeconds * targetFrameRate));
+            int generationFrameCount = Mathf.Max(
+                1,
+                KimodoFrameTimeUtility.SecondsToFrameCount(generationDurationSeconds, targetFrameRate));
             int effectiveSeed = ResolveEffectiveSeedForRun();
             string constraintsJson = string.Empty;
             if (!previewPanel.TryBuildExternalConstraints(

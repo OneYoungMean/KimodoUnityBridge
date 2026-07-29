@@ -25,6 +25,7 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from kimodo.bridge import quickserver_assets as assets
+from kimodo.bridge.frame_time import seconds_to_frame_count
 
 
 class GenerateCancelledError(Exception):
@@ -910,7 +911,7 @@ def _generate(req: dict, model, cancel_event: threading.Event | None = None):
     if seed is not None:
         seed_everything(int(seed))
 
-    num_frames = max(1, int(duration * float(model.fps)))
+    num_frames = max(1, seconds_to_frame_count(duration, model.fps))
     constraints = _load_constraints(constraints_path, model)
     progress_bar = _make_cancelable_progress_bar(cancel_event or threading.Event())
 
@@ -1234,7 +1235,7 @@ def main():
                             if seed is not None:
                                 seed_everything(int(seed))
 
-                            num_frames = max(1, int(duration * float(fps)))
+                            num_frames = max(1, seconds_to_frame_count(duration, fps))
                             constraints = _load_constraints(constraints_path, model)
                             progress_bar = _make_cancelable_progress_bar(cancel_event)
 

@@ -131,25 +131,28 @@ namespace KimodoBridge.Editor
         internal static double ResolveTimelineBoundaryTime(KimodoInOutConstraintRequest request, bool isBegin)
         {
             KimodoTimelineInOutConstraintContext context = request.TimelineContext;
-            double delta = 1.0 / ResolveModelFrameRate(request.ModelName);
+            double oneFrame = 1.0 / ResolveModelFrameRate(request.ModelName);
             if (request.Mode == KimodoInOutConstraintMode.Outside)
             {
                 TimelineClip range = isBegin ? context.PreviousTimelineClip : context.NextTimelineClip;
                 double boundary = isBegin ? context.SourceClip.start : context.SourceClip.end;
-                return ClampTimelineSampleTime(range, boundary + (isBegin ? -delta : delta), delta);
+                return ClampTimelineSampleTime(
+                    range,
+                    isBegin ? boundary - oneFrame : boundary,
+                    oneFrame);
             }
 
             TimelineClip current = context.SourceClip;
             return ClampTimelineSampleTime(
                 current,
-                isBegin ? current.start + delta : current.end - delta,
-                delta);
+                isBegin ? current.start : current.end - oneFrame,
+                oneFrame);
         }
 
-        private static double ClampTimelineSampleTime(TimelineClip range, double value, double delta)
+        private static double ClampTimelineSampleTime(TimelineClip range, double value, double oneFrame)
         {
             double first = range.start;
-            double last = Math.Max(first, range.end - delta);
+            double last = Math.Max(first, range.end - oneFrame);
             return Math.Max(first, Math.Min(last, value));
         }
 
@@ -170,7 +173,9 @@ namespace KimodoBridge.Editor
             float minDurationSeconds = FrameCountToDurationSeconds(KimodoPlayableClip.MIN_FRAMES);
             float maxDurationSeconds = FrameCountToDurationSeconds(KimodoPlayableClip.MAX_FRAMES);
             return Mathf.Clamp(
-                Mathf.RoundToInt(Mathf.Clamp(durationSeconds, minDurationSeconds, maxDurationSeconds) * KimodoPlayableClip.FIXED_FRAME_RATE),
+                KimodoFrameTimeUtility.SecondsToFrameCount(
+                    Mathf.Clamp(durationSeconds, minDurationSeconds, maxDurationSeconds),
+                    KimodoPlayableClip.FIXED_FRAME_RATE),
                 KimodoPlayableClip.MIN_FRAMES,
                 KimodoPlayableClip.MAX_FRAMES);
         }
