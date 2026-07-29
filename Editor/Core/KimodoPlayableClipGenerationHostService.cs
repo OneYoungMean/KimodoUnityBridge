@@ -253,33 +253,6 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (request != null && request.NormalizeConstraintOriginApplied)
-            {
-                Debug.Log(
-                    $"[Kimodo][TimelineOffset] normalizationApplied=true clip='{playableClip.name}' " +
-                    $"anchorKind={request.NormalizationAnchorKind} anchorType='{request.NormalizationAnchorSample?.constraintType ?? string.Empty}'");
-                switch (request.NormalizationAnchorKind)
-                {
-                    case KimodoConstraintNormalizationAnchorKind.FullBody:
-                        if (TryApplyAnchorOffsetToClip(playableClip, request.NormalizationAnchorSample, timelineClip, planarOnly: true))
-                        {
-                            return;
-                        }
-                        break;
-                    case KimodoConstraintNormalizationAnchorKind.Root2D:
-                    case KimodoConstraintNormalizationAnchorKind.Foot:
-                        if (TryApplyAnchorOffsetToClip(playableClip, request.NormalizationAnchorSample, timelineClip, planarOnly: true))
-                        {
-                            return;
-                        }
-                        break;
-                }
-            }
-            else
-            {
-                Debug.Log($"[Kimodo][TimelineOffset] normalizationApplied=false clip='{playableClip.name}'.");
-            }
-
             if (request != null && request.DisableTimelineInOut)
             {
                 ResetClipOffset(playableClip, removeStartOffset: false);
@@ -294,14 +267,89 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (KimodoMotionModelProfiles.TryGetArdy(request?.ModelName, out _) &&
-                playableClip.inOutConstraintMode != KimodoInOutConstraintMode.None)
+            if (request != null && request.NormalizeConstraintOriginApplied)
             {
-                Debug.Log($"[Kimodo][TimelineOffset] skipped Match Offsets to Previous for ARDY InOutConstraint on '{playableClip.name}'.");
+                Debug.Log(
+                    $"[Kimodo][TimelineOffset] normalizationApplied=true clip='{playableClip.name}' " +
+                    $"anchorKind={request.NormalizationAnchorKind} anchorType='{request.NormalizationAnchorSample?.constraintType ?? string.Empty}'");
+                if (!TryMatchNormalizedAnchorOnTargetAvatar(
+                        playableClip,
+                        request,
+                        timelineClip,
+                        out string error))
+                {
+                    throw new InvalidOperationException(
+                        $"Match normalized anchor on target Avatar failed for '{playableClip.name}': {error}");
+                }
                 return;
+            }
+            else
+            {
+                Debug.Log($"[Kimodo][TimelineOffset] normalizationApplied=false clip='{playableClip.name}'.");
             }
 
             TryMatchOffsetsToPreviousClip(playableClip, timelineClip);
+        }
+
+        private static bool TryMatchNormalizedAnchorOnTargetAvatar(
+            KimodoPlayableClip playableClip,
+            KimodoEditorGenerateRequest request,
+            TimelineClip timelineClip,
+            out string error)
+        {
+            error = string.Empty;
+            if (playableClip == null || request?.NormalizationAnchorSample == null || timelineClip == null)
+            {
+                error = "Playable clip, normalized anchor sample, or Timeline clip is missing.";
+                return false;
+            }
+
+            if (!KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForPlayableClip(
+                    playableClip,
+                    out PoseCacheRenderContext context,
+                    out _,
+                    out error))
+            {
+                return false;
+            }
+
+            if (!KimodoConstraintPoseCache.TryResolveTargetHipsPose(
+                    context,
+                    request.NormalizationAnchorSample,
+                    out Vector3 targetHipsPosition,
+                    out Quaternion targetHipsRotation,
+                    out error))
+            {
+                return false;
+            }
+
+            ResetClipOffset(playableClip, removeStartOffset: false);
+            bool hasFullPose = request.NormalizationAnchorSample.localAxisAngles != null &&
+                request.NormalizationAnchorSample.localAxisAngles.Count > 0;
+            bool planarOnly = request.NormalizationAnchorKind == KimodoConstraintNormalizationAnchorKind.Root2D ||
+                !hasFullPose;
+            if (!KimodoTimelinePreviewRefreshUtility.TimelineMatchClipToWorldHips(
+                    timelineClip,
+                    targetHipsPosition,
+                    targetHipsRotation,
+                    planarOnly,
+                    out error))
+            {
+                return false;
+            }
+
+            Debug.Log(
+                $"[Kimodo][TimelineOffset] matched normalized anchor on target Avatar Hips for '{playableClip.name}'.");
+            EditorUtility.SetDirty(playableClip);
+            if (timelineClip.GetParentTrack() != null)
+            {
+                EditorUtility.SetDirty(timelineClip.GetParentTrack());
+            }
+            if (TimelineEditor.inspectedAsset != null)
+            {
+                EditorUtility.SetDirty(TimelineEditor.inspectedAsset);
+            }
+            return true;
         }
 
         private static void TryMatchOffsetsToPreviousClip(KimodoPlayableClip playableClip, TimelineClip timelineClip)
@@ -350,127 +398,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static bool TryApplyAnchorOffsetToClip(
-            KimodoPlayableClip playableClip,
-            KimodoMarkerSampleResult anchorSample,
-            TimelineClip timelineClip,
-            bool planarOnly)
-        {
-            if (playableClip == null || anchorSample == null)
-            {
-                return false;
-            }
-
-            ResolveTimelineBaseOffset(
-                timelineClip,
-                out Vector3 basePosition,
-                out Quaternion baseRotation);
-            Vector3 anchorPosition = anchorSample.unityRootPos;
-            Quaternion anchorRotation = anchorSample.unityRootRot;
-            if (planarOnly)
-            {
-                anchorRotation = Quaternion.Euler(0f, ResolveHeadingYawDegrees(anchorSample), 0f);
-            }
-
-            ResolveClipOffsetForAnchor(
-                basePosition,
-                baseRotation,
-                anchorPosition,
-                anchorRotation,
-                planarOnly,
-                out Vector3 targetPosition,
-                out Quaternion targetRotation);
-            playableClip.removeStartOffset = false;
-
-            Vector3 targetEulerAngles = targetRotation.eulerAngles;
-            if (planarOnly)
-            {
-                targetPosition.y = GetSerializedVector3(playableClip, "m_Position").y;
-                targetEulerAngles = new Vector3(0f, targetEulerAngles.y, 0f);
-            }
-
-            var serializedObject = new SerializedObject(playableClip);
-            SerializedProperty positionProperty = serializedObject.FindProperty("m_Position");
-            SerializedProperty eulerAnglesProperty = serializedObject.FindProperty("m_EulerAngles");
-            SerializedProperty rotationProperty = serializedObject.FindProperty("m_Rotation");
-            if (positionProperty == null || eulerAnglesProperty == null)
-            {
-                return false;
-            }
-
-            positionProperty.vector3Value = targetPosition;
-            eulerAnglesProperty.vector3Value = targetEulerAngles;
-            if (rotationProperty != null)
-            {
-                rotationProperty.quaternionValue = Quaternion.Euler(targetEulerAngles);
-            }
-
-            serializedObject.ApplyModifiedPropertiesWithoutUndo();
-            Debug.Log($"[Kimodo][TimelineOffset] applied normalized anchor offset for '{playableClip.name}' using {anchorSample.constraintType}.");
-            EditorUtility.SetDirty(playableClip);
-            return true;
-        }
-
-        internal static void ResolveClipOffsetForAnchor(
-            Vector3 basePosition,
-            Quaternion baseRotation,
-            Vector3 anchorPosition,
-            Quaternion anchorRotation,
-            bool planarOnly,
-            out Vector3 clipPosition,
-            out Quaternion clipRotation)
-        {
-            if (planarOnly)
-            {
-                basePosition.y = 0f;
-                anchorPosition.y = 0f;
-                baseRotation = ResolvePlanarRotation(baseRotation);
-                anchorRotation = ResolvePlanarRotation(anchorRotation);
-            }
-
-            Quaternion inverseBase = Quaternion.Inverse(baseRotation);
-            clipPosition = inverseBase * (anchorPosition - basePosition);
-            clipRotation = inverseBase * anchorRotation;
-            clipRotation.Normalize();
-        }
-
-        private static void ResolveTimelineBaseOffset(
-            TimelineClip timelineClip,
-            out Vector3 position,
-            out Quaternion rotation)
-        {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            TrackAsset track = timelineClip != null ? timelineClip.GetParentTrack() : null;
-            Animator animator = null;
-            if (track != null &&
-                KimodoInOutConstraintAdapter.TryResolveDirector(timelineClip, track, out var director, out _))
-            {
-                animator = director.GetGenericBinding(track) as Animator;
-            }
-            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(track, animator, out position, out rotation);
-        }
-
-        private static Quaternion ResolvePlanarRotation(Quaternion rotation)
-        {
-            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
-        }
-
-        private static Vector3 GetSerializedVector3(KimodoPlayableClip playableClip, string propertyPath)
-        {
-            if (playableClip == null || string.IsNullOrWhiteSpace(propertyPath))
-            {
-                return Vector3.zero;
-            }
-
-            var serializedObject = new SerializedObject(playableClip);
-            SerializedProperty property = serializedObject.FindProperty(propertyPath);
-            return property != null ? property.vector3Value : Vector3.zero;
-        }
-
         private static void ResetClipOffset(KimodoPlayableClip playableClip, bool removeStartOffset)
         {
             playableClip.removeStartOffset = removeStartOffset;
@@ -492,20 +419,6 @@ namespace KimodoBridge.Editor
             }
             serializedObject.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(playableClip);
-        }
-
-        private static float ResolveHeadingYawDegrees(KimodoMarkerSampleResult anchorSample)
-        {
-            if (anchorSample != null && anchorSample.hasRootHeading)
-            {
-                Vector2 heading = anchorSample.rootHeading;
-                if (heading.sqrMagnitude > 1e-8f)
-                {
-                    return Mathf.Atan2(heading.x, heading.y) * Mathf.Rad2Deg;
-                }
-            }
-
-            return anchorSample != null ? anchorSample.unityRootRot.eulerAngles.y : 0f;
         }
 
         private static int BeginReplaceTimelineAnimationUndo(KimodoPlayableClip playableClip, out TimelineClip timelineClip)

@@ -201,35 +201,15 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(target.IsValid, Is.True);
                 Assert.That(targetMuscle, Is.Not.Null);
                 Assert.That(
-                    KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
                         target,
                         cache,
-                        KimodoPlayableClip.DefaultBridgeModelName,
-                        "fullbody",
-                        0.0,
-                        out TimelineInject.KimodoMarkerSampleResult markerSample,
                         out error),
                     Is.True,
                     error);
-                float sampledRootY = markerSample.kimodoRootPosition.y;
-                KimodoTimelineConstraintClipCache.ApplyTargetRootPose(
-                    markerSample,
-                    directRootPosition,
-                    directRootRotation,
-                    exportedSampleTime: 0.0);
-                Assert.That(
-                    Vector2.Distance(
-                        new Vector2(markerSample.kimodoRootPosition.x, markerSample.kimodoRootPosition.z),
-                        new Vector2(directRootPosition.x, directRootPosition.z)),
-                    Is.LessThan(1e-3f));
-                Assert.That(markerSample.kimodoRootPosition.y, Is.EqualTo(sampledRootY).Within(1e-5f));
-                Vector3 restoredAxisAngle = markerSample.localAxisAngles[0];
-                Quaternion restoredRootRotation = restoredAxisAngle.sqrMagnitude > 1e-12f
-                    ? Quaternion.AngleAxis(
-                        restoredAxisAngle.magnitude * Mathf.Rad2Deg,
-                        restoredAxisAngle.normalized)
-                    : Quaternion.identity;
-                Assert.That(Quaternion.Angle(restoredRootRotation, directRootRotation), Is.LessThan(1e-3f));
+                Transform restoredRoot = directJoints[0];
+                Assert.That(Vector3.Distance(restoredRoot.position, directRootPosition), Is.LessThan(1e-3f));
+                Assert.That(Quaternion.Angle(restoredRoot.rotation, directRootRotation), Is.LessThan(0.1f));
             }
             finally
             {
@@ -761,49 +741,83 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineClipOffset_IsAnchorRelativeToTrackOffset()
+        public void ConstraintAnchorHips_IsRebuiltOnTheBoundTargetAvatar()
         {
-            Vector3 basePosition = new Vector3(4f, 0f, -2f);
-            Quaternion baseRotation = Quaternion.Euler(0f, 30f, 0f);
-            Vector3 expectedClipPosition = new Vector3(1f, 0f, 3f);
-            Quaternion expectedClipRotation = Quaternion.Euler(0f, 20f, 0f);
-            Vector3 anchorPosition = basePosition + baseRotation * expectedClipPosition;
-            Quaternion anchorRotation = baseRotation * expectedClipRotation;
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoConstraintAnchorTargetAvatarTest",
+                    out SkeletonCache source,
+                    out error),
+                Is.True,
+                error);
 
-            KimodoPlayableClipGenerationHostService.ResolveClipOffsetForAnchor(
-                basePosition,
-                baseRotation,
-                anchorPosition,
-                anchorRotation,
-                planarOnly: true,
-                out Vector3 clipPosition,
-                out Quaternion clipRotation);
+            try
+            {
+                source.skeletonRoot.SetPositionAndRotation(
+                    new Vector3(2f, 0f, -3f),
+                    Quaternion.Euler(0f, 35f, 0f));
+                Assert.That(
+                    KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
+                        KimodoPlayableClip.DefaultBridgeModelName,
+                        source,
+                        out string[] jointNames,
+                        out int[] parentIndices,
+                        out Transform[] joints,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
+                        source.animator,
+                        source.skeletonRoot,
+                        KimodoPlayableClip.DefaultBridgeModelName,
+                        0.0,
+                        "fullbody",
+                        jointNames,
+                        parentIndices,
+                        joints,
+                        out TimelineInject.KimodoMarkerSampleResult sample,
+                        out error),
+                    Is.True,
+                    error);
 
-            Vector3 resolvedPosition = basePosition + baseRotation * clipPosition;
-            Quaternion resolvedRotation = baseRotation * clipRotation;
-            Assert.That(Vector3.Distance(resolvedPosition, anchorPosition), Is.LessThan(1e-5f));
-            Assert.That(Quaternion.Angle(resolvedRotation, anchorRotation), Is.LessThan(1e-4f));
-            Assert.That(Vector3.Distance(clipPosition, expectedClipPosition), Is.LessThan(1e-5f));
-            Assert.That(Quaternion.Angle(clipRotation, expectedClipRotation), Is.LessThan(1e-4f));
-        }
+                var context = new PoseCacheRenderContext(
+                    1,
+                    source.animator.GetInstanceID(),
+                    1,
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoConstraintRigType.Soma77);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryResolveTargetHipsPose(
+                        context,
+                        sample,
+                        out Vector3 rebuiltPosition,
+                        out Quaternion rebuiltRotation,
+                        out error),
+                    Is.True,
+                    error);
 
-        [Test]
-        public void TimelineClipOffset_IsIdentityWhenTrackOffsetIsTheAnchor()
-        {
-            Vector3 basePosition = new Vector3(4f, 0f, -2f);
-            Quaternion baseRotation = Quaternion.Euler(0f, 30f, 0f);
-
-            KimodoPlayableClipGenerationHostService.ResolveClipOffsetForAnchor(
-                basePosition,
-                baseRotation,
-                basePosition,
-                baseRotation,
-                planarOnly: true,
-                out Vector3 clipPosition,
-                out Quaternion clipRotation);
-
-            Assert.That(Vector3.Distance(clipPosition, Vector3.zero), Is.LessThan(1e-5f));
-            Assert.That(Quaternion.Angle(clipRotation, Quaternion.identity), Is.LessThan(1e-4f));
+                Transform sourceHips = source.animator.GetBoneTransform(HumanBodyBones.Hips);
+                Assert.That(sourceHips, Is.Not.Null);
+                string positionDiagnostic =
+                    $"sourceHips={sourceHips.position:F9} rebuiltHips={rebuiltPosition:F9} " +
+                    $"delta={(rebuiltPosition - sourceHips.position):F9} sourceRoot={source.skeletonRoot.position:F9} " +
+                    $"sampleUnityRoot={sample.unityRootPos:F9} sampleKimodoRoot={sample.kimodoRootPosition:F9}";
+                Assert.That(Vector3.Distance(rebuiltPosition, sourceHips.position), Is.LessThan(1e-3f), positionDiagnostic);
+                Assert.That(Quaternion.Angle(rebuiltRotation, sourceHips.rotation), Is.LessThan(0.1f));
+            }
+            finally
+            {
+                source.Dispose();
+            }
         }
 
         [Test]
@@ -862,20 +876,9 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(Vector3.Distance(samples[0].kimodoRootPosition, Vector3.up), Is.LessThan(1e-5f));
             Assert.That(Vector3.Distance(samples[1].kimodoRootPosition, secondKimodoPosition), Is.LessThan(1e-5f));
 
-            KimodoPlayableClipGenerationHostService.ResolveClipOffsetForAnchor(
-                trackPosition,
-                trackRotation,
-                normalization.AnchorSample.unityRootPos,
-                normalization.AnchorSample.unityRootRot,
-                planarOnly: true,
-                out Vector3 clipPosition,
-                out Quaternion clipRotation);
-
-            Assert.That(clipPosition, Is.EqualTo(Vector3.zero));
-            Assert.That(Quaternion.Angle(clipRotation, Quaternion.identity), Is.LessThan(1e-4f));
             Assert.That(
                 Vector3.Distance(
-                    trackPosition + trackRotation * (clipPosition + secondKimodoPosition),
+                    trackPosition + trackRotation * secondKimodoPosition,
                     secondWorldPosition),
                 Is.LessThan(1e-5f));
         }

@@ -85,6 +85,44 @@ namespace KimodoBridge
                 return false;
             }
 
+            return TryBuildOwnedSkeletonCache(avatar, root, animator, out cache, out error);
+        }
+
+        internal static bool TryBuildOwnedSkeletonCache(
+            GameObject root,
+            Animator animator,
+            out SkeletonCache cache,
+            out string error)
+        {
+            cache = null;
+            error = string.Empty;
+            if (root == null || animator == null || animator.gameObject != root)
+            {
+                error = "Owned humanoid root or Animator is invalid.";
+                return false;
+            }
+
+            Avatar avatar = animator.avatar;
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar))
+            {
+                error = "Avatar is null/invalid/non-humanoid.";
+                UnityEngine.Object.DestroyImmediate(root);
+                return false;
+            }
+
+            return TryBuildOwnedSkeletonCache(avatar, root, animator, out cache, out error);
+        }
+
+        private static bool TryBuildOwnedSkeletonCache(
+            Avatar avatar,
+            GameObject root,
+            Animator animator,
+            out SkeletonCache cache,
+            out string error)
+        {
+            cache = null;
+            error = string.Empty;
+
             string canonicalRootBoneName = ResolveSkeletonRootBoneName(avatar);
             if (!TryBuildTransformCaches(
                     root.transform,

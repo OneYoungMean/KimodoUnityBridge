@@ -581,6 +581,28 @@ namespace KimodoBridge
                 return false;
             }
 
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out error))
+            {
+                return false;
+            }
+
+            Transform targetHips = targetCache.animator.GetBoneTransform(HumanBodyBones.Hips);
+            if (targetHips == null)
+            {
+                error = "Target Avatar Hips is unavailable.";
+                return false;
+            }
+
+            KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(targetCache);
+            Transform targetRoot = targetCache.skeletonRoot;
+            // A visual clone may already carry a Timeline/scene transform. Rebuild the
+            // absolute HumanPose against identity so that offset is not applied twice.
+            targetRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            HumanPose directPose = sourceSample.pose;
+            targetCache.poseHandler.SetHumanPose(ref directPose);
+            Vector3 desiredHipsPosition = targetHips.position;
+            Quaternion desiredHipsRotation = targetHips.rotation;
+
             AnimationClip clip = null;
             try
             {
@@ -591,13 +613,27 @@ namespace KimodoBridge
                     return false;
                 }
 
-                return TrySampleTargetFromHumanoidClip(
-                    clip,
-                    targetCache,
-                    0f,
-                    out targetSample,
-                    out targetMuscleSample,
-                    out error);
+                if (!TrySampleTargetFromHumanoidClip(
+                        clip,
+                        targetCache,
+                        0f,
+                        out targetSample,
+                        out targetMuscleSample,
+                        out error))
+                {
+                    return false;
+                }
+
+                Quaternion rootCorrection = desiredHipsRotation * Quaternion.Inverse(targetHips.rotation);
+                rootCorrection.Normalize();
+                Vector3 correctedRootPosition =
+                    desiredHipsPosition + rootCorrection * (targetRoot.position - targetHips.position);
+                Quaternion correctedRootRotation = rootCorrection * targetRoot.rotation;
+                correctedRootRotation.Normalize();
+                targetRoot.SetPositionAndRotation(correctedRootPosition, correctedRootRotation);
+
+                targetSample = CaptureBoneSample(targetCache);
+                return TryCaptureMuscleSample(targetCache, out targetMuscleSample, out error);
             }
             finally
             {

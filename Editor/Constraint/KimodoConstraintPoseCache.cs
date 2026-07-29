@@ -49,8 +49,10 @@ namespace KimodoBridge.Editor
             public int TrackId;
             public KimodoConstraintRigType RigType;
             public Transform Root;
-            public Dictionary<string, Transform> NameMap;
+            public SkeletonCache TargetCache;
+            public SkeletonCache ProfileCache;
             public List<Material> GeneratedMaterials;
+            public GameObject EndEffectorMarker;
             public bool PickingEnabled;
             public bool HasRenderSignature;
             public int RenderSignature;
@@ -140,6 +142,7 @@ namespace KimodoBridge.Editor
                     var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
                     ApplyConstraintColoring(entry, highlightedJoints);
+                    UpdateEndEffectorMarker(entry, item.ConstraintType);
                     entry.RenderSignature = renderSignature;
                     entry.HasRenderSignature = true;
                     changed = true;
@@ -195,9 +198,9 @@ namespace KimodoBridge.Editor
             SceneView.RepaintAll();
         }
 
-        internal static bool HasAnyTransformChanges(PoseCacheRenderContext context)
+        internal static bool HasAnyTransformChanges(PoseCacheRenderContext context, string entryId = null)
         {
-            if (!TryGetFirstEntryForContext(context, out PoseCacheEntry entry) || entry?.Root == null)
+            if (!TryGetEntryForContext(context, entryId, out PoseCacheEntry entry) || entry?.Root == null)
             {
                 return false;
             }
@@ -206,7 +209,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < transforms.Length; i++)
             {
                 Transform t = transforms[i];
-                if (t != null && t.hasChanged)
+                if (t != null && !IsAuxiliaryTransform(entry, t) && t.hasChanged)
                 {
                     return true;
                 }
@@ -215,9 +218,9 @@ namespace KimodoBridge.Editor
             return false;
         }
 
-        internal static void ClearTransformChanges(PoseCacheRenderContext context)
+        internal static void ClearTransformChanges(PoseCacheRenderContext context, string entryId = null)
         {
-            if (!TryGetFirstEntryForContext(context, out PoseCacheEntry entry) || entry?.Root == null)
+            if (!TryGetEntryForContext(context, entryId, out PoseCacheEntry entry) || entry?.Root == null)
             {
                 return;
             }
@@ -233,35 +236,21 @@ namespace KimodoBridge.Editor
             }
         }
 
-        internal static bool TryGetRootBone(PoseCacheRenderContext context, out Transform rootBone)
+        internal static bool TryGetRootBone(PoseCacheRenderContext context, string entryId, out Transform rootBone)
         {
             rootBone = null;
-            if (!TryGetFirstEntryForContext(context, out PoseCacheEntry entry) || entry?.Root == null)
+            if (!TryGetEntryForContext(context, entryId, out PoseCacheEntry entry) || entry?.Root == null)
             {
                 return false;
             }
 
-            if (KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                    context.ModelName,
-                    entry.Root,
-                    out _,
-                    out _,
-                    out Transform[] jointTransforms,
-                    out _) &&
-                jointTransforms != null &&
-                jointTransforms.Length > 1 &&
-                jointTransforms[1] != null)
+            if (entry.TargetCache?.animator != null)
             {
-                rootBone = jointTransforms[1];
-                return true;
-            }
-
-            if (jointTransforms != null &&
-                jointTransforms.Length > 0 &&
-                jointTransforms[0] != null)
-            {
-                rootBone = jointTransforms[0];
-                return true;
+                rootBone = entry.TargetCache.animator.GetBoneTransform(HumanBodyBones.Hips);
+                if (rootBone != null)
+                {
+                    return true;
+                }
             }
 
             rootBone = entry.Root;
@@ -306,28 +295,73 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                    context.ModelName,
-                    entry.Root,
-                    out string[] jointNames,
-                    out int[] parentIndices,
-                    out Transform[] jointTransforms,
-                    out error))
+            return TryBuildSampleFromTargetAvatar(
+                entry,
+                context.ModelName,
+                markerType,
+                sampleTime,
+                out sample,
+                out error);
+        }
+
+        internal static bool TryResolveTargetHipsPose(
+            PoseCacheRenderContext context,
+            KimodoMarkerSampleResult sample,
+            out Vector3 position,
+            out Quaternion rotation,
+            out string error)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            error = string.Empty;
+            if (sample == null)
             {
+                error = "Constraint anchor sample is null.";
                 return false;
             }
 
-            return KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
-                animator: null,
-                skeletonRoot: entry.Root,
-                modelName: context.ModelName,
-                globalTime: sampleTime,
-                markerType: markerType,
-                jointNamesOverride: jointNames,
-                parentIndicesOverride: parentIndices,
-                jointsOverride: jointTransforms,
-                out sample,
-                out error);
+            PoseCacheEntry transient = null;
+            try
+            {
+                if (!KimodoConstraintPoseRigFactory.TryCreatePoseRig(
+                        context.ModelName,
+                        context.ClipId,
+                        context.AnimatorId,
+                        out KimodoConstraintPoseRigFactory.PoseRigInstance rig,
+                        out error))
+                {
+                    return false;
+                }
+
+                transient = new PoseCacheEntry
+                {
+                    Root = rig.Root != null ? rig.Root.transform : null,
+                    TargetCache = rig.TargetCache,
+                    ProfileCache = rig.ProfileCache,
+                    GeneratedMaterials = rig.GeneratedMaterials
+                };
+                if (!ApplySampleToRig(sample, context.ModelName, transient, out error))
+                {
+                    return false;
+                }
+
+                Transform hips = transient.TargetCache?.animator != null
+                    ? transient.TargetCache.animator.GetBoneTransform(HumanBodyBones.Hips)
+                    : null;
+                if (hips == null)
+                {
+                    error = "Target Avatar Hips is unavailable.";
+                    return false;
+                }
+
+                position = hips.position;
+                rotation = hips.rotation;
+                return true;
+            }
+            finally
+            {
+                DestroyEntry(transient);
+            }
         }
 
         internal static void DestroyEntry(PoseCacheRenderContext context, string entryId)
@@ -594,7 +628,8 @@ namespace KimodoBridge.Editor
                 TrackId = context.TrackId,
                 RigType = rigType,
                 Root = rigInstance.Root != null ? rigInstance.Root.transform : null,
-                NameMap = rigInstance.NameMap,
+                TargetCache = rigInstance.TargetCache,
+                ProfileCache = rigInstance.ProfileCache,
                 GeneratedMaterials = rigInstance.GeneratedMaterials,
                 PickingEnabled = false
             };
@@ -625,6 +660,20 @@ namespace KimodoBridge.Editor
             return false;
         }
 
+        private static bool TryGetEntryForContext(
+            PoseCacheRenderContext context,
+            string entryId,
+            out PoseCacheEntry entry)
+        {
+            if (string.IsNullOrWhiteSpace(entryId))
+            {
+                return TryGetFirstEntryForContext(context, out entry);
+            }
+
+            string key = BuildEntryKey(context.ContextKey, entryId.Trim());
+            return Entries.TryGetValue(key, out entry) && entry?.Root != null;
+        }
+
         private static void DestroyEntry(PoseCacheEntry entry)
         {
             if (entry == null)
@@ -632,10 +681,24 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (entry.Root != null && entry.Root.gameObject != null)
+            if (entry.EndEffectorMarker != null)
+            {
+                UnityEngine.Object.DestroyImmediate(entry.EndEffectorMarker);
+                entry.EndEffectorMarker = null;
+            }
+
+            SkeletonCache targetCache = entry.TargetCache;
+            entry.TargetCache = null;
+            targetCache?.Dispose();
+            SkeletonCache profileCache = entry.ProfileCache;
+            entry.ProfileCache = null;
+            profileCache?.Dispose();
+
+            if (targetCache == null && entry.Root != null && entry.Root.gameObject != null)
             {
                 UnityEngine.Object.DestroyImmediate(entry.Root.gameObject);
             }
+            entry.Root = null;
 
             if (entry.GeneratedMaterials != null)
             {
@@ -721,7 +784,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < renderers.Length; i++)
             {
                 Renderer renderer = renderers[i];
-                if (renderer == null)
+                if (renderer == null || IsAuxiliaryTransform(entry, renderer.transform))
                 {
                     continue;
                 }
@@ -868,12 +931,218 @@ namespace KimodoBridge.Editor
 
         private static bool ApplySampleToRig(KimodoMarkerSampleResult sample, string modelName, PoseCacheEntry entry, out string error)
         {
-            return KimodoRetargetAvatarUtility.TryApplyMarkerSampleToTransformMap(
-                sample,
-                modelName,
-                entry != null ? entry.Root : null,
-                entry != null ? entry.NameMap : null,
-                out error);
+            error = string.Empty;
+            if (sample == null || entry?.TargetCache == null || entry.ProfileCache == null)
+            {
+                error = "Constraint target/profile Avatar cache is unavailable.";
+                return false;
+            }
+
+            bool wasActive = entry.TargetCache.root.activeSelf;
+            entry.TargetCache.root.SetActive(true);
+            try
+            {
+                KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(entry.ProfileCache);
+                if (!KimodoRetargetAvatarUtility.TryApplyMarkerSampleToTransformMap(
+                        sample,
+                        modelName,
+                        entry.ProfileCache.skeletonRoot,
+                        entry.ProfileCache.uniqueNameMap,
+                        out error))
+                {
+                    return false;
+                }
+
+                if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                        entry.ProfileCache,
+                        out MuscleSample profileSample,
+                        out error))
+                {
+                    return false;
+                }
+
+                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                        profileSample,
+                        ResolveRetargetFrameRate(modelName),
+                        entry.TargetCache,
+                        out BoneSample targetSample,
+                        out _,
+                        out error))
+                {
+                    return false;
+                }
+
+                return KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                    targetSample,
+                    entry.TargetCache,
+                    out error);
+            }
+            finally
+            {
+                entry.TargetCache.root.SetActive(wasActive);
+            }
+        }
+
+        private static bool TryBuildSampleFromTargetAvatar(
+            PoseCacheEntry entry,
+            string modelName,
+            string markerType,
+            double sampleTime,
+            out KimodoMarkerSampleResult sample,
+            out string error)
+        {
+            sample = null;
+            error = string.Empty;
+            if (entry?.TargetCache == null || entry.ProfileCache == null)
+            {
+                error = "Constraint target/profile Avatar cache is unavailable.";
+                return false;
+            }
+
+            bool wasActive = entry.TargetCache.root.activeSelf;
+            entry.TargetCache.root.SetActive(true);
+            try
+            {
+                if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                        entry.TargetCache,
+                        out MuscleSample targetSample,
+                        out error))
+                {
+                    return false;
+                }
+
+                KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(entry.ProfileCache);
+                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                        targetSample,
+                        ResolveRetargetFrameRate(modelName),
+                        entry.ProfileCache,
+                        out BoneSample profileSample,
+                        out _,
+                        out error))
+                {
+                    return false;
+                }
+
+                if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                        profileSample,
+                        entry.ProfileCache,
+                        modelName,
+                        markerType,
+                        sampleTime,
+                        out sample,
+                        out error))
+                {
+                    return false;
+                }
+
+                sample.unityRootPos = entry.TargetCache.skeletonRoot.position;
+                sample.unityRootRot = entry.TargetCache.skeletonRoot.rotation;
+                return true;
+            }
+            finally
+            {
+                entry.TargetCache.root.SetActive(wasActive);
+            }
+        }
+
+        private static float ResolveRetargetFrameRate(string modelName)
+        {
+            return KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile)
+                ? Mathf.Max(1f, profile.SourceFps)
+                : KimodoPlayableClip.FIXED_FRAME_RATE;
+        }
+
+        private static void UpdateEndEffectorMarker(PoseCacheEntry entry, string constraintType)
+        {
+            HumanBodyBones bone = ResolveEndEffectorBone(constraintType);
+            Transform target = bone != HumanBodyBones.LastBone && entry?.TargetCache?.animator != null
+                ? entry.TargetCache.animator.GetBoneTransform(bone)
+                : null;
+            if (target == null)
+            {
+                if (entry?.EndEffectorMarker != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(entry.EndEffectorMarker);
+                    entry.EndEffectorMarker = null;
+                }
+                return;
+            }
+
+            if (entry.EndEffectorMarker == null)
+            {
+                entry.EndEffectorMarker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                entry.EndEffectorMarker.name = "__KimodoEndConstraintTarget";
+                entry.EndEffectorMarker.hideFlags = HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
+                Collider collider = entry.EndEffectorMarker.GetComponent<Collider>();
+                if (collider != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(collider);
+                }
+
+                Renderer renderer = entry.EndEffectorMarker.GetComponent<Renderer>();
+                Material material = CreateEndEffectorMaterial();
+                if (renderer != null && material != null)
+                {
+                    renderer.sharedMaterial = material;
+                    entry.GeneratedMaterials ??= new List<Material>();
+                    entry.GeneratedMaterials.Add(material);
+                }
+            }
+
+            Transform marker = entry.EndEffectorMarker.transform;
+            marker.SetParent(target, false);
+            marker.localPosition = Vector3.zero;
+            marker.localRotation = Quaternion.identity;
+            Vector3 scale = target.lossyScale;
+            marker.localScale = new Vector3(
+                0.2f / Mathf.Max(1e-6f, Mathf.Abs(scale.x)),
+                0.2f / Mathf.Max(1e-6f, Mathf.Abs(scale.y)),
+                0.2f / Mathf.Max(1e-6f, Mathf.Abs(scale.z)));
+            entry.EndEffectorMarker.SetActive(true);
+        }
+
+        private static HumanBodyBones ResolveEndEffectorBone(string constraintType)
+        {
+            switch ((constraintType ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "left-hand":
+                    return HumanBodyBones.LeftHand;
+                case "right-hand":
+                    return HumanBodyBones.RightHand;
+                case "left-foot":
+                    return HumanBodyBones.LeftFoot;
+                case "right-foot":
+                    return HumanBodyBones.RightFoot;
+                default:
+                    return HumanBodyBones.LastBone;
+            }
+        }
+
+        private static bool IsAuxiliaryTransform(PoseCacheEntry entry, Transform transform)
+        {
+            Transform marker = entry?.EndEffectorMarker != null
+                ? entry.EndEffectorMarker.transform
+                : null;
+            return marker != null && (transform == marker || transform.IsChildOf(marker));
+        }
+
+        private static Material CreateEndEffectorMaterial()
+        {
+            Shader shader = Shader.Find("HDRP/Lit") ??
+                Shader.Find("Universal Render Pipeline/Lit") ??
+                Shader.Find("Standard");
+            if (shader == null)
+            {
+                return null;
+            }
+
+            var material = new Material(shader)
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                name = "__KimodoEndConstraintRed"
+            };
+            SetMaterialColor(material, Color.red, 1f);
+            return material;
         }
 
         private static string BuildContextKey(int clipId, int animatorId)

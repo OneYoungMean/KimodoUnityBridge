@@ -3,6 +3,7 @@ using UnityEditor.Timeline;
 using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
+using UnityEngineInternal;
 
 namespace TimelineInject
 {
@@ -123,6 +124,127 @@ namespace TimelineInject
             }
             return true;
 
+        }
+
+        public static bool TimelineMatchClipToWorldHips(
+            TimelineClip clip,
+            Vector3 targetPosition,
+            Quaternion targetRotation,
+            bool planarOnly,
+            out string error)
+        {
+            error = string.Empty;
+            PlayableDirector director = TimelineEditor.inspectedDirector;
+            AnimationTrack track = clip?.GetParentTrack() as AnimationTrack;
+            AnimationPlayableAsset asset = clip?.asset as AnimationPlayableAsset;
+            if (clip == null || director == null || track == null || asset == null)
+            {
+                error = "Timeline clip, AnimationTrack, AnimationPlayableAsset, or inspected director is null.";
+                return false;
+            }
+
+            GameObject sceneObject = TimelineUtility.GetSceneGameObject(director, track);
+            Transform hips = ResolveHumanoidHipsMatchPoint(sceneObject);
+            if (hips == null)
+            {
+                error = "Timeline binding Humanoid Hips is unavailable.";
+                return false;
+            }
+
+            MatchTargetFields fields = asset.useTrackMatchFields
+                ? track.matchTargetFields
+                : asset.matchTargetFields;
+            if (planarOnly)
+            {
+                fields &= MatchTargetFields.PositionX |
+                    MatchTargetFields.PositionZ |
+                    MatchTargetFields.RotationY;
+            }
+            if (fields == MatchTargetFieldConstants.None)
+            {
+                return true;
+            }
+
+            const double timeEpsilon = 0.00001d;
+            double cachedTime = director.time;
+            TimelineClip previous = TimelineAnimationUtilities.GetPreviousClip(clip);
+            bool previousRemoved = false;
+            double blendIn = clip.blendInDuration;
+            double previousBlendOut = previous != null ? previous.blendOutDuration : 0.0;
+            try
+            {
+                TimelineEditor.state.previewMode = true;
+                director.Evaluate();
+                clip.blendInDuration = 0.0;
+                if (previous != null && previous != clip)
+                {
+                    previous.blendOutDuration = 0.0;
+                    track.RemoveClip(previous);
+                    previousRemoved = true;
+                    director.RebuildGraph();
+                }
+
+                director.time = clip.start + timeEpsilon;
+                director.Evaluate();
+                TimelineAnimationUtilities.RigidTransform match =
+                    TimelineAnimationUtilities.UpdateClipOffsets(
+                        asset,
+                        track,
+                        hips,
+                        targetPosition,
+                        targetRotation);
+                WriteMatchFields(asset, match, fields);
+                InspectorWindow.RepaintAllInspectors();
+                TimelineEditor.Refresh(RefreshReason.ContentsModified | RefreshReason.SceneNeedsUpdate);
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+            finally
+            {
+                clip.blendInDuration = blendIn;
+                if (previous != null)
+                {
+                    previous.blendOutDuration = previousBlendOut;
+                }
+                if (previousRemoved)
+                {
+                    track.AddClip(previous);
+                }
+                director.RebuildGraph();
+                director.time = cachedTime;
+                director.Evaluate();
+            }
+        }
+
+        private static void WriteMatchFields(
+            AnimationPlayableAsset asset,
+            TimelineAnimationUtilities.RigidTransform result,
+            MatchTargetFields fields)
+        {
+            Vector3 position = asset.position;
+            position.x = fields.HasAny(MatchTargetFields.PositionX) ? result.position.x : position.x;
+            position.y = fields.HasAny(MatchTargetFields.PositionY) ? result.position.y : position.y;
+            position.z = fields.HasAny(MatchTargetFields.PositionZ) ? result.position.z : position.z;
+            asset.position = position;
+
+            if (!fields.HasAny(MatchTargetFieldConstants.Rotation))
+            {
+                return;
+            }
+
+            Vector3 eulers = asset.eulerAngles;
+            Vector3 resultEulers = result.rotation.eulerAngles;
+            eulers.x = fields.HasAny(MatchTargetFields.RotationX) ? resultEulers.x : eulers.x;
+            eulers.y = fields.HasAny(MatchTargetFields.RotationY) ? resultEulers.y : eulers.y;
+            eulers.z = fields.HasAny(MatchTargetFields.RotationZ) ? resultEulers.z : eulers.z;
+            asset.eulerAngles = AnimationUtility.GetClosestEuler(
+                Quaternion.Euler(eulers),
+                asset.eulerAngles,
+                RotationOrder.OrderZXY);
         }
 
         internal static Transform ResolveHumanoidHipsMatchPoint(GameObject sceneObject)
