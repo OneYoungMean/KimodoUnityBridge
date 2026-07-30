@@ -131,7 +131,8 @@ namespace TimelineInject
             Vector3 targetPosition,
             Quaternion targetRotation,
             bool planarOnly,
-            out string error)
+            out string error,
+            System.Action<Animator, Transform> onFirstFrameEvaluated = null)
         {
             error = string.Empty;
             PlayableDirector director = TimelineEditor.inspectedDirector;
@@ -186,13 +187,20 @@ namespace TimelineInject
 
                 director.time = clip.start + timeEpsilon;
                 director.Evaluate();
+                Transform binding = sceneObject.transform;
+                Quaternion worldDeltaRotation = targetRotation * Quaternion.Inverse(hips.rotation);
+                worldDeltaRotation.Normalize();
+                Vector3 desiredBindingPosition =
+                    targetPosition + worldDeltaRotation * (binding.position - hips.position);
+                Quaternion desiredBindingRotation = worldDeltaRotation * binding.rotation;
+                desiredBindingRotation.Normalize();
                 TimelineAnimationUtilities.RigidTransform match =
                     TimelineAnimationUtilities.UpdateClipOffsets(
                         asset,
                         track,
-                        hips,
-                        targetPosition,
-                        targetRotation);
+                        binding,
+                        desiredBindingPosition,
+                        desiredBindingRotation);
                 WriteMatchFields(asset, match, fields);
                 InspectorWindow.RepaintAllInspectors();
                 TimelineEditor.Refresh(RefreshReason.ContentsModified | RefreshReason.SceneNeedsUpdate);
@@ -215,6 +223,22 @@ namespace TimelineInject
                     track.AddClip(previous);
                 }
                 director.RebuildGraph();
+                if (onFirstFrameEvaluated != null)
+                {
+                    try
+                    {
+                        director.time = clip.start + timeEpsilon;
+                        director.Evaluate();
+                        Animator animator = hips.GetComponentInParent<Animator>();
+                        onFirstFrameEvaluated(animator, animator != null ? animator.transform : null);
+                    }
+                    catch (System.Exception diagnosticException)
+                    {
+                        Debug.LogWarning(
+                            $"[Kimodo][TimelineFirstFrameConstraintDiag] clip='{clip.displayName}' actual pose capture failed: " +
+                            diagnosticException.Message);
+                    }
+                }
                 director.time = cachedTime;
                 director.Evaluate();
             }

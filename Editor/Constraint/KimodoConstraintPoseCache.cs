@@ -309,7 +309,8 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult sample,
             out Vector3 position,
             out Quaternion rotation,
-            out string error)
+            out string error,
+            Action<Animator, Transform> onPoseResolved = null)
         {
             position = Vector3.zero;
             rotation = Quaternion.identity;
@@ -356,6 +357,19 @@ namespace KimodoBridge.Editor
 
                 position = hips.position;
                 rotation = hips.rotation;
+                if (onPoseResolved != null)
+                {
+                    try
+                    {
+                        onPoseResolved(transient.TargetCache.animator, transient.TargetCache.skeletonRoot);
+                    }
+                    catch (Exception diagnosticException)
+                    {
+                        Debug.LogWarning(
+                            "[Kimodo][TimelineFirstFrameConstraintDiag] target pose capture failed: " +
+                            diagnosticException.Message);
+                    }
+                }
                 return true;
             }
             finally

@@ -235,7 +235,8 @@ namespace KimodoBridge.Editor
         internal static float ResolveTimelineFrameRate(KimodoTimelineInOutConstraintContext context)
         {
             TimelineAsset timelineAsset = context?.Director?.playableAsset as TimelineAsset ??
-                context?.Track?.timelineAsset;
+                context?.Track?.timelineAsset ??
+                context?.SourceClip?.GetParentTrack()?.timelineAsset;
             double frameRate = timelineAsset?.editorSettings.frameRate ?? KimodoPlayableClip.FIXED_FRAME_RATE;
             return (float)Math.Max(1.0, frameRate);
         }

@@ -131,7 +131,7 @@ namespace KimodoBridge.Editor
         internal static double ResolveTimelineBoundaryTime(KimodoInOutConstraintRequest request, bool isBegin)
         {
             KimodoTimelineInOutConstraintContext context = request.TimelineContext;
-            double oneFrame = 1.0 / ResolveModelFrameRate(request.ModelName);
+            double oneFrame = 1.0 / KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
             if (request.Mode == KimodoInOutConstraintMode.Outside)
             {
                 TimelineClip range = isBegin ? context.PreviousTimelineClip : context.NextTimelineClip;
@@ -154,13 +154,6 @@ namespace KimodoBridge.Editor
             double first = range.start;
             double last = Math.Max(first, range.end - oneFrame);
             return Math.Max(first, Math.Min(last, value));
-        }
-
-        private static float ResolveModelFrameRate(string modelName)
-        {
-            return KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile)
-                ? profile.SourceFps
-                : KimodoPlayableClip.FIXED_FRAME_RATE;
         }
 
         internal static int ClampFrameCount(int generationFrames)

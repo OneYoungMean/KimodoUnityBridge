@@ -615,10 +615,10 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [TestCase(KimodoInOutConstraintMode.Inside, true, 1.0)]
-        [TestCase(KimodoInOutConstraintMode.Inside, false, 89.0 / 30.0)]
-        [TestCase(KimodoInOutConstraintMode.Outside, true, 29.0 / 30.0)]
+        [TestCase(KimodoInOutConstraintMode.Inside, false, 179.0 / 60.0)]
+        [TestCase(KimodoInOutConstraintMode.Outside, true, 59.0 / 60.0)]
         [TestCase(KimodoInOutConstraintMode.Outside, false, 3.0)]
-        public void TimelineBoundarySampling_OffsetsOnlyTheOverlappingSideByOneFrame(
+        public void TimelineBoundarySampling_OffsetsOnlyTheOverlappingSideByOneTimelineFrame(
             KimodoInOutConstraintMode mode,
             bool isBegin,
             double expected)
@@ -626,6 +626,7 @@ namespace KimodoBridge.Editor.Tests
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
             {
+                timeline.editorSettings.frameRate = 60.0;
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
                 TimelineClip previous = track.CreateClip<AnimationPlayableAsset>();
                 previous.start = 0.0;
@@ -639,7 +640,7 @@ namespace KimodoBridge.Editor.Tests
                 var request = new KimodoInOutConstraintRequest
                 {
                     Mode = mode,
-                    ModelName = KimodoPlayableClip.DefaultBridgeModelName,
+                    ModelName = "ARDY-Core-RP-20FPS-Horizon40",
                     TimelineContext = new KimodoTimelineInOutConstraintContext
                     {
                         SourceClip = current,

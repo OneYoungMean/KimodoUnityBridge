@@ -14,6 +14,15 @@ namespace KimodoBridge.Editor
     {
         private const string ReplaceTimelineAnimationUndoName = "Kimodo Replace Timeline Animation";
         private static readonly KimodoEditorConstraintProvider ConstraintProvider = new KimodoEditorConstraintProvider();
+        private static readonly HumanBodyBones[] FirstFrameDiagnosticBones =
+        {
+            HumanBodyBones.Hips,
+            HumanBodyBones.LeftFoot,
+            HumanBodyBones.RightFoot,
+            HumanBodyBones.LeftHand,
+            HumanBodyBones.RightHand,
+            HumanBodyBones.Head
+        };
 
         public static KimodoEditorGenerateRequest BuildRequest(
             KimodoPlayableClip clip,
@@ -313,12 +322,41 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            var targetBonePositions = new Vector3[FirstFrameDiagnosticBones.Length];
+            var targetBoneRotations = new Quaternion[FirstFrameDiagnosticBones.Length];
+            var targetBoneValid = new bool[FirstFrameDiagnosticBones.Length];
+            Vector3 targetRootPosition = Vector3.zero;
+            Quaternion targetRootRotation = Quaternion.identity;
+            bool targetPoseCaptured = false;
+            Action<Animator, Transform> captureTargetPose = (animator, root) =>
+            {
+                if (animator == null || root == null)
+                {
+                    return;
+                }
+
+                targetRootPosition = root.position;
+                targetRootRotation = root.rotation;
+                for (int i = 0; i < FirstFrameDiagnosticBones.Length; i++)
+                {
+                    Transform bone = animator.GetBoneTransform(FirstFrameDiagnosticBones[i]);
+                    targetBoneValid[i] = bone != null;
+                    if (bone != null)
+                    {
+                        targetBonePositions[i] = bone.position;
+                        targetBoneRotations[i] = bone.rotation;
+                    }
+                }
+                targetPoseCaptured = true;
+            };
+
             if (!KimodoConstraintPoseCache.TryResolveTargetHipsPose(
                     context,
                     request.NormalizationAnchorSample,
                     out Vector3 targetHipsPosition,
                     out Quaternion targetHipsRotation,
-                    out error))
+                    out error,
+                    captureTargetPose))
             {
                 return false;
             }
@@ -328,12 +366,62 @@ namespace KimodoBridge.Editor
                 request.NormalizationAnchorSample.localAxisAngles.Count > 0;
             bool planarOnly = request.NormalizationAnchorKind == KimodoConstraintNormalizationAnchorKind.Root2D ||
                 !hasFullPose;
+            Action<Animator, Transform> logFirstFrameComparison = (animator, root) =>
+            {
+                if (!targetPoseCaptured || animator == null || root == null)
+                {
+                    Debug.LogWarning(
+                        $"[Kimodo][TimelineFirstFrameConstraintDiag] clip='{playableClip.name}' pose data is unavailable.");
+                    return;
+                }
+
+                var boneDiagnostics = new List<string>(FirstFrameDiagnosticBones.Length);
+                float maxPositionError = 0f;
+                float maxPlanarError = 0f;
+                HumanBodyBones maxPositionBone = HumanBodyBones.LastBone;
+                for (int i = 0; i < FirstFrameDiagnosticBones.Length; i++)
+                {
+                    HumanBodyBones boneId = FirstFrameDiagnosticBones[i];
+                    Transform actualBone = animator.GetBoneTransform(boneId);
+                    if (!targetBoneValid[i] || actualBone == null)
+                    {
+                        boneDiagnostics.Add($"{boneId}[missing]");
+                        continue;
+                    }
+
+                    float positionError = Vector3.Distance(targetBonePositions[i], actualBone.position);
+                    float planarError = Vector2.Distance(
+                        new Vector2(targetBonePositions[i].x, targetBonePositions[i].z),
+                        new Vector2(actualBone.position.x, actualBone.position.z));
+                    if (positionError > maxPositionError)
+                    {
+                        maxPositionError = positionError;
+                        maxPositionBone = boneId;
+                    }
+                    maxPlanarError = Mathf.Max(maxPlanarError, planarError);
+                    boneDiagnostics.Add(
+                        $"{boneId}[targetPos={targetBonePositions[i]:F6},actualPos={actualBone.position:F6}," +
+                        $"posError={positionError:F6},xzError={planarError:F6}," +
+                        $"rotErrorDeg={Quaternion.Angle(targetBoneRotations[i], actualBone.rotation):F6}]");
+                }
+
+                string boneSummary = string.Join(";", boneDiagnostics);
+                Debug.Log(
+                    $"[Kimodo][TimelineFirstFrameConstraintDiag] clip='{playableClip.name}' " +
+                    $"sampleTime={timelineClip.start + 0.00001d:F6} anchorKind={request.NormalizationAnchorKind} " +
+                    $"rootTargetPos={targetRootPosition:F6} rootActualPos={root.position:F6} " +
+                    $"rootPosError={Vector3.Distance(targetRootPosition, root.position):F6} " +
+                    $"rootRotErrorDeg={Quaternion.Angle(targetRootRotation, root.rotation):F6} " +
+                    $"maxBonePosError={maxPositionError:F6} maxBone={maxPositionBone} " +
+                    $"maxBoneXZError={maxPlanarError:F6} bones={boneSummary}");
+            };
             if (!KimodoTimelinePreviewRefreshUtility.TimelineMatchClipToWorldHips(
                     timelineClip,
                     targetHipsPosition,
                     targetHipsRotation,
                     planarOnly,
-                    out error))
+                    out error,
+                    logFirstFrameComparison))
             {
                 return false;
             }
