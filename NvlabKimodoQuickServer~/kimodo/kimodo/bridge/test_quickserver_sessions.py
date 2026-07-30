@@ -40,6 +40,13 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             "removed_format",
         )
 
+    def test_kimodo_rejects_automatic_root_target_with_explicit_semantics(self):
+        with self.assertRaisesRegex(ValueError, "automatic ARDY-only navigation constraint"):
+            bridge_server._load_constraints(
+                '[{"type":"root2d_target","target_root_2d":[1.0,2.0]}]',
+                SimpleNamespace(skeleton=object()),
+            )
+
     def test_runtime_loading_progress_uses_stage_details_without_task_ids(self):
         self.assertEqual(
             quickserver_cli._build_streaming_status_message(
@@ -299,6 +306,93 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
         self.assertEqual((history_len, window_start), (40, 0))
         self.assertTrue(torch.equal(history, torch.ones_like(history)))
+
+    def test_explicit_history_is_token_aligned_and_capped(self):
+        session = self._fake_ardy_session()
+        session.quickserver_root = Path.cwd()
+        motion = ardy_backend.KmbMotion(
+            payload=b"kmb",
+            model_name="test",
+            fps=20.0,
+            joint_names=("root",),
+            joint_parents=(-1,),
+            root_positions=np.zeros((166, 3), dtype=np.float32),
+            local_rot_quats=np.zeros((166, 1, 4), dtype=np.float32),
+            foot_contacts=None,
+        )
+        encoded = torch.arange(166, dtype=torch.float32).reshape(1, 166, 1)
+        model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=object()))
+        item = {
+            "type": "clip",
+            "format": "kmb_attachment_v1",
+            "attachment": 0,
+            "is_history": True,
+        }
+
+        with (
+            patch.object(ardy_backend, "parse_kmb1", return_value=motion),
+            patch.object(ardy_backend, "_validate_kmb"),
+            patch.object(ardy_backend, "_motion_to_tensor", return_value=encoded),
+            patch("ardy.constraints.load_constraints_lst", return_value=[]),
+        ):
+            session._set_constraints([item], (b"kmb",), model, apply_from=0, initial=True)
+
+        self.assertEqual(tuple(session.initial_history_cpu.shape), (1, 160, 1))
+        self.assertTrue(torch.equal(session.initial_history_cpu, encoded[:, 6:]))
+
+    def test_truncate_rebuilds_history_from_initial_history_and_generated_prefix(self):
+        session = self._fake_ardy_session()
+        session.initial_history_cpu = torch.arange(100, dtype=torch.float32).reshape(1, 100, 1)
+        session.motion_cpu = torch.arange(100, 180, dtype=torch.float32).reshape(1, 80, 1)
+        session.outputs = {"root_positions": np.zeros((1, 80, 3), dtype=np.float32)}
+        session.history_cpu = torch.full((1, 160, 1), -1.0, dtype=torch.float32)
+
+        session._truncate(40)
+
+        expected = torch.arange(140, dtype=torch.float32).reshape(1, 140, 1)
+        self.assertEqual(tuple(session.motion_cpu.shape), (1, 40, 1))
+        self.assertTrue(torch.equal(session.history_cpu, expected))
+        history, history_len, window_start = session._history(SimpleNamespace(device="cpu"))
+        self.assertEqual((history_len, window_start), (140, -100))
+        self.assertTrue(torch.equal(history, expected))
+
+    def test_generated_horizon_rolls_to_the_latest_160_history_frames(self):
+        session = self._fake_ardy_session()
+        session.initial_history_cpu = torch.arange(160, dtype=torch.float32).reshape(1, 160, 1)
+        session.motion_cpu = None
+        session.outputs = None
+        session._cpu_rng_state = torch.random.get_rng_state()
+        session._cuda_rng_state = None
+        session.profile.cfg_constraint_weight = 1.0
+        session.profile.postprocess = False
+
+        class MotionRep:
+            def inverse(self, generated, is_normalized):
+                self.generated = generated.detach().clone()
+                return {
+                    "root_positions": torch.zeros((1, 40, 3), dtype=torch.float32),
+                    "local_rot_mats": torch.eye(3).reshape(1, 1, 1, 3, 3).repeat(1, 40, 1, 1, 1),
+                    "foot_contacts": torch.zeros((1, 40, 4), dtype=torch.float32),
+                }
+
+        motion_rep = MotionRep()
+        captured = {}
+
+        def autoregressive_step(**kwargs):
+            captured.update(kwargs)
+            return torch.arange(200, dtype=torch.float32).reshape(1, 200, 1)
+
+        model = SimpleNamespace(
+            device="cpu",
+            motion_rep=motion_rep,
+            autoregressive_step=autoregressive_step,
+        )
+
+        session._generate_horizon(model)
+
+        self.assertTrue(torch.equal(captured["init_history_sequence"], session.initial_history_cpu))
+        self.assertTrue(torch.equal(session.motion_cpu, torch.arange(160, 200).reshape(1, 40, 1)))
+        self.assertTrue(torch.equal(session.history_cpu, torch.arange(40, 200).reshape(1, 160, 1)))
 
     def test_dense_root_waypoint_expands_from_the_preserved_seam(self):
         expanded = ardy_backend._expand_dense_root_constraint(

@@ -12,7 +12,7 @@ namespace KimodoBridge
             KimodoConstraintMarkerBase marker,
             KimodoMarkerSampleResult sample)
         {
-            if (marker == null || sample == null)
+            if (marker == null || !marker.constraintEnabled || sample == null)
             {
                 return null;
             }

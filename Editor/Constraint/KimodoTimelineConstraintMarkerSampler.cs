@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -8,6 +10,261 @@ using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
+    internal static class KimodoConstraintPoseDiagnostics
+    {
+        private const float MuscleEpsilon = 1e-4f;
+
+        internal static string BuildMuscleStats(float[] muscles)
+        {
+            int count = muscles != null ? muscles.Length : 0;
+            int nonZero = 0;
+            float sum = 0f;
+            float max = 0f;
+            var topIndices = new int[5] { -1, -1, -1, -1, -1 };
+            var topValues = new float[5];
+            for (int i = 0; i < count; i++)
+            {
+                float value = muscles[i];
+                float abs = Mathf.Abs(value);
+                sum += abs;
+                max = Mathf.Max(max, abs);
+                if (abs > MuscleEpsilon)
+                {
+                    nonZero++;
+                }
+
+                for (int top = 0; top < topValues.Length; top++)
+                {
+                    if (abs <= topValues[top])
+                    {
+                        continue;
+                    }
+                    for (int shift = topValues.Length - 1; shift > top; shift--)
+                    {
+                        topValues[shift] = topValues[shift - 1];
+                        topIndices[shift] = topIndices[shift - 1];
+                    }
+                    topValues[top] = abs;
+                    topIndices[top] = i;
+                    break;
+                }
+            }
+
+            var topText = new StringBuilder();
+            for (int i = 0; i < topIndices.Length; i++)
+            {
+                int index = topIndices[i];
+                if (index < 0 || index >= count)
+                {
+                    continue;
+                }
+                if (topText.Length > 0)
+                {
+                    topText.Append(", ");
+                }
+                string name = index < HumanTrait.MuscleCount ? HumanTrait.MuscleName[index] : $"muscle_{index}";
+                topText.Append(name).Append('=').Append(muscles[index].ToString("F5"));
+            }
+
+            return $"len={count} nonZero={nonZero} allNearZero={nonZero == 0} absMean={(count > 0 ? sum / count : 0f):F6} absMax={max:F6} top=[{topText}]";
+        }
+
+        internal static string BuildMuscleValues(float[] muscles)
+        {
+            int count = muscles != null ? muscles.Length : 0;
+            var text = new StringBuilder(count * 9);
+            text.Append('[');
+            for (int i = 0; i < count; i++)
+            {
+                if (i > 0)
+                {
+                    text.Append(',');
+                }
+                text.Append(muscles[i].ToString("F5"));
+            }
+            return text.Append(']').ToString();
+        }
+
+        internal static string BuildMuscleDiff(float[] left, float[] right)
+        {
+            int leftCount = left != null ? left.Length : 0;
+            int rightCount = right != null ? right.Length : 0;
+            int count = Mathf.Min(leftCount, rightCount);
+            float sum = 0f;
+            float max = 0f;
+            int maxIndex = -1;
+            int changed = 0;
+            for (int i = 0; i < count; i++)
+            {
+                float delta = Mathf.Abs(left[i] - right[i]);
+                sum += delta;
+                if (delta > MuscleEpsilon)
+                {
+                    changed++;
+                }
+                if (delta > max)
+                {
+                    max = delta;
+                    maxIndex = i;
+                }
+            }
+
+            string maxName = maxIndex >= 0 && maxIndex < HumanTrait.MuscleCount
+                ? HumanTrait.MuscleName[maxIndex]
+                : maxIndex >= 0 ? $"muscle_{maxIndex}" : "none";
+            return $"leftLen={leftCount} rightLen={rightCount} compared={count} changed={changed} " +
+                $"absMean={(count > 0 ? sum / count : 0f):F6} absMax={max:F6} maxIndex={maxIndex} maxName='{maxName}'";
+        }
+
+        internal static void LogDragMuscleSnapshot(
+            int snapshotId,
+            string markerType,
+            double timelineTime,
+            MuscleSample currentClip,
+            float currentClipScale,
+            MuscleSample originalCharacter,
+            float originalCharacterScale,
+            MuscleSample virtualSkeleton,
+            float virtualSkeletonScale,
+            MuscleSample targetCharacter,
+            float targetCharacterScale,
+            string details = null)
+        {
+            var text = new StringBuilder(8192);
+            text.Append("[Kimodo][ConstraintDragMuscles][snapshot=")
+                .Append(snapshotId)
+                .Append("] marker='").Append(markerType ?? string.Empty)
+                .Append("' timelineTime=").Append(timelineTime.ToString("R")).Append('s')
+                .Append(FormatDetails(details)).AppendLine();
+            AppendDragMuscleSample(text, "CurrentClip", currentClip, currentClipScale);
+            AppendDragMuscleSample(text, "OriginalCharacter", originalCharacter, originalCharacterScale);
+            AppendDragMuscleSample(text, "VirtualSkeleton", virtualSkeleton, virtualSkeletonScale);
+            AppendDragMuscleSample(text, "TargetCharacter", targetCharacter, targetCharacterScale);
+            AppendDragMuscleDiff(text, "CurrentClip->OriginalCharacter", currentClip, currentClipScale, originalCharacter, originalCharacterScale);
+            AppendDragMuscleDiff(text, "OriginalCharacter->VirtualSkeleton", originalCharacter, originalCharacterScale, virtualSkeleton, virtualSkeletonScale);
+            AppendDragMuscleDiff(text, "VirtualSkeleton->TargetCharacter", virtualSkeleton, virtualSkeletonScale, targetCharacter, targetCharacterScale);
+            Debug.Log(text.ToString().TrimEnd());
+        }
+
+        internal static void LogMuscleSample(
+            string stage,
+            double timelineTime,
+            MuscleSample sample,
+            float humanScale,
+            Animator animator,
+            Avatar sourceAvatar = null,
+            string details = null)
+        {
+            HumanPose pose = sample != null ? sample.pose : default;
+            Transform hips = animator != null ? animator.GetBoneTransform(HumanBodyBones.Hips) : null;
+            Transform hand = animator != null ? animator.GetBoneTransform(HumanBodyBones.LeftHand) : null;
+            Transform foot = animator != null ? animator.GetBoneTransform(HumanBodyBones.LeftFoot) : null;
+            Debug.Log(
+                $"[Kimodo][ConstraintPoseDiag][{stage}] representation=HumanPoseMuscle " +
+                $"timelineTime={timelineTime:R}s humanScale={humanScale:F6} " +
+                $"sourceAvatar={DescribeAvatar(sourceAvatar)} animatorAvatar={DescribeAvatar(animator != null ? animator.avatar : null)} " +
+                $"bodyPositionRaw={FormatVector(pose.bodyPosition)} bodyPositionMeters={FormatVector(pose.bodyPosition * humanScale)} " +
+                $"bodyRotation={FormatQuaternion(pose.bodyRotation)} root={FormatTransform(animator != null ? animator.transform : null)} " +
+                $"hips={FormatTransform(hips)} leftHand={FormatTransform(hand)} leftFoot={FormatTransform(foot)} " +
+                $"muscles=({BuildMuscleStats(pose.muscles)}){FormatDetails(details)}avgmuscle ={pose.muscles.Sum()/ pose.muscles.Length}");
+        }
+
+        internal static void LogMarkerSample(string stage, KimodoMarkerSampleResult sample, string details = null)
+        {
+            int count = sample?.localAxisAngles != null ? sample.localAxisAngles.Count : 0;
+            int nonZero = 0;
+            float max = 0f;
+            for (int i = 0; i < count; i++)
+            {
+                float magnitude = sample.localAxisAngles[i].magnitude;
+                max = Mathf.Max(max, magnitude);
+                if (magnitude > MuscleEpsilon)
+                {
+                    nonZero++;
+                }
+            }
+            Debug.Log(
+                $"[Kimodo][ConstraintPoseDiag][{stage}] representation=KimodoMarkerAxisAngle " +
+                $"constraint='{sample?.constraintType ?? string.Empty}' sampleTime={sample?.sampleTime ?? 0d:R}s " +
+                $"rig={sample?.rigType} root={FormatVector(sample != null ? sample.kimodoRootPosition : Vector3.zero)} " +
+                $"unityRoot={FormatVector(sample != null ? sample.unityRootPos : Vector3.zero)}/{FormatQuaternion(sample != null ? sample.unityRootRot : Quaternion.identity)} " +
+                $"jointNames={sample?.jointNames?.Count ?? 0} sampledIndices={sample?.sampledJointIndices?.Count ?? 0} " +
+                $"axisAngles={count} nonZeroAxisAngles={nonZero} axisMagnitudeMax={max:F6}{FormatDetails(details)}");
+        }
+
+        internal static void LogBoneSample(string stage, BoneSample sample, string details = null)
+        {
+            int count = sample?.localRotations != null ? sample.localRotations.Length : 0;
+            int rotated = 0;
+            float maxAngle = 0f;
+            for (int i = 0; i < count; i++)
+            {
+                float angle = Quaternion.Angle(Quaternion.identity, sample.localRotations[i]);
+                maxAngle = Mathf.Max(maxAngle, angle);
+                if (angle > 0.01f)
+                {
+                    rotated++;
+                }
+            }
+            Debug.Log(
+                $"[Kimodo][ConstraintPoseDiag][{stage}] representation=BoneSample count={count} " +
+                $"rotatedFromIdentity={rotated} maxLocalAngleDeg={maxAngle:F4} " +
+                $"firstBone='{(sample?.boneNames != null && sample.boneNames.Length > 0 ? sample.boneNames[0] : string.Empty)}' " +
+                $"firstPosition={FormatVector(sample?.localPositions != null && sample.localPositions.Length > 0 ? sample.localPositions[0] : Vector3.zero)} " +
+                $"firstRotation={FormatQuaternion(sample?.localRotations != null && sample.localRotations.Length > 0 ? sample.localRotations[0] : Quaternion.identity)}{FormatDetails(details)}");
+        }
+
+        private static string DescribeAvatar(Avatar avatar)
+        {
+            return avatar != null ? $"'{avatar.name}'#{avatar.GetInstanceID()} valid={avatar.isValid} human={avatar.isHuman}" : "null";
+        }
+
+        private static string FormatTransform(Transform transform)
+        {
+            return transform != null
+                ? $"'{transform.name}' p={FormatVector(transform.position)} r={FormatQuaternion(transform.rotation)}"
+                : "null";
+        }
+
+        private static void AppendDragMuscleSample(
+            StringBuilder text,
+            string label,
+            MuscleSample sample,
+            float humanScale)
+        {
+            HumanPose pose = sample != null ? sample.pose : default;
+            text.Append("  ").Append(label)
+                .Append(": bodyMeters=").Append(FormatVector(pose.bodyPosition * humanScale))
+                .Append(" bodyRotation=").Append(FormatQuaternion(pose.bodyRotation))
+                .Append(" stats={").Append(BuildMuscleStats(pose.muscles)).Append('}')
+                .Append(" values=").Append(BuildMuscleValues(pose.muscles))
+                .AppendLine();
+        }
+
+        private static void AppendDragMuscleDiff(
+            StringBuilder text,
+            string label,
+            MuscleSample left,
+            float leftScale,
+            MuscleSample right,
+            float rightScale)
+        {
+            HumanPose leftPose = left != null ? left.pose : default;
+            HumanPose rightPose = right != null ? right.pose : default;
+            text.Append("  Diff ").Append(label).Append(": ")
+                .Append(BuildMuscleDiff(leftPose.muscles, rightPose.muscles))
+                .Append(" bodyMetersDistance=")
+                .Append(Vector3.Distance(leftPose.bodyPosition * leftScale, rightPose.bodyPosition * rightScale).ToString("F6"))
+                .Append(" bodyRotationAngleDeg=")
+                .Append(Quaternion.Angle(leftPose.bodyRotation, rightPose.bodyRotation).ToString("F4"))
+                .AppendLine();
+        }
+
+        private static string FormatVector(Vector3 value) => $"({value.x:F5},{value.y:F5},{value.z:F5})";
+        private static string FormatQuaternion(Quaternion value) => $"({value.x:F5},{value.y:F5},{value.z:F5},{value.w:F5})";
+        private static string FormatDetails(string details) => string.IsNullOrWhiteSpace(details) ? string.Empty : $" {details}";
+    }
+
     internal static class KimodoTimelineTrackOffsetUtility
     {
         internal static void ResolveWorldOffset(
@@ -307,6 +564,10 @@ namespace KimodoBridge.Editor
             {
                 sample = cachedSample.Clone();
                 sample.sampleTime = exportedSampleTime;
+                KimodoConstraintPoseDiagnostics.LogMarkerSample(
+                    "MarkerCacheHit",
+                    sample,
+                    $"timelineSampleTime={timelineSampleTime:R}s exportedSampleTime={exportedSampleTime:R}s");
                 return true;
             }
 
@@ -375,6 +636,14 @@ namespace KimodoBridge.Editor
                     targetRootPosition,
                     targetRootRotation,
                     exportedSampleTime);
+                KimodoConstraintPoseDiagnostics.LogBoneSample(
+                    "TimelineClipToTargetBone",
+                    targetSample,
+                    $"timelineSampleTime={timelineSampleTime:R}s localClipTime={range.ResolveLocalSampleTime(timelineSampleTime):R}s marker='{markerType}'");
+                KimodoConstraintPoseDiagnostics.LogMarkerSample(
+                    "TargetBoneToMarker",
+                    sample,
+                    $"timelineSampleTime={timelineSampleTime:R}s marker='{markerType}'");
                 KimodoMarkerSampleResult cached = sample.Clone();
                 cached.sampleTime = timelineSampleTime;
                 entry.MarkerSamples[sampleKey] = cached;
@@ -487,7 +756,8 @@ namespace KimodoBridge.Editor
                             Vector3.zero,
                             Quaternion.identity,
                             out MuscleSample muscleSample,
-                            out error))
+                            out error,
+                            logDiagnostics: sampleFrame == ResolveTimelineSampleFrame(timelineTime, range.FrameRate)))
                     {
                         return false;
                     }
@@ -705,6 +975,8 @@ namespace KimodoBridge.Editor
         private readonly KimodoTimelineInOutConstraintContext context;
         private readonly HumanPoseHandler sourcePoseHandler;
         private readonly float sourceHumanScale;
+        private readonly Avatar originalAnimatorAvatar;
+        private readonly bool restoreAnimatorAvatar;
         private readonly double originalTime;
         private readonly DirectorWrapMode originalWrapMode;
         private bool disposed;
@@ -716,21 +988,27 @@ namespace KimodoBridge.Editor
             SkeletonCache targetCache,
             Vector3 rootOffsetPosition,
             Quaternion rootOffsetRotation,
-            bool rootPoseIncludesOffset)
+            bool rootPoseIncludesOffset,
+            Avatar originalAnimatorAvatar,
+            bool restoreAnimatorAvatar,
+            double originalTime,
+            DirectorWrapMode originalWrapMode)
         {
             this.context = context;
             this.sourcePoseHandler = sourcePoseHandler;
             this.sourceHumanScale = sourceHumanScale;
+            this.originalAnimatorAvatar = originalAnimatorAvatar;
+            this.restoreAnimatorAvatar = restoreAnimatorAvatar;
             TargetCache = targetCache;
             RootOffsetPosition = rootOffsetPosition;
             RootOffsetRotation = rootOffsetRotation;
             RootPoseIncludesOffset = rootPoseIncludesOffset;
-            originalTime = context.Director.time;
-            originalWrapMode = context.Director.extrapolationMode;
-            context.Director.extrapolationMode = DirectorWrapMode.Hold;
+            this.originalTime = originalTime;
+            this.originalWrapMode = originalWrapMode;
         }
 
         internal SkeletonCache TargetCache { get; }
+        internal float SourceHumanScale => sourceHumanScale;
         internal Vector3 RootOffsetPosition { get; }
         internal Quaternion RootOffsetRotation { get; }
         internal bool RootPoseIncludesOffset { get; }
@@ -773,6 +1051,11 @@ namespace KimodoBridge.Editor
 
             HumanPoseHandler sourceHandler = null;
             SkeletonCache sourceScaleCache = null;
+            Avatar originalAnimatorAvatar = context.Animator.avatar;
+            bool restoreAnimatorAvatar = !ReferenceEquals(originalAnimatorAvatar, context.SourceAvatar);
+            double originalTime = context.Director.time;
+            DirectorWrapMode originalWrapMode = context.Director.extrapolationMode;
+            bool sourceStateTouched = false;
             try
             {
                 if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
@@ -787,6 +1070,18 @@ namespace KimodoBridge.Editor
                 float sourceHumanScale = sourceScaleCache.humanScale;
                 sourceScaleCache.Dispose();
                 sourceScaleCache = null;
+
+                sourceStateTouched = true;
+                context.Director.extrapolationMode = DirectorWrapMode.Hold;
+                if (restoreAnimatorAvatar)
+                {
+                    context.Animator.avatar = context.SourceAvatar;
+                    context.Animator.Rebind();
+                    context.Animator.Update(0f);
+                    context.Director.RebuildGraph();
+                }
+                context.Director.time = originalTime;
+                context.Director.Evaluate();
                 sourceHandler = new HumanPoseHandler(context.SourceAvatar, context.Animator.transform);
                 KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
                     context.Track,
@@ -801,12 +1096,28 @@ namespace KimodoBridge.Editor
                     targetCache,
                     rootOffsetPosition,
                     rootOffsetRotation,
-                    rootPoseIncludesOffset);
+                    rootPoseIncludesOffset,
+                    originalAnimatorAvatar,
+                    restoreAnimatorAvatar,
+                    originalTime,
+                    originalWrapMode);
                 return true;
             }
             catch (Exception ex)
             {
                 sourceHandler?.Dispose();
+                if (sourceStateTouched ||
+                    !ReferenceEquals(context.Animator != null ? context.Animator.avatar : null, originalAnimatorAvatar) ||
+                    context.Director.extrapolationMode != originalWrapMode)
+                {
+                    RestoreSourceState(
+                        context,
+                        originalAnimatorAvatar,
+                        restoreAnimatorAvatar,
+                        originalTime,
+                        originalWrapMode,
+                        logFailures: false);
+                }
                 sourceScaleCache?.Dispose();
                 targetCache.Dispose();
                 error = ex.Message;
@@ -853,7 +1164,8 @@ namespace KimodoBridge.Editor
             Vector3 anchorRootPosition,
             Quaternion anchorRootRotation,
             out MuscleSample sample,
-            out string error)
+            out string error,
+            bool logDiagnostics = true)
         {
             sample = null;
             error = string.Empty;
@@ -877,6 +1189,8 @@ namespace KimodoBridge.Editor
                     sourceHumanScale,
                     pose,
                     bone => ResolveSourceHumanBone(context.Animator, context.SourceAvatar, bone));
+                Vector3 sourceBodyPosition = bodyPosition;
+                Quaternion sourceBodyRotation = bodyRotation;
                 if (RootPoseIncludesOffset)
                 {
                     KimodoConstraintNormalizationUtility.NormalizeRootPose(
@@ -896,6 +1210,19 @@ namespace KimodoBridge.Editor
                 pose.bodyPosition = bodyPosition / sourceHumanScale;
                 pose.bodyRotation = bodyRotation;
                 sample.pose = pose;
+                if (logDiagnostics)
+                {
+                    KimodoConstraintPoseDiagnostics.LogMuscleSample(
+                        "TimelineEvaluateToSourceHumanPose",
+                        timelineTime,
+                        sample,
+                        sourceHumanScale,
+                        context.Animator,
+                        context.SourceAvatar,
+                        $"rootPoseIncludesOffset={RootPoseIncludesOffset} normalizeRootToAnchor={normalizeRootToAnchor} " +
+                        $"sourceBodyMeters=({sourceBodyPosition.x:F5},{sourceBodyPosition.y:F5},{sourceBodyPosition.z:F5}) " +
+                        $"sourceBodyRotation=({sourceBodyRotation.x:F5},{sourceBodyRotation.y:F5},{sourceBodyRotation.z:F5},{sourceBodyRotation.w:F5})");
+                }
                 return true;
             }
             catch (Exception ex)
@@ -1012,16 +1339,70 @@ namespace KimodoBridge.Editor
             disposed = true;
             try
             {
+                sourcePoseHandler.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Kimodo][TimelineSample] Failed to dispose source pose handler: {ex.Message}");
+            }
+
+            RestoreSourceState(
+                context,
+                originalAnimatorAvatar,
+                restoreAnimatorAvatar,
+                originalTime,
+                originalWrapMode,
+                logFailures: true);
+            TargetCache.Dispose();
+        }
+
+        private static void RestoreSourceState(
+            KimodoTimelineInOutConstraintContext context,
+            Avatar originalAnimatorAvatar,
+            bool restoreAnimatorAvatar,
+            double originalTime,
+            DirectorWrapMode originalWrapMode,
+            bool logFailures)
+        {
+            if (restoreAnimatorAvatar && context?.Animator != null)
+            {
+                try
+                {
+                    context.Animator.avatar = originalAnimatorAvatar;
+                    context.Animator.Rebind();
+                    context.Animator.Update(0f);
+                }
+                catch (Exception ex)
+                {
+                    if (logFailures)
+                    {
+                        Debug.LogWarning($"[Kimodo][TimelineSample] Failed to restore Animator Avatar: {ex.Message}");
+                    }
+                }
+            }
+
+            if (context?.Director == null)
+            {
+                return;
+            }
+
+            try
+            {
                 context.Director.extrapolationMode = originalWrapMode;
+                if (restoreAnimatorAvatar)
+                {
+                    context.Director.RebuildGraph();
+                }
                 context.Director.time = originalTime;
                 context.Director.Evaluate();
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[Kimodo][TimelineSample] Failed to restore Director state: {ex.Message}");
+                if (logFailures)
+                {
+                    Debug.LogWarning($"[Kimodo][TimelineSample] Failed to restore Director state: {ex.Message}");
+                }
             }
-            sourcePoseHandler.Dispose();
-            TargetCache.Dispose();
         }
     }
 
@@ -1153,6 +1534,11 @@ namespace KimodoBridge.Editor
             {
                 if (marker is KimodoConstraintMarkerBase kimodoMarker)
                 {
+                    if (!kimodoMarker.constraintEnabled)
+                    {
+                        continue;
+                    }
+
                     if (kimodoMarker.time < minTime || kimodoMarker.time > maxTime)
                     {
                         continue;

@@ -56,15 +56,6 @@ namespace KimodoBridge.Editor
             SerializedProperty overrideProp = serializedObject.FindProperty("useOverride");
             bool useOverride = overrideProp != null && overrideProp.boolValue;
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(markerTarget);
-            if (!useOverride && windowOpen)
-            {
-                KimodoConstraintOverrideEditWindow openWindow = KimodoConstraintOverrideEditWindow.GetOpenWindow();
-                if (openWindow != null && openWindow.TargetMarker == markerTarget)
-                {
-                    openWindow.Close();
-                }
-                windowOpen = false;
-            }
 
             if (!useOverride && !windowOpen)
             {
@@ -91,6 +82,7 @@ namespace KimodoBridge.Editor
         private void DrawCommonHeader(string type)
         {
             EditorGUILayout.LabelField($"Kimodo Constraint Marker ({type})", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("constraintEnabled"), new GUIContent("Enabled"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("useOverride"));
             KimodoConstraintMarkerEditorUtility.DrawOverrideEditButton(serializedObject, target as KimodoConstraintMarkerBase);
             EditorGUILayout.Space(4f);
@@ -177,6 +169,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.HelpBox(GetTipByType(typeName), MessageType.Info);
             EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField($"Kimodo Constraint Marker ({typeName})", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("constraintEnabled"), new GUIContent("Enabled"));
 
             SerializedProperty overrideProp = serializedObject.FindProperty("useOverride");
             if (isCustomEndEffector)
@@ -194,15 +187,6 @@ namespace KimodoBridge.Editor
             bool useOverride = !isCustomEndEffector && overrideProp != null && overrideProp.boolValue;
             KimodoConstraintMarkerBase markerTarget = target as KimodoConstraintMarkerBase;
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(markerTarget);
-            if (!useOverride && windowOpen)
-            {
-                KimodoConstraintOverrideEditWindow openWindow = KimodoConstraintOverrideEditWindow.GetOpenWindow();
-                if (openWindow != null && openWindow.TargetMarker == markerTarget)
-                {
-                    openWindow.Close();
-                }
-                windowOpen = false;
-            }
 
             if (!useOverride && !windowOpen)
             {
@@ -285,6 +269,7 @@ namespace KimodoBridge.Editor
         private static readonly Dictionary<int, AutoSampleCacheEntry> AutoSampleCache = new Dictionary<int, AutoSampleCacheEntry>();
         private static readonly Dictionary<int, PoseRenderCacheEntry> PoseRenderSignatures = new Dictionary<int, PoseRenderCacheEntry>();
         private static readonly Dictionary<int, string> CachedIntStrings = new Dictionary<int, string>();
+        private static int dragMuscleSnapshotId;
 
         private const string DefaultBridgeModelName = "Kimodo-SOMA-RP-v1";
 
@@ -353,6 +338,7 @@ namespace KimodoBridge.Editor
             public double SampleTime;
             public int ClipId;
             public int AnimatorId;
+            public int SourceAvatarId;
             public string ModelName;
             public KimodoConstraintRigType RigType;
             public bool HasRootHeading;
@@ -426,6 +412,12 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            if (!marker.constraintEnabled)
+            {
+                ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
+                return true;
+            }
+
             if (!TryGetMarkerTrack(marker, out TrackAsset track))
             {
                 error = "parent track not found";
@@ -454,7 +446,9 @@ namespace KimodoBridge.Editor
                 KimodoMarkerSamplingUtility.TryResolveAnimationClipFromTimelineClip(clipRange, out sourceClip, out _);
             }
 
-            KimodoLocalAvatarUtility.AvatarResolveResult sourceAvatarResult = KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(animator.gameObject);
+            TimelineClip referenceClip = FindReferenceClip(track, marker.time, clipRange);
+            KimodoLocalAvatarUtility.AvatarResolveResult sourceAvatarResult =
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(referenceClip, animator);
             Avatar sourceAvatar = sourceAvatarResult.Avatar;
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
             {
@@ -469,7 +463,7 @@ namespace KimodoBridge.Editor
                 Animator = animator,
                 SourceClip = sourceClip,
                 SourceAvatar = sourceAvatar,
-                ModelName = ResolveModelName(track, marker.time, clipRange),
+                ModelName = ResolveModelName(referenceClip),
                 CacheTimeFrames = KimodoPlayableClipGenerationSettings.instance.TimelineConstraintCacheTimeFrames
             };
 
@@ -818,7 +812,14 @@ namespace KimodoBridge.Editor
         {
             if (marker != null)
             {
-                ClearMarkerEditorCaches(marker);
+                if (marker.constraintEnabled)
+                {
+                    ClearMarkerEditorCaches(marker);
+                }
+                else
+                {
+                    ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
+                }
                 EditorUtility.SetDirty(marker);
             }
 
@@ -907,14 +908,254 @@ namespace KimodoBridge.Editor
             TimelineClip referenceClip = FindReferenceClip(track, marker.time, clipRange);
             KimodoPlayableClip playableClip = referenceClip?.asset as KimodoPlayableClip;
             string modelName = ResolveModelName(referenceClip);
+            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(referenceClip, animator);
+            if (!avatarResult.IsHumanoid || avatarResult.Avatar == null)
+            {
+                error = $"Resolve source avatar failed: {avatarResult.Error}";
+                return false;
+            }
             KimodoConstraintRigType rigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName);
             int clipContextId = playableClip != null
                 ? playableClip.GetInstanceID()
                 : ((referenceClip?.asset as UnityEngine.Object) != null
                     ? (referenceClip.asset as UnityEngine.Object).GetInstanceID()
                     : track.GetInstanceID());
-            context = new PoseCacheRenderContext(clipContextId, animator.GetInstanceID(), track.GetInstanceID(), modelName, rigType);
+            context = new PoseCacheRenderContext(
+                clipContextId,
+                animator.GetInstanceID(),
+                track.GetInstanceID(),
+                modelName,
+                rigType,
+                avatarResult.Avatar);
             return true;
+        }
+
+        internal static void LogDragMuscleSnapshot(
+            KimodoConstraintMarkerBase marker,
+            PoseCacheRenderContext renderContext,
+            string entryId)
+        {
+            try
+            {
+                if (marker == null)
+                {
+                    return;
+                }
+
+                if (!TryCaptureDragMuscleSnapshot(
+                        marker,
+                        renderContext,
+                        entryId,
+                        out MuscleSample currentClip,
+                        out float currentClipScale,
+                        out MuscleSample originalCharacter,
+                        out float originalCharacterScale,
+                        out MuscleSample virtualSkeleton,
+                        out float virtualSkeletonScale,
+                        out MuscleSample targetCharacter,
+                        out float targetCharacterScale,
+                        out double timelineSampleTime,
+                        out string details,
+                        out string error))
+                {
+                    Debug.LogWarning($"[Kimodo][ConstraintDragMuscles] capture failed: {error}");
+                    return;
+                }
+
+                dragMuscleSnapshotId++;
+                KimodoConstraintPoseDiagnostics.LogDragMuscleSnapshot(
+                    dragMuscleSnapshotId,
+                    marker.ConstraintType,
+                    timelineSampleTime,
+                    currentClip,
+                    currentClipScale,
+                    originalCharacter,
+                    originalCharacterScale,
+                    virtualSkeleton,
+                    virtualSkeletonScale,
+                    targetCharacter,
+                    targetCharacterScale,
+                    details);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Kimodo][ConstraintDragMuscles] capture failed: {ex.Message}");
+            }
+        }
+
+        private static bool TryCaptureDragMuscleSnapshot(
+            KimodoConstraintMarkerBase marker,
+            PoseCacheRenderContext renderContext,
+            string entryId,
+            out MuscleSample currentClip,
+            out float currentClipScale,
+            out MuscleSample originalCharacter,
+            out float originalCharacterScale,
+            out MuscleSample virtualSkeleton,
+            out float virtualSkeletonScale,
+            out MuscleSample targetCharacter,
+            out float targetCharacterScale,
+            out double timelineSampleTime,
+            out string details,
+            out string error)
+        {
+            currentClip = null;
+            currentClipScale = 0f;
+            originalCharacter = null;
+            originalCharacterScale = 0f;
+            virtualSkeleton = null;
+            virtualSkeletonScale = 0f;
+            targetCharacter = null;
+            targetCharacterScale = 0f;
+            timelineSampleTime = marker != null ? marker.time : 0d;
+            details = string.Empty;
+            error = string.Empty;
+
+            if (!TryGetMarkerTrack(marker, out TrackAsset track) ||
+                !TryGetClipRangeForMarker(marker, out TimelineClip clipRange))
+            {
+                error = "marker AnimationClip range is unavailable.";
+                return false;
+            }
+
+            PlayableDirector director = TimelineEditor.inspectedDirector;
+            Animator animator = director != null ? director.GetGenericBinding(track) as Animator : null;
+            if (director == null || animator == null || !KimodoRetargetCoreUtility.IsValidHumanoid(renderContext.SourceAvatar))
+            {
+                error = "Timeline director, binding Animator, or source Avatar is unavailable.";
+                return false;
+            }
+
+            if (!KimodoMarkerSamplingUtility.TryResolveAnimationClipFromTimelineClip(
+                    clipRange,
+                    out AnimationClip sourceClip,
+                    out error))
+            {
+                return false;
+            }
+
+            var timelineContext = new KimodoTimelineInOutConstraintContext
+            {
+                SourceClip = clipRange,
+                Track = track,
+                Director = director,
+                Animator = animator,
+                SourceAvatar = renderContext.SourceAvatar,
+                ModelName = renderContext.ModelName,
+                CurrentClip = sourceClip
+            };
+            float timelineFrameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(timelineContext);
+            timelineSampleTime = KimodoTimelineConstraintClipCache.ResolveTimelineSampleTime(marker.time, timelineFrameRate);
+            float sourceClipTime = (float)KimodoMarkerSamplingUtility.ResolveSourceClipSampleTime(
+                clipRange,
+                timelineSampleTime);
+
+            if (!TryCaptureAnimationClipMuscleSample(
+                    sourceClip,
+                    renderContext.SourceAvatar,
+                    sourceClipTime,
+                    out currentClip,
+                    out currentClipScale,
+                    out error))
+            {
+                return false;
+            }
+
+            if (!KimodoTimelinePoseSampler.TryCreate(
+                    timelineContext,
+                    renderContext.ModelName,
+                    out KimodoTimelinePoseSampler sampler,
+                    out error))
+            {
+                return false;
+            }
+            try
+            {
+                if (!sampler.TryCaptureMuscleSample(
+                        timelineSampleTime,
+                        normalizeRootToAnchor: false,
+                        Vector3.zero,
+                        Quaternion.identity,
+                        out originalCharacter,
+                        out error,
+                        logDiagnostics: false))
+                {
+                    return false;
+                }
+                originalCharacterScale = sampler.SourceHumanScale;
+            }
+            finally
+            {
+                sampler.Dispose();
+            }
+
+            if (!KimodoConstraintPoseCache.TryCaptureDragMuscleSamples(
+                    renderContext,
+                    entryId,
+                    out virtualSkeleton,
+                    out virtualSkeletonScale,
+                    out targetCharacter,
+                    out targetCharacterScale,
+                    out error))
+            {
+                return false;
+            }
+
+            details = $"clip='{sourceClip.name}' sourceClipTime={sourceClipTime:R}s animator='{animator.name}' entry='{entryId ?? string.Empty}'";
+            return true;
+        }
+
+        private static bool TryCaptureAnimationClipMuscleSample(
+            AnimationClip sourceClip,
+            Avatar sourceAvatar,
+            float sourceClipTime,
+            out MuscleSample sample,
+            out float humanScale,
+            out string error)
+        {
+            sample = null;
+            humanScale = 0f;
+            error = string.Empty;
+            SkeletonCache sourceCache = null;
+            AnimationClip humanoidClip = null;
+            try
+            {
+                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                        sourceAvatar,
+                        "KimodoConstraintDrag_CurrentClip",
+                        out sourceCache,
+                        out error) ||
+                    !KimodoRetargetSamplingUtility.TryResolveSourceHumanoidClip(
+                        sourceClip,
+                        sourceAvatar,
+                        "KimodoConstraintDrag_CurrentClipSource",
+                        null,
+                        ref sourceCache,
+                        out humanoidClip,
+                        out error) ||
+                    !KimodoRetargetSamplingUtility.TrySampleTargetFromHumanoidClip(
+                        humanoidClip,
+                        sourceCache,
+                        Mathf.Clamp(sourceClipTime, 0f, humanoidClip.length),
+                        out _,
+                        out sample,
+                        out error))
+                {
+                    return false;
+                }
+
+                humanScale = sourceCache.humanScale;
+                return true;
+            }
+            finally
+            {
+                if (humanoidClip != null && !ReferenceEquals(humanoidClip, sourceClip))
+                {
+                    UnityEngine.Object.DestroyImmediate(humanoidClip);
+                }
+                sourceCache?.Dispose();
+            }
         }
 
         public static bool TryRenderMarkerToPoseCacheIfNeeded(KimodoConstraintMarkerBase marker, out string error)
@@ -924,6 +1165,12 @@ namespace KimodoBridge.Editor
             {
                 error = "marker is null";
                 return false;
+            }
+
+            if (!marker.constraintEnabled)
+            {
+                ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
+                return true;
             }
 
             if (!TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out error))
@@ -1005,8 +1252,21 @@ namespace KimodoBridge.Editor
             string modelName = string.IsNullOrWhiteSpace(playableClip.bridgeModelName)
                 ? "Kimodo-SOMA-RP-v1"
                 : playableClip.bridgeModelName.Trim();
+            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(timelineClip, animator);
+            if (!avatarResult.IsHumanoid || avatarResult.Avatar == null)
+            {
+                error = $"Resolve source avatar failed: {avatarResult.Error}";
+                return false;
+            }
             KimodoConstraintRigType rigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName);
-            context = new PoseCacheRenderContext(playableClip.GetInstanceID(), animator.GetInstanceID(), track.GetInstanceID(), modelName, rigType);
+            context = new PoseCacheRenderContext(
+                playableClip.GetInstanceID(),
+                animator.GetInstanceID(),
+                track.GetInstanceID(),
+                modelName,
+                rigType,
+                avatarResult.Avatar);
             return true;
         }
 
@@ -1017,6 +1277,12 @@ namespace KimodoBridge.Editor
             {
                 error = "marker is null";
                 return false;
+            }
+
+            if (!marker.constraintEnabled)
+            {
+                ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
+                return true;
             }
 
             if (!TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out error))
@@ -1092,7 +1358,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < markers.Count; i++)
             {
                 KimodoConstraintMarkerBase marker = markers[i];
-                if (marker == null)
+                if (marker == null || !marker.constraintEnabled)
                 {
                     continue;
                 }
@@ -1127,6 +1393,7 @@ namespace KimodoBridge.Editor
             }
 
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker);
+            using (new EditorGUI.DisabledScope(!marker.constraintEnabled))
             using (new EditorGUILayout.HorizontalScope())
             {
                 if (GUILayout.Button(new GUIContent("Refresh Cache", "Force re-sample the marker pose and rebuild the preview cache."), GUILayout.Height(22f)))
@@ -1138,20 +1405,16 @@ namespace KimodoBridge.Editor
                 }
 
                 string label = windowOpen ? "Reopen Edit" : "Edit";
-                if (GUILayout.Button(new GUIContent(label, "Open pose edit window. This enables useOverride automatically if needed."), GUILayout.Height(22f)))
+                if (GUILayout.Button(new GUIContent(label, "Open pose edit window. Override is enabled only after the preview pose is changed."), GUILayout.Height(22f)))
                 {
-                    SerializedProperty overrideProp = so.FindProperty("useOverride");
-                    if (overrideProp != null && !overrideProp.boolValue)
+                    KimodoConstraintMarkerBase markerToOpen = marker;
+                    EditorApplication.delayCall += () =>
                     {
-                        overrideProp.boolValue = true;
-                        so.ApplyModifiedProperties();
-                        ClearMarkerEditorCaches(marker);
-                    }
-
-                    if (marker.useOverride)
-                    {
-                        KimodoConstraintOverrideEditWindow.ShowWindow(marker);
-                    }
+                        if (markerToOpen != null && markerToOpen.constraintEnabled)
+                        {
+                            KimodoConstraintOverrideEditWindow.ShowWindow(markerToOpen);
+                        }
+                    };
                 }
             }
         }
@@ -1278,6 +1541,7 @@ namespace KimodoBridge.Editor
                 SampleTime = source != null ? source.sampleTime : 0.0,
                 ClipId = context.ClipId,
                 AnimatorId = context.AnimatorId,
+                SourceAvatarId = context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0,
                 ModelName = context.ModelName ?? string.Empty,
                 RigType = context.RigType,
                 HasRootHeading = source != null && source.hasRootHeading,
@@ -1301,6 +1565,7 @@ namespace KimodoBridge.Editor
                 Math.Abs(snapshot.SampleTime - (sample != null ? sample.sampleTime : 0.0)) <= 1e-9 &&
                 snapshot.ClipId == context.ClipId &&
                 snapshot.AnimatorId == context.AnimatorId &&
+                snapshot.SourceAvatarId == (context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0) &&
                 string.Equals(snapshot.ModelName ?? string.Empty, context.ModelName ?? string.Empty, StringComparison.Ordinal) &&
                 snapshot.RigType == context.RigType &&
                 snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&

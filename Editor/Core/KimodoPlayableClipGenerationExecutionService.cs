@@ -400,24 +400,12 @@ namespace KimodoBridge.Editor
                 }
                 if (normalization != null && normalization.Applied && normalization.AnchorSample != null)
                 {
-                    Vector3 anchorPosition = new Vector3(
-                        normalization.AnchorSample.unityRootPos.x,
-                        0f,
-                        normalization.AnchorSample.unityRootPos.z);
-                    Quaternion anchorRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRootRotation(
-                        normalization.AnchorSample);
                     for (int i = 0; i < entries.Count; i++)
                     {
                         KimodoEditorGenerateRequest request = entries[i].Request;
                         request.NormalizeConstraintOriginApplied = true;
                         request.NormalizationAnchorKind = normalization.AnchorKind;
                         request.NormalizationAnchorSample = normalization.AnchorSample.Clone();
-                        if (i == 0 && request.InitialArdyHistorySource != null)
-                        {
-                            request.InitialArdyHistorySource.NormalizeRootToAnchor = true;
-                            request.InitialArdyHistorySource.AnchorRootPosition = anchorPosition;
-                            request.InitialArdyHistorySource.AnchorRootRotation = anchorRotation;
-                        }
                     }
                 }
             }

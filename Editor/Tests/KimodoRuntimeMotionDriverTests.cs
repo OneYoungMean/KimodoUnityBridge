@@ -115,6 +115,43 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void Root2DTarget_KimodoReportsThatAutomaticTargetsRequireArdy()
+        {
+            var gameObject = new GameObject("KimodoRuntimeMotionDriverTests.Root2DTarget");
+            gameObject.SetActive(false);
+            try
+            {
+                var driver = gameObject.AddComponent<KimodoRuntimeMotionDriver>();
+
+                driver.SetRoot2DTarget(1f, 2f);
+
+                Assert.That(driver.StatusMessage, Does.Contain("automatic ARDY-only"));
+                Assert.That(driver.StatusMessage, Does.Contain("SetRoot2D"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
+        public void Root2DWorldTarget_ConvertsSceneDeltaToCharacterLocalOffset()
+        {
+            Vector3 currentWorldPosition = new Vector3(10f, 1f, 20f);
+            Quaternion worldRotation = Quaternion.Euler(0f, 90f, 0f);
+            Vector3 expectedLocalOffset = new Vector3(2f, 0f, 3f);
+            Vector3 targetWorldPosition = currentWorldPosition + worldRotation * expectedLocalOffset;
+
+            Vector2 actual = KimodoRuntimeMotionDriver.ResolveLocalRoot2DOffset(
+                currentWorldPosition,
+                worldRotation,
+                targetWorldPosition);
+
+            Assert.That(actual.x, Is.EqualTo(expectedLocalOffset.x).Within(1e-5f));
+            Assert.That(actual.y, Is.EqualTo(expectedLocalOffset.z).Within(1e-5f));
+        }
+
+        [Test]
         public void StreamRefresh_DoesNotCancelAnActiveArdyGenerate()
         {
             Assert.That(KimodoRuntimeMotionDriver.ShouldCancelActiveGenerationForRefresh(isArdy: true), Is.False);

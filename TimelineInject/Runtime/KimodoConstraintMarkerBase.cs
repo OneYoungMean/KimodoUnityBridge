@@ -8,6 +8,8 @@ using UnityEngine.Timeline;
 [Serializable]
 public abstract class KimodoConstraintMarkerBase : Marker
 {
+    [Tooltip("If disabled, this marker is ignored by preview, sampling, and generation.")]
+    public bool constraintEnabled = true;
     [Tooltip("If enabled, use manually edited marker values. If disabled, values are sampled from timeline pose at this marker time.")]
     public bool useOverride;
     [SerializeField]

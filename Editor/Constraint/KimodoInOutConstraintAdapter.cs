@@ -211,7 +211,8 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult = KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(animator.gameObject);
+            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(sourceClip, animator);
             Avatar sourceAvatar = avatarResult.Avatar;
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
             {
@@ -468,7 +469,7 @@ namespace KimodoBridge.Editor
                 SourceAvatar = context.SourceAvatar,
                 ModelName = context.ModelName,
                 GenerationFrames = ClampFrameCount(generationFrames),
-                // Normalize against the first available first-frame constraint anchor.
+                // Normalize against the earliest effective constraint at or after the Timeline clip starts.
                 NormalizeConstraintOrigin = normalizeConstraintOrigin,
                 AllowNormalizeConstraintOrigin = enableIn,
                 IsLoop = false,

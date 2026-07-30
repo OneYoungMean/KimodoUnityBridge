@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
@@ -31,6 +32,28 @@ namespace KimodoBridge.Editor
             }
 
             return new AvatarResolveResult(null, false, string.Empty, error);
+        }
+
+        public static AvatarResolveResult ResolveTimelineSourceAvatar(TimelineClip timelineClip, Animator animator)
+        {
+            if (animator == null || animator.gameObject == null)
+            {
+                return new AvatarResolveResult(null, false, string.Empty, "Timeline binding Animator is missing.");
+            }
+
+            Avatar customAvatar = (timelineClip?.asset as KimodoPlayableClip)?.CustomRetargetAvatar;
+            if (customAvatar != null)
+            {
+                bool valid = KimodoRetargetCoreUtility.IsValidHumanoid(customAvatar) &&
+                    CheckAvatarValid(customAvatar, animator.gameObject);
+                return new AvatarResolveResult(
+                    valid ? customAvatar : null,
+                    valid,
+                    "Clip",
+                    valid ? string.Empty : "Clip Custom Avatar is invalid or does not match the Timeline binding skeleton.");
+            }
+
+            return ResolveAvatarFromGameObject(animator.gameObject);
         }
 
         public static bool TryEnsureHumanoidAvatar(

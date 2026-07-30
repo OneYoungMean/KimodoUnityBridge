@@ -7,8 +7,6 @@ namespace KimodoBridge.Editor
 {
     internal static class ArdyEditorHistoryEncoder
     {
-        private const double TimelineBoundaryEpsilonSeconds = 1e-6;
-
         internal static bool TryEncode(
             ArdyEditorHistorySource source,
             KimodoMotionModelProfile profile,
@@ -66,9 +64,10 @@ namespace KimodoBridge.Editor
                     Math.Max(
                         1,
                         KimodoFrameTimeUtility.SecondsToFrameCount(timelineDuration, profile.SourceFps)));
-                double latestSampleTime = Math.Max(
+                double latestSampleTime = ResolveLatestHistorySampleTime(
                     source.RangeStartSeconds,
-                    source.RangeEndSeconds - TimelineBoundaryEpsilonSeconds);
+                    source.RangeEndSeconds,
+                    profile.SourceFps);
                 double timelineStart = Math.Max(
                     source.RangeStartSeconds,
                     latestSampleTime - (availableFrames - 1) / profile.SourceFps);
@@ -152,16 +151,7 @@ namespace KimodoBridge.Editor
 
                     // The Humanoid graph applies the baked Foot IK goals before KMB samples local rotations.
                     Quaternion rootRotation = rootJoint.rotation.normalized;
-                    Vector3 rootPosition = rootJoint.position;
-                    if (source.NormalizeRootToAnchor)
-                    {
-                        KimodoConstraintNormalizationUtility.NormalizeRootPose(
-                            source.AnchorRootPosition,
-                            source.AnchorRootRotation,
-                            ref rootPosition,
-                            ref rootRotation);
-                    }
-                    rootPositions[frame] = rootPosition;
+                    rootPositions[frame] = rootJoint.position;
                     for (int joint = 0; joint < joints.Length; joint++)
                     {
                         Quaternion unity = joint == 0
@@ -203,6 +193,14 @@ namespace KimodoBridge.Editor
                 }
                 sampler.Dispose();
             }
+        }
+
+        internal static double ResolveLatestHistorySampleTime(
+            double rangeStartSeconds,
+            double rangeEndSeconds,
+            double frameRate)
+        {
+            return Math.Max(rangeStartSeconds, rangeEndSeconds - 1.0 / frameRate);
         }
 
     }

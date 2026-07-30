@@ -20,6 +20,7 @@ namespace KimodoBridge.Editor
             string modelName,
             int clipId,
             int animatorId,
+            Avatar sourceAvatar,
             out PoseRigInstance instance,
             out string error)
         {
@@ -31,7 +32,10 @@ namespace KimodoBridge.Editor
                 error = "Timeline binding Animator is missing.";
                 return false;
             }
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAnimator.avatar))
+            Avatar resolvedSourceAvatar = KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar)
+                ? sourceAvatar
+                : sourceAnimator.avatar;
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(resolvedSourceAvatar))
             {
                 error = "Timeline binding Avatar is null/invalid/non-humanoid.";
                 return false;
@@ -44,6 +48,7 @@ namespace KimodoBridge.Editor
             {
                 if (!TryCreateVisualClone(
                         sourceAnimator,
+                        resolvedSourceAvatar,
                         clipId,
                         animatorId,
                         out GameObject targetRoot,
@@ -62,6 +67,7 @@ namespace KimodoBridge.Editor
                 {
                     return false;
                 }
+                targetAnimator.enabled = false;
 
                 if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
                         modelName,
@@ -114,6 +120,7 @@ namespace KimodoBridge.Editor
 
         private static bool TryCreateVisualClone(
             Animator sourceAnimator,
+            Avatar sourceAvatar,
             int clipId,
             int animatorId,
             out GameObject root,
@@ -147,7 +154,7 @@ namespace KimodoBridge.Editor
                 }
 
                 animator = root.AddComponent<Animator>();
-                animator.avatar = sourceAnimator.avatar;
+                animator.avatar = sourceAvatar;
                 animator.runtimeAnimatorController = null;
                 animator.applyRootMotion = true;
                 animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;

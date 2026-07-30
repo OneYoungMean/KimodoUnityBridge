@@ -495,7 +495,7 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.PropertyField(
                     normalizeConstraintOrigin,
-                    new GUIContent("Normalize Constraint Origin", "Use the first available first-frame constraint anchor as the local origin before export."));
+                    new GUIContent("Normalize Constraint Origin", "Use the earliest effective constraint at or after this Timeline clip starts. Track/Scene Offset is not an anchor."));
             }
 
             EditorGUILayout.Space(4f);
@@ -627,6 +627,11 @@ namespace KimodoBridge.Editor
             foreach (IMarker m in track.GetMarkers())
             {
                 if (m is not KimodoConstraintMarkerBase marker)
+                {
+                    continue;
+                }
+
+                if (!marker.constraintEnabled)
                 {
                     continue;
                 }

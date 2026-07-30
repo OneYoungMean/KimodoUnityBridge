@@ -69,5 +69,6 @@ namespace KimodoBridge.Editor.Tests
                 Object.DestroyImmediate(clip);
             }
         }
+
     }
 }

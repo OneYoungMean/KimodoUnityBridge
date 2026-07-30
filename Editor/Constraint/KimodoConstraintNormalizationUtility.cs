@@ -73,7 +73,9 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < samples.Count; i++)
             {
                 KimodoMarkerSampleResult sample = samples[i];
-                if (sample != null && sample.sampleTime < earliestTime)
+                if (sample != null &&
+                    ResolveAnchorPriority(sample) != KimodoConstraintNormalizationAnchorKind.None &&
+                    sample.sampleTime < earliestTime)
                 {
                     earliestTime = sample.sampleTime;
                 }

@@ -52,5 +52,34 @@ namespace KimodoBridge.Editor.Tests
                 Object.DestroyImmediate(second);
             }
         }
+
+        [TestCase(KimodoPlayableClip.DefaultBridgeModelName, "Kimodo_Playable_20260730_120000_123")]
+        [TestCase(KimodoMotionModelProfiles.ArdyCoreModelName, "ARDY_Playable_20260730_120000_123")]
+        public void TimelineGeneratedClipName_IdentifiesModelFamily(string modelName, string expected)
+        {
+            Assert.That(
+                KimodoPlayableClipGenerationHostService.BuildTimelineTargetClipName(
+                    modelName,
+                    new System.DateTime(2026, 7, 30, 12, 0, 0, 123)),
+                Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void DisabledConstraint_IsIgnoredByNormalization()
+        {
+            KimodoFullBodyConstraintMarker marker = ScriptableObject.CreateInstance<KimodoFullBodyConstraintMarker>();
+            try
+            {
+                Assert.That(marker.constraintEnabled, Is.True);
+                marker.constraintEnabled = false;
+                Assert.That(
+                    KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, marker.SampleData),
+                    Is.Null);
+            }
+            finally
+            {
+                Object.DestroyImmediate(marker);
+            }
+        }
     }
 }

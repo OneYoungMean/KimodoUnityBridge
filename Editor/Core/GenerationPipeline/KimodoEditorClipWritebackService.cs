@@ -16,6 +16,7 @@ namespace KimodoBridge.Editor
         internal const string GeneratedClipFolder = "Assets/KimodoGeneratedClips";
         internal const string CacheClipFolder = GeneratedClipFolder + "/Cache";
         internal const string GeneratedClipNamePrefix = "Kimodo_";
+        internal const string GeneratedArdyClipNamePrefix = "ARDY_";
         internal const string InvalidCachePrefix = "invalid_";
         private const string MuscleCacheNameSuffix = "-muscle-cache";
         private const string BoneCacheNameMarker = "-bone-";
@@ -500,7 +501,7 @@ namespace KimodoBridge.Editor
         private static string BuildGeneratedAnimationAssetName(string assetName)
         {
             string safeName = KimodoRuntimeUtility.SanitizeName(assetName, "KimodoClip");
-            if (safeName.StartsWith(GeneratedClipNamePrefix, StringComparison.Ordinal))
+            if (HasGeneratedClipNamePrefix(safeName))
             {
                 return safeName;
             }
@@ -621,7 +622,14 @@ namespace KimodoBridge.Editor
             }
 
             string clipName = Path.GetFileNameWithoutExtension(assetPath) ?? string.Empty;
-            return clipName.StartsWith(GeneratedClipNamePrefix, StringComparison.OrdinalIgnoreCase);
+            return HasGeneratedClipNamePrefix(clipName);
+        }
+
+        private static bool HasGeneratedClipNamePrefix(string clipName)
+        {
+            return !string.IsNullOrEmpty(clipName) &&
+                (clipName.StartsWith(GeneratedClipNamePrefix, StringComparison.OrdinalIgnoreCase) ||
+                 clipName.StartsWith(GeneratedArdyClipNamePrefix, StringComparison.OrdinalIgnoreCase));
         }
 
         private static bool IsCacheClipAssetPath(string assetPath)
@@ -713,13 +721,22 @@ namespace KimodoBridge.Editor
         {
             string leftName = Path.GetFileNameWithoutExtension(leftPath) ?? string.Empty;
             string rightName = Path.GetFileNameWithoutExtension(rightPath) ?? string.Empty;
-            string leftStamp = leftName.StartsWith(GeneratedClipNamePrefix, StringComparison.Ordinal)
-                ? leftName.Substring(GeneratedClipNamePrefix.Length)
-                : leftName;
-            string rightStamp = rightName.StartsWith(GeneratedClipNamePrefix, StringComparison.Ordinal)
-                ? rightName.Substring(GeneratedClipNamePrefix.Length)
-                : rightName;
+            string leftStamp = StripGeneratedClipNamePrefix(leftName);
+            string rightStamp = StripGeneratedClipNamePrefix(rightName);
             return string.Compare(leftStamp, rightStamp, StringComparison.Ordinal);
+        }
+
+        private static string StripGeneratedClipNamePrefix(string clipName)
+        {
+            if (clipName.StartsWith(GeneratedClipNamePrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return clipName.Substring(GeneratedClipNamePrefix.Length);
+            }
+            if (clipName.StartsWith(GeneratedArdyClipNamePrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return clipName.Substring(GeneratedArdyClipNamePrefix.Length);
+            }
+            return clipName;
         }
 
         private static void ScheduleGeneratedClipTrim(AnimationClip protectedClip)

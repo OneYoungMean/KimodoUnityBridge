@@ -71,7 +71,7 @@ namespace KimodoBridge
         public bool enableOutConstraint = true;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
-        [Tooltip("Normalize constraint root positions around the first available first-frame constraint anchor before export.")]
+        [Tooltip("Normalize around the earliest effective constraint at or after this Timeline clip starts. Track/Scene Offset is never used as the anchor.")]
         public bool normalizeConstraintOrigin = true;
         public bool isGenerated;
         public string lastGeneratedPrompt;

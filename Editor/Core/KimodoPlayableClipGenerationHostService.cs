@@ -108,8 +108,6 @@ namespace KimodoBridge.Editor
                     ResolveArdyInitialHistory(
                         clip,
                         ardyProfile,
-                        normalizeConstraintOriginApplied,
-                        normalizationAnchorSample,
                         out initialHistorySource);
                 }
             }
@@ -269,10 +267,11 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (request != null && (request.ConstraintSamples == null || request.ConstraintSamples.Count == 0))
+            if (request != null &&
+                (request.ConstraintSamples == null || request.ConstraintSamples.Count == 0))
             {
-                ResetClipOffset(playableClip, removeStartOffset: true);
-                Debug.Log($"[Kimodo][TimelineOffset] no constraints; using Timeline track/scene offset as the anchor for '{playableClip.name}'.");
+                ResetClipOffset(playableClip, removeStartOffset: false);
+                Debug.Log($"[Kimodo][TimelineOffset] no effective constraint anchor; using identity normalization for '{playableClip.name}'.");
                 return;
             }
 
@@ -555,7 +554,13 @@ namespace KimodoBridge.Editor
             }
 
             return KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
-                $"Kimodo_Playable_{DateTime.Now:yyyyMMdd_HHmmss_fff}");
+                BuildTimelineTargetClipName(clip.bridgeModelName, DateTime.Now));
+        }
+
+        internal static string BuildTimelineTargetClipName(string modelName, DateTime timestamp)
+        {
+            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
+            return $"{(isArdy ? "ARDY" : "Kimodo")}_Playable_{timestamp:yyyyMMdd_HHmmss_fff}";
         }
 
         private static KimodoEditorGenerateOutputPlan ResolveTimelineOutputPlan(
@@ -679,8 +684,6 @@ namespace KimodoBridge.Editor
         private static void ResolveArdyInitialHistory(
             KimodoPlayableClip clip,
             KimodoMotionModelProfile profile,
-            bool normalizeRootToAnchor,
-            KimodoMarkerSampleResult normalizationAnchorSample,
             out ArdyEditorHistorySource source)
         {
             source = null;
@@ -710,13 +713,7 @@ namespace KimodoBridge.Editor
                 RangeStartSeconds = Math.Max(
                     0.0,
                     timelineClip.start - (profile.MaxContextFrames - profile.HorizonFrames) / profile.SourceFps),
-                RangeEndSeconds = Math.Max(0.0, timelineClip.start),
-                NormalizeRootToAnchor = normalizeRootToAnchor && normalizationAnchorSample != null,
-                AnchorRootPosition = normalizationAnchorSample != null
-                    ? new Vector3(normalizationAnchorSample.unityRootPos.x, 0f, normalizationAnchorSample.unityRootPos.z)
-                    : Vector3.zero,
-                AnchorRootRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRootRotation(
-                    normalizationAnchorSample)
+                RangeEndSeconds = Math.Max(0.0, timelineClip.start)
             };
         }
 

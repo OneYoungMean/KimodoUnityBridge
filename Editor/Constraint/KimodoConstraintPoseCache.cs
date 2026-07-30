@@ -15,16 +15,26 @@ namespace KimodoBridge.Editor
         public readonly int TrackId;
         public readonly string ModelName;
         public readonly KimodoConstraintRigType RigType;
+        public readonly Avatar SourceAvatar;
         public readonly string ContextKey;
 
-        public PoseCacheRenderContext(int clipId, int animatorId, int trackId, string modelName, KimodoConstraintRigType rigType)
+        public PoseCacheRenderContext(
+            int clipId,
+            int animatorId,
+            int trackId,
+            string modelName,
+            KimodoConstraintRigType rigType,
+            Avatar sourceAvatar = null)
         {
             ClipId = clipId;
             AnimatorId = animatorId;
             TrackId = trackId;
             ModelName = string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim();
             RigType = rigType;
-            ContextKey = KimodoConstraintMarkerEditorUtility.GetCachedIntString(clipId) + ":" + KimodoConstraintMarkerEditorUtility.GetCachedIntString(animatorId);
+            SourceAvatar = sourceAvatar;
+            ContextKey = KimodoConstraintMarkerEditorUtility.GetCachedIntString(clipId) + ":" +
+                KimodoConstraintMarkerEditorUtility.GetCachedIntString(animatorId) + ":" +
+                KimodoConstraintMarkerEditorUtility.GetCachedIntString(sourceAvatar != null ? sourceAvatar.GetInstanceID() : 0);
         }
     }
 
@@ -209,7 +219,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < transforms.Length; i++)
             {
                 Transform t = transforms[i];
-                if (t != null && !IsAuxiliaryTransform(entry, t) && t.hasChanged)
+                if (t != null && t.hasChanged)
                 {
                     return true;
                 }
@@ -255,6 +265,73 @@ namespace KimodoBridge.Editor
 
             rootBone = entry.Root;
             return rootBone != null;
+        }
+
+        internal static bool TryGetEndEffectorTarget(
+            PoseCacheRenderContext context,
+            string entryId,
+            out GameObject target)
+        {
+            target = null;
+            if (!TryGetEntryForContext(context, entryId, out PoseCacheEntry entry) ||
+                entry?.EndEffectorMarker == null)
+            {
+                return false;
+            }
+
+            target = entry.EndEffectorMarker;
+            return true;
+        }
+
+        internal static bool TryCaptureDragMuscleSamples(
+            PoseCacheRenderContext context,
+            string entryId,
+            out MuscleSample virtualSkeleton,
+            out float virtualSkeletonScale,
+            out MuscleSample targetCharacter,
+            out float targetCharacterScale,
+            out string error)
+        {
+            virtualSkeleton = null;
+            virtualSkeletonScale = 0f;
+            targetCharacter = null;
+            targetCharacterScale = 0f;
+            error = string.Empty;
+            if (!TryGetEntryForContext(context, entryId, out PoseCacheEntry entry) ||
+                entry?.ProfileCache == null ||
+                entry.TargetCache == null)
+            {
+                error = "pose cache context has no active profile/target entry.";
+                return false;
+            }
+
+            bool profileWasActive = entry.ProfileCache.root.activeSelf;
+            bool targetWasActive = entry.TargetCache.root.activeSelf;
+            entry.ProfileCache.root.SetActive(true);
+            entry.TargetCache.root.SetActive(true);
+            try
+            {
+                if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                        entry.ProfileCache,
+                        out virtualSkeleton,
+                        out error) ||
+                    !KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                        entry.TargetCache,
+                        out targetCharacter,
+                        out error))
+                {
+                    return false;
+                }
+
+                virtualSkeletonScale = entry.ProfileCache.humanScale;
+                targetCharacterScale = entry.TargetCache.humanScale;
+                return true;
+            }
+            finally
+            {
+                entry.ProfileCache.root.SetActive(profileWasActive);
+                entry.TargetCache.root.SetActive(targetWasActive);
+            }
         }
 
         internal static bool TryBuildSampleFromContext(
@@ -328,6 +405,7 @@ namespace KimodoBridge.Editor
                         context.ModelName,
                         context.ClipId,
                         context.AnimatorId,
+                        context.SourceAvatar,
                         out KimodoConstraintPoseRigFactory.PoseRigInstance rig,
                         out error))
                 {
@@ -628,7 +706,13 @@ namespace KimodoBridge.Editor
             KimodoConstraintRigType rigType = context.RigType != KimodoConstraintRigType.Unknown
                 ? context.RigType
                 : KimodoRigProfileDatabase.ResolveRigTypeFromModelName(context.ModelName);
-            if (!KimodoConstraintPoseRigFactory.TryCreatePoseRig(context.ModelName, context.ClipId, context.AnimatorId, out KimodoConstraintPoseRigFactory.PoseRigInstance rigInstance, out error))
+            if (!KimodoConstraintPoseRigFactory.TryCreatePoseRig(
+                    context.ModelName,
+                    context.ClipId,
+                    context.AnimatorId,
+                    context.SourceAvatar,
+                    out KimodoConstraintPoseRigFactory.PoseRigInstance rigInstance,
+                    out error))
             {
                 return false;
             }
@@ -751,6 +835,7 @@ namespace KimodoBridge.Editor
 
             if (entry.PickingEnabled == selectable)
             {
+                SetEndEffectorMarkerSelectable(entry, selectable);
                 return;
             }
 
@@ -773,6 +858,19 @@ namespace KimodoBridge.Editor
 
             entry.Root.gameObject.hideFlags = selectable
                 ? HideFlags.NotEditable | HideFlags.DontSave
+                : HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
+            SetEndEffectorMarkerSelectable(entry, selectable);
+        }
+
+        private static void SetEndEffectorMarkerSelectable(PoseCacheEntry entry, bool selectable)
+        {
+            if (entry?.EndEffectorMarker == null)
+            {
+                return;
+            }
+
+            entry.EndEffectorMarker.hideFlags = selectable
+                ? HideFlags.DontSave
                 : HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
         }
 
@@ -974,6 +1072,18 @@ namespace KimodoBridge.Editor
                 {
                     return false;
                 }
+                KimodoConstraintPoseDiagnostics.LogMarkerSample(
+                    "PreviewMarkerInput",
+                    sample,
+                    $"model='{modelName}'");
+                KimodoConstraintPoseDiagnostics.LogMuscleSample(
+                    "PreviewMarkerToProfileMuscle",
+                    sample.sampleTime,
+                    profileSample,
+                    entry.ProfileCache.humanScale,
+                    entry.ProfileCache.animator,
+                    entry.ProfileCache.avatar,
+                    $"model='{modelName}'");
 
                 if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                         profileSample,
@@ -985,14 +1095,44 @@ namespace KimodoBridge.Editor
                 {
                     return false;
                 }
-
-                return KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                KimodoConstraintPoseDiagnostics.LogBoneSample(
+                    "PreviewProfileMuscleToTargetBone",
                     targetSample,
-                    entry.TargetCache,
-                    out error);
+                    $"model='{modelName}' targetAvatar='{entry.TargetCache.avatar?.name ?? string.Empty}'");
+
+                if (!KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                        targetSample,
+                        entry.TargetCache,
+                        out error))
+                {
+                    return false;
+                }
+                if (KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                        entry.TargetCache,
+                        out MuscleSample appliedTargetSample,
+                        out string captureError))
+                {
+                    KimodoConstraintPoseDiagnostics.LogMuscleSample(
+                        "PreviewAppliedTargetHumanPose",
+                        sample.sampleTime,
+                        appliedTargetSample,
+                        entry.TargetCache.humanScale,
+                        entry.TargetCache.animator,
+                        entry.TargetCache.avatar,
+                        $"model='{modelName}' animatorEnabled={entry.TargetCache.animator.enabled}");
+                }
+                else
+                {
+                    Debug.LogWarning($"[Kimodo][ConstraintPoseDiag][PreviewAppliedTargetHumanPose] capture failed: {captureError}");
+                }
+                return true;
             }
             finally
             {
+                if (entry.TargetCache.animator != null)
+                {
+                    entry.TargetCache.animator.enabled = false;
+                }
                 entry.TargetCache.root.SetActive(wasActive);
             }
         }
@@ -1109,9 +1249,10 @@ namespace KimodoBridge.Editor
             marker.localRotation = Quaternion.identity;
             Vector3 scale = target.lossyScale;
             marker.localScale = new Vector3(
-                0.2f / Mathf.Max(1e-6f, Mathf.Abs(scale.x)),
-                0.2f / Mathf.Max(1e-6f, Mathf.Abs(scale.y)),
-                0.2f / Mathf.Max(1e-6f, Mathf.Abs(scale.z)));
+                0.1f / Mathf.Max(1e-6f, Mathf.Abs(scale.x)),
+                0.1f / Mathf.Max(1e-6f, Mathf.Abs(scale.y)),
+                0.1f / Mathf.Max(1e-6f, Mathf.Abs(scale.z)));
+            SetEndEffectorMarkerSelectable(entry, entry.PickingEnabled);
             entry.EndEffectorMarker.SetActive(true);
         }
 

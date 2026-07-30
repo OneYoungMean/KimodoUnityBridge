@@ -120,6 +120,11 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
+                if (!kimodoMarker.constraintEnabled)
+                {
+                    continue;
+                }
+
                 if (kimodoMarker.time < minTime || kimodoMarker.time > maxTime)
                 {
                     continue;

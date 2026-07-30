@@ -22,6 +22,11 @@ namespace KimodoBridge.Editor
 
         internal static void ShowWindow(KimodoConstraintMarkerBase marker)
         {
+            if (marker == null || !marker.constraintEnabled)
+            {
+                return;
+            }
+
             if (selectionBeforeOpen == null)
             {
                 selectionBeforeOpen = Selection.activeObject;
@@ -41,7 +46,7 @@ namespace KimodoBridge.Editor
             if (marker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out _))
             {
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                FocusSelectionOnEditSkeletonRoot(context, window.editEntryId);
+                FocusSelectionOnEditTarget(marker, context, window.editEntryId);
             }
         }
 
@@ -104,7 +109,7 @@ namespace KimodoBridge.Editor
                 {
                     KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
                     KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
-                    FocusSelectionOnEditSkeletonRoot(context, editEntryId);
+                    FocusSelectionOnEditTarget(marker, context, editEntryId);
                 }
             }
             LockTimelineWindow();
@@ -167,20 +172,20 @@ namespace KimodoBridge.Editor
 
         private void OnEditorUpdate()
         {
-            if (marker == null)
+            if (marker == null || !marker.constraintEnabled)
             {
                 Close();
                 return;
             }
 
-            if (!marker.useOverride)
-            {
-                lastError = "override is disabled.";
-            }
-            else if (TryGetEditContext(out PoseCacheRenderContext context, out _))
+            if (TryGetEditContext(out PoseCacheRenderContext context, out _))
             {
                 if (KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
                 {
+                    KimodoConstraintMarkerEditorUtility.LogDragMuscleSnapshot(
+                        marker,
+                        context,
+                        editEntryId);
                     if (!KimodoConstraintPoseCache.TryBuildSampleFromContext(
                             context,
                             editEntryId,
@@ -205,6 +210,7 @@ namespace KimodoBridge.Editor
                     }
                     else
                     {
+                        KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
                         lastError = string.Empty;
                     }
 
@@ -252,7 +258,7 @@ namespace KimodoBridge.Editor
         {
             if (!marker.useOverride)
             {
-                EditorGUILayout.HelpBox("Override is disabled. Enable it to edit cached pose values.", MessageType.Warning);
+                EditorGUILayout.HelpBox("Override is disabled. Move the target or a preview bone to enable it.", MessageType.Info);
             }
 
             var so = new SerializedObject(marker);
@@ -339,7 +345,7 @@ namespace KimodoBridge.Editor
 
             KimodoConstraintPoseCache.SetGroupState(editContext, visible: true, selectable: true);
             KimodoConstraintPoseCache.ClearTransformChanges(editContext, editEntryId);
-            FocusSelectionOnEditSkeletonRoot(editContext, editEntryId);
+            FocusSelectionOnEditTarget(target, editContext, editEntryId);
         }
 
         private bool TryGetEditContext(out PoseCacheRenderContext context, out string error)
@@ -368,14 +374,19 @@ namespace KimodoBridge.Editor
 
         private void CommitPoseChangesFromCache()
         {
-            if (marker == null || !marker.useOverride)
+            if (marker == null ||
+                !TryGetEditContext(out PoseCacheRenderContext context, out _) ||
+                !KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
             {
                 return;
             }
 
+            KimodoConstraintMarkerEditorUtility.LogDragMuscleSnapshot(
+                marker,
+                context,
+                editEntryId);
             string sampleError = string.Empty;
-            if (TryGetEditContext(out PoseCacheRenderContext context, out _) &&
-                KimodoConstraintPoseCache.TryBuildSampleFromContext(
+            if (KimodoConstraintPoseCache.TryBuildSampleFromContext(
                     context,
                     editEntryId,
                     marker.ConstraintType,
@@ -456,8 +467,21 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static void FocusSelectionOnEditSkeletonRoot(PoseCacheRenderContext context, string entryId)
+        private static void FocusSelectionOnEditTarget(
+            KimodoConstraintMarkerBase marker,
+            PoseCacheRenderContext context,
+            string entryId)
         {
+            if (marker is KimodoEndEffectorConstraintMarker &&
+                KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject target) &&
+                target != null)
+            {
+                Selection.activeGameObject = target;
+                EditorGUIUtility.PingObject(target);
+                SceneView.lastActiveSceneView?.FrameSelected();
+                return;
+            }
+
             if (!KimodoConstraintPoseCache.TryGetRootBone(context, entryId, out Transform rootBone) ||
                 rootBone == null ||
                 rootBone.gameObject == null)

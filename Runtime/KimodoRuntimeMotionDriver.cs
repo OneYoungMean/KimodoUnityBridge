@@ -68,6 +68,8 @@ namespace KimodoBridge
         private const string RightFootConstraintType = "right-foot";
         private const string Root2DConstraintType = "root2d";
         private const string Root2DTargetConstraintType = "root2d_target";
+        private const string Root2DTargetArdyOnlyMessage =
+            "Root2D Target is an automatic ARDY-only navigation constraint. Use SetRoot2D for a single endpoint constraint.";
         private const string IdlePrompt = "idle";
         private const string KimodoFolderName = "NvlabKimodoQuickServer~";
         private const float MinGenerationDurationSeconds = 1f;
@@ -314,6 +316,7 @@ namespace KimodoBridge
             StageEndEffectorConstraintInternal("RightFoot constraint", RightFootConstraintType, "RightFoot", x, y, z, duration);
         }
 
+        /// <summary>Stages an absolute Root2D position in generated-motion coordinates.</summary>
         public void SetRoot2D(float x, float z, float duration = 1f)
         {
             StageRoot2DConstraintInternal(x, z, duration, null);
@@ -324,6 +327,17 @@ namespace KimodoBridge
             StageRoot2DConstraintInternal(x, z, duration, NormalizeHeading(new Vector2(headingX, headingZ)));
         }
 
+        /// <summary>Stages a Unity world-space target as a local Root2D displacement.</summary>
+        public void SetRoot2DWorld(float worldX, float worldZ, float duration = 1f)
+        {
+            Vector3 currentWorldPosition = GetCurrentPositionInternal();
+            Vector2 localOffset = ResolveLocalRoot2DOffset(
+                currentWorldPosition,
+                transform.rotation,
+                new Vector3(worldX, currentWorldPosition.y, worldZ));
+            StageRoot2DLocalConstraintInternal(localOffset.x, localOffset.y, duration, null);
+        }
+
         public void SetRoot2DTarget(
             float x,
             float z,
@@ -332,6 +346,12 @@ namespace KimodoBridge
             float arrivalThresholdMeters = 0.1f,
             bool includeHeading = true)
         {
+            if (!KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
+            {
+                UpdateStatus(Root2DTargetArdyOnlyMessage);
+                return;
+            }
+
             StageConstraintSample(new KimodoMarkerSampleResult
             {
                 constraintType = Root2DTargetConstraintType,
@@ -924,6 +944,13 @@ namespace KimodoBridge
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
             double ardyApplyTime = isArdy ? motionPlayer.PlaybackTimeAsDouble : 0.0;
 
+            if (!isArdy)
+            {
+                pendingConstraintSamples.RemoveAll(sample =>
+                    sample != null &&
+                    string.Equals(sample.constraintType, Root2DTargetConstraintType, StringComparison.OrdinalIgnoreCase));
+            }
+
             if (loopHint &&
                 !KimodoMotionModelProfiles.TryGetArdy(modelName, out _) &&
                 nextConstraintPoses.Count > 0)
@@ -1506,6 +1533,17 @@ namespace KimodoBridge
 
             heading.Normalize();
             return heading;
+        }
+
+        internal static Vector2 ResolveLocalRoot2DOffset(
+            Vector3 currentWorldPosition,
+            Quaternion worldRotation,
+            Vector3 targetWorldPosition)
+        {
+            Vector3 worldDelta = targetWorldPosition - currentWorldPosition;
+            worldDelta.y = 0f;
+            Vector3 localDelta = Quaternion.Inverse(worldRotation) * worldDelta;
+            return new Vector2(localDelta.x, localDelta.z);
         }
 
         private void OnProgress(string message)
