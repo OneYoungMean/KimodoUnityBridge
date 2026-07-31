@@ -13,6 +13,7 @@ namespace TimelineInject
         public List<float[]> global_root_heading;
         public List<float[][]> local_joints_rot;
         public List<float[]> root_positions;
+        public List<float[]> target_positions;
         public List<string> joint_names;
         public bool? dense_path;
         public float[] target_root_2d;
@@ -46,6 +47,8 @@ namespace TimelineInject
         public bool rootTargetIncludeHeading = true;
         public Vector3 unityRootPos;
         public Quaternion unityRootRot = Quaternion.identity;
+        public bool hasEndEffectorTargetPosition;
+        public Vector3 endEffectorTargetPositionRootLocal;
         public List<string> jointNames = new List<string>();
         public List<Vector3> localAxisAngles = new List<Vector3>();
         public List<int> sampledJointIndices = new List<int>();
@@ -66,6 +69,8 @@ namespace TimelineInject
                 rootTargetIncludeHeading = rootTargetIncludeHeading,
                 unityRootPos = unityRootPos,
                 unityRootRot = unityRootRot,
+                hasEndEffectorTargetPosition = hasEndEffectorTargetPosition,
+                endEffectorTargetPositionRootLocal = endEffectorTargetPositionRootLocal,
                 jointNames = jointNames != null ? new List<string>(jointNames) : new List<string>(),
                 localAxisAngles = localAxisAngles != null ? new List<Vector3>(localAxisAngles) : new List<Vector3>(),
                 sampledJointIndices = sampledJointIndices != null ? new List<int>(sampledJointIndices) : new List<int>()

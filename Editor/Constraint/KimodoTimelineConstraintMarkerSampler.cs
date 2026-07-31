@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using TimelineInject;
 using UnityEditor;
@@ -120,10 +119,8 @@ namespace KimodoBridge.Editor
             int snapshotId,
             string markerType,
             double timelineTime,
-            MuscleSample currentClip,
-            float currentClipScale,
-            MuscleSample originalCharacter,
-            float originalCharacterScale,
+            MuscleSample timelinePose,
+            float timelinePoseScale,
             MuscleSample virtualSkeleton,
             float virtualSkeletonScale,
             MuscleSample targetCharacter,
@@ -136,94 +133,12 @@ namespace KimodoBridge.Editor
                 .Append("] marker='").Append(markerType ?? string.Empty)
                 .Append("' timelineTime=").Append(timelineTime.ToString("R")).Append('s')
                 .Append(FormatDetails(details)).AppendLine();
-            AppendDragMuscleSample(text, "CurrentClip", currentClip, currentClipScale);
-            AppendDragMuscleSample(text, "OriginalCharacter", originalCharacter, originalCharacterScale);
+            AppendDragMuscleSample(text, "TimelinePoseClip", timelinePose, timelinePoseScale);
             AppendDragMuscleSample(text, "VirtualSkeleton", virtualSkeleton, virtualSkeletonScale);
             AppendDragMuscleSample(text, "TargetCharacter", targetCharacter, targetCharacterScale);
-            AppendDragMuscleDiff(text, "CurrentClip->OriginalCharacter", currentClip, currentClipScale, originalCharacter, originalCharacterScale);
-            AppendDragMuscleDiff(text, "OriginalCharacter->VirtualSkeleton", originalCharacter, originalCharacterScale, virtualSkeleton, virtualSkeletonScale);
+            AppendDragMuscleDiff(text, "TimelinePoseClip->VirtualSkeleton", timelinePose, timelinePoseScale, virtualSkeleton, virtualSkeletonScale);
             AppendDragMuscleDiff(text, "VirtualSkeleton->TargetCharacter", virtualSkeleton, virtualSkeletonScale, targetCharacter, targetCharacterScale);
             Debug.Log(text.ToString().TrimEnd());
-        }
-
-        internal static void LogMuscleSample(
-            string stage,
-            double timelineTime,
-            MuscleSample sample,
-            float humanScale,
-            Animator animator,
-            Avatar sourceAvatar = null,
-            string details = null)
-        {
-            HumanPose pose = sample != null ? sample.pose : default;
-            Transform hips = animator != null ? animator.GetBoneTransform(HumanBodyBones.Hips) : null;
-            Transform hand = animator != null ? animator.GetBoneTransform(HumanBodyBones.LeftHand) : null;
-            Transform foot = animator != null ? animator.GetBoneTransform(HumanBodyBones.LeftFoot) : null;
-            Debug.Log(
-                $"[Kimodo][ConstraintPoseDiag][{stage}] representation=HumanPoseMuscle " +
-                $"timelineTime={timelineTime:R}s humanScale={humanScale:F6} " +
-                $"sourceAvatar={DescribeAvatar(sourceAvatar)} animatorAvatar={DescribeAvatar(animator != null ? animator.avatar : null)} " +
-                $"bodyPositionRaw={FormatVector(pose.bodyPosition)} bodyPositionMeters={FormatVector(pose.bodyPosition * humanScale)} " +
-                $"bodyRotation={FormatQuaternion(pose.bodyRotation)} root={FormatTransform(animator != null ? animator.transform : null)} " +
-                $"hips={FormatTransform(hips)} leftHand={FormatTransform(hand)} leftFoot={FormatTransform(foot)} " +
-                $"muscles=({BuildMuscleStats(pose.muscles)}){FormatDetails(details)}avgmuscle ={pose.muscles.Sum()/ pose.muscles.Length}");
-        }
-
-        internal static void LogMarkerSample(string stage, KimodoMarkerSampleResult sample, string details = null)
-        {
-            int count = sample?.localAxisAngles != null ? sample.localAxisAngles.Count : 0;
-            int nonZero = 0;
-            float max = 0f;
-            for (int i = 0; i < count; i++)
-            {
-                float magnitude = sample.localAxisAngles[i].magnitude;
-                max = Mathf.Max(max, magnitude);
-                if (magnitude > MuscleEpsilon)
-                {
-                    nonZero++;
-                }
-            }
-            Debug.Log(
-                $"[Kimodo][ConstraintPoseDiag][{stage}] representation=KimodoMarkerAxisAngle " +
-                $"constraint='{sample?.constraintType ?? string.Empty}' sampleTime={sample?.sampleTime ?? 0d:R}s " +
-                $"rig={sample?.rigType} root={FormatVector(sample != null ? sample.kimodoRootPosition : Vector3.zero)} " +
-                $"unityRoot={FormatVector(sample != null ? sample.unityRootPos : Vector3.zero)}/{FormatQuaternion(sample != null ? sample.unityRootRot : Quaternion.identity)} " +
-                $"jointNames={sample?.jointNames?.Count ?? 0} sampledIndices={sample?.sampledJointIndices?.Count ?? 0} " +
-                $"axisAngles={count} nonZeroAxisAngles={nonZero} axisMagnitudeMax={max:F6}{FormatDetails(details)}");
-        }
-
-        internal static void LogBoneSample(string stage, BoneSample sample, string details = null)
-        {
-            int count = sample?.localRotations != null ? sample.localRotations.Length : 0;
-            int rotated = 0;
-            float maxAngle = 0f;
-            for (int i = 0; i < count; i++)
-            {
-                float angle = Quaternion.Angle(Quaternion.identity, sample.localRotations[i]);
-                maxAngle = Mathf.Max(maxAngle, angle);
-                if (angle > 0.01f)
-                {
-                    rotated++;
-                }
-            }
-            Debug.Log(
-                $"[Kimodo][ConstraintPoseDiag][{stage}] representation=BoneSample count={count} " +
-                $"rotatedFromIdentity={rotated} maxLocalAngleDeg={maxAngle:F4} " +
-                $"firstBone='{(sample?.boneNames != null && sample.boneNames.Length > 0 ? sample.boneNames[0] : string.Empty)}' " +
-                $"firstPosition={FormatVector(sample?.localPositions != null && sample.localPositions.Length > 0 ? sample.localPositions[0] : Vector3.zero)} " +
-                $"firstRotation={FormatQuaternion(sample?.localRotations != null && sample.localRotations.Length > 0 ? sample.localRotations[0] : Quaternion.identity)}{FormatDetails(details)}");
-        }
-
-        private static string DescribeAvatar(Avatar avatar)
-        {
-            return avatar != null ? $"'{avatar.name}'#{avatar.GetInstanceID()} valid={avatar.isValid} human={avatar.isHuman}" : "null";
-        }
-
-        private static string FormatTransform(Transform transform)
-        {
-            return transform != null
-                ? $"'{transform.name}' p={FormatVector(transform.position)} r={FormatQuaternion(transform.rotation)}"
-                : "null";
         }
 
         private static void AppendDragMuscleSample(
@@ -440,10 +355,6 @@ namespace KimodoBridge.Editor
     internal sealed class KimodoTimelineConstraintCacheEntry
     {
         internal AnimationClip Clip;
-        internal Vector3 RootOffsetPosition;
-        internal Quaternion RootOffsetRotation = Quaternion.identity;
-        internal Vector3[] TargetRootPositions;
-        internal Quaternion[] TargetRootRotations;
         internal readonly Dictionary<KimodoTimelineConstraintSampleKey, KimodoMarkerSampleResult> MarkerSamples =
             new Dictionary<KimodoTimelineConstraintSampleKey, KimodoMarkerSampleResult>();
     }
@@ -546,7 +457,7 @@ namespace KimodoBridge.Editor
             sample = null;
             float timelineFrameRate = ResolveTimelineFrameRate(context);
             double timelineSampleTime = ResolveTimelineSampleTime(timelineTime, timelineFrameRate);
-            if (!TryGetOrCreateMuscleClip(
+            if (!TryGetOrCreatePoseClip(
                     context,
                     timelineSampleTime,
                     timelineFrameRate,
@@ -564,10 +475,6 @@ namespace KimodoBridge.Editor
             {
                 sample = cachedSample.Clone();
                 sample.sampleTime = exportedSampleTime;
-                KimodoConstraintPoseDiagnostics.LogMarkerSample(
-                    "MarkerCacheHit",
-                    sample,
-                    $"timelineSampleTime={timelineSampleTime:R}s exportedSampleTime={exportedSampleTime:R}s");
                 return true;
             }
 
@@ -593,15 +500,12 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromHumanoidClip(
+                if (!KimodoRetargetSamplingUtility.SampleBoneClipToBoneSample(
                         entry.Clip,
                         targetCache,
                         range.ResolveLocalSampleTime(timelineSampleTime),
-                        applyRootOffset: true,
-                        entry.RootOffsetPosition,
-                        entry.RootOffsetRotation,
+                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.RawTransform,
                         out BoneSample targetSample,
-                        out _,
                         out error))
                 {
                     return false;
@@ -619,31 +523,6 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (!TryResolveCachedTargetRootPose(
-                        entry,
-                        range,
-                        timelineSampleTime,
-                        out Vector3 targetRootPosition,
-                        out Quaternion targetRootRotation))
-                {
-                    sample = null;
-                    error = "Timeline target root pose cache is missing or invalid.";
-                    return false;
-                }
-
-                ApplyTargetRootPose(
-                    sample,
-                    targetRootPosition,
-                    targetRootRotation,
-                    exportedSampleTime);
-                KimodoConstraintPoseDiagnostics.LogBoneSample(
-                    "TimelineClipToTargetBone",
-                    targetSample,
-                    $"timelineSampleTime={timelineSampleTime:R}s localClipTime={range.ResolveLocalSampleTime(timelineSampleTime):R}s marker='{markerType}'");
-                KimodoConstraintPoseDiagnostics.LogMarkerSample(
-                    "TargetBoneToMarker",
-                    sample,
-                    $"timelineSampleTime={timelineSampleTime:R}s marker='{markerType}'");
                 KimodoMarkerSampleResult cached = sample.Clone();
                 cached.sampleTime = timelineSampleTime;
                 entry.MarkerSamples[sampleKey] = cached;
@@ -667,7 +546,7 @@ namespace KimodoBridge.Editor
             Entries.Clear();
         }
 
-        private static bool TryGetOrCreateMuscleClip(
+        private static bool TryGetOrCreatePoseClip(
             KimodoTimelineInOutConstraintContext context,
             double timelineTime,
             float frameRate,
@@ -721,93 +600,55 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            var samples = new List<MuscleSample>(range.BakedFrameCount);
-            if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                    modelName,
-                    sampler.TargetCache,
-                    out _,
-                    out _,
-                    out Transform[] targetJoints,
-                    out error) ||
-                targetJoints == null ||
-                targetJoints.Length == 0 ||
-                targetJoints[0] == null)
-            {
-                sampler.Dispose();
-                error = string.IsNullOrWhiteSpace(error)
-                    ? "Timeline target profile root joint is missing."
-                    : error;
-                return false;
-            }
-
-            Transform targetRootJoint = targetJoints[0];
-            var targetRootPositions = new Vector3[range.BakedFrameCount];
-            var targetRootRotations = new Quaternion[range.BakedFrameCount];
+            var samples = new MuscleSample[range.BakedFrameCount];
             AnimationClip clip = null;
-            KimodoRetargetClipSamplingUtility.ClipSamplingContext targetSamplingContext = null;
             try
             {
+                var timelineTimes = new double[range.BakedFrameCount];
                 for (int i = 0; i < range.BakedFrameCount; i++)
                 {
                     int sampleFrame = Mathf.Min(range.BakedStartFrame + i, range.BakedEndFrame);
-                    if (!sampler.TryCaptureMuscleSample(
-                            sampleFrame / range.FrameRate,
-                            normalizeRootToAnchor: false,
-                            Vector3.zero,
-                            Quaternion.identity,
-                            out MuscleSample muscleSample,
-                            out error,
-                            logDiagnostics: sampleFrame == ResolveTimelineSampleFrame(timelineTime, range.FrameRate)))
-                    {
-                        return false;
-                    }
-
-                    samples.Add(muscleSample);
+                    timelineTimes[i] = sampleFrame / range.FrameRate;
+                }
+                Func<AnimationClip, string, string> debugWriteback =
+                    KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips
+                        ? (clipToWrite, label) => WriteDebugResampledClip(clipToWrite, key, label)
+                        : null;
+                if (!sampler.TryCaptureMuscleSamples(timelineTimes, out samples, out error, debugWriteback))
+                {
+                    return false;
                 }
 
-                if (!KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
+                if (!KimodoRetargetSamplingUtility.TryRetargetMuscleSamplesToBoneSamples(
                         samples,
+                        range.FrameRate,
+                        sampler.TargetCache,
+                        out BoneSample[] targetSamples,
+                        out error,
+                        debugWriteback) ||
+                    !KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
+                        targetSamples,
                         range.FrameRate,
                         out clip,
                         out error))
                 {
                     return false;
                 }
-                if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
-                        clip,
-                        sampler.TargetCache,
-                        "KimodoTimelineConstraintCache_TargetHumanoid",
-                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
-                        applyRootOffset: true,
-                        trackOffsetPosition,
-                        trackOffsetRotation,
-                        out targetSamplingContext,
-                        out error))
-                {
-                    return false;
-                }
 
-                for (int i = 0; i < range.BakedFrameCount; i++)
+                if (debugWriteback != null)
                 {
-                    if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
-                            targetSamplingContext,
-                            i / range.FrameRate,
-                            out error))
+                    string writebackError = debugWriteback(clip, "TargetBoneClip");
+                    if (!string.IsNullOrWhiteSpace(writebackError))
                     {
+                        error = writebackError;
                         return false;
                     }
-                    targetRootPositions[i] = targetRootJoint.position;
-                    targetRootRotations[i] = targetRootJoint.rotation.normalized;
                 }
 
                 clip.name = "KimodoTimelineConstraintCache";
                 entry = new KimodoTimelineConstraintCacheEntry
                 {
-                    Clip = clip,
-                    RootOffsetPosition = trackOffsetPosition,
-                    RootOffsetRotation = trackOffsetRotation,
-                    TargetRootPositions = targetRootPositions,
-                    TargetRootRotations = targetRootRotations
+                    Clip = clip
                 };
                 Entries[key] = entry;
                 clip = null;
@@ -815,13 +656,36 @@ namespace KimodoBridge.Editor
             }
             finally
             {
-                KimodoRetargetClipSamplingUtility.DestroyClipSamplingContext(targetSamplingContext);
                 sampler.Dispose();
                 if (clip != null)
                 {
                     UnityEngine.Object.DestroyImmediate(clip);
                 }
             }
+        }
+
+        private static string WriteDebugResampledClip(
+            AnimationClip sourceClip,
+            KimodoTimelineConstraintCacheKey key,
+            string label)
+        {
+            if (sourceClip == null)
+            {
+                return "Cannot write a null resampled clip.";
+            }
+
+            string assetName = $"TimelineConstraint_{key.TrackId}_{key.AnimatorId}_{key.StartFrame}_{key.EndFrame}_{label}";
+            if (!KimodoEditorClipWritebackService.TryWriteGeneratedCacheAnimationClipAsset(
+                    sourceClip,
+                    assetName,
+                    out AnimationClip savedClip,
+                    out string error))
+            {
+                return $"Write resampled {label} clip failed: {error}";
+            }
+
+            Debug.Log($"[Kimodo][TimelineSample] Wrote resampled {label}: '{AssetDatabase.GetAssetPath(savedClip)}'.");
+            return string.Empty;
         }
 
         internal static bool Invalidate(KimodoTimelineConstraintCacheKey key)
@@ -875,34 +739,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static bool TryResolveCachedTargetRootPose(
-            KimodoTimelineConstraintCacheEntry entry,
-            KimodoTimelineConstraintCacheRange range,
-            double timelineTime,
-            out Vector3 position,
-            out Quaternion rotation)
-        {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            IReadOnlyList<Vector3> positions = entry?.TargetRootPositions;
-            IReadOnlyList<Quaternion> rotations = entry?.TargetRootRotations;
-            if (positions == null || rotations == null || positions.Count == 0 || positions.Count != rotations.Count)
-            {
-                return false;
-            }
-
-            float frame = Mathf.Clamp(
-                range.ResolveLocalSampleTime(timelineTime) * range.FrameRate,
-                0f,
-                positions.Count - 1);
-            int first = Mathf.FloorToInt(frame);
-            int second = Mathf.Min(first + 1, positions.Count - 1);
-            float blend = frame - first;
-            position = Vector3.Lerp(positions[first], positions[second], blend);
-            rotation = Quaternion.Slerp(rotations[first], rotations[second], blend).normalized;
-            return true;
-        }
-
         internal static void ApplyTargetRootPose(
             KimodoMarkerSampleResult sample,
             Vector3 targetRootPosition,
@@ -922,10 +758,7 @@ namespace KimodoBridge.Editor
             }
             forward.Normalize();
 
-            sample.kimodoRootPosition = new Vector3(
-                targetRootPosition.x,
-                sample.kimodoRootPosition.y,
-                targetRootPosition.z);
+            sample.kimodoRootPosition = targetRootPosition;
             sample.unityRootPos = targetRootPosition;
             sample.unityRootRot = Quaternion.LookRotation(forward, Vector3.up);
             sample.rootHeading = new Vector2(forward.x, forward.z);
@@ -973,45 +806,34 @@ namespace KimodoBridge.Editor
     internal sealed class KimodoTimelinePoseSampler : IDisposable
     {
         private readonly KimodoTimelineInOutConstraintContext context;
-        private readonly HumanPoseHandler sourcePoseHandler;
+        private readonly SkeletonCache sourceSamplingCache;
+        private readonly Transform[] sourceBoneTransforms;
         private readonly float sourceHumanScale;
-        private readonly Avatar originalAnimatorAvatar;
-        private readonly bool restoreAnimatorAvatar;
         private readonly double originalTime;
         private readonly DirectorWrapMode originalWrapMode;
+        private readonly Dictionary<int, MuscleSample> sampledMusclePoses = new Dictionary<int, MuscleSample>();
         private bool disposed;
 
         private KimodoTimelinePoseSampler(
             KimodoTimelineInOutConstraintContext context,
-            HumanPoseHandler sourcePoseHandler,
+            SkeletonCache sourceSamplingCache,
+            Transform[] sourceBoneTransforms,
             float sourceHumanScale,
             SkeletonCache targetCache,
-            Vector3 rootOffsetPosition,
-            Quaternion rootOffsetRotation,
-            bool rootPoseIncludesOffset,
-            Avatar originalAnimatorAvatar,
-            bool restoreAnimatorAvatar,
             double originalTime,
             DirectorWrapMode originalWrapMode)
         {
             this.context = context;
-            this.sourcePoseHandler = sourcePoseHandler;
+            this.sourceSamplingCache = sourceSamplingCache;
+            this.sourceBoneTransforms = sourceBoneTransforms;
             this.sourceHumanScale = sourceHumanScale;
-            this.originalAnimatorAvatar = originalAnimatorAvatar;
-            this.restoreAnimatorAvatar = restoreAnimatorAvatar;
             TargetCache = targetCache;
-            RootOffsetPosition = rootOffsetPosition;
-            RootOffsetRotation = rootOffsetRotation;
-            RootPoseIncludesOffset = rootPoseIncludesOffset;
             this.originalTime = originalTime;
             this.originalWrapMode = originalWrapMode;
         }
 
         internal SkeletonCache TargetCache { get; }
         internal float SourceHumanScale => sourceHumanScale;
-        internal Vector3 RootOffsetPosition { get; }
-        internal Quaternion RootOffsetRotation { get; }
-        internal bool RootPoseIncludesOffset { get; }
 
         internal static bool TryCreate(
             KimodoTimelineInOutConstraintContext context,
@@ -1049,113 +871,52 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            HumanPoseHandler sourceHandler = null;
-            SkeletonCache sourceScaleCache = null;
-            Avatar originalAnimatorAvatar = context.Animator.avatar;
-            bool restoreAnimatorAvatar = !ReferenceEquals(originalAnimatorAvatar, context.SourceAvatar);
+            SkeletonCache sourceSamplingCache = null;
+            Transform[] sourceBoneTransforms = null;
             double originalTime = context.Director.time;
             DirectorWrapMode originalWrapMode = context.Director.extrapolationMode;
-            bool sourceStateTouched = false;
             try
             {
                 if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
                         context.SourceAvatar,
-                        "KimodoTimelinePoseSampler_SourceScale",
-                        out sourceScaleCache,
+                        "KimodoTimelinePoseSampler_SourcePose",
+                        out sourceSamplingCache,
                         out error))
                 {
                     targetCache.Dispose();
                     return false;
                 }
-                float sourceHumanScale = sourceScaleCache.humanScale;
-                sourceScaleCache.Dispose();
-                sourceScaleCache = null;
-
-                sourceStateTouched = true;
-                context.Director.extrapolationMode = DirectorWrapMode.Hold;
-                if (restoreAnimatorAvatar)
+                float sourceHumanScale = sourceSamplingCache.humanScale;
+                if (!TryBuildSourceBoneTransforms(
+                        context.Animator.transform,
+                        sourceSamplingCache,
+                        out sourceBoneTransforms,
+                        out error))
                 {
-                    context.Animator.avatar = context.SourceAvatar;
-                    context.Animator.Rebind();
-                    context.Animator.Update(0f);
-                    context.Director.RebuildGraph();
+                    sourceSamplingCache.Dispose();
+                    targetCache.Dispose();
+                    return false;
                 }
-                context.Director.time = originalTime;
-                context.Director.Evaluate();
-                sourceHandler = new HumanPoseHandler(context.SourceAvatar, context.Animator.transform);
-                KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
-                    context.Track,
-                    context.Animator,
-                    out Vector3 rootOffsetPosition,
-                    out Quaternion rootOffsetRotation,
-                    out bool rootPoseIncludesOffset);
+
+                context.Director.extrapolationMode = DirectorWrapMode.Hold;
                 sampler = new KimodoTimelinePoseSampler(
                     context,
-                    sourceHandler,
+                    sourceSamplingCache,
+                    sourceBoneTransforms,
                     sourceHumanScale,
                     targetCache,
-                    rootOffsetPosition,
-                    rootOffsetRotation,
-                    rootPoseIncludesOffset,
-                    originalAnimatorAvatar,
-                    restoreAnimatorAvatar,
                     originalTime,
                     originalWrapMode);
                 return true;
             }
             catch (Exception ex)
             {
-                sourceHandler?.Dispose();
-                if (sourceStateTouched ||
-                    !ReferenceEquals(context.Animator != null ? context.Animator.avatar : null, originalAnimatorAvatar) ||
-                    context.Director.extrapolationMode != originalWrapMode)
-                {
-                    RestoreSourceState(
-                        context,
-                        originalAnimatorAvatar,
-                        restoreAnimatorAvatar,
-                        originalTime,
-                        originalWrapMode,
-                        logFailures: false);
-                }
-                sourceScaleCache?.Dispose();
+                RestoreSourceState(context, originalTime, originalWrapMode, logFailures: false);
+                sourceSamplingCache?.Dispose();
                 targetCache.Dispose();
                 error = ex.Message;
                 return false;
             }
-        }
-
-        internal bool TryEvaluate(double timelineTime, out string error)
-        {
-            return TryEvaluate(
-                timelineTime,
-                normalizeRootToAnchor: false,
-                Vector3.zero,
-                Quaternion.identity,
-                out error);
-        }
-
-        internal bool TryEvaluate(
-            double timelineTime,
-            bool normalizeRootToAnchor,
-            Vector3 anchorRootPosition,
-            Quaternion anchorRootRotation,
-            out string error)
-        {
-            if (!TryCaptureMuscleSample(
-                    timelineTime,
-                    normalizeRootToAnchor,
-                    anchorRootPosition,
-                    anchorRootRotation,
-                    out MuscleSample sample,
-                    out error))
-            {
-                return false;
-            }
-
-            HumanPose pose = sample.pose;
-            TargetCache.poseHandler.SetHumanPose(ref pose);
-            return true;
         }
 
         internal bool TryCaptureMuscleSample(
@@ -1164,8 +925,7 @@ namespace KimodoBridge.Editor
             Vector3 anchorRootPosition,
             Quaternion anchorRootRotation,
             out MuscleSample sample,
-            out string error,
-            bool logDiagnostics = true)
+            out string error)
         {
             sample = null;
             error = string.Empty;
@@ -1175,120 +935,265 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            float frameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
+            int sampleFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(timelineTime, frameRate);
+            if (sampledMusclePoses.TryGetValue(sampleFrame, out MuscleSample cached))
+            {
+                sample = KimodoRetargetSamplingUtility.CloneMuscleSample(cached);
+                NormalizeSampleRoot(sample, normalizeRootToAnchor, anchorRootPosition, anchorRootRotation);
+                return true;
+            }
+
+            if (!TryCaptureMuscleSamples(
+                    new[] { timelineTime },
+                    out MuscleSample[] samples,
+                    out error))
+            {
+                return false;
+            }
+
+            sample = samples[0];
+            NormalizeSampleRoot(sample, normalizeRootToAnchor, anchorRootPosition, anchorRootRotation);
+            return true;
+        }
+
+        internal bool TryCaptureMuscleSamples(
+            IReadOnlyList<double> timelineTimes,
+            out MuscleSample[] samples,
+            out string error,
+            Func<AnimationClip, string, string> writebackClip = null)
+        {
+            samples = null;
+            error = string.Empty;
+            if (timelineTimes == null || timelineTimes.Count == 0)
+            {
+                error = "Timeline sample times are empty.";
+                return false;
+            }
+            if (disposed)
+            {
+                error = "Timeline pose sampler is disposed.";
+                return false;
+            }
+
             try
             {
-                context.Director.time = Math.Max(0.0, timelineTime);
-                context.Director.Evaluate();
-                var pose = new HumanPose();
-                sourcePoseHandler.GetHumanPose(ref pose);
-                KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
-                Vector3 bodyPosition = pose.bodyPosition * sourceHumanScale;
-                Quaternion bodyRotation = pose.bodyRotation;
-                sample = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(
-                    context.SourceAvatar,
-                    sourceHumanScale,
-                    pose,
-                    bone => ResolveSourceHumanBone(context.Animator, context.SourceAvatar, bone));
-                Vector3 sourceBodyPosition = bodyPosition;
-                Quaternion sourceBodyRotation = bodyRotation;
-                if (RootPoseIncludesOffset)
+                float frameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
+                int sampleCount = timelineTimes.Count;
+                samples = new MuscleSample[sampleCount];
+                var missingFrames = new List<int>();
+                var missingTimes = new List<double>();
+                var pendingFrames = new HashSet<int>();
+                for (int i = 0; i < sampleCount; i++)
                 {
-                    KimodoConstraintNormalizationUtility.NormalizeRootPose(
-                        RootOffsetPosition,
-                        RootOffsetRotation,
-                        ref bodyPosition,
-                        ref bodyRotation);
+                    double timelineTime = timelineTimes[i];
+                    if (double.IsNaN(timelineTime) || double.IsInfinity(timelineTime))
+                    {
+                        samples = null;
+                        error = $"Timeline sample time {i} is invalid.";
+                        return false;
+                    }
+
+                    int sampleFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(timelineTime, frameRate);
+                    if (sampledMusclePoses.TryGetValue(sampleFrame, out MuscleSample cached))
+                    {
+                        samples[i] = KimodoRetargetSamplingUtility.CloneMuscleSample(cached);
+                    }
+                    else if (pendingFrames.Add(sampleFrame))
+                    {
+                        missingFrames.Add(sampleFrame);
+                        missingTimes.Add(KimodoTimelinePreviewRefreshUtility.TimelineFrameToTime(sampleFrame, frameRate));
+                    }
                 }
-                if (normalizeRootToAnchor)
+
+                if (missingTimes.Count == 0)
                 {
-                    KimodoConstraintNormalizationUtility.NormalizeRootPose(
-                        anchorRootPosition,
-                        anchorRootRotation,
-                        ref bodyPosition,
-                        ref bodyRotation);
+                    return true;
                 }
-                pose.bodyPosition = bodyPosition / sourceHumanScale;
-                pose.bodyRotation = bodyRotation;
-                sample.pose = pose;
-                if (logDiagnostics)
+
+                int clipSampleCount = Mathf.Max(2, missingTimes.Count);
+                var poseSamples = new BoneSample[clipSampleCount];
+                for (int i = 0; i < clipSampleCount; i++)
                 {
-                    KimodoConstraintPoseDiagnostics.LogMuscleSample(
-                        "TimelineEvaluateToSourceHumanPose",
-                        timelineTime,
-                        sample,
-                        sourceHumanScale,
-                        context.Animator,
-                        context.SourceAvatar,
-                        $"rootPoseIncludesOffset={RootPoseIncludesOffset} normalizeRootToAnchor={normalizeRootToAnchor} " +
-                        $"sourceBodyMeters=({sourceBodyPosition.x:F5},{sourceBodyPosition.y:F5},{sourceBodyPosition.z:F5}) " +
-                        $"sourceBodyRotation=({sourceBodyRotation.x:F5},{sourceBodyRotation.y:F5},{sourceBodyRotation.z:F5},{sourceBodyRotation.w:F5})");
+                    double timelineTime = missingTimes[Mathf.Min(i, missingTimes.Count - 1)];
+                    context.Director.time = Math.Max(0.0, timelineTime);
+                    context.Director.Evaluate();
+                    if (!TryCaptureSourceBoneSample(
+                            context.Animator.transform,
+                            sourceSamplingCache,
+                            sourceBoneTransforms,
+                            out poseSamples[i],
+                            out error))
+                    {
+                        return false;
+                    }
                 }
-                return true;
+
+                AnimationClip poseClip = null;
+                try
+                {
+                    if (!KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
+                            poseSamples,
+                            frameRate,
+                            out poseClip,
+                            out error))
+                    {
+                        return false;
+                    }
+                    if (writebackClip != null)
+                    {
+                        string writebackError = writebackClip(poseClip, "SourceBoneClip");
+                        if (!string.IsNullOrWhiteSpace(writebackError))
+                        {
+                            error = writebackError;
+                            return false;
+                        }
+                    }
+                    if (!KimodoRetargetSamplingUtility.TryCollectMuscleSamplesFromClip(
+                            poseClip,
+                            sourceSamplingCache,
+                            clipSampleCount,
+                            KimodoRetargetClipSamplingUtility.ClipSamplingMode.RawTransform,
+                            out MuscleSample[] decoded,
+                            out error))
+                    {
+                        return false;
+                    }
+
+                    for (int i = 0; i < missingTimes.Count; i++)
+                    {
+                        sampledMusclePoses[missingFrames[i]] = KimodoRetargetSamplingUtility.CloneMuscleSample(decoded[i]);
+                    }
+                    for (int i = 0; i < sampleCount; i++)
+                    {
+                        int sampleFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(timelineTimes[i], frameRate);
+                        samples[i] = KimodoRetargetSamplingUtility.CloneMuscleSample(sampledMusclePoses[sampleFrame]);
+                    }
+                    return true;
+                }
+                finally
+                {
+                    if (poseClip != null)
+                    {
+                        UnityEngine.Object.DestroyImmediate(poseClip);
+                    }
+                }
             }
             catch (Exception ex)
             {
-                sample = null;
+                samples = null;
                 error = ex.Message;
                 return false;
             }
         }
 
-        internal bool TrySampleMarker(
-            double timelineTime,
-            double exportedSampleTime,
-            string markerType,
-            string modelName,
-            out KimodoMarkerSampleResult sample,
+        private void NormalizeSampleRoot(
+            MuscleSample sample,
+            bool normalizeRootToAnchor,
+            Vector3 anchorRootPosition,
+            Quaternion anchorRootRotation)
+        {
+            if (!normalizeRootToAnchor || sample == null)
+            {
+                return;
+            }
+
+            HumanPose pose = sample.pose;
+            Vector3 bodyPosition = pose.bodyPosition * sourceHumanScale;
+            Quaternion bodyRotation = pose.bodyRotation;
+            KimodoConstraintNormalizationUtility.NormalizeRootPose(
+                anchorRootPosition,
+                anchorRootRotation,
+                ref bodyPosition,
+                ref bodyRotation);
+            pose.bodyPosition = bodyPosition / sourceHumanScale;
+            pose.bodyRotation = bodyRotation;
+            sample.pose = pose;
+        }
+
+
+        private static bool TryBuildSourceBoneTransforms(
+            Transform sourceRoot,
+            SkeletonCache sourceSamplingCache,
+            out Transform[] sourceBoneTransforms,
             out string error)
         {
-            sample = null;
-            if (!TryCaptureMuscleSample(
-                    timelineTime,
-                    normalizeRootToAnchor: false,
-                    Vector3.zero,
-                    Quaternion.identity,
-                    out MuscleSample muscleSample,
-                    out error))
+            sourceBoneTransforms = null;
+            error = string.Empty;
+            if (sourceRoot == null || !KimodoRetargetAvatarUtility.ValidateRetargetCache(sourceSamplingCache, out error))
             {
                 return false;
             }
 
-            BoneSample targetSample;
-            if (string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
+            sourceBoneTransforms = KimodoRetargetAvatarUtility.BuildBoneTransforms(
+                sourceRoot,
+                sourceSamplingCache.bonePaths,
+                sourceSamplingCache.canonicalRootBoneName);
+            for (int i = 0; i < sourceBoneTransforms.Length; i++)
             {
-                float frameRate = KimodoMotionModelProfiles.TryGetArdy(
-                        modelName,
-                        out KimodoMotionModelProfile profile)
-                    ? profile.SourceFps
-                    : KimodoPlayableClip.FIXED_FRAME_RATE;
-                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                        muscleSample,
-                        frameRate,
-                        TargetCache,
-                        out targetSample,
-                        out _,
-                        out error))
+                if (sourceBoneTransforms[i] != null)
                 {
+                    continue;
+                }
+
+                string path = sourceSamplingCache.bonePaths[i];
+                int separator = path.LastIndexOf('/');
+                string boneName = separator >= 0 ? path.Substring(separator + 1) : path;
+                if (!KimodoRetargetAvatarUtility.TryFindUniqueTransformByName(
+                        sourceRoot,
+                        boneName,
+                        out sourceBoneTransforms[i],
+                        out bool ambiguous))
+                {
+                    error = ambiguous
+                        ? $"Source bone '{boneName}' is ambiguous under '{sourceRoot.name}'."
+                        : $"Source bone '{path}' is missing under '{sourceRoot.name}'.";
+                    sourceBoneTransforms = null;
                     return false;
                 }
             }
-            else
+
+            return true;
+        }
+
+        private static bool TryCaptureSourceBoneSample(
+            Transform sourceRoot,
+            SkeletonCache sourceSamplingCache,
+            Transform[] sourceBoneTransforms,
+            out BoneSample sample,
+            out string error)
+        {
+            sample = null;
+            error = string.Empty;
+            if (sourceRoot == null ||
+                sourceSamplingCache?.boneTransforms == null ||
+                sourceBoneTransforms == null ||
+                sourceBoneTransforms.Length != sourceSamplingCache.boneTransforms.Length)
             {
-                HumanPose pose = muscleSample.pose;
-                TargetCache.poseHandler.SetHumanPose(ref pose);
-                targetSample = KimodoRetargetSamplingUtility.CaptureBoneSample(TargetCache);
+                error = "Source bone sampling map is invalid.";
+                return false;
             }
 
-            if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
-                    targetSample,
-                    TargetCache,
-                    modelName,
-                    markerType,
-                    timelineTime,
-                    out sample,
-                    out error))
+            int count = sourceBoneTransforms.Length;
+            sample = new BoneSample
             {
-                return false;
+                boneNames = sourceSamplingCache.bonePaths,
+                localPositions = new Vector3[count],
+                localRotations = new Quaternion[count]
+            };
+            for (int i = 0; i < count; i++)
+            {
+                Transform sourceBone = sourceBoneTransforms[i];
+                if (sourceBone == null)
+                {
+                    error = $"Source bone '{sourceSamplingCache.bonePaths[i]}' is unavailable.";
+                    sample = null;
+                    return false;
+                }
+
+                bool isRoot = sourceSamplingCache.boneTransforms[i] == sourceSamplingCache.skeletonRoot;
+                sample.localPositions[i] = isRoot ? sourceRoot.position : sourceBone.localPosition;
+                sample.localRotations[i] = isRoot ? sourceRoot.rotation : sourceBone.localRotation;
             }
 
             return true;
@@ -1337,50 +1242,17 @@ namespace KimodoBridge.Editor
                 return;
             }
             disposed = true;
-            try
-            {
-                sourcePoseHandler.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[Kimodo][TimelineSample] Failed to dispose source pose handler: {ex.Message}");
-            }
-
-            RestoreSourceState(
-                context,
-                originalAnimatorAvatar,
-                restoreAnimatorAvatar,
-                originalTime,
-                originalWrapMode,
-                logFailures: true);
+            RestoreSourceState(context, originalTime, originalWrapMode, logFailures: true);
+            sourceSamplingCache?.Dispose();
             TargetCache.Dispose();
         }
 
         private static void RestoreSourceState(
             KimodoTimelineInOutConstraintContext context,
-            Avatar originalAnimatorAvatar,
-            bool restoreAnimatorAvatar,
             double originalTime,
             DirectorWrapMode originalWrapMode,
             bool logFailures)
         {
-            if (restoreAnimatorAvatar && context?.Animator != null)
-            {
-                try
-                {
-                    context.Animator.avatar = originalAnimatorAvatar;
-                    context.Animator.Rebind();
-                    context.Animator.Update(0f);
-                }
-                catch (Exception ex)
-                {
-                    if (logFailures)
-                    {
-                        Debug.LogWarning($"[Kimodo][TimelineSample] Failed to restore Animator Avatar: {ex.Message}");
-                    }
-                }
-            }
-
             if (context?.Director == null)
             {
                 return;
@@ -1389,10 +1261,6 @@ namespace KimodoBridge.Editor
             try
             {
                 context.Director.extrapolationMode = originalWrapMode;
-                if (restoreAnimatorAvatar)
-                {
-                    context.Director.RebuildGraph();
-                }
                 context.Director.time = originalTime;
                 context.Director.Evaluate();
             }
@@ -1416,9 +1284,9 @@ namespace KimodoBridge.Editor
             samples = new List<KimodoMarkerSampleResult>();
             error = string.Empty;
 
-            if (context == null || context.SourceClip == null)
+            if (context == null)
             {
-                error = "No selected timeline clip for constraint export.";
+                error = "Timeline constraint context is null.";
                 return false;
             }
 
@@ -1446,71 +1314,119 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            var resolvedSamples = new KimodoMarkerSampleResult[markers.Count];
+            var sampledMarkerIndices = new List<int>();
             for (int i = 0; i < markers.Count; i++)
             {
-                if (!TryBuildMarkerSample(markers[i], context, out KimodoMarkerSampleResult sample, out error))
+                KimodoConstraintMarkerBase marker = markers[i];
+                if (marker == null)
+                {
+                    error = "Marker is null.";
+                    return false;
+                }
+
+                if (CanUseOverrideWithoutTimelineSampling(marker))
+                {
+                    if (!TryNormalizeMarkerSample(marker, marker.SampleData, "override", out resolvedSamples[i], out error))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    sampledMarkerIndices.Add(i);
+                }
+            }
+
+            if (sampledMarkerIndices.Count > 0)
+            {
+                if (!KimodoTimelinePoseSampler.TryCreate(context, context.ModelName, out KimodoTimelinePoseSampler sampler, out error))
                 {
                     return false;
                 }
 
-                samples.Add(sample);
+                try
+                {
+                    float frameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
+                    var uniqueFrames = new List<int>();
+                    var frameToSample = new Dictionary<int, int>();
+                    var markerSampleIndices = new int[sampledMarkerIndices.Count];
+                    for (int i = 0; i < sampledMarkerIndices.Count; i++)
+                    {
+                        int frame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(
+                            markers[sampledMarkerIndices[i]].time,
+                            frameRate);
+                        if (!frameToSample.TryGetValue(frame, out int sampleIndex))
+                        {
+                            sampleIndex = uniqueFrames.Count;
+                            frameToSample.Add(frame, sampleIndex);
+                            uniqueFrames.Add(frame);
+                        }
+                        markerSampleIndices[i] = sampleIndex;
+                    }
+
+                    var timelineTimes = new double[uniqueFrames.Count];
+                    for (int i = 0; i < uniqueFrames.Count; i++)
+                    {
+                        timelineTimes[i] = KimodoTimelinePreviewRefreshUtility.TimelineFrameToTime(
+                            uniqueFrames[i],
+                            frameRate);
+                    }
+                    if (!sampler.TryCaptureMuscleSamples(timelineTimes, out MuscleSample[] muscleSamples, out error) ||
+                        !KimodoRetargetSamplingUtility.TryRetargetMuscleSamplesToBoneSamples(
+                            muscleSamples,
+                            frameRate,
+                            sampler.TargetCache,
+                            out BoneSample[] targetSamples,
+                            out error))
+                    {
+                        return false;
+                    }
+
+                    for (int i = 0; i < sampledMarkerIndices.Count; i++)
+                    {
+                        int markerIndex = sampledMarkerIndices[i];
+                        KimodoConstraintMarkerBase marker = markers[markerIndex];
+                        if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                                targetSamples[markerSampleIndices[i]],
+                                sampler.TargetCache,
+                                context.ModelName,
+                                marker.ConstraintType,
+                                marker.time,
+                                out KimodoMarkerSampleResult captured,
+                                out error) ||
+                            !TryNormalizeMarkerSample(marker, captured, "sampled", out resolvedSamples[markerIndex], out error))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                finally
+                {
+                    sampler.Dispose();
+                }
             }
 
+            samples.AddRange(resolvedSamples);
             return true;
         }
 
-        private static bool TryBuildMarkerSample(
+        private static bool TryNormalizeMarkerSample(
             KimodoConstraintMarkerBase marker,
-            KimodoTimelineInOutConstraintContext context,
+            KimodoMarkerSampleResult captured,
+            string mode,
             out KimodoMarkerSampleResult sample,
             out string error)
         {
-            sample = null;
-            error = string.Empty;
-            if (marker == null)
+            sample = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, captured);
+            error = sample == null ? $"failed to map {mode} pose to marker sample data" : string.Empty;
+            if (sample == null)
             {
-                error = "Marker is null.";
                 return false;
             }
-
-            string mode;
-            if (CanUseOverrideWithoutTimelineSampling(marker))
-            {
-                sample = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, marker.SampleData);
-                if (sample == null)
-                {
-                    error = "failed to read override marker data";
-                    return false;
-                }
-
-                mode = "override";
-            }
-            else
-            {
-                if (!KimodoTimelineConstraintClipCache.TrySampleMarker(
-                        context,
-                        marker.time,
-                        marker.time,
-                        marker.ConstraintType,
-                        context.ModelName,
-                        out KimodoMarkerSampleResult captured,
-                        out error))
-                {
-                    return false;
-                }
-                sample = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, captured);
-                if (sample == null)
-                {
-                    error = "failed to map sampled pose to marker sample data";
-                    return false;
-                }
-                mode = "sampled";
-            }
-
             Debug.Log(
                 $"[Kimodo][ConstraintExport] marker='{marker.ConstraintType}' time={marker.time:F3} mode={mode} " +
                 $"jointNames=[{string.Join(", ", sample.jointNames ?? new List<string>())}] hasHeading={sample.hasRootHeading}");
-
             return true;
         }
 

@@ -6,6 +6,8 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoInOutConstraintComposer
     {
+        private const double AutoBeginAnchorWindowSeconds = 1.0;
+
         internal static bool TryBuild(
             KimodoInOutConstraintRequest request,
             out KimodoInOutConstraintResult result,
@@ -47,10 +49,31 @@ namespace KimodoBridge.Editor
                 built.CombinedSamples.Add(endSample);
             }
 
-            if (request.NormalizeConstraintOrigin && built.CombinedSamples.Count > 0)
+            double normalizationAnchorWindowSeconds = request.AutoBeginAnchor
+                ? AutoBeginAnchorWindowSeconds
+                : double.PositiveInfinity;
+            if (request.AutoBeginAnchor &&
+                !KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
+                    built.CombinedSamples,
+                    normalizationAnchorWindowSeconds) &&
+                !KimodoTimelineConstraintClipCache.TrySampleMarker(
+                    request.TimelineContext,
+                    request.TimelineContext?.SourceClip?.start ?? 0.0,
+                    exportedSampleTime: 0.0,
+                    markerType: "fullbody",
+                    request.ModelName,
+                    out built.AutoBeginAnchorSample,
+                    out error))
+            {
+                return false;
+            }
+
+            if (!request.DeferNormalization)
             {
                 KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
                     built.CombinedSamples,
+                    built.AutoBeginAnchorSample,
+                    normalizationAnchorWindowSeconds,
                     out KimodoConstraintNormalizationInfo normalizationInfo,
                     out string normalizeWarning);
                 built.NormalizationInfo = normalizationInfo ?? new KimodoConstraintNormalizationInfo();

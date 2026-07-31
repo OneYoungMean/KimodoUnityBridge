@@ -17,13 +17,8 @@ namespace KimodoBridge.Editor
         public Animator Animator;
         public Avatar SourceAvatar;
         public string ModelName = KimodoPlayableClip.DefaultBridgeModelName;
-        public AnimationClip CurrentClip;
         public TimelineClip PreviousTimelineClip;
         public TimelineClip NextTimelineClip;
-        public AnimationClip PreviousClip;
-        public AnimationClip NextClip;
-        public string PreviousClipWarning = string.Empty;
-        public string NextClipWarning = string.Empty;
     }
 
     internal static class KimodoInOutConstraintAdapter
@@ -31,7 +26,8 @@ namespace KimodoBridge.Editor
         internal static bool TryBuildConstraints(
             TimelineClip sourceClip,
             KimodoInOutConstraintMode mode,
-            bool normalizeConstraintOrigin,
+            bool autoBeginAnchor,
+            bool deferNormalization,
             bool enableIn,
             bool enableOut,
             int generationFrames,
@@ -57,7 +53,8 @@ namespace KimodoBridge.Editor
             KimodoInOutConstraintRequest request = BuildTimelineRequest(
                 context,
                 mode,
-                normalizeConstraintOrigin,
+                autoBeginAnchor,
+                deferNormalization,
                 enableIn,
                 enableOut,
                 generationFrames,
@@ -109,14 +106,14 @@ namespace KimodoBridge.Editor
             KimodoInOutConstraintRequest request = BuildTimelineRequest(
                 context,
                 mode,
-                normalizeConstraintOrigin: false,
+                autoBeginAnchor: false,
+                deferNormalization: true,
                 enableIn,
                 enableOut,
                 generationFrames,
                 manualSamples: null);
             if (request == null)
             {
-                warning = FirstNonEmpty(context.PreviousClipWarning, context.NextClipWarning);
                 return true;
             }
 
@@ -141,9 +138,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            warning = mode == KimodoInOutConstraintMode.Outside
-                ? FirstNonEmpty(context.PreviousClipWarning, context.NextClipWarning, buildWarning, sampleWarning)
-                : FirstNonEmpty(buildWarning, sampleWarning);
+            warning = FirstNonEmpty(buildWarning, sampleWarning);
             return true;
         }
 
@@ -212,7 +207,7 @@ namespace KimodoBridge.Editor
             }
 
             KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(sourceClip, animator);
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, animator);
             Avatar sourceAvatar = avatarResult.Avatar;
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
             {
@@ -221,9 +216,6 @@ namespace KimodoBridge.Editor
             }
 
             TryResolveNeighborTimelineClips(sourceClip, out TimelineClip previousTimelineClip, out TimelineClip nextTimelineClip);
-            TryResolveAnimationClip(previousTimelineClip, out AnimationClip previousClip, out string previousWarning);
-            TryResolveAnimationClip(sourceClip, out AnimationClip currentClip, out _);
-            TryResolveAnimationClip(nextTimelineClip, out AnimationClip nextClip, out string nextWarning);
 
             context = new KimodoTimelineInOutConstraintContext
             {
@@ -233,13 +225,8 @@ namespace KimodoBridge.Editor
                 Animator = animator,
                 SourceAvatar = sourceAvatar,
                 ModelName = KimodoPlayableClip.NormalizeBridgeModelName(((KimodoPlayableClip)sourceClip.asset)?.bridgeModelName),
-                CurrentClip = currentClip,
                 PreviousTimelineClip = previousTimelineClip,
-                NextTimelineClip = nextTimelineClip,
-                PreviousClip = previousClip,
-                NextClip = nextClip,
-                PreviousClipWarning = previousWarning,
-                NextClipWarning = nextWarning
+                NextTimelineClip = nextTimelineClip
             };
             return true;
         }
@@ -415,7 +402,8 @@ namespace KimodoBridge.Editor
         internal static KimodoInOutConstraintRequest BuildTimelineRequest(
             KimodoTimelineInOutConstraintContext context,
             KimodoInOutConstraintMode mode,
-            bool normalizeConstraintOrigin,
+            bool autoBeginAnchor,
+            bool deferNormalization,
             bool enableIn,
             bool enableOut,
             int generationFrames,
@@ -427,23 +415,17 @@ namespace KimodoBridge.Editor
             }
 
             bool hasManualSamples = manualSamples != null && manualSamples.Count > 0;
-            KimodoInOutConstraintClipSegment beginSegment = null;
-            KimodoInOutConstraintClipSegment endSegment = null;
             bool enableBegin = false;
             bool enableEnd = false;
 
             switch (mode)
             {
                 case KimodoInOutConstraintMode.Inside:
-                    beginSegment = BuildSegment(context.CurrentClip, context.SourceClip);
-                    endSegment = BuildSegment(context.CurrentClip, context.SourceClip);
-                    enableBegin = enableIn && beginSegment != null;
-                    enableEnd = enableOut && endSegment != null;
+                    enableBegin = enableIn && context.SourceClip != null;
+                    enableEnd = enableOut && context.SourceClip != null;
                     break;
 
                 case KimodoInOutConstraintMode.Outside:
-                    beginSegment = BuildSegment(context.PreviousClip, context.PreviousTimelineClip);
-                    endSegment = BuildSegment(context.NextClip, context.NextTimelineClip);
                     enableBegin = enableIn && context.PreviousTimelineClip != null;
                     enableEnd = enableOut && context.NextTimelineClip != null;
                     break;
@@ -454,7 +436,7 @@ namespace KimodoBridge.Editor
                 enableBegin = false;
             }
 
-            if (!enableBegin && !enableEnd && !hasManualSamples)
+            if (!enableBegin && !enableEnd && !hasManualSamples && !autoBeginAnchor)
             {
                 return null;
             }
@@ -462,48 +444,18 @@ namespace KimodoBridge.Editor
             return new KimodoInOutConstraintRequest
             {
                 Mode = mode,
-                BeginSegment = beginSegment,
-                EndSegment = endSegment,
                 EnableBegin = enableBegin,
                 EnableEnd = enableEnd,
                 SourceAvatar = context.SourceAvatar,
                 ModelName = context.ModelName,
                 GenerationFrames = ClampFrameCount(generationFrames),
-                // Normalize against the earliest effective constraint at or after the Timeline clip starts.
-                NormalizeConstraintOrigin = normalizeConstraintOrigin,
-                AllowNormalizeConstraintOrigin = enableIn,
+                AutoBeginAnchor = autoBeginAnchor,
+                DeferNormalization = deferNormalization,
                 IsLoop = false,
                 TimelineContext = context,
                 ManualSamples = KimodoInOutConstraintTools.BuildLocalManualSamples(
                     manualSamples,
                     context.SourceClip != null ? context.SourceClip.start : 0.0)
-            };
-        }
-
-        private static KimodoInOutConstraintClipSegment BuildSegment(AnimationClip clip, TimelineClip timelineClip)
-        {
-            if (clip == null)
-            {
-                return null;
-            }
-
-            if (timelineClip == null)
-            {
-                return new KimodoInOutConstraintClipSegment
-                {
-                    Clip = clip,
-                    StartSeconds = 0.0,
-                    DurationSeconds = clip.length,
-                    Speed = 1f
-                };
-            }
-
-            return new KimodoInOutConstraintClipSegment
-            {
-                Clip = clip,
-                StartSeconds = Math.Max(0.0, timelineClip.clipIn),
-                DurationSeconds = Math.Max(0.0, timelineClip.duration),
-                Speed = (float)Math.Max(1e-6, timelineClip.timeScale)
             };
         }
 
@@ -524,14 +476,14 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (enableIn && !string.IsNullOrWhiteSpace(context?.PreviousClipWarning))
+            if (enableIn && context?.PreviousTimelineClip == null)
             {
-                Debug.LogWarning($"[Kimodo][InOutConstraint] {context.PreviousClipWarning}");
+                Debug.LogWarning("[Kimodo][InOutConstraint] Previous Timeline clip is missing.");
             }
 
-            if (enableOut && !string.IsNullOrWhiteSpace(context?.NextClipWarning))
+            if (enableOut && context?.NextTimelineClip == null)
             {
-                Debug.LogWarning($"[Kimodo][InOutConstraint] {context.NextClipWarning}");
+                Debug.LogWarning("[Kimodo][InOutConstraint] Next Timeline clip is missing.");
             }
 
             if (!string.IsNullOrWhiteSpace(buildWarning))

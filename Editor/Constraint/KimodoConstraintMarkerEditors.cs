@@ -257,6 +257,12 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.kimodoRootPosition"));
+            if (!string.Equals(typeName, "end-effector", StringComparison.OrdinalIgnoreCase))
+            {
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("sampleData.endEffectorTargetPositionRootLocal"),
+                    new GUIContent("Hand/Foot Point (Root Local)"));
+            }
             EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.localAxisAngles"), true);
             EditorGUI.EndDisabledGroup();
         }
@@ -275,10 +281,8 @@ namespace KimodoBridge.Editor
 
         private struct MarkerSamplingContext
         {
-            public TimelineClip ClipRange;
             public TrackAsset Track;
             public Animator Animator;
-            public AnimationClip SourceClip;
             public Avatar SourceAvatar;
             public string ModelName;
             public int CacheTimeFrames;
@@ -308,25 +312,18 @@ namespace KimodoBridge.Editor
         {
             public string ConstraintType;
             public double GlobalTime;
-            public double LocalTime;
             public string ModelName;
             public int TrackId;
             public int AnimatorId;
-            public int SourceClipId;
-            public int ClipAssetId;
             public int SourceAvatarId;
             public int TrackDirtyIndex;
-            public double ClipStart;
-            public double ClipDuration;
-            public double ClipIn;
-            public double TimeScale;
-            public float SourceClipLength;
-            public float SourceClipFrameRate;
             public int CacheTimeFrames;
             public Vector3 TrackOffsetPosition;
             public Quaternion TrackOffsetRotation;
             public bool HasRootHeading;
             public Vector3 KimodoRootPosition;
+            public bool HasEndEffectorTargetPosition;
+            public Vector3 EndEffectorTargetPositionRootLocal;
             public Vector3 UnityRootPos;
             public Quaternion UnityRootRot;
             public string[] JointNames;
@@ -344,6 +341,8 @@ namespace KimodoBridge.Editor
             public bool HasRootHeading;
             public Vector3 KimodoRootPosition;
             public Vector2 RootHeading;
+            public bool HasEndEffectorTargetPosition;
+            public Vector3 EndEffectorTargetPositionRootLocal;
             public Vector3 UnityRootPos;
             public Quaternion UnityRootRot;
             public string[] JointNames;
@@ -424,8 +423,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            TryGetClipRangeForMarker(marker, out TimelineClip clipRange);
-
             PlayableDirector director = TimelineEditor.inspectedDirector;
             if (director == null)
             {
@@ -440,15 +437,9 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            AnimationClip sourceClip = null;
-            if (clipRange != null)
-            {
-                KimodoMarkerSamplingUtility.TryResolveAnimationClipFromTimelineClip(clipRange, out sourceClip, out _);
-            }
-
-            TimelineClip referenceClip = FindReferenceClip(track, marker.time, clipRange);
+            TimelineClip referenceClip = FindReferenceClip(track, marker.time, activeClip: null);
             KimodoLocalAvatarUtility.AvatarResolveResult sourceAvatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(referenceClip, animator);
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, animator);
             Avatar sourceAvatar = sourceAvatarResult.Avatar;
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
             {
@@ -458,10 +449,8 @@ namespace KimodoBridge.Editor
 
             MarkerSamplingContext context = new MarkerSamplingContext
             {
-                ClipRange = clipRange,
                 Track = track,
                 Animator = animator,
-                SourceClip = sourceClip,
                 SourceAvatar = sourceAvatar,
                 ModelName = ResolveModelName(referenceClip),
                 CacheTimeFrames = KimodoPlayableClipGenerationSettings.instance.TimelineConstraintCacheTimeFrames
@@ -479,13 +468,12 @@ namespace KimodoBridge.Editor
             double sampleTime = marker.time;
             var timelineContext = new KimodoTimelineInOutConstraintContext
             {
-                SourceClip = clipRange,
+                SourceClip = null,
                 Track = track,
                 Director = director,
                 Animator = animator,
                 SourceAvatar = sourceAvatar,
-                ModelName = context.ModelName,
-                CurrentClip = sourceClip
+                ModelName = context.ModelName
             };
             if (!KimodoTimelineConstraintClipCache.TrySampleMarker(
                     timelineContext,
@@ -583,9 +571,6 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult sample = null)
         {
             KimodoMarkerSampleResult source = sample ?? marker?.SampleData;
-            int clipAssetId = context.ClipRange != null && context.ClipRange.asset is UnityEngine.Object clipAsset
-                ? clipAsset.GetInstanceID()
-                : 0;
             double globalTime = marker != null ? Math.Max(0.0, marker.time) : 0.0;
             KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
                 context.Track,
@@ -596,25 +581,18 @@ namespace KimodoBridge.Editor
             {
                 ConstraintType = marker != null ? marker.ConstraintType ?? string.Empty : string.Empty,
                 GlobalTime = globalTime,
-                LocalTime = KimodoMarkerSamplingUtility.ClampLocalSampleTime(context.ClipRange, globalTime),
                 ModelName = context.ModelName ?? string.Empty,
                 TrackId = context.Track != null ? context.Track.GetInstanceID() : 0,
                 AnimatorId = context.Animator != null ? context.Animator.GetInstanceID() : 0,
-                SourceClipId = context.SourceClip != null ? context.SourceClip.GetInstanceID() : 0,
-                ClipAssetId = clipAssetId,
                 SourceAvatarId = context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0,
                 TrackDirtyIndex = KimodoTimelinePreviewRefreshUtility.GetDirtyIndex(context.Track),
-                ClipStart = context.ClipRange != null ? context.ClipRange.start : 0.0,
-                ClipDuration = context.ClipRange != null ? context.ClipRange.duration : 0.0,
-                ClipIn = context.ClipRange != null ? context.ClipRange.clipIn : 0.0,
-                TimeScale = context.ClipRange != null ? context.ClipRange.timeScale : 0.0,
-                SourceClipLength = context.SourceClip != null ? context.SourceClip.length : 0f,
-                SourceClipFrameRate = context.SourceClip != null ? context.SourceClip.frameRate : 0f,
                 CacheTimeFrames = context.CacheTimeFrames,
                 TrackOffsetPosition = trackOffsetPosition,
                 TrackOffsetRotation = trackOffsetRotation,
                 HasRootHeading = source != null && source.hasRootHeading,
                 KimodoRootPosition = source != null ? source.kimodoRootPosition : default,
+                HasEndEffectorTargetPosition = source != null && source.hasEndEffectorTargetPosition,
+                EndEffectorTargetPositionRootLocal = source != null ? source.endEffectorTargetPositionRootLocal : default,
                 UnityRootPos = source != null ? source.unityRootPos : default,
                 UnityRootRot = source != null ? source.unityRootRot : default,
                 JointNames = CopyStringArray(source != null ? source.jointNames : null)
@@ -627,9 +605,6 @@ namespace KimodoBridge.Editor
             AutoSampleSignatureSnapshot snapshot)
         {
             KimodoMarkerSampleResult sample = marker != null ? marker.SampleData : null;
-            int clipAssetId = context.ClipRange != null && context.ClipRange.asset is UnityEngine.Object clipAsset
-                ? clipAsset.GetInstanceID()
-                : 0;
             double globalTime = marker != null ? Math.Max(0.0, marker.time) : 0.0;
             KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
                 context.Track,
@@ -638,25 +613,18 @@ namespace KimodoBridge.Editor
                 out Quaternion trackOffsetRotation);
             return string.Equals(snapshot.ConstraintType ?? string.Empty, marker != null ? marker.ConstraintType ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
                 Math.Abs(snapshot.GlobalTime - globalTime) <= 1e-9 &&
-                Math.Abs(snapshot.LocalTime - KimodoMarkerSamplingUtility.ClampLocalSampleTime(context.ClipRange, globalTime)) <= 1e-9 &&
                 string.Equals(snapshot.ModelName ?? string.Empty, context.ModelName ?? string.Empty, StringComparison.Ordinal) &&
                 snapshot.TrackId == (context.Track != null ? context.Track.GetInstanceID() : 0) &&
                 snapshot.AnimatorId == (context.Animator != null ? context.Animator.GetInstanceID() : 0) &&
-                snapshot.SourceClipId == (context.SourceClip != null ? context.SourceClip.GetInstanceID() : 0) &&
-                snapshot.ClipAssetId == clipAssetId &&
                 snapshot.SourceAvatarId == (context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0) &&
                 snapshot.TrackDirtyIndex == KimodoTimelinePreviewRefreshUtility.GetDirtyIndex(context.Track) &&
-                Math.Abs(snapshot.ClipStart - (context.ClipRange != null ? context.ClipRange.start : 0.0)) <= 1e-9 &&
-                Math.Abs(snapshot.ClipDuration - (context.ClipRange != null ? context.ClipRange.duration : 0.0)) <= 1e-9 &&
-                Math.Abs(snapshot.ClipIn - (context.ClipRange != null ? context.ClipRange.clipIn : 0.0)) <= 1e-9 &&
-                Math.Abs(snapshot.TimeScale - (context.ClipRange != null ? context.ClipRange.timeScale : 0.0)) <= 1e-9 &&
-                Mathf.Abs(snapshot.SourceClipLength - (context.SourceClip != null ? context.SourceClip.length : 0f)) <= 1e-6f &&
-                Mathf.Abs(snapshot.SourceClipFrameRate - (context.SourceClip != null ? context.SourceClip.frameRate : 0f)) <= 1e-6f &&
                 snapshot.CacheTimeFrames == context.CacheTimeFrames &&
                 Vector3Approximately(snapshot.TrackOffsetPosition, trackOffsetPosition) &&
                 QuaternionApproximately(snapshot.TrackOffsetRotation, trackOffsetRotation) &&
                 snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&
                 Vector3Approximately(snapshot.KimodoRootPosition, sample != null ? sample.kimodoRootPosition : default) &&
+                snapshot.HasEndEffectorTargetPosition == (sample != null && sample.hasEndEffectorTargetPosition) &&
+                Vector3Approximately(snapshot.EndEffectorTargetPositionRootLocal, sample != null ? sample.endEffectorTargetPositionRootLocal : default) &&
                 Vector3Approximately(snapshot.UnityRootPos, sample != null ? sample.unityRootPos : default) &&
                 QuaternionApproximately(snapshot.UnityRootRot, sample != null ? sample.unityRootRot : default) &&
                 StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null);
@@ -909,7 +877,7 @@ namespace KimodoBridge.Editor
             KimodoPlayableClip playableClip = referenceClip?.asset as KimodoPlayableClip;
             string modelName = ResolveModelName(referenceClip);
             KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(referenceClip, animator);
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, animator);
             if (!avatarResult.IsHumanoid || avatarResult.Avatar == null)
             {
                 error = $"Resolve source avatar failed: {avatarResult.Error}";
@@ -947,10 +915,8 @@ namespace KimodoBridge.Editor
                         marker,
                         renderContext,
                         entryId,
-                        out MuscleSample currentClip,
-                        out float currentClipScale,
-                        out MuscleSample originalCharacter,
-                        out float originalCharacterScale,
+                        out MuscleSample timelinePose,
+                        out float timelinePoseScale,
                         out MuscleSample virtualSkeleton,
                         out float virtualSkeletonScale,
                         out MuscleSample targetCharacter,
@@ -968,10 +934,8 @@ namespace KimodoBridge.Editor
                     dragMuscleSnapshotId,
                     marker.ConstraintType,
                     timelineSampleTime,
-                    currentClip,
-                    currentClipScale,
-                    originalCharacter,
-                    originalCharacterScale,
+                    timelinePose,
+                    timelinePoseScale,
                     virtualSkeleton,
                     virtualSkeletonScale,
                     targetCharacter,
@@ -988,10 +952,8 @@ namespace KimodoBridge.Editor
             KimodoConstraintMarkerBase marker,
             PoseCacheRenderContext renderContext,
             string entryId,
-            out MuscleSample currentClip,
-            out float currentClipScale,
-            out MuscleSample originalCharacter,
-            out float originalCharacterScale,
+            out MuscleSample timelinePose,
+            out float timelinePoseScale,
             out MuscleSample virtualSkeleton,
             out float virtualSkeletonScale,
             out MuscleSample targetCharacter,
@@ -1000,10 +962,8 @@ namespace KimodoBridge.Editor
             out string details,
             out string error)
         {
-            currentClip = null;
-            currentClipScale = 0f;
-            originalCharacter = null;
-            originalCharacterScale = 0f;
+            timelinePose = null;
+            timelinePoseScale = 0f;
             virtualSkeleton = null;
             virtualSkeletonScale = 0f;
             targetCharacter = null;
@@ -1012,10 +972,9 @@ namespace KimodoBridge.Editor
             details = string.Empty;
             error = string.Empty;
 
-            if (!TryGetMarkerTrack(marker, out TrackAsset track) ||
-                !TryGetClipRangeForMarker(marker, out TimelineClip clipRange))
+            if (!TryGetMarkerTrack(marker, out TrackAsset track))
             {
-                error = "marker AnimationClip range is unavailable.";
+                error = "marker track is unavailable.";
                 return false;
             }
 
@@ -1027,40 +986,17 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!KimodoMarkerSamplingUtility.TryResolveAnimationClipFromTimelineClip(
-                    clipRange,
-                    out AnimationClip sourceClip,
-                    out error))
-            {
-                return false;
-            }
-
             var timelineContext = new KimodoTimelineInOutConstraintContext
             {
-                SourceClip = clipRange,
+                SourceClip = null,
                 Track = track,
                 Director = director,
                 Animator = animator,
                 SourceAvatar = renderContext.SourceAvatar,
-                ModelName = renderContext.ModelName,
-                CurrentClip = sourceClip
+                ModelName = renderContext.ModelName
             };
             float timelineFrameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(timelineContext);
             timelineSampleTime = KimodoTimelineConstraintClipCache.ResolveTimelineSampleTime(marker.time, timelineFrameRate);
-            float sourceClipTime = (float)KimodoMarkerSamplingUtility.ResolveSourceClipSampleTime(
-                clipRange,
-                timelineSampleTime);
-
-            if (!TryCaptureAnimationClipMuscleSample(
-                    sourceClip,
-                    renderContext.SourceAvatar,
-                    sourceClipTime,
-                    out currentClip,
-                    out currentClipScale,
-                    out error))
-            {
-                return false;
-            }
 
             if (!KimodoTimelinePoseSampler.TryCreate(
                     timelineContext,
@@ -1077,13 +1013,12 @@ namespace KimodoBridge.Editor
                         normalizeRootToAnchor: false,
                         Vector3.zero,
                         Quaternion.identity,
-                        out originalCharacter,
-                        out error,
-                        logDiagnostics: false))
+                        out timelinePose,
+                        out error))
                 {
                     return false;
                 }
-                originalCharacterScale = sampler.SourceHumanScale;
+                timelinePoseScale = sampler.SourceHumanScale;
             }
             finally
             {
@@ -1102,60 +1037,8 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            details = $"clip='{sourceClip.name}' sourceClipTime={sourceClipTime:R}s animator='{animator.name}' entry='{entryId ?? string.Empty}'";
+            details = $"timelinePoseClip=true animator='{animator.name}' entry='{entryId ?? string.Empty}'";
             return true;
-        }
-
-        private static bool TryCaptureAnimationClipMuscleSample(
-            AnimationClip sourceClip,
-            Avatar sourceAvatar,
-            float sourceClipTime,
-            out MuscleSample sample,
-            out float humanScale,
-            out string error)
-        {
-            sample = null;
-            humanScale = 0f;
-            error = string.Empty;
-            SkeletonCache sourceCache = null;
-            AnimationClip humanoidClip = null;
-            try
-            {
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
-                        sourceAvatar,
-                        "KimodoConstraintDrag_CurrentClip",
-                        out sourceCache,
-                        out error) ||
-                    !KimodoRetargetSamplingUtility.TryResolveSourceHumanoidClip(
-                        sourceClip,
-                        sourceAvatar,
-                        "KimodoConstraintDrag_CurrentClipSource",
-                        null,
-                        ref sourceCache,
-                        out humanoidClip,
-                        out error) ||
-                    !KimodoRetargetSamplingUtility.TrySampleTargetFromHumanoidClip(
-                        humanoidClip,
-                        sourceCache,
-                        Mathf.Clamp(sourceClipTime, 0f, humanoidClip.length),
-                        out _,
-                        out sample,
-                        out error))
-                {
-                    return false;
-                }
-
-                humanScale = sourceCache.humanScale;
-                return true;
-            }
-            finally
-            {
-                if (humanoidClip != null && !ReferenceEquals(humanoidClip, sourceClip))
-                {
-                    UnityEngine.Object.DestroyImmediate(humanoidClip);
-                }
-                sourceCache?.Dispose();
-            }
         }
 
         public static bool TryRenderMarkerToPoseCacheIfNeeded(KimodoConstraintMarkerBase marker, out string error)
@@ -1253,7 +1136,7 @@ namespace KimodoBridge.Editor
                 ? "Kimodo-SOMA-RP-v1"
                 : playableClip.bridgeModelName.Trim();
             KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(timelineClip, animator);
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, animator);
             if (!avatarResult.IsHumanoid || avatarResult.Avatar == null)
             {
                 error = $"Resolve source avatar failed: {avatarResult.Error}";
@@ -1547,6 +1430,8 @@ namespace KimodoBridge.Editor
                 HasRootHeading = source != null && source.hasRootHeading,
                 KimodoRootPosition = source != null ? source.kimodoRootPosition : default,
                 RootHeading = source != null ? source.rootHeading : default,
+                HasEndEffectorTargetPosition = source != null && source.hasEndEffectorTargetPosition,
+                EndEffectorTargetPositionRootLocal = source != null ? source.endEffectorTargetPositionRootLocal : default,
                 UnityRootPos = source != null ? source.unityRootPos : default,
                 UnityRootRot = source != null ? source.unityRootRot : default,
                 JointNames = CopyStringArray(source != null ? source.jointNames : null),
@@ -1571,6 +1456,8 @@ namespace KimodoBridge.Editor
                 snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&
                 Vector3Approximately(snapshot.KimodoRootPosition, sample != null ? sample.kimodoRootPosition : default) &&
                 Vector2Approximately(snapshot.RootHeading, sample != null ? sample.rootHeading : default) &&
+                snapshot.HasEndEffectorTargetPosition == (sample != null && sample.hasEndEffectorTargetPosition) &&
+                Vector3Approximately(snapshot.EndEffectorTargetPositionRootLocal, sample != null ? sample.endEffectorTargetPositionRootLocal : default) &&
                 Vector3Approximately(snapshot.UnityRootPos, sample != null ? sample.unityRootPos : default) &&
                 QuaternionApproximately(snapshot.UnityRootRot, sample != null ? sample.unityRootRot : default) &&
                 StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null) &&
@@ -1592,6 +1479,8 @@ namespace KimodoBridge.Editor
                 sample.hasRootHeading ? "1" : "0",
                 FormatVector3(sample.kimodoRootPosition),
                 FormatVector2(sample.rootHeading),
+                sample.hasEndEffectorTargetPosition ? "1" : "0",
+                FormatVector3(sample.endEffectorTargetPositionRootLocal),
                 BuildStringListSignature(sample.jointNames),
                 BuildVector3ListSignature(sample.localAxisAngles),
                 BuildIntListSignature(sample.sampledJointIndices));

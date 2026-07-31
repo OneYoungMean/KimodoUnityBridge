@@ -96,6 +96,8 @@ namespace KimodoBridge.Editor
                 Approximately(left.rootHeading, right.rootHeading) &&
                 Approximately(left.unityRootPos, right.unityRootPos) &&
                 Approximately(left.unityRootRot, right.unityRootRot) &&
+                left.hasEndEffectorTargetPosition == right.hasEndEffectorTargetPosition &&
+                Approximately(left.endEffectorTargetPositionRootLocal, right.endEffectorTargetPositionRootLocal) &&
                 StringListsEqual(left.jointNames, right.jointNames) &&
                 Vector3ListsEqual(left.localAxisAngles, right.localAxisAngles) &&
                 IntListsEqual(left.sampledJointIndices, right.sampledJointIndices);

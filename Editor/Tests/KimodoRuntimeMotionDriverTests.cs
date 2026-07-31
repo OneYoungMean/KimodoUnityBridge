@@ -135,14 +135,14 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void Root2DWorldTarget_ConvertsSceneDeltaToCharacterLocalOffset()
+        public void Root2DWorldTarget_ConvertsSceneDeltaToModelOffset()
         {
             Vector3 currentWorldPosition = new Vector3(10f, 1f, 20f);
             Quaternion worldRotation = Quaternion.Euler(0f, 90f, 0f);
             Vector3 expectedLocalOffset = new Vector3(2f, 0f, 3f);
             Vector3 targetWorldPosition = currentWorldPosition + worldRotation * expectedLocalOffset;
 
-            Vector2 actual = KimodoRuntimeMotionDriver.ResolveLocalRoot2DOffset(
+            Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DOffset(
                 currentWorldPosition,
                 worldRotation,
                 targetWorldPosition);
@@ -341,7 +341,8 @@ namespace KimodoBridge.Editor.Tests
                     ModelName = KimodoMotionModelProfiles.ArdyCoreModelName
                 },
                 KimodoInOutConstraintMode.None,
-                normalizeConstraintOrigin: true,
+                autoBeginAnchor: true,
+                deferNormalization: true,
                 enableIn: true,
                 enableOut: false,
                 generationFrames: 40,
@@ -351,7 +352,8 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(request.Mode, Is.EqualTo(KimodoInOutConstraintMode.None));
             Assert.That(request.EnableBegin, Is.False);
             Assert.That(request.EnableEnd, Is.False);
-            Assert.That(request.AllowNormalizeConstraintOrigin, Is.True);
+            Assert.That(request.AutoBeginAnchor, Is.True);
+            Assert.That(request.DeferNormalization, Is.True);
             Assert.That(request.ManualSamples, Has.Count.EqualTo(1));
         }
 
@@ -482,6 +484,43 @@ namespace KimodoBridge.Editor.Tests
 
             Assert.That(constraints[0]["global_root_heading"]?[0]?[0]?.Value<float>(), Is.EqualTo(1f));
             Assert.That(constraints[0]["global_root_heading"]?[0]?[1]?.Value<float>(), Is.EqualTo(0f));
+        }
+
+        [Test]
+        public void ConstraintJson_EndEffectorTargetUsesRootLocalPointAndKeepsLegacyFrames()
+        {
+            Quaternion rootRotation = Quaternion.Euler(0f, 90f, 0f);
+            var targeted = new KimodoMarkerSampleResult
+            {
+                constraintType = "left-hand",
+                sampleTime = 1.0,
+                kimodoRootPosition = new Vector3(1f, 2f, 3f),
+                hasEndEffectorTargetPosition = true,
+                endEffectorTargetPositionRootLocal = new Vector3(1f, 0.5f, 0f),
+                localAxisAngles = new List<Vector3>
+                {
+                    KimodoRuntimeUtility.QuaternionToAxisAngleVector(rootRotation)
+                }
+            };
+            var legacy = targeted.Clone();
+            legacy.sampleTime = 2.0;
+            legacy.hasEndEffectorTargetPosition = false;
+
+            JArray constraints = JArray.Parse(
+                KimodoConstraintJsonExporter.ToConstraintsJson(
+                    new[] { targeted, legacy },
+                    clipDurationSeconds: 4.0,
+                    exportFps: 30.0));
+
+            Vector3 unityTarget = targeted.kimodoRootPosition +
+                rootRotation * targeted.endEffectorTargetPositionRootLocal;
+            JToken positions = constraints[0]["target_positions"];
+            Assert.That(positions, Is.Not.Null);
+            Assert.That(((JArray)positions).Count, Is.EqualTo(2));
+            Assert.That(positions[0]?[0]?.Value<float>(), Is.EqualTo(-unityTarget.x).Within(1e-5f));
+            Assert.That(positions[0]?[1]?.Value<float>(), Is.EqualTo(unityTarget.y).Within(1e-5f));
+            Assert.That(positions[0]?[2]?.Value<float>(), Is.EqualTo(unityTarget.z).Within(1e-5f));
+            Assert.That(positions[1]?.Type, Is.EqualTo(JTokenType.Null));
         }
 
         [Test]
@@ -648,6 +687,53 @@ namespace KimodoBridge.Editor.Tests
             finally
             {
                 UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void TimelineOutputPlan_KeepsAvatarSnapshotAfterSourceContextIsGone()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+
+            KimodoPlayableClip playable = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            var generated = new AnimationClip();
+            try
+            {
+                playable.curveFilterOptions.positionError = 0.125f;
+                KimodoEditorGenerateOutputPlan snapshot =
+                    KimodoPlayableClipGenerationHostService.CaptureTimelineOutputPlan(
+                        playable,
+                        avatar,
+                        KimodoPlayableClip.DefaultBridgeModelName,
+                        bindingObject: null);
+                UnityEngine.Object.DestroyImmediate(playable);
+                playable = null;
+
+                KimodoEditorGenerateOutputPlan resolved =
+                    KimodoPlayableClipGenerationHostService.ResolveTimelineOutputPlan(
+                        snapshot,
+                        bindingObject: null,
+                        generated,
+                        KimodoPlayableClip.DefaultBridgeModelName);
+
+                Assert.That(resolved.TargetRetargetAvatar, Is.SameAs(avatar));
+                Assert.That(KimodoRetargetCoreUtility.IsValidHumanoid(resolved.OriginRetargetAvatar), Is.True);
+                Assert.That(resolved.CurveFilterOptions.positionError, Is.EqualTo(0.125f));
+                Assert.That(resolved.SkipRetarget, Is.False);
+            }
+            finally
+            {
+                if (playable != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(playable);
+                }
+                UnityEngine.Object.DestroyImmediate(generated);
             }
         }
 

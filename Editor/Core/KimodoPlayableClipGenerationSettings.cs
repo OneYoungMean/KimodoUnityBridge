@@ -25,6 +25,7 @@ namespace KimodoBridge.Editor
         [SerializeField] private KimodoTextEncoderMode defaultTextEncoderMode = KimodoTextEncoderMode.HighPerformance;
         [SerializeField] private float generationTimeoutSeconds = DefaultGenerationTimeoutSeconds;
         [SerializeField] private bool keepCpuForceExperimental;
+        [SerializeField] private bool writeResampledTimelineCacheClips;
         [SerializeField] private bool setupWizardCompleted;
         [SerializeField] private string quickServerPath = string.Empty;
         [SerializeField, HideInInspector] private bool advancedCurveFilterFoldout = true;
@@ -79,6 +80,12 @@ namespace KimodoBridge.Editor
                 keepCpuForceExperimental = value;
                 EditorPrefs.SetBool(KeepCpuForceEditorPrefsKey, value);
             }
+        }
+
+        internal bool WriteResampledTimelineCacheClips
+        {
+            get => writeResampledTimelineCacheClips;
+            set => writeResampledTimelineCacheClips = value;
         }
 
         internal float GenerationTimeoutSeconds

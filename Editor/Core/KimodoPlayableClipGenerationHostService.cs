@@ -6,6 +6,7 @@ using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
@@ -14,24 +15,15 @@ namespace KimodoBridge.Editor
     {
         private const string ReplaceTimelineAnimationUndoName = "Kimodo Replace Timeline Animation";
         private static readonly KimodoEditorConstraintProvider ConstraintProvider = new KimodoEditorConstraintProvider();
-        private static readonly HumanBodyBones[] FirstFrameDiagnosticBones =
-        {
-            HumanBodyBones.Hips,
-            HumanBodyBones.LeftFoot,
-            HumanBodyBones.RightFoot,
-            HumanBodyBones.LeftHand,
-            HumanBodyBones.RightHand,
-            HumanBodyBones.Head
-        };
-
         public static KimodoEditorGenerateRequest BuildRequest(
             KimodoPlayableClip clip,
             string prompt,
             KimodoExternalConstraintRequest externalConstraint,
             CancellationToken token,
-            bool? normalizeConstraintOriginOverride = null,
             int? effectiveSeedOverride = null,
-            bool disableTimelineInOut = false)
+            bool disableTimelineInOut = false,
+            bool deferConstraintNormalization = false,
+            bool enableAutoBeginAnchor = true)
         {
             if (clip == null)
             {
@@ -62,6 +54,7 @@ namespace KimodoBridge.Editor
             bool normalizeConstraintOriginApplied = false;
             KimodoConstraintNormalizationAnchorKind normalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.None;
             KimodoMarkerSampleResult normalizationAnchorSample = null;
+            KimodoMarkerSampleResult autoBeginAnchorSample = null;
             var constraintSamples = new List<KimodoMarkerSampleResult>();
             if (externalConstraint != null && externalConstraint.Enabled)
             {
@@ -78,10 +71,14 @@ namespace KimodoBridge.Editor
                 KimodoInOutConstraintResult constraintResult = ConstraintProvider.BuildConstraintDataOrThrow(
                     clip,
                     constraintFrames,
-                    normalizeConstraintOriginOverride,
-                    disableTimelineInOut);
+                    disableTimelineInOut,
+                    deferConstraintNormalization,
+                    enableAutoBeginAnchor);
                 constraintsJson = constraintResult.ConstraintsJson ?? string.Empty;
                 AppendSamples(constraintResult.CombinedSamples, constraintSamples);
+                autoBeginAnchorSample = constraintResult.AutoBeginAnchorSample != null
+                    ? constraintResult.AutoBeginAnchorSample.Clone()
+                    : null;
                 if (constraintResult.NormalizationInfo != null)
                 {
                     normalizeConstraintOriginApplied = constraintResult.NormalizationInfo.Applied;
@@ -117,6 +114,30 @@ namespace KimodoBridge.Editor
                 clip.seed = effectiveSeed;
                 EditorUtility.SetDirty(clip);
             }
+            GameObject outputBindingObject = ConstraintProvider.FindTimelineBindingObjectForAsset(clip);
+            PlayableDirector outputDirector = null;
+            TrackAsset outputTrack = timelineClip.GetParentTrack();
+            if (outputTrack != null)
+            {
+                KimodoInOutConstraintAdapter.TryResolveDirector(
+                    timelineClip,
+                    outputTrack,
+                    out outputDirector,
+                    out _);
+            }
+            PoseCacheRenderContext? outputPoseContext =
+                KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForPlayableClip(
+                    clip,
+                    out PoseCacheRenderContext capturedPoseContext,
+                    out _,
+                    out _)
+                        ? capturedPoseContext
+                        : null;
+            KimodoEditorGenerateOutputPlan outputPlanSnapshot = CaptureTimelineOutputPlan(
+                clip,
+                externalConstraint?.RetargetAvatar,
+                resolvedModelName,
+                outputBindingObject);
             return new KimodoEditorGenerateRequest
             {
                 Prompt = prompt,
@@ -132,17 +153,22 @@ namespace KimodoBridge.Editor
                 ConstraintsJson = constraintsJson,
                 CreateTargetClip = () => CreateTimelineTargetClip(clip),
                 ResolveOutputPlan = (generatedClip, modelName) => ResolveTimelineOutputPlan(
-                    clip,
+                    outputPlanSnapshot,
+                    outputBindingObject,
                     generatedClip,
-                    externalConstraint?.RetargetAvatar,
                     modelName),
+                OutputPlan = outputPlanSnapshot,
                 ModelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim() ?? string.Empty,
                 GenerationTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance.GenerationTimeoutSeconds,
                 Token = token,
                 NormalizeConstraintOriginApplied = normalizeConstraintOriginApplied,
                 NormalizationAnchorKind = normalizationAnchorKind,
                 NormalizationAnchorSample = normalizationAnchorSample,
+                AutoBeginAnchorSample = autoBeginAnchorSample,
                 ConstraintSamples = constraintSamples,
+                TimelineClipSnapshot = timelineClip,
+                TimelineDirectorSnapshot = outputDirector,
+                TimelinePoseContextSnapshot = outputPoseContext,
                 InitialArdyHistorySource = initialHistorySource,
                 DisableTimelineInOut = disableTimelineInOut
             };
@@ -158,7 +184,9 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            int undoGroup = BeginReplaceTimelineAnimationUndo(clip, out TimelineClip timelineClip);
+            TimelineClip timelineClip = request.TimelineClipSnapshot ??
+                KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
+            int undoGroup = BeginReplaceTimelineAnimationUndo(clip, timelineClip);
             try
             {
                 clip.clip = result.GeneratedClip;
@@ -170,7 +198,7 @@ namespace KimodoBridge.Editor
                 EditorUtility.SetDirty(clip);
                 EditorUtility.SetDirty(result.GeneratedClip);
                 result.ConstraintsPath = string.IsNullOrWhiteSpace(request.ConstraintsJson) ? "(none)" : "(inline-json)";
-                HandleGeneratedClipWritebackCompleted(clip, request, timelineClip);
+                HandleGeneratedClipWritebackCompleted(clip, request);
 
                 if (!KimodoEditorClipWritebackService.TryMaterializeGeneratedClipCache(
                         result.GeneratedClip,
@@ -243,275 +271,42 @@ namespace KimodoBridge.Editor
 
         private static void HandleGeneratedClipWritebackCompleted(
             KimodoPlayableClip playableClip,
-            KimodoEditorGenerateRequest request,
-            TimelineClip timelineClip)
+            KimodoEditorGenerateRequest request)
         {
             KimodoTimelinePreviewRefreshUtility.RefreshIfPreviewing();
-            ApplyTimelineOffsets(playableClip, request, timelineClip);
+            ApplyTimelineOffsets(playableClip, request);
         }
 
         private static void ApplyTimelineOffsets(
             KimodoPlayableClip playableClip,
-            KimodoEditorGenerateRequest request,
+            KimodoEditorGenerateRequest request)
+        {
+            if (playableClip == null || request?.ContinuousOffsetSourceClip == null)
+            {
+                return;
+            }
+
+            CopyClipOffset(request.ContinuousOffsetSourceClip, playableClip);
+            Debug.Log($"[Kimodo][TimelineOffset] copied continuous ARDY offset to '{playableClip.name}'.");
+        }
+
+        private static void CopyClipOffset(KimodoPlayableClip source, KimodoPlayableClip destination)
+        {
+            if (source == null || destination == null)
+            {
+                return;
+            }
+
+            destination.position = source.position;
+            destination.rotation = source.rotation;
+            destination.removeStartOffset = source.removeStartOffset;
+            EditorUtility.SetDirty(destination);
+        }
+
+        private static int BeginReplaceTimelineAnimationUndo(
+            KimodoPlayableClip playableClip,
             TimelineClip timelineClip)
         {
-            if (playableClip == null)
-            {
-                return;
-            }
-
-            if (request != null && request.DisableTimelineInOut)
-            {
-                ResetClipOffset(playableClip, removeStartOffset: false);
-                Debug.Log($"[Kimodo][TimelineOffset] using continuous ARDY stream root motion for '{playableClip.name}'.");
-                return;
-            }
-
-            if (request != null &&
-                (request.ConstraintSamples == null || request.ConstraintSamples.Count == 0))
-            {
-                ResetClipOffset(playableClip, removeStartOffset: false);
-                Debug.Log($"[Kimodo][TimelineOffset] no effective constraint anchor; using identity normalization for '{playableClip.name}'.");
-                return;
-            }
-
-            if (request != null && request.NormalizeConstraintOriginApplied)
-            {
-                Debug.Log(
-                    $"[Kimodo][TimelineOffset] normalizationApplied=true clip='{playableClip.name}' " +
-                    $"anchorKind={request.NormalizationAnchorKind} anchorType='{request.NormalizationAnchorSample?.constraintType ?? string.Empty}'");
-                if (!TryMatchNormalizedAnchorOnTargetAvatar(
-                        playableClip,
-                        request,
-                        timelineClip,
-                        out string error))
-                {
-                    throw new InvalidOperationException(
-                        $"Match normalized anchor on target Avatar failed for '{playableClip.name}': {error}");
-                }
-                return;
-            }
-            else
-            {
-                Debug.Log($"[Kimodo][TimelineOffset] normalizationApplied=false clip='{playableClip.name}'.");
-            }
-
-            TryMatchOffsetsToPreviousClip(playableClip, timelineClip);
-        }
-
-        private static bool TryMatchNormalizedAnchorOnTargetAvatar(
-            KimodoPlayableClip playableClip,
-            KimodoEditorGenerateRequest request,
-            TimelineClip timelineClip,
-            out string error)
-        {
-            error = string.Empty;
-            if (playableClip == null || request?.NormalizationAnchorSample == null || timelineClip == null)
-            {
-                error = "Playable clip, normalized anchor sample, or Timeline clip is missing.";
-                return false;
-            }
-
-            if (!KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForPlayableClip(
-                    playableClip,
-                    out PoseCacheRenderContext context,
-                    out _,
-                    out error))
-            {
-                return false;
-            }
-
-            var targetBonePositions = new Vector3[FirstFrameDiagnosticBones.Length];
-            var targetBoneRotations = new Quaternion[FirstFrameDiagnosticBones.Length];
-            var targetBoneValid = new bool[FirstFrameDiagnosticBones.Length];
-            Vector3 targetRootPosition = Vector3.zero;
-            Quaternion targetRootRotation = Quaternion.identity;
-            bool targetPoseCaptured = false;
-            Action<Animator, Transform> captureTargetPose = (animator, root) =>
-            {
-                if (animator == null || root == null)
-                {
-                    return;
-                }
-
-                targetRootPosition = root.position;
-                targetRootRotation = root.rotation;
-                for (int i = 0; i < FirstFrameDiagnosticBones.Length; i++)
-                {
-                    Transform bone = animator.GetBoneTransform(FirstFrameDiagnosticBones[i]);
-                    targetBoneValid[i] = bone != null;
-                    if (bone != null)
-                    {
-                        targetBonePositions[i] = bone.position;
-                        targetBoneRotations[i] = bone.rotation;
-                    }
-                }
-                targetPoseCaptured = true;
-            };
-
-            if (!KimodoConstraintPoseCache.TryResolveTargetHipsPose(
-                    context,
-                    request.NormalizationAnchorSample,
-                    out Vector3 targetHipsPosition,
-                    out Quaternion targetHipsRotation,
-                    out error,
-                    captureTargetPose))
-            {
-                return false;
-            }
-
-            ResetClipOffset(playableClip, removeStartOffset: false);
-            bool hasFullPose = request.NormalizationAnchorSample.localAxisAngles != null &&
-                request.NormalizationAnchorSample.localAxisAngles.Count > 0;
-            bool planarOnly = request.NormalizationAnchorKind == KimodoConstraintNormalizationAnchorKind.Root2D ||
-                !hasFullPose;
-            Action<Animator, Transform> logFirstFrameComparison = (animator, root) =>
-            {
-                if (!targetPoseCaptured || animator == null || root == null)
-                {
-                    Debug.LogWarning(
-                        $"[Kimodo][TimelineFirstFrameConstraintDiag] clip='{playableClip.name}' pose data is unavailable.");
-                    return;
-                }
-
-                var boneDiagnostics = new List<string>(FirstFrameDiagnosticBones.Length);
-                float maxPositionError = 0f;
-                float maxPlanarError = 0f;
-                HumanBodyBones maxPositionBone = HumanBodyBones.LastBone;
-                for (int i = 0; i < FirstFrameDiagnosticBones.Length; i++)
-                {
-                    HumanBodyBones boneId = FirstFrameDiagnosticBones[i];
-                    Transform actualBone = animator.GetBoneTransform(boneId);
-                    if (!targetBoneValid[i] || actualBone == null)
-                    {
-                        boneDiagnostics.Add($"{boneId}[missing]");
-                        continue;
-                    }
-
-                    float positionError = Vector3.Distance(targetBonePositions[i], actualBone.position);
-                    float planarError = Vector2.Distance(
-                        new Vector2(targetBonePositions[i].x, targetBonePositions[i].z),
-                        new Vector2(actualBone.position.x, actualBone.position.z));
-                    if (positionError > maxPositionError)
-                    {
-                        maxPositionError = positionError;
-                        maxPositionBone = boneId;
-                    }
-                    maxPlanarError = Mathf.Max(maxPlanarError, planarError);
-                    boneDiagnostics.Add(
-                        $"{boneId}[targetPos={targetBonePositions[i]:F6},actualPos={actualBone.position:F6}," +
-                        $"posError={positionError:F6},xzError={planarError:F6}," +
-                        $"rotErrorDeg={Quaternion.Angle(targetBoneRotations[i], actualBone.rotation):F6}]");
-                }
-
-                string boneSummary = string.Join(";", boneDiagnostics);
-                Debug.Log(
-                    $"[Kimodo][TimelineFirstFrameConstraintDiag] clip='{playableClip.name}' " +
-                    $"sampleTime={timelineClip.start + 0.00001d:F6} anchorKind={request.NormalizationAnchorKind} " +
-                    $"rootTargetPos={targetRootPosition:F6} rootActualPos={root.position:F6} " +
-                    $"rootPosError={Vector3.Distance(targetRootPosition, root.position):F6} " +
-                    $"rootRotErrorDeg={Quaternion.Angle(targetRootRotation, root.rotation):F6} " +
-                    $"maxBonePosError={maxPositionError:F6} maxBone={maxPositionBone} " +
-                    $"maxBoneXZError={maxPlanarError:F6} bones={boneSummary}");
-            };
-            if (!KimodoTimelinePreviewRefreshUtility.TimelineMatchClipToWorldHips(
-                    timelineClip,
-                    targetHipsPosition,
-                    targetHipsRotation,
-                    planarOnly,
-                    out error,
-                    logFirstFrameComparison))
-            {
-                return false;
-            }
-
-            Debug.Log(
-                $"[Kimodo][TimelineOffset] matched normalized anchor on target Avatar Hips for '{playableClip.name}'.");
-            EditorUtility.SetDirty(playableClip);
-            if (timelineClip.GetParentTrack() != null)
-            {
-                EditorUtility.SetDirty(timelineClip.GetParentTrack());
-            }
-            if (TimelineEditor.inspectedAsset != null)
-            {
-                EditorUtility.SetDirty(TimelineEditor.inspectedAsset);
-            }
-            return true;
-        }
-
-        private static void TryMatchOffsetsToPreviousClip(KimodoPlayableClip playableClip, TimelineClip timelineClip)
-        {
-            if (playableClip == null ||
-                playableClip.inOutConstraintMode != KimodoInOutConstraintMode.Outside ||
-                !playableClip.enableInConstraint)
-            {
-                return;
-            }
-
-            if (TimelineEditor.inspectedDirector == null)
-            {
-                Debug.LogWarning($"[Kimodo][TimelineOffset] skipped for '{playableClip.name}': Timeline inspected director is null.");
-                return;
-            }
-
-            if (timelineClip == null)
-            {
-                Debug.LogWarning($"[Kimodo][TimelineOffset] skipped for '{playableClip.name}': timeline clip not found.");
-                return;
-            }
-
-            if (!KimodoInOutConstraintAdapter.HasPreviousNeighbor(timelineClip))
-            {
-                Debug.LogWarning($"[Kimodo][TimelineOffset] skipped for '{playableClip.name}': no previous neighbor clip.");
-                return;
-            }
-
-            if (!KimodoTimelinePreviewRefreshUtility.TimelineMatchClipsToPrevious(timelineClip,out string error))
-            {
-                throw new InvalidOperationException(
-                    $"Match Offsets to Previous Clip failed for '{playableClip.name}': {error}");
-            }
-
-            Debug.Log($"[Kimodo][TimelineOffset] matched previous offsets for '{playableClip.name}'.");
-            EditorUtility.SetDirty(playableClip);
-            if (timelineClip.GetParentTrack() != null)
-            {
-                EditorUtility.SetDirty(timelineClip.GetParentTrack());
-            }
-
-            if (TimelineEditor.inspectedAsset != null)
-            {
-                EditorUtility.SetDirty(TimelineEditor.inspectedAsset);
-            }
-        }
-
-        private static void ResetClipOffset(KimodoPlayableClip playableClip, bool removeStartOffset)
-        {
-            playableClip.removeStartOffset = removeStartOffset;
-            var serializedObject = new SerializedObject(playableClip);
-            SerializedProperty positionProperty = serializedObject.FindProperty("m_Position");
-            SerializedProperty eulerAnglesProperty = serializedObject.FindProperty("m_EulerAngles");
-            SerializedProperty rotationProperty = serializedObject.FindProperty("m_Rotation");
-            if (positionProperty != null)
-            {
-                positionProperty.vector3Value = Vector3.zero;
-            }
-            if (eulerAnglesProperty != null)
-            {
-                eulerAnglesProperty.vector3Value = Vector3.zero;
-            }
-            if (rotationProperty != null)
-            {
-                rotationProperty.quaternionValue = Quaternion.identity;
-            }
-            serializedObject.ApplyModifiedPropertiesWithoutUndo();
-            EditorUtility.SetDirty(playableClip);
-        }
-
-        private static int BeginReplaceTimelineAnimationUndo(KimodoPlayableClip playableClip, out TimelineClip timelineClip)
-        {
-            timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(playableClip);
-
             Undo.IncrementCurrentGroup();
             int undoGroup = Undo.GetCurrentGroup();
             Undo.SetCurrentGroupName(ReplaceTimelineAnimationUndoName);
@@ -563,11 +358,11 @@ namespace KimodoBridge.Editor
             return $"{(isArdy ? "ARDY" : "Kimodo")}_Playable_{timestamp:yyyyMMdd_HHmmss_fff}";
         }
 
-        private static KimodoEditorGenerateOutputPlan ResolveTimelineOutputPlan(
+        internal static KimodoEditorGenerateOutputPlan CaptureTimelineOutputPlan(
             KimodoPlayableClip clip,
-            AnimationClip generatedClip,
             Avatar explicitRetargetAvatar,
-            string modelName)
+            string modelName,
+            GameObject bindingObject)
         {
             if (clip == null)
             {
@@ -576,27 +371,57 @@ namespace KimodoBridge.Editor
 
             string resolvedModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
             Avatar originRetargetAvatar = ResolveOriginRetargetAvatar(resolvedModelName);
-            Avatar targetRetargetAvatar = ResolveTargetRetargetAvatar(clip, explicitRetargetAvatar, out bool hasBindingAvatar);
+            Avatar targetRetargetAvatar = ResolveTargetRetargetAvatar(
+                clip,
+                explicitRetargetAvatar,
+                bindingObject,
+                out bool hasBindingAvatar);
             bool hasValidRetargetAvatar =
                 KimodoRetargetCoreUtility.IsValidHumanoid(originRetargetAvatar) &&
                 hasBindingAvatar &&
                 KimodoRetargetCoreUtility.IsValidHumanoid(targetRetargetAvatar);
-            GameObject bindingObject = ConstraintProvider.FindTimelineBindingObjectForAsset(clip);
+
+            return new KimodoEditorGenerateOutputPlan
+            {
+                OriginRetargetAvatar = originRetargetAvatar,
+                TargetRetargetAvatar = targetRetargetAvatar,
+                ExportMuscleClip = hasValidRetargetAvatar && TryResolveBindingAnimatorAvatar(bindingObject, out _),
+                CurveFilterOptions = CloneCurveFilterOptions(clip.curveFilterOptions),
+                SkipRetarget = false
+            };
+        }
+
+        internal static KimodoEditorGenerateOutputPlan ResolveTimelineOutputPlan(
+            KimodoEditorGenerateOutputPlan snapshot,
+            GameObject bindingObject,
+            AnimationClip generatedClip,
+            string modelName)
+        {
+            if (snapshot == null)
+            {
+                throw new InvalidOperationException("Timeline output plan snapshot is null.");
+            }
+
+            string resolvedModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
             bool canSkipRetarget =
                 bindingObject != null &&
                 KimodoEditorClipUtility.CanApplyClipDirectlyToProfileSkeleton(generatedClip, bindingObject, resolvedModelName, out _);
 
             return new KimodoEditorGenerateOutputPlan
             {
-                OriginRetargetAvatar = originRetargetAvatar,
-                TargetRetargetAvatar = targetRetargetAvatar,
-                ExportMuscleClip = hasValidRetargetAvatar && TryResolveBindingAnimatorAvatar(clip, out _),
-                CurveFilterOptions = clip.curveFilterOptions,
+                OriginRetargetAvatar = snapshot.OriginRetargetAvatar,
+                TargetRetargetAvatar = snapshot.TargetRetargetAvatar,
+                ExportMuscleClip = snapshot.ExportMuscleClip,
+                CurveFilterOptions = snapshot.CurveFilterOptions,
                 SkipRetarget = canSkipRetarget
             };
         }
 
-        private static Avatar ResolveTargetRetargetAvatar(KimodoPlayableClip clip, Avatar explicitRetargetAvatar, out bool hasBindingAvatar)
+        private static Avatar ResolveTargetRetargetAvatar(
+            KimodoPlayableClip clip,
+            Avatar explicitRetargetAvatar,
+            GameObject bindingObject,
+            out bool hasBindingAvatar)
         {
             hasBindingAvatar = false;
             if (explicitRetargetAvatar != null && explicitRetargetAvatar.isValid && explicitRetargetAvatar.isHuman)
@@ -605,7 +430,6 @@ namespace KimodoBridge.Editor
                 return explicitRetargetAvatar;
             }
 
-            GameObject bindingObject = ConstraintProvider.FindTimelineBindingObjectForAsset(clip);
             if (bindingObject != null)
             {
                 KimodoLocalAvatarUtility.AvatarResolveResult result = KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(bindingObject);
@@ -625,10 +449,9 @@ namespace KimodoBridge.Editor
             return null;
         }
 
-        private static bool TryResolveBindingAnimatorAvatar(KimodoPlayableClip clip, out Avatar avatar)
+        private static bool TryResolveBindingAnimatorAvatar(GameObject bindingObject, out Avatar avatar)
         {
             avatar = null;
-            GameObject bindingObject = ConstraintProvider.FindTimelineBindingObjectForAsset(clip);
             if (bindingObject == null)
             {
                 return false;
@@ -647,6 +470,19 @@ namespace KimodoBridge.Editor
 
             avatar = result.Avatar;
             return true;
+        }
+
+        private static KimodoCurveFilterOptions CloneCurveFilterOptions(KimodoCurveFilterOptions source)
+        {
+            source ??= new KimodoCurveFilterOptions();
+            return new KimodoCurveFilterOptions
+            {
+                enabled = source.enabled,
+                positionError = source.positionError,
+                rotationError = source.rotationError,
+                floatError = source.floatError,
+                ensureQuaternionContinuity = source.ensureQuaternionContinuity
+            };
         }
 
         private static int ResolveEffectiveSeed(KimodoPlayableClip clip)

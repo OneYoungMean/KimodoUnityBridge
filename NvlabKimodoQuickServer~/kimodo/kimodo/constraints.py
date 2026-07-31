@@ -494,13 +494,37 @@ class EndEffectorConstraintSet:
             local_rot_mats,
             torch.tensor(dico["root_positions"], device=device),
         )
+
+        kwargs = {}
+        joint_names = getattr(cls, "joint_names", None)
+        if joint_names is None:
+            joint_names = dico["joint_names"]
+            kwargs["joint_names"] = joint_names
+
+        target_positions = dico.get("target_positions")
+        if target_positions is not None:
+            if len(target_positions) != len(frame_indices):
+                raise ValueError("target_positions must match frame_indices length")
+            _, position_joint_names = skeleton.expand_joint_names(joint_names)
+            if not position_joint_names:
+                raise ValueError("end-effector target has no position joint")
+            target_joint_index = skeleton.bone_index[position_joint_names[0]]
+            global_joints_positions = global_joints_positions.clone()
+            for frame, target_position in enumerate(target_positions):
+                if target_position is None:
+                    continue
+                target = torch.as_tensor(
+                    target_position,
+                    device=global_joints_positions.device,
+                    dtype=global_joints_positions.dtype,
+                )
+                if target.shape != (3,) or not torch.isfinite(target).all():
+                    raise ValueError("target_positions entries must be finite xyz vectors")
+                global_joints_positions[frame, target_joint_index] = target
+
         smooth_root_2d = None
         if "smooth_root_2d" in dico:
             smooth_root_2d = torch.tensor(dico["smooth_root_2d"], device=device)
-
-        kwargs = {}
-        if not hasattr(cls, "joint_names"):
-            kwargs["joint_names"] = dico["joint_names"]
 
         return cls(
             skeleton,

@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using NUnit.Framework;
 using TimelineInject;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
@@ -268,7 +269,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ResolveTimelineSourceAvatar_PrefersClipCustomAvatarWhenBindingAnimatorAvatarIsNull()
+        public void ResolveTimelineSourceAvatar_UsesFirstTrackClipCustomAvatarWhenBindingAnimatorAvatarIsNull()
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
@@ -295,11 +296,11 @@ namespace KimodoBridge.Editor.Tests
                 ((KimodoPlayableClip)timelineClip.asset).CustomRetargetAvatar = avatar;
 
                 KimodoLocalAvatarUtility.AvatarResolveResult result =
-                    KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(timelineClip, source.animator);
+                    KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, source.animator);
 
                 Assert.That(result.Avatar, Is.SameAs(avatar));
                 Assert.That(result.IsHumanoid, Is.True);
-                Assert.That(result.Source, Is.EqualTo("Clip"));
+                Assert.That(result.Source, Is.EqualTo("TrackFirstClip"));
                 Assert.That(result.Error, Is.Empty);
             }
             finally
@@ -310,7 +311,175 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelinePoseSampler_WithNullBindingAvatar_SamplesChangingTimelineMuscles()
+        public void ResolveTimelineSourceAvatar_IgnoresLaterClipCustomAvatar()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoTrackFirstAvatarTest",
+                    out SkeletonCache source,
+                    out error),
+                Is.True,
+                error);
+
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>();
+                TimelineClip first = track.CreateClip<AnimationPlayableAsset>();
+                first.start = 0.0;
+                TimelineClip later = track.CreateClip<KimodoPlayableClip>();
+                later.start = 1.0;
+                ((KimodoPlayableClip)later.asset).CustomRetargetAvatar = avatar;
+
+                KimodoLocalAvatarUtility.AvatarResolveResult result =
+                    KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, source.animator);
+
+                Assert.That(result.Avatar, Is.SameAs(avatar));
+                Assert.That(result.IsHumanoid, Is.True);
+                Assert.That(result.Source, Is.EqualTo("Animator"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+                source.Dispose();
+            }
+        }
+
+        [Test]
+        public void TransientBonePoseClip_PreservesRootTransformCurves()
+        {
+            var first = new BoneSample
+            {
+                boneNames = new[] { string.Empty },
+                localPositions = new[] { new Vector3(1f, 2f, 3f) },
+                localRotations = new[] { Quaternion.Euler(0f, 10f, 0f) }
+            };
+            var second = new BoneSample
+            {
+                boneNames = first.boneNames,
+                localPositions = new[] { new Vector3(4f, 5f, 6f) },
+                localRotations = new[] { Quaternion.Euler(0f, 40f, 0f) }
+            };
+            AnimationClip clip = null;
+            try
+            {
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
+                        new[] { first, second },
+                        30f,
+                        out clip,
+                        out string error),
+                    Is.True,
+                    error);
+
+                AnimationCurve x = AnimationUtility.GetEditorCurve(
+                    clip,
+                    EditorCurveBinding.FloatCurve(string.Empty, typeof(Transform), "m_LocalPosition.x"));
+                AnimationCurve qy = AnimationUtility.GetEditorCurve(
+                    clip,
+                    EditorCurveBinding.FloatCurve(string.Empty, typeof(Transform), "m_LocalRotation.y"));
+                AnimationCurve motionTx = AnimationUtility.GetEditorCurve(
+                    clip,
+                    EditorCurveBinding.FloatCurve(string.Empty, typeof(Animator), "MotionT.x"));
+                AnimationCurve motionQy = AnimationUtility.GetEditorCurve(
+                    clip,
+                    EditorCurveBinding.FloatCurve(string.Empty, typeof(Animator), "MotionQ.y"));
+                Assert.That(x, Is.Not.Null);
+                Assert.That(qy, Is.Not.Null);
+                Assert.That(motionTx, Is.Null);
+                Assert.That(motionQy, Is.Null);
+                Assert.That(x.Evaluate(0f), Is.EqualTo(first.localPositions[0].x).Within(1e-5f));
+                Assert.That(x.Evaluate(1f / 30f), Is.EqualTo(second.localPositions[0].x).Within(1e-5f));
+                Assert.That(qy.Evaluate(0f), Is.EqualTo(first.localRotations[0].y).Within(1e-5f));
+                Assert.That(qy.Evaluate(1f / 30f), Is.EqualTo(second.localRotations[0].y).Within(1e-5f));
+            }
+            finally
+            {
+                if (clip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(clip);
+                }
+            }
+        }
+
+        [Test]
+        public void BatchRetargetMuscleSamples_PreservesSampleOrder()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoBatchRetargetTest",
+                    out SkeletonCache cache,
+                    out error),
+                Is.True,
+                error);
+
+            try
+            {
+                var firstPose = new HumanPose();
+                cache.poseHandler.GetHumanPose(ref firstPose);
+                var secondPose = new HumanPose
+                {
+                    bodyPosition = firstPose.bodyPosition + new Vector3(0.2f, 0f, 0.1f) / cache.humanScale,
+                    bodyRotation = Quaternion.Euler(0f, 25f, 0f) * firstPose.bodyRotation,
+                    muscles = (float[])firstPose.muscles.Clone()
+                };
+                secondPose.muscles[0] = Mathf.Clamp(firstPose.muscles[0] + 0.35f, -1f, 1f);
+                MuscleSample[] sourceSamples =
+                {
+                    KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, firstPose),
+                    KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, secondPose)
+                };
+                int writebackCount = 0;
+                string writebackLabel = string.Empty;
+
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryRetargetMuscleSamplesToBoneSamples(
+                        sourceSamples,
+                        30f,
+                        cache,
+                        out BoneSample[] samples,
+                        out error,
+                        (clip, label) =>
+                        {
+                            writebackCount++;
+                            writebackLabel = label;
+                            return clip != null ? string.Empty : "clip is null";
+                        }),
+                    Is.True,
+                    error);
+                Assert.That(writebackCount, Is.EqualTo(1));
+                Assert.That(writebackLabel, Is.EqualTo("MuscleClip"));
+                Assert.That(samples, Has.Length.EqualTo(2));
+                Assert.That(samples[0].IsValid, Is.True);
+                Assert.That(samples[1].IsValid, Is.True);
+                Assert.That(
+                    Vector3.Distance(samples[0].localPositions[0], samples[1].localPositions[0]),
+                    Is.GreaterThan(0.05f));
+            }
+            finally
+            {
+                cache.Dispose();
+            }
+        }
+
+        [Test]
+        public void TimelinePoseSampler_WithNullBindingAvatar_SamplesChangingBoneClipSpineMuscle()
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
@@ -329,45 +498,50 @@ namespace KimodoBridge.Editor.Tests
                 error);
 
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            var muscleClip = new AnimationClip { frameRate = 30f };
+            var boneClip = new AnimationClip { frameRate = 30f };
             var directorRoot = new GameObject("KimodoTimelineAvatarlessDirector");
             KimodoTimelinePoseSampler sampler = null;
             try
             {
-                const int muscleIndex = 21;
-                var poses = new HumanPose[3];
-                for (int i = 0; i < poses.Length; i++)
+                const int muscleIndex = 0;
+                Transform spine = source.animator.GetBoneTransform(HumanBodyBones.Spine);
+                Assert.That(spine, Is.Not.Null);
+                var baselinePose = new HumanPose();
+                source.poseHandler.GetHumanPose(ref baselinePose);
+                Vector3 baselineBodyPosition = baselinePose.bodyPosition * source.humanScale;
+                Quaternion baselineBodyRotation = baselinePose.bodyRotation;
+                string spinePath = AnimationUtility.CalculateTransformPath(spine, source.animator.transform);
+                Quaternion bindRotation = spine.localRotation;
+                Quaternion sampledRotation = bindRotation * Quaternion.Euler(30f, 0f, 0f);
+                float[] bindValues = { bindRotation.x, bindRotation.y, bindRotation.z, bindRotation.w };
+                float[] sampledValues = { sampledRotation.x, sampledRotation.y, sampledRotation.z, sampledRotation.w };
+                string[] properties =
                 {
-                    poses[i] = new HumanPose
-                    {
-                        bodyPosition = Vector3.zero,
-                        bodyRotation = Quaternion.identity,
-                        muscles = new float[HumanTrait.MuscleCount]
-                    };
-                }
-                poses[1].muscles[muscleIndex] = 0.75f;
-                var samples = new MuscleSample[poses.Length];
-                for (int i = 0; i < samples.Length; i++)
+                    "m_LocalRotation.x",
+                    "m_LocalRotation.y",
+                    "m_LocalRotation.z",
+                    "m_LocalRotation.w"
+                };
+                for (int i = 0; i < properties.Length; i++)
                 {
-                    samples[i] = new MuscleSample
-                    {
-                        pose = poses[i],
-                        leftFootRotation = Quaternion.identity,
-                        rightFootRotation = Quaternion.identity,
-                        leftHandRotation = Quaternion.identity,
-                        rightHandRotation = Quaternion.identity
-                    };
+                    AnimationUtility.SetEditorCurve(
+                        boneClip,
+                        EditorCurveBinding.FloatCurve(spinePath, typeof(Transform), properties[i]),
+                        new AnimationCurve(
+                            new Keyframe(0f, bindValues[i]),
+                            new Keyframe(1f / 30f, sampledValues[i]),
+                            new Keyframe(2f / 30f, sampledValues[i])));
                 }
-                Assert.That(
-                    KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(samples, muscleClip, out error),
-                    Is.True,
-                    error);
+                boneClip.EnsureQuaternionContinuity();
 
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                track.trackOffset = TrackOffset.ApplyTransformOffsets;
+                track.position = new Vector3(0.25f, 1f, -0.4f);
+                track.rotation = Quaternion.Euler(0f, 35f, 0f);
                 TimelineClip timelineClip = track.CreateClip<AnimationPlayableAsset>();
-                ((AnimationPlayableAsset)timelineClip.asset).clip = muscleClip;
+                ((AnimationPlayableAsset)timelineClip.asset).clip = boneClip;
                 timelineClip.start = 0.0;
-                timelineClip.duration = muscleClip.length;
+                timelineClip.duration = boneClip.length;
 
                 PlayableDirector director = directorRoot.AddComponent<PlayableDirector>();
                 director.timeUpdateMode = DirectorUpdateMode.Manual;
@@ -386,8 +560,7 @@ namespace KimodoBridge.Editor.Tests
                     Director = director,
                     Animator = source.animator,
                     SourceAvatar = avatar,
-                    ModelName = KimodoPlayableClip.DefaultBridgeModelName,
-                    CurrentClip = muscleClip
+                    ModelName = KimodoPlayableClip.DefaultBridgeModelName
                 };
                 Assert.That(
                     KimodoTimelinePoseSampler.TryCreate(
@@ -397,6 +570,12 @@ namespace KimodoBridge.Editor.Tests
                         out error),
                     Is.True,
                     error);
+                Assert.That(source.animator.avatar, Is.Null, "Timeline sampling must not mutate the binding Animator Avatar.");
+                var sourceIntermediate = (SkeletonCache)typeof(KimodoTimelinePoseSampler)
+                    .GetField("sourceSamplingCache", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?.GetValue(sampler);
+                Assert.That(sourceIntermediate, Is.Not.Null);
+                Assert.That(sourceIntermediate.avatar, Is.SameAs(avatar));
                 Assert.That(
                     sampler.TryCaptureMuscleSample(
                         0.0,
@@ -404,10 +583,15 @@ namespace KimodoBridge.Editor.Tests
                         Vector3.zero,
                         Quaternion.identity,
                         out MuscleSample first,
-                        out error,
-                        logDiagnostics: false),
+                        out error),
                     Is.True,
                     error);
+                Vector3 expectedBodyPosition = track.position + track.rotation * baselineBodyPosition;
+                Quaternion expectedBodyRotation = track.rotation * baselineBodyRotation;
+                Assert.That(
+                    Vector3.Distance(first.pose.bodyPosition * sampler.SourceHumanScale, expectedBodyPosition),
+                    Is.LessThan(1e-3f));
+                Assert.That(Quaternion.Angle(first.pose.bodyRotation, expectedBodyRotation), Is.LessThan(0.1f));
                 Assert.That(
                     sampler.TryCaptureMuscleSample(
                         1.0 / 30.0,
@@ -415,17 +599,20 @@ namespace KimodoBridge.Editor.Tests
                         Vector3.zero,
                         Quaternion.identity,
                         out MuscleSample second,
-                        out error,
-                        logDiagnostics: false),
+                        out error),
                     Is.True,
                     error);
                 Assert.That(
                     Mathf.Abs(second.pose.muscles[muscleIndex] - first.pose.muscles[muscleIndex]),
-                    Is.GreaterThan(0.25f));
+                    Is.GreaterThan(0.1f));
+                Assert.That(Quaternion.Angle(spine.localRotation, sampledRotation), Is.LessThan(1f));
+                Assert.That(source.animator.avatar, Is.Null, "Timeline sampling must leave the binding Animator Avatar unchanged.");
 
                 sampler.Dispose();
                 sampler = null;
+                Assert.That(sourceIntermediate.root, Is.Null, "The virtual source skeleton must be disposed with the sampler.");
                 Assert.That(source.animator.avatar, Is.Null);
+                Assert.That(director.GetGenericBinding(track), Is.SameAs(source.animator));
             }
             finally
             {
@@ -433,7 +620,7 @@ namespace KimodoBridge.Editor.Tests
                 source.Dispose();
                 UnityEngine.Object.DestroyImmediate(directorRoot);
                 UnityEngine.Object.DestroyImmediate(timeline);
-                UnityEngine.Object.DestroyImmediate(muscleClip);
+                UnityEngine.Object.DestroyImmediate(boneClip);
             }
         }
 
@@ -498,6 +685,41 @@ namespace KimodoBridge.Editor.Tests
                 target.transform.position += Vector3.right * 0.05f;
                 Assert.That(KimodoConstraintPoseCache.HasAnyTransformChanges(context, entryId), Is.True);
 
+                Vector3 draggedWorldPosition = target.transform.position;
+                Assert.That(
+                    KimodoConstraintPoseCache.TryBuildSampleFromContext(
+                        context,
+                        entryId,
+                        "left-hand",
+                        0.0,
+                        out KimodoMarkerSampleResult draggedSample,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(draggedSample.hasEndEffectorTargetPosition, Is.True);
+                Vector3 rootAxisAngle = draggedSample.localAxisAngles[0];
+                Quaternion rootRotation = rootAxisAngle.sqrMagnitude > 1e-12f
+                    ? Quaternion.AngleAxis(
+                        rootAxisAngle.magnitude * Mathf.Rad2Deg,
+                        rootAxisAngle.normalized)
+                    : Quaternion.identity;
+                Vector3 rebuiltWorldPosition = draggedSample.kimodoRootPosition +
+                    rootRotation * draggedSample.endEffectorTargetPositionRootLocal;
+                Assert.That(Vector3.Distance(rebuiltWorldPosition, draggedWorldPosition), Is.LessThan(1e-4f));
+
+                Assert.That(
+                    KimodoConstraintPoseCache.TryUpdateEndEffectorTarget(
+                        context,
+                        entryId,
+                        "left-hand",
+                        draggedSample),
+                    Is.True);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject rebuiltTarget),
+                    Is.True);
+                Assert.That(rebuiltTarget, Is.SameAs(target));
+                Assert.That(Vector3.Distance(rebuiltTarget.transform.position, draggedWorldPosition), Is.LessThan(1e-4f));
+
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: false);
                 Assert.That((target.hideFlags & HideFlags.NotEditable) != 0, Is.True);
             }
@@ -509,40 +731,6 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineMatchPrevious_UsesHumanoidHipsAsMatchPoint()
-        {
-            Assert.That(
-                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
-                    out Avatar avatar,
-                    out string error),
-                Is.True,
-                error);
-            Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
-                    avatar,
-                    "KimodoTimelineMatchHipsTest",
-                    out SkeletonCache cache,
-                    out error),
-                Is.True,
-                error);
-
-            try
-            {
-                MethodInfo resolve = typeof(KimodoTimelinePreviewRefreshUtility).GetMethod(
-                    "ResolveHumanoidHipsMatchPoint",
-                    BindingFlags.NonPublic | BindingFlags.Static);
-                Assert.That(resolve, Is.Not.Null);
-                Transform hips = resolve.Invoke(null, new object[] { cache.animator.gameObject }) as Transform;
-                Assert.That(hips, Is.SameAs(cache.animator.GetBoneTransform(HumanBodyBones.Hips)));
-            }
-            finally
-            {
-                cache.Dispose();
-            }
-        }
-
-        [Test]
         public void ArdyHistoryRange_UsesHalfOpenTimelineSamples()
         {
             double latest = ArdyEditorHistoryEncoder.ResolveLatestHistorySampleTime(2.0, 10.0, 20.0);
@@ -550,6 +738,52 @@ namespace KimodoBridge.Editor.Tests
                 latest,
                 Is.EqualTo(9.95).Within(1e-9));
             Assert.That(latest - 159.0 / 20.0, Is.EqualTo(2.0).Within(1e-9));
+        }
+
+        [Test]
+        public void GeneratedWriteback_PreservesClipOffsetExceptForContinuousCopy()
+        {
+            var source = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            var destination = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            try
+            {
+                MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
+                    "ApplyTimelineOffsets",
+                    BindingFlags.NonPublic | BindingFlags.Static);
+                Assert.That(apply, Is.Not.Null);
+
+                Vector3 originalPosition = new Vector3(1f, 2f, 3f);
+                Quaternion originalRotation = Quaternion.Euler(10f, 20f, 30f);
+                destination.position = originalPosition;
+                destination.rotation = originalRotation;
+                destination.removeStartOffset = true;
+
+                apply.Invoke(null, new object[] { destination, new KimodoEditorGenerateRequest() });
+
+                Assert.That(Vector3.Distance(destination.position, originalPosition), Is.LessThan(1e-5f));
+                Assert.That(Quaternion.Angle(destination.rotation, originalRotation), Is.LessThan(1e-4f));
+                Assert.That(destination.removeStartOffset, Is.True);
+
+                source.position = new Vector3(-4f, 5f, 6f);
+                source.rotation = Quaternion.Euler(-15f, 40f, 5f);
+                source.removeStartOffset = false;
+                apply.Invoke(
+                    null,
+                    new object[]
+                    {
+                        destination,
+                        new KimodoEditorGenerateRequest { ContinuousOffsetSourceClip = source }
+                    });
+
+                Assert.That(Vector3.Distance(destination.position, source.position), Is.LessThan(1e-5f));
+                Assert.That(Quaternion.Angle(destination.rotation, source.rotation), Is.LessThan(1e-4f));
+                Assert.That(destination.removeStartOffset, Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(source);
+                UnityEngine.Object.DestroyImmediate(destination);
+            }
         }
 
         [Test]
@@ -661,6 +895,88 @@ namespace KimodoBridge.Editor.Tests
             }
             finally
             {
+                cache.Dispose();
+            }
+        }
+
+        [Test]
+        public void MuscleClipGraph_UsesMotionXAbsoluteRootWithoutManualRestore()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoTimelineHumanPoseRootTest",
+                    out SkeletonCache cache,
+                    out error),
+                Is.True,
+                error);
+
+            AnimationClip clip = null;
+            KimodoRetargetClipSamplingUtility.ClipSamplingContext graph = null;
+            try
+            {
+                var pose = new HumanPose();
+                cache.poseHandler.GetHumanPose(ref pose);
+                pose.bodyPosition += new Vector3(0.25f, 1f, -0.4f) / cache.humanScale;
+                pose.bodyRotation = Quaternion.Euler(0f, 35f, 0f) * pose.bodyRotation;
+                MuscleSample sample = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, pose);
+
+                cache.skeletonRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+                HumanPose directPose = sample.pose;
+                cache.poseHandler.SetHumanPose(ref directPose);
+                Assert.That(
+                    KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
+                        KimodoPlayableClip.DefaultBridgeModelName,
+                        cache,
+                        out _,
+                        out _,
+                        out Transform[] joints,
+                        out error),
+                    Is.True,
+                    error);
+                Vector3 directRootPosition = joints[0].position;
+                Quaternion directRootRotation = joints[0].rotation;
+
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
+                        new[] { sample, sample },
+                        KimodoPlayableClip.FIXED_FRAME_RATE,
+                        out clip,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+                        clip,
+                        cache,
+                        "KimodoTimelineHumanPoseRootGraph",
+                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                        out graph,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(graph, 0f, out error),
+                    Is.True,
+                    error);
+
+                Assert.That(Vector3.Distance(joints[0].position, directRootPosition), Is.LessThan(1e-3f));
+                Assert.That(Quaternion.Angle(joints[0].rotation, directRootRotation), Is.LessThan(0.1f));
+            }
+            finally
+            {
+                KimodoRetargetClipSamplingUtility.DestroyClipSamplingContext(graph);
+                if (clip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(clip);
+                }
                 cache.Dispose();
             }
         }
@@ -845,32 +1161,6 @@ namespace KimodoBridge.Editor.Tests
                 }
                 UnityEngine.Object.DestroyImmediate(clip);
                 cache.Dispose();
-            }
-        }
-
-        [TestCase(false)]
-        [TestCase(true)]
-        public void ResetClipOffset_UsesIdentityAndConfiguresStartOffset(bool removeStartOffset)
-        {
-            var asset = ScriptableObject.CreateInstance<KimodoPlayableClip>();
-            try
-            {
-                asset.position = new Vector3(1f, 2f, 3f);
-                asset.rotation = Quaternion.Euler(10f, 20f, 30f);
-                MethodInfo reset = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
-                    "ResetClipOffset",
-                    BindingFlags.NonPublic | BindingFlags.Static);
-                Assert.That(reset, Is.Not.Null);
-
-                reset.Invoke(null, new object[] { asset, removeStartOffset });
-
-                Assert.That(Vector3.Distance(asset.position, Vector3.zero), Is.LessThan(1e-5f));
-                Assert.That(Quaternion.Angle(asset.rotation, Quaternion.identity), Is.LessThan(1e-4f));
-                Assert.That(asset.removeStartOffset, Is.EqualTo(removeStartOffset));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(asset);
             }
         }
 

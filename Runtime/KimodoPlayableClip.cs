@@ -71,8 +71,8 @@ namespace KimodoBridge
         public bool enableOutConstraint = true;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
-        [Tooltip("Normalize around the earliest effective constraint at or after this Timeline clip starts. Track/Scene Offset is never used as the anchor.")]
-        public bool normalizeConstraintOrigin = true;
+        [Tooltip("When the first second has no effective constraint anchor, use the Timeline start pose as the anchor.")]
+        public bool autoBeginAnchor = true;
         public bool isGenerated;
         public string lastGeneratedPrompt;
         [SerializeField, HideInInspector] public string ardyMotionCachePath;

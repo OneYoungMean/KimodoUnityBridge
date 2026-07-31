@@ -484,8 +484,14 @@ namespace KimodoBridge.Editor
             AnimationClip filteredClip = null;
             try
             {
-                samplerRoot = CreateSamplerHierarchyForRecording(samplerAvatar, out error);
-                if (samplerRoot == null)
+                if (!KimodoRetargetAvatarUtility.TryCreateVirtualSkeleton(
+                        samplerAvatar,
+                        "__KimodoRecorderRoot",
+                        animatorEnabled: false,
+                        applyRootMotion: false,
+                        out samplerRoot,
+                        out _,
+                        out error))
                 {
                     return false;
                 }
@@ -564,31 +570,6 @@ namespace KimodoBridge.Editor
                 rotationError = rotationError,
                 unrollRotation = true
             };
-        }
-
-        private static GameObject CreateSamplerHierarchyForRecording(Avatar avatar, out string error)
-        {
-            var root = new GameObject("__KimodoRecorderRoot")
-            {
-                hideFlags = HideFlags.HideAndDontSave
-            };
-
-            if (avatar == null || !avatar.isValid || !avatar.isHuman)
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-                error = "Sampler avatar is null/invalid/non-humanoid.";
-                return null;
-            }
-
-            if (!KimodoRuntimeAvatarSkeletonBuilder.TryBuildHierarchyFromAvatarSkeleton(avatar, root.transform, out string buildError))
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-                error = buildError;
-                return null;
-            }
-
-            error = string.Empty;
-            return root;
         }
 
         private static AnimationClip BuildFilteredRecordedClip(

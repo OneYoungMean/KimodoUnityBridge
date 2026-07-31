@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Threading;
 using TimelineInject;
 using UnityEngine;
+using UnityEngine.Playables;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
@@ -29,9 +31,14 @@ namespace KimodoBridge.Editor
         public bool NormalizeConstraintOriginApplied;
         public KimodoConstraintNormalizationAnchorKind NormalizationAnchorKind;
         public KimodoMarkerSampleResult NormalizationAnchorSample;
+        public KimodoMarkerSampleResult AutoBeginAnchorSample;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
+        public TimelineClip TimelineClipSnapshot;
+        public PlayableDirector TimelineDirectorSnapshot;
+        public PoseCacheRenderContext? TimelinePoseContextSnapshot;
         public ArdyEditorHistorySource InitialArdyHistorySource;
         public bool DisableTimelineInOut;
+        public KimodoPlayableClip ContinuousOffsetSourceClip;
         public string GeneratedArdyMotionCachePath = string.Empty;
         public List<string> GeneratedArdyWindowCachePaths = new List<string>();
         public List<int> GeneratedArdySeeds = new List<int>();

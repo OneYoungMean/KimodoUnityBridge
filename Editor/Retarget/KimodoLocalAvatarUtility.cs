@@ -34,14 +34,14 @@ namespace KimodoBridge.Editor
             return new AvatarResolveResult(null, false, string.Empty, error);
         }
 
-        public static AvatarResolveResult ResolveTimelineSourceAvatar(TimelineClip timelineClip, Animator animator)
+        public static AvatarResolveResult ResolveTimelineSourceAvatar(TrackAsset track, Animator animator)
         {
             if (animator == null || animator.gameObject == null)
             {
                 return new AvatarResolveResult(null, false, string.Empty, "Timeline binding Animator is missing.");
             }
 
-            Avatar customAvatar = (timelineClip?.asset as KimodoPlayableClip)?.CustomRetargetAvatar;
+            Avatar customAvatar = ResolveTrackCustomAvatar(track);
             if (customAvatar != null)
             {
                 bool valid = KimodoRetargetCoreUtility.IsValidHumanoid(customAvatar) &&
@@ -49,11 +49,25 @@ namespace KimodoBridge.Editor
                 return new AvatarResolveResult(
                     valid ? customAvatar : null,
                     valid,
-                    "Clip",
-                    valid ? string.Empty : "Clip Custom Avatar is invalid or does not match the Timeline binding skeleton.");
+                    "TrackFirstClip",
+                    valid ? string.Empty : "The first Track clip Custom Avatar is invalid or does not match the Timeline binding skeleton.");
             }
 
             return ResolveAvatarFromGameObject(animator.gameObject);
+        }
+
+        public static Avatar ResolveTrackCustomAvatar(TrackAsset track)
+        {
+            if (track == null)
+            {
+                return null;
+            }
+
+            TimelineClip firstClip = track.GetClips()
+                .Where(clip => clip != null)
+                .OrderBy(clip => clip.start)
+                .FirstOrDefault();
+            return (firstClip?.asset as KimodoPlayableClip)?.CustomRetargetAvatar;
         }
 
         public static bool TryEnsureHumanoidAvatar(

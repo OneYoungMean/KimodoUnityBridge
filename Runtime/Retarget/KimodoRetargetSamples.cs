@@ -72,6 +72,7 @@ namespace KimodoBridge
             }
 
             disposed = true;
+            poseHandler?.Dispose();
             if (root != null)
             {
                 UnityEngine.Object.DestroyImmediate(root);

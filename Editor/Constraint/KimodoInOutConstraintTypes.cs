@@ -9,7 +9,9 @@ namespace KimodoBridge.Editor
         None = 0,
         FullBody = 1,
         Root2D = 2,
-        Foot = 3
+        Foot = 3,
+        EndEffector = 4,
+        AutoBegin = 5
     }
 
     internal sealed class KimodoConstraintNormalizationInfo
@@ -37,8 +39,8 @@ namespace KimodoBridge.Editor
         public Avatar SourceAvatar;
         public string ModelName = KimodoPlayableClip.DefaultBridgeModelName;
         public int GenerationFrames = 1;
-        public bool NormalizeConstraintOrigin;
-        public bool AllowNormalizeConstraintOrigin = true;
+        public bool AutoBeginAnchor;
+        public bool DeferNormalization;
         public bool IsLoop;
         public KimodoTimelineInOutConstraintContext TimelineContext;
         public List<KimodoMarkerSampleResult> ManualSamples = new List<KimodoMarkerSampleResult>();
@@ -49,5 +51,6 @@ namespace KimodoBridge.Editor
         public List<KimodoMarkerSampleResult> CombinedSamples = new List<KimodoMarkerSampleResult>();
         public string ConstraintsJson = string.Empty;
         public KimodoConstraintNormalizationInfo NormalizationInfo = new KimodoConstraintNormalizationInfo();
+        public KimodoMarkerSampleResult AutoBeginAnchorSample;
     }
 }

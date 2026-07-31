@@ -347,7 +347,7 @@ namespace KimodoBridge.Editor
                         ? KimodoInOutConstraintMode.None
                         : KimodoInOutConstraintMode.Outside;
                     playableClip.showConstraint = true;
-                    playableClip.normalizeConstraintOrigin = true;
+                    playableClip.autoBeginAnchor = true;
                     EditorUtility.SetDirty(playableClip);
                 }
 
@@ -648,11 +648,17 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            GameObject tempRoot = new GameObject($"KimodoProfile_{modelName}_Temp");
-            tempRoot.hideFlags = HideFlags.HideAndDontSave;
+            GameObject tempRoot = null;
             try
             {
-                if (!KimodoRuntimeAvatarSkeletonBuilder.TryBuildHierarchyFromAvatarSkeleton(avatar, tempRoot.transform, out error))
+                if (!KimodoRetargetAvatarUtility.TryCreateVirtualSkeleton(
+                        avatar,
+                        $"KimodoProfile_{modelName}_Temp",
+                        animatorEnabled: false,
+                        applyRootMotion: false,
+                        out tempRoot,
+                        out _,
+                        out error))
                 {
                     return false;
                 }

@@ -25,7 +25,7 @@ namespace KimodoBridge.Editor
         private SerializedProperty enableInConstraint;
         private SerializedProperty enableOutConstraint;
         private SerializedProperty showConstraint;
-        private SerializedProperty normalizeConstraintOrigin;
+        private SerializedProperty autoBeginAnchor;
 
         private SerializedProperty animationClipProp;
         private SerializedProperty footIKProp;
@@ -73,7 +73,7 @@ namespace KimodoBridge.Editor
             enableInConstraint = serializedObject.FindProperty("enableInConstraint");
             enableOutConstraint = serializedObject.FindProperty("enableOutConstraint");
             showConstraint = serializedObject.FindProperty("showConstraint");
-            normalizeConstraintOrigin = serializedObject.FindProperty("normalizeConstraintOrigin");
+            autoBeginAnchor = serializedObject.FindProperty("autoBeginAnchor");
 
             animationClipProp = serializedObject.FindProperty("m_Clip");
             footIKProp = serializedObject.FindProperty("m_ApplyFootIK");
@@ -476,7 +476,7 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.Space(4f);
-            bool newFoldout = EditorGUILayout.Foldout(showAdvancedFoldout, new GUIContent("Advanced", "Constraint normalization, motion compensation, and curve filtering options for generated animation curves."), true);
+            bool newFoldout = EditorGUILayout.Foldout(showAdvancedFoldout, new GUIContent("Advanced", "Auto begin anchoring, motion compensation, and curve filtering options for generated animation curves."), true);
             if (newFoldout != showAdvancedFoldout)
             {
                 showAdvancedFoldout = newFoldout;
@@ -491,11 +491,11 @@ namespace KimodoBridge.Editor
             EditorGUI.indentLevel++;
             EditorGUILayout.LabelField("Constraint Options", EditorStyles.boldLabel);
 
-            if (normalizeConstraintOrigin != null)
+            if (autoBeginAnchor != null)
             {
                 EditorGUILayout.PropertyField(
-                    normalizeConstraintOrigin,
-                    new GUIContent("Normalize Constraint Origin", "Use the earliest effective constraint at or after this Timeline clip starts. Track/Scene Offset is not an anchor."));
+                    autoBeginAnchor,
+                    new GUIContent("Auto Begin Anchor", "When the first second has no effective constraint anchor, use the Timeline start pose, including Track/Clip offsets, as the anchor."));
             }
 
             EditorGUILayout.Space(4f);

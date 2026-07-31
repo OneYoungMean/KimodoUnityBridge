@@ -196,6 +196,14 @@ namespace KimodoBridge
                         rootQw.AddKey(time, rootRotation.w);
                     }
 
+                    clip.SetCurve(string.Empty, typeof(Transform), "m_LocalPosition.x", rootTx);
+                    clip.SetCurve(string.Empty, typeof(Transform), "m_LocalPosition.y", rootTy);
+                    clip.SetCurve(string.Empty, typeof(Transform), "m_LocalPosition.z", rootTz);
+                    clip.SetCurve(string.Empty, typeof(Transform), "m_LocalRotation.x", rootQx);
+                    clip.SetCurve(string.Empty, typeof(Transform), "m_LocalRotation.y", rootQy);
+                    clip.SetCurve(string.Empty, typeof(Transform), "m_LocalRotation.z", rootQz);
+                    clip.SetCurve(string.Empty, typeof(Transform), "m_LocalRotation.w", rootQw);
+
                     continue;
                 }
 
@@ -236,14 +244,6 @@ namespace KimodoBridge
                 clip.SetCurve(path, typeof(Transform), "m_LocalRotation.z", rotZ);
                 clip.SetCurve(path, typeof(Transform), "m_LocalRotation.w", rotW);
             }
-
-            SetFloatCurve(clip, "MotionT.x", rootTx);
-            SetFloatCurve(clip, "MotionT.y", rootTy);
-            SetFloatCurve(clip, "MotionT.z", rootTz);
-            SetFloatCurve(clip, "MotionQ.x", rootQx);
-            SetFloatCurve(clip, "MotionQ.y", rootQy);
-            SetFloatCurve(clip, "MotionQ.z", rootQz);
-            SetFloatCurve(clip, "MotionQ.w", rootQw);
 
             return true;
         }

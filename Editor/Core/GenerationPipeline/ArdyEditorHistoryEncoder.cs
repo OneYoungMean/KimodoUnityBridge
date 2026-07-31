@@ -28,8 +28,6 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
-            AnimationClip timelineMuscleClip = null;
-            KimodoRetargetClipSamplingUtility.ClipSamplingContext targetSamplingContext = null;
             try
             {
                 if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
@@ -74,7 +72,7 @@ namespace KimodoBridge.Editor
                 var rootPositions = new Vector3[frameCount];
                 var rotations = new List<float>(frameCount * jointNames.Length * 4);
                 var footContacts = new byte[frameCount * KimodoFootContactTrackUtility.ChannelCount];
-                var muscleSamples = new MuscleSample[frameCount];
+                var timelineTimes = new double[frameCount];
                 Transform rootJoint = joints[0];
                 if (rootJoint == null)
                 {
@@ -88,16 +86,7 @@ namespace KimodoBridge.Editor
                     double sampleTime = frame < availableFrames
                         ? timelineStart + frame / profile.SourceFps
                         : latestSampleTime;
-                    if (!sampler.TryCaptureMuscleSample(
-                            sampleTime,
-                            normalizeRootToAnchor: false,
-                            Vector3.zero,
-                            Quaternion.identity,
-                            out muscleSamples[frame],
-                            out error))
-                    {
-                        return false;
-                    }
+                    timelineTimes[frame] = sampleTime;
                     if (hasFootContacts &&
                         KimodoTimelineFootContactSampler.TrySample(
                             source.TimelineContext,
@@ -117,23 +106,12 @@ namespace KimodoBridge.Editor
                     }
                 }
 
-                if (!KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
+                if (!sampler.TryCaptureMuscleSamples(timelineTimes, out MuscleSample[] muscleSamples, out error) ||
+                    !KimodoRetargetSamplingUtility.TryRetargetMuscleSamplesToBoneSamples(
                         muscleSamples,
                         profile.SourceFps,
-                        out timelineMuscleClip,
-                        out error))
-                {
-                    return false;
-                }
-                if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
-                        timelineMuscleClip,
                         sampler.TargetCache,
-                        "ArdyEditorHistory_TargetHumanoid",
-                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
-                        applyRootOffset: true,
-                        sampler.RootOffsetPosition,
-                        sampler.RootOffsetRotation,
-                        out targetSamplingContext,
+                        out BoneSample[] targetSamples,
                         out error))
                 {
                     return false;
@@ -141,9 +119,9 @@ namespace KimodoBridge.Editor
 
                 for (int frame = 0; frame < frameCount; frame++)
                 {
-                    if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
-                            targetSamplingContext,
-                            frame / profile.SourceFps,
+                    if (!KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                            targetSamples[frame],
+                            sampler.TargetCache,
                             out error))
                     {
                         return false;
@@ -186,11 +164,6 @@ namespace KimodoBridge.Editor
             }
             finally
             {
-                KimodoRetargetClipSamplingUtility.DestroyClipSamplingContext(targetSamplingContext);
-                if (timelineMuscleClip != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(timelineMuscleClip);
-                }
                 sampler.Dispose();
             }
         }

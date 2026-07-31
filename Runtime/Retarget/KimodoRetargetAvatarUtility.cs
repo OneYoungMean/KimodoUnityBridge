@@ -8,7 +8,7 @@ namespace KimodoBridge
 {
     public static class KimodoRetargetAvatarUtility
     {
-        internal static bool TryCreateTemporaryHumanoidRoot(
+        internal static bool TryCreateVirtualSkeleton(
             Avatar avatar,
             string rootName,
             bool animatorEnabled,
@@ -73,7 +73,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!TryCreateTemporaryHumanoidRoot(
+            if (!TryCreateVirtualSkeleton(
                     avatar,
                     string.IsNullOrWhiteSpace(rootName) ? "KimodoSkeletonCache" : rootName,
                     animatorEnabled: true,

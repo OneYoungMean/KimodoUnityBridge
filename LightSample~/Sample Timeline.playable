@@ -32,7 +32,7 @@ MonoBehaviour:
   customRetargetAvatar: {fileID: 0}
   inOutConstraintMode: 0
   showConstraint: 1
-  normalizeConstraintOrigin: 1
+  autoBeginAnchor: 1
   isGenerated: 1
   lastGeneratedPrompt: a woman walk and say hello
   autoRetargetOnBinding: 1
@@ -795,7 +795,7 @@ MonoBehaviour:
   customRetargetAvatar: {fileID: 0}
   inOutConstraintMode: 2
   showConstraint: 1
-  normalizeConstraintOrigin: 1
+  autoBeginAnchor: 1
   isGenerated: 1
   lastGeneratedPrompt: Walk back, look to the right, and turn around into a martial
     arts stance
@@ -863,7 +863,7 @@ MonoBehaviour:
   customRetargetAvatar: {fileID: 0}
   inOutConstraintMode: 0
   showConstraint: 1
-  normalizeConstraintOrigin: 1
+  autoBeginAnchor: 1
   isGenerated: 1
   lastGeneratedPrompt: punch hit and  kick
   autoRetargetOnBinding: 1
@@ -1103,7 +1103,7 @@ MonoBehaviour:
   customRetargetAvatar: {fileID: 0}
   inOutConstraintMode: 0
   showConstraint: 1
-  normalizeConstraintOrigin: 1
+  autoBeginAnchor: 1
   isGenerated: 1
   lastGeneratedPrompt: punch hit and  kick
   autoRetargetOnBinding: 1
@@ -1149,7 +1149,7 @@ MonoBehaviour:
   customRetargetAvatar: {fileID: 0}
   inOutConstraintMode: 2
   showConstraint: 1
-  normalizeConstraintOrigin: 1
+  autoBeginAnchor: 1
   isGenerated: 1
   lastGeneratedPrompt: Walk back, look to the right, and turn around into a martial
     arts stance
@@ -1195,7 +1195,7 @@ MonoBehaviour:
   customRetargetAvatar: {fileID: 0}
   inOutConstraintMode: 0
   showConstraint: 1
-  normalizeConstraintOrigin: 1
+  autoBeginAnchor: 1
   isGenerated: 1
   lastGeneratedPrompt: a woman walk and say hello
   autoRetargetOnBinding: 1

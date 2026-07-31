@@ -203,11 +203,6 @@ namespace KimodoBridge.Editor
                 {
                     AddDifference(differences, $"'{playable.name}' has a different seed strategy/value");
                 }
-                if (playable.normalizeConstraintOrigin != firstClip.normalizeConstraintOrigin)
-                {
-                    AddDifference(differences, $"'{playable.name}' has a different constraint-origin setting");
-                }
-
                 double exactFrames = timelineClip.duration * profile.SourceFps;
                 int frameCount = KimodoFrameTimeUtility.SecondsToFrameCount(
                     timelineClip.duration,
@@ -373,9 +368,10 @@ namespace KimodoBridge.Editor
                     entry.Clip.motionPrompt ?? string.Empty,
                     externalConstraint: null,
                     token,
-                    normalizeConstraintOriginOverride: false,
                     effectiveSeedOverride: groupSeed,
-                    disableTimelineInOut: true);
+                    disableTimelineInOut: true,
+                    deferConstraintNormalization: true,
+                    enableAutoBeginAnchor: i == 0);
                 entry.Request.Progress = PrefixProgress(progress, i, entries.Count);
                 if (string.IsNullOrWhiteSpace(entry.Request.Prompt))
                 {
@@ -383,31 +379,62 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            if (entries[0].Clip.normalizeConstraintOrigin)
+            var allSamples = new List<KimodoMarkerSampleResult>();
+            var sampleTimeOffsets = new List<double>();
+            for (int i = 0; i < entries.Count; i++)
             {
-                var allSamples = new List<KimodoMarkerSampleResult>();
-                for (int i = 0; i < entries.Count; i++)
+                double timeOffset = entries[i].StartFrame / (double)profile.SourceFps;
+                List<KimodoMarkerSampleResult> samples = entries[i].Request.ConstraintSamples;
+                for (int sampleIndex = 0; sampleIndex < samples.Count; sampleIndex++)
                 {
-                    allSamples.AddRange(entries[i].Request.ConstraintSamples);
+                    KimodoMarkerSampleResult sample = samples[sampleIndex];
+                    if (sample != null)
+                    {
+                        sample.sampleTime += timeOffset;
+                    }
+                    allSamples.Add(sample);
+                    sampleTimeOffsets.Add(timeOffset);
                 }
+            }
+
+            KimodoConstraintNormalizationInfo normalization;
+            string warning;
+            try
+            {
                 KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
                     allSamples,
-                    out KimodoConstraintNormalizationInfo normalization,
-                    out string warning);
-                if (!string.IsNullOrWhiteSpace(warning))
+                    entries[0].Request.AutoBeginAnchorSample,
+                    anchorWindowSeconds: entries[0].Clip.autoBeginAnchor
+                        ? 1.0
+                        : double.PositiveInfinity,
+                    out normalization,
+                    out warning);
+            }
+            finally
+            {
+                for (int i = 0; i < allSamples.Count; i++)
                 {
-                    Debug.LogWarning($"[Kimodo][TimelineBatch] {warning}");
-                }
-                if (normalization != null && normalization.Applied && normalization.AnchorSample != null)
-                {
-                    for (int i = 0; i < entries.Count; i++)
+                    if (allSamples[i] != null)
                     {
-                        KimodoEditorGenerateRequest request = entries[i].Request;
-                        request.NormalizeConstraintOriginApplied = true;
-                        request.NormalizationAnchorKind = normalization.AnchorKind;
-                        request.NormalizationAnchorSample = normalization.AnchorSample.Clone();
+                        allSamples[i].sampleTime -= sampleTimeOffsets[i];
                     }
                 }
+            }
+
+            if (!string.IsNullOrWhiteSpace(warning))
+            {
+                Debug.LogWarning($"[Kimodo][TimelineBatch] {warning}");
+            }
+            if (normalization != null && normalization.Applied && normalization.AnchorSample != null)
+            {
+                KimodoEditorGenerateRequest firstRequest = entries[0].Request;
+                firstRequest.NormalizeConstraintOriginApplied = true;
+                firstRequest.NormalizationAnchorKind = normalization.AnchorKind;
+                firstRequest.NormalizationAnchorSample = normalization.AnchorSample.Clone();
+            }
+            for (int i = 1; i < entries.Count; i++)
+            {
+                entries[i].Request.ContinuousOffsetSourceClip = entries[0].Clip;
             }
 
             for (int i = 0; i < entries.Count; i++)

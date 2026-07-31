@@ -51,7 +51,7 @@ namespace KimodoBridge.Editor
         {
             return new KimodoServerManagerSettingsProvider("Project/Kimodo Server Manager", SettingsScope.Project)
             {
-                keywords = new HashSet<string>(new[] { "Kimodo", "Server", "Model", "Bridge", "VRAM", "Cache", "Runtime" })
+                keywords = new HashSet<string>(new[] { "Kimodo", "Server", "Model", "Bridge", "VRAM", "Cache", "Runtime", "Debug", "Resample", "Writeback" })
             };
         }
 
@@ -256,6 +256,18 @@ namespace KimodoBridge.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 settings.KeepCpuForceExperimental = keepCpuForceExperimental;
+                settings.SaveSettings();
+            }
+
+            EditorGUI.BeginChangeCheck();
+            bool writeResampledTimelineCacheClips = EditorGUILayout.Toggle(
+                new GUIContent(
+                    "Debug: Write Resampled Cache Clips",
+                    "When Timeline constraint sampling rebuilds a cache interval, save the intermediate BoneClip, MuscleClip and final target BoneClip through the clip writeback path."),
+                settings.WriteResampledTimelineCacheClips);
+            if (EditorGUI.EndChangeCheck())
+            {
+                settings.WriteResampledTimelineCacheClips = writeResampledTimelineCacheClips;
                 settings.SaveSettings();
             }
 

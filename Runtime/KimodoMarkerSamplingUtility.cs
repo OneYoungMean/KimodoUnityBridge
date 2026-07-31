@@ -362,7 +362,41 @@ namespace KimodoBridge
                 localAxisAngles = unityLocalAxisAngles,
                 sampledJointIndices = sampledJointIndices
             };
+
+            if (TryResolveEndEffectorBone(markerType, out HumanBodyBones endEffectorBone) &&
+                animator != null)
+            {
+                Transform endEffector = animator.GetBoneTransform(endEffectorBone);
+                if (endEffector != null)
+                {
+                    result.hasEndEffectorTargetPosition = true;
+                    result.endEffectorTargetPositionRootLocal = Quaternion.Inverse(profileRootJoint.rotation) *
+                        (endEffector.position - profileRootJoint.position);
+                }
+            }
             return true;
+        }
+
+        private static bool TryResolveEndEffectorBone(string markerType, out HumanBodyBones bone)
+        {
+            switch ((markerType ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "left-hand":
+                    bone = HumanBodyBones.LeftHand;
+                    return true;
+                case "right-hand":
+                    bone = HumanBodyBones.RightHand;
+                    return true;
+                case "left-foot":
+                    bone = HumanBodyBones.LeftFoot;
+                    return true;
+                case "right-foot":
+                    bone = HumanBodyBones.RightFoot;
+                    return true;
+                default:
+                    bone = HumanBodyBones.LastBone;
+                    return false;
+            }
         }
 
     }

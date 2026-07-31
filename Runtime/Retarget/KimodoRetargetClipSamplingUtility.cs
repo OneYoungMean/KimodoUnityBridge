@@ -140,29 +140,6 @@ namespace KimodoBridge
             out ClipSamplingContext context,
             out string error)
         {
-            return TryBuildClipSamplingContext(
-                clip,
-                cache,
-                rootName,
-                samplingMode,
-                applyRootOffset: false,
-                Vector3.zero,
-                Quaternion.identity,
-                out context,
-                out error);
-        }
-
-        internal static bool TryBuildClipSamplingContext(
-            AnimationClip clip,
-            SkeletonCache cache,
-            string rootName,
-            ClipSamplingMode samplingMode,
-            bool applyRootOffset,
-            Vector3 rootOffsetPosition,
-            Quaternion rootOffsetRotation,
-            out ClipSamplingContext context,
-            out string error)
-        {
             context = null;
             error = string.Empty;
 
@@ -192,17 +169,10 @@ namespace KimodoBridge
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
                 clipPlayable.SetApplyFootIK(RetargetSamplingDefaultFootIk);
                 clipPlayable.SetApplyPlayableIK(RetargetSamplingDefaultPlayableIk);
-                Playable rootPlayable = clipPlayable;
-                if (applyRootOffset)
-                {
-                    rootPlayable = AnimationOffsetPlayableAccess.CreateAndConnect(
-                        graph,
-                        clipPlayable,
-                        rootOffsetPosition,
-                        rootOffsetRotation);
-                }
+                Playable motionXToDelta =
+                    AnimationOffsetPlayableAccess.CreateMotionXToDeltaAndConnect(graph, clipPlayable);
                 AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, rootName + "Output", cache.animator);
-                output.SetSourcePlayable(rootPlayable);
+                output.SetSourcePlayable(motionXToDelta);
 
                 clipPlayable.SetTime(0f);
                 graph.Play();
@@ -372,12 +342,29 @@ namespace KimodoBridge
             out BoneSample sample,
             out string error)
         {
+            return SampleBoneClipToBoneSample(
+                clip,
+                cache,
+                sampleTime,
+                KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(clip),
+                out sample,
+                out error);
+        }
+
+        internal static bool SampleBoneClipToBoneSample(
+            AnimationClip clip,
+            SkeletonCache cache,
+            float sampleTime,
+            KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
+            out BoneSample sample,
+            out string error)
+        {
             return TrySampleFromClip(
                 clip,
                 cache,
                 sampleTime,
                 "KimodoRetargetTools_SourceBoneSampler",
-                KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(clip),
+                samplingMode,
                 TrySampleBoneClipToBoneSampleInternal,
                 out sample,
                 out error);
@@ -485,29 +472,6 @@ namespace KimodoBridge
             out MuscleSample targetMuscleSample,
             out string error)
         {
-            return TrySampleTargetFromHumanoidClip(
-                sourceHumanoidClip,
-                targetCache,
-                sampleTime,
-                applyRootOffset: false,
-                Vector3.zero,
-                Quaternion.identity,
-                out targetSample,
-                out targetMuscleSample,
-                out error);
-        }
-
-        internal static bool TrySampleTargetFromHumanoidClip(
-            AnimationClip sourceHumanoidClip,
-            SkeletonCache targetCache,
-            float sampleTime,
-            bool applyRootOffset,
-            Vector3 rootOffsetPosition,
-            Quaternion rootOffsetRotation,
-            out BoneSample targetSample,
-            out MuscleSample targetMuscleSample,
-            out string error)
-        {
             targetSample = null;
             targetMuscleSample = null;
             error = string.Empty;
@@ -528,9 +492,6 @@ namespace KimodoBridge
                         targetCache,
                         "KimodoRetargetTools_TargetHumanoidSample",
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
-                        applyRootOffset,
-                        rootOffsetPosition,
-                        rootOffsetRotation,
                         out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
                         out error))
             {
@@ -586,57 +547,110 @@ namespace KimodoBridge
                 return false;
             }
 
-            Transform targetHips = targetCache.animator.GetBoneTransform(HumanBodyBones.Hips);
-            if (targetHips == null)
+            if (!TryRetargetMuscleSamplesToBoneSamples(
+                    new[] { sourceSample },
+                    frameRate,
+                    targetCache,
+                    out BoneSample[] targetSamples,
+                    out error) ||
+                targetSamples == null ||
+                targetSamples.Length == 0)
             {
-                error = "Target Avatar Hips is unavailable.";
                 return false;
             }
 
-            KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(targetCache);
-            Transform targetRoot = targetCache.skeletonRoot;
-            // A visual clone may already carry a Timeline/scene transform. Rebuild the
-            // absolute HumanPose against identity so that offset is not applied twice.
-            targetRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-            HumanPose directPose = sourceSample.pose;
-            targetCache.poseHandler.SetHumanPose(ref directPose);
-            Vector3 desiredHipsPosition = targetHips.position;
-            Quaternion desiredHipsRotation = targetHips.rotation;
+            targetSample = targetSamples[0];
+            if (!TryApplyBoneSampleToSkeletonCache(targetSample, targetCache, out error))
+            {
+                targetSample = null;
+                return false;
+            }
+
+            return TryCaptureMuscleSample(targetCache, out targetMuscleSample, out error);
+        }
+
+        internal static bool TryRetargetMuscleSamplesToBoneSamples(
+            IReadOnlyList<MuscleSample> sourceSamples,
+            float frameRate,
+            SkeletonCache targetCache,
+            out BoneSample[] targetSamples,
+            out string error,
+            Func<AnimationClip, string, string> writebackClip = null)
+        {
+            targetSamples = null;
+            error = string.Empty;
+            if (sourceSamples == null || sourceSamples.Count == 0)
+            {
+                error = "Source muscle samples are empty.";
+                return false;
+            }
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out error))
+            {
+                return false;
+            }
+
+            int sampleCount = sourceSamples.Count;
+            int clipSampleCount = Mathf.Max(2, sampleCount);
+            var clipSamples = new MuscleSample[clipSampleCount];
+            for (int i = 0; i < clipSampleCount; i++)
+            {
+                MuscleSample source = sourceSamples[Mathf.Min(i, sampleCount - 1)];
+                if (source == null)
+                {
+                    error = $"Source muscle sample {i} is null.";
+                    return false;
+                }
+                clipSamples[i] = source;
+            }
 
             AnimationClip clip = null;
+            KimodoRetargetClipSamplingUtility.ClipSamplingContext context = null;
             try
             {
-                // Unity needs a non-zero clip duration for the Humanoid Foot IK pass.
-                var samples = new[] { sourceSample, sourceSample };
-                if (!TryCreateTransientMuscleClip(samples, frameRate, out clip, out error))
+                if (!TryCreateTransientMuscleClip(clipSamples, frameRate, out clip, out error))
                 {
                     return false;
                 }
-
-                if (!TrySampleTargetFromHumanoidClip(
+                if (writebackClip != null)
+                {
+                    string writebackError = writebackClip(clip, "MuscleClip");
+                    if (!string.IsNullOrWhiteSpace(writebackError))
+                    {
+                        error = writebackError;
+                        return false;
+                    }
+                }
+                if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
                         clip,
                         targetCache,
-                        0f,
-                        out targetSample,
-                        out targetMuscleSample,
+                        "KimodoRetarget_TargetPoseClip",
+                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                        out context,
                         out error))
                 {
                     return false;
                 }
 
-                Quaternion rootCorrection = desiredHipsRotation * Quaternion.Inverse(targetHips.rotation);
-                rootCorrection.Normalize();
-                Vector3 correctedRootPosition =
-                    desiredHipsPosition + rootCorrection * (targetRoot.position - targetHips.position);
-                Quaternion correctedRootRotation = rootCorrection * targetRoot.rotation;
-                correctedRootRotation.Normalize();
-                targetRoot.SetPositionAndRotation(correctedRootPosition, correctedRootRotation);
+                targetSamples = new BoneSample[sampleCount];
+                float fps = Mathf.Max(1f, frameRate);
+                for (int i = 0; i < sampleCount; i++)
+                {
+                    if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
+                            context,
+                            i / fps,
+                            out error))
+                    {
+                        targetSamples = null;
+                        return false;
+                    }
 
-                targetSample = CaptureBoneSample(targetCache);
-                return TryCaptureMuscleSample(targetCache, out targetMuscleSample, out error);
+                    targetSamples[i] = CaptureBoneSample(targetCache);
+                }
+                return true;
             }
             finally
             {
+                KimodoRetargetClipSamplingUtility.DestroyClipSamplingContext(context);
                 if (clip != null)
                 {
                     UnityEngine.Object.DestroyImmediate(clip);
@@ -766,6 +780,35 @@ namespace KimodoBridge
                 return false;
             }
 
+            return true;
+        }
+
+        internal static bool TryCreateTransientBoneClip(
+            IReadOnlyList<BoneSample> samples,
+            float frameRate,
+            out AnimationClip clip,
+            out string error)
+        {
+            clip = null;
+            error = string.Empty;
+            if (samples == null || samples.Count == 0)
+            {
+                error = "Bone samples are empty.";
+                return false;
+            }
+
+            clip = new AnimationClip
+            {
+                frameRate = frameRate > 0f ? frameRate : KimodoPlayableClip.FIXED_FRAME_RATE,
+                hideFlags = HideFlags.HideAndDontSave,
+                name = "KimodoTransientPoseClip"
+            };
+            if (!KimodoRetargetCoreUtility.WriteBoneSampleToBoneClip(samples, clip, out error))
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+                clip = null;
+                return false;
+            }
             return true;
         }
 
@@ -941,7 +984,7 @@ namespace KimodoBridge
             return clone;
         }
 
-        private static MuscleSample CloneMuscleSample(MuscleSample source)
+        internal static MuscleSample CloneMuscleSample(MuscleSample source)
         {
             if (source == null)
             {

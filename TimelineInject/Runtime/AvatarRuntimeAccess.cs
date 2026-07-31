@@ -34,6 +34,18 @@ namespace TimelineInject
 
     public static class AnimationOffsetPlayableAccess
     {
+        public static Playable CreateMotionXToDeltaAndConnect(
+            PlayableGraph graph,
+            Playable input)
+        {
+            AnimationMotionXToDeltaPlayable motion =
+                AnimationMotionXToDeltaPlayable.Create(graph);
+            graph.Connect(input, 0, motion, 0);
+            motion.SetInputWeight(0, 1f);
+            motion.SetAbsoluteMotion(true);
+            return motion;
+        }
+
         public static Playable CreateAndConnect(
             PlayableGraph graph,
             Playable input,
@@ -49,11 +61,7 @@ namespace TimelineInject
             graph.Connect(input, 0, offset, 0);
             offset.SetInputWeight(0, 1f);
 
-            AnimationMotionXToDeltaPlayable motion = AnimationMotionXToDeltaPlayable.Create(graph);
-            graph.Connect(offset, 0, motion, 0);
-            motion.SetInputWeight(0, 1f);
-            motion.SetAbsoluteMotion(true);
-            return motion;
+            return CreateMotionXToDeltaAndConnect(graph, offset);
         }
     }
 }

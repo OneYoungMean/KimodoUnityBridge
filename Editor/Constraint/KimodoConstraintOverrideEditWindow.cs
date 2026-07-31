@@ -182,6 +182,8 @@ namespace KimodoBridge.Editor
             {
                 if (KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
                 {
+                    bool targetChanged = marker is KimodoEndEffectorConstraintMarker &&
+                        KimodoConstraintPoseCache.HasEndEffectorTargetTransformChanges(context, editEntryId);
                     KimodoConstraintMarkerEditorUtility.LogDragMuscleSnapshot(
                         marker,
                         context,
@@ -204,7 +206,8 @@ namespace KimodoBridge.Editor
                     {
                         lastError = string.IsNullOrWhiteSpace(writeError) ? "marker writeback failed." : writeError;
                     }
-                    else if (!KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out string poseError))
+                    else if (!targetChanged &&
+                             !KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out string poseError))
                     {
                         lastError = string.IsNullOrWhiteSpace(poseError) ? "pose cache update failed." : poseError;
                     }
@@ -264,7 +267,8 @@ namespace KimodoBridge.Editor
             var so = new SerializedObject(marker);
             so.Update();
 
-            using (new EditorGUI.DisabledScope(!marker.useOverride))
+            bool targetFieldChanged = DrawEndEffectorTargetField(so);
+            using (new EditorGUI.DisabledScope(!marker.useOverride && !targetFieldChanged))
             {
                 DrawPropertyIfExists(so, "sampleData.sampleTime");
                 DrawPropertyIfExists(so, "sampleData.kimodoRootPosition");
@@ -290,7 +294,13 @@ namespace KimodoBridge.Editor
                 EditorUtility.SetDirty(marker);
                 string poseError = string.Empty;
                 bool rendered = TryGetEditContext(out PoseCacheRenderContext context, out poseError) &&
-                    KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out poseError);
+                    (targetFieldChanged
+                        ? KimodoConstraintPoseCache.TryUpdateEndEffectorTarget(
+                            context,
+                            editEntryId,
+                            marker.ConstraintType,
+                            marker.SampleData)
+                        : KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out poseError));
                 if (rendered)
                 {
                     KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
@@ -303,6 +313,43 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.HelpBox("Pose writes back continuously while this window is open.", MessageType.None);
+        }
+
+        private bool DrawEndEffectorTargetField(SerializedObject so)
+        {
+            if (marker is not KimodoEndEffectorConstraintMarker endEffector ||
+                string.Equals(endEffector.ConstraintType, "end-effector", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            SerializedProperty targetProp = so.FindProperty("sampleData.endEffectorTargetPositionRootLocal");
+            if (targetProp == null)
+            {
+                return false;
+            }
+
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(
+                targetProp,
+                new GUIContent("Hand/Foot Point (Root Local)"));
+            bool changed = EditorGUI.EndChangeCheck();
+            if (!changed)
+            {
+                return false;
+            }
+
+            SerializedProperty hasTargetProp = so.FindProperty("sampleData.hasEndEffectorTargetPosition");
+            if (hasTargetProp != null)
+            {
+                hasTargetProp.boolValue = true;
+            }
+            SerializedProperty overrideProp = so.FindProperty("useOverride");
+            if (overrideProp != null)
+            {
+                overrideProp.boolValue = true;
+            }
+            return true;
         }
 
         private void DrawFooter()

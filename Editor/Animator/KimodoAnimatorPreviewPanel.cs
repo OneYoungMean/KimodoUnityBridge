@@ -764,7 +764,7 @@ namespace KimodoBridge.Editor
                     if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar fallbackAvatar, out _)
                         && fallbackAvatar != null && fallbackAvatar.isValid && fallbackAvatar.isHuman)
                     {
-                        if (!KimodoRetargetAvatarUtility.TryCreateTemporaryHumanoidRoot(
+                        if (!KimodoRetargetAvatarUtility.TryCreateVirtualSkeleton(
                             fallbackAvatar,
                             "KimodoPreviewSkeletonTemplate",
                             animatorEnabled: false,

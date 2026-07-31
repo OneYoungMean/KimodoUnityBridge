@@ -52,6 +52,37 @@ namespace KimodoBridge.Editor
             return CreateAnimationClipAsset(assetName, CacheClipFolder, trackForTrim: true);
         }
 
+        internal static bool TryWriteGeneratedCacheAnimationClipAsset(
+            AnimationClip sourceClip,
+            string assetName,
+            out AnimationClip savedClip,
+            out string error)
+        {
+            savedClip = null;
+            error = string.Empty;
+            if (sourceClip == null)
+            {
+                error = "Source clip is null.";
+                return false;
+            }
+
+            try
+            {
+                savedClip = CreateGeneratedCacheAnimationClipAsset(assetName);
+                KimodoEditorClipUtility.CopyClipData(sourceClip, savedClip, forceNoLoopKeepY: false);
+                savedClip.frameRate = sourceClip.frameRate;
+                savedClip.legacy = sourceClip.legacy;
+                EditorUtility.SetDirty(savedClip);
+                FlushWritebackAssets();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = $"Write generated cache clip failed: {ex.Message}";
+                return false;
+            }
+        }
+
         public static bool TryDeleteGeneratedAnimationClipAsset(AnimationClip clip)
         {
             if (clip == null)

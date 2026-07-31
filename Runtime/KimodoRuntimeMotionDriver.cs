@@ -327,15 +327,15 @@ namespace KimodoBridge
             StageRoot2DConstraintInternal(x, z, duration, NormalizeHeading(new Vector2(headingX, headingZ)));
         }
 
-        /// <summary>Stages a Unity world-space target as a local Root2D displacement.</summary>
+        /// <summary>Stages a Unity world-space target in generated-motion coordinates.</summary>
         public void SetRoot2DWorld(float worldX, float worldZ, float duration = 1f)
         {
             Vector3 currentWorldPosition = GetCurrentPositionInternal();
-            Vector2 localOffset = ResolveLocalRoot2DOffset(
+            Vector2 modelOffset = ResolveModelRoot2DOffset(
                 currentWorldPosition,
                 transform.rotation,
                 new Vector3(worldX, currentWorldPosition.y, worldZ));
-            StageRoot2DLocalConstraintInternal(localOffset.x, localOffset.y, duration, null);
+            StageRoot2DConstraintInternal(modelOffset.x, modelOffset.y, duration, null);
         }
 
         public void SetRoot2DTarget(
@@ -1535,7 +1535,7 @@ namespace KimodoBridge
             return heading;
         }
 
-        internal static Vector2 ResolveLocalRoot2DOffset(
+        internal static Vector2 ResolveModelRoot2DOffset(
             Vector3 currentWorldPosition,
             Quaternion worldRotation,
             Vector3 targetWorldPosition)
