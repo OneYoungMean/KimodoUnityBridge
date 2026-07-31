@@ -1,5 +1,7 @@
 # KimodoInfiniteMotionDemo Runtime API 说明书
 
+> **归档文档：不适用于 2.0.0。** 目标组件已从现行 Runtime 移入 `Archive~`；2.0.0 使用 `KimodoRuntimeMotionDriver`。
+
 这份说明书面向后续接手 `KimodoInfiniteMotionDemo` 的智能体或工程师。
 
 目标文件：

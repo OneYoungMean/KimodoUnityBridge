@@ -21,6 +21,20 @@ namespace TimelineInject
             double frames = Math.Ceiling(seconds * frameRate - FrameTolerance);
             return frames >= int.MaxValue ? int.MaxValue : Math.Max(0, (int)frames);
         }
+
+        public static int SecondsToFrameIndex(double seconds, double frameRate)
+        {
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds) ||
+                double.IsNaN(frameRate) || double.IsInfinity(frameRate) ||
+                seconds <= 0.0 || frameRate <= 0.0)
+            {
+                return 0;
+            }
+
+            double tolerance = Math.Max(Math.Abs(seconds), 1.0) * frameRate * 1e-14;
+            double frame = Math.Floor(seconds * frameRate + tolerance);
+            return frame >= int.MaxValue ? int.MaxValue : Math.Max(0, (int)frame);
+        }
     }
 
     public static class KimodoConstraintJsonExporter
@@ -266,7 +280,7 @@ namespace TimelineInject
         private static int ToFrameIndex(double sampleTime, double? clipDurationSeconds, double exportFps)
         {
             double fps = exportFps > 0.0 ? exportFps : DefaultExportFps;
-            int frame = KimodoFrameTimeUtility.SecondsToFrameCount(sampleTime, fps);
+            int frame = KimodoFrameTimeUtility.SecondsToFrameIndex(sampleTime, fps);
             if (clipDurationSeconds.HasValue)
             {
                 int maxFrame = Mathf.Max(

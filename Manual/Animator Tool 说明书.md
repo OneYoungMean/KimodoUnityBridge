@@ -1,5 +1,7 @@
 # Animator Tool
 
+> **2.0.0 状态：暂不可用。** 当前源码保留了 Animator Tool 实现，但菜单入口已禁用，等待工作流复核后再开放。以下内容仅用于说明保留中的设计，不是 2.0.0 可直接操作的正式功能。
+
 ## 概述
 
 Animator Tool 把 Kimodo 的动画生成能力直接带到了 Animator Controller 里。
@@ -14,7 +16,7 @@ Animator Controller 是一个状态机，它管理着角色在不同时刻播放
 
 ## 打开工具
 
-在菜单栏选择 **Kimodo → Kimodo Animator Tool**，打开工具窗口。
+2.0.0 没有 **Kimodo → Kimodo Animator Tool** 菜单入口，普通用户无法从 Unity UI 打开该窗口。
 
 窗口分为两部分：左侧是预览区，实时播放当前选中对象的动作；右侧是参数区，负责调参和生成。
 
@@ -48,11 +50,10 @@ Animator Controller 是一个状态机，它管理着角色在不同时刻播放
 
 | 设置 | 说明 |
 | --- | --- |
-| **Backend** | 生成后端，保持默认的 Kimodo Bridge 即可（本地运行）。 |
 | **Bridge Model** | 用于桥接生成的 Kimodo 模型包，使用已安装的默认项即可。 |
-| **Text Encoder Mode** | High Precision 使用 FP16；High Performance 使用 NF4/INT8。Kimodo 会预留约 2GB，文本编码器根据有效显存和设备能力自动选择 GPU/MPS/ROCm 或 CPU。 |
+| **Text Encoder Mode** | High Precision 使用 FP16；High Performance 使用 NF4/INT8。动作模型先预留约 2GB，文本编码器再根据剩余显存和设备能力自动选择加速器或 CPU。 |
 | **Prompt** | 自然语言动作描述。选中对象时会自动填入一句参考词，可直接修改。 |
-| **Auto / Duration (s)** | 勾选 Auto 沿用原动作时长；取消勾选可拖动滑条自定义秒数。 |
+| **Source Duration (s)** | 生成时长由当前选中的动画片段或过渡自动决定，只读显示。 |
 | **Diffusion Steps** | 生成采样步数，越高越精细也越慢。默认值适用于大多数情况。 |
 | **InOut Constraint** | 首尾约束模式，见下表。 |
 | **Is Loop** | 仅在 Inside 模式下可用。让动作首尾相接，适合循环动作。 |
@@ -75,7 +76,7 @@ InOut Constraint 的三种模式：
 1. 在 Animator 窗口中选中一个状态，或一条过渡。
 2. 在左侧预览区确认这是你要修改的动作。
 3. 在右侧填写提示词，调整时长、约束等参数。
-4. 点击 **Generate & Bake**，等待生成完成。CUDA 大约几秒，纯 CPU 会慢不少；生成过程中可点 **Cancel** 中止。
+4. 点击 **Generate & Bake**，等待生成完成。耗时取决于模型、采样步数和设备；生成过程中可点 **Cancel** 中止。
 5. 生成完成后切到 **Show Generated** 查看效果。不满意可改写提示词或勾选 Random 重新生成，**Reset** 可清除当前结果重来。
 6. 满意后点击底部的 **Apply**，动画正式接入状态机：
    - 若选中的是状态，新动作替换它原有的片段。

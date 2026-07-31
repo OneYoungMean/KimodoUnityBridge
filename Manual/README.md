@@ -1,6 +1,6 @@
 # Kimodo Unity Bridge 使用手册
 
-> 适用版本：KimodoUnityBridge v1.1.39
+> 适用版本：KimodoUnityBridge v2.0.0
 
 开箱即用、完全运行在本地的 AI 人形动画生成系统。你只需输入提示词、放置约束、点击生成，就能在 Unity 里得到想要的角色动画。
 
@@ -16,7 +16,7 @@
 
 1. 先看 [Kimodo Server Manager](Kimodo%20Server%20Manager%20说明书.md)，把本地运行环境和模型准备好。
 2. 再看 [Timeline Tool](Timeline%20Tool%20说明书.md)，跑通"写提示词 → 生成 → 播放"的最基础流程。
-3. 之后按需深入约束、状态机、运行时等进阶用法。
+3. 之后按需深入约束、状态机等进阶用法；运行时请使用 `KimodoRuntimeMotionDriver`。
 
 遇到报错随时翻 [常见问题与报错处理](常见问题与报错处理.md)。
 
@@ -27,13 +27,18 @@
 ### 生成工具
 
 - **[Timeline Tool](Timeline%20Tool%20说明书.md)** — 在时间轴上生成动画的基础玩法，包含长动画、循环、过渡的组合思路。
-- **[Animator Tool](Animator%20Tool%20说明书.md)** — 直接在状态机里替换某个状态的动作，或为两个状态之间插入衔接动画。
+- **[Animator Tool（暂不可用）](Animator%20Tool%20说明书.md)** — 2.0.0 保留实现但禁用了菜单入口，等待工作流复核后再开放。
 - **[Constraint Tool](Constraint%20Tool%20说明书.md)** — 用约束 Marker 精确控制某一帧的姿势、手脚位置和移动轨迹。
 
 ### 配置与运行时
 
 - **[Kimodo Server Manager](Kimodo%20Server%20Manager%20说明书.md)** — 本地服务器、模型管理与全局选项的控制台（位于 Project Settings）。
-- 旧版 InfiniteMotionDemo 与 Runtime API 文档已移入仓库 `Archive~`。
+- **[Runtime Motion Driver](Runtime%20Motion%20Driver%20说明书.md)** — 在 Play Mode 或发布版连续生成、实时重定向、更新提示词和运行时约束。
+- 旧版 `KimodoInfiniteMotionDemo` 与对应 API 文档已移入仓库 `Archive~`，不再代表 2.0.0 的现行接口。
+
+### API 与自动化
+
+- **[MCP Tools API](MCP%20Tools%20API%20说明书.md)** — 通过角色引用和提示词生成 AnimationClip 或 Timeline 动画，并查询、取消异步生成任务。
 
 ### 排查问题
 
@@ -44,21 +49,17 @@
 ## 环境要求
 
 - Unity 2022.3 及以上，支持 Windows、macOS、Linux 平台。
-- 内存 ≥ 8G，硬盘可用空间 ≥ 10G。
+- 内存 ≥ 8G，硬盘可用空间 ≥ 16G。
 - NVIDIA 显卡显存 ≥ 6G 时可运行 CUDA 版本（不做强制限制，CPU 也能跑，只是更慢）。
 
-### 安装UV（环境配置工具）
+### uv（环境配置工具）
 
-- **Linux/macOS**：首次使用前，建议先在命令行安装 `uv`。
-
-首次手动安装 `uv` 时，可直接使用下面的命令：
+Windows、macOS 和 Linux 的启动脚本都会检测 `uv`；缺少时会询问并尝试把本地副本下载到 QuickServer 的 `program/exe/uv`，通常无需提前安装。若自动安装失败或超时，可手动安装后再回到 Unity 继续生成：
 
 ```bash
 # macOS / Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-
-Windows通常会下载离线版，如果自动安装失败或超时，也可以先手动执行下面的命令，再回到 Unity 继续 setup / generate。
 
 ```powershell
 # Windows PowerShell
@@ -75,11 +76,11 @@ powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 ### 硬件后端
 
-- **NVIDIA CUDA**：当前支持最完整，也是主要推荐路线。`Low` 模式优先走 `NF4`，`High` 模式走 `FP16`。
+- **NVIDIA CUDA**：当前支持最完整，也是主要推荐路线。High Performance 优先走 NF4/INT8，High Precision 走 FP16。
 - **Apple Silicon / MPS**：支持，走 `FP16` 路线。
 - **CPU**：始终可用，但速度会明显慢于 GPU。
 - **Intel XPU**：当前已开始接入识别与分流，属于实验性支持；现阶段不要默认视为完整优化平台。
-- **AMD / ROCm / 其他 GPU**：当前按通用 GPU 兼容路线处理，属于实验性支持。若运行时自检通过，会使用 `Int8` 路线继续运行。
+- **AMD / ROCm / 其他 GPU**：当前按通用加速器兼容路线处理，属于实验性支持；运行时自检通过后会使用可用的 FP16 路线，否则回退 CPU。
 
 ### 当前建议
 
@@ -89,15 +90,15 @@ powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 ### AMD 显卡参考
 
-下表仅用于帮助 AMD 用户快速判断是否值得尝试 Windows / Linux 本地 GPU 路线，不代表所有型号都已在 Kimodo 上做过完整验证。
+下表仅概括 AMD/ROCm 厂商侧的可尝试范围，不代表这些型号已通过 Kimodo 2.0.0 的完整验证；Kimodo 的 AMD 路线整体仍为实验性支持。
 
-| 显卡型号 | 平台 | 是否支持 | 备注 |
+| 显卡型号 | 平台 | Kimodo 2.0.0 状态 | 备注 |
 | --- | --- | --- | --- |
-| Radeon RX 7000 / RX 9000 系列（官方 Windows 兼容表中的受支持型号） | Windows | 支持 | 通常需要安装 [HIP SDK / ROCm for Windows](https://rocm.docs.amd.com/projects/install-on-windows/en/latest/index.html) |
-| Radeon PRO W7000 / W9000 部分型号 | Windows | 支持 | 通常需要安装 [HIP SDK / ROCm for Windows](https://rocm.docs.amd.com/projects/install-on-windows/en/latest/index.html) |
-| Ryzen AI Max 部分型号 | Windows | 支持 | 通常需要安装 [HIP SDK / ROCm for Windows](https://rocm.docs.amd.com/projects/install-on-windows/en/latest/index.html) |
-| Radeon RX 6000 系列 | Windows | 不建议按正式支持理解 | 不建议默认视为官方稳支持平台；即使可尝试，也不要按开箱即用预期理解。 |
-| 支持 ROCm 的 AMD GPU | Linux | 支持 | 一般需要先安装 [ROCm](https://rocm.docs.amd.com/en/latest/) ，再配置对应的 PyTorch / 运行环境。 |
+| Radeon RX 7000 / RX 9000 系列（AMD Windows 兼容表中的型号） | Windows | 实验性，可尝试 | 通常需要先安装 [HIP SDK / ROCm for Windows](https://rocm.docs.amd.com/projects/install-on-windows/en/latest/index.html)。 |
+| Radeon PRO W7000 / W9000 部分型号 | Windows | 实验性，可尝试 | 仅按 AMD 的兼容范围判断，不能视为 Kimodo 完整验证。 |
+| Ryzen AI Max 部分型号 | Windows | 实验性，可尝试 | 仅按 AMD 的兼容范围判断，不能视为 Kimodo 完整验证。 |
+| Radeon RX 6000 系列 | Windows | 不建议 | 不应按开箱即用或正式支持预期。 |
+| AMD 官方 ROCm 兼容表中的 GPU | Linux | 实验性，可尝试 | 一般需要先安装 [ROCm](https://rocm.docs.amd.com/en/latest/) 并准备匹配的 PyTorch 环境。 |
 
 
 
@@ -111,7 +112,7 @@ macOS 上缺少 `motion_correction` 通常不会影响 Kimodo 的主生成流程
 
 - `brew install simde pybind11 eigen`
 
-装完后重新执行一次 setup / generate，QuickServer 会再次尝试自动构建它。
+装完后重新生成；QuickServer 会在启动时再次检查 setup，并尝试自动构建它。
 
 如果只是先跑通生成流程，可以先忽略这一步；等确认 mac 端确实需要官方后处理时，再处理 `motion_correction` 相关依赖即可。
 

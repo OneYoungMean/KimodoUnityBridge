@@ -14,8 +14,8 @@ namespace KimodoBridge.Editor
             public bool IsCustomAnchor;
             public KimodoConstraintNormalizationAnchorKind AnchorKind = KimodoConstraintNormalizationAnchorKind.None;
             public KimodoMarkerSampleResult AnchorSample;
-            public Vector3 RootPosition = Vector3.zero;
-            public Quaternion InverseRootRotation = Quaternion.identity;
+            public Vector3 KimodoRootPosition = Vector3.zero;
+            public Quaternion InverseKimodoRootRotation = Quaternion.identity;
         }
 
         internal static void NormalizeConstraintOrigin(
@@ -69,8 +69,11 @@ namespace KimodoBridge.Editor
                 resolved.AnchorSample = anchor != null ? anchor.Clone() : null;
                 if (anchor != null)
                 {
-                    resolved.RootPosition = new Vector3(anchor.unityRootPos.x, 0f, anchor.unityRootPos.z);
-                    resolved.InverseRootRotation = Quaternion.Inverse(ResolvePlanarRootRotation(anchor));
+                    resolved.KimodoRootPosition = new Vector3(
+                        anchor.kimodoRootPosition.x,
+                        0f,
+                        anchor.kimodoRootPosition.z);
+                    resolved.InverseKimodoRootRotation = Quaternion.Inverse(ResolveKimodoPlanarRootRotation(anchor));
                 }
             }
             else if (autoBeginAnchorSample != null)
@@ -78,11 +81,11 @@ namespace KimodoBridge.Editor
                 resolved.IsCustomAnchor = true;
                 resolved.AnchorKind = KimodoConstraintNormalizationAnchorKind.AutoBegin;
                 resolved.AnchorSample = autoBeginAnchorSample.Clone();
-                resolved.RootPosition = new Vector3(
-                    autoBeginAnchorSample.unityRootPos.x,
+                resolved.KimodoRootPosition = new Vector3(
+                    autoBeginAnchorSample.kimodoRootPosition.x,
                     0f,
-                    autoBeginAnchorSample.unityRootPos.z);
-                resolved.InverseRootRotation = Quaternion.Inverse(ResolvePlanarRootRotation(autoBeginAnchorSample));
+                    autoBeginAnchorSample.kimodoRootPosition.z);
+                resolved.InverseKimodoRootRotation = Quaternion.Inverse(ResolveKimodoPlanarRootRotation(autoBeginAnchorSample));
             }
 
             return resolved;
@@ -220,8 +223,8 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            Vector3 anchorRootPosition = anchor != null ? anchor.RootPosition : Vector3.zero;
-            Quaternion inverseAnchorRootRotation = anchor != null ? anchor.InverseRootRotation : Quaternion.identity;
+            Vector3 anchorRootPosition = anchor != null ? anchor.KimodoRootPosition : Vector3.zero;
+            Quaternion inverseAnchorRootRotation = anchor != null ? anchor.InverseKimodoRootRotation : Quaternion.identity;
             for (int i = 0; i < samples.Count; i++)
             {
                 NormalizeConstraintOriginSample(samples[i], anchorRootPosition, inverseAnchorRootRotation);
@@ -275,14 +278,38 @@ namespace KimodoBridge.Editor
             return Math.Abs(sampleTime - earliestTime) <= FirstFrameTimeEpsilonSeconds;
         }
 
-        internal static Quaternion ResolvePlanarRootRotation(KimodoMarkerSampleResult sample)
+        internal static Quaternion ResolveKimodoPlanarRootRotation(KimodoMarkerSampleResult sample)
         {
             Vector3 forward = sample != null && sample.hasRootHeading
                 ? new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y)
-                : Vector3.ProjectOnPlane((sample != null ? sample.unityRootRot : Quaternion.identity) * Vector3.forward, Vector3.up);
+                : sample?.localAxisAngles != null && sample.localAxisAngles.Count > 0
+                    ? Vector3.ProjectOnPlane(AxisAngleToQuaternion(sample.localAxisAngles[0]) * Vector3.forward, Vector3.up)
+                    : Vector3.forward;
             return forward.sqrMagnitude > 1e-8f
                 ? Quaternion.LookRotation(forward.normalized, Vector3.up)
                 : Quaternion.identity;
+        }
+
+        internal static float ResolveHumanScale(Avatar avatar)
+        {
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar) ||
+                !KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoConstraintScaleProbe",
+                    out SkeletonCache cache,
+                    out _))
+            {
+                return 1f;
+            }
+
+            try
+            {
+                return Mathf.Max(1e-6f, cache.humanScale);
+            }
+            finally
+            {
+                cache.Dispose();
+            }
         }
 
         internal static void NormalizeRootPose(
@@ -341,7 +368,7 @@ namespace KimodoBridge.Editor
             return planarHeading;
         }
 
-        private static Quaternion AxisAngleToQuaternion(Vector3 axisAngle)
+        internal static Quaternion AxisAngleToQuaternion(Vector3 axisAngle)
         {
             float angleRad = axisAngle.magnitude;
             if (angleRad <= 1e-8f)

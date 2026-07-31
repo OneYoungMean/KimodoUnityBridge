@@ -53,12 +53,12 @@ Kimodo 的 Timeline 工具建立在动画片段（Animation Clip）的概念之�
 
 | 设置 | 说明 |
 | --- | --- |
-| **Backend** | 选择生成后端。默认为本地运行的 Kimodo Bridge；选 ComfyUI 时需要额外填写 IP 和端口。 |
-| **Bridge Model** | 用于桥接生成的 Kimodo 模型包，使用已安装的默认项即可。 |
-| **Text Encoder Mode** | High Precision 使用 FP16；High Performance 使用 NF4/INT8。Kimodo 会预留约 2GB，文本编码器根据有效显存和设备能力自动放置。 |
+| **Base Model** | 选择 Kimodo 或 ARDY 模型系列。 |
+| **Model** | 选择该系列中实际用于生成的模型包。 |
+| **Text Encoder Mode** | High Precision 使用 FP16；High Performance 使用 NF4/INT8。动作模型先预留约 2GB，文本编码器再根据剩余显存和设备能力自动放置。 |
 | **Prompt** | 发送给生成后端的自然语言动作描述。描述越具体，结果越贴近预期。 |
-| **Duration (s)** | 生成片段的目标时长。改动它会同步更新时间轴上片段的长度。 |
-| **Diffusion Steps** | 生成的采样步数。步数越高耗时越长，细节可能更好。默认值适用于大多数情况。 |
+| **Timeline Duration** | 只读显示 Timeline Clip 的时长；要改变生成长度，请直接调整 Timeline 上的片段长度。 |
+| **Diffusion Steps** | 生成的采样步数。ARDY 可设为 0，表示使用所选 Profile 的默认值；其它值受该模型上限约束。 |
 | **Random / Seed** | 勾选 Random 时每次生成使用随机种子；取消勾选时可填固定 Seed 复现同一结果。 |
 
 <!-- 这里放一张 Generate Motion 面板的截图 -->
@@ -102,9 +102,9 @@ Kimodo 的 Timeline 工具建立在动画片段（Animation Clip）的概念之�
 最简单的流程如下：
 
 1. 打开 Timeline，选中一条绑定了角色的 Animation Track 上的 Kimodo 片段。
-2. 在 Inspector 中填写提示词，调整时长、显存模式等参数。
+2. 在 Inspector 中填写提示词，选择模型和 Text Encoder Mode；需要改变生成长度时，直接调整 Timeline 上的片段长度。
 3. 若需要循环或过渡，设置好 InOut Constraint。
-4. 点击 **Generate & Bake**，等待生成完成。CUDA 大约几秒，CPU 会慢一些；生成过程中可点 **Cancel** 中止。
+4. 点击 **Generate & Bake**，等待生成完成。耗时取决于模型、采样步数和设备；生成过程中可点 **Cancel** 中止。
 5. 运行 Timeline 查看效果。
 6. 不满意时改写提示词，或勾选 Random 再生成一次。**Reset** 可清除本次生成的记录重来。
 
@@ -127,5 +127,5 @@ Kimodo 的 Timeline 工具建立在动画片段（Animation Clip）的概念之�
 ## 注意事项
 
 - 第一次生成会自动下载模型并配置环境，需要等待一段时间，属于正常现象。偶尔因网络波动失败，重新生成通常即可解决。
-- 改动 Duration 会同步改变时间轴片段的长度，这是有意为之，便于两边对齐。
+- **Timeline Duration** 是只读值；生成长度始终由 Timeline Clip 的实际长度决定。
 - 想精确控制某些帧的姿势，请参阅 **Constraint Tool** 一节，了解如何在片段上放置约束 Marker。

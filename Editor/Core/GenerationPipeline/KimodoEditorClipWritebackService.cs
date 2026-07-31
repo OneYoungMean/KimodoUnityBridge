@@ -47,6 +47,11 @@ namespace KimodoBridge.Editor
             return CreateAnimationClipAsset(assetName, GeneratedClipFolder, trackForTrim: false);
         }
 
+        internal static AnimationClip CreateGeneratedAnimationClipAsset(string assetName, string folderPath)
+        {
+            return CreateAnimationClipAsset(assetName, folderPath, trackForTrim: false);
+        }
+
         public static AnimationClip CreateGeneratedCacheAnimationClipAsset(string assetName)
         {
             return CreateAnimationClipAsset(assetName, CacheClipFolder, trackForTrim: true);

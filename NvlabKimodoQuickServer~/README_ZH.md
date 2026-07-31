@@ -1,4 +1,6 @@
-# NvlabKimodoQuickServer1（中文）
+# NvlabKimodoQuickServer（中文）
+
+> 随 Kimodo Unity Motion Tools 2.0.0 发布；QuickServer 包版本同为 2.0.0。
 
 ## 语言说明
 - 中文说明：`README_ZH.md`
@@ -11,35 +13,26 @@
 - 返回按任务 id 归属的 `queued / loading / progress / cancelling / cancelled / done / error` 状态。
 
 ## 环境要求
-- Windows 10/11 x64
-- 默认自动下载到本地 `models\` 目录；只有测试或共享缓存需要覆盖路径时才传 `--models-root`。
+- Windows 10/11 x64、macOS 或 Linux；Windows 使用 `run_server.bat`，macOS/Linux 使用 `run_server.sh`。
+- CUDA 是当前最完整的加速路线；Apple MPS、AMD/ROCm 与 Intel XPU 属于实验性支持，不可用时会回退到 CPU。
+- 默认自动下载到本地 `models\` 目录；需要使用测试或共享缓存时，可通过 Unity 的 **Local Models Path** 或环境变量 `KIMODO_MODELS_ROOT` 覆盖。
 - 需要 `uv`。如果本机缺失，`run_server.bat` / `run_server.sh` 会在首次运行时尝试下载一份本地 unmanaged `uv` 到 `program\exe\uv\`。它自己的包缓存仍然走 `uv` 默认的全局缓存目录。
 
-## 安装
+## 启动
 ```bat
-cd /d C:\nvlab\NvlabKimodoQuickServer1
-run_server.bat setup --output console
+cd /d C:\path\to\NvlabKimodoQuickServer~
+run_server.bat
 ```
 
-Linux：
+macOS / Linux：
 ```bash
-cd /mnt/c/nvlab/NvlabKimodoQuickServer1
-./run_server.sh setup --output console
+cd /path/to/NvlabKimodoQuickServer~
+./run_server.sh
 ```
 
-## Example
-```bat
-cd /d C:\nvlab\NvlabKimodoQuickServer1
-run_server.bat --model Kimodo-SOMA-RP-v1 --output console
-```
+启动脚本会先自动检查并完成 setup，再启动 TCP supervisor；无需也不应追加 `setup` 子命令。模型、文本编码器模式和模型目录通常由 Unity 的每次生成请求传入。Windows 批处理脚本只处理生命周期参数，不会转发 `--model`、`--models-root` 或 `--output` 等高级运行参数；详见 `PARAMETERS.md`。
 
-Linux：
-```bash
-cd /mnt/c/nvlab/NvlabKimodoQuickServer1
-./run_server.sh --model Kimodo-SOMA-RP-v1 --output console
-```
-
-文本编码器由 `text_encoder_mode=high_precision|high_performance` 选择精度偏好，再按实时剩余显存和设备能力自动放置。QuickServer 先确保 motion 模型至少有约 2GB 可用空间，加载后再次检查剩余显存；NF4/INT8/FP16 的 GPU 预算分别为 6GB/8GB/16GB。显式 `simulate_free_vram_gb=0` 会让整个运行时走 CPU。
+文本编码器由 `text_encoder_mode=high_precision|high_performance` 选择精度偏好，再按实时剩余显存和设备能力自动放置。QuickServer 先为 motion 模型预留约 2GB，随后把剩余显存作为文本编码器预算；NF4/INT8/FP16 的门槛分别为 6GB/8GB/16GB。显式 `simulate_free_vram_gb=0` 会让整个运行时走 CPU。
 
 Bridge TCP 返回格式：
 - 默认 `generate` 返回 `motion_json_compact`。
@@ -65,7 +58,7 @@ TCP 协议补充：
 
 ARDY Generate 携带正数 `duration` 时采用固定长度语义：创建新的逻辑生成，可通过 clip constraint 初始化显式 History，后端按需执行多个 Horizon，返回精确长度的一份 KMB 后释放该逻辑时间线。ARDY Generate 缺省 `duration` 时采用流式语义：客户端发送 Session 相对的 `time_as_double`，QuickServer 保留该 Session 的 RNG、history 与时间线，后续 Generate 持续更新，直到 `session.close`。`duration: 0` 非法，不作为流式别名。
 
-在 ARDY 流式模式下，QuickServer 根据当前模型 FPS 转帧，只在 GPU 保留 profile 对应的 history，并在 CPU 缓存时间线以支持 seek。`ardy_playback_reserve_seconds` 默认 1 秒；`ardy_adaptive_playback_reserve` 默认开启，根据后端实测响应耗时调整实际储备。缺省 `prompt` 或 `constraints_json` 表示保持；`[]` 表示清空完整 constraint 快照。更新 prompt/constraint 时保留到 `time_as_double + Playback Reserve`，再重新生成并返回受影响的绝对 KMB 区间。
+在 ARDY 流式模式下，QuickServer 根据当前模型 FPS 转帧，只在加速器侧保留 Profile 的有效 history，并在 CPU 缓存时间线以支持 seek。Core Horizon40 的 token 粒度为 4 帧、单次交付 Horizon 为 40 帧、有效 history 上限为 160 帧；三者彼此独立。`ardy_playback_reserve_seconds` 默认 1 秒；`ardy_adaptive_playback_reserve` 默认开启，根据后端实测响应耗时调整实际储备。缺省 `prompt` 或 `constraints_json` 表示保持；`[]` 表示清空完整 constraint 快照。更新 prompt/constraint 时保留到 `time_as_double + Playback Reserve`，再重新生成并返回受影响的绝对 KMB 区间。
 
 `time_as_double` 减小视为 seek。普通响应从上次已交付尾部追加；seek 和重规划响应可能与旧帧重叠，客户端必须从 `start_frame` 替换时间线。
 

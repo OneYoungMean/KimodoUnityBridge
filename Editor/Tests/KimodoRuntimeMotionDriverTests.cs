@@ -30,6 +30,19 @@ namespace KimodoBridge.Editor.Tests
                 Is.EqualTo(expected));
         }
 
+        [TestCase(1.0 / 30.0, 30.0, 1)]
+        [TestCase(1.00001, 30.0, 30)]
+        [TestCase(0.0, 30.0, 0)]
+        public void SecondsToFrameIndex_UsesTimelineFrameFloor(
+            double seconds,
+            double frameRate,
+            int expected)
+        {
+            Assert.That(
+                KimodoFrameTimeUtility.SecondsToFrameIndex(seconds, frameRate),
+                Is.EqualTo(expected));
+        }
+
         [TestCase(KimodoMotionModelProfiles.ArdyCoreModelName, 4)]
         [TestCase(KimodoMotionModelProfiles.ArdyG1ModelName, 5)]
         public void ValidateArdyResult_AcceptsPlaybackReserveSizedDownload(string modelName, int frameCount)
@@ -417,7 +430,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ConstraintJson_TimeBetweenFramesUsesTheNextFrame()
+        public void ConstraintJson_TimeBetweenFramesUsesTheTimelineSampleFrame()
         {
             var sample = new KimodoMarkerSampleResult
             {
@@ -433,7 +446,7 @@ namespace KimodoBridge.Editor.Tests
                     clipDurationSeconds: 2.0,
                     exportFps: 30.0));
 
-            Assert.That(constraints[0]["frame_indices"]?[0]?.Value<int>(), Is.EqualTo(31));
+            Assert.That(constraints[0]["frame_indices"]?[0]?.Value<int>(), Is.EqualTo(30));
         }
 
         [Test]

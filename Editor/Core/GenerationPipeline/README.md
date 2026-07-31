@@ -2,7 +2,7 @@
 
 ## Goal
 - Remove generation execution from `KimodoPlayableClipEditor`.
-- Route generation through `EditorGenerateSessionRunner -> KimodoEditorRuntimeGeneratePipeline`.
+- Route generation through `EditorGenerateSessionRunner -> KimodoEditorGeneratePipeline`.
 - Keep editor behavior unchanged for asset writeback, bake, retarget, and timeline refresh.
 
 ## Current Split
@@ -20,12 +20,12 @@
   - `GetSkeletonBoneParentNameOrEmpty`
 - Editor-only importer/avatar auto-generation remains in `TimelineInject/Editor/AvatarSetupToolExtension.cs`.
 
-## Runtime Real-time Retarget (Future)
-This phase does **not** implement runtime real-time retarget execution yet. Planned direction:
-1. Build a generated skeleton graph at runtime from generated motion outputs.
-2. Add a MonoBehaviour bridge to sample body/muscle state from generated skeleton.
-3. Drive target model muscle handles from sampled runtime state.
-4. Keep editor asset bake path as-is for authoring workflows.
+## Runtime Real-time Retarget
+Runtime real-time retargeting is implemented by `KimodoRuntimeMotionDriver` and the runtime motion player:
+1. Generated compact JSON or KMB motion is parsed into a runtime skeleton/motion buffer.
+2. The driver streams generated segments and applies them to a target Humanoid Animator.
+3. Optional foot-target driving and runtime leg IK correction are applied during playback.
+4. Editor asset bake/writeback remains a separate authoring path.
 
 ## Non-goals (This Phase)
 - No runtime `.anim` asset persistence.

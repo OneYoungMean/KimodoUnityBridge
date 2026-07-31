@@ -5,6 +5,7 @@ namespace KimodoBridge.Editor
         Unknown = 0,
         GeneratePlayableClip = 1,
         CancelPlayableClipGeneration = 2,
-        GenerateNavMeshTrackClips = 3
+        GenerateNavMeshTrackClips = 3,
+        GenerateAnimationAsset = 4
     }
 }

@@ -240,18 +240,18 @@ namespace KimodoBridge.Editor
             director = null;
             error = string.Empty;
 
-            PlayableDirector inspectedDirector = TimelineEditor.inspectedDirector;
-            if (inspectedDirector != null)
-            {
-                director = inspectedDirector;
-                return true;
-            }
-
             TimelineAsset timelineAsset = ResolveTimelineAsset(sourceClip, track);
             if (timelineAsset == null)
             {
                 error = "Timeline inspected director is null and TimelineAsset cannot be resolved.";
                 return false;
+            }
+
+            PlayableDirector inspectedDirector = TimelineEditor.inspectedDirector;
+            if (inspectedDirector != null && inspectedDirector.playableAsset == timelineAsset)
+            {
+                director = inspectedDirector;
+                return true;
             }
 
             var candidates = new List<PlayableDirector>();
@@ -441,6 +441,18 @@ namespace KimodoBridge.Editor
                 return null;
             }
 
+            float sourceHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(context.SourceAvatar);
+            float kimodoHumanScale = 1f;
+            if (KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
+                    null,
+                    context.Animator,
+                    context.ModelName,
+                    out Avatar targetAvatar,
+                    out _))
+            {
+                kimodoHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(targetAvatar);
+            }
+
             return new KimodoInOutConstraintRequest
             {
                 Mode = mode,
@@ -448,6 +460,8 @@ namespace KimodoBridge.Editor
                 EnableEnd = enableEnd,
                 SourceAvatar = context.SourceAvatar,
                 ModelName = context.ModelName,
+                SourceHumanScale = sourceHumanScale,
+                KimodoHumanScale = kimodoHumanScale,
                 GenerationFrames = ClampFrameCount(generationFrames),
                 AutoBeginAnchor = autoBeginAnchor,
                 DeferNormalization = deferNormalization,

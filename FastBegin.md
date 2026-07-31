@@ -39,7 +39,7 @@
 2. 用 Unity 打开工程，直接运行查看效果。
 3. 插件组件已放在 `KimodoUnityBridge_FullDemo/Packages` 目录下，无需再装。
 
-> **环境要求**：Unity 2022.3+，Windows / macOS / Linux。内存 ≥ 8G，硬盘可用空间 ≥ 10G。NVIDIA 显存 ≥ 6G 可走 CUDA（非强制，CPU 也能跑，只是慢）。
+> **环境要求**：Unity 2022.3+，Windows / macOS / Linux。内存 ≥ 8G，建议预留至少 16G 硬盘空间。NVIDIA 显存 ≥ 6G 可走 CUDA（非强制，CPU 也能跑，只是慢）。macOS、AMD/ROCm 与 Intel XPU 路线仍属于实验性支持，详见[使用手册](Manual/README.md)。
 
 ---
 
@@ -53,8 +53,9 @@
 > | `1.Constraints.unity` | 约束 Marker 玩法 |
 > | `2.InOutConstraint.unity` | 首尾约束（长动画 / 循环 / 过渡） |
 > | `3.KeyFrame.unity` | 关键帧 |
-> | `4.AnimatorWindow.unity` | 状态机里替换 / 衔接动作 |
-> | `5.RuntimeInfiniteDemo.unity` | 发布版运行时实时生成 |
+> | `4.AnimatorWindow.unity` | Animator Tool 历史演示（2.0.0 菜单入口暂未开放） |
+> | `5.RuntimeInfiniteDemo.unity` | Runtime Motion Driver 连续生成演示 |
+> | `6.RuntimeSingalPersonDemo.unity` | Runtime Motion Driver 单角色演示 |
 >
 > FullDemo 用户打开 `0.StartUp` 后，跳到第 4 步「找到 Timeline 游戏对象」即可。下面的导入步骤是给 Light Sample 用户的。
 
@@ -73,12 +74,13 @@
 
 | 参数 | 说明 |
 |---|---|
+| **Base Model / Model** | 选择 Kimodo 或 ARDY 系列，以及实际使用的模型包。第一次体验可保持默认。 |
 | **Prompt** | 发送给后端的自然语言动作描述，例如 "a person walks forward and waves"。**描述越具体，结果越贴近预期**。 |
-| **Duration (s)** | 生成片段的目标时长。改它会**同步改变时间轴上片段的长度**，这是有意为之，方便两段对齐。 |
+| **Timeline Duration** | 只读显示所选 Timeline Clip 的时长。要改变生成长度，请直接拖动 Timeline 上片段的边缘。 |
 | **Random / Seed** | 勾选 **Random** 时每次用随机种子（**第一次试建议勾上，否则会和示例 clip 生成一样的结果**）；取消勾选可填固定 **Seed** 来复现同一结果。 |
 
 其它常用项：
-- **VRAM 模式（Low / High）**：显存 < 6G 或 CPU 走 Low（NF4/INT8 文本编码器）；显存 ≥ 6G 且想要更高质量可走 High（FP16）。
+- **Text Encoder Mode**：High Performance 使用 NF4/INT8 以降低显存占用；High Precision 使用 FP16。QuickServer 会根据剩余显存和设备能力自动决定文本编码器放在加速器还是 CPU 上。
 - **InOut Constraint**：做长动画 / 循环 / 过渡时用。把后一段设为 **Outside** 会自动对齐前一段的结尾姿势，逐段接力即可拼出长动画。第一次跑可以不管。
 - **Show Constraint**：勾上能在 Scene 视图里预览约束姿势的位置。
 - **Advanced**：关键帧精简（Position / Rotation / Float Error）。生成曲线关键帧太密导致卡顿时再调，一般保持默认。
@@ -94,10 +96,10 @@
 第一次触发生成时，插件会自动在本地把整套运行环境和模型准备好：
 
 - 用 `uv` 拉起一个独立的 Python 运行环境（不污染你的系统环境，即开即用、即删即走）。
-- 下载 Kimodo 模型权重 + 文本编码器（LLM2Vec）等资产，**总量约 10G**。
+- 下载所选动作模型、文本编码器（LLM2Vec）等资产；实际体积取决于模型、编码器模式和本地缓存，通常为数 GB。
 - 首次启动 bridge server 时还有一次性的初始化和模型加载。
 
-所以**第一次生成通常要 30–60 分钟**，主要时间花在下载那约 10G 的模型和环境上。这些只在第一次发生，**之后再生成就只剩推理时间**：CUDA 大约几秒，CPU 大约一分钟。
+所以第一次生成可能需要较长时间，主要取决于网络速度、所选资产和设备；网络较慢时可能达到数十分钟。这些准备工作通常只在首次发生，之后主要是模型加载和推理时间。
 
 > **遇到报错怎么办**：第一次启动失败大多是**网络波动**导致下载中断，**重新点一次生成即可继续**，不必重装。若反复失败，去 `NvlabKimodoQuickServer~\log\` 下查看 `bridge_server.log` / `setup.log`。
 
@@ -106,7 +108,7 @@
 ## 5. 快速参考
 
 **最短上手路径**
-1. 装插件（或直接开 FullDemo）→ 2. Import Light Sample → 3. 打开 `light sample` 场景 → 4. 选中 Hierarchy 里的 **Timeline** 对象，打开它的 Timeline 资产 → 5. 选一个 clip → 6. 填 Prompt、勾 Random → 7. Generate & Bake → 8. 等待（首次 30–60 分钟）→ 9. 播放查看。
+1. 装插件（或直接开 FullDemo）→ 2. Import Light Sample → 3. 打开 `light sample` 场景 → 4. 选中 Hierarchy 里的 **Timeline** 对象，打开它的 Timeline 资产 → 5. 选一个 clip → 6. 填 Prompt、勾 Random → 7. Generate & Bake → 8. 等待首次环境和模型准备完成 → 9. 播放查看。
 
 **关键位置速查**
 
@@ -123,7 +125,7 @@
 **Tips**
 - 第一次：直接用 **FullDemo** 最省心。
 - 想每次结果不同：勾 **Random**；想复现：取消 Random、填固定 **Seed**。
-- 首次慢是在下约 10G 模型，只发生一次；报错多半是网络，重点一次即可。
+- 首次运行需要准备环境并下载模型；若因网络中断报错，可重试一次，下载通常会继续。
 - 长动画/循环：用 **InOut Constraint** 逐段接力（设 Outside 对齐上一段结尾）。
 
 **进阶手册（`Manual/` 目录）**  

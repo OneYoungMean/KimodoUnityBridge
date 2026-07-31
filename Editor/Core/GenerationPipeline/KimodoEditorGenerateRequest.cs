@@ -31,6 +31,8 @@ namespace KimodoBridge.Editor
         public bool NormalizeConstraintOriginApplied;
         public KimodoConstraintNormalizationAnchorKind NormalizationAnchorKind;
         public KimodoMarkerSampleResult NormalizationAnchorSample;
+        public float NormalizationSourceHumanScale = 1f;
+        public float NormalizationKimodoHumanScale = 1f;
         public KimodoMarkerSampleResult AutoBeginAnchorSample;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
         public TimelineClip TimelineClipSnapshot;

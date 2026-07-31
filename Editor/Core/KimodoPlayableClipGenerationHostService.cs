@@ -138,6 +138,8 @@ namespace KimodoBridge.Editor
                 externalConstraint?.RetargetAvatar,
                 resolvedModelName,
                 outputBindingObject);
+            float sourceHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(outputPlanSnapshot.OriginRetargetAvatar);
+            float kimodoHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(outputPlanSnapshot.TargetRetargetAvatar);
             return new KimodoEditorGenerateRequest
             {
                 Prompt = prompt,
@@ -164,6 +166,8 @@ namespace KimodoBridge.Editor
                 NormalizeConstraintOriginApplied = normalizeConstraintOriginApplied,
                 NormalizationAnchorKind = normalizationAnchorKind,
                 NormalizationAnchorSample = normalizationAnchorSample,
+                NormalizationSourceHumanScale = sourceHumanScale,
+                NormalizationKimodoHumanScale = kimodoHumanScale,
                 AutoBeginAnchorSample = autoBeginAnchorSample,
                 ConstraintSamples = constraintSamples,
                 TimelineClipSnapshot = timelineClip,
@@ -273,21 +277,100 @@ namespace KimodoBridge.Editor
             KimodoPlayableClip playableClip,
             KimodoEditorGenerateRequest request)
         {
-            KimodoTimelinePreviewRefreshUtility.RefreshIfPreviewing();
             ApplyTimelineOffsets(playableClip, request);
+            KimodoTimelinePreviewRefreshUtility.RefreshIfPreviewing();
         }
 
         private static void ApplyTimelineOffsets(
             KimodoPlayableClip playableClip,
             KimodoEditorGenerateRequest request)
         {
-            if (playableClip == null || request?.ContinuousOffsetSourceClip == null)
+            if (playableClip == null || request == null)
             {
                 return;
             }
 
-            CopyClipOffset(request.ContinuousOffsetSourceClip, playableClip);
-            Debug.Log($"[Kimodo][TimelineOffset] copied continuous ARDY offset to '{playableClip.name}'.");
+            if (request.ContinuousOffsetSourceClip != null)
+            {
+                CopyClipOffset(request.ContinuousOffsetSourceClip, playableClip);
+                Debug.Log($"[Kimodo][TimelineOffset] copied continuous ARDY offset to '{playableClip.name}'.");
+                return;
+            }
+
+            if (!request.NormalizeConstraintOriginApplied || request.NormalizationAnchorSample == null)
+            {
+                return;
+            }
+
+            TrackAsset track = request.TimelineClipSnapshot?.GetParentTrack();
+            Animator animator = ResolveTimelineBindingAnimator(request.TimelineDirectorSnapshot, track);
+            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                track,
+                animator,
+                out Vector3 trackPosition,
+                out Quaternion trackRotation);
+
+            Quaternion trackPlanarRotation = ResolvePlanarRotation(trackRotation);
+            ResolveAnchorWorldRoot(
+                request.NormalizationAnchorSample,
+                request.NormalizationAnchorKind,
+                request.NormalizationSourceHumanScale,
+                request.NormalizationKimodoHumanScale,
+                out Vector3 anchorPosition,
+                out Quaternion anchorRotation);
+            Quaternion anchorPlanarRotation = ResolvePlanarRotation(anchorRotation);
+            Vector3 localPosition = Quaternion.Inverse(trackPlanarRotation) *
+                (new Vector3(anchorPosition.x, 0f, anchorPosition.z) -
+                 new Vector3(trackPosition.x, 0f, trackPosition.z));
+
+            playableClip.position = new Vector3(localPosition.x, playableClip.position.y, localPosition.z);
+            playableClip.rotation = Quaternion.Inverse(trackPlanarRotation) * anchorPlanarRotation;
+            playableClip.removeStartOffset = false;
+            EditorUtility.SetDirty(playableClip);
+            Debug.Log(
+                $"[Kimodo][TimelineOffset] applied {request.NormalizationAnchorKind} anchor to '{playableClip.name}': " +
+                $"worldAnchor={anchorPosition:F6}, position={playableClip.position}, rotation={playableClip.rotation.eulerAngles}.");
+        }
+
+        private static void ResolveAnchorWorldRoot(
+            KimodoMarkerSampleResult anchor,
+            KimodoConstraintNormalizationAnchorKind anchorKind,
+            float sourceHumanScale,
+            float kimodoHumanScale,
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            if (anchorKind == KimodoConstraintNormalizationAnchorKind.AutoBegin)
+            {
+                position = anchor.unityRootPos;
+                rotation = anchor.unityRootRot;
+                return;
+            }
+
+            float scale = Mathf.Max(1e-6f, sourceHumanScale) / Mathf.Max(1e-6f, kimodoHumanScale);
+            position = anchor.kimodoRootPosition * scale;
+
+            Quaternion kimodoRootRotation = anchor.localAxisAngles != null && anchor.localAxisAngles.Count > 0
+                ? KimodoConstraintNormalizationUtility.AxisAngleToQuaternion(anchor.localAxisAngles[0])
+                : anchor.unityRootRot;
+            rotation = kimodoRootRotation;
+        }
+
+        private static Animator ResolveTimelineBindingAnimator(PlayableDirector director, TrackAsset track)
+        {
+            UnityEngine.Object binding = director != null && track != null
+                ? director.GetGenericBinding(track)
+                : null;
+            return binding as Animator ??
+                (binding as GameObject)?.GetComponentInChildren<Animator>(true);
+        }
+
+        private static Quaternion ResolvePlanarRotation(Quaternion rotation)
+        {
+            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
+            return forward.sqrMagnitude > 1e-8f
+                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
+                : Quaternion.identity;
         }
 
         private static void CopyClipOffset(KimodoPlayableClip source, KimodoPlayableClip destination)
@@ -331,7 +414,7 @@ namespace KimodoBridge.Editor
             return undoGroup;
         }
 
-        private static Avatar ResolveOriginRetargetAvatar(string modelName)
+        internal static Avatar ResolveOriginRetargetAvatar(string modelName)
         {
             if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar avatar, out _))
             {

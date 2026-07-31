@@ -3,19 +3,17 @@
 # License
 [Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
 
-# 2.0.0更新点速览
-* 修复了大部分已知问题  
-* **支持amd显卡，xpu显卡支持（Experimental）**
-* **增加Mac 平台支持，现在Linux，windows，mac 都可以正常工作了（Experimental）**
-* **大幅优化服务器体积**
-* **更完整的报错，更流畅的反馈机制**
-* **大幅度优化Generate pipe不稳定的问题**
-* **小幅度优化Quick Server性能,使用FaltPatten优化QickServer与Bridge通讯机制**
-* 修复了若干前后动画不匹配的问题.
-* 完善了说明书.
+# 2.0.0 更新点速览
+
+- 重构生成管线和 QuickServer 通讯，统一 Session、任务状态、取消与 KMB 直接传输。
+- 新增 `KimodoRuntimeMotionDriver`，支持 Runtime 连续生成、实时重定向、提示词更新与运行时约束。
+- 新增 ARDY 流式生成、History/seek、Playback Reserve，以及 KMB History/Future Clip 约束协议/API。
+- 改进 Timeline 首尾约束、约束预览、Avatar 自动解析和前后片段对齐。
+- 支持 Windows、macOS、Linux；NVIDIA CUDA 是当前最完整的加速路线，Apple MPS、AMD/ROCm 与 Intel XPU 为实验性支持。
+- 缩减服务器包体，改进下载站点探测、错误提示和生成进度反馈。
 
 ## 更新注意事项
-**老用户请删除项目目录\NvlabKimodoQuickServer~并重新运行，代码会自动拉取最新的包！否则运行会报错!**
+**从 1.x 升级时，请先在 Server Manager 停止服务器，再点击 `Reinstall Kimodo Server` 重铺运行目录；该操作会保留已有的 `models` 目录。**
 ***
 
 # KimodoUnityBridge
@@ -23,27 +21,27 @@
 **开箱即用，完全运行在本地的免费 AI 人形动画生成系统**[快速开始](FastBegin.md) .   
 * 基于 https://github.com/nv-tlabs/kimodo 
 * 基于 https://github.com/OneYoungMean/NvlabKimodoQuickServer (感谢[Aero-Ex](https://gist.github.com/Aero-Ex) 他的文档解决了我很大问题)
-* CPU/GPU模式自适应（CUDA大约5秒，CPU大约1一分钟）兼容Windows/Linux平台.
+* CPU/GPU 模式自适应；支持 Windows、macOS、Linux，无法使用加速器时会回退 CPU。
 * 完全本地部署，你无需为任何内容付任何费用（也不必为此感到自责）！
 * 一款开源AI插件, 可以根据提示词生成你想要的人物角色动画！
 
 ## 要求
 - Unity 2022.3+，Windows、macOS 和 Linux 平台。
 - 内存>=8G,硬盘空间>=16G
-- Windows,Mac,Linux平台
-- 对部分平台（Nvidia10系以上， AMD7000以上，部分XPU）会启动CUDA加速
+- NVIDIA CUDA 是当前最完整的 GPU 路线；Apple MPS、AMD/ROCm 与 Intel XPU 属于实验性支持。
+- CPU 始终可用，但生成速度会明显慢于 GPU。
 
 ## 特性
 
 - **即开即用的设计** 你无需担心该项目需要安装各种前置依赖/环境配置/设备限制等问题,作者已经完整测试过了，你也不用担心安装导致本地环境被破坏或者残留文件，所有的内容都是即开即用/即删即走的！
 
-- **完整的Kimodo特性** Kimodo仓库提供的提示词/Fullbody约束/2D平面Constraint等内容，我们都支持！不用担心你错过了任何内容！**所有的动画都有完整的RootMotion** ！
+- **Kimodo 核心生成能力** 支持提示词、FullBody、Root2D 与末端约束，以及完整 Root Motion。具体可用项以当前模型 Profile 和工具面板为准。
 
 - **自适应Retarget动画** 产生的动画现在会根据你的角色自适应，如果你的角色是Generic的，那么它就只会给你骨骼动画，Humanoid的就会给你肌肉动画，无需担心各种动画Transition的问题！
 
 - **极其低的学习曲线!** 作者已经帮你们把门槛踏平了!无需任何复杂的添加与操作,只需要输入提示词，放置约束，点击generate 然后等待结果生成就可以了！
 
-- **runtime功能支持!** Kimodo Bridge Server现在支持 Runtime运行了！如果你的GPU足够的好（3080即以上）你就可以** 实时生成动画！**
+- **Runtime 功能支持!** `KimodoRuntimeMotionDriver` 支持连续生成、实时重定向、提示词更新和运行时约束；发布前可通过 **Kimodo → Install Kimodo Runtime To StreamingAssets** 安装运行环境。
 
 - **高度自由的Constraint功能!** 你可以从一段已有的动画当中创建pose constraint，也可以手动创建一个pose constraint并编辑它们。你甚至可以生成一些kimodo动画，然后从里面挑选合适的姿势，放下constraint marker 采样它们！
 
@@ -63,7 +61,7 @@
 ### Bug Report
 由于项目较大且开发时间较短，bug难免有所疏漏，在这里提前给用户老爷抱歉啦，如果你很不幸（或者说很幸运）遇到了bug，请提交一下log，方便作者改进和维护，感激不尽：  
 如果你遇到的是unity报错：请提交[Editor.log](https://blog.csdn.net/codingriver/article/details/86551964)  
-如果你遇到的是server报错（例如server exit with code 1）请将项目路径\NvlabKimodoQuickServer~\log下的内容发送给我。
+如果你遇到的是 server 报错（例如 server exit with code 1），请将项目根目录下 `NvlabKimodoQuickServer~/log` 的内容发送给我；发布版 Runtime 日志位于 `StreamingAssets/NvlabKimodoQuickServer~/log`。
 再次诚恳表示抱歉！Orz
 
 ### 最后,如果你喜欢本项目记得给本项目star!

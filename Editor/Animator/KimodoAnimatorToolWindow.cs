@@ -30,7 +30,9 @@ namespace KimodoBridge.Editor
         private KimodoAnimatorEditorPanel editorPanel;
         private string lastSuggestedPrompt = string.Empty;
 
-        [MenuItem(MenuPath, priority = 110)]
+        // TODO: Re-enable the Animator Tool entry after its workflow is reviewed.
+        // The implementation below is intentionally preserved; only the editor menu entry is disabled.
+        //[MenuItem(MenuPath, priority = 110)]
         private static void OpenWindow()
         {
             KimodoAnimatorToolWindow window = GetWindow<KimodoAnimatorToolWindow>("Kimodo Animator Tool");

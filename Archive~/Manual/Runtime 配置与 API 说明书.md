@@ -1,5 +1,7 @@
 # Runtime 运行时配置与 API
 
+> **归档文档：不适用于 2.0.0。** 本文描述已移除的 `KimodoInfiniteMotionDemo`。2.0.0 请使用 `KimodoRuntimeMotionDriver`，并通过 **Kimodo → Install Kimodo Runtime To StreamingAssets** 安装发布版运行环境。
+
 ## 概述
 
 前面几份说明书讲的都是在编辑器里生成动画。Kimodo 同样可以打包进 Runtime——也就是说，你可以让发布出去的游戏在运行时实时生成人形动画，而不必提前烤好。

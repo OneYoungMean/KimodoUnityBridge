@@ -1,5 +1,7 @@
 # Installation Guide (with Custom Text Encoder)
 
+> **Archived upstream/development guide.** It is not the installation path for Kimodo Unity Motion Tools 2.0.0. Use `NvlabKimodoQuickServer~/README.md` instead.
+
 ### 1. Environment Setup
 First, create a fresh Python virtual environment to keep dependencies clean, and activate it.
 
@@ -467,7 +469,7 @@ If you use this code in your research, please cite:
 
 ## License
 
-This codebase is licensed under [Apache-2.0](LICENSE). Note that model checkpoints and data are licensed separately as indicated on the HuggingFace download pages.
+This archived codebase was licensed under Apache-2.0. Its original local license file is not included in this archive; model checkpoints and data remain separately licensed as indicated on their download pages.
 
 This project will download and install additional third-party open source software projects. Review the license terms of these open source projects before use.
 

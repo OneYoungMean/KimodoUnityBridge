@@ -1,15 +1,22 @@
 # NvlabKimodoQuickServer 参数说明
 
-## 1. `run_server.bat setup` / `run_server.sh setup`
-- `--output <console|file>`: 输出模式，默认 `console`。
-- `--log <path>`: `file` 模式下日志文件路径，默认 `log\setup.log`。
-- `--force`: 强制重新 setup（会归档旧 sentinel）。
+## 1. `run_server.bat` / `run_server.sh`
+
+启动脚本每次都会先检查 setup 状态，必要时自动准备环境，然后启动 TCP supervisor；没有面向用户的 `setup` 子命令。
+
+- `--force-setup`: 归档 setup sentinel 并重新准备环境。
+- `--venv <path>`: 复用指定虚拟环境。
+- `--watchpid <pid>`: 让 supervisor 监视宿主进程；Windows 和 macOS/Linux 启动器均支持。
+- `--hold-cli`: 仅 Windows 调试参数，让批处理等待 supervisor 退出。
 
 关键 setup 变量：
-- `KIMODO_SETUP_DEVICE=auto|cpu`: setup 安装模式；设为 `cpu` 时强制准备 CPU torch 环境。
+- `KIMODO_SETUP_DEVICE=auto|cpu`: setup 安装模式；设为 `cpu` 时强制准备 CPU torch 环境。macOS 的 `auto` 会安装通用 torch，并验证 MPS；不可用时回退 CPU。
 - `KIMODO_VENV_PATH=<path>`: 复用指定虚拟环境；等价于启动时自动补 `--venv <path>`。
 
-## 2. `run_server.bat` / `run_server.sh`
+## 2. supervisor 高级参数
+
+以下是内部 `quickserver_cli.py run` 的参数。Unity 通常通过每次生成请求提供模型相关设置。Windows `run_server.bat` 不转发这些参数；跨平台配置模型目录时优先使用 Unity 的 **Local Models Path** 或 `KIMODO_MODELS_ROOT`。
+
 - `--model <name|alias>`: 默认 `Kimodo-SOMA-RP-v1`。
 - `--text-encoder-mode <high_precision|high_performance>`: 文本编码器偏好，默认 `high_precision`；设备位置由 QuickServer 自动决定。
 - `--force-hf-download`: 对允许竞速的资产强制使用 Hugging Face 下载；若命中 legacy 本地兼容布局，则不会触发下载。
@@ -17,7 +24,6 @@
 - `--output <console|file>`: 输出模式，默认 `console`。
 - `--log <path>`: `file` 模式下主日志路径，默认 `log\bridge_server.log`。
 - `bridge_server` 主日志固定为 `log\bridge_server.log`。
-- `--force-setup`: 归档 setup sentinel 后重新 setup。
 
 关键运行变量：
 - `KIMODO_MODELS_ROOT`: 默认 models 根目录（可被 `--models-root` 覆盖）。
@@ -36,16 +42,16 @@ INT8 资产说明：
 文本编码器路由说明：
 - QuickServer 使用实时剩余显存，先要求 motion 模型至少有约 `2GB` 可用空间；不足时直接返回显存不足错误。
 - motion 模型加载后会再次读取剩余显存，再决定文本编码器放在 GPU 还是 CPU。
-- `high_precision`：剩余显存 `>= 16GB` 且设备支持 FP16 时使用 FP16 GPU，否则 FP16 文本编码器走 CPU。
+- `high_precision`：为 motion 模型预留空间后，文本编码器剩余预算 `>= 16GB` 且设备支持 FP16 时使用 FP16 加速器，否则 FP16 文本编码器走 CPU。
 - `high_performance`：
   - 设备支持 NF4 且剩余显存 `>= 6GB`：NF4 GPU。
   - NF4 放不下但支持 INT8 且剩余显存 `>= 8GB`：INT8 GPU。
   - 其他情况：INT8 CPU。
-- `simulate_free_vram_gb` 模拟的是当前剩余显存；未发送表示自动检测，显式发送 `0` 表示全部强制 CPU。
+- `simulate_free_vram_gb` 模拟的是当前总剩余显存；QuickServer 会先扣除 motion 模型约 2GB 预留，再按剩余预算选择文本编码器。未发送表示自动检测，显式发送 `0` 表示全部强制 CPU。
 - 不检测系统内存；CPU 路径允许操作系统使用虚拟内存。
 
 ### 启动说明
-- `run_server.bat setup` / `run_server.sh setup` 都是同一条 Python 入口的子命令，用于单独执行 setup。
+- `run_server.bat` / `run_server.sh` 会自动执行必要的 setup，再启动 supervisor。
 - `serverport` 仅由当前 TCP supervisor 写入；Unity 侧只读取 `serverport` 并建立 TCP 连接，不再做独立 ping 探活。
 - `KIMODO_BRIDGE_OUTPUT_FORMAT=bvh` 是给直接消费 QuickServer TCP 返回值的外部客户端使用的。现有 Unity 客户端仍然依赖 `motion_json_compact`，不应在 Unity 这条链路上开启。
 - QuickServer TCP 现在以 `task_id` 作为协议真相：`generate` 可选传 `task_id`，未传时会在入队前自动补齐。

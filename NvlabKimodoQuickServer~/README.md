@@ -1,4 +1,6 @@
-# NvlabKimodoQuickServer1
+# NvlabKimodoQuickServer
+
+> Ships with Kimodo Unity Motion Tools 2.0.0; the QuickServer package version is also 2.0.0.
 
 ## Language
 - Chinese: `README_ZH.md`
@@ -11,35 +13,26 @@
 - Return task-scoped `queued / loading / progress / cancelling / cancelled / done / error` messages.
 
 ## Requirements
-- Windows 10/11 x64
-- Models are downloaded into the local `models\` directory by default. Use `--models-root` only when a test or shared cache needs an override.
+- Windows 10/11 x64, macOS, or Linux. Use `run_server.bat` on Windows and `run_server.sh` on macOS/Linux.
+- CUDA is the most complete accelerator path. Apple MPS, AMD/ROCm, and Intel XPU are experimental and fall back to CPU when runtime validation fails.
+- Models are downloaded into the local `models\` directory by default. For a test or shared cache, override it through Unity's **Local Models Path** or the `KIMODO_MODELS_ROOT` environment variable.
 - `uv` is required. `run_server.bat` / `run_server.sh` can download an unmanaged local `uv` binary into `program\exe\uv\` on first launch if missing. Its package cache still uses uv's normal global cache location.
 
-## Install
+## Start
 ```bat
-cd /d C:\nvlab\NvlabKimodoQuickServer1
-run_server.bat setup --output console
+cd /d C:\path\to\NvlabKimodoQuickServer~
+run_server.bat
 ```
 
-Linux:
+macOS / Linux:
 ```bash
-cd /mnt/c/nvlab/NvlabKimodoQuickServer1
-./run_server.sh setup --output console
+cd /path/to/NvlabKimodoQuickServer~
+./run_server.sh
 ```
 
-## Example
-```bat
-cd /d C:\nvlab\NvlabKimodoQuickServer1
-run_server.bat --model Kimodo-SOMA-RP-v1 --output console
-```
+The launcher checks and completes setup automatically before starting the TCP supervisor; do not append a `setup` subcommand. Unity normally supplies the model, text-encoder mode, and models directory with each generation request. The Windows batch launcher handles lifecycle arguments only and does not forward advanced runtime arguments such as `--model`, `--models-root`, or `--output`; see `PARAMETERS.md`.
 
-Linux:
-```bash
-cd /mnt/c/nvlab/NvlabKimodoQuickServer1
-./run_server.sh --model Kimodo-SOMA-RP-v1 --output console
-```
-
-`text_encoder_mode=high_precision|high_performance` selects the precision preference; QuickServer then places the encoder from current free VRAM and backend capabilities. It first requires about 2 GB for the motion model, rechecks free VRAM after loading it, and uses GPU budgets of 6/8/16 GB for NF4/INT8/FP16. Explicit `simulate_free_vram_gb=0` moves the entire runtime to CPU.
+`text_encoder_mode=high_precision|high_performance` selects the precision preference; QuickServer then places the encoder from current free VRAM and backend capabilities. It first reserves about 2 GB for the motion model and treats the remaining free VRAM as the encoder budget; NF4/INT8/FP16 require 6/8/16 GB respectively. Explicit `simulate_free_vram_gb=0` moves the entire runtime to CPU.
 
 ## TCP protocol notes
 - Every request may carry `request_id`; every response for that request echoes it, so one persistent TCP connection can multiplex commands safely.
@@ -60,7 +53,7 @@ cd /mnt/c/nvlab/NvlabKimodoQuickServer1
 
 An ARDY Generate with a positive `duration` is a fixed-length request: it starts a fresh logical generation, may initialize from an explicit History clip constraint, internally runs as many Horizons as needed, returns one exact-length KMB result, and then releases that logical timeline. An ARDY Generate without `duration` is streaming: clients send session-relative `time_as_double`, QuickServer keeps the per-Session RNG/history/timeline, and later Generate calls update it until `session.close`. `duration: 0` is invalid rather than a streaming alias.
 
-For streaming ARDY, QuickServer converts seconds with the selected model FPS, keeps only the profile-sized GPU history, and caches the CPU timeline for seek. `ardy_playback_reserve_seconds` defaults to 1 second; `ardy_adaptive_playback_reserve` defaults to true and adjusts the effective reserve from measured server response time. Missing `prompt` or `constraints_json` keeps the current value; `[]` clears the complete constraint snapshot. Prompt or constraint changes keep motion through `time_as_double + Playback Reserve`, then regenerate and return the affected absolute KMB range.
+For streaming ARDY, QuickServer converts seconds with the selected model FPS, keeps only the profile-sized accelerator history, and caches the CPU timeline for seek. For Core Horizon40, token granularity is 4 frames, one delivered Horizon is 40 frames, and retained history is capped at 160 frames; these values are independent. `ardy_playback_reserve_seconds` defaults to 1 second; `ardy_adaptive_playback_reserve` defaults to true and adjusts the effective reserve from measured server response time. Missing `prompt` or `constraints_json` keeps the current value; `[]` clears the complete constraint snapshot. Prompt or constraint changes keep motion through `time_as_double + Playback Reserve`, then regenerate and return the affected absolute KMB range.
 
 A decreasing `time_as_double` is a seek. Normal responses append from the previously delivered tail; seek and replan responses may overlap previously returned frames, so clients replace their timeline from `start_frame`.
 

@@ -787,6 +787,112 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void GeneratedWriteback_AppliesNormalizedAnchorRelativeToTrackOffset()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                track.trackOffset = TrackOffset.ApplyTransformOffsets;
+                track.position = new Vector3(10f, 1f, 20f);
+                track.rotation = Quaternion.Euler(0f, 30f, 0f);
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                var playable = (KimodoPlayableClip)timelineClip.asset;
+                playable.position = new Vector3(0f, 4f, 0f);
+                playable.removeStartOffset = true;
+
+                Vector3 expectedLocalPosition = new Vector3(2f, 0f, 3f);
+                Quaternion anchorRotation = Quaternion.Euler(0f, 70f, 0f);
+                Vector3 anchorPosition = track.position + track.rotation * expectedLocalPosition;
+                var request = new KimodoEditorGenerateRequest
+                {
+                    NormalizeConstraintOriginApplied = true,
+                    NormalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
+                    NormalizationAnchorSample = new KimodoMarkerSampleResult
+                    {
+                        constraintType = "fullbody",
+                        kimodoRootPosition = anchorPosition,
+                        unityRootPos = Vector3.zero,
+                        unityRootRot = Quaternion.identity,
+                        localAxisAngles = new System.Collections.Generic.List<Vector3>
+                        {
+                            KimodoRuntimeUtility.QuaternionToAxisAngleVector(anchorRotation)
+                        }
+                    },
+                    NormalizationSourceHumanScale = 1f,
+                    NormalizationKimodoHumanScale = 1f,
+                    TimelineClipSnapshot = timelineClip
+                };
+                MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
+                    "ApplyTimelineOffsets",
+                    BindingFlags.NonPublic | BindingFlags.Static);
+
+                Assert.That(apply, Is.Not.Null);
+                apply.Invoke(null, new object[] { playable, request });
+
+                Assert.That(playable.position.x, Is.EqualTo(expectedLocalPosition.x).Within(1e-5f));
+                Assert.That(playable.position.y, Is.EqualTo(4f).Within(1e-5f));
+                Assert.That(playable.position.z, Is.EqualTo(expectedLocalPosition.z).Within(1e-5f));
+                Assert.That(Quaternion.Angle(playable.rotation, Quaternion.Euler(0f, 40f, 0f)), Is.LessThan(1e-4f));
+                Assert.That(playable.removeStartOffset, Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void GeneratedWriteback_ScalesKimodoAnchorIntoUnityWorldSpace()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                track.trackOffset = TrackOffset.ApplyTransformOffsets;
+                track.position = new Vector3(10f, 0f, 20f);
+                track.rotation = Quaternion.Euler(0f, 30f, 0f);
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                var playable = (KimodoPlayableClip)timelineClip.asset;
+                playable.position = Vector3.zero;
+
+                var request = new KimodoEditorGenerateRequest
+                {
+                    NormalizeConstraintOriginApplied = true,
+                    NormalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
+                    NormalizationAnchorSample = new KimodoMarkerSampleResult
+                    {
+                        constraintType = "fullbody",
+                        kimodoRootPosition = new Vector3(4f, 0f, 6f),
+                        unityRootPos = new Vector3(100f, 0f, 200f),
+                        unityRootRot = Quaternion.Euler(0f, 80f, 0f),
+                        localAxisAngles = new System.Collections.Generic.List<Vector3>
+                        {
+                            KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.Euler(0f, 70f, 0f))
+                        }
+                    },
+                    NormalizationSourceHumanScale = 2f,
+                    NormalizationKimodoHumanScale = 1f,
+                    TimelineClipSnapshot = timelineClip
+                };
+                MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
+                    "ApplyTimelineOffsets",
+                    BindingFlags.NonPublic | BindingFlags.Static);
+
+                apply.Invoke(null, new object[] { playable, request });
+
+                Vector3 expectedLocal = Quaternion.Inverse(track.rotation) *
+                    (new Vector3(8f, 0f, 12f) - new Vector3(10f, 0f, 20f));
+                Assert.That(Vector3.Distance(playable.position, expectedLocal), Is.LessThan(1e-5f));
+                Assert.That(Quaternion.Angle(playable.rotation, Quaternion.Euler(0f, 40f, 0f)), Is.LessThan(1e-4f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void HumanoidIkGoals_AreInvariantToSkeletonRootWorldPose()
         {
             Assert.That(

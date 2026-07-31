@@ -8,27 +8,38 @@ namespace KimodoBridge.Editor.Tests
     public sealed class KimodoConstraintNormalizationUtilityTests
     {
         [Test]
-        public void NormalizeConstraintOrigin_UsesHipsXZAndHeading()
+        public void NormalizeConstraintOrigin_RoundTripsTargetAvatarRootThroughKimodoAnchor()
         {
+            Quaternion targetRootRotation = Quaternion.Euler(8f, 52f, -3f);
             var anchor = new KimodoMarkerSampleResult
             {
                 constraintType = "fullbody",
-                kimodoRootPosition = new Vector3(10f, 1f, 20f),
+                kimodoRootPosition = new Vector3(13f, 1f, 24f),
                 unityRootPos = new Vector3(10f, 7f, 20f),
-                unityRootRot = Quaternion.Euler(0f, 90f, 0f),
-                rootHeading = Vector2.right,
-                hasRootHeading = true
+                unityRootRot = Quaternion.Euler(0f, 35f, 0f),
+                hasRootHeading = false,
+                localAxisAngles = new List<Vector3>
+                {
+                    KimodoRuntimeUtility.QuaternionToAxisAngleVector(targetRootRotation)
+                }
             };
+            KimodoMarkerSampleResult rawAnchor = anchor.Clone();
 
             KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
                 new List<KimodoMarkerSampleResult> { anchor },
-                out _,
+                out KimodoConstraintNormalizationInfo info,
                 out _);
 
-            Assert.That(anchor.kimodoRootPosition.x, Is.EqualTo(0f).Within(1e-5f));
-            Assert.That(anchor.kimodoRootPosition.y, Is.EqualTo(1f).Within(1e-5f));
-            Assert.That(anchor.kimodoRootPosition.z, Is.EqualTo(0f).Within(1e-5f));
-            Assert.That(Vector2.Distance(anchor.rootHeading, Vector2.up), Is.LessThan(1e-5f));
+            Quaternion kimodoAnchorRotation = KimodoConstraintNormalizationUtility.ResolveKimodoPlanarRootRotation(rawAnchor);
+            Vector3 kimodoAnchorPosition = new Vector3(rawAnchor.kimodoRootPosition.x, 0f, rawAnchor.kimodoRootPosition.z);
+            Vector3 rebuiltRootPosition = kimodoAnchorPosition + kimodoAnchorRotation * anchor.kimodoRootPosition;
+            Quaternion rebuiltRootRotation = kimodoAnchorRotation *
+                KimodoConstraintNormalizationUtility.AxisAngleToQuaternion(anchor.localAxisAngles[0]);
+
+            Assert.That(info.AnchorSample.kimodoRootPosition, Is.EqualTo(rawAnchor.kimodoRootPosition));
+            Assert.That(info.AnchorSample.unityRootPos, Is.EqualTo(rawAnchor.unityRootPos));
+            Assert.That(Vector3.Distance(rebuiltRootPosition, rawAnchor.kimodoRootPosition), Is.LessThan(1e-5f));
+            Assert.That(Quaternion.Angle(rebuiltRootRotation, targetRootRotation), Is.LessThan(1e-4f));
         }
 
         [Test]
@@ -110,8 +121,11 @@ namespace KimodoBridge.Editor.Tests
             {
                 constraintType = "fullbody",
                 sampleTime = 0.0,
+                kimodoRootPosition = new Vector3(10f, 0f, 20f),
+                rootHeading = Vector2.right,
+                hasRootHeading = true,
                 unityRootPos = new Vector3(10f, 4f, 20f),
-                unityRootRot = Quaternion.Euler(0f, 90f, 0f)
+                unityRootRot = Quaternion.Euler(0f, 15f, 0f)
             };
 
             KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
@@ -124,7 +138,8 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(info.Applied, Is.True);
             Assert.That(info.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.AutoBegin));
             Assert.That(samples, Has.Count.EqualTo(1));
-            Assert.That(Vector3.Distance(samples[0].kimodoRootPosition, new Vector3(-2f, 1f, 0f)), Is.LessThan(1e-5f));
+            Vector3 expected = Quaternion.Inverse(Quaternion.Euler(0f, 15f, 0f)) * new Vector3(0f, 1f, 2f);
+            Assert.That(Vector3.Distance(samples[0].kimodoRootPosition, expected), Is.LessThan(1e-5f));
         }
 
         [Test]
