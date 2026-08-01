@@ -658,71 +658,6 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
-        [TestCase(300, new[] { 300 })]
-        [TestCase(301, new[] { 151, 150 })]
-        [TestCase(600, new[] { 300, 300 })]
-        [TestCase(601, new[] { 201, 200, 200 })]
-        public void KimodoSegmentation_DistributesFramesWithoutAShortTail(int totalFrames, int[] expected)
-        {
-            Assert.That(KimodoEditorGeneratePipeline.PlanKimodoSegmentFrames(totalFrames), Is.EqualTo(expected));
-        }
-
-        [Test]
-        public void KimodoSegmentation_UsesPreviousRawTailAsInAndKeepsFinalOutOnLastSegment()
-        {
-            var first = new KimodoMarkerSampleResult
-            {
-                constraintType = "fullbody",
-                sampleTime = 0.0,
-                kimodoRootPosition = new Vector3(1f, 0f, 0f)
-            };
-            var finalOut = new KimodoMarkerSampleResult
-            {
-                constraintType = "fullbody",
-                sampleTime = 20.0,
-                kimodoRootPosition = new Vector3(3f, 0f, 0f)
-            };
-            var tail = new KimodoMarkerSampleResult
-            {
-                constraintType = "fullbody",
-                sampleTime = 9.9,
-                kimodoRootPosition = new Vector3(2f, 0f, 0f)
-            };
-            var source = new[] { first, finalOut };
-
-            List<KimodoMarkerSampleResult> segment0 = KimodoEditorGeneratePipeline.BuildKimodoSegmentConstraintSamples(
-                source,
-                previousTail: null,
-                totalFrameCount: 601,
-                segmentStartFrame: 0,
-                segmentFrameCount: 201,
-                frameRate: 30f);
-            List<KimodoMarkerSampleResult> segment1 = KimodoEditorGeneratePipeline.BuildKimodoSegmentConstraintSamples(
-                source,
-                tail,
-                totalFrameCount: 601,
-                segmentStartFrame: 201,
-                segmentFrameCount: 200,
-                frameRate: 30f);
-            List<KimodoMarkerSampleResult> segment2 = KimodoEditorGeneratePipeline.BuildKimodoSegmentConstraintSamples(
-                source,
-                tail,
-                totalFrameCount: 601,
-                segmentStartFrame: 401,
-                segmentFrameCount: 200,
-                frameRate: 30f);
-
-            Assert.That(segment0.Count, Is.EqualTo(1));
-            Assert.That(segment0[0].kimodoRootPosition.x, Is.EqualTo(1f));
-            Assert.That(segment1.Count, Is.EqualTo(1));
-            Assert.That(segment1[0].kimodoRootPosition.x, Is.EqualTo(2f));
-            Assert.That(segment1[0].sampleTime, Is.EqualTo(0.0));
-            Assert.That(segment2.Count, Is.EqualTo(2));
-            Assert.That(segment2[0].kimodoRootPosition.x, Is.EqualTo(2f));
-            Assert.That(segment2[1].kimodoRootPosition.x, Is.EqualTo(3f));
-            Assert.That(segment2[1].sampleTime, Is.EqualTo(199.0 / 30.0).Within(1e-9));
-        }
-
         [Test]
         public void TimelineRequest_DerivesKimodoLengthBeyondTenSecondsFromTimeline()
         {
@@ -744,7 +679,6 @@ namespace KimodoBridge.Editor.Tests
 
                 Assert.That(request.TargetFrameRate, Is.EqualTo(30f));
                 Assert.That(request.TargetFrameCount, Is.EqualTo(360));
-                Assert.That(KimodoEditorGeneratePipeline.PlanKimodoSegmentFrames(request.TargetFrameCount), Is.EqualTo(new[] { 180, 180 }));
             }
             finally
             {

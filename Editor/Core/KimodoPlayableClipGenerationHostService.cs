@@ -271,11 +271,10 @@ namespace KimodoBridge.Editor
             {
                 return;
             }
-
             if (request.ContinuousOffsetSourceClip != null)
             {
                 CopyClipOffset(request.ContinuousOffsetSourceClip, playableClip);
-                Debug.Log($"[Kimodo][TimelineOffset] copied continuous ARDY offset to '{playableClip.name}'.");
+                Debug.Log($"[Kimodo][TimelineOffset] reused continuous-sequence Hips offset for '{playableClip.name}'.");
                 return;
             }
 
@@ -310,6 +309,7 @@ namespace KimodoBridge.Editor
                     trackRotation,
                     request.InitialArdyHistorySource.TimelineWorldAnchorPosition,
                     request.InitialArdyHistorySource.TimelineWorldAnchorRotation,
+                    0f,
                     "ArdyHistoryEnd",
                     out hipsOffsetError))
             {
@@ -333,6 +333,7 @@ namespace KimodoBridge.Editor
                         trackRotation,
                         anchor.unityHipsPos,
                         anchor.unityHipsRot,
+                        Mathf.Max(0f, (float)anchor.sampleTime),
                         normalization.AnchorKind + " Hips",
                         out hipsOffsetError))
                 {
@@ -344,55 +345,12 @@ namespace KimodoBridge.Editor
                     Debug.LogWarning($"[Kimodo][TimelineOffset] Hips-based normalization offset failed, falling back to root anchor: {hipsOffsetError}");
                 }
 
-                ApplyPlanarAnchorOffset(
-                    playableClip,
-                    trackPosition,
-                    trackRotation,
-                    anchor.unityRootPos,
-                    anchor.unityRootRot,
-                    normalization.AnchorKind.ToString());
-                if (hasHistoryAnchor)
-                {
-                    Debug.Log(
-                        $"[Kimodo][TimelineOffset] ARDY history anchor present but normalization anchor wins: " +
-                        $"historyHips={request.InitialArdyHistorySource.TimelineWorldAnchorPosition:F6}, " +
-                        $"normalizationAnchorRoot={anchor.unityRootPos:F6}.");
-                }
+                Debug.LogWarning(
+                    $"[Kimodo][TimelineOffset] skipped {normalization.AnchorKind} alignment because its world Hips pose is unavailable.");
                 return;
             }
 
-            ApplyPlanarAnchorOffset(
-                playableClip,
-                trackPosition,
-                trackRotation,
-                request.InitialArdyHistorySource.TimelineWorldAnchorPosition,
-                request.InitialArdyHistorySource.TimelineWorldAnchorRotation,
-                "ArdyHistoryEnd");
-        }
-
-        private static void ApplyPlanarAnchorOffset(
-            KimodoPlayableClip playableClip,
-            Vector3 trackPosition,
-            Quaternion trackRotation,
-            Vector3 anchorPosition,
-            Quaternion anchorRotation,
-            string anchorLabel)
-        {
-            Quaternion baseRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(trackRotation);
-            Quaternion targetRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(anchorRotation);
-            Vector3 delta = new Vector3(anchorPosition.x, 0f, anchorPosition.z) -
-                new Vector3(trackPosition.x, 0f, trackPosition.z);
-            Vector3 localPosition = Quaternion.Inverse(baseRotation) * delta;
-
-            playableClip.position = new Vector3(localPosition.x, playableClip.position.y, localPosition.z);
-            playableClip.rotation = (Quaternion.Inverse(baseRotation) * targetRotation).normalized;
-            playableClip.removeStartOffset = false;
-            EditorUtility.SetDirty(playableClip);
-            Debug.Log(
-                $"[Kimodo][TimelineOffset] applied {anchorLabel} anchor to '{playableClip.name}': " +
-                $"worldAnchor={anchorPosition:F6}, trackPosition={trackPosition:F6}, " +
-                $"localPosition={localPosition:F6}, position={playableClip.position}, " +
-                $"rotation={playableClip.rotation.eulerAngles}.");
+            Debug.LogWarning($"[Kimodo][TimelineOffset] skipped alignment: {hipsOffsetError}");
         }
 
         private static bool TryApplyGeneratedHipsAnchorOffset(
@@ -402,6 +360,7 @@ namespace KimodoBridge.Editor
             Quaternion trackRotation,
             Vector3 sourceHipsPosition,
             Quaternion sourceHipsRotation,
+            float generatedSampleTime,
             string anchorLabel,
             out string error)
         {
@@ -424,6 +383,7 @@ namespace KimodoBridge.Editor
             if (!TrySampleGeneratedClipHipsPose(
                     generatedClip,
                     samplingAvatar,
+                    generatedSampleTime,
                     out Vector3 generatedHipsPosition,
                     out Quaternion generatedHipsRotation,
                     out error))
@@ -476,6 +436,7 @@ namespace KimodoBridge.Editor
         private static bool TrySampleGeneratedClipHipsPose(
             AnimationClip generatedClip,
             Avatar samplingAvatar,
+            float sampleTime,
             out Vector3 position,
             out Quaternion rotation,
             out string error)
@@ -497,7 +458,7 @@ namespace KimodoBridge.Editor
                 if (!KimodoRetargetSamplingUtility.SampleBoneClipToBoneSample(
                         generatedClip,
                         cache,
-                        0f,
+                        Mathf.Clamp(sampleTime, 0f, Mathf.Max(0f, generatedClip.length)),
                         out BoneSample sample,
                         out error) ||
                     !KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(sample, cache, out error))
@@ -534,11 +495,6 @@ namespace KimodoBridge.Editor
 
         private static void CopyClipOffset(KimodoPlayableClip source, KimodoPlayableClip destination)
         {
-            if (source == null || destination == null)
-            {
-                return;
-            }
-
             destination.position = source.position;
             destination.rotation = source.rotation;
             destination.removeStartOffset = source.removeStartOffset;

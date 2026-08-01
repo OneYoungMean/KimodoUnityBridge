@@ -521,6 +521,33 @@ def _load_constraints(constraints_json: str, model):
     return load_constraints_lst(parsed, model.skeleton)
 
 
+def _restore_kimodo_output_origin(output: dict, transform, model) -> dict:
+    if transform is None:
+        return output
+
+    translation, yaw = transform
+    x, z = (float(value) for value in translation.detach().cpu())
+    angle = float(yaw.detach().cpu())
+    cos, sin = np.cos(angle), np.sin(angle)
+    rotation_3d = np.asarray(((cos, 0.0, sin), (0.0, 1.0, 0.0), (-sin, 0.0, cos)), dtype=np.float32)
+    rotation_2d = np.asarray(((cos, sin), (-sin, cos)), dtype=np.float32)
+    offset = np.asarray((x, 0.0, z), dtype=np.float32)
+
+    for name in ("posed_joints", "root_positions", "smooth_root_pos"):
+        if output.get(name) is not None:
+            output[name] = np.asarray(output[name]) @ rotation_3d.T + offset
+    if output.get("global_root_heading") is not None:
+        output["global_root_heading"] = np.asarray(output["global_root_heading"]) @ rotation_2d
+    if output.get("global_rot_mats") is not None:
+        output["global_rot_mats"] = rotation_3d @ np.asarray(output["global_rot_mats"])
+    if output.get("local_rot_mats") is not None:
+        local_rotations = np.asarray(output["local_rot_mats"]).copy()
+        root_index = int(getattr(getattr(model, "skeleton", None), "root_idx", 0))
+        local_rotations[..., root_index, :, :] = rotation_3d @ local_rotations[..., root_index, :, :]
+        output["local_rot_mats"] = local_rotations
+    return output
+
+
 @dataclass
 class UnityMotionJsonResult:
     num_frames: int
@@ -932,6 +959,9 @@ def _run_generate(
     num_frames = max(1, seconds_to_frame_count(duration, model.fps))
     segment_frames = _generation_segment_frames(num_frames, model.fps)
     constraints = _load_constraints(req.get("constraints_json", ""), model)
+    from kimodo.constraints import normalize_constraints_to_anchor
+
+    constraint_origin = normalize_constraints_to_anchor(constraints)
     progress_bar = _make_cancelable_progress_bar(cancel_event or threading.Event())
     if emit_progress:
         _out({"status": "progress", "message": f"Running diffusion ({diffusion_steps} steps)..."})
@@ -953,6 +983,7 @@ def _run_generate(
         return_numpy=True,
         progress_bar=progress_bar,
     )
+    output = _restore_kimodo_output_origin(output, constraint_origin, model)
     if cancel_event is not None and cancel_event.is_set():
         raise GenerateCancelledError("Generation canceled.")
     return output, prompt

@@ -808,42 +808,6 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ArdyHistoryRootPoses_NormalizeToLastArdyPose()
-        {
-            var positions = new[]
-            {
-                new Vector3(2f, 1f, 4f),
-                new Vector3(4f, 7f, 7f)
-            };
-            var rotations = new[]
-            {
-                Quaternion.Euler(5f, 20f, 3f),
-                Quaternion.Euler(10f, 70f, -4f)
-            };
-            Quaternion anchorYaw = ResolveTestPlanarRotation(rotations[1]);
-            Vector3 expectedFirstPlanar = Quaternion.Inverse(anchorYaw) *
-                (new Vector3(positions[0].x, 0f, positions[0].z) - new Vector3(positions[1].x, 0f, positions[1].z));
-            Vector3 expectedFirstPosition = new Vector3(expectedFirstPlanar.x, positions[0].y, expectedFirstPlanar.z);
-            Quaternion expectedFirstRotation = Quaternion.Inverse(anchorYaw) * rotations[0];
-            Quaternion expectedLastRotation = Quaternion.Inverse(anchorYaw) * rotations[1];
-
-            ArdyEditorHistoryEncoder.NormalizeRootPosesToLast(positions, rotations);
-
-            Assert.That(Vector3.Distance(positions[0], expectedFirstPosition), Is.LessThan(1e-5f));
-            Assert.That(Quaternion.Angle(rotations[0], expectedFirstRotation), Is.LessThan(1e-4f));
-            Assert.That(Vector3.Distance(positions[1], new Vector3(0f, 7f, 0f)), Is.LessThan(1e-5f));
-            Assert.That(Quaternion.Angle(rotations[1], expectedLastRotation), Is.LessThan(1e-4f));
-        }
-
-        private static Quaternion ResolveTestPlanarRotation(Quaternion rotation)
-        {
-            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
-        }
-
-        [Test]
         public void GeneratedWriteback_PreservesClipOffsetExceptForContinuousCopy()
         {
             var source = ScriptableObject.CreateInstance<KimodoPlayableClip>();

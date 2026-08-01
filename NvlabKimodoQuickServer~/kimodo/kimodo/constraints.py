@@ -7,7 +7,7 @@ from typing import Optional, Union
 import torch
 from torch import Tensor
 
-from kimodo.motion_rep.feature_utils import compute_heading_angle
+from kimodo.motion_rep.feature_utils import RotateFeatures, compute_heading_angle
 from kimodo.skeleton import SkeletonBase, SOMASkeleton30, SOMASkeleton77
 from kimodo.tools import ensure_batched, load_json, save_json
 
@@ -52,6 +52,65 @@ def compute_global_heading(global_joints_positions: Tensor, skeleton: SkeletonBa
     root_heading_angle = compute_heading_angle(global_joints_positions, skeleton)
     global_root_heading = torch.stack([torch.cos(root_heading_angle), torch.sin(root_heading_angle)], dim=-1)
     return global_root_heading
+
+
+def normalize_constraints_to_anchor(constraints_lst: list):
+    """Move Kimodo constraints into one planar anchor space.
+
+    The earliest constrained frame wins. At that frame the priority is fullbody,
+    end/foot, then root2d; input order breaks ties. Y is intentionally preserved.
+    Returns the planar ``(x, z)`` translation and yaw needed to restore output.
+    """
+    candidates = []
+    priority = {
+        "fullbody": 3,
+        "end-effector": 2,
+        "left-hand": 2,
+        "right-hand": 2,
+        "left-foot": 2,
+        "right-foot": 2,
+        "root2d": 1,
+    }
+    for order, constraint in enumerate(constraints_lst or []):
+        if len(constraint.frame_indices) == 0:
+            continue
+        rank = priority.get(getattr(constraint, "name", ""), 0)
+        if rank:
+            candidates.append((int(constraint.frame_indices.min().item()), -rank, order, constraint))
+    if not candidates:
+        return None
+
+    anchor_frame, _, _, anchor = min(candidates, key=lambda item: item[:3])
+    matches = (anchor.frame_indices == anchor_frame).nonzero(as_tuple=False).flatten()
+    anchor_row = int(matches[0].item())
+    translation = anchor.smooth_root_2d[anchor_row].detach().clone()
+    heading = getattr(anchor, "global_root_heading", None)
+    yaw = (
+        torch.atan2(heading[anchor_row, 1], heading[anchor_row, 0]).detach().clone()
+        if heading is not None
+        else torch.zeros((), device=translation.device, dtype=translation.dtype)
+    )
+    for constraint in constraints_lst:
+        device = constraint.smooth_root_2d.device
+        dtype = constraint.smooth_root_2d.dtype
+        local_translation = translation.to(device=device, dtype=dtype)
+        local_rotation = RotateFeatures((-yaw).to(device=device, dtype=dtype).reshape(1))
+        rotation_2d_t = local_rotation.corrective_mat_2d_T[0]
+        rotation_3d = local_rotation.corrective_mat_Y[0]
+        rotation_3d_t = local_rotation.corrective_mat_Y_T[0]
+        constraint.smooth_root_2d = (constraint.smooth_root_2d - local_translation) @ rotation_2d_t
+        if constraint.global_root_heading is not None:
+            constraint.global_root_heading = constraint.global_root_heading @ rotation_2d_t
+        if hasattr(constraint, "global_joints_positions"):
+            offset = torch.zeros(3, device=device, dtype=dtype)
+            offset[[0, 2]] = local_translation
+            constraint.global_joints_positions = (constraint.global_joints_positions - offset) @ rotation_3d_t
+            constraint.global_joints_rots = rotation_3d @ constraint.global_joints_rots
+            constraint.global_root_heading = compute_global_heading(
+                constraint.global_joints_positions, constraint.skeleton
+            )
+
+    return translation, yaw
 
 
 def _tensor_to(

@@ -417,17 +417,18 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            KimodoConstraintNormalizationInfo normalization;
-            string warning;
             try
             {
-                KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
+                firstRequest.NormalizationInfo = KimodoConstraintNormalizationUtility.ResolveTimelineAlignment(
                     allSamples,
                     anchorWindowSeconds: entries[0].Clip.autoBeginAnchor
                         ? 1.0
                         : double.PositiveInfinity,
-                    out normalization,
-                    out warning);
+                    out string warning);
+                if (!string.IsNullOrWhiteSpace(warning))
+                {
+                    Debug.LogWarning($"[Kimodo][TimelineBatch] {warning}");
+                }
             }
             finally
             {
@@ -438,15 +439,6 @@ namespace KimodoBridge.Editor
                         allSamples[i].sampleTime -= sampleTimeOffsets[i];
                     }
                 }
-            }
-
-            if (!string.IsNullOrWhiteSpace(warning))
-            {
-                Debug.LogWarning($"[Kimodo][TimelineBatch] {warning}");
-            }
-            if (normalization != null && normalization.Applied && normalization.AnchorSample != null)
-            {
-                firstRequest.NormalizationInfo = normalization.Clone();
             }
             for (int i = 1; i < entries.Count; i++)
             {

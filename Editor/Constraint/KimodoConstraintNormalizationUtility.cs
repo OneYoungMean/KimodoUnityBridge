@@ -43,6 +43,14 @@ namespace KimodoBridge.Editor
             normalizationInfo = BuildNormalizationInfo(anchor);
         }
 
+        internal static KimodoConstraintNormalizationInfo ResolveTimelineAlignment(
+            List<KimodoMarkerSampleResult> samples,
+            double anchorWindowSeconds,
+            out string warning)
+        {
+            return BuildNormalizationInfo(ResolveNormalizationAnchor(samples, anchorWindowSeconds, out warning));
+        }
+
         private static ResolvedNormalizationAnchor ResolveNormalizationAnchor(
             List<KimodoMarkerSampleResult> samples,
             double anchorWindowSeconds,

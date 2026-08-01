@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace TimelineInject
@@ -383,12 +384,10 @@ namespace TimelineInject
                     continue;
                 }
 
-                group.Sort((a, b) =>
-                {
-                    int af = (a.frame_indices != null && a.frame_indices.Count > 0) ? a.frame_indices[0] : int.MaxValue;
-                    int bf = (b.frame_indices != null && b.frame_indices.Count > 0) ? b.frame_indices[0] : int.MaxValue;
-                    return af.CompareTo(bf);
-                });
+                group = group.OrderBy(item =>
+                    item.frame_indices != null && item.frame_indices.Count > 0
+                        ? item.frame_indices[0]
+                        : int.MaxValue).ToList();
 
                 output.Add(BuildMergedConstraint(type, group));
             }

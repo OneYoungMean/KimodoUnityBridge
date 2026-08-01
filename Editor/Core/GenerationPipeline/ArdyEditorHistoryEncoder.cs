@@ -141,21 +141,6 @@ namespace KimodoBridge.Editor
                     }
                 }
 
-                Vector3 firstRootBeforeNormalize = rootPositions[0];
-                Vector3 lastRootBeforeNormalize = rootPositions[frameCount - 1];
-                Quaternion firstRotationBeforeNormalize = rootRotations[0];
-                Quaternion lastRotationBeforeNormalize = rootRotations[frameCount - 1];
-                NormalizeRootPosesToLast(rootPositions, rootRotations);
-                for (int frame = 0; frame < frameCount; frame++)
-                {
-                    int rootRotationIndex = frame * joints.Length * 4;
-                    Quaternion rootRotation = rootRotations[frame];
-                    rotations[rootRotationIndex + 0] = rootRotation.w;
-                    rotations[rootRotationIndex + 1] = rootRotation.x;
-                    rotations[rootRotationIndex + 2] = -rootRotation.y;
-                    rotations[rootRotationIndex + 3] = -rootRotation.z;
-                }
-
                 // Use the exact time passed through the batch sampler so its Timeline-frame cache key is identical.
                 double anchorSampleTime = timelineTimes[frameCount - 1];
                 if (!sampler.TryGetSourceHipsPose(
@@ -168,14 +153,10 @@ namespace KimodoBridge.Editor
                 }
                 source.HasTimelineWorldAnchor = true;
                 Debug.Log(
-                    $"[Kimodo][ArdyHistoryNormalize] frames={frameCount} " +
+                    $"[Kimodo][ArdyHistory] frames={frameCount} " +
                     $"sampleRange={timelineTimes[0]:F6}->{timelineTimes[frameCount - 1]:F6} " +
-                    $"rootBeforeFirst={firstRootBeforeNormalize:F6} rootBeforeLast={lastRootBeforeNormalize:F6} " +
-                    $"rootAfterFirst={rootPositions[0]:F6} rootAfterLast={rootPositions[frameCount - 1]:F6} " +
-                    $"rootYawBeforeFirst={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(firstRotationBeforeNormalize).eulerAngles:F6} " +
-                    $"rootYawBeforeLast={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(lastRotationBeforeNormalize).eulerAngles:F6} " +
-                    $"sourceHipsWorld={source.TimelineWorldAnchorPosition:F6} " +
-                    $"sourceHipsYaw={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(source.TimelineWorldAnchorRotation).eulerAngles:F6}.");
+                    $"rootFirst={rootPositions[0]:F6} rootLast={rootPositions[frameCount - 1]:F6} " +
+                    $"sourceHipsWorld={source.TimelineWorldAnchorPosition:F6}.");
 
                 var motion = new KimodoRawMotionData(
                     frameCount,
@@ -212,34 +193,6 @@ namespace KimodoBridge.Editor
                 source.RangeStartSeconds,
                 KimodoInOutConstraintTools.ResolveTimelineBoundaryTime(request, isBegin: true));
         }
-
-        internal static void NormalizeRootPosesToLast(
-            Vector3[] rootPositions,
-            Quaternion[] rootRotations)
-        {
-            if (rootPositions == null ||
-                rootRotations == null ||
-                rootPositions.Length == 0 ||
-                rootPositions.Length != rootRotations.Length)
-            {
-                throw new ArgumentException("ARDY History root pose arrays are empty or mismatched.");
-            }
-
-            int last = rootPositions.Length - 1;
-            Vector3 anchorPosition = new Vector3(rootPositions[last].x, 0f, rootPositions[last].z);
-            Quaternion anchorRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(rootRotations[last]);
-            Quaternion inverseAnchorRotation = Quaternion.Inverse(anchorRotation);
-            for (int frame = 0; frame < rootPositions.Length; frame++)
-            {
-                Vector3 position = rootPositions[frame];
-                Quaternion rotation = rootRotations[frame];
-                Vector3 planarPosition = inverseAnchorRotation *
-                    (new Vector3(position.x, 0f, position.z) - anchorPosition);
-                rootPositions[frame] = new Vector3(planarPosition.x, position.y, planarPosition.z);
-                rootRotations[frame] = (inverseAnchorRotation * rotation).normalized;
-            }
-        }
-
 
     }
 }

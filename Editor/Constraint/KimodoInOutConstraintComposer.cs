@@ -70,49 +70,15 @@ namespace KimodoBridge.Editor
                 built.HasSyntheticAutoBeginConstraint = true;
             }
 
-            if (!request.DeferNormalization)
+            built.NormalizationInfo = KimodoConstraintNormalizationUtility.ResolveTimelineAlignment(
+                built.CombinedSamples,
+                normalizationAnchorWindowSeconds,
+                out string alignmentWarning);
+            if (!string.IsNullOrWhiteSpace(alignmentWarning))
             {
-                KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
-                    built.CombinedSamples,
-                    normalizationAnchorWindowSeconds,
-                    out KimodoConstraintNormalizationInfo normalizationInfo,
-                    out string normalizeWarning);
-                built.NormalizationInfo = normalizationInfo ?? new KimodoConstraintNormalizationInfo();
-                if (!string.IsNullOrWhiteSpace(normalizeWarning))
-                {
-                    warning = string.IsNullOrWhiteSpace(warning)
-                        ? normalizeWarning
-                        : $"{warning}\n{normalizeWarning}";
-                }
-            }
-
-            if (built.NormalizationInfo != null && built.NormalizationInfo.Applied && built.NormalizationInfo.AnchorSample != null)
-            {
-                KimodoMarkerSampleResult rawAnchor = built.NormalizationInfo.AnchorSample;
-                KimodoMarkerSampleResult normalizedAnchor = FindNormalizedAnchorSample(built.CombinedSamples, rawAnchor);
-                Quaternion kimodoAnchorRotation = KimodoConstraintNormalizationUtility.ResolveKimodoPlanarRootRotation(rawAnchor);
-                Vector3 kimodoAnchorPosition = new Vector3(rawAnchor.kimodoRootPosition.x, 0f, rawAnchor.kimodoRootPosition.z);
-                Vector3 rebuiltRoot = normalizedAnchor != null
-                    ? kimodoAnchorPosition + kimodoAnchorRotation * normalizedAnchor.kimodoRootPosition
-                    : Vector3.zero;
-                float rebuiltRotationDelta = normalizedAnchor?.localAxisAngles != null &&
-                    normalizedAnchor.localAxisAngles.Count > 0 &&
-                    rawAnchor.localAxisAngles != null &&
-                    rawAnchor.localAxisAngles.Count > 0
-                        ? Quaternion.Angle(
-                            kimodoAnchorRotation * KimodoConstraintNormalizationUtility.AxisAngleToQuaternion(normalizedAnchor.localAxisAngles[0]),
-                            KimodoConstraintNormalizationUtility.AxisAngleToQuaternion(rawAnchor.localAxisAngles[0]))
-                        : 0f;
-                Debug.Log(
-                    $"[Kimodo][ConstraintNormalize] applied=true anchorKind={built.NormalizationInfo.AnchorKind} " +
-                    $"anchorType='{rawAnchor.constraintType}' anchorTime={rawAnchor.sampleTime:R} " +
-                    $"exportFrame={KimodoFrameTimeUtility.SecondsToFrameIndex(rawAnchor.sampleTime, KimodoPlayableClip.FIXED_FRAME_RATE)} " +
-                    $"targetAvatarRoot={rawAnchor.kimodoRootPosition:F6} " +
-                    $"worldRoot={rawAnchor.unityRootPos:F6} worldRotation={rawAnchor.unityRootRot.eulerAngles:F6} " +
-                    $"normalizedRoot={(normalizedAnchor != null ? normalizedAnchor.kimodoRootPosition.ToString("F6") : "(missing)")} " +
-                    $"rebuiltKimodoRoot={(normalizedAnchor != null ? rebuiltRoot.ToString("F6") : "(missing)")} " +
-                    $"rootPositionDelta={(normalizedAnchor != null ? Vector3.Distance(rebuiltRoot, rawAnchor.kimodoRootPosition) : 0f):F8} " +
-                    $"rootRotationDeltaDeg={rebuiltRotationDelta:F6}");
+                warning = string.IsNullOrWhiteSpace(warning)
+                    ? alignmentWarning
+                    : $"{warning}\n{alignmentWarning}";
             }
 
             double clipDurationSeconds = KimodoInOutConstraintAdapter.ResolveConstraintClipDurationSeconds(request.GenerationFrames);
@@ -142,11 +108,6 @@ namespace KimodoBridge.Editor
                     destination.Add(sample.Clone());
                 }
             }
-        }
-
-        private static long ToTimeKey(double sampleTime)
-        {
-            return (long)System.Math.Round(sampleTime * 1000000.0);
         }
 
         private static bool TryBuildAutoBeginConstraint(
@@ -186,27 +147,5 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        private static KimodoMarkerSampleResult FindNormalizedAnchorSample(
-            List<KimodoMarkerSampleResult> samples,
-            KimodoMarkerSampleResult rawAnchor)
-        {
-            if (samples == null || rawAnchor == null)
-            {
-                return null;
-            }
-
-            for (int i = 0; i < samples.Count; i++)
-            {
-                KimodoMarkerSampleResult sample = samples[i];
-                if (sample != null &&
-                    ToTimeKey(sample.sampleTime) == ToTimeKey(rawAnchor.sampleTime) &&
-                    string.Equals(sample.constraintType, rawAnchor.constraintType, System.StringComparison.OrdinalIgnoreCase))
-                {
-                    return sample;
-                }
-            }
-
-            return null;
-        }
     }
 }
