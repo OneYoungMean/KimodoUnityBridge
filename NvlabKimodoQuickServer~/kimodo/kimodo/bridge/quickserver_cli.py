@@ -717,43 +717,15 @@ def _execute_generate(
     model: Any,
     cancel_event: threading.Event,
 ) -> tuple[dict[str, Any], bytes | None]:
-    from kimodo.tools import seed_everything
-
     if cancel_event.is_set():
         raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
 
-    prompt = str(task_request.get("prompt", "A person walks forward.")).strip()
-    if not prompt.endswith("."):
-        prompt += "."
-
-    duration = float(task_request.get("duration", 5.0))
-    seed = task_request.get("seed")
-    diffusion_steps = int(task_request.get("diffusion_steps", 100))
-    cfg_text_weight = bridge_runtime_helpers._resolve_cfg_text_weight(task_request)
-    constraints_json = task_request.get("constraints_json", "")
-
-    if seed is not None:
-        seed_everything(int(seed))
-
-    num_frames = max(1, seconds_to_frame_count(duration, model.fps))
-    constraints = bridge_runtime_helpers._load_constraints(constraints_json, model)
-    progress_bar = bridge_runtime_helpers._make_cancelable_progress_bar(cancel_event)
-
-    output = model(
-        [prompt],
-        [num_frames],
-        constraint_lst=constraints,
-        num_denoising_steps=diffusion_steps,
-        cfg_weight=[cfg_text_weight, 2.0],
-        num_samples=1,
-        multi_prompt=True,
-        num_transition_frames=5,
-        post_processing=True,
-        return_numpy=True,
-        progress_bar=progress_bar,
+    output, prompt = bridge_runtime_helpers._run_generate(
+        task_request,
+        model,
+        cancel_event,
+        emit_progress=False,
     )
-    if cancel_event.is_set():
-        raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
 
     output_format = bridge_runtime_helpers._resolve_requested_output_format(task_request)
     if output_format == "kmb_v1":

@@ -3,7 +3,7 @@
 # License
 [Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
 
-# 2.0.0 更新点速览
+# 2.0.1 更新点速览
 
 - 重构生成管线和 QuickServer 通讯，统一 Session、任务状态、取消与 KMB 直接传输。
 - 新增 `KimodoRuntimeMotionDriver`，支持 Runtime 连续生成、实时重定向、提示词更新与运行时约束。
@@ -11,6 +11,7 @@
 - 改进 Timeline 首尾约束、约束预览、Avatar 自动解析和前后片段对齐。
 - 支持 Windows、macOS、Linux；NVIDIA CUDA 是当前最完整的加速路线，Apple MPS、AMD/ROCm 与 Intel XPU 为实验性支持。
 - 缩减服务器包体，改进下载站点探测、错误提示和生成进度反馈。
+- 普通 Kimodo 的超过 10 秒生成现在由 QuickServer 自动均分为连续片段；后续片段复用前段末尾姿态完成过渡，整条约束仍按原始时间轴处理。
 
 ## 更新注意事项
 **从 1.x 升级时，请先在 Server Manager 停止服务器，再点击 `Reinstall Kimodo Server` 重铺运行目录；该操作会保留已有的 `models` 目录。**

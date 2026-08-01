@@ -1,10 +1,10 @@
 # Runtime Motion Driver
 
-> 适用版本：KimodoUnityBridge v2.0.0
+> 适用版本：KimodoUnityBridge v2.0.1
 
 ## 概述
 
-`KimodoRuntimeMotionDriver` 是 2.0.0 的现行运行时入口。它在组件启用时自动启动生成会话，持续取得动作片段并实时重定向到目标 Humanoid Animator；组件禁用时会停止会话。旧版 `KimodoInfiniteMotionDemo` 已移入 `Archive~`，不应再作为新项目的 API 依据。
+`KimodoRuntimeMotionDriver` 是 2.0.1 的现行运行时入口。它在组件启用时自动启动生成会话，持续取得动作片段并实时重定向到目标 Humanoid Animator；组件禁用时会停止会话。旧版 `KimodoInfiniteMotionDemo` 已移入 `Archive~`，不应再作为新项目的 API 依据。
 
 ## 快速使用
 

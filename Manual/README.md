@@ -1,6 +1,6 @@
 # Kimodo Unity Bridge 使用手册
 
-> 适用版本：KimodoUnityBridge v2.0.0
+> 适用版本：KimodoUnityBridge v2.0.1
 
 开箱即用、完全运行在本地的 AI 人形动画生成系统。你只需输入提示词、放置约束、点击生成，就能在 Unity 里得到想要的角色动画。
 
@@ -27,14 +27,14 @@
 ### 生成工具
 
 - **[Timeline Tool](Timeline%20Tool%20说明书.md)** — 在时间轴上生成动画的基础玩法，包含长动画、循环、过渡的组合思路。
-- **[Animator Tool（暂不可用）](Animator%20Tool%20说明书.md)** — 2.0.0 保留实现但禁用了菜单入口，等待工作流复核后再开放。
+- **[Animator Tool（暂不可用）](Animator%20Tool%20说明书.md)** — 2.0.1 保留实现但禁用了菜单入口，等待工作流复核后再开放。
 - **[Constraint Tool](Constraint%20Tool%20说明书.md)** — 用约束 Marker 精确控制某一帧的姿势、手脚位置和移动轨迹。
 
 ### 配置与运行时
 
 - **[Kimodo Server Manager](Kimodo%20Server%20Manager%20说明书.md)** — 本地服务器、模型管理与全局选项的控制台（位于 Project Settings）。
 - **[Runtime Motion Driver](Runtime%20Motion%20Driver%20说明书.md)** — 在 Play Mode 或发布版连续生成、实时重定向、更新提示词和运行时约束。
-- 旧版 `KimodoInfiniteMotionDemo` 与对应 API 文档已移入仓库 `Archive~`，不再代表 2.0.0 的现行接口。
+- 旧版 `KimodoInfiniteMotionDemo` 与对应 API 文档已移入仓库 `Archive~`，不再代表 2.0.1 的现行接口。
 
 ### API 与自动化
 
@@ -90,9 +90,9 @@ powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 ### AMD 显卡参考
 
-下表仅概括 AMD/ROCm 厂商侧的可尝试范围，不代表这些型号已通过 Kimodo 2.0.0 的完整验证；Kimodo 的 AMD 路线整体仍为实验性支持。
+下表仅概括 AMD/ROCm 厂商侧的可尝试范围，不代表这些型号已通过 Kimodo 2.0.1 的完整验证；Kimodo 的 AMD 路线整体仍为实验性支持。
 
-| 显卡型号 | 平台 | Kimodo 2.0.0 状态 | 备注 |
+| 显卡型号 | 平台 | Kimodo 2.0.1 状态 | 备注 |
 | --- | --- | --- | --- |
 | Radeon RX 7000 / RX 9000 系列（AMD Windows 兼容表中的型号） | Windows | 实验性，可尝试 | 通常需要先安装 [HIP SDK / ROCm for Windows](https://rocm.docs.amd.com/projects/install-on-windows/en/latest/index.html)。 |
 | Radeon PRO W7000 / W9000 部分型号 | Windows | 实验性，可尝试 | 仅按 AMD 的兼容范围判断，不能视为 Kimodo 完整验证。 |

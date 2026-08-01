@@ -1,6 +1,6 @@
 # MCP Tools API 说明书
 
-> 适用范围：KimodoUnityBridge v2.0.0，Unity Editor / Edit Mode
+> 适用范围：KimodoUnityBridge v2.0.1，Unity Editor / Edit Mode
 
 Kimodo 提供 5 个面向自动化调用的 Tool，可根据角色和提示词生成独立 `AnimationClip` 资产，或直接在 Timeline 中创建并生成动画。
 

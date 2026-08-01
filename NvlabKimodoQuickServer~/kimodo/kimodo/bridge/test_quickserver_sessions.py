@@ -5,7 +5,7 @@ import threading
 from types import SimpleNamespace
 from types import MethodType
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import numpy as np
 import torch
@@ -24,6 +24,48 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(seconds_to_frame_count(0.0, 30.0), 0)
         with self.assertRaises(ValueError):
             seconds_to_frame_count(float("nan"), 30.0)
+
+    def test_kimodo_long_generation_segments_are_equal_and_never_exceed_ten_seconds(self):
+        self.assertEqual(bridge_server._generation_segment_frames(300, 30.0), [300])
+        self.assertEqual(bridge_server._generation_segment_frames(360, 30.0), [180, 180])
+        self.assertEqual(bridge_server._generation_segment_frames(630, 30.0), [210, 210, 210])
+        self.assertEqual(bridge_server._generation_segment_frames(301, 30.0), [151, 150])
+
+    def test_kimodo_long_generation_uses_transition_connected_segments(self):
+        class RecordingModel:
+            fps = 30.0
+
+            def __call__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+                return {"generated": True}
+
+        model = RecordingModel()
+        with patch.object(bridge_server, "_load_constraints", return_value=[]), patch.object(bridge_server, "_out"):
+            output, prompt = bridge_server._run_generate(
+                {"duration": 11.0, "prompt": "walk"},
+                model,
+                emit_progress=False,
+            )
+
+        self.assertEqual(output, {"generated": True})
+        self.assertEqual(prompt, "walk.")
+        self.assertEqual(model.args[:2], (["walk.", "walk."], [165, 165]))
+        self.assertTrue(model.kwargs["multi_prompt"])
+        self.assertEqual(model.kwargs["num_transition_frames"], 5)
+
+    def test_quickserver_generate_uses_shared_segmented_kimodo_runner(self):
+        model = SimpleNamespace()
+        expected_output = {"posed_joints": np.zeros((1, 1, 1, 3), dtype=np.float32)}
+        expected_response = {"status": "done"}
+        with patch.object(bridge_server, "_run_generate", return_value=(expected_output, "walk.")) as run_generate, patch.object(
+            bridge_server, "_resolve_requested_output_format", return_value="json_compact"
+        ), patch.object(bridge_server, "_build_generate_response", return_value=expected_response):
+            response, payload = quickserver_cli._execute_generate({"duration": 11.0}, model, threading.Event())
+
+        self.assertEqual(response, expected_response)
+        self.assertIsNone(payload)
+        run_generate.assert_called_once_with({"duration": 11.0}, model, ANY, emit_progress=False)
 
     def test_ardy_imports_from_the_bundled_runtime(self):
         import ardy

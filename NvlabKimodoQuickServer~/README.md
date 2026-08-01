@@ -1,6 +1,6 @@
 # NvlabKimodoQuickServer
 
-> Ships with Kimodo Unity Motion Tools 2.0.0; the QuickServer package version is also 2.0.0.
+> Ships with Kimodo Unity Motion Tools 2.0.1; the QuickServer package version is also 2.0.1.
 
 ## Language
 - Chinese: `README_ZH.md`

@@ -900,7 +900,22 @@ def _make_cancelable_progress_bar(cancel_event: threading.Event):
     return _progress_bar
 
 
-def _generate(req: dict, model, cancel_event: threading.Event | None = None):
+def _generation_segment_frames(num_frames: int, fps: float, max_duration_seconds: float = 10.0) -> list[int]:
+    """Split long Kimodo requests into equal, transition-connected model segments."""
+    if num_frames < 1:
+        raise ValueError(f"num_frames must be positive, got {num_frames}.")
+    max_frames = max(1, seconds_to_frame_count(max_duration_seconds, fps))
+    segment_count = math.ceil(num_frames / max_frames)
+    base_frames, extra_frames = divmod(num_frames, segment_count)
+    return [base_frames + (1 if index < extra_frames else 0) for index in range(segment_count)]
+
+
+def _run_generate(
+    req: dict,
+    model,
+    cancel_event: threading.Event | None = None,
+    emit_progress: bool = True,
+):
     from kimodo.tools import seed_everything
 
     prompt = str(req.get("prompt", "A person walks forward.")).strip()
@@ -911,23 +926,27 @@ def _generate(req: dict, model, cancel_event: threading.Event | None = None):
     seed = req.get("seed", None)
     diffusion_steps = int(req.get("diffusion_steps", 100))
     cfg_text_weight = _resolve_cfg_text_weight(req)
-    constraints_path = req.get("constraints_json", "")
-
     if seed is not None:
         seed_everything(int(seed))
 
     num_frames = max(1, seconds_to_frame_count(duration, model.fps))
-    constraints = _load_constraints(constraints_path, model)
+    segment_frames = _generation_segment_frames(num_frames, model.fps)
+    constraints = _load_constraints(req.get("constraints_json", ""), model)
     progress_bar = _make_cancelable_progress_bar(cancel_event or threading.Event())
+    if emit_progress:
+        _out({"status": "progress", "message": f"Running diffusion ({diffusion_steps} steps)..."})
+    if emit_progress and len(segment_frames) > 1:
+        _out({"status": "progress", "message": f"Generating {len(segment_frames)} continuous segments..."})
 
-    _out({"status": "progress", "message": f"Running diffusion ({diffusion_steps} steps)..."})
     output = model(
-        [prompt],
-        [num_frames],
+        [prompt] * len(segment_frames),
+        segment_frames,
         constraint_lst=constraints,
         num_denoising_steps=diffusion_steps,
         cfg_weight=[cfg_text_weight, 2.0],
         num_samples=1,
+        # Keep the original single-request path intact; for long requests the
+        # same built-in transition path simply receives multiple segments.
         multi_prompt=True,
         num_transition_frames=5,
         post_processing=True,
@@ -936,6 +955,11 @@ def _generate(req: dict, model, cancel_event: threading.Event | None = None):
     )
     if cancel_event is not None and cancel_event.is_set():
         raise GenerateCancelledError("Generation canceled.")
+    return output, prompt
+
+
+def _generate(req: dict, model, cancel_event: threading.Event | None = None):
+    output, prompt = _run_generate(req, model, cancel_event)
 
     _out(_build_generate_response(model, output, prompt, sample_index=0))
 
@@ -1227,37 +1251,7 @@ def main():
                             continue
 
                         try:
-                            from kimodo.tools import seed_everything
-
-                            prompt = str(req.get("prompt", "A person walks forward.")).strip()
-                            if not prompt.endswith("."):
-                                prompt += "."
-                            duration = float(req.get("duration", 5.0))
-                            seed = req.get("seed", None)
-                            diffusion_steps = int(req.get("diffusion_steps", 100))
-                            constraints_path = req.get("constraints_json", "")
-
-                            if seed is not None:
-                                seed_everything(int(seed))
-
-                            num_frames = max(1, seconds_to_frame_count(duration, fps))
-                            constraints = _load_constraints(constraints_path, model)
-                            progress_bar = _make_cancelable_progress_bar(cancel_event)
-
-                            output = model(
-                                [prompt],
-                                [num_frames],
-                                constraint_lst=constraints,
-                                num_denoising_steps=diffusion_steps,
-                                num_samples=1,
-                                multi_prompt=True,
-                                num_transition_frames=5,
-                                post_processing=True,
-                                return_numpy=True,
-                                progress_bar=progress_bar,
-                            )
-                            if cancel_event.is_set():
-                                raise GenerateCancelledError("Generation canceled.")
+                            output, prompt = _run_generate(req, model, cancel_event)
 
                             requested_output_format = _resolve_requested_output_format(req)
                             if requested_output_format == "kmb_v1":

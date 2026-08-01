@@ -324,17 +324,18 @@ class Kimodo(nn.Module):
                         lengths=lengths,
                     )
                 else:
-                    motion = motion_with_transition[:, num_transition_frames:]
-                    transition_frames = motion_with_transition[:, :num_transition_frames]
+                    motion = motion_with_transition
 
-                    # linearly combine the previously generated transitions with the newly generated ones
-                    alpha = torch.linspace(1, 0, num_transition_frames, device=device)[:, None]
-                    new_transition_frames = (
-                        latest_frames[:, :num_transition_frames] * alpha + (1 - alpha) * transition_frames
-                    )
+                transition_frames = motion[:, :num_transition_frames]
+                motion = motion[:, num_transition_frames:]
 
-                    # add new transitions frames for A (merging with B prediction of the history)
-                    generated_motions.append(new_transition_frames)
+                # Linearly combine the previous segment tail with the new segment's
+                # constrained transition, then keep only the requested new frames.
+                alpha = torch.linspace(1, 0, num_transition_frames, device=device)[:, None]
+                new_transition_frames = (
+                    latest_frames[:, :num_transition_frames] * alpha + (1 - alpha) * transition_frames
+                )
+                generated_motions.append(new_transition_frames)
 
             elif post_processing:
                 # First segment: postprocess immediately
