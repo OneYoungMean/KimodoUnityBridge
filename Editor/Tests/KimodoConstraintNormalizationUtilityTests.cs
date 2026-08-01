@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using TimelineInject;
 using UnityEngine;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor.Tests
 {
@@ -106,69 +107,97 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void AutoBegin_IsUsedWhenFirstConstraintIsAfterFirstSecond()
+        public void AutoBegin_AddsRoot2DConstraintWhenFirstConstraintIsAfterFirstSecond()
         {
-            var samples = new List<KimodoMarkerSampleResult>
+            AnimationTrack track = CreateAutoBeginTrack(
+                new Vector3(5f, 4f, 10f),
+                Quaternion.Euler(0f, 15f, 0f));
+            try
             {
-                new KimodoMarkerSampleResult
+                var lateConstraint = new KimodoMarkerSampleResult
                 {
                     constraintType = "root2d",
                     sampleTime = 1.25,
-                    kimodoRootPosition = new Vector3(10f, 1f, 22f)
-                }
-            };
-            var autoBegin = new KimodoMarkerSampleResult
+                    kimodoRootPosition = new Vector3(11f, 1f, 22f)
+                };
+                var request = CreateAutoBeginRequest(track, lateConstraint);
+                request.SourceHumanScale = 1f;
+                request.KimodoHumanScale = 2f;
+
+                Assert.That(
+                    KimodoInOutConstraintComposer.TryBuild(request, out KimodoInOutConstraintResult result, out _, out _),
+                    Is.True);
+
+                Assert.That(result.NormalizationInfo.Applied, Is.True);
+                Assert.That(result.NormalizationInfo.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.Root2D));
+                Assert.That(result.NormalizationInfo.AnchorSample.sampleTime, Is.EqualTo(0.0).Within(1e-6));
+                Assert.That(result.NormalizationInfo.AnchorSample.unityRootPos, Is.EqualTo(track.position));
+                Assert.That(result.CombinedSamples, Has.Count.EqualTo(2));
+                Assert.That(result.CombinedSamples[0].constraintType, Is.EqualTo("root2d"));
+                Assert.That(result.CombinedSamples[0].kimodoRootPosition, Is.EqualTo(Vector3.zero));
+                Assert.That(result.HasSyntheticAutoBeginConstraint, Is.True);
+                Vector3 expected = Quaternion.Inverse(track.rotation) * new Vector3(1f, 1f, 2f);
+                Assert.That(Vector3.Distance(result.CombinedSamples[1].kimodoRootPosition, expected), Is.LessThan(1e-5f));
+                Assert.That(KimodoConstraintJsonExporter.BuildConstraints(result.CombinedSamples), Has.Count.EqualTo(2));
+            }
+            finally
             {
-                constraintType = "fullbody",
-                sampleTime = 0.0,
-                kimodoRootPosition = new Vector3(10f, 0f, 20f),
-                rootHeading = Vector2.right,
-                hasRootHeading = true,
-                unityRootPos = new Vector3(10f, 4f, 20f),
-                unityRootRot = Quaternion.Euler(0f, 15f, 0f)
-            };
-
-            KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
-                samples,
-                autoBegin,
-                1.0,
-                out KimodoConstraintNormalizationInfo info,
-                out _);
-
-            Assert.That(info.Applied, Is.True);
-            Assert.That(info.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.AutoBegin));
-            Assert.That(samples, Has.Count.EqualTo(1));
-            Vector3 expected = Quaternion.Inverse(Quaternion.Euler(0f, 15f, 0f)) * new Vector3(0f, 1f, 2f);
-            Assert.That(Vector3.Distance(samples[0].kimodoRootPosition, expected), Is.LessThan(1e-5f));
+                Object.DestroyImmediate(track);
+            }
         }
 
         [Test]
-        public void RealAnchorInsideFirstSecond_BeatsAutoBegin()
+        public void RealAnchorInsideFirstSecond_PreventsAutoBeginConstraint()
         {
-            var realAnchor = new KimodoMarkerSampleResult
+            AnimationTrack track = CreateAutoBeginTrack(new Vector3(10f, 0f, 20f), Quaternion.identity);
+            try
             {
-                constraintType = "fullbody",
-                sampleTime = 0.75,
-                kimodoRootPosition = new Vector3(2f, 1f, 3f),
-                unityRootPos = new Vector3(2f, 1f, 3f),
-                unityRootRot = Quaternion.identity
-            };
-            var autoBegin = new KimodoMarkerSampleResult
+                var realAnchor = new KimodoMarkerSampleResult
+                {
+                    constraintType = "fullbody",
+                    sampleTime = 0.75,
+                    kimodoRootPosition = new Vector3(2f, 1f, 3f),
+                    unityRootPos = new Vector3(2f, 1f, 3f),
+                    unityRootRot = Quaternion.identity
+                };
+
+                Assert.That(
+                    KimodoInOutConstraintComposer.TryBuild(
+                        CreateAutoBeginRequest(track, realAnchor),
+                        out KimodoInOutConstraintResult result,
+                        out _,
+                        out _),
+                    Is.True);
+
+                Assert.That(result.NormalizationInfo.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.FullBody));
+                Assert.That(result.NormalizationInfo.AnchorSample.sampleTime, Is.EqualTo(0.75).Within(1e-6));
+                Assert.That(result.CombinedSamples, Has.Count.EqualTo(1));
+                Assert.That(result.HasSyntheticAutoBeginConstraint, Is.False);
+            }
+            finally
             {
-                constraintType = "fullbody",
-                unityRootPos = new Vector3(10f, 0f, 20f),
-                unityRootRot = Quaternion.identity
-            };
+                Object.DestroyImmediate(track);
+            }
+        }
 
-            KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
-                new List<KimodoMarkerSampleResult> { realAnchor },
-                autoBegin,
-                1.0,
-                out KimodoConstraintNormalizationInfo info,
-                out _);
+        [Test]
+        public void DeferredAutoBegin_RealConstraintBeatsSyntheticConstraint()
+        {
+            var synthetic = new KimodoMarkerSampleResult { constraintType = "root2d", sampleTime = 0.0 };
+            var real = new KimodoMarkerSampleResult { constraintType = "fullbody", sampleTime = 0.5 };
 
-            Assert.That(info.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.FullBody));
-            Assert.That(info.AnchorSample.sampleTime, Is.EqualTo(0.75).Within(1e-6));
+            Assert.That(
+                KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
+                    new List<KimodoMarkerSampleResult> { synthetic, real },
+                    1.0,
+                    synthetic),
+                Is.True);
+            Assert.That(
+                KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
+                    new List<KimodoMarkerSampleResult> { synthetic },
+                    1.0,
+                    synthetic),
+                Is.False);
         }
 
         [Test]
@@ -193,7 +222,6 @@ namespace KimodoBridge.Editor.Tests
 
             KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
                 new List<KimodoMarkerSampleResult> { beginMarker, previousBoundary },
-                autoBeginAnchorSample: null,
                 anchorWindowSeconds: 1.0,
                 out KimodoConstraintNormalizationInfo info,
                 out _);
@@ -226,7 +254,6 @@ namespace KimodoBridge.Editor.Tests
 
             KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
                 new List<KimodoMarkerSampleResult> { root2d, end, fullbody },
-                autoBeginAnchorSample: null,
                 anchorWindowSeconds: 1.0,
                 out KimodoConstraintNormalizationInfo info,
                 out _);
@@ -259,7 +286,6 @@ namespace KimodoBridge.Editor.Tests
 
             KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
                 new List<KimodoMarkerSampleResult> { root2d, firstEnd, secondEnd },
-                autoBeginAnchorSample: null,
                 anchorWindowSeconds: 1.0,
                 out KimodoConstraintNormalizationInfo info,
                 out _);
@@ -269,53 +295,61 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ConstraintAtExactlyOneSecond_DoesNotBeatAutoBegin()
+        public void ConstraintAtExactlyOneSecond_GetsFrameZeroAutoBeginConstraint()
         {
-            var sample = new KimodoMarkerSampleResult
+            AnimationTrack track = CreateAutoBeginTrack(new Vector3(4f, 0f, 5f), Quaternion.identity);
+            try
             {
-                constraintType = "root2d",
-                sampleTime = 1.0,
-                kimodoRootPosition = new Vector3(4f, 0f, 5f)
-            };
-            var autoBegin = new KimodoMarkerSampleResult
+                var sample = new KimodoMarkerSampleResult
+                {
+                    constraintType = "root2d",
+                    sampleTime = 1.0,
+                    kimodoRootPosition = new Vector3(5f, 0f, 5f)
+                };
+
+                Assert.That(
+                    KimodoInOutConstraintComposer.TryBuild(
+                        CreateAutoBeginRequest(track, sample),
+                        out KimodoInOutConstraintResult result,
+                        out _,
+                        out _),
+                    Is.True);
+
+                Assert.That(result.NormalizationInfo.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.Root2D));
+                Assert.That(result.NormalizationInfo.AnchorSample.sampleTime, Is.EqualTo(0.0).Within(1e-6));
+                Assert.That(result.CombinedSamples, Has.Count.EqualTo(2));
+            }
+            finally
             {
-                constraintType = "fullbody",
-                unityRootPos = new Vector3(4f, 0f, 5f),
-                unityRootRot = Quaternion.identity
-            };
-
-            KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
-                new List<KimodoMarkerSampleResult> { sample },
-                autoBegin,
-                1.0,
-                out KimodoConstraintNormalizationInfo info,
-                out _);
-
-            Assert.That(info.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.AutoBegin));
+                Object.DestroyImmediate(track);
+            }
         }
 
         [Test]
-        public void AutoBegin_AppliesWithoutAddingConstraintSamples()
+        public void AutoBegin_ExportsFrameZeroRoot2DConstraint()
         {
-            var samples = new List<KimodoMarkerSampleResult>();
-            var autoBegin = new KimodoMarkerSampleResult
+            AnimationTrack track = CreateAutoBeginTrack(new Vector3(4f, 0f, 5f), Quaternion.identity);
+            try
             {
-                constraintType = "fullbody",
-                unityRootPos = new Vector3(4f, 0f, 5f),
-                unityRootRot = Quaternion.identity
-            };
+                Assert.That(
+                    KimodoInOutConstraintComposer.TryBuild(
+                        CreateAutoBeginRequest(track),
+                        out KimodoInOutConstraintResult result,
+                        out _,
+                        out _),
+                    Is.True);
 
-            KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
-                samples,
-                autoBegin,
-                1.0,
-                out KimodoConstraintNormalizationInfo info,
-                out _);
-
-            Assert.That(info.Applied, Is.True);
-            Assert.That(info.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.AutoBegin));
-            Assert.That(samples, Is.Empty);
-            Assert.That(KimodoConstraintJsonExporter.BuildConstraints(samples), Is.Empty);
+                Assert.That(result.NormalizationInfo.Applied, Is.True);
+                Assert.That(result.NormalizationInfo.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.Root2D));
+                Assert.That(result.CombinedSamples, Has.Count.EqualTo(1));
+                Assert.That(result.CombinedSamples[0].constraintType, Is.EqualTo("root2d"));
+                Assert.That(result.CombinedSamples[0].sampleTime, Is.EqualTo(0.0).Within(1e-6));
+                Assert.That(KimodoConstraintJsonExporter.BuildConstraints(result.CombinedSamples), Has.Count.EqualTo(1));
+            }
+            finally
+            {
+                Object.DestroyImmediate(track);
+            }
         }
 
         [Test]
@@ -360,6 +394,51 @@ namespace KimodoBridge.Editor.Tests
             {
                 Object.DestroyImmediate(clip);
             }
+        }
+
+        [Test]
+        public void ExternalConstraintRequest_BuildsUnifiedNormalizationInfo()
+        {
+            var anchor = new KimodoMarkerSampleResult { constraintType = "fullbody" };
+            var request = new KimodoExternalConstraintRequest
+            {
+                NormalizeConstraintOriginApplied = true,
+                NormalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
+                NormalizationAnchorSample = anchor
+            };
+
+            KimodoConstraintNormalizationInfo info = request.BuildNormalizationInfo();
+            Assert.That(info.Applied, Is.True);
+            Assert.That(info.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.FullBody));
+            Assert.That(info.AnchorSample, Is.Not.SameAs(anchor));
+            Assert.That(info.AnchorSample.constraintType, Is.EqualTo(anchor.constraintType));
+        }
+
+        private static AnimationTrack CreateAutoBeginTrack(Vector3 position, Quaternion rotation)
+        {
+            AnimationTrack track = ScriptableObject.CreateInstance<AnimationTrack>();
+            track.trackOffset = TrackOffset.ApplyTransformOffsets;
+            track.position = position;
+            track.rotation = rotation;
+            return track;
+        }
+
+        private static KimodoInOutConstraintRequest CreateAutoBeginRequest(
+            AnimationTrack track,
+            params KimodoMarkerSampleResult[] samples)
+        {
+            return new KimodoInOutConstraintRequest
+            {
+                Mode = KimodoInOutConstraintMode.None,
+                AutoBeginAnchor = true,
+                TimelineContext = new KimodoTimelineInOutConstraintContext
+                {
+                    Track = track
+                },
+                ManualSamples = samples != null
+                    ? new List<KimodoMarkerSampleResult>(samples)
+                    : new List<KimodoMarkerSampleResult>()
+            };
         }
 
     }

@@ -18,7 +18,6 @@ dependencies = [
   "transformers==5.8.1",
   "huggingface_hub>=1.0",
   "urllib3>=2.6.3",
-  "boto3",
   "modelscope==1.37.1",
   "peft>=0.19",
   "einops>=0.7",

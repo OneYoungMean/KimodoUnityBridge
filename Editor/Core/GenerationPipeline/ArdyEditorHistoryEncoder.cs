@@ -104,11 +104,9 @@ namespace KimodoBridge.Editor
                     }
                 }
 
-                if (!sampler.TryCaptureMuscleSamples(timelineTimes, out MuscleSample[] muscleSamples, out error) ||
-                    !KimodoRetargetSamplingUtility.TryRetargetMuscleSamplesToBoneSamples(
-                        muscleSamples,
+                if (!sampler.TryCaptureTargetBoneSamples(
+                        timelineTimes,
                         profile.SourceFps,
-                        sampler.TargetCache,
                         out BoneSample[] targetSamples,
                         out error))
                 {
@@ -174,10 +172,10 @@ namespace KimodoBridge.Editor
                     $"sampleRange={timelineTimes[0]:F6}->{timelineTimes[frameCount - 1]:F6} " +
                     $"rootBeforeFirst={firstRootBeforeNormalize:F6} rootBeforeLast={lastRootBeforeNormalize:F6} " +
                     $"rootAfterFirst={rootPositions[0]:F6} rootAfterLast={rootPositions[frameCount - 1]:F6} " +
-                    $"rootYawBeforeFirst={ResolvePlanarRotation(firstRotationBeforeNormalize).eulerAngles:F6} " +
-                    $"rootYawBeforeLast={ResolvePlanarRotation(lastRotationBeforeNormalize).eulerAngles:F6} " +
+                    $"rootYawBeforeFirst={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(firstRotationBeforeNormalize).eulerAngles:F6} " +
+                    $"rootYawBeforeLast={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(lastRotationBeforeNormalize).eulerAngles:F6} " +
                     $"sourceHipsWorld={source.TimelineWorldAnchorPosition:F6} " +
-                    $"sourceHipsYaw={ResolvePlanarRotation(source.TimelineWorldAnchorRotation).eulerAngles:F6}.");
+                    $"sourceHipsYaw={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(source.TimelineWorldAnchorRotation).eulerAngles:F6}.");
 
                 var motion = new KimodoRawMotionData(
                     frameCount,
@@ -229,7 +227,7 @@ namespace KimodoBridge.Editor
 
             int last = rootPositions.Length - 1;
             Vector3 anchorPosition = new Vector3(rootPositions[last].x, 0f, rootPositions[last].z);
-            Quaternion anchorRotation = ResolvePlanarRotation(rootRotations[last]);
+            Quaternion anchorRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(rootRotations[last]);
             Quaternion inverseAnchorRotation = Quaternion.Inverse(anchorRotation);
             for (int frame = 0; frame < rootPositions.Length; frame++)
             {
@@ -242,13 +240,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static Quaternion ResolvePlanarRotation(Quaternion rotation)
-        {
-            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
-        }
 
     }
 }

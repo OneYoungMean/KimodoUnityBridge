@@ -335,6 +335,11 @@ namespace KimodoBridge
             out TSample sample,
             out string error);
 
+        private delegate bool ClipWriteCallback<TSample>(
+            IReadOnlyList<TSample> samples,
+            AnimationClip clip,
+            out string error);
+
         internal static bool SampleBoneClipToBoneSample(
             AnimationClip clip,
             SkeletonCache cache,
@@ -462,67 +467,6 @@ namespace KimodoBridge
                 CloneMuscleSample,
                 out samples,
                 out error);
-        }
-
-        internal static bool TrySampleTargetFromHumanoidClip(
-            AnimationClip sourceHumanoidClip,
-            SkeletonCache targetCache,
-            float sampleTime,
-            out BoneSample targetSample,
-            out MuscleSample targetMuscleSample,
-            out string error)
-        {
-            targetSample = null;
-            targetMuscleSample = null;
-            error = string.Empty;
-
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out error))
-            {
-                return false;
-            }
-
-            if (sourceHumanoidClip == null)
-            {
-                error = "Source humanoid clip is null.";
-                return false;
-            }
-
-            if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
-                    sourceHumanoidClip,
-                        targetCache,
-                        "KimodoRetargetTools_TargetHumanoidSample",
-                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
-                        out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
-                        out error))
-            {
-                return false;
-            }
-
-            try
-            {
-                if (!TrySampleBoneClipToBoneSampleInternal(context, sampleTime, out targetSample, out error))
-                {
-                    return false;
-                }
-
-                if (!ValidateBoneSample(targetSample, out error))
-                {
-                    targetSample = null;
-                    return false;
-                }
-
-                if (!TryCaptureMuscleSample(targetCache, out targetMuscleSample, out error))
-                {
-                    targetSample = null;
-                    return false;
-                }
-
-                return true;
-            }
-            finally
-            {
-                KimodoRetargetClipSamplingUtility.DestroyClipSamplingContext(context);
-            }
         }
 
         internal static bool TrySampleTargetFromSingleMuscleSample(
@@ -757,30 +701,14 @@ namespace KimodoBridge
             out AnimationClip clip,
             out string error)
         {
-            clip = null;
-            error = string.Empty;
-
-            if (samples == null || samples.Count == 0)
-            {
-                error = "Muscle samples are empty.";
-                return false;
-            }
-
-            clip = new AnimationClip
-            {
-                frameRate = frameRate > 0f ? frameRate : KimodoPlayableClip.FIXED_FRAME_RATE,
-                hideFlags = HideFlags.HideAndDontSave,
-                name = "KimodoTransientMuscleClip"
-            };
-
-            if (!KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(samples, clip, out error))
-            {
-                UnityEngine.Object.DestroyImmediate(clip);
-                clip = null;
-                return false;
-            }
-
-            return true;
+            return TryCreateTransientClip(
+                samples,
+                frameRate,
+                "Muscle samples are empty.",
+                "KimodoTransientMuscleClip",
+                KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip,
+                out clip,
+                out error);
         }
 
         internal static bool TryCreateTransientBoneClip(
@@ -789,11 +717,30 @@ namespace KimodoBridge
             out AnimationClip clip,
             out string error)
         {
+            return TryCreateTransientClip(
+                samples,
+                frameRate,
+                "Bone samples are empty.",
+                "KimodoTransientPoseClip",
+                KimodoRetargetCoreUtility.WriteBoneSampleToBoneClip,
+                out clip,
+                out error);
+        }
+
+        private static bool TryCreateTransientClip<TSample>(
+            IReadOnlyList<TSample> samples,
+            float frameRate,
+            string emptyError,
+            string clipName,
+            ClipWriteCallback<TSample> writeSamples,
+            out AnimationClip clip,
+            out string error)
+        {
             clip = null;
             error = string.Empty;
             if (samples == null || samples.Count == 0)
             {
-                error = "Bone samples are empty.";
+                error = emptyError;
                 return false;
             }
 
@@ -801,9 +748,9 @@ namespace KimodoBridge
             {
                 frameRate = frameRate > 0f ? frameRate : KimodoPlayableClip.FIXED_FRAME_RATE,
                 hideFlags = HideFlags.HideAndDontSave,
-                name = "KimodoTransientPoseClip"
+                name = clipName
             };
-            if (!KimodoRetargetCoreUtility.WriteBoneSampleToBoneClip(samples, clip, out error))
+            if (!writeSamples(samples, clip, out error))
             {
                 UnityEngine.Object.DestroyImmediate(clip);
                 clip = null;

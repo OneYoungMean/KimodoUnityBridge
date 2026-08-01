@@ -495,7 +495,7 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.PropertyField(
                     autoBeginAnchor,
-                    new GUIContent("Auto Begin Anchor", "When the first second has no effective constraint anchor, use the Timeline start pose, including Track/Clip offsets, as the anchor."));
+                    new GUIContent("Auto Begin Anchor", "When the first second has no effective constraint anchor, add a frame-0 Root2D constraint at the Timeline start pose."));
             }
 
             EditorGUILayout.Space(4f);

@@ -28,12 +28,8 @@ namespace KimodoBridge.Editor
         public AnimationClip RawBoneClip;
         public Action<KimodoBridgeCommandStage, string> Progress;
         public CancellationToken Token;
-        public bool NormalizeConstraintOriginApplied;
-        public KimodoConstraintNormalizationAnchorKind NormalizationAnchorKind;
-        public KimodoMarkerSampleResult NormalizationAnchorSample;
-        public float NormalizationSourceHumanScale = 1f;
-        public float NormalizationKimodoHumanScale = 1f;
-        public KimodoMarkerSampleResult AutoBeginAnchorSample;
+        public KimodoConstraintNormalizationInfo NormalizationInfo = new KimodoConstraintNormalizationInfo();
+        public bool HasSyntheticAutoBeginConstraint;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
         public TimelineClip TimelineClipSnapshot;
         public PlayableDirector TimelineDirectorSnapshot;

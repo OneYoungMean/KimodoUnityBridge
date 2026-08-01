@@ -909,21 +909,22 @@ namespace KimodoBridge.Editor.Tests
                 Vector3 anchorPosition = track.position + track.rotation * expectedLocalPosition;
                 var request = new KimodoEditorGenerateRequest
                 {
-                    NormalizeConstraintOriginApplied = true,
-                    NormalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
-                    NormalizationAnchorSample = new KimodoMarkerSampleResult
+                    NormalizationInfo = new KimodoConstraintNormalizationInfo
                     {
-                        constraintType = "fullbody",
-                        kimodoRootPosition = Vector3.zero,
-                        unityRootPos = anchorPosition,
-                        unityRootRot = anchorRotation,
-                        localAxisAngles = new System.Collections.Generic.List<Vector3>
+                        Applied = true,
+                        AnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
+                        AnchorSample = new KimodoMarkerSampleResult
                         {
-                            KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.identity)
+                            constraintType = "fullbody",
+                            kimodoRootPosition = Vector3.zero,
+                            unityRootPos = anchorPosition,
+                            unityRootRot = anchorRotation,
+                            localAxisAngles = new System.Collections.Generic.List<Vector3>
+                            {
+                                KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.identity)
+                            }
                         }
                     },
-                    NormalizationSourceHumanScale = 1f,
-                    NormalizationKimodoHumanScale = 1f,
                     TimelineClipSnapshot = timelineClip
                 };
                 MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
@@ -961,16 +962,19 @@ namespace KimodoBridge.Editor.Tests
 
                 var request = new KimodoEditorGenerateRequest
                 {
-                    NormalizeConstraintOriginApplied = true,
-                    NormalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
-                    NormalizationAnchorSample = new KimodoMarkerSampleResult
+                    NormalizationInfo = new KimodoConstraintNormalizationInfo
                     {
-                        kimodoRootPosition = Vector3.zero,
-                        unityRootPos = new Vector3(4f, 0f, 6f),
-                        unityRootRot = Quaternion.Euler(0f, 70f, 0f),
-                        localAxisAngles = new System.Collections.Generic.List<Vector3>
+                        Applied = true,
+                        AnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
+                        AnchorSample = new KimodoMarkerSampleResult
                         {
-                            KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.identity)
+                            kimodoRootPosition = Vector3.zero,
+                            unityRootPos = new Vector3(4f, 0f, 6f),
+                            unityRootRot = Quaternion.Euler(0f, 70f, 0f),
+                            localAxisAngles = new System.Collections.Generic.List<Vector3>
+                            {
+                                KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.identity)
+                            }
                         }
                     },
                     InitialArdyHistorySource = new ArdyEditorHistorySource
@@ -1193,16 +1197,19 @@ namespace KimodoBridge.Editor.Tests
                     expectedPlanarPosition.z);
                 var request = new KimodoEditorGenerateRequest
                 {
-                    NormalizeConstraintOriginApplied = true,
-                    NormalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
-                    NormalizationAnchorSample = new KimodoMarkerSampleResult
+                    NormalizationInfo = new KimodoConstraintNormalizationInfo
                     {
-                        constraintType = "fullbody",
-                        unityRootPos = Vector3.one * 999f,
-                        unityRootRot = Quaternion.identity,
-                        hasUnityHipsPose = true,
-                        unityHipsPos = worldAnchorPosition,
-                        unityHipsRot = worldAnchorRotation
+                        Applied = true,
+                        AnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
+                        AnchorSample = new KimodoMarkerSampleResult
+                        {
+                            constraintType = "fullbody",
+                            unityRootPos = Vector3.one * 999f,
+                            unityRootRot = Quaternion.identity,
+                            hasUnityHipsPose = true,
+                            unityHipsPos = worldAnchorPosition,
+                            unityHipsRot = worldAnchorRotation
+                        }
                     },
                     OutputPlan = new KimodoEditorGenerateOutputPlan
                     {
@@ -1249,21 +1256,22 @@ namespace KimodoBridge.Editor.Tests
 
                 var request = new KimodoEditorGenerateRequest
                 {
-                    NormalizeConstraintOriginApplied = true,
-                    NormalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
-                    NormalizationAnchorSample = new KimodoMarkerSampleResult
+                    NormalizationInfo = new KimodoConstraintNormalizationInfo
                     {
-                        constraintType = "fullbody",
-                        kimodoRootPosition = new Vector3(4f, 0f, 6f),
-                        unityRootPos = new Vector3(100f, 0f, 200f),
-                        unityRootRot = Quaternion.Euler(0f, 80f, 0f),
-                        localAxisAngles = new System.Collections.Generic.List<Vector3>
+                        Applied = true,
+                        AnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
+                        AnchorSample = new KimodoMarkerSampleResult
                         {
-                            KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.Euler(0f, 70f, 0f))
+                            constraintType = "fullbody",
+                            kimodoRootPosition = new Vector3(4f, 0f, 6f),
+                            unityRootPos = new Vector3(100f, 0f, 200f),
+                            unityRootRot = Quaternion.Euler(0f, 80f, 0f),
+                            localAxisAngles = new System.Collections.Generic.List<Vector3>
+                            {
+                                KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.Euler(0f, 70f, 0f))
+                            }
                         }
                     },
-                    NormalizationSourceHumanScale = 2f,
-                    NormalizationKimodoHumanScale = 1f,
                     TimelineClipSnapshot = timelineClip
                 };
                 MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(

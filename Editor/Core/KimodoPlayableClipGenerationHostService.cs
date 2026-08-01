@@ -51,20 +51,14 @@ namespace KimodoBridge.Editor
             float targetLengthSeconds = targetFrameCount / targetFrameRate;
 
             string constraintsJson;
-            bool normalizeConstraintOriginApplied = false;
-            KimodoConstraintNormalizationAnchorKind normalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.None;
-            KimodoMarkerSampleResult normalizationAnchorSample = null;
-            KimodoMarkerSampleResult autoBeginAnchorSample = null;
+            var normalizationInfo = new KimodoConstraintNormalizationInfo();
+            bool hasSyntheticAutoBeginConstraint = false;
             var constraintSamples = new List<KimodoMarkerSampleResult>();
             if (externalConstraint != null && externalConstraint.Enabled)
             {
                 constraintsJson = externalConstraint.ConstraintsJson ?? string.Empty;
-                normalizeConstraintOriginApplied = externalConstraint.NormalizeConstraintOriginApplied;
-                normalizationAnchorKind = externalConstraint.NormalizationAnchorKind;
-                normalizationAnchorSample = externalConstraint.NormalizationAnchorSample != null
-                    ? externalConstraint.NormalizationAnchorSample.Clone()
-                    : null;
-                AppendSamples(externalConstraint.ConstraintSamples, constraintSamples);
+                normalizationInfo = externalConstraint.BuildNormalizationInfo();
+                KimodoInOutConstraintComposer.AppendSamples(externalConstraint.ConstraintSamples, constraintSamples);
             }
             else
             {
@@ -75,17 +69,11 @@ namespace KimodoBridge.Editor
                     deferConstraintNormalization,
                     enableAutoBeginAnchor);
                 constraintsJson = constraintResult.ConstraintsJson ?? string.Empty;
-                AppendSamples(constraintResult.CombinedSamples, constraintSamples);
-                autoBeginAnchorSample = constraintResult.AutoBeginAnchorSample != null
-                    ? constraintResult.AutoBeginAnchorSample.Clone()
-                    : null;
+                KimodoInOutConstraintComposer.AppendSamples(constraintResult.CombinedSamples, constraintSamples);
+                hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
                 if (constraintResult.NormalizationInfo != null)
                 {
-                    normalizeConstraintOriginApplied = constraintResult.NormalizationInfo.Applied;
-                    normalizationAnchorKind = constraintResult.NormalizationInfo.AnchorKind;
-                    normalizationAnchorSample = constraintResult.NormalizationInfo.AnchorSample != null
-                        ? constraintResult.NormalizationInfo.AnchorSample.Clone()
-                        : null;
+                    normalizationInfo = constraintResult.NormalizationInfo.Clone();
                 }
             }
 
@@ -138,8 +126,6 @@ namespace KimodoBridge.Editor
                 externalConstraint?.RetargetAvatar,
                 resolvedModelName,
                 outputBindingObject);
-            float sourceHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(outputPlanSnapshot.OriginRetargetAvatar);
-            float kimodoHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(outputPlanSnapshot.TargetRetargetAvatar);
             return new KimodoEditorGenerateRequest
             {
                 Prompt = prompt,
@@ -163,12 +149,8 @@ namespace KimodoBridge.Editor
                 ModelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim() ?? string.Empty,
                 GenerationTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance.GenerationTimeoutSeconds,
                 Token = token,
-                NormalizeConstraintOriginApplied = normalizeConstraintOriginApplied,
-                NormalizationAnchorKind = normalizationAnchorKind,
-                NormalizationAnchorSample = normalizationAnchorSample,
-                NormalizationSourceHumanScale = sourceHumanScale,
-                NormalizationKimodoHumanScale = kimodoHumanScale,
-                AutoBeginAnchorSample = autoBeginAnchorSample,
+                NormalizationInfo = normalizationInfo,
+                HasSyntheticAutoBeginConstraint = hasSyntheticAutoBeginConstraint,
                 ConstraintSamples = constraintSamples,
                 TimelineClipSnapshot = timelineClip,
                 TimelineDirectorSnapshot = outputDirector,
@@ -298,8 +280,8 @@ namespace KimodoBridge.Editor
             }
 
             bool hasHistoryAnchor = request.InitialArdyHistorySource?.HasTimelineWorldAnchor == true;
-            bool hasNormalizationAnchor = request.NormalizeConstraintOriginApplied &&
-                request.NormalizationAnchorSample != null;
+            KimodoConstraintNormalizationInfo normalization = request.NormalizationInfo;
+            bool hasNormalizationAnchor = normalization?.Applied == true && normalization.AnchorSample != null;
             if (!hasHistoryAnchor && !hasNormalizationAnchor)
             {
                 return;
@@ -315,9 +297,9 @@ namespace KimodoBridge.Editor
 
             Debug.Log(
                 $"[Kimodo][TimelineOffset] resolve clip='{playableClip.name}' " +
-                $"hasNormalizationAnchor={hasNormalizationAnchor} anchorKind={request.NormalizationAnchorKind} " +
+                $"hasNormalizationAnchor={hasNormalizationAnchor} anchorKind={normalization?.AnchorKind} " +
                 $"hasArdyHistoryAnchor={hasHistoryAnchor} trackPosition={trackPosition:F6} " +
-                $"trackRotation={ResolvePlanarRotation(trackRotation).eulerAngles:F6}.");
+                $"trackRotation={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(trackRotation).eulerAngles:F6}.");
 
             string hipsOffsetError = string.Empty;
             if (hasHistoryAnchor &&
@@ -341,18 +323,17 @@ namespace KimodoBridge.Editor
 
             if (hasNormalizationAnchor)
             {
-                if (TryResolveAnchorHipsPose(
-                        request.NormalizationAnchorSample,
-                        out Vector3 anchorHipsPosition,
-                        out Quaternion anchorHipsRotation) &&
+                KimodoMarkerSampleResult anchor = normalization.AnchorSample;
+                hipsOffsetError = string.Empty;
+                if (anchor.hasUnityHipsPose &&
                     TryApplyGeneratedHipsAnchorOffset(
                         playableClip,
                         request,
                         trackPosition,
                         trackRotation,
-                        anchorHipsPosition,
-                        anchorHipsRotation,
-                        request.NormalizationAnchorKind + " Hips",
+                        anchor.unityHipsPos,
+                        anchor.unityHipsRot,
+                        normalization.AnchorKind + " Hips",
                         out hipsOffsetError))
                 {
                     return;
@@ -363,62 +344,29 @@ namespace KimodoBridge.Editor
                     Debug.LogWarning($"[Kimodo][TimelineOffset] Hips-based normalization offset failed, falling back to root anchor: {hipsOffsetError}");
                 }
 
-                ApplyNormalizationAnchorOffset(
+                ApplyPlanarAnchorOffset(
                     playableClip,
-                    request,
                     trackPosition,
                     trackRotation,
-                    hasHistoryAnchor);
+                    anchor.unityRootPos,
+                    anchor.unityRootRot,
+                    normalization.AnchorKind.ToString());
+                if (hasHistoryAnchor)
+                {
+                    Debug.Log(
+                        $"[Kimodo][TimelineOffset] ARDY history anchor present but normalization anchor wins: " +
+                        $"historyHips={request.InitialArdyHistorySource.TimelineWorldAnchorPosition:F6}, " +
+                        $"normalizationAnchorRoot={anchor.unityRootPos:F6}.");
+                }
                 return;
             }
 
-            ApplyHistoryRootAnchorOffset(playableClip, request, trackPosition, trackRotation);
-        }
-
-        private static void ApplyNormalizationAnchorOffset(
-            KimodoPlayableClip playableClip,
-            KimodoEditorGenerateRequest request,
-            Vector3 trackPosition,
-            Quaternion trackRotation,
-            bool hasHistoryAnchor)
-        {
-            ResolveAnchorWorldRoot(
-                request.NormalizationAnchorSample,
-                out Vector3 anchorPosition,
-                out Quaternion anchorRotation);
-
             ApplyPlanarAnchorOffset(
                 playableClip,
                 trackPosition,
                 trackRotation,
-                anchorPosition,
-                anchorRotation,
-                request.NormalizationAnchorKind.ToString());
-            if (hasHistoryAnchor)
-            {
-                Debug.Log(
-                    $"[Kimodo][TimelineOffset] ARDY history anchor present but normalization anchor wins: " +
-                    $"historyHips={request.InitialArdyHistorySource.TimelineWorldAnchorPosition:F6}, " +
-                    $"normalizationAnchorRoot={anchorPosition:F6}.");
-            }
-        }
-
-        private static void ApplyHistoryRootAnchorOffset(
-            KimodoPlayableClip playableClip,
-            KimodoEditorGenerateRequest request,
-            Vector3 trackPosition,
-            Quaternion trackRotation)
-        {
-            Vector3 anchorPosition;
-            Quaternion anchorRotation;
-            anchorPosition = request.InitialArdyHistorySource.TimelineWorldAnchorPosition;
-            anchorRotation = request.InitialArdyHistorySource.TimelineWorldAnchorRotation;
-            ApplyPlanarAnchorOffset(
-                playableClip,
-                trackPosition,
-                trackRotation,
-                anchorPosition,
-                anchorRotation,
+                request.InitialArdyHistorySource.TimelineWorldAnchorPosition,
+                request.InitialArdyHistorySource.TimelineWorldAnchorRotation,
                 "ArdyHistoryEnd");
         }
 
@@ -430,8 +378,8 @@ namespace KimodoBridge.Editor
             Quaternion anchorRotation,
             string anchorLabel)
         {
-            Quaternion baseRotation = ResolvePlanarRotation(trackRotation);
-            Quaternion targetRotation = ResolvePlanarRotation(anchorRotation);
+            Quaternion baseRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(trackRotation);
+            Quaternion targetRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(anchorRotation);
             Vector3 delta = new Vector3(anchorPosition.x, 0f, anchorPosition.z) -
                 new Vector3(trackPosition.x, 0f, trackPosition.z);
             Vector3 localPosition = Quaternion.Inverse(baseRotation) * delta;
@@ -483,9 +431,9 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            Quaternion trackYaw = ResolvePlanarRotation(trackRotation);
-            Quaternion sourceHipsYaw = ResolvePlanarRotation(sourceHipsRotation);
-            Quaternion generatedHipsYaw = ResolvePlanarRotation(generatedHipsRotation);
+            Quaternion trackYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(trackRotation);
+            Quaternion sourceHipsYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(sourceHipsRotation);
+            Quaternion generatedHipsYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(generatedHipsRotation);
             Quaternion clipYaw = (Quaternion.Inverse(trackYaw) * sourceHipsYaw * Quaternion.Inverse(generatedHipsYaw)).normalized;
             Vector3 sourceHipsTrackLocal = Quaternion.Inverse(trackYaw) *
                 (new Vector3(sourceHipsPosition.x, 0f, sourceHipsPosition.z) -
@@ -503,23 +451,6 @@ namespace KimodoBridge.Editor
                 $"sourceHipsTrackLocal={sourceHipsTrackLocal:F6}, generatedHipsPlanar={generatedHipsPlanar:F6}, " +
                 $"computedPosition={clipPosition:F6}, position={playableClip.position}, " +
                 $"rotation={playableClip.rotation.eulerAngles}.");
-            return true;
-        }
-
-        private static bool TryResolveAnchorHipsPose(
-            KimodoMarkerSampleResult anchor,
-            out Vector3 position,
-            out Quaternion rotation)
-        {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            if (anchor == null || !anchor.hasUnityHipsPose)
-            {
-                return false;
-            }
-
-            position = anchor.unityHipsPos;
-            rotation = anchor.unityHipsRot;
             return true;
         }
 
@@ -592,15 +523,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static void ResolveAnchorWorldRoot(
-            KimodoMarkerSampleResult anchor,
-            out Vector3 position,
-            out Quaternion rotation)
-        {
-            position = anchor.unityRootPos;
-            rotation = anchor.unityRootRot;
-        }
-
         private static Animator ResolveTimelineBindingAnimator(PlayableDirector director, TrackAsset track)
         {
             UnityEngine.Object binding = director != null && track != null
@@ -608,14 +530,6 @@ namespace KimodoBridge.Editor
                 : null;
             return binding as Animator ??
                 (binding as GameObject)?.GetComponentInChildren<Animator>(true);
-        }
-
-        private static Quaternion ResolvePlanarRotation(Quaternion rotation)
-        {
-            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
         }
 
         private static void CopyClipOffset(KimodoPlayableClip source, KimodoPlayableClip destination)
@@ -826,23 +740,6 @@ namespace KimodoBridge.Editor
             }
 
             return effectiveSeed;
-        }
-
-        private static void AppendSamples(
-            IReadOnlyList<KimodoMarkerSampleResult> source,
-            List<KimodoMarkerSampleResult> destination)
-        {
-            if (source == null)
-            {
-                return;
-            }
-            for (int i = 0; i < source.Count; i++)
-            {
-                if (source[i] != null)
-                {
-                    destination.Add(source[i].Clone());
-                }
-            }
         }
 
         private static void ResolveArdyInitialHistory(

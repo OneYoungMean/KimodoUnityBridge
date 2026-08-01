@@ -7,6 +7,7 @@ namespace KimodoBridge.Editor
     internal static class KimodoInOutConstraintComposer
     {
         private const double AutoBeginAnchorWindowSeconds = 1.0;
+        private const string Root2DConstraintType = "root2d";
 
         internal static bool TryBuild(
             KimodoInOutConstraintRequest request,
@@ -43,7 +44,7 @@ namespace KimodoBridge.Editor
                 built.CombinedSamples.Add(beginSample);
             }
 
-            AppendManualSamples(request.ManualSamples, built.CombinedSamples);
+            AppendSamples(request.ManualSamples, built.CombinedSamples);
 
             if (endSample != null &&
                 KimodoInOutConstraintAdapter.ClampFrameCount(request.GenerationFrames) > 1)
@@ -54,21 +55,25 @@ namespace KimodoBridge.Editor
             double normalizationAnchorWindowSeconds = request.AutoBeginAnchor
                 ? AutoBeginAnchorWindowSeconds
                 : double.PositiveInfinity;
-            List<KimodoMarkerSampleResult> normalizationSamples = built.CombinedSamples;
+            KimodoMarkerSampleResult autoBegin = null;
             if (request.AutoBeginAnchor &&
                 !KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
-                    normalizationSamples,
+                    built.CombinedSamples,
                     normalizationAnchorWindowSeconds) &&
-                !TryBuildAutoBeginAnchorSample(request, out built.AutoBeginAnchorSample, out error))
+                !TryBuildAutoBeginConstraint(request, out autoBegin, out error))
             {
                 return false;
+            }
+            else if (autoBegin != null)
+            {
+                built.CombinedSamples.Insert(0, autoBegin);
+                built.HasSyntheticAutoBeginConstraint = true;
             }
 
             if (!request.DeferNormalization)
             {
                 KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
-                    normalizationSamples,
-                    built.AutoBeginAnchorSample,
+                    built.CombinedSamples,
                     normalizationAnchorWindowSeconds,
                     out KimodoConstraintNormalizationInfo normalizationInfo,
                     out string normalizeWarning);
@@ -84,7 +89,7 @@ namespace KimodoBridge.Editor
             if (built.NormalizationInfo != null && built.NormalizationInfo.Applied && built.NormalizationInfo.AnchorSample != null)
             {
                 KimodoMarkerSampleResult rawAnchor = built.NormalizationInfo.AnchorSample;
-                KimodoMarkerSampleResult normalizedAnchor = FindNormalizedAnchorSample(normalizationSamples, rawAnchor);
+                KimodoMarkerSampleResult normalizedAnchor = FindNormalizedAnchorSample(built.CombinedSamples, rawAnchor);
                 Quaternion kimodoAnchorRotation = KimodoConstraintNormalizationUtility.ResolveKimodoPlanarRootRotation(rawAnchor);
                 Vector3 kimodoAnchorPosition = new Vector3(rawAnchor.kimodoRootPosition.x, 0f, rawAnchor.kimodoRootPosition.z);
                 Vector3 rebuiltRoot = normalizedAnchor != null
@@ -104,8 +109,8 @@ namespace KimodoBridge.Editor
                     $"exportFrame={KimodoFrameTimeUtility.SecondsToFrameIndex(rawAnchor.sampleTime, KimodoPlayableClip.FIXED_FRAME_RATE)} " +
                     $"targetAvatarRoot={rawAnchor.kimodoRootPosition:F6} " +
                     $"worldRoot={rawAnchor.unityRootPos:F6} worldRotation={rawAnchor.unityRootRot.eulerAngles:F6} " +
-                    $"normalizedRoot={(normalizedAnchor != null ? normalizedAnchor.kimodoRootPosition.ToString("F6") : "(auto-begin)")} " +
-                    $"rebuiltKimodoRoot={(normalizedAnchor != null ? rebuiltRoot.ToString("F6") : "(auto-begin)")} " +
+                    $"normalizedRoot={(normalizedAnchor != null ? normalizedAnchor.kimodoRootPosition.ToString("F6") : "(missing)")} " +
+                    $"rebuiltKimodoRoot={(normalizedAnchor != null ? rebuiltRoot.ToString("F6") : "(missing)")} " +
                     $"rootPositionDelta={(normalizedAnchor != null ? Vector3.Distance(rebuiltRoot, rawAnchor.kimodoRootPosition) : 0f):F8} " +
                     $"rootRotationDeltaDeg={rebuiltRotationDelta:F6}");
             }
@@ -120,8 +125,8 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        private static void AppendManualSamples(
-            List<KimodoMarkerSampleResult> source,
+        internal static void AppendSamples(
+            IReadOnlyList<KimodoMarkerSampleResult> source,
             List<KimodoMarkerSampleResult> destination)
         {
             if (source == null || destination == null)
@@ -144,7 +149,7 @@ namespace KimodoBridge.Editor
             return (long)System.Math.Round(sampleTime * 1000000.0);
         }
 
-        private static bool TryBuildAutoBeginAnchorSample(
+        private static bool TryBuildAutoBeginConstraint(
             KimodoInOutConstraintRequest request,
             out KimodoMarkerSampleResult sample,
             out string error)
@@ -153,7 +158,7 @@ namespace KimodoBridge.Editor
             error = string.Empty;
             if (request?.TimelineContext == null)
             {
-                error = "Auto Begin anchor requires a Timeline context.";
+                error = "Auto Begin constraint requires a Timeline context.";
                 return false;
             }
 
@@ -162,7 +167,7 @@ namespace KimodoBridge.Editor
                 request.TimelineContext.Animator,
                 out Vector3 worldPosition,
                 out Quaternion worldRotation);
-            Quaternion worldPlanarRotation = ResolvePlanarRotation(worldRotation);
+            Quaternion worldPlanarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(worldRotation);
             float scale = Mathf.Max(1e-6f, request.KimodoHumanScale) /
                 Mathf.Max(1e-6f, request.SourceHumanScale);
             Vector3 kimodoPosition = new Vector3(worldPosition.x, 0f, worldPosition.z) * scale;
@@ -170,29 +175,15 @@ namespace KimodoBridge.Editor
 
             sample = new KimodoMarkerSampleResult
             {
-                constraintType = "fullbody",
+                constraintType = Root2DConstraintType,
                 sampleTime = 0.0,
                 kimodoRootPosition = kimodoPosition,
                 unityRootPos = worldPosition,
                 unityRootRot = worldPlanarRotation,
                 hasRootHeading = true,
-                rootHeading = new Vector2(forward.x, forward.z),
-                localAxisAngles = new List<Vector3>
-                {
-                    KimodoRuntimeUtility.QuaternionToAxisAngleVector(worldPlanarRotation)
-                },
-                sampledJointIndices = new List<int> { 0 },
-                jointNames = new List<string>()
+                rootHeading = new Vector2(forward.x, forward.z)
             };
             return true;
-        }
-
-        private static Quaternion ResolvePlanarRotation(Quaternion rotation)
-        {
-            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
         }
 
         private static KimodoMarkerSampleResult FindNormalizedAnchorSample(

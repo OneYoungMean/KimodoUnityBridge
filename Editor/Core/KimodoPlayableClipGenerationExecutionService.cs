@@ -397,13 +397,32 @@ namespace KimodoBridge.Editor
                 }
             }
 
+            KimodoEditorGenerateRequest firstRequest = entries[0].Request;
+            if (firstRequest.HasSyntheticAutoBeginConstraint && firstRequest.ConstraintSamples.Count > 0)
+            {
+                KimodoMarkerSampleResult syntheticAutoBegin = firstRequest.ConstraintSamples[0];
+                if (KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
+                        allSamples,
+                        1.0,
+                        syntheticAutoBegin))
+                {
+                    int syntheticIndex = allSamples.IndexOf(syntheticAutoBegin);
+                    if (syntheticIndex >= 0)
+                    {
+                        allSamples.RemoveAt(syntheticIndex);
+                        sampleTimeOffsets.RemoveAt(syntheticIndex);
+                        firstRequest.ConstraintSamples.RemoveAt(0);
+                        firstRequest.HasSyntheticAutoBeginConstraint = false;
+                    }
+                }
+            }
+
             KimodoConstraintNormalizationInfo normalization;
             string warning;
             try
             {
                 KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
                     allSamples,
-                    entries[0].Request.AutoBeginAnchorSample,
                     anchorWindowSeconds: entries[0].Clip.autoBeginAnchor
                         ? 1.0
                         : double.PositiveInfinity,
@@ -427,10 +446,7 @@ namespace KimodoBridge.Editor
             }
             if (normalization != null && normalization.Applied && normalization.AnchorSample != null)
             {
-                KimodoEditorGenerateRequest firstRequest = entries[0].Request;
-                firstRequest.NormalizeConstraintOriginApplied = true;
-                firstRequest.NormalizationAnchorKind = normalization.AnchorKind;
-                firstRequest.NormalizationAnchorSample = normalization.AnchorSample.Clone();
+                firstRequest.NormalizationInfo = normalization.Clone();
             }
             for (int i = 1; i < entries.Count; i++)
             {

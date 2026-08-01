@@ -632,7 +632,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            var samples = new MuscleSample[range.BakedFrameCount];
             AnimationClip clip = null;
             try
             {
@@ -646,7 +645,12 @@ namespace KimodoBridge.Editor
                     KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips
                         ? (clipToWrite, label) => WriteDebugResampledClip(clipToWrite, key, label)
                         : null;
-                if (!sampler.TryCaptureMuscleSamples(timelineTimes, out samples, out error, debugWriteback))
+                if (!sampler.TryCaptureTargetBoneSamples(
+                        timelineTimes,
+                        range.FrameRate,
+                        out BoneSample[] targetSamples,
+                        out error,
+                        debugWriteback))
                 {
                     return false;
                 }
@@ -671,14 +675,7 @@ namespace KimodoBridge.Editor
                     };
                 }
 
-                if (!KimodoRetargetSamplingUtility.TryRetargetMuscleSamplesToBoneSamples(
-                        samples,
-                        range.FrameRate,
-                        sampler.TargetCache,
-                        out BoneSample[] targetSamples,
-                        out error,
-                        debugWriteback) ||
-                    !KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
+                if (!KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
                         targetSamples,
                         range.FrameRate,
                         out clip,
@@ -807,16 +804,12 @@ namespace KimodoBridge.Editor
             }
 
             targetRootRotation.Normalize();
-            Vector3 forward = Vector3.ProjectOnPlane(targetRootRotation * Vector3.forward, Vector3.up);
-            if (forward.sqrMagnitude <= 1e-8f)
-            {
-                forward = Vector3.forward;
-            }
-            forward.Normalize();
+            Quaternion planarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(targetRootRotation);
+            Vector3 forward = planarRotation * Vector3.forward;
 
             sample.kimodoRootPosition = targetRootPosition;
             sample.unityRootPos = targetRootPosition;
-            sample.unityRootRot = Quaternion.LookRotation(forward, Vector3.up);
+            sample.unityRootRot = planarRotation;
             sample.rootHeading = new Vector2(forward.x, forward.z);
             sample.hasRootHeading = true;
             if (sample.localAxisAngles != null && sample.localAxisAngles.Count > 0)
@@ -861,12 +854,6 @@ namespace KimodoBridge.Editor
 
     internal sealed class KimodoTimelinePoseSampler : IDisposable
     {
-        private struct SourceHipsPose
-        {
-            public Vector3 Position;
-            public Quaternion Rotation;
-        }
-
         private readonly KimodoTimelineInOutConstraintContext context;
         private readonly SkeletonCache sourceSamplingCache;
         private readonly Transform[] sourceBoneTransforms;
@@ -874,7 +861,8 @@ namespace KimodoBridge.Editor
         private readonly double originalTime;
         private readonly DirectorWrapMode originalWrapMode;
         private readonly Dictionary<int, MuscleSample> sampledMusclePoses = new Dictionary<int, MuscleSample>();
-        private readonly Dictionary<int, SourceHipsPose> sampledSourceHipsPoses = new Dictionary<int, SourceHipsPose>();
+        private readonly Dictionary<int, KimodoTimelineSourceHipsPose> sampledSourceHipsPoses =
+            new Dictionary<int, KimodoTimelineSourceHipsPose>();
         private bool disposed;
 
         private KimodoTimelinePoseSampler(
@@ -998,15 +986,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            float frameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
-            int sampleFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(timelineTime, frameRate);
-            if (sampledMusclePoses.TryGetValue(sampleFrame, out MuscleSample cached))
-            {
-                sample = KimodoRetargetSamplingUtility.CloneMuscleSample(cached);
-                NormalizeSampleRoot(sample, normalizeRootToAnchor, anchorRootPosition, anchorRootRotation);
-                return true;
-            }
-
             if (!TryCaptureMuscleSamples(
                     new[] { timelineTime },
                     out MuscleSample[] samples,
@@ -1076,18 +1055,17 @@ namespace KimodoBridge.Editor
 
                 int clipSampleCount = Mathf.Max(2, missingTimes.Count);
                 var poseSamples = new BoneSample[clipSampleCount];
-                for (int i = 0; i < clipSampleCount; i++)
+                for (int i = 0; i < missingTimes.Count; i++)
                 {
-                    int missingIndex = Mathf.Min(i, missingTimes.Count - 1);
-                    int sampleFrame = missingFrames[missingIndex];
-                    double timelineTime = missingTimes[missingIndex];
+                    int sampleFrame = missingFrames[i];
+                    double timelineTime = missingTimes[i];
                     context.Director.time = Math.Max(0.0, timelineTime);
                     context.Director.Evaluate();
                     if (!TryCaptureSourceHipsPose(out Vector3 hipsPosition, out Quaternion hipsRotation, out error))
                     {
                         return false;
                     }
-                    sampledSourceHipsPoses[sampleFrame] = new SourceHipsPose
+                    sampledSourceHipsPoses[sampleFrame] = new KimodoTimelineSourceHipsPose
                     {
                         Position = hipsPosition,
                         Rotation = hipsRotation
@@ -1101,6 +1079,10 @@ namespace KimodoBridge.Editor
                     {
                         return false;
                     }
+                }
+                for (int i = missingTimes.Count; i < clipSampleCount; i++)
+                {
+                    poseSamples[i] = poseSamples[missingTimes.Count - 1];
                 }
 
                 AnimationClip poseClip = null;
@@ -1161,6 +1143,32 @@ namespace KimodoBridge.Editor
             }
         }
 
+        internal bool TryCaptureTargetBoneSamples(
+            IReadOnlyList<double> timelineTimes,
+            float targetFrameRate,
+            out BoneSample[] samples,
+            out string error,
+            Func<AnimationClip, string, string> writebackClip = null)
+        {
+            samples = null;
+            if (!TryCaptureMuscleSamples(
+                    timelineTimes,
+                    out MuscleSample[] muscleSamples,
+                    out error,
+                    writebackClip))
+            {
+                return false;
+            }
+
+            return KimodoRetargetSamplingUtility.TryRetargetMuscleSamplesToBoneSamples(
+                muscleSamples,
+                targetFrameRate,
+                TargetCache,
+                out samples,
+                out error,
+                writebackClip);
+        }
+
         internal bool TryGetSourceHipsPose(
             double timelineTime,
             out Vector3 position,
@@ -1178,7 +1186,7 @@ namespace KimodoBridge.Editor
 
             float frameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
             int sampleFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(timelineTime, frameRate);
-            if (!sampledSourceHipsPoses.TryGetValue(sampleFrame, out SourceHipsPose pose))
+            if (!sampledSourceHipsPoses.TryGetValue(sampleFrame, out KimodoTimelineSourceHipsPose pose))
             {
                 error = $"Timeline source Hips pose for frame {sampleFrame} was not captured.";
                 return false;
@@ -1497,11 +1505,9 @@ namespace KimodoBridge.Editor
                             uniqueFrames[i],
                             frameRate);
                     }
-                    if (!sampler.TryCaptureMuscleSamples(timelineTimes, out MuscleSample[] muscleSamples, out error) ||
-                        !KimodoRetargetSamplingUtility.TryRetargetMuscleSamplesToBoneSamples(
-                            muscleSamples,
+                    if (!sampler.TryCaptureTargetBoneSamples(
+                            timelineTimes,
                             frameRate,
-                            sampler.TargetCache,
                             out BoneSample[] targetSamples,
                             out error))
                     {

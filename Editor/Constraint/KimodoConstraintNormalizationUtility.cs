@@ -11,7 +11,6 @@ namespace KimodoBridge.Editor
 
         private sealed class ResolvedNormalizationAnchor
         {
-            public bool IsCustomAnchor;
             public KimodoConstraintNormalizationAnchorKind AnchorKind = KimodoConstraintNormalizationAnchorKind.None;
             public KimodoMarkerSampleResult AnchorSample;
             public Vector3 KimodoRootPosition = Vector3.zero;
@@ -25,7 +24,6 @@ namespace KimodoBridge.Editor
         {
             NormalizeConstraintOrigin(
                 samples,
-                autoBeginAnchorSample: null,
                 anchorWindowSeconds: double.PositiveInfinity,
                 out normalizationInfo,
                 out warning);
@@ -33,16 +31,12 @@ namespace KimodoBridge.Editor
 
         internal static void NormalizeConstraintOrigin(
             List<KimodoMarkerSampleResult> samples,
-            KimodoMarkerSampleResult autoBeginAnchorSample,
             double anchorWindowSeconds,
             out KimodoConstraintNormalizationInfo normalizationInfo,
             out string warning)
         {
-            normalizationInfo = new KimodoConstraintNormalizationInfo();
-            warning = string.Empty;
             ResolvedNormalizationAnchor anchor = ResolveNormalizationAnchor(
                 samples,
-                autoBeginAnchorSample,
                 anchorWindowSeconds,
                 out warning);
             ApplyNormalizationAnchor(samples, anchor);
@@ -51,20 +45,19 @@ namespace KimodoBridge.Editor
 
         private static ResolvedNormalizationAnchor ResolveNormalizationAnchor(
             List<KimodoMarkerSampleResult> samples,
-            KimodoMarkerSampleResult autoBeginAnchorSample,
             double anchorWindowSeconds,
             out string warning)
         {
             warning = string.Empty;
             var resolved = new ResolvedNormalizationAnchor();
-            if (TryResolveCustomConstraintOriginAnchor(
+            if (TryResolveConstraintAnchor(
                     samples,
                     anchorWindowSeconds,
+                    ignoredSample: null,
                     out KimodoMarkerSampleResult anchor,
                     out KimodoConstraintNormalizationAnchorKind anchorKind,
                     out warning))
             {
-                resolved.IsCustomAnchor = anchor != null;
                 resolved.AnchorKind = anchorKind;
                 resolved.AnchorSample = anchor != null ? anchor.Clone() : null;
                 if (anchor != null)
@@ -76,24 +69,14 @@ namespace KimodoBridge.Editor
                     resolved.InverseKimodoRootRotation = Quaternion.Inverse(ResolveKimodoPlanarRootRotation(anchor));
                 }
             }
-            else if (autoBeginAnchorSample != null)
-            {
-                resolved.IsCustomAnchor = true;
-                resolved.AnchorKind = KimodoConstraintNormalizationAnchorKind.AutoBegin;
-                resolved.AnchorSample = autoBeginAnchorSample.Clone();
-                resolved.KimodoRootPosition = new Vector3(
-                    autoBeginAnchorSample.kimodoRootPosition.x,
-                    0f,
-                    autoBeginAnchorSample.kimodoRootPosition.z);
-                resolved.InverseKimodoRootRotation = Quaternion.Inverse(ResolveKimodoPlanarRootRotation(autoBeginAnchorSample));
-            }
 
             return resolved;
         }
 
-        private static bool TryResolveCustomConstraintOriginAnchor(
+        private static bool TryResolveConstraintAnchor(
             List<KimodoMarkerSampleResult> samples,
             double anchorWindowSeconds,
+            KimodoMarkerSampleResult ignoredSample,
             out KimodoMarkerSampleResult anchor,
             out KimodoConstraintNormalizationAnchorKind anchorKind,
             out string warning)
@@ -111,6 +94,7 @@ namespace KimodoBridge.Editor
             {
                 KimodoMarkerSampleResult sample = samples[i];
                 if (sample != null &&
+                    !ReferenceEquals(sample, ignoredSample) &&
                     sample.sampleTime >= 0.0 &&
                     sample.sampleTime < anchorWindowSeconds &&
                     ResolveAnchorPriority(sample) != KimodoConstraintNormalizationAnchorKind.None &&
@@ -125,14 +109,14 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            var sameFrameFullBody = new List<KimodoMarkerSampleResult>();
-            var sameFrameRoot2D = new List<KimodoMarkerSampleResult>();
-            var sameFrameEnd = new List<KimodoMarkerSampleResult>();
+            int bestRank = 0;
+            int bestRankCount = 0;
 
             for (int i = 0; i < samples.Count; i++)
             {
                 KimodoMarkerSampleResult sample = samples[i];
                 if (sample == null ||
+                    ReferenceEquals(sample, ignoredSample) ||
                     sample.sampleTime < 0.0 ||
                     sample.sampleTime >= anchorWindowSeconds ||
                     !IsSameFirstFrameTime(sample.sampleTime, earliestTime))
@@ -140,67 +124,70 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                switch (ResolveAnchorPriority(sample))
+                KimodoConstraintNormalizationAnchorKind candidateKind = ResolveAnchorPriority(sample);
+                int candidateRank = ResolveAnchorRank(candidateKind);
+                if (candidateRank > bestRank)
                 {
-                    case KimodoConstraintNormalizationAnchorKind.FullBody:
-                        sameFrameFullBody.Add(sample);
-                        break;
-                    case KimodoConstraintNormalizationAnchorKind.Root2D:
-                        sameFrameRoot2D.Add(sample);
-                        break;
-                    case KimodoConstraintNormalizationAnchorKind.Foot:
-                    case KimodoConstraintNormalizationAnchorKind.EndEffector:
-                        sameFrameEnd.Add(sample);
-                        break;
+                    anchor = sample;
+                    anchorKind = candidateKind;
+                    bestRank = candidateRank;
+                    bestRankCount = 1;
+                }
+                else if (candidateRank == bestRank && candidateRank > 0)
+                {
+                    bestRankCount++;
                 }
             }
 
-            if (sameFrameFullBody.Count > 0)
+            if (anchor == null)
             {
-                anchor = sameFrameFullBody[0];
-                anchorKind = KimodoConstraintNormalizationAnchorKind.FullBody;
-                if (sameFrameFullBody.Count > 1)
-                {
-                    warning = "Multiple fullbody constraints were found on the first frame; using the first one as the normalization anchor.";
-                }
-
-                return true;
+                return false;
             }
 
-            if (sameFrameEnd.Count > 0)
+            if (bestRankCount > 1)
             {
-                anchor = sameFrameEnd[0];
-                anchorKind = ResolveAnchorPriority(anchor);
-                if (sameFrameEnd.Count > 1)
+                switch (bestRank)
                 {
-                    warning = "Multiple end constraints were found on the first frame; using the first one as the normalization anchor.";
+                    case 3:
+                        warning = "Multiple fullbody constraints were found on the first frame; using the first one as the normalization anchor.";
+                        break;
+                    case 2:
+                        warning = "Multiple end constraints were found on the first frame; using the first one as the normalization anchor.";
+                        break;
+                    case 1:
+                        warning = "Multiple root2d constraints were found on the first frame; using the first one as the normalization anchor.";
+                        break;
                 }
-
-                return true;
             }
 
-            if (sameFrameRoot2D.Count > 0)
+            return true;
+        }
+
+        private static int ResolveAnchorRank(KimodoConstraintNormalizationAnchorKind kind)
+        {
+            switch (kind)
             {
-                anchor = sameFrameRoot2D[0];
-                anchorKind = KimodoConstraintNormalizationAnchorKind.Root2D;
-                if (sameFrameRoot2D.Count > 1)
-                {
-                    warning = "Multiple root2d constraints were found on the first frame; using the first one as the normalization anchor.";
-                }
-
-                return true;
+                case KimodoConstraintNormalizationAnchorKind.FullBody:
+                    return 3;
+                case KimodoConstraintNormalizationAnchorKind.Foot:
+                case KimodoConstraintNormalizationAnchorKind.EndEffector:
+                    return 2;
+                case KimodoConstraintNormalizationAnchorKind.Root2D:
+                    return 1;
+                default:
+                    return 0;
             }
-
-            return false;
         }
 
         internal static bool HasNormalizationAnchor(
             List<KimodoMarkerSampleResult> samples,
-            double anchorWindowSeconds)
+            double anchorWindowSeconds,
+            KimodoMarkerSampleResult ignoredSample = null)
         {
-            return TryResolveCustomConstraintOriginAnchor(
+            return TryResolveConstraintAnchor(
                 samples,
                 anchorWindowSeconds,
+                ignoredSample,
                 out _,
                 out _,
                 out _);
@@ -227,7 +214,7 @@ namespace KimodoBridge.Editor
         {
             return new KimodoConstraintNormalizationInfo
             {
-                Applied = anchor != null && anchor.IsCustomAnchor,
+                Applied = anchor?.AnchorSample != null,
                 AnchorKind = anchor != null ? anchor.AnchorKind : KimodoConstraintNormalizationAnchorKind.None,
                 AnchorSample = anchor != null ? anchor.AnchorSample : null
             };
@@ -278,6 +265,14 @@ namespace KimodoBridge.Editor
                 : sample?.localAxisAngles != null && sample.localAxisAngles.Count > 0
                     ? Vector3.ProjectOnPlane(AxisAngleToQuaternion(sample.localAxisAngles[0]) * Vector3.forward, Vector3.up)
                     : Vector3.forward;
+            return forward.sqrMagnitude > 1e-8f
+                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
+                : Quaternion.identity;
+        }
+
+        internal static Quaternion ResolvePlanarRotation(Quaternion rotation)
+        {
+            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
             return forward.sqrMagnitude > 1e-8f
                 ? Quaternion.LookRotation(forward.normalized, Vector3.up)
                 : Quaternion.identity;

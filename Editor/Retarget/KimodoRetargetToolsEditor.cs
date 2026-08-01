@@ -162,24 +162,23 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            string cacheName = KimodoRetargetEditorCacheUtility.BuildNamedCacheName(
-                sourceClip,
-                KimodoRetargetEditorCacheUtility.BoneCacheType,
-                targetAvatar);
-            frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
-
-            if (forceRefresh && !KimodoEditorClipWritebackService.TryInvalidateNamedClipCache(cacheName, out error))
+            if (!TryPrepareEditorClipCache(
+                    sourceClip,
+                    KimodoRetargetEditorCacheUtility.BoneCacheType,
+                    targetAvatar,
+                    forceRefresh,
+                    out string cacheName,
+                    out boneCacheClip,
+                    out frameRate,
+                    out error))
             {
                 return false;
             }
-
-            if (KimodoRetargetEditorCacheUtility.TryLoadStrictNamedCache(cacheName, out boneCacheClip, out float cachedFrameRate, out error))
+            if (boneCacheClip != null)
             {
-                frameRate = cachedFrameRate;
                 return true;
             }
 
-            error = string.Empty;
             if (!KimodoEditorClipWritebackService.TryGetOrCreateNamedClipCache(cacheName, frameRate, out AnimationClip writableClip, out error))
             {
                 return false;
@@ -345,28 +344,21 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            string cacheName = KimodoRetargetEditorCacheUtility.BuildNamedCacheName(
-                sourceClip,
-                KimodoRetargetEditorCacheUtility.MuscleCacheType,
-                null);
-            if (forceRefresh && !KimodoEditorClipWritebackService.TryInvalidateNamedClipCache(cacheName, out error))
+            if (!TryPrepareEditorClipCache(
+                    sourceClip,
+                    KimodoRetargetEditorCacheUtility.MuscleCacheType,
+                    null,
+                    forceRefresh,
+                    out string cacheName,
+                    out muscleClip,
+                    out frameRate,
+                    out error))
             {
                 return false;
             }
-
-            if (KimodoRetargetEditorCacheUtility.TryLoadStrictNamedCache(cacheName, out AnimationClip cachedClip, out float cachedFrameRate, out string cacheError))
+            if (muscleClip != null)
             {
-                if (cachedClip != null && KimodoRetargetEditorCacheUtility.ClipHasContent(cachedClip))
-                {
-                    muscleClip = cachedClip;
-                    frameRate = cachedFrameRate;
-                    return true;
-                }
-            }
-            else if (!string.IsNullOrWhiteSpace(cacheError))
-            {
-                error = cacheError;
-                return false;
+                return true;
             }
 
             SkeletonCache sourceCache = null;
@@ -377,9 +369,8 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                float resolvedFrameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
                 float duration = Mathf.Max(0f, sourceClip.length);
-                int frameCount = KimodoRetargetSamplingUtility.ResolveFrameCount(duration, resolvedFrameRate);
+                int frameCount = KimodoRetargetSamplingUtility.ResolveFrameCount(duration, frameRate);
                 if (!KimodoRetargetSamplingUtility.TryCollectMuscleSamplesFromClip(
                         sourceClip,
                         sourceCache,
@@ -391,7 +382,7 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (!KimodoEditorClipWritebackService.TryGetOrCreateNamedClipCache(cacheName, resolvedFrameRate, out AnimationClip writableClip, out error))
+                if (!KimodoEditorClipWritebackService.TryGetOrCreateNamedClipCache(cacheName, frameRate, out AnimationClip writableClip, out error))
                 {
                     return false;
                 }
@@ -407,7 +398,6 @@ namespace KimodoBridge.Editor
                 Debug.Log($"[Kimodo][RetargetCache] Generated muscle cache animation: cache='{cacheName}', source='{sourceClip.name}'.");
 
                 muscleClip = writableClip;
-                frameRate = resolvedFrameRate;
                 return true;
             }
             finally
@@ -713,6 +703,39 @@ namespace KimodoBridge.Editor
             KimodoEditorClipUtility.CopyClipData(temp, clip, forceNoLoopKeepY: true);
             RestorePreservedAnimatorCurves(clip, preservedRootMotionCurves);
             UnityEngine.Object.DestroyImmediate(temp);
+            return true;
+        }
+
+        private static bool TryPrepareEditorClipCache(
+            AnimationClip sourceClip,
+            string cacheType,
+            Avatar targetAvatar,
+            bool forceRefresh,
+            out string cacheName,
+            out AnimationClip cachedClip,
+            out float frameRate,
+            out string error)
+        {
+            cacheName = string.Empty;
+            cachedClip = null;
+            frameRate = 0f;
+            error = string.Empty;
+            cacheName = KimodoRetargetEditorCacheUtility.BuildNamedCacheName(sourceClip, cacheType, targetAvatar);
+            frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+            if (forceRefresh && !KimodoEditorClipWritebackService.TryInvalidateNamedClipCache(cacheName, out error))
+            {
+                return false;
+            }
+
+            if (KimodoRetargetEditorCacheUtility.TryLoadStrictNamedCache(
+                    cacheName,
+                    out cachedClip,
+                    out float cachedFrameRate,
+                    out error))
+            {
+                frameRate = cachedFrameRate;
+            }
+
             return true;
         }
 

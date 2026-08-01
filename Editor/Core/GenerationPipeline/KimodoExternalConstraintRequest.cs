@@ -13,5 +13,15 @@ namespace KimodoBridge.Editor
         public KimodoConstraintNormalizationAnchorKind NormalizationAnchorKind;
         public KimodoMarkerSampleResult NormalizationAnchorSample;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
+
+        internal KimodoConstraintNormalizationInfo BuildNormalizationInfo()
+        {
+            return new KimodoConstraintNormalizationInfo
+            {
+                Applied = NormalizeConstraintOriginApplied,
+                AnchorKind = NormalizationAnchorKind,
+                AnchorSample = NormalizationAnchorSample?.Clone()
+            };
+        }
     }
 }
