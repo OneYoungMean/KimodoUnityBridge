@@ -914,12 +914,12 @@ namespace KimodoBridge.Editor.Tests
                     NormalizationAnchorSample = new KimodoMarkerSampleResult
                     {
                         constraintType = "fullbody",
-                        kimodoRootPosition = anchorPosition,
-                        unityRootPos = Vector3.zero,
-                        unityRootRot = Quaternion.identity,
+                        kimodoRootPosition = Vector3.zero,
+                        unityRootPos = anchorPosition,
+                        unityRootRot = anchorRotation,
                         localAxisAngles = new System.Collections.Generic.List<Vector3>
                         {
-                            KimodoRuntimeUtility.QuaternionToAxisAngleVector(anchorRotation)
+                            KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.identity)
                         }
                     },
                     NormalizationSourceHumanScale = 1f,
@@ -965,10 +965,12 @@ namespace KimodoBridge.Editor.Tests
                     NormalizationAnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
                     NormalizationAnchorSample = new KimodoMarkerSampleResult
                     {
-                        kimodoRootPosition = new Vector3(4f, 0f, 6f),
+                        kimodoRootPosition = Vector3.zero,
+                        unityRootPos = new Vector3(4f, 0f, 6f),
+                        unityRootRot = Quaternion.Euler(0f, 70f, 0f),
                         localAxisAngles = new System.Collections.Generic.List<Vector3>
                         {
-                            KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.Euler(0f, 70f, 0f))
+                            KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.identity)
                         }
                     },
                     InitialArdyHistorySource = new ArdyEditorHistorySource
@@ -1113,7 +1115,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void GeneratedWriteback_ScalesKimodoAnchorIntoUnityWorldSpace()
+        public void GeneratedWriteback_UsesSampledUnityAnchorWorldSpace()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
@@ -1152,9 +1154,9 @@ namespace KimodoBridge.Editor.Tests
                 apply.Invoke(null, new object[] { playable, request });
 
                 Vector3 expectedLocal = Quaternion.Inverse(track.rotation) *
-                    (new Vector3(8f, 0f, 12f) - new Vector3(10f, 0f, 20f));
+                    (new Vector3(100f, 0f, 200f) - new Vector3(10f, 0f, 20f));
                 Assert.That(Vector3.Distance(playable.position, expectedLocal), Is.LessThan(1e-5f));
-                Assert.That(Quaternion.Angle(playable.rotation, Quaternion.Euler(0f, 40f, 0f)), Is.LessThan(1e-4f));
+                Assert.That(Quaternion.Angle(playable.rotation, Quaternion.Euler(0f, 50f, 0f)), Is.LessThan(1e-4f));
             }
             finally
             {

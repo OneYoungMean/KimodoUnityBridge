@@ -359,9 +359,6 @@ namespace KimodoBridge.Editor
         {
             ResolveAnchorWorldRoot(
                 request.NormalizationAnchorSample,
-                request.NormalizationAnchorKind,
-                request.NormalizationSourceHumanScale,
-                request.NormalizationKimodoHumanScale,
                 out Vector3 anchorPosition,
                 out Quaternion anchorRotation);
 
@@ -554,26 +551,11 @@ namespace KimodoBridge.Editor
 
         private static void ResolveAnchorWorldRoot(
             KimodoMarkerSampleResult anchor,
-            KimodoConstraintNormalizationAnchorKind anchorKind,
-            float sourceHumanScale,
-            float kimodoHumanScale,
             out Vector3 position,
             out Quaternion rotation)
         {
-            if (anchorKind == KimodoConstraintNormalizationAnchorKind.AutoBegin)
-            {
-                position = anchor.unityRootPos;
-                rotation = anchor.unityRootRot;
-                return;
-            }
-
-            float scale = Mathf.Max(1e-6f, sourceHumanScale) / Mathf.Max(1e-6f, kimodoHumanScale);
-            position = anchor.kimodoRootPosition * scale;
-
-            Quaternion kimodoRootRotation = anchor.localAxisAngles != null && anchor.localAxisAngles.Count > 0
-                ? KimodoConstraintNormalizationUtility.AxisAngleToQuaternion(anchor.localAxisAngles[0])
-                : anchor.unityRootRot;
-            rotation = kimodoRootRotation;
+            position = anchor.unityRootPos;
+            rotation = anchor.unityRootRot;
         }
 
         private static Animator ResolveTimelineBindingAnimator(PlayableDirector director, TrackAsset track)
