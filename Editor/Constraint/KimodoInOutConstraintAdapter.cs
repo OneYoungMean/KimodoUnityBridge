@@ -117,16 +117,6 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            if (!KimodoInOutConstraintComposer.TryBuild(
-                    request,
-                    out _,
-                    out string buildWarning,
-                    out string buildError))
-            {
-                warning = buildError;
-                return false;
-            }
-
             if (!KimodoInOutConstraintTools.TrySampleBoundaryPair(
                     request,
                     out beginBoundaryPose,
@@ -138,7 +128,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            warning = FirstNonEmpty(buildWarning, sampleWarning);
+            warning = sampleWarning;
             return true;
         }
 
@@ -429,11 +419,6 @@ namespace KimodoBridge.Editor
                     enableBegin = enableIn && context.PreviousTimelineClip != null;
                     enableEnd = enableOut && context.NextTimelineClip != null;
                     break;
-            }
-
-            if (KimodoMotionModelProfiles.TryGetArdy(context.ModelName, out _))
-            {
-                enableBegin = false;
             }
 
             if (!enableBegin && !enableEnd && !hasManualSamples && !autoBeginAnchor)

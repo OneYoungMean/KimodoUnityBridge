@@ -172,6 +172,103 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void SameFrameFullBodyAnchor_UsesFirstSample()
+        {
+            var previousBoundary = new KimodoMarkerSampleResult
+            {
+                constraintType = "fullbody",
+                sampleTime = 0.0,
+                kimodoRootPosition = new Vector3(1f, 0f, 0f),
+                unityRootPos = new Vector3(1f, 0f, 0f),
+                unityRootRot = Quaternion.identity
+            };
+            var beginMarker = new KimodoMarkerSampleResult
+            {
+                constraintType = "fullbody",
+                sampleTime = 0.0,
+                kimodoRootPosition = new Vector3(5f, 0f, 0f),
+                unityRootPos = new Vector3(5f, 0f, 0f),
+                unityRootRot = Quaternion.identity
+            };
+
+            KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
+                new List<KimodoMarkerSampleResult> { beginMarker, previousBoundary },
+                autoBeginAnchorSample: null,
+                anchorWindowSeconds: 1.0,
+                out KimodoConstraintNormalizationInfo info,
+                out _);
+
+            Assert.That(info.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.FullBody));
+            Assert.That(info.AnchorSample.kimodoRootPosition, Is.EqualTo(beginMarker.kimodoRootPosition));
+        }
+
+        [Test]
+        public void SameFrameAnchorPriority_IsFullBodyThenEndThenRoot2D()
+        {
+            var root2d = new KimodoMarkerSampleResult
+            {
+                constraintType = "root2d",
+                sampleTime = 0.0,
+                kimodoRootPosition = new Vector3(1f, 0f, 0f)
+            };
+            var end = new KimodoMarkerSampleResult
+            {
+                constraintType = "right-hand",
+                sampleTime = 0.0,
+                kimodoRootPosition = new Vector3(2f, 0f, 0f)
+            };
+            var fullbody = new KimodoMarkerSampleResult
+            {
+                constraintType = "fullbody",
+                sampleTime = 0.0,
+                kimodoRootPosition = new Vector3(3f, 0f, 0f)
+            };
+
+            KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
+                new List<KimodoMarkerSampleResult> { root2d, end, fullbody },
+                autoBeginAnchorSample: null,
+                anchorWindowSeconds: 1.0,
+                out KimodoConstraintNormalizationInfo info,
+                out _);
+
+            Assert.That(info.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.FullBody));
+            Assert.That(info.AnchorSample.kimodoRootPosition, Is.EqualTo(fullbody.kimodoRootPosition));
+        }
+
+        [Test]
+        public void SameFrameEndAnchor_BeatsRoot2DAndUsesFirstEnd()
+        {
+            var root2d = new KimodoMarkerSampleResult
+            {
+                constraintType = "root2d",
+                sampleTime = 0.0,
+                kimodoRootPosition = new Vector3(1f, 0f, 0f)
+            };
+            var firstEnd = new KimodoMarkerSampleResult
+            {
+                constraintType = "right-hand",
+                sampleTime = 0.0,
+                kimodoRootPosition = new Vector3(2f, 0f, 0f)
+            };
+            var secondEnd = new KimodoMarkerSampleResult
+            {
+                constraintType = "left-hand",
+                sampleTime = 0.0,
+                kimodoRootPosition = new Vector3(3f, 0f, 0f)
+            };
+
+            KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
+                new List<KimodoMarkerSampleResult> { root2d, firstEnd, secondEnd },
+                autoBeginAnchorSample: null,
+                anchorWindowSeconds: 1.0,
+                out KimodoConstraintNormalizationInfo info,
+                out _);
+
+            Assert.That(info.AnchorKind, Is.EqualTo(KimodoConstraintNormalizationAnchorKind.EndEffector));
+            Assert.That(info.AnchorSample.kimodoRootPosition, Is.EqualTo(firstEnd.kimodoRootPosition));
+        }
+
+        [Test]
         public void ConstraintAtExactlyOneSecond_DoesNotBeatAutoBegin()
         {
             var sample = new KimodoMarkerSampleResult

@@ -127,8 +127,7 @@ namespace KimodoBridge.Editor
 
             var sameFrameFullBody = new List<KimodoMarkerSampleResult>();
             var sameFrameRoot2D = new List<KimodoMarkerSampleResult>();
-            var sameFrameFoot = new List<KimodoMarkerSampleResult>();
-            var sameFrameEndEffector = new List<KimodoMarkerSampleResult>();
+            var sameFrameEnd = new List<KimodoMarkerSampleResult>();
 
             for (int i = 0; i < samples.Count; i++)
             {
@@ -150,10 +149,8 @@ namespace KimodoBridge.Editor
                         sameFrameRoot2D.Add(sample);
                         break;
                     case KimodoConstraintNormalizationAnchorKind.Foot:
-                        sameFrameFoot.Add(sample);
-                        break;
                     case KimodoConstraintNormalizationAnchorKind.EndEffector:
-                        sameFrameEndEffector.Add(sample);
+                        sameFrameEnd.Add(sample);
                         break;
                 }
             }
@@ -170,30 +167,25 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            if (sameFrameRoot2D.Count > 0 || sameFrameFoot.Count > 0)
+            if (sameFrameEnd.Count > 0)
             {
-                var sameFramePlanar = new List<KimodoMarkerSampleResult>(sameFrameRoot2D.Count + sameFrameFoot.Count);
-                sameFramePlanar.AddRange(sameFrameRoot2D);
-                sameFramePlanar.AddRange(sameFrameFoot);
-                sameFramePlanar.Sort((left, right) => left.sampleTime.CompareTo(right.sampleTime));
-
-                anchor = sameFramePlanar[0];
+                anchor = sameFrameEnd[0];
                 anchorKind = ResolveAnchorPriority(anchor);
-                if (sameFramePlanar.Count > 1)
+                if (sameFrameEnd.Count > 1)
                 {
-                    warning = "Multiple root2d/foot constraints were found on the first frame; using the first one as the normalization anchor.";
+                    warning = "Multiple end constraints were found on the first frame; using the first one as the normalization anchor.";
                 }
 
                 return true;
             }
 
-            if (sameFrameEndEffector.Count > 0)
+            if (sameFrameRoot2D.Count > 0)
             {
-                anchor = sameFrameEndEffector[0];
-                anchorKind = KimodoConstraintNormalizationAnchorKind.EndEffector;
-                if (sameFrameEndEffector.Count > 1)
+                anchor = sameFrameRoot2D[0];
+                anchorKind = KimodoConstraintNormalizationAnchorKind.Root2D;
+                if (sameFrameRoot2D.Count > 1)
                 {
-                    warning = "Multiple hand constraints were found on the first frame; using the first one as the normalization anchor.";
+                    warning = "Multiple root2d constraints were found on the first frame; using the first one as the normalization anchor.";
                 }
 
                 return true;
@@ -254,7 +246,8 @@ namespace KimodoBridge.Editor
                 return KimodoConstraintNormalizationAnchorKind.Foot;
             }
 
-            if (string.Equals(sample.constraintType, "left-hand", StringComparison.OrdinalIgnoreCase) ||
+            if (string.Equals(sample.constraintType, "end-effector", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(sample.constraintType, "left-hand", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(sample.constraintType, "right-hand", StringComparison.OrdinalIgnoreCase))
             {
                 return KimodoConstraintNormalizationAnchorKind.EndEffector;

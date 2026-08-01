@@ -297,7 +297,10 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (!request.NormalizeConstraintOriginApplied || request.NormalizationAnchorSample == null)
+            bool hasHistoryAnchor = request.InitialArdyHistorySource?.HasTimelineWorldAnchor == true;
+            bool hasNormalizationAnchor = request.NormalizeConstraintOriginApplied &&
+                request.NormalizationAnchorSample != null;
+            if (!hasHistoryAnchor && !hasNormalizationAnchor)
             {
                 return;
             }
@@ -310,7 +313,50 @@ namespace KimodoBridge.Editor
                 out Vector3 trackPosition,
                 out Quaternion trackRotation);
 
-            Quaternion trackPlanarRotation = ResolvePlanarRotation(trackRotation);
+            Debug.Log(
+                $"[Kimodo][TimelineOffset] resolve clip='{playableClip.name}' " +
+                $"hasNormalizationAnchor={hasNormalizationAnchor} anchorKind={request.NormalizationAnchorKind} " +
+                $"hasArdyHistoryAnchor={hasHistoryAnchor} trackPosition={trackPosition:F6} " +
+                $"trackRotation={ResolvePlanarRotation(trackRotation).eulerAngles:F6}.");
+
+            string hipsOffsetError = string.Empty;
+            if (hasHistoryAnchor &&
+                TryApplyArdyHistoryHipsOffset(
+                    playableClip,
+                    request,
+                    trackPosition,
+                    trackRotation,
+                    out hipsOffsetError))
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(hipsOffsetError))
+            {
+                Debug.LogWarning($"[Kimodo][TimelineOffset] Hips-based ARDY offset failed, falling back to root anchor: {hipsOffsetError}");
+            }
+
+            if (hasNormalizationAnchor)
+            {
+                ApplyNormalizationAnchorOffset(
+                    playableClip,
+                    request,
+                    trackPosition,
+                    trackRotation,
+                    hasHistoryAnchor);
+                return;
+            }
+
+            ApplyHistoryRootAnchorOffset(playableClip, request, trackPosition, trackRotation);
+        }
+
+        private static void ApplyNormalizationAnchorOffset(
+            KimodoPlayableClip playableClip,
+            KimodoEditorGenerateRequest request,
+            Vector3 trackPosition,
+            Quaternion trackRotation,
+            bool hasHistoryAnchor)
+        {
             ResolveAnchorWorldRoot(
                 request.NormalizationAnchorSample,
                 request.NormalizationAnchorKind,
@@ -318,18 +364,192 @@ namespace KimodoBridge.Editor
                 request.NormalizationKimodoHumanScale,
                 out Vector3 anchorPosition,
                 out Quaternion anchorRotation);
-            Quaternion anchorPlanarRotation = ResolvePlanarRotation(anchorRotation);
-            Vector3 localPosition = Quaternion.Inverse(trackPlanarRotation) *
-                (new Vector3(anchorPosition.x, 0f, anchorPosition.z) -
-                 new Vector3(trackPosition.x, 0f, trackPosition.z));
+
+            ApplyPlanarAnchorOffset(
+                playableClip,
+                trackPosition,
+                trackRotation,
+                anchorPosition,
+                anchorRotation,
+                request.NormalizationAnchorKind.ToString());
+            if (hasHistoryAnchor)
+            {
+                Debug.Log(
+                    $"[Kimodo][TimelineOffset] ARDY history anchor present but normalization anchor wins: " +
+                    $"historyHips={request.InitialArdyHistorySource.TimelineWorldAnchorPosition:F6}, " +
+                    $"normalizationAnchorRoot={anchorPosition:F6}.");
+            }
+        }
+
+        private static void ApplyHistoryRootAnchorOffset(
+            KimodoPlayableClip playableClip,
+            KimodoEditorGenerateRequest request,
+            Vector3 trackPosition,
+            Quaternion trackRotation)
+        {
+            Vector3 anchorPosition;
+            Quaternion anchorRotation;
+            anchorPosition = request.InitialArdyHistorySource.TimelineWorldAnchorPosition;
+            anchorRotation = request.InitialArdyHistorySource.TimelineWorldAnchorRotation;
+            ApplyPlanarAnchorOffset(
+                playableClip,
+                trackPosition,
+                trackRotation,
+                anchorPosition,
+                anchorRotation,
+                "ArdyHistoryEnd");
+        }
+
+        private static void ApplyPlanarAnchorOffset(
+            KimodoPlayableClip playableClip,
+            Vector3 trackPosition,
+            Quaternion trackRotation,
+            Vector3 anchorPosition,
+            Quaternion anchorRotation,
+            string anchorLabel)
+        {
+            Quaternion baseRotation = ResolvePlanarRotation(trackRotation);
+            Quaternion targetRotation = ResolvePlanarRotation(anchorRotation);
+            Vector3 delta = new Vector3(anchorPosition.x, 0f, anchorPosition.z) -
+                new Vector3(trackPosition.x, 0f, trackPosition.z);
+            Vector3 localPosition = Quaternion.Inverse(baseRotation) * delta;
 
             playableClip.position = new Vector3(localPosition.x, playableClip.position.y, localPosition.z);
-            playableClip.rotation = Quaternion.Inverse(trackPlanarRotation) * anchorPlanarRotation;
+            playableClip.rotation = (Quaternion.Inverse(baseRotation) * targetRotation).normalized;
             playableClip.removeStartOffset = false;
             EditorUtility.SetDirty(playableClip);
             Debug.Log(
-                $"[Kimodo][TimelineOffset] applied {request.NormalizationAnchorKind} anchor to '{playableClip.name}': " +
-                $"worldAnchor={anchorPosition:F6}, position={playableClip.position}, rotation={playableClip.rotation.eulerAngles}.");
+                $"[Kimodo][TimelineOffset] applied {anchorLabel} anchor to '{playableClip.name}': " +
+                $"worldAnchor={anchorPosition:F6}, trackPosition={trackPosition:F6}, " +
+                $"localPosition={localPosition:F6}, position={playableClip.position}, " +
+                $"rotation={playableClip.rotation.eulerAngles}.");
+        }
+
+        private static bool TryApplyArdyHistoryHipsOffset(
+            KimodoPlayableClip playableClip,
+            KimodoEditorGenerateRequest request,
+            Vector3 trackPosition,
+            Quaternion trackRotation,
+            out string error)
+        {
+            error = string.Empty;
+            AnimationClip generatedClip = playableClip != null && playableClip.clip != null
+                ? playableClip.clip
+                : request?.TargetClip;
+            Avatar samplingAvatar = ResolveGeneratedClipSamplingAvatar(request);
+            if (generatedClip == null)
+            {
+                error = "generated clip is null";
+                return false;
+            }
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(samplingAvatar))
+            {
+                error = "generated clip sampling avatar is null/invalid/non-humanoid";
+                return false;
+            }
+
+            if (!TrySampleGeneratedClipHipsPose(
+                    generatedClip,
+                    samplingAvatar,
+                    out Vector3 generatedHipsPosition,
+                    out Quaternion generatedHipsRotation,
+                    out error))
+            {
+                return false;
+            }
+
+            Vector3 sourceHipsPosition = request.InitialArdyHistorySource.TimelineWorldAnchorPosition;
+            Quaternion sourceHipsRotation = request.InitialArdyHistorySource.TimelineWorldAnchorRotation;
+            Quaternion trackYaw = ResolvePlanarRotation(trackRotation);
+            Quaternion sourceHipsYaw = ResolvePlanarRotation(sourceHipsRotation);
+            Quaternion generatedHipsYaw = ResolvePlanarRotation(generatedHipsRotation);
+            Quaternion clipYaw = (Quaternion.Inverse(trackYaw) * sourceHipsYaw * Quaternion.Inverse(generatedHipsYaw)).normalized;
+            Vector3 sourceHipsTrackLocal = Quaternion.Inverse(trackYaw) *
+                (new Vector3(sourceHipsPosition.x, 0f, sourceHipsPosition.z) -
+                 new Vector3(trackPosition.x, 0f, trackPosition.z));
+            Vector3 generatedHipsPlanar = new Vector3(generatedHipsPosition.x, 0f, generatedHipsPosition.z);
+            Vector3 clipPosition = sourceHipsTrackLocal - (clipYaw * generatedHipsPlanar);
+
+            playableClip.position = new Vector3(clipPosition.x, playableClip.position.y, clipPosition.z);
+            playableClip.rotation = clipYaw;
+            playableClip.removeStartOffset = false;
+            EditorUtility.SetDirty(playableClip);
+            Debug.Log(
+                $"[Kimodo][TimelineOffset] applied ArdyHistoryEnd planar Hips anchor to '{playableClip.name}': " +
+                $"sourceHips={sourceHipsPosition:F6}, generatedHips={generatedHipsPosition:F6}, " +
+                $"sourceHipsTrackLocal={sourceHipsTrackLocal:F6}, generatedHipsPlanar={generatedHipsPlanar:F6}, " +
+                $"computedPosition={clipPosition:F6}, position={playableClip.position}, " +
+                $"rotation={playableClip.rotation.eulerAngles}.");
+            return true;
+        }
+
+        private static Avatar ResolveGeneratedClipSamplingAvatar(KimodoEditorGenerateRequest request)
+        {
+            KimodoEditorGenerateOutputPlan plan = request?.OutputPlan;
+            if (plan != null && plan.SkipRetarget && KimodoRetargetCoreUtility.IsValidHumanoid(plan.OriginRetargetAvatar))
+            {
+                return plan.OriginRetargetAvatar;
+            }
+            if (plan != null && KimodoRetargetCoreUtility.IsValidHumanoid(plan.TargetRetargetAvatar))
+            {
+                return plan.TargetRetargetAvatar;
+            }
+            if (plan != null && KimodoRetargetCoreUtility.IsValidHumanoid(plan.OriginRetargetAvatar))
+            {
+                return plan.OriginRetargetAvatar;
+            }
+
+            return null;
+        }
+
+        private static bool TrySampleGeneratedClipHipsPose(
+            AnimationClip generatedClip,
+            Avatar samplingAvatar,
+            out Vector3 position,
+            out Quaternion rotation,
+            out string error)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            SkeletonCache cache = null;
+            try
+            {
+                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                        samplingAvatar,
+                        "KimodoArdyGeneratedHipsOffsetSampler",
+                        out cache,
+                        out error))
+                {
+                    return false;
+                }
+
+                if (!KimodoRetargetSamplingUtility.SampleBoneClipToBoneSample(
+                        generatedClip,
+                        cache,
+                        0f,
+                        out BoneSample sample,
+                        out error) ||
+                    !KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(sample, cache, out error))
+                {
+                    return false;
+                }
+
+                if (cache.humanBoneTransforms == null ||
+                    !cache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out Transform hips) ||
+                    hips == null)
+                {
+                    error = "generated clip sampling avatar has no Hips transform";
+                    return false;
+                }
+
+                position = hips.position;
+                rotation = hips.rotation.normalized;
+                return true;
+            }
+            finally
+            {
+                cache?.Dispose();
+            }
         }
 
         private static void ResolveAnchorWorldRoot(

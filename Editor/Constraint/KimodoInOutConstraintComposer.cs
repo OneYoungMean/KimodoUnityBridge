@@ -25,7 +25,6 @@ namespace KimodoBridge.Editor
             }
 
             var built = new KimodoInOutConstraintResult();
-            AppendManualSamples(request.ManualSamples, built.CombinedSamples);
 
             if (!KimodoInOutConstraintTools.TrySampleBoundaryPair(
                     request,
@@ -37,14 +36,17 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (beginSample != null && !ContainsSampleTime(request.ManualSamples, beginSample.sampleTime))
+            if (beginSample != null)
             {
+                // Clip constraints are only a sampling source. Downstream they are ordinary fullbody samples.
+                // Add begin before begin-time markers so beginTime - 1 frame wins same-frame normalization ties.
                 built.CombinedSamples.Add(beginSample);
             }
 
+            AppendManualSamples(request.ManualSamples, built.CombinedSamples);
+
             if (endSample != null &&
-                KimodoInOutConstraintAdapter.ClampFrameCount(request.GenerationFrames) > 1 &&
-                !ContainsSampleTime(request.ManualSamples, endSample.sampleTime))
+                KimodoInOutConstraintAdapter.ClampFrameCount(request.GenerationFrames) > 1)
             {
                 built.CombinedSamples.Add(endSample);
             }
@@ -52,9 +54,10 @@ namespace KimodoBridge.Editor
             double normalizationAnchorWindowSeconds = request.AutoBeginAnchor
                 ? AutoBeginAnchorWindowSeconds
                 : double.PositiveInfinity;
+            List<KimodoMarkerSampleResult> normalizationSamples = built.CombinedSamples;
             if (request.AutoBeginAnchor &&
                 !KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
-                    built.CombinedSamples,
+                    normalizationSamples,
                     normalizationAnchorWindowSeconds) &&
                 !TryBuildAutoBeginAnchorSample(request, out built.AutoBeginAnchorSample, out error))
             {
@@ -64,7 +67,7 @@ namespace KimodoBridge.Editor
             if (!request.DeferNormalization)
             {
                 KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
-                    built.CombinedSamples,
+                    normalizationSamples,
                     built.AutoBeginAnchorSample,
                     normalizationAnchorWindowSeconds,
                     out KimodoConstraintNormalizationInfo normalizationInfo,
@@ -81,7 +84,7 @@ namespace KimodoBridge.Editor
             if (built.NormalizationInfo != null && built.NormalizationInfo.Applied && built.NormalizationInfo.AnchorSample != null)
             {
                 KimodoMarkerSampleResult rawAnchor = built.NormalizationInfo.AnchorSample;
-                KimodoMarkerSampleResult normalizedAnchor = FindNormalizedAnchorSample(built.CombinedSamples, rawAnchor);
+                KimodoMarkerSampleResult normalizedAnchor = FindNormalizedAnchorSample(normalizationSamples, rawAnchor);
                 Quaternion kimodoAnchorRotation = KimodoConstraintNormalizationUtility.ResolveKimodoPlanarRootRotation(rawAnchor);
                 Vector3 kimodoAnchorPosition = new Vector3(rawAnchor.kimodoRootPosition.x, 0f, rawAnchor.kimodoRootPosition.z);
                 Vector3 rebuiltRoot = normalizedAnchor != null
@@ -134,26 +137,6 @@ namespace KimodoBridge.Editor
                     destination.Add(sample.Clone());
                 }
             }
-        }
-
-        private static bool ContainsSampleTime(List<KimodoMarkerSampleResult> samples, double sampleTime)
-        {
-            if (samples == null || samples.Count == 0)
-            {
-                return false;
-            }
-
-            long target = ToTimeKey(sampleTime);
-            for (int i = 0; i < samples.Count; i++)
-            {
-                KimodoMarkerSampleResult sample = samples[i];
-                if (sample != null && ToTimeKey(sample.sampleTime) == target)
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         private static long ToTimeKey(double sampleTime)

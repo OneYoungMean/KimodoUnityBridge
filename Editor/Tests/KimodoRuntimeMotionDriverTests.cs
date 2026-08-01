@@ -371,6 +371,55 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void ArdyInConstraint_IsSampledAsOrdinaryFullBodyConstraint()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip previous = CreateArdyTimelineClip(track, 0.0, 2.0, 10);
+                TimelineClip current = CreateArdyTimelineClip(track, 2.0, 2.0, 10);
+                var context = new KimodoTimelineInOutConstraintContext
+                {
+                    SourceClip = current,
+                    PreviousTimelineClip = previous,
+                    ModelName = KimodoMotionModelProfiles.ArdyCoreModelName
+                };
+
+                KimodoInOutConstraintRequest exportRequest = KimodoInOutConstraintAdapter.BuildTimelineRequest(
+                    context,
+                    KimodoInOutConstraintMode.Outside,
+                    autoBeginAnchor: false,
+                    deferNormalization: true,
+                    enableIn: true,
+                    enableOut: false,
+                    generationFrames: 40,
+                    manualSamples: null);
+
+                Assert.That(exportRequest, Is.Not.Null);
+                Assert.That(exportRequest.EnableBegin, Is.True);
+                Assert.That(exportRequest.EnableEnd, Is.False);
+
+                KimodoInOutConstraintRequest insideRequest = KimodoInOutConstraintAdapter.BuildTimelineRequest(
+                    context,
+                    KimodoInOutConstraintMode.Inside,
+                    autoBeginAnchor: false,
+                    deferNormalization: true,
+                    enableIn: true,
+                    enableOut: false,
+                    generationFrames: 40,
+                    manualSamples: null);
+                Assert.That(insideRequest, Is.Not.Null);
+                Assert.That(insideRequest.EnableBegin, Is.True);
+                Assert.That(insideRequest.EnableEnd, Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void ArdyRingBuffer_ReplacesAcrossWrapWithoutTouchingProtectedFrames()
         {
             KimodoRawMotionData first = CreateMotion(6, 2, 20f, absoluteStartFrame: 0);

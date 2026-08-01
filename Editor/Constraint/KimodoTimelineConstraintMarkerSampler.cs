@@ -805,6 +805,12 @@ namespace KimodoBridge.Editor
 
     internal sealed class KimodoTimelinePoseSampler : IDisposable
     {
+        private struct SourceHipsPose
+        {
+            public Vector3 Position;
+            public Quaternion Rotation;
+        }
+
         private readonly KimodoTimelineInOutConstraintContext context;
         private readonly SkeletonCache sourceSamplingCache;
         private readonly Transform[] sourceBoneTransforms;
@@ -812,6 +818,7 @@ namespace KimodoBridge.Editor
         private readonly double originalTime;
         private readonly DirectorWrapMode originalWrapMode;
         private readonly Dictionary<int, MuscleSample> sampledMusclePoses = new Dictionary<int, MuscleSample>();
+        private readonly Dictionary<int, SourceHipsPose> sampledSourceHipsPoses = new Dictionary<int, SourceHipsPose>();
         private bool disposed;
 
         private KimodoTimelinePoseSampler(
@@ -1015,9 +1022,20 @@ namespace KimodoBridge.Editor
                 var poseSamples = new BoneSample[clipSampleCount];
                 for (int i = 0; i < clipSampleCount; i++)
                 {
-                    double timelineTime = missingTimes[Mathf.Min(i, missingTimes.Count - 1)];
+                    int missingIndex = Mathf.Min(i, missingTimes.Count - 1);
+                    int sampleFrame = missingFrames[missingIndex];
+                    double timelineTime = missingTimes[missingIndex];
                     context.Director.time = Math.Max(0.0, timelineTime);
                     context.Director.Evaluate();
+                    if (!TryCaptureSourceHipsPose(out Vector3 hipsPosition, out Quaternion hipsRotation, out error))
+                    {
+                        return false;
+                    }
+                    sampledSourceHipsPoses[sampleFrame] = new SourceHipsPose
+                    {
+                        Position = hipsPosition,
+                        Rotation = hipsRotation
+                    };
                     if (!TryCaptureSourceBoneSample(
                             context.Animator.transform,
                             sourceSamplingCache,
@@ -1085,6 +1103,34 @@ namespace KimodoBridge.Editor
                 error = ex.Message;
                 return false;
             }
+        }
+
+        internal bool TryGetSourceHipsPose(
+            double timelineTime,
+            out Vector3 position,
+            out Quaternion rotation,
+            out string error)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            error = string.Empty;
+            if (double.IsNaN(timelineTime) || double.IsInfinity(timelineTime))
+            {
+                error = "Timeline sample time is invalid.";
+                return false;
+            }
+
+            float frameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
+            int sampleFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(timelineTime, frameRate);
+            if (!sampledSourceHipsPoses.TryGetValue(sampleFrame, out SourceHipsPose pose))
+            {
+                error = $"Timeline source Hips pose for frame {sampleFrame} was not captured.";
+                return false;
+            }
+
+            position = pose.Position;
+            rotation = pose.Rotation;
+            return true;
         }
 
         private void NormalizeSampleRoot(
@@ -1233,6 +1279,29 @@ namespace KimodoBridge.Editor
             }
 
             return null;
+        }
+
+        private bool TryCaptureSourceHipsPose(
+            out Vector3 position,
+            out Quaternion rotation,
+            out string error)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            Transform sourceHips = ResolveSourceHumanBone(
+                context.Animator,
+                context.SourceAvatar,
+                HumanBodyBones.Hips);
+            if (sourceHips == null)
+            {
+                error = "Timeline source Animator has no Hips bone.";
+                return false;
+            }
+
+            position = sourceHips.position;
+            rotation = sourceHips.rotation.normalized;
+            error = string.Empty;
+            return true;
         }
 
         public void Dispose()
