@@ -699,8 +699,6 @@ namespace KimodoBridge.Editor.Tests
                     KimodoPlayableClip.DefaultBridgeModelName,
                     source.skeletonRoot,
                     "left-hand");
-                sample.hasEndEffectorTargetPosition = true;
-                sample.endEffectorTargetPositionRootLocal = Vector3.one * 10f;
                 var items = new[]
                 {
                     new PoseCacheRenderItem
