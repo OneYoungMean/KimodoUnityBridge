@@ -664,6 +664,7 @@ namespace KimodoBridge.Editor
                     SampleData = sample,
                     ConstraintType = marker.ConstraintType,
                     HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
+                    UseStoredEndEffectorTarget = marker.useOverride,
                     Visible = true
                 });
             }

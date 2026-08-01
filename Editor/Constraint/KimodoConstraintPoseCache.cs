@@ -44,6 +44,7 @@ namespace KimodoBridge.Editor
         public KimodoMarkerSampleResult SampleData;
         public string ConstraintType;
         public List<string> HighlightJoints;
+        public bool UseStoredEndEffectorTarget;
         public bool Visible = true;
     }
 
@@ -152,7 +153,11 @@ namespace KimodoBridge.Editor
                     var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
                     ApplyConstraintColoring(entry, highlightedJoints);
-                    UpdateEndEffectorMarker(entry, item.ConstraintType, item.SampleData);
+                    UpdateEndEffectorMarker(
+                        entry,
+                        item.ConstraintType,
+                        item.SampleData,
+                        item.UseStoredEndEffectorTarget);
                     entry.RenderSignature = renderSignature;
                     entry.HasRenderSignature = true;
                     changed = true;
@@ -304,7 +309,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            UpdateEndEffectorMarker(entry, constraintType, sample);
+            UpdateEndEffectorMarker(entry, constraintType, sample, useStoredTarget: true);
             SceneView.RepaintAll();
             return true;
         }
@@ -1003,6 +1008,7 @@ namespace KimodoBridge.Editor
                 int hash = 17;
                 AddHash(ref hash, modelName);
                 AddHash(ref hash, item?.ConstraintType);
+                AddHash(ref hash, item != null && item.UseStoredEndEffectorTarget ? 1 : 0);
                 AddHash(ref hash, item != null && item.Visible ? 1 : 0);
                 KimodoMarkerSampleResult sample = item?.SampleData;
                 if (sample != null)
@@ -1205,7 +1211,8 @@ namespace KimodoBridge.Editor
         private static void UpdateEndEffectorMarker(
             PoseCacheEntry entry,
             string constraintType,
-            KimodoMarkerSampleResult sample)
+            KimodoMarkerSampleResult sample,
+            bool useStoredTarget)
         {
             HumanBodyBones bone = ResolveEndEffectorBone(constraintType);
             Transform target = bone != HumanBodyBones.LastBone && entry?.TargetCache?.animator != null
@@ -1243,7 +1250,8 @@ namespace KimodoBridge.Editor
             }
 
             Transform marker = entry.EndEffectorMarker.transform;
-            if (TryResolveEndEffectorTargetWorldPosition(sample, out Vector3 targetPosition))
+            if (useStoredTarget &&
+                TryResolveEndEffectorTargetWorldPosition(sample, out Vector3 targetPosition))
             {
                 marker.SetParent(entry.Root, true);
                 marker.position = targetPosition;

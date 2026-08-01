@@ -699,6 +699,8 @@ namespace KimodoBridge.Editor.Tests
                     KimodoPlayableClip.DefaultBridgeModelName,
                     source.skeletonRoot,
                     "left-hand");
+                sample.hasEndEffectorTargetPosition = true;
+                sample.endEffectorTargetPositionRootLocal = Vector3.one * 10f;
                 var items = new[]
                 {
                     new PoseCacheRenderItem
@@ -719,6 +721,8 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(target.transform.lossyScale.y, Is.EqualTo(0.1f).Within(1e-4f));
                 Assert.That(target.transform.lossyScale.z, Is.EqualTo(0.1f).Within(1e-4f));
                 Assert.That((target.hideFlags & HideFlags.NotEditable) != 0, Is.True);
+                Assert.That(target.transform.parent, Is.Not.Null);
+                Assert.That(target.transform.localPosition, Is.EqualTo(Vector3.zero));
 
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
                 Assert.That((target.hideFlags & HideFlags.NotEditable) == 0, Is.True);
