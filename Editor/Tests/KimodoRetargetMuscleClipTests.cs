@@ -81,6 +81,71 @@ namespace KimodoBridge.Editor.Tests
                 UnityEngine.Object.DestroyImmediate(clip);
             }
         }
+
+        [Test]
+        public void WriteMuscleClip_AlignsRootQuaternionHemisphere()
+        {
+            var clip = new AnimationClip { frameRate = 30f };
+            try
+            {
+                var samples = new List<MuscleSample>
+                {
+                    CreateRootRotationSample(new Quaternion(-0.7f, 0f, 0f, -0.7f)),
+                    CreateRootRotationSample(new Quaternion(0.7f, 0f, 0f, 0.7f))
+                };
+
+                Assert.That(
+                    KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(samples, clip, out string error),
+                    Is.True,
+                    error);
+
+                Quaternion first = ReadRootQuaternion(clip, 0);
+                Quaternion second = ReadRootQuaternion(clip, 1);
+                Assert.That(Quaternion.Dot(first, second), Is.GreaterThan(0f));
+                Assert.That(second.x, Is.LessThan(0f));
+                Assert.That(second.w, Is.LessThan(0f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+            }
+        }
+
+        private static MuscleSample CreateRootRotationSample(Quaternion rootRotation)
+        {
+            return new MuscleSample
+            {
+                pose = new HumanPose
+                {
+                    bodyPosition = Vector3.zero,
+                    bodyRotation = rootRotation,
+                    muscles = new float[HumanTrait.MuscleCount]
+                },
+                leftFootRotation = Quaternion.identity,
+                rightFootRotation = Quaternion.identity,
+                leftHandRotation = Quaternion.identity,
+                rightHandRotation = Quaternion.identity
+            };
+        }
+
+        private static Quaternion ReadRootQuaternion(AnimationClip clip, int keyIndex)
+        {
+            return new Quaternion(
+                ReadRootKey(clip, "RootQ.x", keyIndex),
+                ReadRootKey(clip, "RootQ.y", keyIndex),
+                ReadRootKey(clip, "RootQ.z", keyIndex),
+                ReadRootKey(clip, "RootQ.w", keyIndex));
+        }
+
+        private static float ReadRootKey(AnimationClip clip, string propertyName, int keyIndex)
+        {
+            AnimationCurve curve = AnimationUtility.GetEditorCurve(
+                clip,
+                EditorCurveBinding.FloatCurve(string.Empty, typeof(Animator), propertyName));
+            Assert.That(curve, Is.Not.Null, propertyName);
+            Assert.That(curve.length, Is.GreaterThan(keyIndex), propertyName);
+            return curve.keys[keyIndex].value;
+        }
     }
 }
 #endif

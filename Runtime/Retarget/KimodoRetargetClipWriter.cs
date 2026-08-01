@@ -71,6 +71,8 @@ namespace KimodoBridge
             }
 
             float frameRate = clip.frameRate > 0f ? clip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+            bool hasPreviousRootRotation = false;
+            Quaternion previousRootRotation = Quaternion.identity;
             for (int frame = 0; frame < samples.Count; frame++)
             {
                 MuscleSample sample = samples[frame];
@@ -82,14 +84,18 @@ namespace KimodoBridge
                 float time = frame / frameRate;
                 HumanPose pose = sample.pose;
                 EnsureHumanPoseMuscles(ref pose);
+                Quaternion rootRotation = ResolveContinuousRootRotation(
+                    pose.bodyRotation,
+                    ref previousRootRotation,
+                    ref hasPreviousRootRotation);
 
                 rootTx.AddKey(time, pose.bodyPosition.x);
                 rootTy.AddKey(time, pose.bodyPosition.y);
                 rootTz.AddKey(time, pose.bodyPosition.z);
-                rootQx.AddKey(time, pose.bodyRotation.x);
-                rootQy.AddKey(time, pose.bodyRotation.y);
-                rootQz.AddKey(time, pose.bodyRotation.z);
-                rootQw.AddKey(time, pose.bodyRotation.w);
+                rootQx.AddKey(time, rootRotation.x);
+                rootQy.AddKey(time, rootRotation.y);
+                rootQz.AddKey(time, rootRotation.z);
+                rootQw.AddKey(time, rootRotation.w);
                 leftFootTx.AddKey(time, sample.leftFootPosition.x);
                 leftFootTy.AddKey(time, sample.leftFootPosition.y);
                 leftFootTz.AddKey(time, sample.leftFootPosition.z);
@@ -251,6 +257,22 @@ namespace KimodoBridge
         internal static void SetFloatCurve(AnimationClip clip, string propertyName, AnimationCurve curve)
         {
             clip.SetCurve(string.Empty, typeof(Animator), propertyName, curve);
+        }
+
+        private static Quaternion ResolveContinuousRootRotation(
+            Quaternion rotation,
+            ref Quaternion previousRotation,
+            ref bool hasPreviousRotation)
+        {
+            Quaternion result = rotation;
+            if (hasPreviousRotation && Quaternion.Dot(previousRotation, result) < 0f)
+            {
+                result = new Quaternion(-result.x, -result.y, -result.z, -result.w);
+            }
+
+            previousRotation = result;
+            hasPreviousRotation = true;
+            return result;
         }
 
         internal static string GetAnimatorMusclePropertyName(string muscleName)
