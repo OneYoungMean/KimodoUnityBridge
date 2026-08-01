@@ -326,6 +326,9 @@ namespace KimodoBridge.Editor
             public Vector3 EndEffectorTargetPositionRootLocal;
             public Vector3 UnityRootPos;
             public Quaternion UnityRootRot;
+            public bool HasUnityHipsPose;
+            public Vector3 UnityHipsPos;
+            public Quaternion UnityHipsRot;
             public string[] JointNames;
         }
 
@@ -345,6 +348,9 @@ namespace KimodoBridge.Editor
             public Vector3 EndEffectorTargetPositionRootLocal;
             public Vector3 UnityRootPos;
             public Quaternion UnityRootRot;
+            public bool HasUnityHipsPose;
+            public Vector3 UnityHipsPos;
+            public Quaternion UnityHipsRot;
             public string[] JointNames;
             public Vector3[] LocalAxisAngles;
             public int[] SampledJointIndices;
@@ -595,6 +601,9 @@ namespace KimodoBridge.Editor
                 EndEffectorTargetPositionRootLocal = source != null ? source.endEffectorTargetPositionRootLocal : default,
                 UnityRootPos = source != null ? source.unityRootPos : default,
                 UnityRootRot = source != null ? source.unityRootRot : default,
+                HasUnityHipsPose = source != null && source.hasUnityHipsPose,
+                UnityHipsPos = source != null ? source.unityHipsPos : default,
+                UnityHipsRot = source != null ? source.unityHipsRot : default,
                 JointNames = CopyStringArray(source != null ? source.jointNames : null)
             };
         }
@@ -627,6 +636,9 @@ namespace KimodoBridge.Editor
                 Vector3Approximately(snapshot.EndEffectorTargetPositionRootLocal, sample != null ? sample.endEffectorTargetPositionRootLocal : default) &&
                 Vector3Approximately(snapshot.UnityRootPos, sample != null ? sample.unityRootPos : default) &&
                 QuaternionApproximately(snapshot.UnityRootRot, sample != null ? sample.unityRootRot : default) &&
+                snapshot.HasUnityHipsPose == (sample != null && sample.hasUnityHipsPose) &&
+                Vector3Approximately(snapshot.UnityHipsPos, sample != null ? sample.unityHipsPos : default) &&
+                QuaternionApproximately(snapshot.UnityHipsRot, sample != null ? sample.unityHipsRot : default) &&
                 StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null);
         }
 
@@ -1434,6 +1446,9 @@ namespace KimodoBridge.Editor
                 EndEffectorTargetPositionRootLocal = source != null ? source.endEffectorTargetPositionRootLocal : default,
                 UnityRootPos = source != null ? source.unityRootPos : default,
                 UnityRootRot = source != null ? source.unityRootRot : default,
+                HasUnityHipsPose = source != null && source.hasUnityHipsPose,
+                UnityHipsPos = source != null ? source.unityHipsPos : default,
+                UnityHipsRot = source != null ? source.unityHipsRot : default,
                 JointNames = CopyStringArray(source != null ? source.jointNames : null),
                 LocalAxisAngles = CopyVector3Array(source != null ? source.localAxisAngles : null),
                 SampledJointIndices = CopyIntArray(source != null ? source.sampledJointIndices : null)
@@ -1460,6 +1475,9 @@ namespace KimodoBridge.Editor
                 Vector3Approximately(snapshot.EndEffectorTargetPositionRootLocal, sample != null ? sample.endEffectorTargetPositionRootLocal : default) &&
                 Vector3Approximately(snapshot.UnityRootPos, sample != null ? sample.unityRootPos : default) &&
                 QuaternionApproximately(snapshot.UnityRootRot, sample != null ? sample.unityRootRot : default) &&
+                snapshot.HasUnityHipsPose == (sample != null && sample.hasUnityHipsPose) &&
+                Vector3Approximately(snapshot.UnityHipsPos, sample != null ? sample.unityHipsPos : default) &&
+                QuaternionApproximately(snapshot.UnityHipsRot, sample != null ? sample.unityHipsRot : default) &&
                 StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null) &&
                 Vector3ArrayEquals(snapshot.LocalAxisAngles, sample != null ? sample.localAxisAngles : null) &&
                 IntArrayEquals(snapshot.SampledJointIndices, sample != null ? sample.sampledJointIndices : null);
@@ -1479,6 +1497,9 @@ namespace KimodoBridge.Editor
                 sample.hasRootHeading ? "1" : "0",
                 FormatVector3(sample.kimodoRootPosition),
                 FormatVector2(sample.rootHeading),
+                sample.hasUnityHipsPose ? "1" : "0",
+                FormatVector3(sample.unityHipsPos),
+                FormatQuaternion(sample.unityHipsRot),
                 sample.hasEndEffectorTargetPosition ? "1" : "0",
                 FormatVector3(sample.endEffectorTargetPositionRootLocal),
                 BuildStringListSignature(sample.jointNames),
@@ -1536,6 +1557,11 @@ namespace KimodoBridge.Editor
         private static string FormatVector3(Vector3 value)
         {
             return $"{FormatFloat(value.x)},{FormatFloat(value.y)},{FormatFloat(value.z)}";
+        }
+
+        private static string FormatQuaternion(Quaternion value)
+        {
+            return $"{FormatFloat(value.x)},{FormatFloat(value.y)},{FormatFloat(value.z)},{FormatFloat(value.w)}";
         }
 
         private static string FormatDouble(double value)

@@ -357,6 +357,14 @@ namespace KimodoBridge.Editor
         internal AnimationClip Clip;
         internal readonly Dictionary<KimodoTimelineConstraintSampleKey, KimodoMarkerSampleResult> MarkerSamples =
             new Dictionary<KimodoTimelineConstraintSampleKey, KimodoMarkerSampleResult>();
+        internal readonly Dictionary<int, KimodoTimelineSourceHipsPose> SourceHipsPoses =
+            new Dictionary<int, KimodoTimelineSourceHipsPose>();
+    }
+
+    internal struct KimodoTimelineSourceHipsPose
+    {
+        public Vector3 Position;
+        public Quaternion Rotation;
     }
 
     internal static class KimodoTimelineConstraintClipCache
@@ -523,6 +531,8 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
+                ApplySourceHipsPose(entry, timelineSampleTime, timelineFrameRate, sample);
+
                 KimodoMarkerSampleResult cached = sample.Clone();
                 cached.sampleTime = timelineSampleTime;
                 entry.MarkerSamples[sampleKey] = cached;
@@ -532,6 +542,28 @@ namespace KimodoBridge.Editor
             {
                 targetCache?.Dispose();
             }
+        }
+
+        private static void ApplySourceHipsPose(
+            KimodoTimelineConstraintCacheEntry entry,
+            double timelineSampleTime,
+            float frameRate,
+            KimodoMarkerSampleResult sample)
+        {
+            if (entry == null || sample == null)
+            {
+                return;
+            }
+
+            int sampleFrame = ResolveTimelineSampleFrame(timelineSampleTime, frameRate);
+            if (!entry.SourceHipsPoses.TryGetValue(sampleFrame, out KimodoTimelineSourceHipsPose pose))
+            {
+                return;
+            }
+
+            sample.hasUnityHipsPose = true;
+            sample.unityHipsPos = pose.Position;
+            sample.unityHipsRot = pose.Rotation;
         }
 
         internal static void Clear()
@@ -619,6 +651,26 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
+                var sourceHipsPoses = new Dictionary<int, KimodoTimelineSourceHipsPose>();
+                for (int i = 0; i < timelineTimes.Length; i++)
+                {
+                    int sampleFrame = Mathf.Min(range.BakedStartFrame + i, range.BakedEndFrame);
+                    if (!sampler.TryGetSourceHipsPose(
+                            timelineTimes[i],
+                            out Vector3 hipsPosition,
+                            out Quaternion hipsRotation,
+                            out error))
+                    {
+                        return false;
+                    }
+
+                    sourceHipsPoses[sampleFrame] = new KimodoTimelineSourceHipsPose
+                    {
+                        Position = hipsPosition,
+                        Rotation = hipsRotation
+                    };
+                }
+
                 if (!KimodoRetargetSamplingUtility.TryRetargetMuscleSamplesToBoneSamples(
                         samples,
                         range.FrameRate,
@@ -650,6 +702,10 @@ namespace KimodoBridge.Editor
                 {
                     Clip = clip
                 };
+                foreach (KeyValuePair<int, KimodoTimelineSourceHipsPose> pair in sourceHipsPoses)
+                {
+                    entry.SourceHipsPoses[pair.Key] = pair.Value;
+                }
                 Entries[key] = entry;
                 clip = null;
                 return true;
@@ -1468,6 +1524,19 @@ namespace KimodoBridge.Editor
                         {
                             return false;
                         }
+
+                        if (!sampler.TryGetSourceHipsPose(
+                                timelineTimes[markerSampleIndices[i]],
+                                out Vector3 hipsPosition,
+                                out Quaternion hipsRotation,
+                                out error))
+                        {
+                            return false;
+                        }
+
+                        resolvedSamples[markerIndex].hasUnityHipsPose = true;
+                        resolvedSamples[markerIndex].unityHipsPos = hipsPosition;
+                        resolvedSamples[markerIndex].unityHipsRot = hipsRotation;
                     }
                 }
                 finally

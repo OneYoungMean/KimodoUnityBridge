@@ -363,6 +363,13 @@ namespace KimodoBridge
                 sampledJointIndices = sampledJointIndices
             };
 
+            if (TryResolveAnimatorHipsPose(animator, out Vector3 hipsPosition, out Quaternion hipsRotation))
+            {
+                result.hasUnityHipsPose = true;
+                result.unityHipsPos = hipsPosition;
+                result.unityHipsRot = hipsRotation;
+            }
+
             if (TryResolveEndEffectorBone(markerType, out HumanBodyBones endEffectorBone) &&
                 animator != null)
             {
@@ -375,6 +382,39 @@ namespace KimodoBridge
                 }
             }
             return true;
+        }
+
+        private static bool TryResolveAnimatorHipsPose(
+            Animator animator,
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            if (animator == null ||
+                animator.avatar == null ||
+                !animator.avatar.isValid ||
+                !animator.avatar.isHuman)
+            {
+                return false;
+            }
+
+            try
+            {
+                Transform hips = animator.GetBoneTransform(HumanBodyBones.Hips);
+                if (hips == null)
+                {
+                    return false;
+                }
+
+                position = hips.position;
+                rotation = hips.rotation.normalized;
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
         }
 
         private static bool TryResolveEndEffectorBone(string markerType, out HumanBodyBones bone)

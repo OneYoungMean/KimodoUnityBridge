@@ -1015,6 +1015,9 @@ namespace KimodoBridge.Editor
                     AddHash(ref hash, sample.rootHeading.GetHashCode());
                     AddHash(ref hash, sample.unityRootPos.GetHashCode());
                     AddHash(ref hash, sample.unityRootRot.GetHashCode());
+                    AddHash(ref hash, sample.hasUnityHipsPose ? 1 : 0);
+                    AddHash(ref hash, sample.unityHipsPos.GetHashCode());
+                    AddHash(ref hash, sample.unityHipsRot.GetHashCode());
                     AddHash(ref hash, sample.hasEndEffectorTargetPosition ? 1 : 0);
                     AddHash(ref hash, sample.endEffectorTargetPositionRootLocal.GetHashCode());
                     AddHash(ref hash, sample.jointNames);

@@ -321,11 +321,14 @@ namespace KimodoBridge.Editor
 
             string hipsOffsetError = string.Empty;
             if (hasHistoryAnchor &&
-                TryApplyArdyHistoryHipsOffset(
+                TryApplyGeneratedHipsAnchorOffset(
                     playableClip,
                     request,
                     trackPosition,
                     trackRotation,
+                    request.InitialArdyHistorySource.TimelineWorldAnchorPosition,
+                    request.InitialArdyHistorySource.TimelineWorldAnchorRotation,
+                    "ArdyHistoryEnd",
                     out hipsOffsetError))
             {
                 return;
@@ -338,6 +341,28 @@ namespace KimodoBridge.Editor
 
             if (hasNormalizationAnchor)
             {
+                if (TryResolveAnchorHipsPose(
+                        request.NormalizationAnchorSample,
+                        out Vector3 anchorHipsPosition,
+                        out Quaternion anchorHipsRotation) &&
+                    TryApplyGeneratedHipsAnchorOffset(
+                        playableClip,
+                        request,
+                        trackPosition,
+                        trackRotation,
+                        anchorHipsPosition,
+                        anchorHipsRotation,
+                        request.NormalizationAnchorKind + " Hips",
+                        out hipsOffsetError))
+                {
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(hipsOffsetError))
+                {
+                    Debug.LogWarning($"[Kimodo][TimelineOffset] Hips-based normalization offset failed, falling back to root anchor: {hipsOffsetError}");
+                }
+
                 ApplyNormalizationAnchorOffset(
                     playableClip,
                     request,
@@ -422,11 +447,14 @@ namespace KimodoBridge.Editor
                 $"rotation={playableClip.rotation.eulerAngles}.");
         }
 
-        private static bool TryApplyArdyHistoryHipsOffset(
+        private static bool TryApplyGeneratedHipsAnchorOffset(
             KimodoPlayableClip playableClip,
             KimodoEditorGenerateRequest request,
             Vector3 trackPosition,
             Quaternion trackRotation,
+            Vector3 sourceHipsPosition,
+            Quaternion sourceHipsRotation,
+            string anchorLabel,
             out string error)
         {
             error = string.Empty;
@@ -455,8 +483,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            Vector3 sourceHipsPosition = request.InitialArdyHistorySource.TimelineWorldAnchorPosition;
-            Quaternion sourceHipsRotation = request.InitialArdyHistorySource.TimelineWorldAnchorRotation;
             Quaternion trackYaw = ResolvePlanarRotation(trackRotation);
             Quaternion sourceHipsYaw = ResolvePlanarRotation(sourceHipsRotation);
             Quaternion generatedHipsYaw = ResolvePlanarRotation(generatedHipsRotation);
@@ -472,11 +498,28 @@ namespace KimodoBridge.Editor
             playableClip.removeStartOffset = false;
             EditorUtility.SetDirty(playableClip);
             Debug.Log(
-                $"[Kimodo][TimelineOffset] applied ArdyHistoryEnd planar Hips anchor to '{playableClip.name}': " +
+                $"[Kimodo][TimelineOffset] applied {anchorLabel} planar Hips anchor to '{playableClip.name}': " +
                 $"sourceHips={sourceHipsPosition:F6}, generatedHips={generatedHipsPosition:F6}, " +
                 $"sourceHipsTrackLocal={sourceHipsTrackLocal:F6}, generatedHipsPlanar={generatedHipsPlanar:F6}, " +
                 $"computedPosition={clipPosition:F6}, position={playableClip.position}, " +
                 $"rotation={playableClip.rotation.eulerAngles}.");
+            return true;
+        }
+
+        private static bool TryResolveAnchorHipsPose(
+            KimodoMarkerSampleResult anchor,
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            if (anchor == null || !anchor.hasUnityHipsPose)
+            {
+                return false;
+            }
+
+            position = anchor.unityHipsPos;
+            rotation = anchor.unityHipsRot;
             return true;
         }
 
