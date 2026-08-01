@@ -153,6 +153,12 @@ namespace KimodoBridge.Editor
                 HasSyntheticAutoBeginConstraint = hasSyntheticAutoBeginConstraint,
                 ConstraintSamples = constraintSamples,
                 TimelineClipSnapshot = timelineClip,
+                ResetTimelineTimeScaleAfterGeneration =
+                    !disableTimelineInOut &&
+                    (externalConstraint == null || !externalConstraint.Enabled) &&
+                    clip.inOutConstraintMode == KimodoInOutConstraintMode.Inside &&
+                    (clip.enableInConstraint || clip.enableOutConstraint) &&
+                    !Mathf.Approximately((float)timelineClip.timeScale, 1f),
                 TimelineDirectorSnapshot = outputDirector,
                 TimelinePoseContextSnapshot = outputPoseContext,
                 InitialArdyHistorySource = initialHistorySource,
@@ -204,11 +210,44 @@ namespace KimodoBridge.Editor
                 {
                     EditorUtility.SetDirty(generatedCacheClip);
                 }
+
+                ResetTimelineTimeScaleAfterGeneration(request);
             }
             finally
             {
                 Undo.CollapseUndoOperations(undoGroup);
             }
+        }
+
+        internal static bool ResetTimelineTimeScaleAfterGeneration(KimodoEditorGenerateRequest request)
+        {
+            TimelineClip timelineClip = request?.TimelineClipSnapshot;
+            if (request?.ResetTimelineTimeScaleAfterGeneration != true ||
+                timelineClip == null ||
+                Mathf.Approximately((float)timelineClip.timeScale, 1f))
+            {
+                return false;
+            }
+
+            timelineClip.timeScale = 1.0;
+            TrackAsset track = timelineClip.GetParentTrack();
+            if (track != null)
+            {
+                EditorUtility.SetDirty(track);
+                if (track.timelineAsset != null)
+                {
+                    EditorUtility.SetDirty(track.timelineAsset);
+                }
+            }
+
+            if (TimelineEditor.inspectedAsset != null)
+            {
+                TimelineEditor.Refresh(
+                    RefreshReason.ContentsModified |
+                    RefreshReason.SceneNeedsUpdate |
+                    RefreshReason.WindowNeedsRedraw);
+            }
+            return true;
         }
 
         public static void CleanupFailedGeneration(KimodoEditorGenerateRequest request)

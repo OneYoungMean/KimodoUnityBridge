@@ -687,6 +687,32 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void TimelineGeneration_ResetsCapturedInsideConstraintTimeScale()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                timelineClip.timeScale = 2.0;
+                var request = new KimodoEditorGenerateRequest
+                {
+                    TimelineClipSnapshot = timelineClip,
+                    ResetTimelineTimeScaleAfterGeneration = true
+                };
+
+                Assert.That(
+                    KimodoPlayableClipGenerationHostService.ResetTimelineTimeScaleAfterGeneration(request),
+                    Is.True);
+                Assert.That(timelineClip.timeScale, Is.EqualTo(1.0));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void TimelineOutputPlan_KeepsAvatarSnapshotAfterSourceContextIsGone()
         {
             Assert.That(

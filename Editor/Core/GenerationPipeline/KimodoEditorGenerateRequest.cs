@@ -32,6 +32,7 @@ namespace KimodoBridge.Editor
         public bool HasSyntheticAutoBeginConstraint;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
         public TimelineClip TimelineClipSnapshot;
+        public bool ResetTimelineTimeScaleAfterGeneration;
         public PlayableDirector TimelineDirectorSnapshot;
         public PoseCacheRenderContext? TimelinePoseContextSnapshot;
         public ArdyEditorHistorySource InitialArdyHistorySource;
