@@ -47,6 +47,107 @@ namespace KimodoBridge.Editor
         public bool Visible = true;
     }
 
+    internal static class KimodoConstraintSpaceConverter
+    {
+        internal static bool TryApplyToTargetAvatar(
+            KimodoMarkerSampleResult sample,
+            string modelName,
+            float frameRate,
+            SkeletonCache profileCache,
+            SkeletonCache targetCache,
+            out string error)
+        {
+            error = string.Empty;
+            if (sample == null || profileCache == null || targetCache == null)
+            {
+                error = "Constraint target/profile Avatar cache is unavailable.";
+                return false;
+            }
+
+            KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(profileCache);
+            if (!KimodoRetargetAvatarUtility.TryApplyMarkerSampleToTransformMap(
+                    sample,
+                    modelName,
+                    profileCache.skeletonRoot,
+                    profileCache.uniqueNameMap,
+                    out error) ||
+                !KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                    profileCache,
+                    out MuscleSample profileSample,
+                    out error) ||
+                !KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                    profileSample,
+                    frameRate,
+                    targetCache,
+                    out BoneSample targetSample,
+                    out _,
+                    out error))
+            {
+                return false;
+            }
+
+            return KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                targetSample,
+                targetCache,
+                out error);
+        }
+
+        internal static bool TryResolveHumanBonePair(
+            SkeletonCache sourceCache,
+            SkeletonCache targetCache,
+            HumanBodyBones bone,
+            out Transform sourceBone,
+            out Transform targetBone)
+        {
+            sourceBone = bone != HumanBodyBones.LastBone
+                ? KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(sourceCache, bone)
+                : null;
+            targetBone = bone != HumanBodyBones.LastBone
+                ? KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(targetCache, bone)
+                : null;
+            return sourceBone != null && targetBone != null;
+        }
+
+        internal static bool TryMapHumanBonePoint(
+            SkeletonCache sourceCache,
+            SkeletonCache targetCache,
+            HumanBodyBones bone,
+            Vector3 sourcePoint,
+            out Vector3 targetPoint)
+        {
+            targetPoint = Vector3.zero;
+            if (!TryResolveHumanBonePair(
+                    sourceCache,
+                    targetCache,
+                    bone,
+                    out Transform sourceBone,
+                    out Transform targetBone))
+            {
+                return false;
+            }
+
+            targetPoint = MapPoint(
+                sourceBone,
+                sourceCache.humanScale,
+                targetBone,
+                targetCache.humanScale,
+                sourcePoint);
+            return true;
+        }
+
+        internal static Vector3 MapPoint(
+            Transform sourceBone,
+            float sourceHumanScale,
+            Transform targetBone,
+            float targetHumanScale,
+            Vector3 sourcePoint)
+        {
+            float scale = Mathf.Max(1e-6f, targetHumanScale) / Mathf.Max(1e-6f, sourceHumanScale);
+            Vector3 sourceLocal = Quaternion.Inverse(sourceBone.rotation) * (sourcePoint - sourceBone.position);
+            return targetBone.position + targetBone.rotation * (sourceLocal * scale);
+        }
+    }
+
     [InitializeOnLoad]
     internal static class KimodoConstraintPoseCache
     {
@@ -1085,42 +1186,13 @@ namespace KimodoBridge.Editor
             entry.TargetCache.root.SetActive(true);
             try
             {
-                KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(entry.ProfileCache);
-                if (!KimodoRetargetAvatarUtility.TryApplyMarkerSampleToTransformMap(
-                        sample,
-                        modelName,
-                        entry.ProfileCache.skeletonRoot,
-                        entry.ProfileCache.uniqueNameMap,
-                        out error))
-                {
-                    return false;
-                }
-
-                if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                        entry.ProfileCache,
-                        out MuscleSample profileSample,
-                        out error))
-                {
-                    return false;
-                }
-                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                        profileSample,
-                        ResolveRetargetFrameRate(modelName),
-                        entry.TargetCache,
-                        out BoneSample targetSample,
-                        out _,
-                        out error))
-                {
-                    return false;
-                }
-                if (!KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
-                        targetSample,
-                        entry.TargetCache,
-                        out error))
-                {
-                    return false;
-                }
-                return true;
+                return KimodoConstraintSpaceConverter.TryApplyToTargetAvatar(
+                    sample,
+                    modelName,
+                    ResolveRetargetFrameRate(modelName),
+                    entry.ProfileCache,
+                    entry.TargetCache,
+                    out error);
             }
             finally
             {
@@ -1208,7 +1280,12 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult sample)
         {
             HumanBodyBones bone = ResolveEndEffectorBone(constraintType);
-            if (!TryResolveRetargetedBonePair(entry, bone, out _, out Transform target))
+            if (!KimodoConstraintSpaceConverter.TryResolveHumanBonePair(
+                    entry?.ProfileCache,
+                    entry?.TargetCache,
+                    bone,
+                    out _,
+                    out Transform target))
             {
                 if (entry?.EndEffectorMarker != null)
                 {
@@ -1299,21 +1376,16 @@ namespace KimodoBridge.Editor
             position = Vector3.zero;
             if (sample == null ||
                 !sample.hasEndEffectorTargetPosition ||
-                !TryResolveRetargetedBonePair(
-                    entry,
+                !KimodoConstraintSpaceConverter.TryMapHumanBonePoint(
+                    entry?.ProfileCache,
+                    entry?.TargetCache,
                     bone,
-                    out Transform profileBone,
-                    out Transform targetBone))
+                    sample.kimodoRootPosition +
+                        ResolveSampleRootRotation(sample) * sample.endEffectorTargetPositionRootLocal,
+                    out position))
             {
                 return false;
             }
-
-            Vector3 profilePoint = sample.kimodoRootPosition +
-                ResolveSampleRootRotation(sample) * sample.endEffectorTargetPositionRootLocal;
-            float scale = ResolveRetargetScale(entry.ProfileCache, entry.TargetCache);
-            Vector3 profileLocal = Quaternion.Inverse(profileBone.rotation) *
-                (profilePoint - profileBone.position);
-            position = targetBone.position + targetBone.rotation * (profileLocal * scale);
             return true;
         }
 
@@ -1324,41 +1396,12 @@ namespace KimodoBridge.Editor
             out Vector3 position)
         {
             position = Vector3.zero;
-            if (!TryResolveRetargetedBonePair(
-                    entry,
+            return KimodoConstraintSpaceConverter.TryMapHumanBonePoint(
+                    entry?.TargetCache,
+                    entry?.ProfileCache,
                     bone,
-                    out Transform profileBone,
-                    out Transform targetBone))
-            {
-                return false;
-            }
-
-            float scale = ResolveRetargetScale(entry.TargetCache, entry.ProfileCache);
-            Vector3 targetLocal = Quaternion.Inverse(targetBone.rotation) *
-                (targetPoint - targetBone.position);
-            position = profileBone.position + profileBone.rotation * (targetLocal * scale);
-            return true;
-        }
-
-        private static bool TryResolveRetargetedBonePair(
-            PoseCacheEntry entry,
-            HumanBodyBones bone,
-            out Transform profileBone,
-            out Transform targetBone)
-        {
-            profileBone = bone != HumanBodyBones.LastBone
-                ? KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(entry?.ProfileCache, bone)
-                : null;
-            targetBone = bone != HumanBodyBones.LastBone
-                ? KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(entry?.TargetCache, bone)
-                : null;
-            return profileBone != null && targetBone != null;
-        }
-
-        private static float ResolveRetargetScale(SkeletonCache source, SkeletonCache target)
-        {
-            return Mathf.Max(1e-6f, target != null ? target.humanScale : 1f) /
-                Mathf.Max(1e-6f, source != null ? source.humanScale : 1f);
+                    targetPoint,
+                    out position);
         }
 
         private static Quaternion ResolveSampleRootRotation(KimodoMarkerSampleResult sample)

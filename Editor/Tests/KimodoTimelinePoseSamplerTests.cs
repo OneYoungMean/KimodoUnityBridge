@@ -1897,6 +1897,50 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void ConstraintSpaceConverter_MapsAndRoundTripsHumanBonePoint()
+        {
+            var source = new GameObject("ConstraintSpaceSource");
+            var target = new GameObject("ConstraintSpaceTarget");
+            try
+            {
+                source.transform.SetPositionAndRotation(
+                    new Vector3(1f, 2f, -3f),
+                    Quaternion.Euler(10f, 25f, -5f));
+                target.transform.SetPositionAndRotation(
+                    new Vector3(-4f, 0.5f, 6f),
+                    Quaternion.Euler(-8f, 70f, 12f));
+                Vector3 sourcePoint = source.transform.position +
+                    source.transform.rotation * new Vector3(0.2f, -0.4f, 0.6f);
+
+                Vector3 targetPoint = KimodoConstraintSpaceConverter.MapPoint(
+                    source.transform,
+                    sourceHumanScale: 1.5f,
+                    target.transform,
+                    targetHumanScale: 0.75f,
+                    sourcePoint);
+                Vector3 roundTrip = KimodoConstraintSpaceConverter.MapPoint(
+                    target.transform,
+                    sourceHumanScale: 0.75f,
+                    source.transform,
+                    targetHumanScale: 1.5f,
+                    targetPoint);
+
+                Assert.That(
+                    Vector3.Distance(
+                        targetPoint,
+                        target.transform.position +
+                            target.transform.rotation * new Vector3(0.1f, -0.2f, 0.3f)),
+                    Is.LessThan(1e-5f));
+                Assert.That(Vector3.Distance(roundTrip, sourcePoint), Is.LessThan(1e-5f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(source);
+                UnityEngine.Object.DestroyImmediate(target);
+            }
+        }
+
+        [Test]
         public void ConstraintPoseCache_RecognizesClipRemovedFromOriginalTrack()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
