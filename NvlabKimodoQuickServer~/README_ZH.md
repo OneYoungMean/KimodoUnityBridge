@@ -1,6 +1,6 @@
 # NvlabKimodoQuickServer（中文）
 
-> 随 Kimodo Unity Motion Tools 2.0.1 发布；QuickServer 包版本同为 2.0.1。
+> 随 Kimodo Unity Motion Tools 2.0.1 发布；QuickServer 包版本为 2.0.2。
 
 ## 语言说明
 - 中文说明：`README_ZH.md`

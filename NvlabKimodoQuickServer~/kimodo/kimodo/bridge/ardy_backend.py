@@ -68,6 +68,13 @@ class Root2DTarget:
 
 
 @dataclass(frozen=True)
+class ArdyTimelineSegment:
+    prompt: str
+    start_frame: int
+    end_frame_exclusive: int
+
+
+@dataclass(frozen=True)
 class ArdySettings:
     history_crop_frames: int
     future_crop_frames: int
@@ -463,6 +470,52 @@ def _slice_outputs(outputs: dict[str, np.ndarray], start: int, end: int) -> dict
     return {key: value[:, start:end].copy() for key, value in outputs.items() if value.ndim >= 2}
 
 
+def _parse_timeline_segments(
+    value: Any,
+    profile: Any,
+    total_frames: int,
+) -> tuple[ArdyTimelineSegment, ...]:
+    if value is None:
+        return ()
+    if total_frames <= 0:
+        raise ArdyBackendError("ardy_timeline_segments requires a fixed positive duration.")
+    if not isinstance(value, list) or not value:
+        raise ArdyBackendError("ardy_timeline_segments must be a non-empty array.")
+
+    segments: list[ArdyTimelineSegment] = []
+    cursor = 0
+    patch = int(profile.frames_per_token)
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ArdyBackendError(f"ardy_timeline_segments[{index}] must be an object.")
+        prompt = str(item.get("prompt") or "").strip() or "idle"
+        try:
+            duration_seconds = float(item.get("duration"))
+        except (TypeError, ValueError) as exc:
+            raise ArdyBackendError(
+                f"ardy_timeline_segments[{index}].duration must be a finite positive number."
+            ) from exc
+        if not math.isfinite(duration_seconds) or duration_seconds <= 0.0:
+            raise ArdyBackendError(
+                f"ardy_timeline_segments[{index}].duration must be a finite positive number."
+            )
+        frame_count = seconds_to_frame_count(duration_seconds, profile.source_fps)
+        if frame_count <= 0:
+            raise ArdyBackendError(f"ardy_timeline_segments[{index}] resolves to zero frames.")
+        if cursor and cursor % patch:
+            raise ArdyBackendError(
+                f"ardy_timeline_segments boundary before segment {index + 1} must align to the {patch}-frame motion token."
+            )
+        segments.append(ArdyTimelineSegment(prompt, cursor, cursor + frame_count))
+        cursor += frame_count
+
+    if cursor != total_frames:
+        raise ArdyBackendError(
+            f"ardy_timeline_segments resolves to {cursor} frames, but duration resolves to {total_frames}."
+        )
+    return tuple(segments)
+
+
 class ArdySession:
     """Official ARDY autoregression with per-Session prompt, RNG, history, and CPU seek cache."""
 
@@ -501,6 +554,11 @@ class ArdySession:
                 duration_seconds,
                 profile.source_fps,
             )
+        self.timeline_segments = _parse_timeline_segments(
+            request.get("ardy_timeline_segments"),
+            profile,
+            self._initial_duration_frames,
+        )
         self.motion_cpu = None
         self.outputs: dict[str, np.ndarray] | None = None
         self.initial_history_cpu = None
@@ -513,7 +571,13 @@ class ArdySession:
         self._cuda_rng_state = None
         if str(model.device).startswith("cuda"):
             self._cuda_rng_state = torch.Generator(device=model.device).manual_seed(self.resolved_seed).get_state()
-        self._encode_prompt(model, progress, cancel_event)
+        self._encoded_prompts: dict[str, tuple[Any, Any]] = {}
+        self._activate_prompt(
+            model,
+            self.timeline_segments[0].prompt if self.timeline_segments else self.prompt,
+            progress,
+            cancel_event,
+        )
         self._set_constraints(request.get("constraints_json", []), attachments, model, apply_from=0, initial=True)
 
     @staticmethod
@@ -580,6 +644,28 @@ class ArdySession:
                 progress("TextEncoder ready. Generating ARDY motion...")
         else:
             self.text_feat = self.text_pad_mask = None
+
+    def _activate_prompt(
+        self,
+        model: Any,
+        prompt: str,
+        progress: Callable[[str], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
+        self.prompt = self._normalize_prompt(prompt)
+        cached = self._encoded_prompts.get(self.prompt)
+        if cached is None:
+            self._encode_prompt(model, progress, cancel_event)
+            self._encoded_prompts[self.prompt] = (self.text_feat, self.text_pad_mask)
+            return
+        self.text_feat, self.text_pad_mask = cached
+
+    def _activate_timeline_prompt(self, model: Any, frame: int, cancel_event: threading.Event) -> int | None:
+        for segment in self.timeline_segments:
+            if frame < segment.end_frame_exclusive:
+                self._activate_prompt(model, segment.prompt, cancel_event=cancel_event)
+                return segment.end_frame_exclusive
+        return None
 
     def _set_constraints(
         self,
@@ -701,12 +787,13 @@ class ArdySession:
         apply_from: int,
         cancel_event: threading.Event,
     ) -> bool:
+        if "ardy_timeline_segments" in request:
+            raise ArdyBackendError("ardy_timeline_segments is only supported by fixed-duration generation.")
         changed = "prompt" in request or "constraints_json" in request or self._generation_parameters_changed(request)
         if not changed:
             return False
         if "prompt" in request:
-            self.prompt = self._normalize_prompt(request.get("prompt"))
-            self._encode_prompt(model, cancel_event=cancel_event)
+            self._activate_prompt(model, request.get("prompt"), cancel_event=cancel_event)
         if "diffusion_steps" in request:
             self.diffusion_steps = self._resolve_steps(request.get("diffusion_steps"))
         if "text_weight" in request or "cfg_weight" in request:
@@ -800,12 +887,22 @@ class ArdySession:
             mask[:, destination, joint_slice] = joint_mask
         return observed, mask
 
-    def _generate_horizon(self, model: Any) -> None:
+    def _generate_horizon(self, model: Any, cancel_event: threading.Event | None = None) -> None:
         import torch
         from ardy.postprocess import post_process_motion
         from ardy.tools import to_numpy
 
+        horizon_start = self.frame_count
+        segment_end = self._activate_timeline_prompt(
+            model,
+            horizon_start,
+            cancel_event or threading.Event(),
+        )
         horizon = int(self.profile.horizon_frames)
+        if segment_end is not None:
+            horizon = min(horizon, segment_end - horizon_start)
+        if horizon <= 0:
+            return
         max_constraint = max(
             (int(constraint.frame_indices.max()) for constraint in self.constraints if len(constraint.frame_indices)),
             default=-1,
@@ -848,7 +945,6 @@ class ArdySession:
 
         generated = motion[:, history_len : history_len + horizon]
         output = model.motion_rep.inverse(generated, is_normalized=True)
-        horizon_start = self.frame_count
         post_constraints = [
             constraint.crop_move(horizon_start, horizon_start + horizon)
             for constraint in self.constraints
@@ -884,7 +980,7 @@ class ArdySession:
                 raise bridge_server.GenerateCancelledError("Generation canceled.")
             if self.root_2d_target is not None:
                 self._refresh_root_2d_target_constraints(model, self.frame_count)
-            self._generate_horizon(model)
+            self._generate_horizon(model, cancel_event)
         if cancel_event.is_set():
             raise bridge_server.GenerateCancelledError("Generation canceled.")
 
@@ -977,6 +1073,8 @@ class ArdySession:
         self.constraint_items = []
         self.root_2d_target = None
         self.future_clips = []
+        self.timeline_segments = ()
+        self._encoded_prompts = {}
         self.text_feat = self.text_pad_mask = None
 
 
