@@ -11,22 +11,485 @@ using UnityEngine.Timeline;
 namespace KimodoBridge.Editor
 {
     [InitializeOnLoad]
-    internal static class KimodoConstraintMarkerSelectionPreviewCleanup
+    internal static class KimodoConstraintSelectionPreviewTool
     {
-        static KimodoConstraintMarkerSelectionPreviewCleanup()
+        private const string EntryPrefix = "selection:";
+        private const double PollIntervalSeconds = 0.2d;
+        private static readonly Color[] Palette =
         {
-            Selection.selectionChanged += OnSelectionChanged;
-            EditorApplication.quitting += ClearAll;
+            new Color(0.2f, 0.85f, 1f),
+            new Color(1f, 0.78f, 0.2f),
+            new Color(1f, 0.35f, 0.8f),
+            new Color(0.35f, 1f, 0.45f),
+            new Color(1f, 0.45f, 0.2f),
+            new Color(0.55f, 0.55f, 1f)
+        };
+
+        private sealed class PreviewSource
+        {
+            public IKimodoConstraintPreviewSelectable Selectable;
+            public UnityEngine.Object Object;
+            public TimelineClip TimelineClip;
+            public double Time;
         }
 
-        private static void OnSelectionChanged()
+        private sealed class PreviewGroup
         {
-            KimodoConstraintMarkerEditorUtility.HandleSelectionChangedForPreviewCleanup(Selection.activeObject as KimodoConstraintMarkerBase);
+            public PoseCacheRenderContext Context;
+            public readonly List<PoseCacheRenderItem> Items = new List<PoseCacheRenderItem>();
         }
 
-        private static void ClearAll()
+        private sealed class PreviewLabel
         {
-            KimodoConstraintMarkerEditorUtility.HandleSelectionChangedForPreviewCleanup(null);
+            public PoseCacheRenderContext Context;
+            public string EntryId;
+            public string Text;
+            public Color Color;
+            public int Priority;
+            public double Time;
+        }
+
+        private static readonly Dictionary<string, PoseCacheRenderContext> RenderedContexts =
+            new Dictionary<string, PoseCacheRenderContext>(StringComparer.Ordinal);
+        private static readonly List<PreviewLabel> Labels = new List<PreviewLabel>();
+        private static bool refreshQueued;
+        private static double nextPollTime;
+        private static int selectionSignature;
+
+        static KimodoConstraintSelectionPreviewTool()
+        {
+            Selection.selectionChanged += ScheduleRefresh;
+            Undo.undoRedoPerformed += ScheduleRefresh;
+            EditorApplication.update += PollSelection;
+            EditorApplication.quitting += Clear;
+            AssemblyReloadEvents.beforeAssemblyReload += Clear;
+            SceneView.duringSceneGui += DrawLabels;
+            ScheduleRefresh();
+        }
+
+        internal static void ScheduleRefresh()
+        {
+            if (refreshQueued)
+            {
+                return;
+            }
+
+            refreshQueued = true;
+            EditorApplication.delayCall += Refresh;
+        }
+
+        private static void PollSelection()
+        {
+            if (EditorApplication.timeSinceStartup < nextPollTime)
+            {
+                return;
+            }
+
+            nextPollTime = EditorApplication.timeSinceStartup + PollIntervalSeconds;
+            if (ComputeSelectionSignature() != selectionSignature)
+            {
+                ScheduleRefresh();
+            }
+        }
+
+        private static void Refresh()
+        {
+            refreshQueued = false;
+            List<PreviewSource> sources = CollectSources();
+            sources.Sort(CompareSources);
+
+            var groups = new Dictionary<string, PreviewGroup>(StringComparer.Ordinal);
+            var selectedMarkerIds = new HashSet<int>();
+            for (int i = 0; i < sources.Count; i++)
+            {
+                if (sources[i].Object is KimodoConstraintMarkerBase marker)
+                {
+                    selectedMarkerIds.Add(marker.GetInstanceID());
+                }
+            }
+
+            Labels.Clear();
+            for (int i = 0; i < sources.Count; i++)
+            {
+                PreviewSource source = sources[i];
+                Color color = Palette[i % Palette.Length];
+                if (source.Object is KimodoConstraintMarkerBase marker)
+                {
+                    AddMarkerPreview(groups, marker, color);
+                }
+                else if (source.Object is KimodoPlayableClip playable)
+                {
+                    AddClipPreview(groups, playable, source.TimelineClip, selectedMarkerIds, color);
+                }
+            }
+
+            foreach (KeyValuePair<string, PoseCacheRenderContext> previous in RenderedContexts)
+            {
+                if (!groups.ContainsKey(previous.Key))
+                {
+                    KimodoConstraintPoseCache.DestroyEntriesInScope(previous.Value, EntryPrefix);
+                }
+            }
+
+            RenderedContexts.Clear();
+            foreach (KeyValuePair<string, PreviewGroup> pair in groups)
+            {
+                PreviewGroup group = pair.Value;
+                if (!KimodoConstraintPoseCache.RenderBatch(
+                        group.Context,
+                        group.Items,
+                        out string error,
+                        EntryPrefix))
+                {
+                    Debug.LogWarning($"[Kimodo][ConstraintPreview] {error}");
+                    KimodoConstraintPoseCache.DestroyEntriesInScope(group.Context, EntryPrefix);
+                    continue;
+                }
+
+                RenderedContexts[pair.Key] = group.Context;
+            }
+
+            Labels.Sort(CompareLabels);
+            selectionSignature = ComputeSelectionSignature();
+            SceneView.RepaintAll();
+        }
+
+        private static List<PreviewSource> CollectSources()
+        {
+            var result = new List<PreviewSource>();
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            TimelineClip[] selectedClips = TimelineEditor.selectedClips;
+            if (selectedClips != null)
+            {
+                for (int i = 0; i < selectedClips.Length; i++)
+                {
+                    TimelineClip timelineClip = selectedClips[i];
+                    if (timelineClip?.asset is KimodoPlayableClip playable)
+                    {
+                        AddSource(result, keys, playable, timelineClip, "clip:" + playable.GetInstanceID());
+                    }
+                }
+            }
+
+            UnityEngine.Object[] selectedObjects = Selection.objects;
+            for (int i = 0; i < selectedObjects.Length; i++)
+            {
+                UnityEngine.Object selected = selectedObjects[i];
+                if (selected is KimodoConstraintMarkerBase marker)
+                {
+                    AddSource(result, keys, marker, null, "marker:" + marker.GetInstanceID());
+                }
+                else if (selected is KimodoPlayableClip playable)
+                {
+                    TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(playable);
+                    AddSource(result, keys, playable, timelineClip, "clip:" + playable.GetInstanceID());
+                }
+            }
+
+            return result;
+        }
+
+        private static void AddSource(
+            List<PreviewSource> result,
+            HashSet<string> keys,
+            UnityEngine.Object sourceObject,
+            TimelineClip timelineClip,
+            string key)
+        {
+            if (!(sourceObject is IKimodoConstraintPreviewSelectable selectable) ||
+                !selectable.ConstraintPreviewEnabled ||
+                !keys.Add(key))
+            {
+                return;
+            }
+
+            result.Add(new PreviewSource
+            {
+                Selectable = selectable,
+                Object = sourceObject,
+                TimelineClip = timelineClip,
+                Time = sourceObject is KimodoConstraintMarkerBase marker
+                    ? marker.time
+                    : timelineClip?.start ?? 0.0
+            });
+        }
+
+        private static void AddMarkerPreview(
+            Dictionary<string, PreviewGroup> groups,
+            KimodoConstraintMarkerBase marker,
+            Color color)
+        {
+            if (marker == null || KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker))
+            {
+                return;
+            }
+
+            if (!marker.useOverride &&
+                !KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(
+                    marker,
+                    forceRefresh: false,
+                    out _))
+            {
+                return;
+            }
+
+            if (!KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(
+                    marker,
+                    out PoseCacheRenderContext context,
+                    out _) ||
+                !KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(
+                    marker,
+                    marker.SampleData,
+                    out KimodoMarkerSampleResult sample,
+                    out _))
+            {
+                return;
+            }
+
+            string entryId = "marker:" + marker.GetInstanceID();
+            AddItem(
+                groups,
+                context,
+                entryId,
+                sample,
+                marker.ConstraintType,
+                KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
+                marker.ConstraintPreviewName,
+                marker.time,
+                marker.ConstraintPreviewPriority,
+                color);
+        }
+
+        private static void AddClipPreview(
+            Dictionary<string, PreviewGroup> groups,
+            KimodoPlayableClip playable,
+            TimelineClip timelineClip,
+            HashSet<int> selectedMarkerIds,
+            Color color)
+        {
+            if (playable == null || timelineClip == null ||
+                !KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForPlayableClip(
+                    playable,
+                    out PoseCacheRenderContext context,
+                    out _,
+                    out _))
+            {
+                return;
+            }
+
+            TrackAsset track = timelineClip.GetParentTrack();
+            if (track == null)
+            {
+                return;
+            }
+
+            foreach (IMarker candidate in track.GetMarkers())
+            {
+                if (!(candidate is KimodoConstraintMarkerBase marker) ||
+                    !marker.constraintEnabled ||
+                    selectedMarkerIds.Contains(marker.GetInstanceID()) ||
+                    !KimodoConstraintMarkerEditorUtility.IsTimeInClipFrameRange(marker.time, timelineClip))
+                {
+                    continue;
+                }
+
+                if (!marker.useOverride &&
+                    !KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(
+                        marker,
+                        forceRefresh: false,
+                        out _))
+                {
+                    continue;
+                }
+
+                if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(
+                        marker,
+                        marker.SampleData,
+                        out KimodoMarkerSampleResult sample,
+                        out _))
+                {
+                    continue;
+                }
+
+                AddItem(
+                    groups,
+                    context,
+                    $"clip:{playable.GetInstanceID()}:marker:{marker.GetInstanceID()}",
+                    sample,
+                    marker.ConstraintType,
+                    KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
+                    $"{playable.ConstraintPreviewName} · {marker.ConstraintType}",
+                    marker.time,
+                    playable.ConstraintPreviewPriority,
+                    color);
+            }
+
+            int frameCount = Mathf.Max(
+                1,
+                KimodoFrameTimeUtility.SecondsToFrameCount(
+                    timelineClip.duration,
+                    KimodoPlayableClip.FIXED_FRAME_RATE));
+            if (playable.inOutConstraintMode == KimodoInOutConstraintMode.None ||
+                !KimodoInOutConstraintAdapter.TryBuildBoundarySamplesForPreview(
+                    timelineClip,
+                    playable.inOutConstraintMode,
+                    playable.enableInConstraint,
+                    playable.enableOutConstraint,
+                    KimodoInOutConstraintAdapter.ClampFrameCount(frameCount),
+                    out KimodoMarkerSampleResult begin,
+                    out KimodoMarkerSampleResult end,
+                    out _))
+            {
+                return;
+            }
+
+            if (begin != null)
+            {
+                AddItem(
+                    groups, context, $"clip:{playable.GetInstanceID()}:in", begin, "fullbody", null,
+                    $"{playable.ConstraintPreviewName} · In", timelineClip.start,
+                    playable.ConstraintPreviewPriority, color);
+            }
+            if (end != null)
+            {
+                AddItem(
+                    groups, context, $"clip:{playable.GetInstanceID()}:out", end, "fullbody", null,
+                    $"{playable.ConstraintPreviewName} · Out", timelineClip.start + end.sampleTime,
+                    playable.ConstraintPreviewPriority, color);
+            }
+        }
+
+        private static void AddItem(
+            Dictionary<string, PreviewGroup> groups,
+            PoseCacheRenderContext context,
+            string entryId,
+            KimodoMarkerSampleResult sample,
+            string constraintType,
+            List<string> highlightJoints,
+            string name,
+            double time,
+            int priority,
+            Color color)
+        {
+            if (!groups.TryGetValue(context.ContextKey, out PreviewGroup group))
+            {
+                group = new PreviewGroup { Context = context };
+                groups.Add(context.ContextKey, group);
+            }
+
+            group.Items.Add(new PoseCacheRenderItem
+            {
+                EntryId = entryId,
+                SampleData = sample,
+                ConstraintType = constraintType,
+                HighlightJoints = highlightJoints,
+                PreviewColor = color,
+                Visible = true
+            });
+            Labels.Add(new PreviewLabel
+            {
+                Context = context,
+                EntryId = EntryPrefix + entryId,
+                Text = $"{time:F3}s · {name}",
+                Color = color,
+                Priority = priority,
+                Time = time
+            });
+        }
+
+        private static void DrawLabels(SceneView _)
+        {
+            var positions = new List<Vector3>();
+            for (int i = 0; i < Labels.Count; i++)
+            {
+                PreviewLabel label = Labels[i];
+                if (!KimodoConstraintPoseCache.TryGetRootBone(
+                        label.Context,
+                        label.EntryId,
+                        out Transform root))
+                {
+                    continue;
+                }
+
+                int overlap = 0;
+                for (int p = 0; p < positions.Count; p++)
+                {
+                    if ((positions[p] - root.position).sqrMagnitude < 0.04f)
+                    {
+                        overlap++;
+                    }
+                }
+                positions.Add(root.position);
+
+                var style = new GUIStyle(EditorStyles.boldLabel);
+                style.normal.textColor = label.Color;
+                Handles.Label(
+                    root.position + Vector3.up * (0.15f + overlap * 0.08f),
+                    label.Text,
+                    style);
+            }
+        }
+
+        private static int CompareSources(PreviewSource left, PreviewSource right)
+        {
+            int compare = left.Selectable.ConstraintPreviewPriority.CompareTo(right.Selectable.ConstraintPreviewPriority);
+            if (compare != 0)
+            {
+                return compare;
+            }
+            compare = left.Time.CompareTo(right.Time);
+            return compare != 0 ? compare : left.Object.GetInstanceID().CompareTo(right.Object.GetInstanceID());
+        }
+
+        private static int CompareLabels(PreviewLabel left, PreviewLabel right)
+        {
+            int compare = left.Priority.CompareTo(right.Priority);
+            return compare != 0 ? compare : left.Time.CompareTo(right.Time);
+        }
+
+        private static int ComputeSelectionSignature()
+        {
+            unchecked
+            {
+                int hash = 17;
+                UnityEngine.Object[] selectedObjects = Selection.objects;
+                for (int i = 0; i < selectedObjects.Length; i++)
+                {
+                    UnityEngine.Object selected = selectedObjects[i];
+                    hash = hash * 31 + (selected != null ? selected.GetInstanceID() : 0);
+                    hash = hash * 31 + (selected != null ? EditorUtility.GetDirtyCount(selected) : 0);
+                }
+
+                TimelineClip[] selectedClips = TimelineEditor.selectedClips;
+                if (selectedClips != null)
+                {
+                    for (int i = 0; i < selectedClips.Length; i++)
+                    {
+                        TimelineClip timelineClip = selectedClips[i];
+                        UnityEngine.Object asset = timelineClip?.asset as UnityEngine.Object;
+                        hash = hash * 31 + (asset != null ? asset.GetInstanceID() : 0);
+                        hash = hash * 31 + (asset != null ? EditorUtility.GetDirtyCount(asset) : 0);
+                        hash = hash * 31 + (timelineClip?.start.GetHashCode() ?? 0);
+                        hash = hash * 31 + (timelineClip?.duration.GetHashCode() ?? 0);
+                        hash = hash * 31 + (timelineClip?.GetParentTrack()?.GetInstanceID() ?? 0);
+                    }
+                }
+
+                hash = hash * 31 + (TimelineEditor.inspectedDirector != null
+                    ? TimelineEditor.inspectedDirector.GetInstanceID()
+                    : 0);
+                return hash;
+            }
+        }
+
+        private static void Clear()
+        {
+            foreach (KeyValuePair<string, PoseCacheRenderContext> context in RenderedContexts)
+            {
+                KimodoConstraintPoseCache.DestroyEntriesInScope(context.Value, EntryPrefix);
+            }
+            RenderedContexts.Clear();
+            Labels.Clear();
         }
     }
 
@@ -73,10 +536,7 @@ namespace KimodoBridge.Editor
                 KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(target as KimodoConstraintMarkerBase);
             }
 
-            if (!windowOpen && markerTarget != null && !KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCacheIfNeeded(markerTarget, out string poseError) && !string.IsNullOrWhiteSpace(poseError))
-            {
-                EditorGUILayout.HelpBox($"Pose cache update failed: {poseError}", MessageType.Warning);
-            }
+            KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
         }
 
         private void DrawCommonHeader(string type)
@@ -214,10 +674,7 @@ namespace KimodoBridge.Editor
                 KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(target as KimodoConstraintMarkerBase);
             }
 
-            if (!windowOpen && markerTarget != null && !KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCacheIfNeeded(markerTarget, out string poseError) && !string.IsNullOrWhiteSpace(poseError))
-            {
-                EditorGUILayout.HelpBox($"Pose cache update failed: {poseError}", MessageType.Warning);
-            }
+            KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
         }
 
         private void DrawMarkerTime()
@@ -557,16 +1014,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!TryRenderMarkerToPoseCache(marker, out string poseError))
-            {
-                error = string.IsNullOrWhiteSpace(error)
-                    ? poseError
-                    : string.IsNullOrWhiteSpace(poseError)
-                        ? error
-                        : $"{error}; {poseError}";
-                return false;
-            }
-
+            KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
             SceneView.RepaintAll();
             return true;
         }
@@ -806,35 +1254,6 @@ namespace KimodoBridge.Editor
             SceneView.RepaintAll();
         }
 
-        public static void HandleSelectionChangedForPreviewCleanup(KimodoConstraintMarkerBase selectedMarker)
-        {
-            var markerIds = new List<int>(PoseRenderSignatures.Keys);
-            for (int i = 0; i < markerIds.Count; i++)
-            {
-                int markerId = markerIds[i];
-                KimodoConstraintMarkerBase marker = EditorUtility.InstanceIDToObject(markerId) as KimodoConstraintMarkerBase;
-                if (marker == null)
-                {
-                    AutoSampleCache.Remove(markerId);
-                    PoseRenderSignatures.Remove(markerId);
-                    KimodoConstraintPoseCache.DestroyEntriesForItemId(GetCachedIntString(markerId));
-                    continue;
-                }
-
-                if (ReferenceEquals(marker, selectedMarker))
-                {
-                    continue;
-                }
-
-                if (KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker))
-                {
-                    continue;
-                }
-
-                ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: true);
-            }
-        }
-
         public static void ClearMarkerPoseCachePreview(KimodoConstraintMarkerBase marker, bool keepIfOverrideWindowOpen)
         {
             if (marker == null)
@@ -1050,54 +1469,6 @@ namespace KimodoBridge.Editor
             }
 
             details = $"timelinePoseClip=true animator='{animator.name}' entry='{entryId ?? string.Empty}'";
-            return true;
-        }
-
-        public static bool TryRenderMarkerToPoseCacheIfNeeded(KimodoConstraintMarkerBase marker, out string error)
-        {
-            error = string.Empty;
-            if (marker == null)
-            {
-                error = "marker is null";
-                return false;
-            }
-
-            if (!marker.constraintEnabled)
-            {
-                ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
-                return true;
-            }
-
-            if (!TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out error))
-            {
-                return false;
-            }
-
-            int id = marker.GetInstanceID();
-            if (PoseRenderSignatures.TryGetValue(id, out PoseRenderCacheEntry cached) &&
-                RenderSnapshotMatches(marker, context, cached.Snapshot))
-            {
-                error = cached.Error ?? string.Empty;
-                return cached.Success;
-            }
-
-            if (!TryRenderMarkerToPoseCache(marker, context, out KimodoMarkerSampleResult sample, out error))
-            {
-                PoseRenderSignatures[id] = new PoseRenderCacheEntry
-                {
-                    Snapshot = BuildRenderSnapshot(marker, context, marker.SampleData),
-                    Success = false,
-                    Error = error ?? string.Empty
-                };
-                return false;
-            }
-
-            PoseRenderSignatures[id] = new PoseRenderCacheEntry
-            {
-                Snapshot = BuildRenderSnapshot(marker, context, sample),
-                Success = true,
-                Error = string.Empty
-            };
             return true;
         }
 

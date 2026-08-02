@@ -107,7 +107,6 @@ namespace KimodoBridge.Editor
 
         private void OnDisable()
         {
-            TryHideConstraintPreview();
             KimodoTimelineConstraintClipCache.Clear();
             EditorUtility.ClearProgressBar();
             repaintQueued = false;
@@ -186,7 +185,7 @@ namespace KimodoBridge.Editor
                     showConstraint,
                     new GUIContent("Show Constraint", "Show constraint previews for this clip when selected."));
             }
-            DrawConstraintPreviewIfNeeded();
+            KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
 
             DrawConstraintReferenceList();
 
@@ -593,142 +592,6 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.EndVertical();
-        }
-
-        private void DrawConstraintPreviewIfNeeded()
-        {
-            if (clip == null)
-            {
-                return;
-            }
-
-            if (!KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForPlayableClip(clip, out PoseCacheRenderContext context, out TimelineClip timelineClip, out _))
-            {
-                KimodoConstraintPoseCache.DestroyEntriesForClipId(clip.GetInstanceID());
-                return;
-            }
-
-            KimodoConstraintPoseCache.DestroyEntriesForClipId(clip.GetInstanceID(), context);
-
-            if (showConstraint == null || !showConstraint.boolValue)
-            {
-                KimodoConstraintPoseCache.DestroyContext(context);
-                return;
-            }
-
-            TrackAsset track = timelineClip != null ? timelineClip.GetParentTrack() : null;
-            if (track == null)
-            {
-                KimodoConstraintPoseCache.DestroyContext(context);
-                return;
-            }
-
-            var markers = new List<KimodoConstraintMarkerBase>();
-            foreach (IMarker m in track.GetMarkers())
-            {
-                if (m is not KimodoConstraintMarkerBase marker)
-                {
-                    continue;
-                }
-
-                if (!marker.constraintEnabled)
-                {
-                    continue;
-                }
-
-                if (!KimodoConstraintMarkerEditorUtility.IsTimeInClipFrameRange(marker.time, timelineClip))
-                {
-                    continue;
-                }
-
-                markers.Add(marker);
-            }
-
-            var renderItems = new List<PoseCacheRenderItem>(markers.Count + 2);
-            for (int i = 0; i < markers.Count; i++)
-            {
-                KimodoConstraintMarkerBase marker = markers[i];
-                if (marker == null)
-                {
-                    continue;
-                }
-
-                if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(marker, marker.SampleData, out KimodoMarkerSampleResult sample, out _))
-                {
-                    continue;
-                }
-
-                renderItems.Add(new PoseCacheRenderItem
-                {
-                    EntryId = KimodoConstraintMarkerEditorUtility.GetCachedIntString(marker.GetInstanceID()),
-                    SampleData = sample,
-                    ConstraintType = marker.ConstraintType,
-                    HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
-                    Visible = true
-                });
-            }
-
-            int previewGenerationFrames = Mathf.Max(
-                1,
-                KimodoFrameTimeUtility.SecondsToFrameCount(
-                    timelineClip.duration,
-                    KimodoPlayableClip.FIXED_FRAME_RATE));
-            if (clip.inOutConstraintMode != KimodoInOutConstraintMode.None &&
-                KimodoInOutConstraintAdapter.TryBuildBoundarySamplesForPreview(
-                    timelineClip,
-                    clip.inOutConstraintMode,
-                    clip.enableInConstraint,
-                    clip.enableOutConstraint,
-                    KimodoInOutConstraintAdapter.ClampFrameCount(previewGenerationFrames),
-                    out KimodoMarkerSampleResult beginBoundaryPose,
-                    out KimodoMarkerSampleResult endBoundaryPose,
-                    out _))
-            {
-                if (beginBoundaryPose != null)
-                {
-                    renderItems.Add(new PoseCacheRenderItem
-                    {
-                        EntryId = "preview_begin_constraint_pose",
-                        SampleData = beginBoundaryPose,
-                        ConstraintType = "fullbody",
-                        HighlightJoints = null,
-                        Visible = true
-                    });
-                }
-
-                if (endBoundaryPose != null)
-                {
-                    renderItems.Add(new PoseCacheRenderItem
-                    {
-                        EntryId = "preview_end_constraint_pose",
-                        SampleData = endBoundaryPose,
-                        ConstraintType = "fullbody",
-                        HighlightJoints = null,
-                        Visible = true
-                    });
-                }
-            }
-
-            if (!KimodoConstraintPoseCache.RenderBatch(context, renderItems, out _))
-            {
-                KimodoConstraintPoseCache.DestroyContext(context);
-            }
-        }
-
-        private void TryHideConstraintPreview()
-        {
-            if (clip == null)
-            {
-                return;
-            }
-
-            if (!KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForPlayableClip(clip, out PoseCacheRenderContext context, out _, out _))
-            {
-                KimodoConstraintPoseCache.DestroyEntriesForClipId(clip.GetInstanceID());
-                return;
-            }
-
-            KimodoConstraintPoseCache.DestroyContext(context);
         }
 
     }

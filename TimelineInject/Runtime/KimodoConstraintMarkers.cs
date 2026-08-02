@@ -4,6 +4,13 @@ using UnityEngine;
 
 namespace TimelineInject
 {
+    public interface IKimodoConstraintPreviewSelectable
+    {
+        bool ConstraintPreviewEnabled { get; }
+        int ConstraintPreviewPriority { get; }
+        string ConstraintPreviewName { get; }
+    }
+
     [Serializable]
     public class KimodoConstraintJson
     {

@@ -3,6 +3,7 @@ using UnityEngine.Playables;
 using UnityEngine.Timeline;
 using System.Collections.Generic;
 using UnityEngine.Serialization;
+using TimelineInject;
 
 namespace KimodoBridge
 {
@@ -46,7 +47,7 @@ namespace KimodoBridge
     }
 
     [System.Serializable]
-    public class KimodoPlayableClip : AnimationPlayableAsset
+    public class KimodoPlayableClip : AnimationPlayableAsset, IKimodoConstraintPreviewSelectable
     {
         [Header("Kimodo Bridge")]
         public string bridgeModelName = DefaultBridgeModelName;
@@ -125,6 +126,10 @@ namespace KimodoBridge
             get => customRetargetAvatar;
             set => customRetargetAvatar = value;
         }
+
+        public bool ConstraintPreviewEnabled => showConstraint;
+        public int ConstraintPreviewPriority => 1;
+        public string ConstraintPreviewName => "Clip";
 
         public const float FIXED_FRAME_RATE = 30f;
         public const int MIN_FRAMES = 1;

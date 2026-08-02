@@ -6,7 +6,7 @@ using UnityEngine;
 using UnityEngine.Timeline;
 
 [Serializable]
-public abstract class KimodoConstraintMarkerBase : Marker
+public abstract class KimodoConstraintMarkerBase : Marker, TimelineInject.IKimodoConstraintPreviewSelectable
 {
     [Tooltip("If disabled, this marker is ignored by preview, sampling, and generation.")]
     public bool constraintEnabled = true;
@@ -16,6 +16,10 @@ public abstract class KimodoConstraintMarkerBase : Marker
     private KimodoMarkerSampleResult sampleData = new KimodoMarkerSampleResult();
 
     public abstract string ConstraintType { get; }
+
+    public bool ConstraintPreviewEnabled => constraintEnabled;
+    public int ConstraintPreviewPriority => 0;
+    public string ConstraintPreviewName => ConstraintType ?? "Constraint";
 
     public KimodoMarkerSampleResult SampleData
     {

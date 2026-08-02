@@ -44,6 +44,7 @@ namespace KimodoBridge.Editor
         public KimodoMarkerSampleResult SampleData;
         public string ConstraintType;
         public List<string> HighlightJoints;
+        public Color PreviewColor = Color.white;
         public bool Visible = true;
     }
 
@@ -186,7 +187,11 @@ namespace KimodoBridge.Editor
             Undo.undoRedoPerformed += ScheduleInvalidContextCleanup;
         }
 
-        internal static bool RenderBatch(PoseCacheRenderContext context, IReadOnlyList<PoseCacheRenderItem> items, out string error)
+        internal static bool RenderBatch(
+            PoseCacheRenderContext context,
+            IReadOnlyList<PoseCacheRenderItem> items,
+            out string error,
+            string entryPrefix = null)
         {
             error = string.Empty;
             if (context.ClipId == 0 || context.AnimatorId == 0)
@@ -195,9 +200,10 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            string normalizedPrefix = entryPrefix ?? string.Empty;
             if (items == null || items.Count == 0)
             {
-                DestroyContext(context);
+                DestroyEntriesInScope(context, normalizedPrefix);
                 return true;
             }
 
@@ -215,7 +221,7 @@ namespace KimodoBridge.Editor
 
             if (!hasVisible)
             {
-                DestroyContext(context);
+                DestroyEntriesInScope(context, normalizedPrefix);
                 return true;
             }
 
@@ -229,7 +235,8 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                string entryId = string.IsNullOrWhiteSpace(item.EntryId) ? $"item_{i}" : item.EntryId.Trim();
+                string entryId = normalizedPrefix +
+                    (string.IsNullOrWhiteSpace(item.EntryId) ? $"item_{i}" : item.EntryId.Trim());
                 string entryKey = BuildEntryKey(contextKey, entryId);
                 desiredKeys.Add(entryKey);
 
@@ -252,7 +259,7 @@ namespace KimodoBridge.Editor
 
                     var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
-                    ApplyConstraintColoring(entry, highlightedJoints);
+                    ApplyConstraintColoring(entry, highlightedJoints, item.PreviewColor);
                     UpdateEndEffectorMarker(entry, item.ConstraintType, item.SampleData);
                     entry.RenderSignature = renderSignature;
                     entry.HasRenderSignature = true;
@@ -807,6 +814,52 @@ namespace KimodoBridge.Editor
             }
         }
 
+        internal static void DestroyEntriesInScope(PoseCacheRenderContext context, string entryPrefix)
+        {
+            string normalizedPrefix = entryPrefix ?? string.Empty;
+            if (Entries.Count == 0)
+            {
+                return;
+            }
+
+            var keysToRemove = new List<string>();
+            foreach (KeyValuePair<string, PoseCacheEntry> kv in Entries)
+            {
+                if (kv.Value != null &&
+                    string.Equals(kv.Value.ContextKey, context.ContextKey, StringComparison.Ordinal) &&
+                    IsEntryInScope(kv.Value, normalizedPrefix))
+                {
+                    keysToRemove.Add(kv.Key);
+                }
+            }
+
+            for (int i = 0; i < keysToRemove.Count; i++)
+            {
+                string key = keysToRemove[i];
+                if (Entries.TryGetValue(key, out PoseCacheEntry entry))
+                {
+                    DestroyEntry(entry);
+                    Entries.Remove(key);
+                }
+            }
+
+            if (keysToRemove.Count > 0)
+            {
+                SceneView.RepaintAll();
+            }
+        }
+
+        private static bool IsEntryInScope(PoseCacheEntry entry, string entryPrefix)
+        {
+            if (entry == null || string.IsNullOrEmpty(entryPrefix))
+            {
+                return entry != null;
+            }
+
+            string prefix = entry.ContextKey + ":" + entryPrefix;
+            return entry.Key != null && entry.Key.StartsWith(prefix, StringComparison.Ordinal);
+        }
+
         private static void OnPlayModeStateChanged(PlayModeStateChange _)
         {
             DestroyAll();
@@ -1012,7 +1065,10 @@ namespace KimodoBridge.Editor
             SetEntrySelectable(entry, selectable);
         }
 
-        private static void ApplyConstraintColoring(PoseCacheEntry entry, HashSet<string> highlightedJoints)
+        private static void ApplyConstraintColoring(
+            PoseCacheEntry entry,
+            HashSet<string> highlightedJoints,
+            Color previewColor)
         {
             if (entry == null || entry.Root == null)
             {
@@ -1049,7 +1105,10 @@ namespace KimodoBridge.Editor
                     }
                     else
                     {
-                        SetMaterialColor(mat, NonConstraintColor, NonConstraintAlpha);
+                        SetMaterialColor(
+                            mat,
+                            previewColor == default ? NonConstraintColor : previewColor,
+                            NonConstraintAlpha);
                     }
                 }
             }
@@ -1104,6 +1163,7 @@ namespace KimodoBridge.Editor
                 int hash = 17;
                 AddHash(ref hash, modelName);
                 AddHash(ref hash, item?.ConstraintType);
+                AddHash(ref hash, item != null ? item.PreviewColor.GetHashCode() : 0);
                 AddHash(ref hash, item != null && item.Visible ? 1 : 0);
                 KimodoMarkerSampleResult sample = item?.SampleData;
                 if (sample != null)
