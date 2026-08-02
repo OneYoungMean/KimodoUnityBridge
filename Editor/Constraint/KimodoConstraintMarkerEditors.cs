@@ -15,7 +15,7 @@ namespace KimodoBridge.Editor
     {
         private const string EntryPrefix = "selection:";
         private const double PollIntervalSeconds = 0.2d;
-        private static readonly Color SinglePreviewColor = new Color(0.62f, 0.82f, 0.95f);
+        private static readonly Color SinglePreviewColor = Color.white;
         private static readonly Color[] Palette =
         {
             new Color(0.55f, 0.78f, 0.9f),
@@ -128,7 +128,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < sources.Count; i++)
             {
                 PreviewSource source = sources[i];
-                Color color = ResolvePreviewColor(i, sources.Count);
+                Color color = ResolvePreviewColor(i);
                 if (source.Object is KimodoConstraintMarkerBase marker)
                 {
                     AddMarkerPreview(groups, marker, color);
@@ -170,9 +170,9 @@ namespace KimodoBridge.Editor
             SceneView.RepaintAll();
         }
 
-        private static Color ResolvePreviewColor(int index, int sourceCount)
+        private static Color ResolvePreviewColor(int index)
         {
-            return sourceCount <= 1 ? SinglePreviewColor : Palette[index % Palette.Length];
+            return index == 0 ? SinglePreviewColor : Palette[(index - 1) % Palette.Length];
         }
 
         private static List<PreviewSource> CollectSources()
@@ -424,7 +424,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < Labels.Count; i++)
             {
                 PreviewLabel label = Labels[i];
-                if (!KimodoConstraintPoseCache.TryGetRootBone(
+                if (!KimodoConstraintPoseCache.TryGetPreviewRoot(
                         label.Context,
                         label.EntryId,
                         out Transform root))
@@ -446,7 +446,7 @@ namespace KimodoBridge.Editor
                 style.alignment = TextAnchor.MiddleCenter;
                 style.normal.textColor = label.Color;
                 Handles.Label(
-                    root.position + Vector3.down * (0.15f + overlap * 0.08f),
+                    root.position + Vector3.down * (0.1f + overlap * 0.08f),
                     label.Text,
                     style);
             }

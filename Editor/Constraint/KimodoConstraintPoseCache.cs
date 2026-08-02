@@ -384,6 +384,18 @@ namespace KimodoBridge.Editor
             return rootBone != null;
         }
 
+        internal static bool TryGetPreviewRoot(PoseCacheRenderContext context, string entryId, out Transform root)
+        {
+            root = null;
+            if (!TryGetEntryForContext(context, entryId, out PoseCacheEntry entry) || entry?.Root == null)
+            {
+                return false;
+            }
+
+            root = entry.Root;
+            return true;
+        }
+
         internal static bool TryGetEndEffectorTarget(
             PoseCacheRenderContext context,
             string entryId,
