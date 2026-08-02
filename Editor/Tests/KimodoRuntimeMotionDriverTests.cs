@@ -794,9 +794,19 @@ namespace KimodoBridge.Editor.Tests
                     }
                 };
 
-                Assert.That(
-                    KimodoInOutConstraintTools.ResolveTimelineBoundaryTime(request, isBegin),
-                    Is.EqualTo(expected).Within(1e-9));
+                double sampleTime = KimodoInOutConstraintTools.ResolveTimelineBoundaryTime(request, isBegin);
+                if (mode == KimodoInOutConstraintMode.Outside && !isBegin)
+                {
+                    Assert.That(sampleTime, Is.GreaterThan(expected));
+                    Assert.That(sampleTime, Is.LessThan(expected + 1e-5));
+                    Assert.That(
+                        KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(sampleTime, 60f),
+                        Is.EqualTo(KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(expected, 60f)));
+                }
+                else
+                {
+                    Assert.That(sampleTime, Is.EqualTo(expected).Within(1e-9));
+                }
             }
             finally
             {
@@ -805,7 +815,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineBoundarySampling_OutsideOutWithSubFrameGapUsesFrame354()
+        public void TimelineBoundarySampling_OutsideOutWithSubFrameGapUsesFrame354AndSamplesPastBoundary()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
@@ -834,7 +844,8 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(sampleTime, 60f),
                     Is.EqualTo(354));
-                Assert.That(sampleTime, Is.EqualTo(preciseEnd).Within(1e-12));
+                Assert.That(sampleTime, Is.GreaterThan(preciseEnd));
+                Assert.That(sampleTime, Is.LessThan(preciseEnd + 1e-5));
                 Assert.That(sampleTime, Is.GreaterThan(354.0 / 60.0));
             }
             finally

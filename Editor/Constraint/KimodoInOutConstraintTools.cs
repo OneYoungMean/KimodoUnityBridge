@@ -9,6 +9,7 @@ namespace KimodoBridge.Editor
     internal static class KimodoInOutConstraintTools
     {
         private const string FullBodyConstraintType = "fullbody";
+        private const double BoundarySampleEpsilonSeconds = 1e-7;
 
         internal static bool TrySampleBoundaryPair(
             KimodoInOutConstraintRequest request,
@@ -139,7 +140,7 @@ namespace KimodoBridge.Editor
                 double boundary = isBegin ? context.SourceClip.start : context.SourceClip.end;
                 return ClampTimelineSampleTime(
                     range,
-                    isBegin ? boundary - oneFrame : boundary,
+                    isBegin ? boundary - oneFrame : boundary + BoundarySampleEpsilonSeconds,
                     oneFrame);
             }
 
