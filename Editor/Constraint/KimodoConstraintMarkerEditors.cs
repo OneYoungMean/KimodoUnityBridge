@@ -15,14 +15,15 @@ namespace KimodoBridge.Editor
     {
         private const string EntryPrefix = "selection:";
         private const double PollIntervalSeconds = 0.2d;
+        private static readonly Color SinglePreviewColor = new Color(0.62f, 0.82f, 0.95f);
         private static readonly Color[] Palette =
         {
-            new Color(0.2f, 0.85f, 1f),
-            new Color(1f, 0.78f, 0.2f),
-            new Color(1f, 0.35f, 0.8f),
-            new Color(0.35f, 1f, 0.45f),
-            new Color(1f, 0.45f, 0.2f),
-            new Color(0.55f, 0.55f, 1f)
+            new Color(0.55f, 0.78f, 0.9f),
+            new Color(0.92f, 0.78f, 0.45f),
+            new Color(0.88f, 0.58f, 0.82f),
+            new Color(0.58f, 0.88f, 0.62f),
+            new Color(0.9f, 0.62f, 0.48f),
+            new Color(0.68f, 0.68f, 0.9f)
         };
 
         private sealed class PreviewSource
@@ -127,7 +128,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < sources.Count; i++)
             {
                 PreviewSource source = sources[i];
-                Color color = Palette[i % Palette.Length];
+                Color color = ResolvePreviewColor(i, sources.Count);
                 if (source.Object is KimodoConstraintMarkerBase marker)
                 {
                     AddMarkerPreview(groups, marker, color);
@@ -167,6 +168,11 @@ namespace KimodoBridge.Editor
             Labels.Sort(CompareLabels);
             selectionSignature = ComputeSelectionSignature();
             SceneView.RepaintAll();
+        }
+
+        private static Color ResolvePreviewColor(int index, int sourceCount)
+        {
+            return sourceCount <= 1 ? SinglePreviewColor : Palette[index % Palette.Length];
         }
 
         private static List<PreviewSource> CollectSources()
@@ -437,9 +443,10 @@ namespace KimodoBridge.Editor
                 positions.Add(root.position);
 
                 var style = new GUIStyle(EditorStyles.boldLabel);
+                style.alignment = TextAnchor.MiddleCenter;
                 style.normal.textColor = label.Color;
                 Handles.Label(
-                    root.position + Vector3.up * (0.15f + overlap * 0.08f),
+                    root.position + Vector3.down * (0.15f + overlap * 0.08f),
                     label.Text,
                     style);
             }
