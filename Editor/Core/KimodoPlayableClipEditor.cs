@@ -164,6 +164,9 @@ namespace KimodoBridge.Editor
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, bridgeModelName);
             KimodoGenerationInspectorGui.DrawTextWeight(textWeight);
             KimodoGenerationInspectorGui.DrawSeed(randomProp, seed);
+            int previousInOutMode = inOutConstraintModeProp?.enumValueIndex ?? 0;
+            bool previousInEnabled = enableInConstraint?.boolValue ?? false;
+            bool previousOutEnabled = enableOutConstraint?.boolValue ?? false;
             if (inOutConstraintModeProp != null)
             {
                 EditorGUILayout.PropertyField(
@@ -181,9 +184,32 @@ namespace KimodoBridge.Editor
             }
             if (showConstraint != null)
             {
-                EditorGUILayout.PropertyField(
-                    showConstraint,
-                    new GUIContent("Show Constraint", "Show constraint previews for this clip when selected."));
+                bool wasShown = showConstraint.boolValue;
+                bool refreshClicked = false;
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.PropertyField(
+                        showConstraint,
+                        new GUIContent("Show Constraint", "Show constraint previews for this clip when selected."));
+                    if (showConstraint.boolValue && !showConstraint.hasMultipleDifferentValues)
+                    {
+                        refreshClicked = GUILayout.Button(
+                            new GUIContent("Refresh", "Clear cached poses and force constraint re-sampling."),
+                            EditorStyles.miniButton,
+                            GUILayout.Width(54f));
+                    }
+                }
+
+                bool wasReEnabled =
+                    (!wasShown && showConstraint.boolValue) ||
+                    (showConstraint.boolValue &&
+                     ((!previousInEnabled && enableInConstraint.boolValue) ||
+                      (!previousOutEnabled && enableOutConstraint.boolValue) ||
+                      previousInOutMode != inOutConstraintModeProp.enumValueIndex));
+                if (refreshClicked || wasReEnabled)
+                {
+                    KimodoConstraintSelectionPreviewTool.ForceRefresh();
+                }
             }
             KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
 

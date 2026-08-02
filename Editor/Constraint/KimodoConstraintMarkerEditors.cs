@@ -53,6 +53,7 @@ namespace KimodoBridge.Editor
             new Dictionary<string, PoseCacheRenderContext>(StringComparer.Ordinal);
         private static readonly List<PreviewLabel> Labels = new List<PreviewLabel>();
         private static bool refreshQueued;
+        private static bool forceRefreshRequested;
         private static double nextPollTime;
         private static int selectionSignature;
 
@@ -78,6 +79,12 @@ namespace KimodoBridge.Editor
             EditorApplication.delayCall += Refresh;
         }
 
+        internal static void ForceRefresh()
+        {
+            forceRefreshRequested = true;
+            ScheduleRefresh();
+        }
+
         private static void PollSelection()
         {
             if (EditorApplication.timeSinceStartup < nextPollTime)
@@ -95,6 +102,14 @@ namespace KimodoBridge.Editor
         private static void Refresh()
         {
             refreshQueued = false;
+            if (forceRefreshRequested)
+            {
+                forceRefreshRequested = false;
+                KimodoTimelineConstraintClipCache.Clear();
+                KimodoConstraintMarkerEditorUtility.ClearSamplingCaches();
+                Clear();
+            }
+
             List<PreviewSource> sources = CollectSources();
             sources.Sort(CompareSources);
 
@@ -542,7 +557,7 @@ namespace KimodoBridge.Editor
         private void DrawCommonHeader(string type)
         {
             EditorGUILayout.LabelField($"Kimodo Constraint Marker ({type})", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("constraintEnabled"), new GUIContent("Enabled"));
+            KimodoConstraintMarkerEditorUtility.DrawEnabledField(serializedObject);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("useOverride"));
             KimodoConstraintMarkerEditorUtility.DrawOverrideEditButton(serializedObject, target as KimodoConstraintMarkerBase);
             EditorGUILayout.Space(4f);
@@ -629,7 +644,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.HelpBox(GetTipByType(typeName), MessageType.Info);
             EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField($"Kimodo Constraint Marker ({typeName})", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("constraintEnabled"), new GUIContent("Enabled"));
+            KimodoConstraintMarkerEditorUtility.DrawEnabledField(serializedObject);
 
             SerializedProperty overrideProp = serializedObject.FindProperty("useOverride");
             if (isCustomEndEffector)
@@ -1017,6 +1032,28 @@ namespace KimodoBridge.Editor
             KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
             SceneView.RepaintAll();
             return true;
+        }
+
+        internal static void ClearSamplingCaches()
+        {
+            AutoSampleCache.Clear();
+            PoseRenderSignatures.Clear();
+        }
+
+        internal static void DrawEnabledField(SerializedObject so)
+        {
+            SerializedProperty enabled = so?.FindProperty("constraintEnabled");
+            if (enabled == null)
+            {
+                return;
+            }
+
+            bool wasEnabled = enabled.boolValue;
+            EditorGUILayout.PropertyField(enabled, new GUIContent("Enabled"));
+            if (!wasEnabled && enabled.boolValue)
+            {
+                KimodoConstraintSelectionPreviewTool.ForceRefresh();
+            }
         }
 
         private static AutoSampleSignatureSnapshot BuildAutoSampleSnapshot(
