@@ -45,11 +45,6 @@ namespace KimodoBridge.Editor
                 return new ModelSetupStatus(false, 0, 0);
             }
 
-            if (!string.IsNullOrWhiteSpace(modelsRootOverride))
-            {
-                return new ModelSetupStatus(false, 0, 0);
-            }
-
             int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(runtimeRoot, mode, modelName, modelsRootOverride);
             if (points <= 0)
             {

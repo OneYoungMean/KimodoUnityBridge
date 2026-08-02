@@ -588,6 +588,15 @@ namespace KimodoBridge.Editor
                 ? Path.Combine(runtimeRoot, "models")
                 : Path.GetFullPath(modelsRootOverride.Trim());
             string modelDir = Path.Combine(modelsRoot, modelName.Trim());
+            if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
+            {
+                return File.Exists(Path.Combine(modelDir, "config.yaml")) &&
+                    File.Exists(Path.Combine(modelDir, "tokenizer.safetensors")) &&
+                    File.Exists(Path.Combine(modelDir, "denoiser.safetensors")) &&
+                    File.Exists(Path.Combine(modelDir, "stats", "motion", "mean.npy")) &&
+                    File.Exists(Path.Combine(modelDir, "stats", "motion", "std.npy"));
+            }
+
             return File.Exists(Path.Combine(modelDir, "model.safetensors"));
         }
 
@@ -687,6 +696,7 @@ namespace KimodoBridge.Editor
             try
             {
                 string setupDevice = string.Empty;
+                string torchRuntime = string.Empty;
                 foreach (string raw in File.ReadAllLines(sentinel))
                 {
                     string line = raw?.Trim() ?? string.Empty;
@@ -713,6 +723,11 @@ namespace KimodoBridge.Editor
                     {
                         setupDevice = value;
                     }
+
+                    if (key.Equals("torch_runtime", StringComparison.OrdinalIgnoreCase))
+                    {
+                        torchRuntime = value;
+                    }
                 }
 
                 if (string.Equals(setupDevice, "cpu", StringComparison.OrdinalIgnoreCase))
@@ -724,6 +739,12 @@ namespace KimodoBridge.Editor
                 if (!string.IsNullOrWhiteSpace(setupDevice))
                 {
                     profile = "gpu";
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(torchRuntime))
+                {
+                    profile = torchRuntime;
                     return true;
                 }
             }

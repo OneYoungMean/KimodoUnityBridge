@@ -60,5 +60,105 @@ namespace KimodoBridge.Editor.Tests
                 KimodoServerRuntimeUtil.RuntimeRootOverrideForTests = previousOverride;
             }
         }
+
+        [Test]
+        public void ArdyModelInstallCheckUsesArdyCheckpointFiles()
+        {
+            string runtimeRoot = Path.Combine(Path.GetTempPath(), "kimodo-quickserver-" + Guid.NewGuid().ToString("N"));
+            string modelDir = Path.Combine(
+                runtimeRoot,
+                "models",
+                KimodoMotionModelProfiles.ArdyCoreModelName);
+
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(modelDir, "stats", "motion"));
+                File.WriteAllText(Path.Combine(modelDir, "config.yaml"), string.Empty);
+                File.WriteAllText(Path.Combine(modelDir, "tokenizer.safetensors"), string.Empty);
+                File.WriteAllText(Path.Combine(modelDir, "denoiser.safetensors"), string.Empty);
+                File.WriteAllText(Path.Combine(modelDir, "stats", "motion", "mean.npy"), string.Empty);
+                File.WriteAllText(Path.Combine(modelDir, "stats", "motion", "std.npy"), string.Empty);
+
+                Assert.That(
+                    KimodoServerRuntimeUtil.IsSelectedBridgeModelInstalled(
+                        runtimeRoot,
+                        KimodoMotionModelProfiles.ArdyCoreModelName,
+                        null),
+                    Is.True);
+
+                File.Delete(Path.Combine(modelDir, "denoiser.safetensors"));
+                Assert.That(
+                    KimodoServerRuntimeUtil.IsSelectedBridgeModelInstalled(
+                        runtimeRoot,
+                        KimodoMotionModelProfiles.ArdyCoreModelName,
+                        null),
+                    Is.False);
+            }
+            finally
+            {
+                if (Directory.Exists(runtimeRoot))
+                {
+                    Directory.Delete(runtimeRoot, recursive: true);
+                }
+            }
+        }
+
+        [Test]
+        public void ModelSetupStatusHonorsModelsRootOverride()
+        {
+            string runtimeRoot = Path.Combine(Path.GetTempPath(), "kimodo-quickserver-" + Guid.NewGuid().ToString("N"));
+            string modelsRoot = Path.Combine(Path.GetTempPath(), "kimodo-models-" + Guid.NewGuid().ToString("N"));
+
+            try
+            {
+                Directory.CreateDirectory(runtimeRoot);
+                Directory.CreateDirectory(Path.Combine(modelsRoot, "KIMODO-Meta3_llm2vec_FP16"));
+                File.WriteAllText(Path.Combine(runtimeRoot, ".setup.complete"), "setup_profile=cuda");
+                File.WriteAllText(Path.Combine(modelsRoot, "KIMODO-Meta3_llm2vec_FP16", "model.safetensors"), string.Empty);
+
+                ModelSetupStatus status = KimodoBridgeRuntimeInstallFacade.EvaluateModelSetupStatus(
+                    runtimeRoot,
+                    KimodoTextEncoderMode.HighPrecision,
+                    "Kimodo-SOMA-RP-v1",
+                    modelsRoot);
+
+                Assert.That(status.Missing, Is.True);
+                Assert.That(status.MissingPoints, Is.EqualTo(2));
+            }
+            finally
+            {
+                if (Directory.Exists(runtimeRoot))
+                {
+                    Directory.Delete(runtimeRoot, recursive: true);
+                }
+
+                if (Directory.Exists(modelsRoot))
+                {
+                    Directory.Delete(modelsRoot, recursive: true);
+                }
+            }
+        }
+
+        [Test]
+        public void SetupProfileFallsBackToTorchRuntime()
+        {
+            string runtimeRoot = Path.Combine(Path.GetTempPath(), "kimodo-quickserver-" + Guid.NewGuid().ToString("N"));
+
+            try
+            {
+                Directory.CreateDirectory(runtimeRoot);
+                File.WriteAllText(Path.Combine(runtimeRoot, ".setup.complete"), "torch_runtime=cuda");
+
+                Assert.That(KimodoServerRuntimeUtil.TryReadSetupProfile(runtimeRoot, out string profile), Is.True);
+                Assert.That(profile, Is.EqualTo("cuda"));
+            }
+            finally
+            {
+                if (Directory.Exists(runtimeRoot))
+                {
+                    Directory.Delete(runtimeRoot, recursive: true);
+                }
+            }
+        }
     }
 }
