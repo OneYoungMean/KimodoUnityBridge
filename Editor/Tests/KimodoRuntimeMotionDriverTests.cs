@@ -371,6 +371,74 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void TimelineOutsideGuard_OffsetsManualConstraintsByRuntimeFrame()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip clip = track.CreateClip<KimodoPlayableClip>();
+                clip.start = 10.0;
+                clip.duration = 2.0;
+                var manual = new KimodoMarkerSampleResult
+                {
+                    constraintType = "fullbody",
+                    sampleTime = 10.0
+                };
+
+                KimodoInOutConstraintRequest request = KimodoInOutConstraintAdapter.BuildTimelineRequest(
+                    new KimodoTimelineInOutConstraintContext
+                    {
+                        SourceClip = clip,
+                        ModelName = KimodoMotionModelProfiles.ArdyCoreModelName
+                    },
+                    KimodoInOutConstraintMode.Outside,
+                    autoBeginAnchor: false,
+                    deferNormalization: true,
+                    enableIn: false,
+                    enableOut: false,
+                    generationFrames: 61,
+                    manualSamples: new List<KimodoMarkerSampleResult> { manual },
+                    sampleTimeOffsetSeconds: 1.0 / 20.0);
+
+                Assert.That(request.ManualSamples[0].sampleTime, Is.EqualTo(1.0 / 20.0).Within(1e-9));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void TimelineOutsideGuard_TrimRuntimeResultDropsLeadingFrame()
+        {
+            KimodoRawMotionData source = CreateMotion(4, 2, 30f);
+            var request = new KimodoEditorGenerateRequest
+            {
+                TargetFrameCount = 3,
+                TargetFrameRate = 30f,
+                RuntimeFrameCount = 4,
+                RuntimeTrimStartFrame = 1
+            };
+            var result = new KimodoBridgeCommandResult
+            {
+                MotionData = source,
+                MotionFormat = "kmb_v1"
+            };
+
+            KimodoBridgeCommandResult trimmed = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
+                request,
+                result,
+                KimodoPlayableClip.DefaultBridgeModelName);
+
+            Assert.That(trimmed.MotionData.FrameCount, Is.EqualTo(3));
+            Assert.That(trimmed.MotionData.TryReadUnityRootPosition(0, out Vector3 first), Is.True);
+            Assert.That(first.x, Is.EqualTo(1f));
+            Assert.That(trimmed.MotionJsonCompact, Does.Contain(""num_frames":3"));
+            Assert.That(trimmed.MotionBytes, Is.Not.Null);
+        }
+
+        [Test]
         public void ArdyInConstraint_IsSampledAsOrdinaryFullBodyConstraint()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();

@@ -43,12 +43,20 @@ namespace KimodoBridge.Editor
             int targetFrameCount = Mathf.Max(
                 KimodoPlayableClip.MIN_FRAMES,
                 KimodoFrameTimeUtility.SecondsToFrameCount(timelineClip.duration, targetFrameRate));
+            bool useOutsideGuardFrame = ShouldUseOutsideGuardFrame(
+                clip,
+                externalConstraint,
+                disableTimelineInOut);
+            int runtimeFrameCount = targetFrameCount + (useOutsideGuardFrame ? 1 : 0);
+            int runtimeTrimStartFrame = useOutsideGuardFrame ? 1 : 0;
+            double runtimeSampleOffsetSeconds = useOutsideGuardFrame ? 1.0 / targetFrameRate : 0.0;
             int constraintFrames = Mathf.Max(
                 KimodoPlayableClip.MIN_FRAMES,
                 KimodoFrameTimeUtility.SecondsToFrameCount(
                     timelineClip.duration,
                     KimodoPlayableClip.FIXED_FRAME_RATE));
-            float targetLengthSeconds = targetFrameCount / targetFrameRate;
+            int runtimeConstraintFrames = constraintFrames + (useOutsideGuardFrame ? 1 : 0);
+            float runtimeLengthSeconds = runtimeFrameCount / targetFrameRate;
 
             string constraintsJson;
             var normalizationInfo = new KimodoConstraintNormalizationInfo();
@@ -64,10 +72,11 @@ namespace KimodoBridge.Editor
             {
                 KimodoInOutConstraintResult constraintResult = ConstraintProvider.BuildConstraintDataOrThrow(
                     clip,
-                    constraintFrames,
+                    runtimeConstraintFrames,
                     disableTimelineInOut,
                     deferConstraintNormalization,
-                    enableAutoBeginAnchor);
+                    enableAutoBeginAnchor,
+                    runtimeSampleOffsetSeconds);
                 constraintsJson = constraintResult.ConstraintsJson ?? string.Empty;
                 KimodoInOutConstraintComposer.AppendSamples(constraintResult.CombinedSamples, constraintSamples);
                 hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
@@ -85,7 +94,7 @@ namespace KimodoBridge.Editor
                     constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                         constraintSamples,
                         0.0,
-                    targetLengthSeconds,
+                    runtimeLengthSeconds,
                     ardyProfile.SourceFps);
                 }
                 if (!disableTimelineInOut)
@@ -133,6 +142,8 @@ namespace KimodoBridge.Editor
                 TextEncoderMode = clip.textEncoderMode,
                 TargetFrameCount = targetFrameCount,
                 TargetFrameRate = targetFrameRate,
+                RuntimeFrameCount = runtimeFrameCount,
+                RuntimeTrimStartFrame = runtimeTrimStartFrame,
                 DiffusionSteps = isArdy
                     ? Mathf.Clamp(clip.diffusionSteps, 0, ardyProfile.MaxDiffusionSteps)
                     : Mathf.Clamp(clip.diffusionSteps, 1, 1000),
@@ -164,6 +175,18 @@ namespace KimodoBridge.Editor
                 InitialArdyHistorySource = initialHistorySource,
                 DisableTimelineInOut = disableTimelineInOut
             };
+        }
+
+        private static bool ShouldUseOutsideGuardFrame(
+            KimodoPlayableClip clip,
+            KimodoExternalConstraintRequest externalConstraint,
+            bool disableTimelineInOut)
+        {
+            return clip != null &&
+                !disableTimelineInOut &&
+                externalConstraint?.Enabled != true &&
+                clip.inOutConstraintMode == KimodoInOutConstraintMode.Outside &&
+                (clip.enableInConstraint || clip.enableOutConstraint);
         }
 
         public static void FinalizeGeneration(

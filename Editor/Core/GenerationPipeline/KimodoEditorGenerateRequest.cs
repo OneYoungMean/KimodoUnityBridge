@@ -15,6 +15,8 @@ namespace KimodoBridge.Editor
         public KimodoTextEncoderMode TextEncoderMode;
         public int TargetFrameCount;
         public float TargetFrameRate = KimodoPlayableClip.FIXED_FRAME_RATE;
+        public int RuntimeFrameCount;
+        public int RuntimeTrimStartFrame;
         public int DiffusionSteps;
         public float TextWeight = 1f;
         public int EffectiveSeed;
@@ -42,6 +44,9 @@ namespace KimodoBridge.Editor
         public List<string> GeneratedArdyWindowCachePaths = new List<string>();
         public List<int> GeneratedArdySeeds = new List<int>();
         public string GeneratedArdyFingerprint = string.Empty;
+
+        public int EffectiveRuntimeFrameCount =>
+            RuntimeFrameCount > 0 ? RuntimeFrameCount : TargetFrameCount;
     }
 
     internal sealed class ArdyEditorHistorySource

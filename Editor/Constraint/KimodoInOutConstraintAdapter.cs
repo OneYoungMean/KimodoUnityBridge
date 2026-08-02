@@ -31,6 +31,7 @@ namespace KimodoBridge.Editor
             bool enableIn,
             bool enableOut,
             int generationFrames,
+            double sampleTimeOffsetSeconds,
             out KimodoInOutConstraintResult result,
             out string error)
         {
@@ -58,7 +59,8 @@ namespace KimodoBridge.Editor
                 enableIn,
                 enableOut,
                 generationFrames,
-                manualSamples);
+                manualSamples,
+                sampleTimeOffsetSeconds);
             if (request == null)
             {
                 result = new KimodoInOutConstraintResult();
@@ -397,7 +399,8 @@ namespace KimodoBridge.Editor
             bool enableIn,
             bool enableOut,
             int generationFrames,
-            List<KimodoMarkerSampleResult> manualSamples)
+            List<KimodoMarkerSampleResult> manualSamples,
+            double sampleTimeOffsetSeconds = 0.0)
         {
             if (context == null)
             {
@@ -454,7 +457,8 @@ namespace KimodoBridge.Editor
                 TimelineContext = context,
                 ManualSamples = KimodoInOutConstraintTools.BuildLocalManualSamples(
                     manualSamples,
-                    context.SourceClip != null ? context.SourceClip.start : 0.0)
+                    context.SourceClip != null ? context.SourceClip.start : 0.0,
+                    sampleTimeOffsetSeconds)
             };
         }
 

@@ -194,7 +194,8 @@ namespace KimodoBridge.Editor
 
         internal static List<KimodoMarkerSampleResult> BuildLocalManualSamples(
             IReadOnlyList<KimodoMarkerSampleResult> sourceSamples,
-            double clipStartSeconds)
+            double clipStartSeconds,
+            double sampleTimeOffsetSeconds = 0.0)
         {
             var normalized = new List<KimodoMarkerSampleResult>();
             if (sourceSamples == null)
@@ -211,7 +212,7 @@ namespace KimodoBridge.Editor
                 }
 
                 KimodoMarkerSampleResult clone = sample.Clone();
-                clone.sampleTime = Math.Max(0.0, clone.sampleTime - clipStartSeconds);
+                clone.sampleTime = Math.Max(0.0, clone.sampleTime - clipStartSeconds + sampleTimeOffsetSeconds);
                 normalized.Add(clone);
             }
 

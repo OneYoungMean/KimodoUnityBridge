@@ -19,7 +19,8 @@ namespace KimodoBridge.Editor
             int? generationFramesOverride = null,
             bool disableTimelineInOut = false,
             bool deferNormalization = false,
-            bool enableAutoBeginAnchor = true)
+            bool enableAutoBeginAnchor = true,
+            double sampleTimeOffsetSeconds = 0.0)
         {
             TimelineClip sourceClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
             if (sourceClip == null)
@@ -39,6 +40,7 @@ namespace KimodoBridge.Editor
                 disableTimelineInOut || clip.enableInConstraint,
                 !disableTimelineInOut && clip.enableOutConstraint,
                 generationFramesOverride ?? clip.generationFrames,
+                sampleTimeOffsetSeconds,
                 out KimodoInOutConstraintResult result,
                 out string error);
 

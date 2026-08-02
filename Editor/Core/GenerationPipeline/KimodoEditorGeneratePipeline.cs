@@ -185,19 +185,19 @@ namespace KimodoBridge.Editor
             string modelName)
         {
             KimodoBridgeCommandRequest commandRequest = CreateRuntimePipelineRequest(request, prompt, modelName);
-            commandRequest.GenerationRequest.duration = request.TargetFrameCount / request.TargetFrameRate;
+            commandRequest.GenerationRequest.duration = request.EffectiveRuntimeFrameCount / request.TargetFrameRate;
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating Kimodo motion...");
             var pipeline = new KimodoBridgeCommand();
             KimodoBridgeCommandResult result = await pipeline.ExecuteAsync(
                 commandRequest,
                 (stage, message) => request.Progress?.Invoke(stage, message),
                 request.Token);
-            if (result?.MotionData == null || result.MotionData.FrameCount != request.TargetFrameCount)
+            if (result?.MotionData == null || result.MotionData.FrameCount != request.EffectiveRuntimeFrameCount)
             {
                 throw new InvalidOperationException(
-                    $"Kimodo returned {result?.MotionData?.FrameCount ?? 0} frames; expected {request.TargetFrameCount}.");
+                    $"Kimodo returned {result?.MotionData?.FrameCount ?? 0} frames; expected {request.EffectiveRuntimeFrameCount}.");
             }
-            return result;
+            return TrimRuntimeResultForOutput(request, result, modelName);
         }
 
         private static async Task<KimodoBridgeCommandResult> ExecuteArdyRuntimePipelineAsync(
@@ -208,7 +208,7 @@ namespace KimodoBridge.Editor
             byte[] historyPayload = BuildInitialArdyHistoryPayload(request, profile);
 
             KimodoBridgeCommandRequest commandRequest = CreateRuntimePipelineRequest(request, prompt, profile.ModelName);
-            commandRequest.GenerationRequest.duration = request.TargetFrameCount / request.TargetFrameRate;
+            commandRequest.GenerationRequest.duration = request.EffectiveRuntimeFrameCount / request.TargetFrameRate;
             commandRequest.GenerationRequest.time_as_double = 0.0;
             commandRequest.GenerationRequest.seed = request.EffectiveSeed;
             commandRequest.GenerationRequest.steps = request.DiffusionSteps <= 0
@@ -228,6 +228,7 @@ namespace KimodoBridge.Editor
             request.GeneratedArdySeeds.Add(directResult.ResolvedSeed.Value);
             request.GeneratedArdyFingerprint = directResult.MotionRepFingerprint;
 
+            directResult = TrimRuntimeResultForOutput(request, directResult, profile.ModelName);
             KimodoRawMotionData sourceMotion = directResult.MotionData;
             byte[] sourcePayload = KimodoRawMotionUtility.ToFlatBuffer(sourceMotion, profile.ModelName);
             request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(sourcePayload, "timeline-final");
@@ -242,6 +243,41 @@ namespace KimodoBridge.Editor
                 MotionRepFingerprint = profile.MotionRepFingerprint,
                 ResolvedSeed = directResult.ResolvedSeed
             };
+        }
+
+        internal static KimodoBridgeCommandResult TrimRuntimeResultForOutput(
+            KimodoEditorGenerateRequest request,
+            KimodoBridgeCommandResult result,
+            string modelName)
+        {
+            if (request == null || result == null || request.RuntimeTrimStartFrame <= 0)
+            {
+                return result;
+            }
+
+            if (!KimodoRawMotionUtility.TrySlice(
+                    result.MotionData,
+                    request.RuntimeTrimStartFrame,
+                    request.TargetFrameCount,
+                    out KimodoRawMotionData trimmed,
+                    out string trimError))
+            {
+                throw new InvalidOperationException(trimError);
+            }
+
+            result.MotionData = trimmed;
+            result.MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(trimmed);
+            if (result.MotionBytes != null ||
+                string.Equals(result.MotionFormat, "kmb_v1", StringComparison.OrdinalIgnoreCase))
+            {
+                result.MotionBytes = KimodoRawMotionUtility.ToFlatBuffer(trimmed, modelName);
+            }
+            if (result.EndFrameExclusive > result.StartFrame)
+            {
+                result.StartFrame += request.RuntimeTrimStartFrame;
+                result.EndFrameExclusive = result.StartFrame + trimmed.FrameCount;
+            }
+            return result;
         }
 
         internal static byte[] BuildInitialArdyHistoryPayload(
