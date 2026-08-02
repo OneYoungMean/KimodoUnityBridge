@@ -333,10 +333,10 @@ namespace KimodoBridge.Editor
             {
                 return;
             }
-            if (request.ContinuousOffsetSourceClip != null)
+            if (request.AnchorOffsetSourceClip != null)
             {
-                CopyClipOffset(request.ContinuousOffsetSourceClip, playableClip);
-                Debug.Log($"[Kimodo][TimelineOffset] reused continuous-sequence Hips offset for '{playableClip.name}'.");
+                CopyClipOffset(request.AnchorOffsetSourceClip, playableClip);
+                Debug.Log($"[Kimodo][TimelineOffset] reused connected-sequence Hips offset for '{playableClip.name}'.");
                 return;
             }
 

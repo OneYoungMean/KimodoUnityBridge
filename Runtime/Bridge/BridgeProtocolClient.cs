@@ -182,6 +182,28 @@ namespace KimodoBridge
                 payload["models_root"] = request.models_root ?? string.Empty;
                 payload["force_hf_download"] = request.force_hf_download;
                 payload["owner_pid"] = request.owner_pid;
+                if (request.ardy_timeline_segments != null && request.ardy_timeline_segments.Count > 0)
+                {
+                    var timelineSegments = new JArray();
+                    for (int i = 0; i < request.ardy_timeline_segments.Count; i++)
+                    {
+                        KimodoArdyTimelineSegmentDto segment = request.ardy_timeline_segments[i];
+                        if (segment == null)
+                        {
+                            throw new InvalidOperationException("ARDY timeline segment is null.");
+                        }
+                        if (float.IsNaN(segment.duration) || float.IsInfinity(segment.duration) || segment.duration <= 0f)
+                        {
+                            throw new InvalidOperationException("ARDY timeline segment duration must be finite and positive.");
+                        }
+                        timelineSegments.Add(new JObject
+                        {
+                            ["prompt"] = segment.prompt ?? string.Empty,
+                            ["duration"] = segment.duration
+                        });
+                    }
+                    payload["ardy_timeline_segments"] = timelineSegments;
+                }
             }
             if (request.prompt != null)
             {

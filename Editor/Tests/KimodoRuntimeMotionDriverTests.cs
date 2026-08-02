@@ -249,29 +249,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineBatchRange_ReplacesPreviouslyGeneratedFuture()
-        {
-            KimodoRawMotionData initial = CreateMotion(8, 2, 20f, absoluteStartFrame: 0);
-            KimodoRawMotionData replacement = CreateMotion(6, 2, 20f, absoluteStartFrame: 4);
-
-            KimodoRawMotionData merged = KimodoPlayableClipGenerationExecutionService.MergeRange(
-                initial,
-                new KimodoBridgeCommandResult
-                {
-                    MotionData = replacement,
-                    StartFrame = 4,
-                    EndFrameExclusive = 10
-                });
-
-            Assert.That(merged.FrameCount, Is.EqualTo(10));
-            Assert.That(merged.TryReadUnityRootPosition(3, out Vector3 prefix), Is.True);
-            Assert.That(merged.TryReadUnityRootPosition(9, out Vector3 tail), Is.True);
-            Assert.That(prefix.x, Is.EqualTo(3f));
-            Assert.That(tail.x, Is.EqualTo(9f));
-        }
-
-        [Test]
-        public void TimelineBatchSelection_AcceptsConnectedCompatibleArdyClips()
+        public void TimelineConnectedSelection_AcceptsCompatibleArdyClips()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
@@ -281,7 +259,7 @@ namespace KimodoBridge.Editor.Tests
                 TimelineClip second = CreateArdyTimelineClip(track, 2.0, 2.0, 10);
 
                 Assert.That(
-                    KimodoPlayableClipGenerationExecutionService.TryValidateContinuousSelection(
+                    KimodoPlayableClipGenerationExecutionService.TryValidateConnectedSelection(
                         new[] { second, first },
                         out string reason),
                     Is.True,
@@ -294,7 +272,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineBatchSelection_ReportsParameterDifferenceBeforeSerialFallback()
+        public void TimelineConnectedSelection_ReportsParameterDifference()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
@@ -304,7 +282,7 @@ namespace KimodoBridge.Editor.Tests
                 TimelineClip second = CreateArdyTimelineClip(track, 2.0, 2.0, 5);
 
                 Assert.That(
-                    KimodoPlayableClipGenerationExecutionService.TryValidateContinuousSelection(
+                    KimodoPlayableClipGenerationExecutionService.TryValidateConnectedSelection(
                         new[] { first, second },
                         out string reason),
                     Is.False);
@@ -317,7 +295,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineBatchSelection_RejectsUnalignedPromptBoundary()
+        public void TimelineConnectedSelection_RejectsUnalignedPromptBoundary()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
@@ -327,7 +305,7 @@ namespace KimodoBridge.Editor.Tests
                 TimelineClip second = CreateArdyTimelineClip(track, 0.25, 2.0, 10);
 
                 Assert.That(
-                    KimodoPlayableClipGenerationExecutionService.TryValidateContinuousSelection(
+                    KimodoPlayableClipGenerationExecutionService.TryValidateConnectedSelection(
                         new[] { first, second },
                         out string reason),
                     Is.False);
@@ -340,7 +318,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineBatchInOutOverride_KeepsManualConstraintsWithoutBoundaries()
+        public void TimelineConnectedInOutOverride_KeepsManualConstraintsWithoutBoundaries()
         {
             var manual = new KimodoMarkerSampleResult
             {

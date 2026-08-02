@@ -13,18 +13,13 @@ namespace KimodoBridge.Editor
     {
         private const double TimelineEpsilonSeconds = 1e-6;
 
-        private sealed class ContinuousClipEntry
+        private sealed class ConnectedClipEntry
         {
             public TimelineClip TimelineClip;
             public KimodoPlayableClip Clip;
             public int StartFrame;
             public int FrameCount;
             public KimodoEditorGenerateRequest Request;
-        }
-
-        internal static int GetSelectedClipCount(KimodoPlayableClip fallback)
-        {
-            return Math.Max(1, KimodoEditorSelectionBridge.GetSelectedPlayableClips(fallback).Count);
         }
 
         internal static bool TryStartGenerate(
@@ -41,43 +36,58 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            List<TimelineClip> selected = KimodoEditorSelectionBridge.GetSelectedPlayableClips(clip);
-            if (selected.Count <= 1)
+            return StartSingle(clip, out session, out error);
+        }
+
+        internal static bool TryStartGenerateConnectedArdy(
+            KimodoPlayableClip clip,
+            out EditorGenerateSession session,
+            out string error)
+        {
+            session = null;
+            error = string.Empty;
+            if (clip == null)
             {
-                return StartSingle(clip, out session, out error);
+                error = "KimodoPlayableClip is null.";
+                return false;
             }
 
-            for (int i = 0; i < selected.Count; i++)
+            if (!TryCreateConnectedArdyPlan(
+                    clip,
+                    out List<ConnectedClipEntry> entries,
+                    out KimodoMotionModelProfile profile,
+                    out error))
             {
-                if (selected[i]?.asset is KimodoPlayableClip selectedClip &&
-                    EditorGenerateSessionRunner.TryGet(selectedClip, out EditorGenerateSession active) &&
+                return false;
+            }
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (EditorGenerateSessionRunner.TryGet(entries[i].Clip, out EditorGenerateSession active) &&
                     active != null &&
                     active.IsRunning)
                 {
-                    error = $"A generation session is already running for '{selectedClip.name}'.";
+                    error = $"A generation session is already running for '{entries[i].Clip.name}'.";
                     session = active;
                     return false;
                 }
             }
 
-            var sorted = new List<TimelineClip>(selected);
-            sorted.Sort(CompareTimelineClips);
-            bool continuous = TryCreateContinuousPlan(sorted, out _, out _, out string fallbackReason);
-            bool started = EditorGenerateSessionRunner.Start(
+            return EditorGenerateSessionRunner.Start(
                 clip,
-                $"clip-batch:{clip.GetInstanceID()}",
+                $"clip-connected:{clip.GetInstanceID()}",
                 KimodoEditorCommandKind.GeneratePlayableClip,
-                async (handle, token) => await GenerateSelectionAsync(
-                    selected,
-                    (stage, message) => EditorGenerateSessionRunner.UpdateProgress(clip, handle.RequestId, stage, message),
-                token),
+                async (handle, token) => await GenerateConnectedArdyAsync(
+                    entries,
+                    profile,
+                    (stage, message) => EditorGenerateSessionRunner.UpdateProgress(
+                        clip,
+                        handle.RequestId,
+                        stage,
+                        message),
+                    token),
                 out session,
                 out error);
-            if (started && !continuous)
-            {
-                error = $"Queued serial generation: {fallbackReason}";
-            }
-            return started;
         }
 
         private static bool StartSingle(
@@ -98,55 +108,99 @@ namespace KimodoBridge.Editor
                 out error);
         }
 
-        private static async Task<KimodoEditorGenerateResult> GenerateSelectionAsync(
-            List<TimelineClip> selected,
-            Action<KimodoBridgeCommandStage, string> progress,
-            CancellationToken token)
-        {
-            selected.Sort(CompareTimelineClips);
-            if (TryCreateContinuousPlan(selected, out List<ContinuousClipEntry> entries, out KimodoMotionModelProfile profile, out string fallbackReason))
-            {
-                Debug.Log($"[Kimodo][TimelineBatch] Generating {entries.Count} connected ARDY clips in one continuous Session.");
-                return await GenerateContinuousArdyAsync(entries, profile, progress, token);
-            }
-
-            string warning = $"[Kimodo][TimelineBatch] Continuous ARDY generation is unavailable: {fallbackReason} Falling back to serial clip generation.";
-            Debug.LogWarning(warning);
-            progress?.Invoke(KimodoBridgeCommandStage.Validate, warning);
-
-            KimodoEditorGenerateResult last = null;
-            for (int i = 0; i < selected.Count; i++)
-            {
-                token.ThrowIfCancellationRequested();
-                if (selected[i]?.asset is not KimodoPlayableClip selectedClip)
-                {
-                    continue;
-                }
-                last = await GenerateAndFinalizeAsync(
-                    selectedClip,
-                    externalConstraint: null,
-                    PrefixProgress(progress, i, selected.Count),
-                    token);
-            }
-            return last ?? throw new InvalidOperationException("No selected KimodoPlayableClip could be generated.");
-        }
-
-        internal static bool TryValidateContinuousSelection(
+        internal static bool TryValidateConnectedSelection(
             IReadOnlyList<TimelineClip> selected,
             out string reason)
         {
             var sorted = selected != null ? new List<TimelineClip>(selected) : new List<TimelineClip>();
             sorted.Sort(CompareTimelineClips);
-            return TryCreateContinuousPlan(sorted, out _, out _, out reason);
+            return TryCreateConnectedPlan(sorted, out _, out _, out reason);
         }
 
-        private static bool TryCreateContinuousPlan(
-            IReadOnlyList<TimelineClip> selected,
-            out List<ContinuousClipEntry> entries,
+        internal static bool TryGetConnectedArdyClipCount(
+            KimodoPlayableClip clip,
+            out int count,
+            out string reason)
+        {
+            count = 0;
+            if (!TryCreateConnectedArdyPlan(clip, out List<ConnectedClipEntry> entries, out _, out reason))
+            {
+                return false;
+            }
+
+            count = entries.Count;
+            return true;
+        }
+
+        private static bool TryCreateConnectedArdyPlan(
+            KimodoPlayableClip clip,
+            out List<ConnectedClipEntry> entries,
             out KimodoMotionModelProfile profile,
             out string reason)
         {
-            entries = new List<ContinuousClipEntry>();
+            entries = new List<ConnectedClipEntry>();
+            profile = null;
+            reason = string.Empty;
+            TimelineClip anchor = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
+            if (anchor == null)
+            {
+                reason = "The selected clip is not on a Timeline track.";
+                return false;
+            }
+
+            TrackAsset track = anchor.GetParentTrack();
+            if (track == null)
+            {
+                reason = "The selected clip has no Timeline track.";
+                return false;
+            }
+
+            var candidates = new List<TimelineClip>(track.GetClips());
+            candidates.Sort(CompareTimelineClips);
+            int anchorIndex = candidates.IndexOf(anchor);
+            if (anchorIndex < 0)
+            {
+                reason = "The selected clip could not be resolved on its Timeline track.";
+                return false;
+            }
+
+            var selected = new List<TimelineClip> { anchor };
+            for (int index = anchorIndex - 1; index >= 0; index--)
+            {
+                var candidate = new List<TimelineClip> { candidates[index] };
+                candidate.AddRange(selected);
+                if (!TryCreateConnectedPlan(candidate, out _, out _, out _))
+                {
+                    break;
+                }
+                selected.Insert(0, candidates[index]);
+            }
+            for (int index = anchorIndex + 1; index < candidates.Count; index++)
+            {
+                var candidate = new List<TimelineClip>(selected) { candidates[index] };
+                if (!TryCreateConnectedPlan(candidate, out _, out _, out _))
+                {
+                    break;
+                }
+                selected.Add(candidates[index]);
+            }
+
+            if (selected.Count < 2)
+            {
+                reason = "No compatible connected ARDY clip was found on this track.";
+                return false;
+            }
+
+            return TryCreateConnectedPlan(selected, out entries, out profile, out reason);
+        }
+
+        private static bool TryCreateConnectedPlan(
+            IReadOnlyList<TimelineClip> selected,
+            out List<ConnectedClipEntry> entries,
+            out KimodoMotionModelProfile profile,
+            out string reason)
+        {
+            entries = new List<ConnectedClipEntry>();
             profile = null;
             reason = string.Empty;
             if (selected == null || selected.Count < 2)
@@ -217,7 +271,7 @@ namespace KimodoBridge.Editor
                     AddDifference(differences, $"boundary before '{timelineClip.displayName}' is not aligned to the {profile.FramesPerToken}-frame motion token");
                 }
 
-                entries.Add(new ContinuousClipEntry
+                entries.Add(new ConnectedClipEntry
                 {
                     TimelineClip = timelineClip,
                     Clip = playable,
@@ -236,8 +290,8 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        private static async Task<KimodoEditorGenerateResult> GenerateContinuousArdyAsync(
-            List<ContinuousClipEntry> entries,
+        private static async Task<KimodoEditorGenerateResult> GenerateConnectedArdyAsync(
+            List<ConnectedClipEntry> entries,
             KimodoMotionModelProfile profile,
             Action<KimodoBridgeCommandStage, string> progress,
             CancellationToken token)
@@ -245,48 +299,34 @@ namespace KimodoBridge.Editor
             int groupSeed = entries[0].Clip.randomSeed
                 ? Guid.NewGuid().GetHashCode() & int.MaxValue
                 : entries[0].Clip.seed;
-            BuildContinuousRequests(entries, profile, groupSeed, progress, token);
+            BuildConnectedRequests(entries, profile, groupSeed, progress, token);
+            int totalFrameCount = entries[entries.Count - 1].StartFrame + entries[entries.Count - 1].FrameCount;
+            KimodoEditorGenerateRequest firstRequest = entries[0].Request;
+            KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
+                firstRequest,
+                firstRequest.Prompt?.Trim() ?? string.Empty,
+                profile.ModelName).GenerationRequest;
+            generation.duration = totalFrameCount / profile.SourceFps;
+            generation.time_as_double = 0.0;
+            generation.seed = groupSeed;
+            generation.steps = KimodoMotionModelProfiles.ResolveArdyProtocolSteps(firstRequest.DiffusionSteps, profile);
+            generation.constraints_json = ExplicitConstraints(firstRequest.ConstraintsJson);
+            generation.ardy_history_kmb = KimodoEditorGeneratePipeline.BuildInitialArdyHistoryPayload(firstRequest, profile);
+            generation.ardy_playback_reserve_seconds = 0.0;
+            generation.ardy_adaptive_playback_reserve = false;
+            AddTimelineSegments(entries, profile, generation);
 
-            KimodoRawMotionData aggregate = null;
-            KimodoBridgeService service = KimodoBridgeService.CreateOwned();
-            try
+            firstRequest.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating connected ARDY KMB...");
+            var pipeline = new KimodoBridgeCommand();
+            KimodoBridgeCommandResult aggregate = await pipeline.ExecuteAsync(
+                new KimodoBridgeCommandRequest { GenerationRequest = generation },
+                (stage, message) => progress?.Invoke(stage, message),
+                token);
+            KimodoEditorGeneratePipeline.ValidateArdyResult(aggregate, profile, groupSeed);
+            if (aggregate.MotionData.FrameCount != totalFrameCount)
             {
-                for (int i = 0; i < entries.Count; i++)
-                {
-                    token.ThrowIfCancellationRequested();
-                    ContinuousClipEntry entry = entries[i];
-                    KimodoGenerationRequestDto generationRequest = i == 0
-                        ? CreateInitialStreamRequest(entry.Request, profile)
-                        : CreateStreamUpdateRequest(entry, profile, includePatch: true);
-                    aggregate = MergeRange(
-                        aggregate,
-                        await SendArdyRequestAsync(service, generationRequest, profile, groupSeed, i, entries.Count, progress, token));
-
-                    int requiredEndFrame = entry.StartFrame + entry.FrameCount;
-                    while (aggregate.FrameCount < requiredEndFrame)
-                    {
-                        int previousFrameCount = aggregate.FrameCount;
-                        aggregate = MergeRange(
-                            aggregate,
-                            await SendArdyRequestAsync(
-                                service,
-                                CreateStreamUpdateRequest(entry, profile, includePatch: false),
-                                profile,
-                                groupSeed,
-                                i,
-                                entries.Count,
-                                progress,
-                                token));
-                        if (aggregate.FrameCount <= previousFrameCount)
-                        {
-                            throw new InvalidOperationException("ARDY stream did not advance while collecting the selected Timeline range.");
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                await service.DisposeAsync();
+                throw new InvalidOperationException(
+                    $"ARDY returned {aggregate.MotionData.FrameCount} frames; expected {totalFrameCount}.");
             }
 
             var baked = new List<KimodoEditorGenerateResult>(entries.Count);
@@ -296,9 +336,9 @@ namespace KimodoBridge.Editor
                 for (int i = 0; i < entries.Count; i++)
                 {
                     token.ThrowIfCancellationRequested();
-                    ContinuousClipEntry entry = entries[i];
+                    ConnectedClipEntry entry = entries[i];
                     if (!KimodoRawMotionUtility.TrySlice(
-                            aggregate,
+                            aggregate.MotionData,
                             entry.StartFrame,
                             entry.FrameCount,
                             out KimodoRawMotionData motion,
@@ -311,8 +351,8 @@ namespace KimodoBridge.Editor
                     entry.Request.GeneratedArdySeeds.Clear();
                     entry.Request.GeneratedArdySeeds.Add(groupSeed);
                     entry.Request.GeneratedArdyFingerprint = profile.MotionRepFingerprint;
-                    entry.Request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(payload, $"timeline-batch-{i + 1}");
-                    entry.Request.Progress?.Invoke(KimodoBridgeCommandStage.Bake, $"Baking selected clip {i + 1}/{entries.Count}...");
+                    entry.Request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(payload, $"timeline-connected-{i + 1}");
+                    entry.Request.Progress?.Invoke(KimodoBridgeCommandStage.Bake, $"Baking connected clip {i + 1}/{entries.Count}...");
                     baked.Add(KimodoEditorGeneratePipeline.BakeRuntimeResult(
                         entry.Request,
                         entry.Request.Prompt?.Trim() ?? string.Empty,
@@ -323,7 +363,7 @@ namespace KimodoBridge.Editor
                             MotionData = motion,
                             MotionBytes = payload,
                             MotionFormat = "kmb_v1",
-                            Message = "Continuous ARDY Timeline generation complete.",
+                            Message = "Connected ARDY Timeline generation complete.",
                             RawStatus = "done",
                             MotionRepFingerprint = profile.MotionRepFingerprint,
                             ResolvedSeed = groupSeed,
@@ -351,8 +391,8 @@ namespace KimodoBridge.Editor
             return baked[baked.Count - 1];
         }
 
-        private static void BuildContinuousRequests(
-            List<ContinuousClipEntry> entries,
+        private static void BuildConnectedRequests(
+            List<ConnectedClipEntry> entries,
             KimodoMotionModelProfile profile,
             int groupSeed,
             Action<KimodoBridgeCommandStage, string> progress,
@@ -360,7 +400,7 @@ namespace KimodoBridge.Editor
         {
             for (int i = 0; i < entries.Count; i++)
             {
-                ContinuousClipEntry entry = entries[i];
+                ConnectedClipEntry entry = entries[i];
                 entry.Clip.seed = groupSeed;
                 EditorUtility.SetDirty(entry.Clip);
                 entry.Request = KimodoPlayableClipGenerationHostService.BuildRequest(
@@ -388,10 +428,11 @@ namespace KimodoBridge.Editor
                 for (int sampleIndex = 0; sampleIndex < samples.Count; sampleIndex++)
                 {
                     KimodoMarkerSampleResult sample = samples[sampleIndex];
-                    if (sample != null)
+                    if (sample == null)
                     {
-                        sample.sampleTime += timeOffset;
+                        continue;
                     }
+                    sample.sampleTime += timeOffset;
                     allSamples.Add(sample);
                     sampleTimeOffsets.Add(timeOffset);
                 }
@@ -427,8 +468,14 @@ namespace KimodoBridge.Editor
                     out string warning);
                 if (!string.IsNullOrWhiteSpace(warning))
                 {
-                    Debug.LogWarning($"[Kimodo][TimelineBatch] {warning}");
+                    Debug.LogWarning($"[Kimodo][ConnectedClips] {warning}");
                 }
+                int totalFrameCount = entries[entries.Count - 1].StartFrame + entries[entries.Count - 1].FrameCount;
+                firstRequest.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
+                    allSamples,
+                    0.0,
+                    totalFrameCount / profile.SourceFps,
+                    profile.SourceFps);
             }
             finally
             {
@@ -442,133 +489,27 @@ namespace KimodoBridge.Editor
             }
             for (int i = 1; i < entries.Count; i++)
             {
-                entries[i].Request.ContinuousOffsetSourceClip = entries[0].Clip;
+                entries[i].Request.AnchorOffsetSourceClip = entries[0].Clip;
             }
+        }
 
+        private static void AddTimelineSegments(
+            List<ConnectedClipEntry> entries,
+            KimodoMotionModelProfile profile,
+            KimodoGenerationRequestDto generation)
+        {
+            // Keep prompt boundaries explicit; Python performs the single long generation.
+            var segments = new List<KimodoArdyTimelineSegmentDto>(entries.Count);
             for (int i = 0; i < entries.Count; i++)
             {
-                KimodoEditorGenerateRequest request = entries[i].Request;
-                request.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
-                    request.ConstraintSamples,
-                    0.0,
-                    request.EffectiveRuntimeDurationSeconds,
-                    profile.SourceFps);
-            }
-        }
-
-        private static KimodoGenerationRequestDto CreateInitialStreamRequest(
-            KimodoEditorGenerateRequest request,
-            KimodoMotionModelProfile profile)
-        {
-            KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
-                request,
-                request.Prompt?.Trim() ?? string.Empty,
-                profile.ModelName).GenerationRequest;
-            generation.duration = null;
-            generation.time_as_double = 0.0;
-            generation.seed = request.EffectiveSeed;
-            generation.steps = KimodoMotionModelProfiles.ResolveArdyProtocolSteps(request.DiffusionSteps, profile);
-            generation.constraints_json = ExplicitConstraints(request.ConstraintsJson);
-            generation.ardy_history_kmb = KimodoEditorGeneratePipeline.BuildInitialArdyHistoryPayload(request, profile);
-            generation.ardy_playback_reserve_seconds = 0.0;
-            generation.ardy_adaptive_playback_reserve = false;
-            return generation;
-        }
-
-        private static KimodoGenerationRequestDto CreateStreamUpdateRequest(
-            ContinuousClipEntry entry,
-            KimodoMotionModelProfile profile,
-            bool includePatch)
-        {
-            return new KimodoGenerationRequestDto
-            {
-                time_as_double = entry.StartFrame / (double)profile.SourceFps,
-                prompt = includePatch ? entry.Request.Prompt?.Trim() ?? string.Empty : null,
-                constraints_json = includePatch ? ExplicitConstraints(entry.Request.ConstraintsJson) : null,
-                ardy_session_update_only = true
-            };
-        }
-
-        private static async Task<KimodoBridgeCommandResult> SendArdyRequestAsync(
-            KimodoBridgeService service,
-            KimodoGenerationRequestDto generationRequest,
-            KimodoMotionModelProfile profile,
-            int groupSeed,
-            int clipIndex,
-            int clipCount,
-            Action<KimodoBridgeCommandStage, string> progress,
-            CancellationToken token)
-        {
-            KimodoBridgeGenerationResult bridgeResult = await service.GenerateAsync(
-                generationRequest,
-                message => progress?.Invoke(
-                    KimodoBridgeCommandStage.InvokeBackend,
-                    $"[{clipIndex + 1}/{clipCount}] {message}"),
-                token);
-            var result = new KimodoBridgeCommandResult
-            {
-                MotionData = bridgeResult?.MotionData,
-                MotionBytes = bridgeResult?.MotionBytes,
-                MotionFormat = bridgeResult?.MotionFormat,
-                Message = bridgeResult?.Message ?? string.Empty,
-                RawStatus = bridgeResult?.RawStatus ?? string.Empty,
-                MotionRepFingerprint = bridgeResult?.MotionRepFingerprint ?? string.Empty,
-                ResolvedSeed = bridgeResult?.ResolvedSeed,
-                StartFrame = bridgeResult?.StartFrame ?? 0,
-                EndFrameExclusive = bridgeResult?.EndFrameExclusive ?? 0
-            };
-            KimodoEditorGeneratePipeline.ValidateArdyResult(result, profile, groupSeed);
-            if (result.EndFrameExclusive - result.StartFrame != result.MotionData.FrameCount)
-            {
-                throw new InvalidOperationException(
-                    $"ARDY response range [{result.StartFrame},{result.EndFrameExclusive}) does not match its {result.MotionData.FrameCount}-frame KMB payload.");
-            }
-            return result;
-        }
-
-        internal static KimodoRawMotionData MergeRange(
-            KimodoRawMotionData aggregate,
-            KimodoBridgeCommandResult segment)
-        {
-            if (segment?.MotionData == null)
-            {
-                throw new InvalidOperationException("ARDY stream returned an empty KMB range.");
-            }
-            if (aggregate == null)
-            {
-                if (segment.StartFrame != 0)
+                ConnectedClipEntry entry = entries[i];
+                segments.Add(new KimodoArdyTimelineSegmentDto
                 {
-                    throw new InvalidOperationException($"ARDY stream begins at frame {segment.StartFrame}, expected frame 0.");
-                }
-                return segment.MotionData;
+                    prompt = entry.Request.Prompt?.Trim() ?? string.Empty,
+                    duration = entry.FrameCount / profile.SourceFps
+                });
             }
-            if (segment.StartFrame > aggregate.FrameCount)
-            {
-                throw new InvalidOperationException(
-                    $"ARDY stream has a gap: local range ends at {aggregate.FrameCount}, response begins at {segment.StartFrame}.");
-            }
-            if (segment.StartFrame == 0)
-            {
-                return segment.MotionData;
-            }
-            if (!KimodoRawMotionUtility.TrySlice(
-                    aggregate,
-                    0,
-                    segment.StartFrame,
-                    out KimodoRawMotionData prefix,
-                    out string sliceError))
-            {
-                throw new InvalidOperationException(sliceError);
-            }
-            if (!KimodoRawMotionUtility.TryConcatenate(
-                    new[] { prefix, segment.MotionData },
-                    prefix.FrameCount + segment.MotionData.FrameCount,
-                    out KimodoRawMotionData merged,
-                    out string mergeError))
-            {
-                throw new InvalidOperationException(mergeError);
-            }
-            return merged;
+            generation.ardy_timeline_segments = segments;
         }
 
         private static int ResolveArdySteps(KimodoPlayableClip clip, KimodoMotionModelProfile profile)

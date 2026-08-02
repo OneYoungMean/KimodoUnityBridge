@@ -14,6 +14,7 @@ namespace KimodoBridge
         public int steps;
         public float text_weight = 1f;
         public string constraints_json;
+        [NonSerialized] public List<KimodoArdyTimelineSegmentDto> ardy_timeline_segments;
         [NonSerialized] public List<KimodoArdyClipConstraint> ardy_future_clips;
         [NonSerialized] public byte[] ardy_history_kmb;
         [NonSerialized] public bool ardy_session_update_only;
@@ -31,6 +32,13 @@ namespace KimodoBridge
         public double? ardy_playback_reserve_seconds;
         public bool? ardy_adaptive_playback_reserve;
         public string output_format = "kmb_v1";
+    }
+
+    [Serializable]
+    public sealed class KimodoArdyTimelineSegmentDto
+    {
+        public string prompt;
+        public float duration;
     }
 
     public static class KimodoTextEncoderModeProtocol

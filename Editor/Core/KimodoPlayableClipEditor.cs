@@ -220,12 +220,8 @@ namespace KimodoBridge.Editor
                 !hasTimelineDuration ||
                 KimodoBridgeServerTool.IsRuntimeMaintenanceInProgress ||
                 EditorCompilationStateGate.IsCompilingOrReloading;
-            int selectedClipCount = KimodoPlayableClipGenerationExecutionService.GetSelectedClipCount(clip);
-            string generateLabel = selectedClipCount > 1
-                ? $"Generate {selectedClipCount} Clips & Bake"
-                : "Generate & Bake";
             GUI.enabled = !disableGenerate;
-            if (GUILayout.Button(new GUIContent(generateLabel, "Generate selected Timeline clips. Compatible connected ARDY clips share one continuous Session; other selections run serially."), GUILayout.Height(32)))
+            if (GUILayout.Button(new GUIContent("Generate & Bake", "Generate only this Timeline clip."), GUILayout.Height(32)))
             {
                 serializedObject.ApplyModifiedProperties();
                 bool accepted = KimodoPlayableClipGenerationExecutionService.TryStartGenerate(
@@ -241,6 +237,41 @@ namespace KimodoBridge.Editor
                 else
                 {
                     lastError = error;
+                }
+            }
+            if (isArdy)
+            {
+                bool hasConnectedPlan = KimodoPlayableClipGenerationExecutionService.TryGetConnectedArdyClipCount(
+                    clip,
+                    out int connectedClipCount,
+                    out string connectedReason);
+                GUI.enabled = !disableGenerate && hasConnectedPlan;
+                string connectedLabel = connectedClipCount > 1
+                    ? $"Generate {connectedClipCount} Connected Clips & Bake"
+                    : "Generate Connected Clips & Bake";
+                if (GUILayout.Button(
+                        new GUIContent(
+                            connectedLabel,
+                            hasConnectedPlan
+                                ? "Generate all compatible head-to-tail ARDY clips in one server request, then slice and bake them in Unity."
+                                : connectedReason),
+                        GUILayout.Height(28)))
+                {
+                    serializedObject.ApplyModifiedProperties();
+                    bool accepted = KimodoPlayableClipGenerationExecutionService.TryStartGenerateConnectedArdy(
+                        clip,
+                        out _,
+                        out string error);
+                    if (accepted)
+                    {
+                        isGenerating = true;
+                        lastError = string.Empty;
+                        lastStatus = "Queued connected ARDY generation...";
+                    }
+                    else
+                    {
+                        lastError = error;
+                    }
                 }
             }
             GUI.enabled = isGenerating;

@@ -841,7 +841,7 @@ namespace KimodoBridge.Editor.Tests
                     new object[]
                     {
                         destination,
-                        new KimodoEditorGenerateRequest { ContinuousOffsetSourceClip = source }
+                        new KimodoEditorGenerateRequest { AnchorOffsetSourceClip = source }
                     });
 
                 Assert.That(Vector3.Distance(destination.position, source.position), Is.LessThan(1e-5f));
