@@ -131,29 +131,37 @@ namespace KimodoBridge.Editor
         internal static double ResolveTimelineBoundaryTime(KimodoInOutConstraintRequest request, bool isBegin)
         {
             KimodoTimelineInOutConstraintContext context = request.TimelineContext;
-            double oneFrame = 1.0 / KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
+            float frameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
             if (request.Mode == KimodoInOutConstraintMode.Outside)
             {
                 TimelineClip range = isBegin ? context.PreviousTimelineClip : context.NextTimelineClip;
                 double boundary = isBegin ? context.SourceClip.start : context.SourceClip.end;
-                return ClampTimelineSampleTime(
+                int boundaryFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(boundary, frameRate);
+                return ClampTimelineSampleFrame(
                     range,
-                    isBegin ? boundary - oneFrame : boundary,
-                    oneFrame);
+                    isBegin ? boundaryFrame - 1 : boundaryFrame,
+                    frameRate);
             }
 
             TimelineClip current = context.SourceClip;
-            return ClampTimelineSampleTime(
+            int currentBoundaryFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(
+                isBegin ? current.start : current.end,
+                frameRate);
+            return ClampTimelineSampleFrame(
                 current,
-                isBegin ? current.start : current.end - oneFrame,
-                oneFrame);
+                isBegin ? currentBoundaryFrame : currentBoundaryFrame - 1,
+                frameRate);
         }
 
-        private static double ClampTimelineSampleTime(TimelineClip range, double value, double oneFrame)
+        private static double ClampTimelineSampleFrame(TimelineClip range, int frame, float frameRate)
         {
-            double first = range.start;
-            double last = Math.Max(first, range.end - oneFrame);
-            return Math.Max(first, Math.Min(last, value));
+            int first = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(range.start, frameRate);
+            int last = Math.Max(
+                first,
+                KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(range.end, frameRate) - 1);
+            return KimodoTimelinePreviewRefreshUtility.TimelineFrameToTime(
+                Mathf.Clamp(frame, first, last),
+                frameRate);
         }
 
         internal static int ClampFrameCount(int generationFrames)

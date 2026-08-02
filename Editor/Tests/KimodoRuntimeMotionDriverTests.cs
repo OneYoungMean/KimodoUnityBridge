@@ -804,6 +804,43 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [Test]
+        public void TimelineBoundarySampling_OutsideBeginWithSubFrameGapUsesFrameBefore354()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                timeline.editorSettings.frameRate = 60.0;
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip previous = track.CreateClip<AnimationPlayableAsset>();
+                previous.start = 0.9666666667;
+                previous.duration = 4.9333333969;
+                TimelineClip current = track.CreateClip<AnimationPlayableAsset>();
+                current.start = 5.9000333969;
+                current.duration = 2.0;
+                var request = new KimodoInOutConstraintRequest
+                {
+                    Mode = KimodoInOutConstraintMode.Outside,
+                    TimelineContext = new KimodoTimelineInOutConstraintContext
+                    {
+                        SourceClip = current,
+                        PreviousTimelineClip = previous
+                    }
+                };
+
+                double sampleTime = KimodoInOutConstraintTools.ResolveTimelineBoundaryTime(request, isBegin: true);
+
+                Assert.That(
+                    KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(sampleTime, 60f),
+                    Is.EqualTo(353));
+                Assert.That(sampleTime, Is.EqualTo(353.0 / 60.0).Within(1e-9));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
         private static KimodoRawMotionData CreateMotion(
             int frames,
             int joints,
