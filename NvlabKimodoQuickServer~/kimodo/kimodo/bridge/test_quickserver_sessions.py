@@ -678,6 +678,28 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             ),
         )
 
+    def test_timeline_prompt_boundary_aligns_to_generation_horizon(self):
+        session = self._fake_ardy_session()
+        session.profile.frames_per_token = 4
+        session.profile.horizon_frames = 40
+        session.timeline_segments = (
+            ardy_backend.ArdyTimelineSegment("walk", 0, 101),
+            ardy_backend.ArdyTimelineSegment("turn", 101, 192),
+        )
+        activated = []
+        session._activate_prompt = lambda _model, prompt, **_kwargs: activated.append(prompt)
+
+        self.assertEqual(
+            session._activate_timeline_prompt(SimpleNamespace(), 80, threading.Event()),
+            120,
+        )
+        self.assertEqual(activated[-1], "walk")
+        self.assertEqual(
+            session._activate_timeline_prompt(SimpleNamespace(), 120, threading.Event()),
+            200,
+        )
+        self.assertEqual(activated[-1], "turn")
+
     def test_fixed_duration_replaces_stream_state_and_closes_after_result(self):
         events = []
 

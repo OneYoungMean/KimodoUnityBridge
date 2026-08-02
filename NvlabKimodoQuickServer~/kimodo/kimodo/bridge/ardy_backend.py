@@ -657,10 +657,15 @@ class ArdySession:
 
     def _activate_timeline_prompt(self, model: Any, frame: int, cancel_event: threading.Event) -> int | None:
         for segment in self.timeline_segments:
-            if frame < segment.end_frame_exclusive:
+            aligned_end = self._align_prompt_boundary(segment.end_frame_exclusive)
+            if frame < aligned_end:
                 self._activate_prompt(model, segment.prompt, cancel_event=cancel_event)
-                return segment.end_frame_exclusive
+                return aligned_end
         return None
+
+    def _align_prompt_boundary(self, frame: int) -> int:
+        horizon = max(1, int(self.profile.horizon_frames))
+        return int(math.ceil(max(0, int(frame)) / horizon) * horizon)
 
     def _set_constraints(
         self,
