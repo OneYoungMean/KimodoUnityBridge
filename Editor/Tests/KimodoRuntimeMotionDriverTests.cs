@@ -249,14 +249,18 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineConnectedSelection_AcceptsCompatibleArdyClips()
+        public void TimelineConnectedSelection_AcceptsGapsUnalignedDurationAndParameterDifferences()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
-                TimelineClip first = CreateArdyTimelineClip(track, 0.0, 2.0, 10);
-                TimelineClip second = CreateArdyTimelineClip(track, 2.0, 2.0, 10);
+                TimelineClip first = CreateArdyTimelineClip(track, 0.0, 0.23, 10);
+                TimelineClip second = CreateArdyTimelineClip(track, 1.0, 2.0, 5);
+                var secondPlayable = (KimodoPlayableClip)second.asset;
+                secondPlayable.textWeight = 2f;
+                secondPlayable.randomSeed = true;
+                secondPlayable.seed = 99;
 
                 Assert.That(
                     KimodoPlayableClipGenerationExecutionService.TryValidateConnectedSelection(
@@ -272,21 +276,22 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineConnectedSelection_ReportsParameterDifference()
+        public void TimelineConnectedSelection_RejectsDifferentTrack()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                AnimationTrack otherTrack = timeline.CreateTrack<AnimationTrack>(null, "Other");
                 TimelineClip first = CreateArdyTimelineClip(track, 0.0, 2.0, 10);
-                TimelineClip second = CreateArdyTimelineClip(track, 2.0, 2.0, 5);
+                TimelineClip second = CreateArdyTimelineClip(otherTrack, 2.0, 2.0, 10);
 
                 Assert.That(
                     KimodoPlayableClipGenerationExecutionService.TryValidateConnectedSelection(
                         new[] { first, second },
                         out string reason),
                     Is.False);
-                Assert.That(reason, Does.Contain("diffusion steps"));
+                Assert.That(reason, Does.Contain("same Timeline track"));
             }
             finally
             {
@@ -295,21 +300,46 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineConnectedSelection_RejectsUnalignedPromptBoundary()
+        public void TimelineConnectedSelection_RejectsDifferentModel()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
-                TimelineClip first = CreateArdyTimelineClip(track, 0.0, 0.25, 10);
-                TimelineClip second = CreateArdyTimelineClip(track, 0.25, 2.0, 10);
+                TimelineClip first = CreateArdyTimelineClip(track, 0.0, 2.0, 10);
+                TimelineClip second = CreateArdyTimelineClip(track, 2.0, 2.0, 10);
+                ((KimodoPlayableClip)second.asset).bridgeModelName = KimodoMotionModelProfiles.ArdyG1ModelName;
 
                 Assert.That(
                     KimodoPlayableClipGenerationExecutionService.TryValidateConnectedSelection(
                         new[] { first, second },
                         out string reason),
                     Is.False);
-                Assert.That(reason, Does.Contain("motion token"));
+                Assert.That(reason, Does.Contain("different model/profile"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void TimelineConnectedSelection_RejectsDifferentTextEncoder()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip first = CreateArdyTimelineClip(track, 0.0, 2.0, 10);
+                TimelineClip second = CreateArdyTimelineClip(track, 2.0, 2.0, 10);
+                ((KimodoPlayableClip)second.asset).textEncoderMode = KimodoTextEncoderMode.HighPrecision;
+
+                Assert.That(
+                    KimodoPlayableClipGenerationExecutionService.TryValidateConnectedSelection(
+                        new[] { first, second },
+                        out string reason),
+                    Is.False);
+                Assert.That(reason, Does.Contain("Text Encoder mode"));
             }
             finally
             {

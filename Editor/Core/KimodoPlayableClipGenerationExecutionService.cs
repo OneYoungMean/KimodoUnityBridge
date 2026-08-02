@@ -11,14 +11,13 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoPlayableClipGenerationExecutionService
     {
-        private const double TimelineEpsilonSeconds = 1e-6;
-
         private sealed class ConnectedClipEntry
         {
             public TimelineClip TimelineClip;
             public KimodoPlayableClip Clip;
             public int StartFrame;
             public int FrameCount;
+            public double DurationSeconds;
             public KimodoEditorGenerateRequest Request;
         }
 
@@ -132,6 +131,30 @@ namespace KimodoBridge.Editor
             return true;
         }
 
+        internal static bool TryGetSelectedArdyClipCount(
+            KimodoPlayableClip clip,
+            out int count)
+        {
+            count = 0;
+            List<TimelineClip> selected = KimodoEditorSelectionBridge.GetSelectedPlayableClips(clip);
+            if (selected.Count < 2)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < selected.Count; i++)
+            {
+                if (selected[i]?.asset is not KimodoPlayableClip playable ||
+                    !KimodoMotionModelProfiles.TryGetArdy(playable.bridgeModelName, out _))
+                {
+                    return false;
+                }
+            }
+
+            count = selected.Count;
+            return true;
+        }
+
         private static bool TryCreateConnectedArdyPlan(
             KimodoPlayableClip clip,
             out List<ConnectedClipEntry> entries,
@@ -141,56 +164,8 @@ namespace KimodoBridge.Editor
             entries = new List<ConnectedClipEntry>();
             profile = null;
             reason = string.Empty;
-            TimelineClip anchor = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
-            if (anchor == null)
-            {
-                reason = "The selected clip is not on a Timeline track.";
-                return false;
-            }
-
-            TrackAsset track = anchor.GetParentTrack();
-            if (track == null)
-            {
-                reason = "The selected clip has no Timeline track.";
-                return false;
-            }
-
-            var candidates = new List<TimelineClip>(track.GetClips());
-            candidates.Sort(CompareTimelineClips);
-            int anchorIndex = candidates.IndexOf(anchor);
-            if (anchorIndex < 0)
-            {
-                reason = "The selected clip could not be resolved on its Timeline track.";
-                return false;
-            }
-
-            var selected = new List<TimelineClip> { anchor };
-            for (int index = anchorIndex - 1; index >= 0; index--)
-            {
-                var candidate = new List<TimelineClip> { candidates[index] };
-                candidate.AddRange(selected);
-                if (!TryCreateConnectedPlan(candidate, out _, out _, out _))
-                {
-                    break;
-                }
-                selected.Insert(0, candidates[index]);
-            }
-            for (int index = anchorIndex + 1; index < candidates.Count; index++)
-            {
-                var candidate = new List<TimelineClip>(selected) { candidates[index] };
-                if (!TryCreateConnectedPlan(candidate, out _, out _, out _))
-                {
-                    break;
-                }
-                selected.Add(candidates[index]);
-            }
-
-            if (selected.Count < 2)
-            {
-                reason = "No compatible connected ARDY clip was found on this track.";
-                return false;
-            }
-
+            List<TimelineClip> selected = KimodoEditorSelectionBridge.GetSelectedPlayableClips(clip);
+            selected.Sort(CompareTimelineClips);
             return TryCreateConnectedPlan(selected, out entries, out profile, out reason);
         }
 
@@ -217,7 +192,6 @@ namespace KimodoBridge.Editor
 
             var differences = new List<string>();
             TrackAsset expectedTrack = selected[0].GetParentTrack();
-            int expectedSteps = ResolveArdySteps(firstClip, profile);
             int cursor = 0;
             for (int i = 0; i < selected.Count; i++)
             {
@@ -237,38 +211,17 @@ namespace KimodoBridge.Editor
                 {
                     AddDifference(differences, "clips are not on the same Timeline track/binding");
                 }
-                if (i > 0 && Math.Abs(selected[i - 1].end - timelineClip.start) > TimelineEpsilonSeconds)
-                {
-                    AddDifference(differences, $"'{selected[i - 1].displayName}' and '{timelineClip.displayName}' have a gap or overlap");
-                }
                 if (playable.textEncoderMode != firstClip.textEncoderMode)
                 {
                     AddDifference(differences, $"'{playable.name}' has a different Text Encoder mode");
                 }
-                if (ResolveArdySteps(playable, profile) != expectedSteps)
-                {
-                    AddDifference(differences, $"'{playable.name}' has different diffusion steps");
-                }
-                if (Mathf.Abs(playable.textWeight - firstClip.textWeight) > 1e-6f)
-                {
-                    AddDifference(differences, $"'{playable.name}' has a different text weight/CFG");
-                }
-                if (playable.randomSeed != firstClip.randomSeed || (!playable.randomSeed && playable.seed != firstClip.seed))
-                {
-                    AddDifference(differences, $"'{playable.name}' has a different seed strategy/value");
-                }
-                double exactFrames = timelineClip.duration * profile.SourceFps;
                 int frameCount = KimodoFrameTimeUtility.SecondsToFrameCount(
                     timelineClip.duration,
                     profile.SourceFps);
-                if (frameCount <= 0 || Math.Abs(exactFrames - frameCount) > 1e-4)
+                if (frameCount <= 0)
                 {
-                    AddDifference(differences, $"'{timelineClip.displayName}' duration is not aligned to {profile.SourceFps:g} FPS");
-                    frameCount = Math.Max(1, frameCount);
-                }
-                if (i > 0 && cursor % profile.FramesPerToken != 0)
-                {
-                    AddDifference(differences, $"boundary before '{timelineClip.displayName}' is not aligned to the {profile.FramesPerToken}-frame motion token");
+                    AddDifference(differences, $"'{timelineClip.displayName}' duration resolves to zero frames");
+                    frameCount = 1;
                 }
 
                 entries.Add(new ConnectedClipEntry
@@ -276,7 +229,8 @@ namespace KimodoBridge.Editor
                     TimelineClip = timelineClip,
                     Clip = playable,
                     StartFrame = cursor,
-                    FrameCount = frameCount
+                    FrameCount = frameCount,
+                    DurationSeconds = Math.Max(0.0, timelineClip.duration)
                 });
                 cursor += frameCount;
             }
@@ -412,6 +366,7 @@ namespace KimodoBridge.Editor
                     disableTimelineInOut: true,
                     deferConstraintNormalization: true,
                     enableAutoBeginAnchor: i == 0);
+                AppendConnectedBoundarySamples(entry, i, entries.Count);
                 entry.Request.Progress = PrefixProgress(progress, i, entries.Count);
                 if (string.IsNullOrWhiteSpace(entry.Request.Prompt))
                 {
@@ -506,15 +461,70 @@ namespace KimodoBridge.Editor
                 segments.Add(new KimodoArdyTimelineSegmentDto
                 {
                     prompt = entry.Request.Prompt?.Trim() ?? string.Empty,
-                    duration = entry.FrameCount / profile.SourceFps
+                    duration = (float)entry.DurationSeconds
                 });
             }
             generation.ardy_timeline_segments = segments;
         }
 
-        private static int ResolveArdySteps(KimodoPlayableClip clip, KimodoMotionModelProfile profile)
+        private static void AppendConnectedBoundarySamples(
+            ConnectedClipEntry entry,
+            int index,
+            int count)
         {
-            return KimodoMotionModelProfiles.ResolveArdyProtocolSteps(clip.diffusionSteps, profile);
+            KimodoPlayableClip clip = entry.Clip;
+            if (clip == null || clip.inOutConstraintMode == KimodoInOutConstraintMode.None)
+            {
+                return;
+            }
+
+            bool enableIn = clip.enableInConstraint;
+            bool enableOut = index == count - 1 && clip.enableOutConstraint;
+            if (!enableIn && !enableOut)
+            {
+                return;
+            }
+
+            if (!KimodoInOutConstraintAdapter.TryResolveTimelineContext(
+                    entry.TimelineClip,
+                    out KimodoTimelineInOutConstraintContext context,
+                    out string error))
+            {
+                throw new InvalidOperationException($"Build connected clip constraints failed: {error}");
+            }
+
+            KimodoInOutConstraintRequest request = KimodoInOutConstraintAdapter.BuildTimelineRequest(
+                context,
+                clip.inOutConstraintMode,
+                autoBeginAnchor: false,
+                deferNormalization: true,
+                enableIn,
+                enableOut,
+                entry.FrameCount,
+                manualSamples: null);
+            if (request == null)
+            {
+                return;
+            }
+
+            if (!KimodoInOutConstraintTools.TrySampleBoundaryPair(
+                    request,
+                    out KimodoMarkerSampleResult beginSample,
+                    out KimodoMarkerSampleResult endSample,
+                    out _,
+                    out error))
+            {
+                throw new InvalidOperationException($"Build connected clip constraints failed: {error}");
+            }
+
+            if (beginSample != null)
+            {
+                entry.Request.ConstraintSamples.Add(beginSample);
+            }
+            if (endSample != null)
+            {
+                entry.Request.ConstraintSamples.Add(endSample);
+            }
         }
 
         private static string ExplicitConstraints(string constraintsJson)

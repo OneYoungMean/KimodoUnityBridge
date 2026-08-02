@@ -239,16 +239,17 @@ namespace KimodoBridge.Editor
                     lastError = error;
                 }
             }
-            if (isArdy)
+            if (isArdy &&
+                KimodoPlayableClipGenerationExecutionService.TryGetSelectedArdyClipCount(
+                    clip,
+                    out int connectedClipCount))
             {
                 bool hasConnectedPlan = KimodoPlayableClipGenerationExecutionService.TryGetConnectedArdyClipCount(
                     clip,
-                    out int connectedClipCount,
+                    out _,
                     out string connectedReason);
                 GUI.enabled = !disableGenerate && hasConnectedPlan;
-                string connectedLabel = connectedClipCount > 1
-                    ? $"Generate {connectedClipCount} Connected Clips & Bake"
-                    : "Generate Connected Clips & Bake";
+                string connectedLabel = $"Generate {connectedClipCount} Connected Clips & Bake";
                 if (GUILayout.Button(
                         new GUIContent(
                             connectedLabel,

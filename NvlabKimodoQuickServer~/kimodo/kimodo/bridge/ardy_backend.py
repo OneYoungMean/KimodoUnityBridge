@@ -484,7 +484,6 @@ def _parse_timeline_segments(
 
     segments: list[ArdyTimelineSegment] = []
     cursor = 0
-    patch = int(profile.frames_per_token)
     for index, item in enumerate(value):
         if not isinstance(item, dict):
             raise ArdyBackendError(f"ardy_timeline_segments[{index}] must be an object.")
@@ -502,10 +501,6 @@ def _parse_timeline_segments(
         frame_count = seconds_to_frame_count(duration_seconds, profile.source_fps)
         if frame_count <= 0:
             raise ArdyBackendError(f"ardy_timeline_segments[{index}] resolves to zero frames.")
-        if cursor and cursor % patch:
-            raise ArdyBackendError(
-                f"ardy_timeline_segments boundary before segment {index + 1} must align to the {patch}-frame motion token."
-            )
         segments.append(ArdyTimelineSegment(prompt, cursor, cursor + frame_count))
         cursor += frame_count
 

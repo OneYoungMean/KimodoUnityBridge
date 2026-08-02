@@ -655,22 +655,28 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             ),
         )
 
-    def test_timeline_segments_reject_mismatched_duration_and_unaligned_boundary(self):
+    def test_timeline_segments_allow_unaligned_boundary_and_reject_mismatched_duration(self):
         profile = SimpleNamespace(source_fps=20.0, frames_per_token=4)
 
         with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "resolves to 20 frames"):
             ardy_backend._parse_timeline_segments(
                 [{"prompt": "walk", "duration": 1.0}], profile, 40
             )
-        with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "motion token"):
-            ardy_backend._parse_timeline_segments(
-                [
-                    {"prompt": "walk", "duration": 0.1},
-                    {"prompt": "turn", "duration": 1.9},
-                ],
-                profile,
-                40,
-            )
+        segments = ardy_backend._parse_timeline_segments(
+            [
+                {"prompt": "walk", "duration": 0.1},
+                {"prompt": "turn", "duration": 1.9},
+            ],
+            profile,
+            40,
+        )
+        self.assertEqual(
+            segments,
+            (
+                ardy_backend.ArdyTimelineSegment("walk", 0, 2),
+                ardy_backend.ArdyTimelineSegment("turn", 2, 40),
+            ),
+        )
 
     def test_fixed_duration_replaces_stream_state_and_closes_after_result(self):
         events = []
