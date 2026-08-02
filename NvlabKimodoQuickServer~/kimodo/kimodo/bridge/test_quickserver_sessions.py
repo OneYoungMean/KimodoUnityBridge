@@ -72,6 +72,25 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
         self.assertTrue(Path(ardy.__file__).resolve().is_relative_to(ardy_backend.BUNDLED_ARDY_ROOT))
 
+    def test_ardy_fullbody_constraint_indices_follow_the_skeleton_device(self):
+        from collections import defaultdict
+        from ardy.constraints import FullBodyConstraintSet
+
+        skeleton = SimpleNamespace(
+            device=torch.device("meta"), nbjoints=2, root_idx=0, hip_joint_idx=(0, 1)
+        )
+        constraint = FullBodyConstraintSet(
+            skeleton,
+            frame_indices=torch.tensor([1]),
+            global_joints_positions=torch.zeros((1, 2, 3)),
+            global_joints_rots=torch.eye(3).reshape(1, 1, 3, 3).repeat(1, 2, 1, 1),
+        )
+        index_dict = defaultdict(list)
+        constraint.update_constraints(defaultdict(list), index_dict)
+
+        self.assertEqual(constraint.frame_indices.device.type, "meta")
+        self.assertEqual(index_dict["global_joints_positions"][0].device.type, "meta")
+
     def test_direct_kmb_is_the_only_binary_motion_format(self):
         self.assertEqual(
             bridge_server._resolve_requested_output_format({"output_format": "kmb_v1"}),

@@ -41,6 +41,11 @@ class Root2DConstraintSet:
         to_crop: bool = False,
     ) -> None:
         self.skeleton = skeleton
+        device = skeleton.device
+        frame_indices = frame_indices.to(device=device, dtype=torch.long)
+        root_2d = root_2d.to(device)
+        if global_root_heading is not None:
+            global_root_heading = global_root_heading.to(device)
         if to_crop:
             root_2d = root_2d[frame_indices]
             if global_root_heading is not None:
@@ -119,6 +124,12 @@ class FullBodyConstraintSet:
         to_crop: bool = False,
     ):
         self.skeleton = skeleton
+        device = skeleton.device
+        frame_indices = frame_indices.to(device=device, dtype=torch.long)
+        global_joints_positions = global_joints_positions.to(device)
+        global_joints_rots = global_joints_rots.to(device)
+        if root_2d is not None:
+            root_2d = root_2d.to(device)
         self.frame_indices = frame_indices
 
         if to_crop:
@@ -155,7 +166,7 @@ class FullBodyConstraintSet:
         nbjoints = self.skeleton.nbjoints
         indices_lst = create_pairs(
             self.frame_indices,
-            torch.arange(nbjoints),
+            torch.arange(nbjoints, device=self.frame_indices.device),
         )
         data_dict["global_joints_positions"].append(
             self.global_joints_positions.reshape(-1, 3)
@@ -238,14 +249,24 @@ class EndEffectorConstraintSet:
         to_crop: bool = False,
     ) -> None:
         self.skeleton = skeleton
+        device = skeleton.device
+        frame_indices = frame_indices.to(device=device, dtype=torch.long)
+        global_joints_positions = global_joints_positions.to(device)
+        global_joints_rots = global_joints_rots.to(device)
+        if root_2d is not None:
+            root_2d = root_2d.to(device)
         self.frame_indices = frame_indices
         self.joint_names = joint_names
 
         # joint_names are constant for all the frames
         rot_joint_names, pos_joint_names = self.skeleton.expand_joint_names(self.joint_names)
         # indexing works for motion_rep with smooth root only (contains pelvis index)
-        self.pos_indices = torch.tensor([self.skeleton.bone_index[jname] for jname in pos_joint_names])
-        self.rot_indices = torch.tensor([self.skeleton.bone_index[jname] for jname in rot_joint_names])
+        self.pos_indices = torch.tensor(
+            [self.skeleton.bone_index[jname] for jname in pos_joint_names], device=device
+        )
+        self.rot_indices = torch.tensor(
+            [self.skeleton.bone_index[jname] for jname in rot_joint_names], device=device
+        )
 
         if to_crop:
             global_joints_positions = global_joints_positions[frame_indices]
@@ -277,7 +298,7 @@ class EndEffectorConstraintSet:
         self.root_2d = root_2d
 
     def update_constraints(self, data_dict, index_dict):
-        crop_frames_indexing = torch.arange(len(self.frame_indices))
+        crop_frames_indexing = torch.arange(len(self.frame_indices), device=self.frame_indices.device)
 
         # constraint positions
         pos_indices_real = create_pairs(
