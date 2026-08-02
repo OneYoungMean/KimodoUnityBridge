@@ -805,7 +805,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void TimelineBoundarySampling_OutsideBeginWithSubFrameGapUsesFrameBefore354()
+        public void TimelineBoundarySampling_OutsideOutWithSubFrameGapUsesFrame354()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
@@ -823,17 +823,17 @@ namespace KimodoBridge.Editor.Tests
                     Mode = KimodoInOutConstraintMode.Outside,
                     TimelineContext = new KimodoTimelineInOutConstraintContext
                     {
-                        SourceClip = current,
-                        PreviousTimelineClip = previous
+                        SourceClip = previous,
+                        NextTimelineClip = current
                     }
                 };
 
-                double sampleTime = KimodoInOutConstraintTools.ResolveTimelineBoundaryTime(request, isBegin: true);
+                double sampleTime = KimodoInOutConstraintTools.ResolveTimelineBoundaryTime(request, isBegin: false);
 
                 Assert.That(
                     KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(sampleTime, 60f),
-                    Is.EqualTo(353));
-                Assert.That(sampleTime, Is.EqualTo(353.0 / 60.0).Within(1e-9));
+                    Is.EqualTo(354));
+                Assert.That(sampleTime, Is.EqualTo(354.0 / 60.0).Within(1e-9));
             }
             finally
             {
