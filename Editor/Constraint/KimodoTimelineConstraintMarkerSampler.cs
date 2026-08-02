@@ -370,6 +370,7 @@ namespace KimodoBridge.Editor
     internal static class KimodoTimelineConstraintClipCache
     {
         private const int GuardFrames = 1;
+        private const double ExactSampleTimeTolerance = 1e-12;
         private static readonly Dictionary<KimodoTimelineConstraintCacheKey, KimodoTimelineConstraintCacheEntry> Entries =
             new Dictionary<KimodoTimelineConstraintCacheKey, KimodoTimelineConstraintCacheEntry>();
 
@@ -464,7 +465,8 @@ namespace KimodoBridge.Editor
         {
             sample = null;
             float timelineFrameRate = ResolveTimelineFrameRate(context);
-            double timelineSampleTime = ResolveTimelineSampleTime(timelineTime, timelineFrameRate);
+            double exactTimelineTime = Math.Max(0.0, timelineTime);
+            double timelineSampleTime = ResolveTimelineSampleTime(exactTimelineTime, timelineFrameRate);
             if (!TryGetOrCreatePoseClip(
                     context,
                     timelineSampleTime,
@@ -478,7 +480,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            var sampleKey = new KimodoTimelineConstraintSampleKey(timelineSampleTime, markerType);
+            var sampleKey = new KimodoTimelineConstraintSampleKey(exactTimelineTime, markerType);
             if (entry.MarkerSamples.TryGetValue(sampleKey, out KimodoMarkerSampleResult cachedSample))
             {
                 sample = cachedSample.Clone();
@@ -508,15 +510,36 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (!KimodoRetargetSamplingUtility.SampleBoneClipToBoneSample(
-                        entry.Clip,
-                        targetCache,
-                        range.ResolveLocalSampleTime(timelineSampleTime),
-                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.RawTransform,
-                        out BoneSample targetSample,
-                        out error))
+                BoneSample targetSample;
+                KimodoTimelineSourceHipsPose? exactSourceHipsPose = null;
+                if (RequiresExactTimelineSample(exactTimelineTime, timelineSampleTime))
                 {
-                    return false;
+                    if (!TrySampleExactTargetBone(
+                            context,
+                            exactTimelineTime,
+                            timelineFrameRate,
+                            modelName,
+                            out targetSample,
+                            out KimodoTimelineSourceHipsPose sourceHipsPose,
+                            out error))
+                    {
+                        return false;
+                    }
+
+                    exactSourceHipsPose = sourceHipsPose;
+                }
+                else
+                {
+                    if (!KimodoRetargetSamplingUtility.SampleBoneClipToBoneSample(
+                            entry.Clip,
+                            targetCache,
+                            range.ResolveLocalSampleTime(timelineSampleTime),
+                            KimodoRetargetClipSamplingUtility.ClipSamplingMode.RawTransform,
+                            out targetSample,
+                            out error))
+                    {
+                        return false;
+                    }
                 }
 
                 if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
@@ -531,16 +554,85 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                ApplySourceHipsPose(entry, timelineSampleTime, timelineFrameRate, sample);
+                if (exactSourceHipsPose.HasValue)
+                {
+                    ApplySourceHipsPose(exactSourceHipsPose.Value, sample);
+                }
+                else
+                {
+                    ApplySourceHipsPose(entry, timelineSampleTime, timelineFrameRate, sample);
+                }
 
                 KimodoMarkerSampleResult cached = sample.Clone();
-                cached.sampleTime = timelineSampleTime;
+                cached.sampleTime = exactTimelineTime;
                 entry.MarkerSamples[sampleKey] = cached;
                 return true;
             }
             finally
             {
                 targetCache?.Dispose();
+            }
+        }
+
+        private static bool RequiresExactTimelineSample(double exactTimelineTime, double bucketTimelineTime)
+        {
+            return Math.Abs(exactTimelineTime - bucketTimelineTime) > ExactSampleTimeTolerance;
+        }
+
+        private static bool TrySampleExactTargetBone(
+            KimodoTimelineInOutConstraintContext context,
+            double timelineTime,
+            float frameRate,
+            string modelName,
+            out BoneSample targetSample,
+            out KimodoTimelineSourceHipsPose sourceHipsPose,
+            out string error)
+        {
+            targetSample = null;
+            sourceHipsPose = default;
+            if (!KimodoTimelinePoseSampler.TryCreate(context, modelName, out KimodoTimelinePoseSampler sampler, out error))
+            {
+                return false;
+            }
+
+            try
+            {
+                var times = new[] { timelineTime };
+                if (!sampler.TryCaptureTargetBoneSamples(
+                        times,
+                        frameRate,
+                        out BoneSample[] samples,
+                        out error))
+                {
+                    return false;
+                }
+
+                if (samples == null || samples.Length == 0 || samples[0] == null)
+                {
+                    error = "Exact Timeline sample returned no target bone pose.";
+                    return false;
+                }
+
+                if (!sampler.TryGetSourceHipsPose(
+                        timelineTime,
+                        out Vector3 hipsPosition,
+                        out Quaternion hipsRotation,
+                        out error))
+                {
+                    return false;
+                }
+
+                targetSample = samples[0];
+                sourceHipsPose = new KimodoTimelineSourceHipsPose
+                {
+                    Position = hipsPosition,
+                    Rotation = hipsRotation
+                };
+                return true;
+            }
+            finally
+            {
+                sampler.Dispose();
             }
         }
 
@@ -557,6 +649,18 @@ namespace KimodoBridge.Editor
 
             int sampleFrame = ResolveTimelineSampleFrame(timelineSampleTime, frameRate);
             if (!entry.SourceHipsPoses.TryGetValue(sampleFrame, out KimodoTimelineSourceHipsPose pose))
+            {
+                return;
+            }
+
+            sample.hasUnityHipsPose = true;
+            sample.unityHipsPos = pose.Position;
+            sample.unityHipsRot = pose.Rotation;
+        }
+
+        private static void ApplySourceHipsPose(KimodoTimelineSourceHipsPose pose, KimodoMarkerSampleResult sample)
+        {
+            if (sample == null)
             {
                 return;
             }

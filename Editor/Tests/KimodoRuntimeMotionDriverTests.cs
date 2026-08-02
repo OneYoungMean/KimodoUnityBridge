@@ -815,8 +815,9 @@ namespace KimodoBridge.Editor.Tests
                 TimelineClip previous = track.CreateClip<AnimationPlayableAsset>();
                 previous.start = 0.9666666667;
                 previous.duration = 4.9333333969;
+                double preciseEnd = previous.start + previous.duration;
                 TimelineClip current = track.CreateClip<AnimationPlayableAsset>();
-                current.start = 5.9000333969;
+                current.start = preciseEnd;
                 current.duration = 2.0;
                 var request = new KimodoInOutConstraintRequest
                 {
@@ -833,7 +834,8 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(sampleTime, 60f),
                     Is.EqualTo(354));
-                Assert.That(sampleTime, Is.EqualTo(354.0 / 60.0).Within(1e-9));
+                Assert.That(sampleTime, Is.EqualTo(preciseEnd).Within(1e-12));
+                Assert.That(sampleTime, Is.GreaterThan(354.0 / 60.0));
             }
             finally
             {
