@@ -451,7 +451,7 @@ namespace KimodoBridge.Editor
                 request.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                     request.ConstraintSamples,
                     0.0,
-                    request.TargetFrameCount / request.TargetFrameRate,
+                    request.EffectiveRuntimeDurationSeconds,
                     profile.SourceFps);
             }
         }
@@ -467,7 +467,7 @@ namespace KimodoBridge.Editor
             generation.duration = null;
             generation.time_as_double = 0.0;
             generation.seed = request.EffectiveSeed;
-            generation.steps = ResolveArdySteps(request, profile);
+            generation.steps = KimodoMotionModelProfiles.ResolveArdyProtocolSteps(request.DiffusionSteps, profile);
             generation.constraints_json = ExplicitConstraints(request.ConstraintsJson);
             generation.ardy_history_kmb = KimodoEditorGeneratePipeline.BuildInitialArdyHistoryPayload(request, profile);
             generation.ardy_playback_reserve_seconds = 0.0;
@@ -573,16 +573,7 @@ namespace KimodoBridge.Editor
 
         private static int ResolveArdySteps(KimodoPlayableClip clip, KimodoMotionModelProfile profile)
         {
-            return clip.diffusionSteps <= 0
-                ? profile.MaxDiffusionSteps
-                : Mathf.Clamp(clip.diffusionSteps, 1, profile.MaxDiffusionSteps);
-        }
-
-        private static int ResolveArdySteps(KimodoEditorGenerateRequest request, KimodoMotionModelProfile profile)
-        {
-            return request.DiffusionSteps <= 0
-                ? profile.MaxDiffusionSteps
-                : Mathf.Clamp(request.DiffusionSteps, 1, profile.MaxDiffusionSteps);
+            return KimodoMotionModelProfiles.ResolveArdyProtocolSteps(clip.diffusionSteps, profile);
         }
 
         private static string ExplicitConstraints(string constraintsJson)

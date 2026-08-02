@@ -185,7 +185,6 @@ namespace KimodoBridge.Editor
             string modelName)
         {
             KimodoBridgeCommandRequest commandRequest = CreateRuntimePipelineRequest(request, prompt, modelName);
-            commandRequest.GenerationRequest.duration = request.EffectiveRuntimeFrameCount / request.TargetFrameRate;
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating Kimodo motion...");
             var pipeline = new KimodoBridgeCommand();
             KimodoBridgeCommandResult result = await pipeline.ExecuteAsync(
@@ -208,12 +207,11 @@ namespace KimodoBridge.Editor
             byte[] historyPayload = BuildInitialArdyHistoryPayload(request, profile);
 
             KimodoBridgeCommandRequest commandRequest = CreateRuntimePipelineRequest(request, prompt, profile.ModelName);
-            commandRequest.GenerationRequest.duration = request.EffectiveRuntimeFrameCount / request.TargetFrameRate;
             commandRequest.GenerationRequest.time_as_double = 0.0;
             commandRequest.GenerationRequest.seed = request.EffectiveSeed;
-            commandRequest.GenerationRequest.steps = request.DiffusionSteps <= 0
-                ? profile.MaxDiffusionSteps
-                : Mathf.Clamp(request.DiffusionSteps, 1, profile.MaxDiffusionSteps);
+            commandRequest.GenerationRequest.steps = KimodoMotionModelProfiles.ResolveArdyProtocolSteps(
+                request.DiffusionSteps,
+                profile);
             commandRequest.GenerationRequest.ardy_history_kmb = historyPayload;
             commandRequest.GenerationRequest.ardy_playback_reserve_seconds = 0.0;
             commandRequest.GenerationRequest.ardy_adaptive_playback_reserve = false;
@@ -340,7 +338,7 @@ namespace KimodoBridge.Editor
             var generationRequest = new KimodoGenerationRequestDto
             {
                 prompt = prompt ?? string.Empty,
-                duration = request.TargetFrameCount / request.TargetFrameRate,
+                duration = request.EffectiveRuntimeDurationSeconds,
                 seed = request.EffectiveSeed,
                 steps = request.DiffusionSteps,
                 text_weight = Mathf.Clamp(request.TextWeight, 0f, 4f),

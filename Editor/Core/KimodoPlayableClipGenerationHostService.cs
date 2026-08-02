@@ -39,7 +39,7 @@ namespace KimodoBridge.Editor
             {
                 throw new InvalidOperationException("Generation length requires a Timeline clip with positive duration.");
             }
-            float targetFrameRate = isArdy ? ardyProfile.SourceFps : KimodoPlayableClip.FIXED_FRAME_RATE;
+            float targetFrameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(resolvedModelName);
             int targetFrameCount = Mathf.Max(
                 KimodoPlayableClip.MIN_FRAMES,
                 KimodoFrameTimeUtility.SecondsToFrameCount(timelineClip.duration, targetFrameRate));
@@ -144,9 +144,9 @@ namespace KimodoBridge.Editor
                 TargetFrameRate = targetFrameRate,
                 RuntimeFrameCount = runtimeFrameCount,
                 RuntimeTrimStartFrame = runtimeTrimStartFrame,
-                DiffusionSteps = isArdy
-                    ? Mathf.Clamp(clip.diffusionSteps, 0, ardyProfile.MaxDiffusionSteps)
-                    : Mathf.Clamp(clip.diffusionSteps, 1, 1000),
+                DiffusionSteps = KimodoMotionModelProfiles.ClampDiffusionSteps(
+                    resolvedModelName,
+                    clip.diffusionSteps),
                 TextWeight = Mathf.Clamp(clip.textWeight, 0f, 4f),
                 EffectiveSeed = effectiveSeed,
                 ConstraintsJson = constraintsJson,

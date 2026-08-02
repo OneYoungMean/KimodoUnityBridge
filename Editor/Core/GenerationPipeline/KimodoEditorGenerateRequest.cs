@@ -47,6 +47,9 @@ namespace KimodoBridge.Editor
 
         public int EffectiveRuntimeFrameCount =>
             RuntimeFrameCount > 0 ? RuntimeFrameCount : TargetFrameCount;
+
+        public float EffectiveRuntimeDurationSeconds =>
+            EffectiveRuntimeFrameCount / TargetFrameRate;
     }
 
     internal sealed class ArdyEditorHistorySource

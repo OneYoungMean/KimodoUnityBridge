@@ -304,6 +304,32 @@ namespace KimodoBridge
             profile = null;
             return false;
         }
+
+        internal static float ResolveGenerationFrameRate(string modelName)
+        {
+            return TryGetArdy(modelName, out KimodoMotionModelProfile profile)
+                ? profile.SourceFps
+                : KimodoPlayableClip.FIXED_FRAME_RATE;
+        }
+
+        internal static int ClampDiffusionSteps(string modelName, int diffusionSteps)
+        {
+            return TryGetArdy(modelName, out KimodoMotionModelProfile profile)
+                ? Mathf.Clamp(diffusionSteps, 0, profile.MaxDiffusionSteps)
+                : Mathf.Clamp(diffusionSteps, 1, 1000);
+        }
+
+        internal static int ResolveArdyProtocolSteps(int diffusionSteps, KimodoMotionModelProfile profile)
+        {
+            if (profile == null)
+            {
+                return Mathf.Clamp(diffusionSteps, 1, 1000);
+            }
+
+            return diffusionSteps <= 0
+                ? profile.MaxDiffusionSteps
+                : Mathf.Clamp(diffusionSteps, 1, profile.MaxDiffusionSteps);
+        }
     }
 
     internal static class ArdyClipConstraintSerializer
