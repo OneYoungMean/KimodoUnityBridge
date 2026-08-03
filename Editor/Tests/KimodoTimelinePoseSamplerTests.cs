@@ -10,7 +10,7 @@ using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor.Tests
 {
-    public sealed class KimodoTimelinePoseSamplerTests
+    public sealed class KimodoTimelineSamplingSessionTests
     {
         [Test]
         public void ConstraintDragMuscleDiagnostics_ReportsValuesAndLargestDifference()
@@ -52,7 +52,7 @@ namespace KimodoBridge.Editor.Tests
 
                 Assert.That(animator.avatar, Is.Null);
                 Assert.That(
-                    KimodoTimelinePoseSampler.ResolveSourceHumanBone(animator, avatar, HumanBodyBones.Hips),
+                    KimodoTimelineSamplingSession.ResolveSourceHumanBone(animator, avatar, HumanBodyBones.Hips),
                     Is.SameAs(expected));
             }
             finally
@@ -502,7 +502,7 @@ namespace KimodoBridge.Editor.Tests
             var boneClip = new AnimationClip { frameRate = 30f };
             AnimationClip ardyHistoryClip = null;
             var directorRoot = new GameObject("KimodoTimelineAvatarlessDirector");
-            KimodoTimelinePoseSampler sampler = null;
+            KimodoTimelineSamplingSession sampler = null;
             try
             {
                 const int muscleIndex = 0;
@@ -576,7 +576,7 @@ namespace KimodoBridge.Editor.Tests
                     ModelName = KimodoMotionModelProfiles.ArdyCoreModelName
                 };
                 Assert.That(
-                    KimodoTimelinePoseSampler.TryCreate(
+                    KimodoTimelineSamplingSession.TryCreate(
                         context,
                         KimodoMotionModelProfiles.ArdyCoreModelName,
                         out sampler,
@@ -584,7 +584,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
                 Assert.That(source.animator.avatar, Is.Null, "Timeline sampling must not mutate the binding Animator Avatar.");
-                var sourceIntermediate = (SkeletonCache)typeof(KimodoTimelinePoseSampler)
+                var sourceIntermediate = (SkeletonCache)typeof(KimodoTimelineSamplingSession)
                     .GetField("sourceSamplingCache", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?.GetValue(sampler);
                 Assert.That(sourceIntermediate, Is.Not.Null);
@@ -599,7 +599,7 @@ namespace KimodoBridge.Editor.Tests
                         out error),
                     Is.True,
                     error);
-                Transform sourceHips = KimodoTimelinePoseSampler.ResolveSourceHumanBone(
+                Transform sourceHips = KimodoTimelineSamplingSession.ResolveSourceHumanBone(
                     source.animator,
                     avatar,
                     HumanBodyBones.Hips);

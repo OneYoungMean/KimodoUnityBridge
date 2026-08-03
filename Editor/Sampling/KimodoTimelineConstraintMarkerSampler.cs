@@ -590,7 +590,7 @@ namespace KimodoBridge.Editor
         {
             targetSample = null;
             sourceHipsPose = default;
-            if (!KimodoTimelinePoseSampler.TryCreate(context, modelName, out KimodoTimelinePoseSampler sampler, out error))
+            if (!KimodoTimelineSamplingSession.TryCreate(context, modelName, out KimodoTimelineSamplingSession sampler, out error))
             {
                 return false;
             }
@@ -731,7 +731,7 @@ namespace KimodoBridge.Editor
             }
             RemoveStaleEntries(key);
 
-            if (!KimodoTimelinePoseSampler.TryCreate(context, modelName, out KimodoTimelinePoseSampler sampler, out error))
+            if (!KimodoTimelineSamplingSession.TryCreate(context, modelName, out KimodoTimelineSamplingSession sampler, out error))
             {
                 return false;
             }
@@ -956,7 +956,7 @@ namespace KimodoBridge.Editor
         }
     }
 
-    internal sealed class KimodoTimelinePoseSampler : IDisposable
+    internal sealed class KimodoTimelineSamplingSession : IDisposable
     {
         private readonly KimodoTimelineInOutConstraintContext context;
         private readonly SkeletonCache sourceSamplingCache;
@@ -969,7 +969,7 @@ namespace KimodoBridge.Editor
             new Dictionary<int, KimodoTimelineSourceHipsPose>();
         private bool disposed;
 
-        private KimodoTimelinePoseSampler(
+        private KimodoTimelineSamplingSession(
             KimodoTimelineInOutConstraintContext context,
             SkeletonCache sourceSamplingCache,
             Transform[] sourceBoneTransforms,
@@ -993,7 +993,7 @@ namespace KimodoBridge.Editor
         internal static bool TryCreate(
             KimodoTimelineInOutConstraintContext context,
             string modelName,
-            out KimodoTimelinePoseSampler sampler,
+            out KimodoTimelineSamplingSession sampler,
             out string error)
         {
             sampler = null;
@@ -1019,7 +1019,7 @@ namespace KimodoBridge.Editor
             }
             if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
                     targetAvatar,
-                    "KimodoTimelinePoseSampler_Target",
+                    "KimodoTimelineSamplingSession_Target",
                     out SkeletonCache targetCache,
                     out error))
             {
@@ -1034,7 +1034,7 @@ namespace KimodoBridge.Editor
             {
                 if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
                         context.SourceAvatar,
-                        "KimodoTimelinePoseSampler_SourcePose",
+                        "KimodoTimelineSamplingSession_SourcePose",
                         out sourceSamplingCache,
                         out error))
                 {
@@ -1054,7 +1054,7 @@ namespace KimodoBridge.Editor
                 }
 
                 context.Director.extrapolationMode = DirectorWrapMode.Hold;
-                sampler = new KimodoTimelinePoseSampler(
+                sampler = new KimodoTimelineSamplingSession(
                     context,
                     sourceSamplingCache,
                     sourceBoneTransforms,
@@ -1577,7 +1577,7 @@ namespace KimodoBridge.Editor
 
             if (sampledMarkerIndices.Count > 0)
             {
-                if (!KimodoTimelinePoseSampler.TryCreate(context, context.ModelName, out KimodoTimelinePoseSampler sampler, out error))
+                if (!KimodoTimelineSamplingSession.TryCreate(context, context.ModelName, out KimodoTimelineSamplingSession sampler, out error))
                 {
                     return false;
                 }

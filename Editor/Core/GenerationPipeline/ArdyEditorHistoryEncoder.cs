@@ -20,10 +20,10 @@ namespace KimodoBridge.Editor
                 error = "ARDY Timeline history range is missing or empty.";
                 return false;
             }
-            if (!KimodoTimelinePoseSampler.TryCreate(
+            if (!KimodoTimelineSamplingSession.TryCreate(
                     source.TimelineContext,
                     profile.ModelName,
-                    out KimodoTimelinePoseSampler sampler,
+                    out KimodoTimelineSamplingSession sampler,
                     out error))
             {
                 return false;

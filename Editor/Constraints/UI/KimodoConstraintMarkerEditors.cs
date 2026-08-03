@@ -1473,10 +1473,10 @@ namespace KimodoBridge.Editor
             float timelineFrameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(timelineContext);
             timelineSampleTime = KimodoTimelineConstraintClipCache.ResolveTimelineSampleTime(marker.time, timelineFrameRate);
 
-            if (!KimodoTimelinePoseSampler.TryCreate(
+            if (!KimodoTimelineSamplingSession.TryCreate(
                     timelineContext,
                     renderContext.ModelName,
-                    out KimodoTimelinePoseSampler sampler,
+                    out KimodoTimelineSamplingSession sampler,
                     out error))
             {
                 return false;
