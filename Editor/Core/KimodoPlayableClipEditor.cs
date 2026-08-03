@@ -180,9 +180,11 @@ namespace KimodoBridge.Editor
                         new GUIContent("InOut Constraint", "None disables boundary constraints. Inside uses this clip's own start/end poses. Outside uses neighboring clip boundary poses."));
                     if ((KimodoInOutConstraintMode)inOutConstraintModeProp.enumValueIndex != KimodoInOutConstraintMode.None)
                     {
-                        GUILayout.Label("Boundary", GUILayout.Width(58f));
-                        EditorGUILayout.PropertyField(enableInConstraint, new GUIContent("In"), GUILayout.Width(42f));
-                        EditorGUILayout.PropertyField(enableOutConstraint, new GUIContent("Out"), GUILayout.Width(50f));
+                        float previousLabelWidth = EditorGUIUtility.labelWidth;
+                        EditorGUIUtility.labelWidth = 28f;
+                        EditorGUILayout.PropertyField(enableInConstraint, new GUIContent("In"), GUILayout.Width(70f));
+                        EditorGUILayout.PropertyField(enableOutConstraint, new GUIContent("Out"), GUILayout.Width(70f));
+                        EditorGUIUtility.labelWidth = previousLabelWidth;
                     }
                 }
             }

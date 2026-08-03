@@ -169,7 +169,7 @@ class LLM2VecEncoder(nn.Module):
 
                 load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
                 load_kwargs["device_map"] = {"": self.target_device}
-            elif self.accelerator_nf4:
+            elif self.accelerator_nf4 or self.target_device.startswith("cuda"):
                 load_kwargs["device_map"] = {"": self.target_device}
             self.model = LLM2Vec.from_pretrained(**load_kwargs)
             print("[LLM2VecEncoder] Weight files loaded. Preparing inference modules...", flush=True)
