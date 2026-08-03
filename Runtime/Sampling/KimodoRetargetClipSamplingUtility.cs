@@ -18,6 +18,12 @@ namespace KimodoBridge
             RawTransform = 1
         }
 
+        internal delegate bool ClipSampleCallback<TSample>(
+            ClipSamplingContext context,
+            float sampleTime,
+            out TSample sample,
+            out string error);
+
         internal sealed class ClipSamplingContext : IDisposable
         {
             private bool disposed;
@@ -61,6 +67,71 @@ namespace KimodoBridge
                         restoreAnimatorAvatar = false;
                     }
                 }
+            }
+        }
+
+        internal sealed class ClipSamplingSession : IDisposable
+        {
+            private readonly ClipSamplingContext context;
+            private bool disposed;
+
+            private ClipSamplingSession(ClipSamplingContext context)
+            {
+                this.context = context;
+            }
+
+            internal ClipSamplingContext Context => context;
+            internal float FrameRate => context != null ? context.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+
+            internal static bool TryCreate(
+                AnimationClip clip,
+                SkeletonCache cache,
+                string rootName,
+                ClipSamplingMode samplingMode,
+                out ClipSamplingSession session,
+                out string error)
+            {
+                session = null;
+                if (!TryBuildClipSamplingContext(
+                        clip,
+                        cache,
+                        rootName,
+                        samplingMode,
+                        out ClipSamplingContext context,
+                        out error))
+                {
+                    return false;
+                }
+
+                session = new ClipSamplingSession(context);
+                return true;
+            }
+
+            internal bool TrySample<TSample>(
+                float sampleTime,
+                ClipSampleCallback<TSample> sampleCallback,
+                out TSample sample,
+                out string error)
+            {
+                sample = default;
+                if (disposed || context == null)
+                {
+                    error = "Clip sampling session is disposed.";
+                    return false;
+                }
+
+                return sampleCallback(context, sampleTime, out sample, out error);
+            }
+
+            public void Dispose()
+            {
+                if (disposed)
+                {
+                    return;
+                }
+
+                disposed = true;
+                context?.Dispose();
             }
         }
 
@@ -338,12 +409,6 @@ namespace KimodoBridge
     }
     internal static class KimodoRetargetSamplingUtility
     {
-        private delegate bool ClipSampleCallback<TSample>(
-            KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
-            float sampleTime,
-            out TSample sample,
-            out string error);
-
         private delegate bool ClipWriteCallback<TSample>(
             IReadOnlyList<TSample> samples,
             AnimationClip clip,
@@ -782,19 +847,19 @@ namespace KimodoBridge
             float sampleTime,
             string rootName,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
-            ClipSampleCallback<TSample> sampleCallback,
+            KimodoRetargetClipSamplingUtility.ClipSampleCallback<TSample> sampleCallback,
             out TSample sample,
             out string error)
         {
             sample = default;
             error = string.Empty;
 
-            if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+            if (!KimodoRetargetClipSamplingUtility.ClipSamplingSession.TryCreate(
                     clip,
                     cache,
                     rootName,
                     samplingMode,
-                    out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
+                    out KimodoRetargetClipSamplingUtility.ClipSamplingSession session,
                     out error))
             {
                 return false;
@@ -802,11 +867,11 @@ namespace KimodoBridge
 
             try
             {
-                return sampleCallback(context, sampleTime, out sample, out error);
+                return session.TrySample(sampleTime, sampleCallback, out sample, out error);
             }
             finally
             {
-                context?.Dispose();
+                session?.Dispose();
             }
         }
 
@@ -816,7 +881,7 @@ namespace KimodoBridge
             int frameCount,
             string rootName,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
-            ClipSampleCallback<TSample> sampleCallback,
+            KimodoRetargetClipSamplingUtility.ClipSampleCallback<TSample> sampleCallback,
             Func<TSample, TSample> cloneSample,
             out TSample[] samples,
             out string error)
@@ -824,12 +889,12 @@ namespace KimodoBridge
             samples = null;
             error = string.Empty;
 
-            if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+            if (!KimodoRetargetClipSamplingUtility.ClipSamplingSession.TryCreate(
                     clip,
                     cache,
                     rootName,
                     samplingMode,
-                    out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
+                    out KimodoRetargetClipSamplingUtility.ClipSamplingSession session,
                     out error))
             {
                 return false;
@@ -838,11 +903,11 @@ namespace KimodoBridge
             try
             {
                 samples = new TSample[frameCount];
-                float frameRate = KimodoRetargetClipSamplingUtility.ResolveFrameRate(clip);
+                float frameRate = Mathf.Max(1f, session.FrameRate);
                 for (int frame = 0; frame < frameCount; frame++)
                 {
                     float time = frame / frameRate;
-                    if (!sampleCallback(context, time, out TSample sample, out error))
+                    if (!session.TrySample(time, sampleCallback, out TSample sample, out error))
                     {
                         return false;
                     }
@@ -854,7 +919,7 @@ namespace KimodoBridge
             }
             finally
             {
-                context?.Dispose();
+                session?.Dispose();
             }
         }
 
