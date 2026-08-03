@@ -377,6 +377,37 @@ def _plan_root_2d_target(
     return result
 
 
+def _normalize_root_2d_target(target: Root2DTarget, transform: Any, skeleton: Any) -> Root2DTarget:
+    if transform is None:
+        return target
+
+    import torch
+    from ardy.constraints import Root2DConstraintSet
+    from kimodo.constraints import transform_constraints_to_origin
+
+    constraint = Root2DConstraintSet(
+        skeleton,
+        frame_indices=torch.tensor([0], dtype=torch.long),
+        root_2d=torch.tensor([target.position], dtype=torch.float32, device=skeleton.device),
+    )
+    transform_constraints_to_origin([constraint], transform)
+    position = constraint.root_2d[0].detach().cpu()
+    return Root2DTarget(
+        position=(float(position[0]), float(position[1])),
+        max_speed=target.max_speed,
+        max_acceleration=target.max_acceleration,
+        arrival_threshold=target.arrival_threshold,
+        include_heading=target.include_heading,
+    )
+
+
+def _constraint_to_plain_item(constraint: Any) -> dict[str, Any]:
+    return {
+        key: value.detach().cpu().tolist() if hasattr(value, "detach") else value
+        for key, value in constraint.get_save_info().items()
+    }
+
+
 def _expand_dense_root_constraint(
     item: dict[str, Any],
     anchor_frame: int,
@@ -722,8 +753,28 @@ class ArdySession:
 
         self.constraint_items = plain
         self.root_2d_target = root_2d_target
-        self._refresh_root_2d_target_constraints(model, apply_from)
         self.future_clips = future_clips
+        if (
+            initial
+            and self._normalize_constraint_origin
+            and root_2d_target is not None
+            and plain
+            and not history_tensors
+            and not future_clips
+        ):
+            from ardy.constraints import load_constraints_lst
+            from kimodo.constraints import normalize_constraints_to_anchor
+
+            normalized_constraints = load_constraints_lst(plain, model.motion_rep.skeleton)
+            self.constraint_origin = normalize_constraints_to_anchor(normalized_constraints)
+            if self.constraint_origin is not None:
+                self.constraint_items = [_constraint_to_plain_item(constraint) for constraint in normalized_constraints]
+                self.root_2d_target = _normalize_root_2d_target(
+                    root_2d_target,
+                    self.constraint_origin,
+                    model.motion_rep.skeleton,
+                )
+        self._refresh_root_2d_target_constraints(model, apply_from)
         if (
             initial
             and self._normalize_constraint_origin

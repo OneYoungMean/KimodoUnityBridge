@@ -603,6 +603,37 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             self.assertIsNone(session.root_2d_target)
             self.assertEqual(session.constraints, [])
 
+    def test_fixed_root_target_uses_the_same_constraint_origin(self):
+        session = self._fake_ardy_session()
+        session._normalize_constraint_origin = True
+        skeleton = SimpleNamespace(device=torch.device("cpu"))
+        model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=skeleton))
+
+        session._set_constraints(
+            [
+                {
+                    "type": "root2d",
+                    "frame_indices": [0],
+                    "smooth_root_2d": [[10.0, 20.0]],
+                },
+                {
+                    "type": "root2d_target",
+                    "target_root_2d": [13.0, 24.0],
+                    "max_speed": 2.25,
+                    "max_acceleration": 3.5,
+                },
+            ],
+            (),
+            model,
+            apply_from=0,
+            initial=True,
+        )
+
+        np.testing.assert_allclose(session.constraint_origin[0].cpu(), [10.0, 20.0])
+        np.testing.assert_allclose(session.root_2d_target.position, [3.0, 4.0], atol=1e-6)
+        self.assertEqual(session.root_2d_target.max_speed, 2.25)
+        self.assertEqual(session.root_2d_target.max_acceleration, 3.5)
+
     def test_root_target_cursor_sync_preserves_cached_future(self):
         session = self._fake_ardy_session()
         session.root_2d_target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, True)

@@ -70,6 +70,12 @@ namespace KimodoBridge
         public bool enableInConstraint = true;
         [Tooltip("Generate the Out boundary constraint when InOut Constraint is Inside or Outside.")]
         public bool enableOutConstraint = true;
+        [Min(0.01f)]
+        [Tooltip("ARDY interactive target maximum root speed used to approach an Outside Out constraint.")]
+        public float ardyTargetMaxSpeed = DefaultArdyTargetMaxSpeed;
+        [Min(0.01f)]
+        [Tooltip("ARDY interactive target maximum root acceleration used to approach an Outside Out constraint.")]
+        public float ardyTargetMaxAcceleration = DefaultArdyTargetMaxAcceleration;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
         [Tooltip("When the first second has no effective constraint anchor, use the Timeline start pose as the anchor.")]
@@ -136,6 +142,8 @@ namespace KimodoBridge
         public const int MAX_FRAMES = 300;
         public const int DEFAULT_FRAMES = 150;
         public const string DefaultBridgeModelName = "Kimodo-SOMA-RP-v1";
+        public const float DefaultArdyTargetMaxSpeed = 1.25f;
+        public const float DefaultArdyTargetMaxAcceleration = 1.5f;
 
         public override Playable CreatePlayable(PlayableGraph graph, GameObject owner)
         {

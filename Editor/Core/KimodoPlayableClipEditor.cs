@@ -24,6 +24,8 @@ namespace KimodoBridge.Editor
         private SerializedProperty inOutConstraintModeProp;
         private SerializedProperty enableInConstraint;
         private SerializedProperty enableOutConstraint;
+        private SerializedProperty ardyTargetMaxSpeed;
+        private SerializedProperty ardyTargetMaxAcceleration;
         private SerializedProperty showConstraint;
         private SerializedProperty autoBeginAnchor;
 
@@ -72,6 +74,8 @@ namespace KimodoBridge.Editor
             inOutConstraintModeProp = serializedObject.FindProperty("inOutConstraintMode");
             enableInConstraint = serializedObject.FindProperty("enableInConstraint");
             enableOutConstraint = serializedObject.FindProperty("enableOutConstraint");
+            ardyTargetMaxSpeed = serializedObject.FindProperty("ardyTargetMaxSpeed");
+            ardyTargetMaxAcceleration = serializedObject.FindProperty("ardyTargetMaxAcceleration");
             showConstraint = serializedObject.FindProperty("showConstraint");
             autoBeginAnchor = serializedObject.FindProperty("autoBeginAnchor");
 
@@ -553,6 +557,20 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.PropertyField(
                     autoBeginAnchor,
                     new GUIContent("Auto Begin Anchor", "When the first second has no effective constraint anchor, add a frame-0 Root2D constraint at the Timeline start pose."));
+            }
+
+            if (KimodoGenerationInspectorGui.IsArdy(bridgeModelName?.stringValue) &&
+                ardyTargetMaxSpeed != null &&
+                ardyTargetMaxAcceleration != null)
+            {
+                EditorGUILayout.Space(4f);
+                EditorGUILayout.LabelField("ARDY Target Options", EditorStyles.boldLabel);
+                EditorGUILayout.PropertyField(
+                    ardyTargetMaxSpeed,
+                    new GUIContent("Max Speed", "Maximum ARDY root speed when an Outside Out constraint is used as an interactive navigation target."));
+                EditorGUILayout.PropertyField(
+                    ardyTargetMaxAcceleration,
+                    new GUIContent("Max Acceleration", "Maximum ARDY root acceleration when an Outside Out constraint is used as an interactive navigation target."));
             }
 
             EditorGUILayout.Space(4f);

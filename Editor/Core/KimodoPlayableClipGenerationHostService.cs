@@ -83,20 +83,26 @@ namespace KimodoBridge.Editor
             ArdyEditorHistorySource initialHistorySource = null;
             if (isArdy)
             {
-                if (constraintSamples.Count > 0)
-                {
-                    constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
-                        constraintSamples,
-                        0.0,
-                    runtimeLengthSeconds,
-                    ardyProfile.SourceFps);
-                }
                 if (!disableTimelineInOut)
                 {
                     ResolveArdyInitialHistory(
                         clip,
                         ardyProfile,
                         out initialHistorySource);
+                }
+                if (externalConstraint == null || !externalConstraint.Enabled)
+                {
+                    AppendArdyOutsideOutRootTarget(
+                        clip,
+                        constraintSamples);
+                }
+                if (constraintSamples.Count > 0)
+                {
+                    constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
+                        constraintSamples,
+                        0.0,
+                        runtimeLengthSeconds,
+                        ardyProfile.SourceFps);
                 }
             }
             int effectiveSeed = effectiveSeedOverride ?? ResolveEffectiveSeed(clip);
@@ -169,6 +175,41 @@ namespace KimodoBridge.Editor
                 InitialArdyHistorySource = initialHistorySource,
                 DisableTimelineInOut = disableTimelineInOut
             };
+        }
+
+        internal static bool AppendArdyOutsideOutRootTarget(
+            KimodoPlayableClip clip,
+            List<KimodoMarkerSampleResult> constraintSamples)
+        {
+            if (clip == null ||
+                constraintSamples == null ||
+                clip.inOutConstraintMode != KimodoInOutConstraintMode.Outside ||
+                !clip.enableOutConstraint ||
+                !KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _))
+            {
+                return false;
+            }
+
+            for (int i = constraintSamples.Count - 1; i >= 0; i--)
+            {
+                KimodoMarkerSampleResult endSample = constraintSamples[i];
+                if (endSample == null ||
+                    !string.Equals(endSample.constraintType, "fullbody", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                KimodoMarkerSampleResult target = endSample.Clone();
+                target.constraintType = "root2d_target";
+                target.rootTargetMaxSpeed = Mathf.Max(0.01f, clip.ardyTargetMaxSpeed);
+                target.rootTargetMaxAcceleration = Mathf.Max(0.01f, clip.ardyTargetMaxAcceleration);
+                target.rootTargetArrivalThreshold = 0.1f;
+                target.rootTargetIncludeHeading = true;
+                constraintSamples.Add(target);
+                return true;
+            }
+
+            return false;
         }
 
         private static bool ShouldUseOutsideGuardFrame(

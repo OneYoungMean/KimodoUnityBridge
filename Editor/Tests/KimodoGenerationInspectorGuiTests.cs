@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
+using TimelineInject;
 using UnityEditor;
 using UnityEngine;
 
@@ -79,6 +81,52 @@ namespace KimodoBridge.Editor.Tests
             finally
             {
                 Object.DestroyImmediate(marker);
+            }
+        }
+
+        [Test]
+        public void ArdyOutsideOut_AddsInteractiveRootTargetWithClipParameters()
+        {
+            KimodoPlayableClip clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            try
+            {
+                clip.inOutConstraintMode = KimodoInOutConstraintMode.Outside;
+                clip.enableOutConstraint = true;
+                clip.ardyTargetMaxSpeed = 2.25f;
+                clip.ardyTargetMaxAcceleration = 3.5f;
+                var samples = new List<KimodoMarkerSampleResult>
+                {
+                    new KimodoMarkerSampleResult
+                    {
+                        constraintType = "fullbody",
+                        sampleTime = 2.0,
+                        kimodoRootPosition = new Vector3(2f, 1f, 4f)
+                    }
+                };
+
+                Assert.That(
+                    KimodoPlayableClipGenerationHostService.AppendArdyOutsideOutRootTarget(
+                        clip,
+                        samples),
+                    Is.False);
+
+                clip.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
+                Assert.That(
+                    KimodoPlayableClipGenerationHostService.AppendArdyOutsideOutRootTarget(
+                        clip,
+                        samples),
+                    Is.True);
+                Assert.That(samples, Has.Count.EqualTo(2));
+
+                KimodoConstraintJson target = KimodoConstraintJsonExporter.BuildConstraint(samples[1], 0.0, 2.0, 20.0);
+                Assert.That(target.type, Is.EqualTo("root2d_target"));
+                Assert.That(target.target_root_2d, Is.EqualTo(new[] { -2f, 4f }));
+                Assert.That(target.max_speed, Is.EqualTo(2.25f));
+                Assert.That(target.max_acceleration, Is.EqualTo(3.5f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(clip);
             }
         }
     }

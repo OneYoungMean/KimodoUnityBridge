@@ -367,6 +367,12 @@ namespace KimodoBridge.Editor
                     deferConstraintNormalization: true,
                     enableAutoBeginAnchor: i == 0);
                 AppendConnectedBoundarySamples(entry, i, entries.Count);
+                if (i == entries.Count - 1)
+                {
+                    KimodoPlayableClipGenerationHostService.AppendArdyOutsideOutRootTarget(
+                        entry.Clip,
+                        entry.Request.ConstraintSamples);
+                }
                 entry.Request.Progress = PrefixProgress(progress, i, entries.Count);
                 if (string.IsNullOrWhiteSpace(entry.Request.Prompt))
                 {
