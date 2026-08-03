@@ -354,6 +354,11 @@ namespace KimodoBridge.Editor
             List<string> keysToRemove = null;
             foreach (KeyValuePair<string, ConstraintPosePreviewEntry> kv in entries)
             {
+                if (!IsEntryInScope(kv.Value, normalizedPrefix))
+                {
+                    continue;
+                }
+
                 if (!desiredKeys.Contains(kv.Key))
                 {
                     DestroyEntry(kv.Value);
@@ -726,6 +731,7 @@ namespace KimodoBridge.Editor
                 ? keepContext.Value.ContextKey
                 : null;
             bool changed = false;
+            string prefixedEntryIdSuffix = ":" + normalizedEntryId;
 
             foreach (ConstraintPosePreviewSession session in Sessions.Values)
             {
@@ -736,11 +742,31 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                if (session.Entries.TryGetValue(normalizedEntryId, out ConstraintPosePreviewEntry entry))
+                List<string> keysToRemove = null;
+                foreach (KeyValuePair<string, ConstraintPosePreviewEntry> kv in session.Entries)
                 {
-                    DestroyEntry(entry);
-                    session.Entries.Remove(normalizedEntryId);
-                    changed = true;
+                    if (string.Equals(kv.Key, normalizedEntryId, StringComparison.Ordinal) ||
+                        kv.Key.EndsWith(prefixedEntryIdSuffix, StringComparison.Ordinal))
+                    {
+                        keysToRemove ??= new List<string>();
+                        keysToRemove.Add(kv.Key);
+                    }
+                }
+
+                if (keysToRemove == null)
+                {
+                    continue;
+                }
+
+                for (int i = 0; i < keysToRemove.Count; i++)
+                {
+                    string key = keysToRemove[i];
+                    if (session.Entries.TryGetValue(key, out ConstraintPosePreviewEntry entry))
+                    {
+                        DestroyEntry(entry);
+                        session.Entries.Remove(key);
+                        changed = true;
+                    }
                 }
             }
 

@@ -2150,6 +2150,74 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void ConstraintPoseCache_ItemCleanupIncludesPrefixedSelectionEntry()
+        {
+            KimodoConstraintPoseCache.DestroyAll();
+            try
+            {
+                var context = new PoseCacheRenderContext(
+                    clipId: 1,
+                    animatorId: 2,
+                    trackId: 3,
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoConstraintRigType.Soma77);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryGetOrCreateSession(
+                        context,
+                        out ConstraintPosePreviewSession session,
+                        out string error),
+                    Is.True,
+                    error);
+                session.Entries.Add("marker:1", new ConstraintPosePreviewEntry { Key = "marker:1" });
+                session.Entries.Add("selection:marker:1", new ConstraintPosePreviewEntry { Key = "selection:marker:1" });
+                session.Entries.Add("marker:2", new ConstraintPosePreviewEntry { Key = "marker:2" });
+
+                KimodoConstraintPoseCache.DestroyEntriesForItemId("marker:1");
+
+                Assert.That(session.Entries.ContainsKey("marker:1"), Is.False);
+                Assert.That(session.Entries.ContainsKey("selection:marker:1"), Is.False);
+                Assert.That(session.Entries.ContainsKey("marker:2"), Is.True);
+            }
+            finally
+            {
+                KimodoConstraintPoseCache.DestroyAll();
+            }
+        }
+
+        [Test]
+        public void ConstraintPoseCache_ScopeCleanupPreservesOtherPreviewOwners()
+        {
+            KimodoConstraintPoseCache.DestroyAll();
+            try
+            {
+                var context = new PoseCacheRenderContext(
+                    clipId: 1,
+                    animatorId: 2,
+                    trackId: 3,
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoConstraintRigType.Soma77);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryGetOrCreateSession(
+                        context,
+                        out ConstraintPosePreviewSession session,
+                        out string error),
+                    Is.True,
+                    error);
+                session.Entries.Add("selection:marker:1", new ConstraintPosePreviewEntry { Key = "selection:marker:1" });
+                session.Entries.Add("edit:marker:1", new ConstraintPosePreviewEntry { Key = "edit:marker:1" });
+
+                KimodoConstraintPoseCache.DestroyEntriesInScope(context, "selection:");
+
+                Assert.That(session.Entries.ContainsKey("selection:marker:1"), Is.False);
+                Assert.That(session.Entries.ContainsKey("edit:marker:1"), Is.True);
+            }
+            finally
+            {
+                KimodoConstraintPoseCache.DestroyAll();
+            }
+        }
+
+        [Test]
         public void ConstraintPoseCache_RecognizesClipRemovedFromOriginalTrack()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
