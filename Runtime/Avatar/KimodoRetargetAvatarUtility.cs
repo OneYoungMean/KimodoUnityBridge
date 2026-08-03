@@ -88,6 +88,22 @@ namespace KimodoBridge
             return TryBuildOwnedSkeletonCache(avatar, root, animator, out cache, out error);
         }
 
+        internal static bool TryBuildSkeletonInstance(
+            Avatar avatar,
+            string rootName,
+            out KimodoSkeletonInstance skeleton,
+            out string error)
+        {
+            skeleton = null;
+            if (!TryBuildSkeletonCache(avatar, rootName, out SkeletonCache cache, out error))
+            {
+                return false;
+            }
+
+            skeleton = new KimodoSkeletonInstance(cache);
+            return true;
+        }
+
         internal static bool TryBuildOwnedSkeletonCache(
             GameObject root,
             Animator animator,
@@ -111,6 +127,22 @@ namespace KimodoBridge
             }
 
             return TryBuildOwnedSkeletonCache(avatar, root, animator, out cache, out error);
+        }
+
+        internal static bool TryBuildOwnedSkeletonInstance(
+            GameObject root,
+            Animator animator,
+            out KimodoSkeletonInstance skeleton,
+            out string error)
+        {
+            skeleton = null;
+            if (!TryBuildOwnedSkeletonCache(root, animator, out SkeletonCache cache, out error))
+            {
+                return false;
+            }
+
+            skeleton = new KimodoSkeletonInstance(cache);
+            return true;
         }
 
         private static bool TryBuildOwnedSkeletonCache(

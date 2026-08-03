@@ -31,6 +31,54 @@ namespace KimodoBridge
         public Quaternion rightHandRotation;
     }
 
+    public sealed class KimodoSkeletonInstance : IDisposable
+    {
+        private readonly SkeletonCache cache;
+
+        internal KimodoSkeletonInstance(SkeletonCache cache)
+        {
+            this.cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        }
+
+        public SkeletonCache Cache => cache;
+        public Avatar Avatar => cache.avatar;
+        public Animator Animator => cache.animator;
+        public Transform Root => cache.skeletonRoot;
+        public float HumanScale => cache.humanScale;
+        public bool IsReady => cache.IsReady;
+
+        public void ResetToBindPose()
+        {
+            KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(cache);
+        }
+
+        public BoneSample CaptureBoneSample()
+        {
+            return KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
+        }
+
+        public bool TryApplyBoneSample(BoneSample sample, out string error)
+        {
+            return KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(sample, cache, out error);
+        }
+
+        public bool TryCaptureMuscleSample(out MuscleSample sample, out string error)
+        {
+            return KimodoRetargetSamplingUtility.TryCaptureMuscleSample(cache, out sample, out error);
+        }
+
+        public bool TryGetHumanBone(HumanBodyBones bone, out Transform transform)
+        {
+            transform = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(cache, bone);
+            return transform != null;
+        }
+
+        public void Dispose()
+        {
+            cache.Dispose();
+        }
+    }
+
     public sealed class SkeletonCache : IDisposable
     {
         public Avatar avatar;
