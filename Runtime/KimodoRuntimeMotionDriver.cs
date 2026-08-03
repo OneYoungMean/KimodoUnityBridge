@@ -9,6 +9,162 @@ using UnityEngine.Serialization;
 
 namespace KimodoBridge
 {
+    internal sealed class KimodoRuntimeConstraintBuffer
+    {
+        private readonly List<KimodoMarkerSampleResult> overlapPoses = new List<KimodoMarkerSampleResult>();
+        private readonly List<KimodoMarkerSampleResult> stagedSamples = new List<KimodoMarkerSampleResult>();
+        private readonly List<KimodoMarkerSampleResult> pendingSamples = new List<KimodoMarkerSampleResult>();
+
+        internal int StagedCount => stagedSamples.Count;
+        internal int PendingCount => pendingSamples.Count;
+        internal int OverlapCount => overlapPoses.Count;
+
+        internal void Stage(KimodoMarkerSampleResult sample, double absoluteTimeOffset = 0.0)
+        {
+            if (sample == null)
+            {
+                return;
+            }
+
+            sample.sampleTime += absoluteTimeOffset;
+            UpsertByType(stagedSamples, sample);
+        }
+
+        internal bool CommitStaged()
+        {
+            if (stagedSamples.Count == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < stagedSamples.Count; i++)
+            {
+                UpsertByType(pendingSamples, stagedSamples[i]);
+            }
+
+            stagedSamples.Clear();
+            return true;
+        }
+
+        internal void ClearUserConstraints()
+        {
+            stagedSamples.Clear();
+            pendingSamples.Clear();
+        }
+
+        internal void ClearAll()
+        {
+            ClearUserConstraints();
+            overlapPoses.Clear();
+        }
+
+        internal void SetOverlapPoses(IReadOnlyList<KimodoMarkerSampleResult> poses)
+        {
+            overlapPoses.Clear();
+            if (poses == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < poses.Count; i++)
+            {
+                if (poses[i] != null)
+                {
+                    overlapPoses.Add(poses[i]);
+                }
+            }
+        }
+
+        internal void ClearOverlapPoses()
+        {
+            overlapPoses.Clear();
+        }
+
+        internal List<KimodoMarkerSampleResult> BuildActive(
+            bool isArdy,
+            double ardyApplyTime,
+            bool includeOverlap,
+            float maxConstraintTime,
+            string fullBodyConstraintType,
+            string root2DTargetConstraintType)
+        {
+            if (!isArdy)
+            {
+                RemoveByType(pendingSamples, root2DTargetConstraintType);
+            }
+
+            var samples = new List<KimodoMarkerSampleResult>();
+            if (includeOverlap)
+            {
+                for (int i = 0; i < overlapPoses.Count; i++)
+                {
+                    KimodoMarkerSampleResult source = overlapPoses[i];
+                    if (source == null)
+                    {
+                        continue;
+                    }
+
+                    KimodoMarkerSampleResult sample = source.Clone();
+                    sample.constraintType = fullBodyConstraintType;
+                    sample.sampleTime = source.sampleTime;
+                    sample.kimodoRootPosition = new Vector3(0f, sample.kimodoRootPosition.y, 0f);
+                    sample.unityRootPos = sample.kimodoRootPosition;
+                    samples.Add(sample);
+                }
+            }
+
+            for (int i = 0; i < pendingSamples.Count; i++)
+            {
+                KimodoMarkerSampleResult pending = pendingSamples[i];
+                if (pending == null)
+                {
+                    continue;
+                }
+
+                KimodoMarkerSampleResult clone = pending.Clone();
+                clone.sampleTime = isArdy
+                    ? Math.Max(0.0, clone.sampleTime - ardyApplyTime)
+                    : Mathf.Clamp((float)clone.sampleTime, 0f, maxConstraintTime);
+                samples.Add(clone);
+            }
+
+            samples.Sort((a, b) => a.sampleTime.CompareTo(b.sampleTime));
+            return samples;
+        }
+
+        internal void CompleteGeneration(bool isArdy)
+        {
+            if (!isArdy)
+            {
+                pendingSamples.Clear();
+            }
+        }
+
+        private static void UpsertByType(
+            List<KimodoMarkerSampleResult> samples,
+            KimodoMarkerSampleResult sample)
+        {
+            RemoveByType(samples, sample?.constraintType);
+            if (sample != null)
+            {
+                samples.Add(sample);
+            }
+        }
+
+        private static void RemoveByType(List<KimodoMarkerSampleResult> samples, string constraintType)
+        {
+            for (int i = samples.Count - 1; i >= 0; i--)
+            {
+                KimodoMarkerSampleResult existing = samples[i];
+                if (existing == null ||
+                    string.Equals(existing.constraintType, constraintType, StringComparison.OrdinalIgnoreCase))
+                {
+                    samples.RemoveAt(i);
+                }
+            }
+        }
+    }
+
     [AddComponentMenu("Kimodo/Runtime Motion Driver")]
     public sealed class KimodoRuntimeMotionDriver : MonoBehaviour
     {
@@ -86,10 +242,7 @@ namespace KimodoBridge
         private int generationRequestVersion;
         private string promptDraft;
         private string statusMessage = "Idle.";
-        private readonly List<KimodoMarkerSampleResult> nextConstraintPoses = new List<KimodoMarkerSampleResult>();
-        private readonly List<KimodoMarkerSampleResult> stagedConstraintSamples = new List<KimodoMarkerSampleResult>();
-        private readonly List<KimodoMarkerSampleResult> pendingConstraintSamples = new List<KimodoMarkerSampleResult>();
-        private readonly List<KimodoMarkerSampleResult> constraintJsonScratch = new List<KimodoMarkerSampleResult>();
+        private readonly KimodoRuntimeConstraintBuffer constraintBuffer = new KimodoRuntimeConstraintBuffer();
         private KimodoBridgeService bridgeService;
         private int? ardyStreamResolvedSeed;
         private bool ardySessionStarted;
@@ -204,11 +357,11 @@ namespace KimodoBridge
 
             if (loopHint && !KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
-                SetNextConstraintPoses(startedSegment.ConstraintOverlapPoses);
+                constraintBuffer.SetOverlapPoses(startedSegment.ConstraintOverlapPoses);
             }
             else
             {
-                ClearNextConstraintPoses();
+                constraintBuffer.ClearOverlapPoses();
             }
 
             UpdateStatus($"Playing segment {startedSegment.Index}.");
@@ -405,8 +558,7 @@ namespace KimodoBridge
 
         public void ClearConstraints()
         {
-            stagedConstraintSamples.Clear();
-            pendingConstraintSamples.Clear();
+            constraintBuffer.ClearUserConstraints();
             ardyConstraintsDirty = true;
             _ = RefreshUpcomingGenerationAsync(
                 "Constraints cleared.",
@@ -422,9 +574,7 @@ namespace KimodoBridge
         public async Task ResetMotionAsync()
         {
             promptDraft = ResolveInitialPrompt();
-            stagedConstraintSamples.Clear();
-            pendingConstraintSamples.Clear();
-            ClearNextConstraintPoses();
+            constraintBuffer.ClearAll();
             segmentIndex = 0;
             generationRequestVersion++;
             lastGenerationWaitStatusSegment = -1;
@@ -490,9 +640,7 @@ namespace KimodoBridge
                 generationRequestVersion = 0;
                 generationBlocked = false;
                 lastGenerationWaitStatusSegment = -1;
-                stagedConstraintSamples.Clear();
-                pendingConstraintSamples.Clear();
-                ClearNextConstraintPoses();
+                constraintBuffer.ClearAll();
                 motionPlayer.Stop();
                 motionPlayer.ResetCompletionState();
                 motionPlayer.ClearQueue();
@@ -566,9 +714,7 @@ namespace KimodoBridge
             generationCts?.Dispose();
             generationInFlight = false;
             lastGenerationWaitStatusSegment = -1;
-            stagedConstraintSamples.Clear();
-            pendingConstraintSamples.Clear();
-            ClearNextConstraintPoses();
+            constraintBuffer.ClearAll();
             motionPlayer.Stop();
             motionPlayer.ResetCompletionState();
             motionPlayer.ClearQueue();
@@ -906,10 +1052,7 @@ namespace KimodoBridge
                         : metadata.Motion.LastFrameTimeSeconds
                 }));
 
-                if (!isArdy)
-                {
-                    pendingConstraintSamples.Clear();
-                }
+                constraintBuffer.CompleteGeneration(isArdy);
                 segmentIndex = requestSegmentIndex + 1;
                 UpdateStatus($"Segment {requestSegmentIndex} ready.");
             }
@@ -940,55 +1083,14 @@ namespace KimodoBridge
 
         private List<KimodoMarkerSampleResult> BuildActiveGenerationConstraints()
         {
-            var samples = new List<KimodoMarkerSampleResult>();
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
-            double ardyApplyTime = isArdy ? motionPlayer.PlaybackTimeAsDouble : 0.0;
-
-            if (!isArdy)
-            {
-                pendingConstraintSamples.RemoveAll(sample =>
-                    sample != null &&
-                    string.Equals(sample.constraintType, Root2DTargetConstraintType, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (loopHint &&
-                !KimodoMotionModelProfiles.TryGetArdy(modelName, out _) &&
-                nextConstraintPoses.Count > 0)
-            {
-                for (int i = 0; i < nextConstraintPoses.Count; i++)
-                {
-                    KimodoMarkerSampleResult source = nextConstraintPoses[i];
-                    if (source == null)
-                    {
-                        continue;
-                    }
-
-                    KimodoMarkerSampleResult sample = source.Clone();
-                    sample.constraintType = FullBodyConstraintType;
-                    sample.sampleTime = source.sampleTime;
-                    sample.kimodoRootPosition = new Vector3(0f, sample.kimodoRootPosition.y, 0f);
-                    sample.unityRootPos = sample.kimodoRootPosition;
-                    samples.Add(sample);
-                }
-            }
-
-            for (int i = 0; i < pendingConstraintSamples.Count; i++)
-            {
-                KimodoMarkerSampleResult pending = pendingConstraintSamples[i];
-                if (pending == null)
-                {
-                    continue;
-                }
-
-                KimodoMarkerSampleResult clone = pending.Clone();
-                clone.sampleTime = isArdy
-                    ? Math.Max(0.0, clone.sampleTime - ardyApplyTime)
-                    : ClampConstraintTime((float)clone.sampleTime);
-                samples.Add(clone);
-            }
-
-            samples.Sort((a, b) => a.sampleTime.CompareTo(b.sampleTime));
-            return samples;
+            return constraintBuffer.BuildActive(
+                isArdy,
+                isArdy ? motionPlayer.PlaybackTimeAsDouble : 0.0,
+                includeOverlap: loopHint && !isArdy,
+                ResolveGenerationDurationSeconds(),
+                FullBodyConstraintType,
+                Root2DTargetConstraintType);
         }
 
         private string BuildNextConstraintsJson()
@@ -1000,10 +1102,8 @@ namespace KimodoBridge
                 return string.Empty;
             }
 
-            constraintJsonScratch.Clear();
-            constraintJsonScratch.AddRange(activeConstraints);
             string futureConstraints = KimodoConstraintJsonExporter.ToConstraintsJson(
-                constraintJsonScratch,
+                activeConstraints,
                 0.0,
                 ResolveGenerationDurationSeconds(),
                 isArdy ? profile.SourceFps : KimodoPlayableClip.FIXED_FRAME_RATE,
@@ -1293,17 +1393,11 @@ namespace KimodoBridge
             string waitingStatus,
             string generatingStatus)
         {
-            if (stagedConstraintSamples.Count == 0)
+            if (!constraintBuffer.CommitStaged())
             {
                 return;
             }
 
-            for (int i = 0; i < stagedConstraintSamples.Count; i++)
-            {
-                UpsertPendingConstraintSample(stagedConstraintSamples[i]);
-            }
-
-            stagedConstraintSamples.Clear();
             if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
                 ardyConstraintsDirty = true;
@@ -1318,26 +1412,11 @@ namespace KimodoBridge
                 return;
             }
 
-            for (int i = stagedConstraintSamples.Count - 1; i >= 0; i--)
-            {
-                KimodoMarkerSampleResult existing = stagedConstraintSamples[i];
-                if (existing == null)
-                {
-                    stagedConstraintSamples.RemoveAt(i);
-                    continue;
-                }
-
-                if (string.Equals(existing.constraintType, sample.constraintType, StringComparison.OrdinalIgnoreCase))
-                {
-                    stagedConstraintSamples.RemoveAt(i);
-                }
-            }
-
-            if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
-            {
-                sample.sampleTime += motionPlayer.PlaybackTimeAsDouble;
-            }
-            stagedConstraintSamples.Add(sample);
+            constraintBuffer.Stage(
+                sample,
+                KimodoMotionModelProfiles.TryGetArdy(modelName, out _)
+                    ? motionPlayer.PlaybackTimeAsDouble
+                    : 0.0);
         }
 
         private string GetCurrentPromptInternal(out bool isIdle)
@@ -1366,31 +1445,6 @@ namespace KimodoBridge
             }
 
             return targetHumanoidAnimator != null ? targetHumanoidAnimator.transform.position : transform.position;
-        }
-
-        private void UpsertPendingConstraintSample(KimodoMarkerSampleResult sample)
-        {
-            if (sample == null)
-            {
-                return;
-            }
-
-            for (int i = pendingConstraintSamples.Count - 1; i >= 0; i--)
-            {
-                KimodoMarkerSampleResult existing = pendingConstraintSamples[i];
-                if (existing == null)
-                {
-                    pendingConstraintSamples.RemoveAt(i);
-                    continue;
-                }
-
-                if (string.Equals(existing.constraintType, sample.constraintType, StringComparison.OrdinalIgnoreCase))
-                {
-                    pendingConstraintSamples.RemoveAt(i);
-                }
-            }
-
-            pendingConstraintSamples.Add(sample);
         }
 
         private float ClampConstraintTime(float durationSeconds)
@@ -1617,30 +1671,6 @@ namespace KimodoBridge
             generationFrames = Mathf.Max(
                 1,
                 KimodoFrameTimeUtility.SecondsToFrameCount(clamped, KimodoPlayableClip.FIXED_FRAME_RATE));
-        }
-
-        private void ClearNextConstraintPoses()
-        {
-            nextConstraintPoses.Clear();
-            constraintJsonScratch.Clear();
-        }
-
-        private void SetNextConstraintPoses(IReadOnlyList<KimodoMarkerSampleResult> poses)
-        {
-            nextConstraintPoses.Clear();
-            if (poses == null)
-            {
-                return;
-            }
-
-            for (int i = 0; i < poses.Count; i++)
-            {
-                KimodoMarkerSampleResult pose = poses[i];
-                if (pose != null)
-                {
-                    nextConstraintPoses.Add(pose);
-                }
-            }
         }
 
         private bool ValidateConfiguration(out string error)
