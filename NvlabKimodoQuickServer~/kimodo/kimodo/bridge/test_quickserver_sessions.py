@@ -655,6 +655,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         session = self._fake_ardy_session()
         session.motion_cpu = torch.zeros((1, 8, 1), dtype=torch.float32)
         session.outputs = {"root_positions": np.zeros((1, 8, 3), dtype=np.float32)}
+        session.outputs["root_positions"][0, 6, [0, 2]] = [0.95, 1.9]
+        session.outputs["root_positions"][0, 7, [0, 2]] = [1.0, 2.0]
         model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=object()))
         loaded = []
 
@@ -671,7 +673,10 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 initial=False,
             )
             self.assertEqual(session.root_2d_target.position, (5.0, 0.0))
-            self.assertEqual([item["type"] for item in loaded[-1]], ["root2d"])
+            self.assertEqual([item["type"] for item in loaded[-1]], ["root2d", "root2d"])
+            self.assertEqual(loaded[-1][0]["frame_indices"], [8])
+            np.testing.assert_allclose(loaded[-1][0]["smooth_root_2d"], [[1.05, 2.1]], atol=1e-6)
+            self.assertNotIn("global_root_heading", loaded[-1][0])
 
             session._set_constraints(
                 [{"type": "root2d_target", "target_root_2d": [-3.0, 2.0]}],
@@ -681,7 +686,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 initial=False,
             )
             self.assertEqual(session.root_2d_target.position, (-3.0, 2.0))
-            self.assertEqual([item["type"] for item in loaded[-1]], ["root2d"])
+            self.assertEqual([item["type"] for item in loaded[-1]], ["root2d", "root2d"])
 
             session._set_constraints([], (), model, apply_from=8, initial=False)
             self.assertIsNone(session.root_2d_target)
