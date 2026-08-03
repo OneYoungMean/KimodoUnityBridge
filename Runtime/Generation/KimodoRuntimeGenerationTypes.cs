@@ -29,6 +29,9 @@ namespace KimodoBridge
         public int owner_pid;
         public double? ardy_history_crop_seconds;
         public double? ardy_future_crop_seconds;
+        public double? ardy_max_speed;
+        public double? ardy_max_acceleration;
+        public double? ardy_history_transition_weight;
         public double? ardy_playback_reserve_seconds;
         public bool? ardy_adaptive_playback_reserve;
         public string output_format = "kmb_v1";

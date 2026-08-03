@@ -261,7 +261,7 @@ namespace KimodoBridge
         private float ardyPlaybackReserveSeconds = 1f;
         [SerializeField, Tooltip("Let the ARDY backend adapt the playback reserve from measured response time.")]
         private bool ardyAdaptivePlaybackReserve = true;
-        [SerializeField][Min(0f), Tooltip("0 uses the selected ARDY profile maximum.")]
+        [SerializeField][Min(0f), Tooltip("0 selects adaptive ARDY History Crop.")]
         private float ardyHistoryCropSeconds;
         [SerializeField][Min(0f), Tooltip("0 uses the selected ARDY profile maximum.")]
         private float ardyFutureCropSeconds;
@@ -907,9 +907,7 @@ namespace KimodoBridge
                     request.time_as_double = motionPlayer.PlaybackTimeAsDouble;
                     if (sendSettings)
                     {
-                        request.ardy_history_crop_seconds = ardyHistoryCropSeconds > 0f
-                            ? ardyHistoryCropSeconds
-                            : (double?)null;
+                        request.ardy_history_crop_seconds = ardyHistoryCropSeconds;
                         request.ardy_future_crop_seconds = ardyFutureCropSeconds > 0f
                             ? ardyFutureCropSeconds
                             : (double?)null;

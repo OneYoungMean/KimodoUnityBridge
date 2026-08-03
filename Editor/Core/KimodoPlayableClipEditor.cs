@@ -566,13 +566,13 @@ namespace KimodoBridge.Editor
                 ardyTargetMaxAcceleration != null)
             {
                 EditorGUILayout.Space(4f);
-                EditorGUILayout.LabelField("ARDY Target Options", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("ARDY Motion Limits", EditorStyles.boldLabel);
                 EditorGUILayout.PropertyField(
                     ardyTargetMaxSpeed,
-                    new GUIContent("Max Speed", "Maximum ARDY root speed while approaching an Outside Out constraint at the clip boundary."));
+                    new GUIContent("Max Speed", "Maximum root speed used by ARDY Auto History for a future Full-Body target."));
                 EditorGUILayout.PropertyField(
                     ardyTargetMaxAcceleration,
-                    new GUIContent("Max Acceleration", "Maximum ARDY root acceleration while approaching an Outside Out constraint at the clip boundary."));
+                    new GUIContent("Max Acceleration", "Maximum root acceleration used by ARDY Auto History for a future Full-Body target."));
             }
 
             EditorGUILayout.Space(4f);

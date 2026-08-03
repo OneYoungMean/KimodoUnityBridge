@@ -42,6 +42,10 @@ namespace KimodoBridge.Editor
         public PoseCacheRenderContext? TimelinePoseContextSnapshot;
         public ArdyEditorHistorySource InitialArdyHistorySource;
         public bool DisableTimelineInOut;
+        public double? ArdyHistoryCropSeconds;
+        public double? ArdyMaxSpeed;
+        public double? ArdyMaxAcceleration;
+        public double? ArdyHistoryTransitionWeight;
         public KimodoPlayableClip AnchorOffsetSourceClip;
         public string GeneratedArdyMotionCachePath = string.Empty;
         public List<string> GeneratedArdyWindowCachePaths = new List<string>();

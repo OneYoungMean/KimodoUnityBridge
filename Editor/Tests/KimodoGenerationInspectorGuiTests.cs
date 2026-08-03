@@ -1,9 +1,9 @@
-using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor.Tests
 {
@@ -84,51 +84,43 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
-        [TestCase(KimodoInOutConstraintMode.Inside)]
-        [TestCase(KimodoInOutConstraintMode.Outside)]
-        public void ArdyOut_AddsTimedRootTargetWithClipParameters(KimodoInOutConstraintMode mode)
+        [Test]
+        public void ArdyRequest_UsesAutoHistoryAndClipMotionLimits()
         {
-            KimodoPlayableClip clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             try
             {
-                clip.inOutConstraintMode = mode;
-                clip.enableOutConstraint = true;
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                timelineClip.duration = 4.0;
+                var clip = (KimodoPlayableClip)timelineClip.asset;
+                clip.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
+                clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
                 clip.ardyTargetMaxSpeed = 2.25f;
                 clip.ardyTargetMaxAcceleration = 3.5f;
-                var samples = new List<KimodoMarkerSampleResult>
-                {
-                    new KimodoMarkerSampleResult
-                    {
-                        constraintType = "fullbody",
-                        sampleTime = 2.0,
-                        kimodoRootPosition = new Vector3(2f, 1f, 4f)
-                    }
-                };
+
+                KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    "walk",
+                    externalConstraint: null,
+                    default);
+                KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
+                    request,
+                    "walk",
+                    clip.bridgeModelName).GenerationRequest;
 
                 Assert.That(
-                    KimodoPlayableClipGenerationHostService.AppendArdyOutRootTarget(
-                        clip,
-                        samples),
+                    request.ConstraintSamples.Any(
+                        sample => sample != null && sample.constraintType == "root2d_target"),
                     Is.False);
-
-                clip.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
-                Assert.That(
-                    KimodoPlayableClipGenerationHostService.AppendArdyOutRootTarget(
-                        clip,
-                        samples),
-                    Is.True);
-                Assert.That(samples, Has.Count.EqualTo(2));
-
-                KimodoConstraintJson target = KimodoConstraintJsonExporter.BuildConstraint(samples[1], 0.0, 2.0, 20.0);
-                Assert.That(target.type, Is.EqualTo("root2d_target"));
-                Assert.That(target.target_root_2d, Is.EqualTo(new[] { -2f, 4f }));
-                Assert.That(target.target_frame, Is.EqualTo(39));
-                Assert.That(target.max_speed, Is.EqualTo(2.25f));
-                Assert.That(target.max_acceleration, Is.EqualTo(3.5f));
+                Assert.That(generation.ardy_history_crop_seconds, Is.Zero);
+                Assert.That(generation.ardy_max_speed, Is.EqualTo(2.25));
+                Assert.That(generation.ardy_max_acceleration, Is.EqualTo(3.5));
+                Assert.That(generation.ardy_history_transition_weight, Is.EqualTo(0.5));
             }
             finally
             {
-                Object.DestroyImmediate(clip);
+                Object.DestroyImmediate(timeline);
             }
         }
     }

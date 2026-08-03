@@ -633,7 +633,11 @@ namespace KimodoBridge.Editor
                 simulate_free_vram_gb = KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental ? 0 : (int?)null,
                 models_root = modelsRoot,
                 force_hf_download = false,
-                owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id
+                owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id,
+                ardy_history_crop_seconds = request.ArdyHistoryCropSeconds,
+                ardy_max_speed = request.ArdyMaxSpeed,
+                ardy_max_acceleration = request.ArdyMaxAcceleration,
+                ardy_history_transition_weight = request.ArdyHistoryTransitionWeight
             };
 
             return new KimodoBridgeCommandRequest

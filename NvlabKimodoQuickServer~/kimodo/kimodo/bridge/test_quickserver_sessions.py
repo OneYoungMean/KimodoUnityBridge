@@ -357,9 +357,16 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             )
             settings = ardy_backend.ArdySettings.from_request({}, profile)
             self.assertEqual(settings.history_crop_frames, expected_history)
+            self.assertTrue(settings.auto_history)
             expected_reserve = int(math.ceil(fps / 4) * 4)
             self.assertEqual(settings.playback_reserve_frames, expected_reserve)
             self.assertTrue(settings.adaptive_playback_reserve)
+
+            fixed = ardy_backend.ArdySettings.from_request(
+                {"ardy_history_crop_seconds": 2.0},
+                profile,
+            )
+            self.assertFalse(fixed.auto_history)
 
     def test_cursor_patch_pause_and_seek_use_one_cached_timeline(self):
         session = self._fake_ardy_session()
@@ -577,7 +584,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(tail["frame_indices"], [101])
         np.testing.assert_allclose(tail["smooth_root_2d"][-1], goal, atol=1e-7)
 
-    def test_timed_root_target_warns_and_relaxes_motion_limits_in_order(self):
+    def test_timed_root_target_silently_relaxes_motion_limits(self):
         speed_limited = ardy_backend.Root2DTarget(
             (1.0, 0.0),
             0.1,
@@ -592,8 +599,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 speed_limited, (0.0, 0.0), (0.0, 0.0), -1, 20.0
             )
         self.assertIsNotNone(planned)
-        self.assertEqual(len(caught), 1)
-        self.assertIn("max_speed=inf", str(caught[0].message))
+        self.assertEqual(caught, [])
 
         acceleration_limited = ardy_backend.Root2DTarget(
             (1.0, 0.0),
@@ -609,9 +615,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 acceleration_limited, (0.0, 0.0), (0.0, 0.0), -1, 20.0
             )
         self.assertIsNotNone(planned)
-        self.assertEqual(len(caught), 2)
-        self.assertIn("max_speed=inf", str(caught[0].message))
-        self.assertIn("max_acceleration=inf", str(caught[1].message))
+        self.assertEqual(caught, [])
 
     def test_root_target_behind_uses_backward_world_heading_not_backward_motion(self):
         target = ardy_backend.Root2DTarget((-10.0, 0.0), 1.25, 1.5, 0.1, True)
@@ -1053,6 +1057,85 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(ardy_backend._history_limit_for_future(profile, settings, 100, 139), 160)
         self.assertEqual(ardy_backend._history_limit_for_future(profile, settings, 100, 232), 64)
         self.assertEqual(ardy_backend._history_limit_for_future(profile, settings, 100, 259), 40)
+
+    def test_auto_history_uses_motion_limits_and_forces_four_frames_when_unreachable(self):
+        profile = SimpleNamespace(
+            source_fps=20.0,
+            horizon_frames=40,
+            frames_per_token=4,
+            max_context_frames=200,
+        )
+        settings = ardy_backend.ArdySettings(
+            160,
+            160,
+            20,
+            False,
+            auto_history=True,
+            max_speed=1.25,
+            max_acceleration=1.5,
+            history_transition_weight=0.5,
+        )
+
+        unreachable = ardy_backend._auto_history_target(
+            profile,
+            settings,
+            0,
+            40,
+            (0.0, 0.0),
+            (0.0, 0.0),
+            (10.0, 0.0),
+        )
+        far_in_time = ardy_backend._auto_history_target(
+            profile,
+            settings,
+            0,
+            220,
+            (0.0, 0.0),
+            (0.0, 0.0),
+            (1.0, 0.0),
+        )
+        planning = ardy_backend._auto_history_target(
+            profile,
+            settings,
+            0,
+            70,
+            (0.0, 0.0),
+            (0.0, 0.0),
+            (1.0, 0.0),
+        )
+
+        self.assertEqual(unreachable, (4, True))
+        self.assertEqual(far_in_time, (160, False))
+        self.assertEqual(planning, (128, False))
+        self.assertEqual(ardy_backend._transition_history_frames(160, 64, 0.5, 4, 160), 112)
+
+    def test_auto_history_reads_sparse_fullbody_without_adding_root2d(self):
+        session = self._fake_ardy_session()
+        session.settings = ardy_backend.ArdySettings(
+            160,
+            160,
+            20,
+            False,
+            auto_history=True,
+            max_speed=1.25,
+            max_acceleration=1.5,
+            history_transition_weight=0.5,
+        )
+        session._auto_history_frames = 160
+        session.constraints = [
+            SimpleNamespace(
+                name="fullbody",
+                frame_indices=torch.tensor([0, 40], dtype=torch.long),
+                root_2d=torch.tensor([[0.0, 0.0], [10.0, 0.0]], dtype=torch.float32),
+            )
+        ]
+
+        history_limit = session._resolve_history_limit(0)
+
+        self.assertEqual(history_limit, 4)
+        self.assertEqual(session._auto_history_frames, 4)
+        self.assertEqual([constraint.name for constraint in session.constraints], ["fullbody"])
+        self.assertIsNone(session.root_2d_target)
 
     @staticmethod
     def _fake_ardy_session():

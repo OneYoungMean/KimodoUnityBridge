@@ -111,7 +111,7 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.LabelField("ARDY Settings (seconds)", EditorStyles.miniBoldLabel);
                 EditorGUILayout.PropertyField(
                     ardyHistoryCropSeconds,
-                    new GUIContent("History Crop", "0 uses the selected profile maximum."));
+                    new GUIContent("History Crop", "0 adaptively balances ARDY history against the next Full-Body target."));
                 EditorGUILayout.PropertyField(
                     ardyFutureCropSeconds,
                     new GUIContent("Future Crop", "0 uses the selected profile maximum."));
