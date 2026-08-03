@@ -785,7 +785,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ConstraintJson_ARDYRootHeadingUsesBridgeCoordinates()
+        public void ConstraintJson_RootHeadingUsesArdyCosSinFeatureOrder()
         {
             var sample = new KimodoMarkerSampleResult
             {
@@ -793,7 +793,7 @@ namespace KimodoBridge.Editor.Tests
                 sampleTime = 1.0,
                 kimodoRootPosition = new Vector3(2f, 0f, 3f),
                 hasRootHeading = true,
-                rootHeading = new Vector2(-1f, 0f)
+                rootHeading = new Vector2(0.6f, 0.8f)
             };
 
             JArray constraints = JArray.Parse(
@@ -802,8 +802,8 @@ namespace KimodoBridge.Editor.Tests
                     clipDurationSeconds: 8.0,
                     exportFps: 20.0));
 
-            Assert.That(constraints[0]["global_root_heading"]?[0]?[0]?.Value<float>(), Is.EqualTo(1f));
-            Assert.That(constraints[0]["global_root_heading"]?[0]?[1]?.Value<float>(), Is.EqualTo(0f));
+            Assert.That(constraints[0]["global_root_heading"]?[0]?[0]?.Value<float>(), Is.EqualTo(0.8f));
+            Assert.That(constraints[0]["global_root_heading"]?[0]?[1]?.Value<float>(), Is.EqualTo(-0.6f));
         }
 
         [Test]

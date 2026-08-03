@@ -205,7 +205,7 @@ namespace TimelineInject
             {
                 json.global_root_heading = new List<float[]>
                 {
-                    new[] { -sample.rootHeading.x, sample.rootHeading.y }
+                    new[] { sample.rootHeading.y, -sample.rootHeading.x }
                 };
             }
 
