@@ -279,6 +279,48 @@ namespace KimodoBridge.Editor.Tests
                 Is.Empty);
         }
 
+        [Test]
+        public void RuntimeGenerationSession_ResetAndDisposeOwnsArdyLifecycle()
+        {
+            var session = new KimodoRuntimeGenerationSession
+            {
+                LifetimeCts = new System.Threading.CancellationTokenSource(),
+                ActiveGenerationCts = new System.Threading.CancellationTokenSource(),
+                Running = true,
+                GenerationInFlight = true,
+                ArdySessionStarted = true,
+                ArdyPromptDirty = false,
+                ArdyConstraintsDirty = false,
+                ArdySettingsDirty = false,
+                ArdyRefreshPending = true
+            };
+            try
+            {
+                session.ResetArdy(0f);
+
+                Assert.That(session.ArdySessionStarted, Is.False);
+                Assert.That(session.ArdyPromptDirty, Is.True);
+                Assert.That(session.ArdyConstraintsDirty, Is.True);
+                Assert.That(session.ArdySettingsDirty, Is.True);
+                Assert.That(session.ArdyRefreshPending, Is.False);
+                Assert.That(session.ArdyEffectivePlaybackReserveSeconds, Is.EqualTo(0.2f));
+
+                var lifetimeCts = session.LifetimeCts;
+                var generationCts = session.ActiveGenerationCts;
+                session.Dispose();
+                Assert.That(lifetimeCts.IsCancellationRequested, Is.True);
+                Assert.That(generationCts.IsCancellationRequested, Is.True);
+                Assert.That(session.LifetimeCts, Is.Null);
+                Assert.That(session.ActiveGenerationCts, Is.Null);
+                Assert.That(session.Running, Is.False);
+                Assert.That(session.GenerationInFlight, Is.False);
+            }
+            finally
+            {
+                session.Dispose();
+            }
+        }
+
         [TestCase(1.01f, 1f, false, false)]
         [TestCase(1f, 1f, false, true)]
         [TestCase(0.5f, 1f, false, true)]

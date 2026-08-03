@@ -165,6 +165,74 @@ namespace KimodoBridge
         }
     }
 
+    internal sealed class KimodoRuntimeGenerationSession : IDisposable
+    {
+        internal CancellationTokenSource LifetimeCts;
+        internal CancellationTokenSource ActiveGenerationCts;
+        internal Task SchedulerTask;
+        internal bool Running;
+        internal bool StartRequested;
+        internal bool GenerationInFlight;
+        internal int SegmentIndex;
+        internal int LastGenerationWaitStatusSegment = -1;
+        internal int GenerationRequestVersion;
+        internal int? ArdyStreamResolvedSeed;
+        internal bool ArdySessionStarted;
+        internal bool ArdyPromptDirty = true;
+        internal bool ArdyConstraintsDirty = true;
+        internal bool ArdySettingsDirty = true;
+        internal bool ArdyRefreshPending;
+        internal float ArdyEffectivePlaybackReserveSeconds = 1f;
+        internal bool GenerationBlocked;
+        internal bool AppliedRuntimeSettingsInitialized;
+        internal Animator AppliedTargetHumanoidAnimator;
+        internal string AppliedModelsRoot = string.Empty;
+        internal string AppliedModelName = string.Empty;
+        internal KimodoTextEncoderMode AppliedTextEncoderMode;
+        internal bool AppliedForceCpu;
+        internal bool AppliedRandomSeed;
+        internal int AppliedFixedSeed;
+
+        internal void ResetArdy(float playbackReserveSeconds)
+        {
+            ArdyStreamResolvedSeed = null;
+            ArdySessionStarted = false;
+            ArdyPromptDirty = true;
+            ArdyConstraintsDirty = true;
+            ArdySettingsDirty = true;
+            ArdyRefreshPending = false;
+            ArdyEffectivePlaybackReserveSeconds = Mathf.Max(0.2f, playbackReserveSeconds);
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                LifetimeCts?.Cancel();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                ActiveGenerationCts?.Cancel();
+            }
+            catch
+            {
+            }
+
+            LifetimeCts?.Dispose();
+            ActiveGenerationCts?.Dispose();
+            LifetimeCts = null;
+            ActiveGenerationCts = null;
+            SchedulerTask = null;
+            Running = false;
+            StartRequested = false;
+            GenerationInFlight = false;
+        }
+    }
+
     [AddComponentMenu("Kimodo/Runtime Motion Driver")]
     public sealed class KimodoRuntimeMotionDriver : MonoBehaviour
     {
@@ -231,36 +299,38 @@ namespace KimodoBridge
         private const float MinGenerationDurationSeconds = 1f;
         private const float MaxGenerationDurationSeconds = 10f;
 
-        private CancellationTokenSource lifetimeCts;
-        private CancellationTokenSource activeGenerationCts;
-        private Task schedulerTask;
-        private bool running;
-        private bool startRequested;
-        private bool generationInFlight;
-        private int segmentIndex;
-        private int lastGenerationWaitStatusSegment = -1;
-        private int generationRequestVersion;
+        private readonly KimodoRuntimeGenerationSession generationSession =
+            new KimodoRuntimeGenerationSession();
+        private CancellationTokenSource lifetimeCts { get => generationSession.LifetimeCts; set => generationSession.LifetimeCts = value; }
+        private CancellationTokenSource activeGenerationCts { get => generationSession.ActiveGenerationCts; set => generationSession.ActiveGenerationCts = value; }
+        private Task schedulerTask { get => generationSession.SchedulerTask; set => generationSession.SchedulerTask = value; }
+        private bool running { get => generationSession.Running; set => generationSession.Running = value; }
+        private bool startRequested { get => generationSession.StartRequested; set => generationSession.StartRequested = value; }
+        private bool generationInFlight { get => generationSession.GenerationInFlight; set => generationSession.GenerationInFlight = value; }
+        private int segmentIndex { get => generationSession.SegmentIndex; set => generationSession.SegmentIndex = value; }
+        private int lastGenerationWaitStatusSegment { get => generationSession.LastGenerationWaitStatusSegment; set => generationSession.LastGenerationWaitStatusSegment = value; }
+        private int generationRequestVersion { get => generationSession.GenerationRequestVersion; set => generationSession.GenerationRequestVersion = value; }
         private string promptDraft;
         private string statusMessage = "Idle.";
         private readonly KimodoRuntimeConstraintBuffer constraintBuffer = new KimodoRuntimeConstraintBuffer();
         private KimodoBridgeService bridgeService;
-        private int? ardyStreamResolvedSeed;
-        private bool ardySessionStarted;
-        private bool ardyPromptDirty = true;
-        private bool ardyConstraintsDirty = true;
-        private bool ardySettingsDirty = true;
-        private bool ardyRefreshPending;
-        private float ardyEffectivePlaybackReserveSeconds = 1f;
+        private int? ardyStreamResolvedSeed { get => generationSession.ArdyStreamResolvedSeed; set => generationSession.ArdyStreamResolvedSeed = value; }
+        private bool ardySessionStarted { get => generationSession.ArdySessionStarted; set => generationSession.ArdySessionStarted = value; }
+        private bool ardyPromptDirty { get => generationSession.ArdyPromptDirty; set => generationSession.ArdyPromptDirty = value; }
+        private bool ardyConstraintsDirty { get => generationSession.ArdyConstraintsDirty; set => generationSession.ArdyConstraintsDirty = value; }
+        private bool ardySettingsDirty { get => generationSession.ArdySettingsDirty; set => generationSession.ArdySettingsDirty = value; }
+        private bool ardyRefreshPending { get => generationSession.ArdyRefreshPending; set => generationSession.ArdyRefreshPending = value; }
+        private float ardyEffectivePlaybackReserveSeconds { get => generationSession.ArdyEffectivePlaybackReserveSeconds; set => generationSession.ArdyEffectivePlaybackReserveSeconds = value; }
         private KimodoRuntimeMotionPlayer motionPlayer;
-        private bool generationBlocked;
-        private bool appliedRuntimeSettingsInitialized;
-        private Animator appliedTargetHumanoidAnimator;
-        private string appliedModelsRoot = string.Empty;
-        private string appliedModelName = string.Empty;
-        private KimodoTextEncoderMode appliedTextEncoderMode;
-        private bool appliedForceCpu;
-        private bool appliedRandomSeed;
-        private int appliedFixedSeed;
+        private bool generationBlocked { get => generationSession.GenerationBlocked; set => generationSession.GenerationBlocked = value; }
+        private bool appliedRuntimeSettingsInitialized { get => generationSession.AppliedRuntimeSettingsInitialized; set => generationSession.AppliedRuntimeSettingsInitialized = value; }
+        private Animator appliedTargetHumanoidAnimator { get => generationSession.AppliedTargetHumanoidAnimator; set => generationSession.AppliedTargetHumanoidAnimator = value; }
+        private string appliedModelsRoot { get => generationSession.AppliedModelsRoot; set => generationSession.AppliedModelsRoot = value; }
+        private string appliedModelName { get => generationSession.AppliedModelName; set => generationSession.AppliedModelName = value; }
+        private KimodoTextEncoderMode appliedTextEncoderMode { get => generationSession.AppliedTextEncoderMode; set => generationSession.AppliedTextEncoderMode = value; }
+        private bool appliedForceCpu { get => generationSession.AppliedForceCpu; set => generationSession.AppliedForceCpu = value; }
+        private bool appliedRandomSeed { get => generationSession.AppliedRandomSeed; set => generationSession.AppliedRandomSeed = value; }
+        private int appliedFixedSeed { get => generationSession.AppliedFixedSeed; set => generationSession.AppliedFixedSeed = value; }
 
         public string StatusMessage => statusMessage;
         public bool IsRunning => running;
@@ -311,6 +381,7 @@ namespace KimodoBridge
         private void OnDestroy()
         {
             motionPlayer?.Stop();
+            generationSession.Dispose();
             bridgeService?.Dispose();
             bridgeService = null;
         }
@@ -1201,13 +1272,7 @@ namespace KimodoBridge
 
         private void ResetArdySessionState()
         {
-            ardyStreamResolvedSeed = null;
-            ardySessionStarted = false;
-            ardyPromptDirty = true;
-            ardyConstraintsDirty = true;
-            ardySettingsDirty = true;
-            ardyRefreshPending = false;
-            ardyEffectivePlaybackReserveSeconds = Mathf.Max(0.2f, ardyPlaybackReserveSeconds);
+            generationSession.ResetArdy(ardyPlaybackReserveSeconds);
         }
 
         private bool RequiresRuntimeSessionRestart()
