@@ -425,11 +425,12 @@ namespace KimodoBridge.Editor
                     return false;
             }
 
+            float generationFrameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
             int generatedFrameCount = Mathf.Max(
                 1,
                 KimodoFrameTimeUtility.SecondsToFrameCount(
                     generationDurationSeconds,
-                    KimodoPlayableClip.FIXED_FRAME_RATE));
+                    generationFrameRate));
             var request = new KimodoInOutConstraintRequest
             {
                 Mode = mode,

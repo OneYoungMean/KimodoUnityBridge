@@ -632,7 +632,7 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.LabelField($"Prompt: {clip.lastGeneratedPrompt}", EditorStyles.miniLabel);
             }
             EditorGUILayout.LabelField(
-                $"Duration: {KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(clip.frameCount):F2}s, Frames: {clip.frameCount}, Joints: {clip.jointCount}",
+                $"Duration: {KimodoInOutConstraintTools.FrameCountToDurationSeconds(clip.frameCount):F2}s, Frames: {clip.frameCount}, Joints: {clip.jointCount}",
                 EditorStyles.miniLabel);
             if (!string.IsNullOrWhiteSpace(lastConstraintsPath))
             {

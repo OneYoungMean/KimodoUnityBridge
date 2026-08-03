@@ -543,6 +543,8 @@ class ArdySession:
         duration_seconds = float(request.get("duration", 0.0) or 0.0)
         if not math.isfinite(duration_seconds) or duration_seconds < 0.0:
             raise ArdyBackendError("duration must be a finite non-negative number of seconds.")
+        self.constraint_origin = None
+        self._normalize_constraint_origin = duration_seconds > 0.0
         self._initial_duration_frames = 0
         if duration_seconds > 0.0:
             self._initial_duration_frames = seconds_to_frame_count(
@@ -722,6 +724,17 @@ class ArdySession:
         self.root_2d_target = root_2d_target
         self._refresh_root_2d_target_constraints(model, apply_from)
         self.future_clips = future_clips
+        if (
+            initial
+            and self._normalize_constraint_origin
+            and self.constraints
+            and root_2d_target is None
+            and not history_tensors
+            and not future_clips
+        ):
+            from kimodo.constraints import normalize_constraints_to_anchor
+
+            self.constraint_origin = normalize_constraints_to_anchor(self.constraints)
         if history_tensors:
             combined = torch.cat(history_tensors, dim=1)
             keep = min(self.settings.history_crop_frames, int(combined.shape[1]))
@@ -1071,6 +1084,7 @@ class ArdySession:
         self.history_cpu = None
         self.constraints = []
         self.constraint_items = []
+        self.constraint_origin = None
         self.root_2d_target = None
         self.future_clips = []
         self.timeline_segments = ()
@@ -1117,6 +1131,11 @@ def execute_stream_generate(
         metadata, output = session.generate(request, attachments, model, cancel_event)
         payload = b""
         if output:
+            output = bridge_server._restore_kimodo_output_origin(
+                output,
+                session.constraint_origin,
+                model,
+            )
             payload = bridge_server._build_generate_flatbuffer_payload(model, output, sample_index=0)
         elapsed = time.perf_counter() - started
         session.record_response_duration(

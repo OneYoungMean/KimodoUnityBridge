@@ -479,6 +479,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        [Category("ArdyGuardValidation")]
         public void TimelinePoseSampler_WithNullBindingAvatar_SamplesChangingBoneClipSpineMuscle()
         {
             Assert.That(
@@ -499,6 +500,7 @@ namespace KimodoBridge.Editor.Tests
 
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             var boneClip = new AnimationClip { frameRate = 30f };
+            AnimationClip ardyHistoryClip = null;
             var directorRoot = new GameObject("KimodoTimelineAvatarlessDirector");
             KimodoTimelinePoseSampler sampler = null;
             try
@@ -571,12 +573,12 @@ namespace KimodoBridge.Editor.Tests
                     Director = director,
                     Animator = source.animator,
                     SourceAvatar = avatar,
-                    ModelName = KimodoPlayableClip.DefaultBridgeModelName
+                    ModelName = KimodoMotionModelProfiles.ArdyCoreModelName
                 };
                 Assert.That(
                     KimodoTimelinePoseSampler.TryCreate(
                         context,
-                        KimodoPlayableClip.DefaultBridgeModelName,
+                        KimodoMotionModelProfiles.ArdyCoreModelName,
                         out sampler,
                         out error),
                     Is.True,
@@ -649,6 +651,65 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(Quaternion.Angle(sampledFirstHipsRotation, firstHipsRotation), Is.LessThan(1e-3f));
                 Assert.That(Quaternion.Angle(sampledSecondHipsRotation, secondHipsRotation), Is.LessThan(1e-3f));
 
+                Assert.That(
+                    sampler.TryCaptureTargetBoneSamples(
+                        new[] { 1.0 / 30.0 },
+                        30f,
+                        out BoneSample[] targetSamples,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                        targetSamples[0],
+                        sampler.TargetCache,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    sampler.TargetCache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out Transform rebuiltHips),
+                    Is.True);
+                Assert.That(rebuiltHips, Is.Not.Null);
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
+                        new[] { targetSamples[0], targetSamples[0] },
+                        30f,
+                        out ardyHistoryClip,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryCollectMuscleSamplesFromClip(
+                        ardyHistoryClip,
+                        sampler.TargetCache,
+                        2,
+                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.RawTransform,
+                        out MuscleSample[] ardyMuscleSamples,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryRetargetMuscleSamplesToBoneSamples(
+                        new[] { ardyMuscleSamples[0] },
+                        30f,
+                        sourceIntermediate,
+                        out BoneSample[] roundTripSamples,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                        roundTripSamples[0],
+                        sourceIntermediate,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    sourceIntermediate.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out Transform roundTripHips),
+                    Is.True);
+                Assert.That(Vector3.Distance(roundTripHips.position, secondHipsPosition), Is.LessThan(1e-3f));
+                Assert.That(Quaternion.Angle(roundTripHips.rotation, secondHipsRotation), Is.LessThan(0.1f));
+
                 sampler.Dispose();
                 sampler = null;
                 Assert.That(sourceIntermediate.root, Is.Null, "The virtual source skeleton must be disposed with the sampler.");
@@ -659,6 +720,10 @@ namespace KimodoBridge.Editor.Tests
             {
                 sampler?.Dispose();
                 source.Dispose();
+                if (ardyHistoryClip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(ardyHistoryClip);
+                }
                 UnityEngine.Object.DestroyImmediate(directorRoot);
                 UnityEngine.Object.DestroyImmediate(timeline);
                 UnityEngine.Object.DestroyImmediate(boneClip);
@@ -971,7 +1036,8 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void GeneratedWriteback_ArdyHistoryWorldAnchorUsesHipsWhenNoConstraintAnchor()
+        [Category("ArdyGuardValidation")]
+        public void GeneratedWriteback_ArdyHistoryGuardUsesRetargetedGuardHips()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             AnimationClip generatedClip = null;
@@ -996,20 +1062,21 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(cache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out Transform hips), Is.True);
                 string hipsPath = AnimationUtility.CalculateTransformPath(hips, cache.skeletonRoot);
                 generatedClip = new AnimationClip { frameRate = 30f };
-                Vector3 generatedHipsPosition = new Vector3(1f, 2f, 3f);
+                Vector3 guardHipsPosition = new Vector3(1f, 2f, 3f);
+                Vector3 visibleHipsPosition = guardHipsPosition + new Vector3(0f, 0f, 0.03f);
                 Quaternion generatedHipsRotation = Quaternion.Euler(0f, 15f, 0f);
                 AnimationUtility.SetEditorCurve(
                     generatedClip,
                     EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.x"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsPosition.x), new Keyframe(1f / 30f, generatedHipsPosition.x)));
+                    new AnimationCurve(new Keyframe(0f, visibleHipsPosition.x), new Keyframe(1f / 30f, visibleHipsPosition.x)));
                 AnimationUtility.SetEditorCurve(
                     generatedClip,
                     EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.y"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsPosition.y), new Keyframe(1f / 30f, generatedHipsPosition.y)));
+                    new AnimationCurve(new Keyframe(0f, visibleHipsPosition.y), new Keyframe(1f / 30f, visibleHipsPosition.y)));
                 AnimationUtility.SetEditorCurve(
                     generatedClip,
                     EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.z"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsPosition.z), new Keyframe(1f / 30f, generatedHipsPosition.z)));
+                    new AnimationCurve(new Keyframe(0f, visibleHipsPosition.z), new Keyframe(1f / 30f, visibleHipsPosition.z)));
                 AnimationUtility.SetEditorCurve(
                     generatedClip,
                     EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalRotation.x"),
@@ -1042,7 +1109,7 @@ namespace KimodoBridge.Editor.Tests
                 Vector3 worldAnchorPosition = track.position + track.rotation * sourceHipsLocal;
                 Quaternion expectedClipRotation = (sourceHipsLocalYaw * Quaternion.Inverse(generatedHipsRotation)).normalized;
                 Vector3 expectedPlanarPosition = sourceHipsLocal -
-                    (expectedClipRotation * new Vector3(generatedHipsPosition.x, 0f, generatedHipsPosition.z));
+                    (expectedClipRotation * new Vector3(guardHipsPosition.x, 0f, guardHipsPosition.z));
                 Vector3 expectedLocalPosition = new Vector3(
                     expectedPlanarPosition.x,
                     playable.position.y,
@@ -1059,6 +1126,10 @@ namespace KimodoBridge.Editor.Tests
                     {
                         TargetRetargetAvatar = avatar
                     },
+                    RuntimeTrimStartFrame = 1,
+                    HasRetargetedLeadingGuardHipsPose = true,
+                    RetargetedLeadingGuardHipsPosition = guardHipsPosition,
+                    RetargetedLeadingGuardHipsRotation = generatedHipsRotation,
                     TargetClip = generatedClip,
                     TimelineClipSnapshot = timelineClip
                 };
@@ -1081,6 +1152,99 @@ namespace KimodoBridge.Editor.Tests
                     UnityEngine.Object.DestroyImmediate(generatedClip);
                 }
                 UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        [Category("ArdyGuardValidation")]
+        public void ArdyGuardTrim_RetargetedClipStartsAtOriginalFrameOne()
+        {
+            AnimationClip generatedClip = null;
+            SkeletonCache cache = null;
+            try
+            {
+                Assert.That(
+                    KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                        KimodoPlayableClip.DefaultBridgeModelName,
+                        out Avatar avatar,
+                        out string error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                        avatar,
+                        "KimodoArdyGuardTrimTest",
+                        out cache,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(cache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out Transform hips), Is.True);
+
+                const float sourceFps = 20f;
+                string hipsPath = AnimationUtility.CalculateTransformPath(hips, cache.skeletonRoot);
+                generatedClip = new AnimationClip { frameRate = 30f };
+                float bindX = hips.localPosition.x;
+                AnimationUtility.SetEditorCurve(
+                    generatedClip,
+                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.x"),
+                    new AnimationCurve(
+                        new Keyframe(0f, bindX),
+                        new Keyframe(1f / sourceFps, bindX + 0.03f),
+                        new Keyframe(2f / sourceFps, bindX + 0.07f),
+                        new Keyframe(3f / sourceFps, bindX + 0.12f)));
+
+                var expectedPositions = new Vector3[3];
+                var expectedRotations = new Quaternion[3];
+                for (int frame = 0; frame < 3; frame++)
+                {
+                    Assert.That(
+                        KimodoPlayableClipGenerationHostService.TrySampleGeneratedClipHipsPose(
+                            generatedClip,
+                            avatar,
+                            (frame + 1) / sourceFps,
+                            out expectedPositions[frame],
+                            out expectedRotations[frame],
+                            out error),
+                        Is.True,
+                        error);
+                }
+
+                Assert.That(
+                    KimodoEditorGeneratePipeline.TryTrimRetargetedClipForOutput(
+                        generatedClip,
+                        avatar,
+                        exportMuscleClip: false,
+                        trimStartFrame: 1,
+                        targetFrameCount: 3,
+                        sourceFrameRate: sourceFps,
+                        out error),
+                    Is.True,
+                    error);
+
+                Assert.That(generatedClip.frameRate, Is.EqualTo(30f));
+                for (int frame = 0; frame < 3; frame++)
+                {
+                    Assert.That(
+                        KimodoPlayableClipGenerationHostService.TrySampleGeneratedClipHipsPose(
+                            generatedClip,
+                            avatar,
+                            frame / sourceFps,
+                            out Vector3 actualPosition,
+                            out Quaternion actualRotation,
+                            out error),
+                        Is.True,
+                        error);
+                    Assert.That(Vector3.Distance(actualPosition, expectedPositions[frame]), Is.LessThan(1e-4f));
+                    Assert.That(Quaternion.Angle(actualRotation, expectedRotations[frame]), Is.LessThan(0.01f));
+                }
+            }
+            finally
+            {
+                cache?.Dispose();
+                if (generatedClip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(generatedClip);
+                }
             }
         }
 
@@ -1443,7 +1607,7 @@ namespace KimodoBridge.Editor.Tests
             }
             finally
             {
-                KimodoRetargetClipSamplingUtility.DestroyClipSamplingContext(graph);
+                graph?.Dispose();
                 if (clip != null)
                 {
                     UnityEngine.Object.DestroyImmediate(clip);

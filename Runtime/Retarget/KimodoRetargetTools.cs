@@ -107,7 +107,7 @@ namespace KimodoBridge
 
                 float frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
                 float duration = Mathf.Max(0f, sourceClip.length);
-                int frameCount = KimodoRetargetSamplingUtility.ResolveFrameCount(duration, frameRate);
+                int frameCount = KimodoRetargetSamplingUtility.ResolveInclusiveSampleCount(duration, frameRate);
                 bool needsSourceCache = exportMuscleClip && !sourceClip.isHumanMotion;
                 bool needsTargetCache = !exportMuscleClip;
 

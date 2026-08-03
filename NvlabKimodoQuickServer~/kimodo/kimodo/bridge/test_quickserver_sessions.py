@@ -91,6 +91,44 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(constraint.frame_indices.device.type, "meta")
         self.assertEqual(index_dict["global_joints_positions"][0].device.type, "meta")
 
+    def test_fixed_ardy_constraints_normalize_and_restore_the_origin(self):
+        session = self._fake_ardy_session()
+        session._normalize_constraint_origin = True
+        skeleton = SimpleNamespace(device=torch.device("cpu"), root_idx=0)
+        model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=skeleton), skeleton=skeleton)
+
+        session._set_constraints(
+            [
+                {
+                    "type": "root2d",
+                    "frame_indices": [0],
+                    "smooth_root_2d": [[-0.539, 0.0]],
+                    "global_root_heading": [[0.0, 1.0]],
+                }
+            ],
+            (),
+            model,
+            apply_from=0,
+            initial=True,
+        )
+
+        np.testing.assert_allclose(session.constraints[0].root_2d.cpu(), [[0.0, 0.0]], atol=1e-7)
+        np.testing.assert_allclose(session.constraints[0].global_root_heading.cpu(), [0.0], atol=1e-7)
+
+        output = {
+            "root_positions": np.zeros((1, 1, 3), dtype=np.float32),
+            "global_root_heading": np.asarray([[[1.0, 0.0]]], dtype=np.float32),
+            "local_rot_mats": np.eye(3, dtype=np.float32).reshape(1, 1, 1, 3, 3),
+        }
+        restored = bridge_server._restore_kimodo_output_origin(
+            output,
+            session.constraint_origin,
+            model,
+        )
+
+        np.testing.assert_allclose(restored["root_positions"][0, 0], [-0.539, 0.0, 0.0], atol=1e-6)
+        np.testing.assert_allclose(restored["global_root_heading"][0, 0], [0.0, 1.0], atol=1e-6)
+
     def test_direct_kmb_is_the_only_binary_motion_format(self):
         self.assertEqual(
             bridge_server._resolve_requested_output_format({"output_format": "kmb_v1"}),
@@ -370,6 +408,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
     def test_explicit_history_is_token_aligned_and_capped(self):
         session = self._fake_ardy_session()
+        session._normalize_constraint_origin = True
         session.quickserver_root = Path.cwd()
         motion = ardy_backend.KmbMotion(
             payload=b"kmb",
@@ -394,12 +433,13 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             patch.object(ardy_backend, "parse_kmb1", return_value=motion),
             patch.object(ardy_backend, "_validate_kmb"),
             patch.object(ardy_backend, "_motion_to_tensor", return_value=encoded),
-            patch("ardy.constraints.load_constraints_lst", return_value=[]),
+            patch("ardy.constraints.load_constraints_lst", return_value=[object()]),
         ):
             session._set_constraints([item], (b"kmb",), model, apply_from=0, initial=True)
 
         self.assertEqual(tuple(session.initial_history_cpu.shape), (1, 160, 1))
         self.assertTrue(torch.equal(session.initial_history_cpu, encoded[:, 6:]))
+        self.assertIsNone(session.constraint_origin)
 
     def test_truncate_rebuilds_history_from_initial_history_and_generated_prefix(self):
         session = self._fake_ardy_session()
@@ -757,6 +797,45 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertIn(("close", previous), events)
         self.assertIn(("close", fixed), events)
 
+    def test_fixed_duration_restores_constraint_origin_before_building_kmb(self):
+        class FakeSession:
+            resolved_seed = 7
+            effective_playback_reserve_frames = 0
+            settings = SimpleNamespace(adaptive_playback_reserve=False)
+            constraint_origin = (torch.tensor([-0.539, 0.0]), torch.tensor(0.0))
+
+            def generate(self, _request, _attachments, _model, _cancel_event):
+                return (
+                    {"start_frame": 0, "end_frame_exclusive": 1},
+                    {"root_positions": np.zeros((1, 1, 3), dtype=np.float32)},
+                )
+
+            def record_response_duration(self, _elapsed, _delivered_frames):
+                pass
+
+            def close(self):
+                pass
+
+        fixed = FakeSession()
+        profile = SimpleNamespace(source_fps=20.0, motion_rep_fingerprint="test")
+        with (
+            patch.object(ardy_backend, "ArdySession", return_value=fixed),
+            patch.object(bridge_server, "_build_generate_flatbuffer_payload", return_value=b"kmb") as build_payload,
+        ):
+            _, _, payload = ardy_backend.execute_stream_generate(
+                None,
+                {"duration": 0.05, "prompt": "walk"},
+                (),
+                SimpleNamespace(),
+                profile,
+                threading.Event(),
+                ".",
+            )
+
+        self.assertEqual(payload, b"kmb")
+        restored = build_payload.call_args.args[1]
+        np.testing.assert_allclose(restored["root_positions"][0, 0], [-0.539, 0.0, 0.0], atol=1e-6)
+
     def test_fixed_duration_rejects_zero_without_closing_the_stream(self):
         stream = SimpleNamespace(close=lambda: self.fail("invalid duration closed the stream"))
         with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "finite positive"):
@@ -880,6 +959,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         session.history_cpu = None
         session.constraints = []
         session.constraint_items = []
+        session.constraint_origin = None
+        session._normalize_constraint_origin = False
         session.root_2d_target = None
         session.future_clips = []
         session.timeline_segments = ()

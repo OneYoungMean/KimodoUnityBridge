@@ -54,8 +54,52 @@ def compute_global_heading(global_joints_positions: Tensor, skeleton: SkeletonBa
     return global_root_heading
 
 
+def _root_2d_attribute(constraint) -> str:
+    if hasattr(constraint, "smooth_root_2d"):
+        return "smooth_root_2d"
+    if hasattr(constraint, "root_2d"):
+        return "root_2d"
+    raise AttributeError(f"{type(constraint).__name__} has no planar root constraint.")
+
+
+def transform_constraints_to_origin(constraints_lst: list, transform) -> None:
+    if transform is None:
+        return
+
+    translation, yaw = transform
+    for constraint in constraints_lst:
+        root_attribute = _root_2d_attribute(constraint)
+        root_2d = getattr(constraint, root_attribute)
+        device = root_2d.device
+        dtype = root_2d.dtype
+        local_translation = translation.to(device=device, dtype=dtype)
+        local_yaw = yaw.to(device=device, dtype=dtype)
+        local_rotation = RotateFeatures((-local_yaw).reshape(1))
+        rotation_2d_t = local_rotation.corrective_mat_2d_T[0]
+        rotation_3d = local_rotation.corrective_mat_Y[0]
+        rotation_3d_t = local_rotation.corrective_mat_Y_T[0]
+        setattr(constraint, root_attribute, (root_2d - local_translation) @ rotation_2d_t)
+
+        heading = getattr(constraint, "global_root_heading", None)
+        if heading is not None:
+            constraint.global_root_heading = (
+                heading - local_yaw
+                if heading.ndim == 1
+                else heading @ rotation_2d_t
+            )
+        if hasattr(constraint, "global_joints_positions"):
+            offset = torch.zeros(3, device=device, dtype=dtype)
+            offset[[0, 2]] = local_translation
+            constraint.global_joints_positions = (constraint.global_joints_positions - offset) @ rotation_3d_t
+            constraint.global_joints_rots = rotation_3d @ constraint.global_joints_rots
+            if root_attribute == "smooth_root_2d":
+                constraint.global_root_heading = compute_global_heading(
+                    constraint.global_joints_positions, constraint.skeleton
+                )
+
+
 def normalize_constraints_to_anchor(constraints_lst: list):
-    """Move Kimodo constraints into one planar anchor space.
+    """Move Kimodo or ARDY constraints into one planar anchor space.
 
     The earliest constrained frame wins. At that frame the priority is fullbody,
     end/foot, then root2d; input order breaks ties. Y is intentionally preserved.
@@ -83,34 +127,23 @@ def normalize_constraints_to_anchor(constraints_lst: list):
     anchor_frame, _, _, anchor = min(candidates, key=lambda item: item[:3])
     matches = (anchor.frame_indices == anchor_frame).nonzero(as_tuple=False).flatten()
     anchor_row = int(matches[0].item())
-    translation = anchor.smooth_root_2d[anchor_row].detach().clone()
+    root_attribute = _root_2d_attribute(anchor)
+    translation = getattr(anchor, root_attribute)[anchor_row].detach().clone()
     heading = getattr(anchor, "global_root_heading", None)
     yaw = (
-        torch.atan2(heading[anchor_row, 1], heading[anchor_row, 0]).detach().clone()
+        (
+            heading[anchor_row]
+            if heading.ndim == 1
+            else torch.atan2(heading[anchor_row, 1], heading[anchor_row, 0])
+        )
+        .detach()
+        .clone()
         if heading is not None
         else torch.zeros((), device=translation.device, dtype=translation.dtype)
     )
-    for constraint in constraints_lst:
-        device = constraint.smooth_root_2d.device
-        dtype = constraint.smooth_root_2d.dtype
-        local_translation = translation.to(device=device, dtype=dtype)
-        local_rotation = RotateFeatures((-yaw).to(device=device, dtype=dtype).reshape(1))
-        rotation_2d_t = local_rotation.corrective_mat_2d_T[0]
-        rotation_3d = local_rotation.corrective_mat_Y[0]
-        rotation_3d_t = local_rotation.corrective_mat_Y_T[0]
-        constraint.smooth_root_2d = (constraint.smooth_root_2d - local_translation) @ rotation_2d_t
-        if constraint.global_root_heading is not None:
-            constraint.global_root_heading = constraint.global_root_heading @ rotation_2d_t
-        if hasattr(constraint, "global_joints_positions"):
-            offset = torch.zeros(3, device=device, dtype=dtype)
-            offset[[0, 2]] = local_translation
-            constraint.global_joints_positions = (constraint.global_joints_positions - offset) @ rotation_3d_t
-            constraint.global_joints_rots = rotation_3d @ constraint.global_joints_rots
-            constraint.global_root_heading = compute_global_heading(
-                constraint.global_joints_positions, constraint.skeleton
-            )
-
-    return translation, yaw
+    transform = translation, yaw
+    transform_constraints_to_origin(constraints_lst, transform)
+    return transform
 
 
 def _tensor_to(

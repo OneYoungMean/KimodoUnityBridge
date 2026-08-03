@@ -17,6 +17,9 @@ namespace KimodoBridge.Editor
         public float TargetFrameRate = KimodoPlayableClip.FIXED_FRAME_RATE;
         public int RuntimeFrameCount;
         public int RuntimeTrimStartFrame;
+        public bool HasRetargetedLeadingGuardHipsPose;
+        public Vector3 RetargetedLeadingGuardHipsPosition;
+        public Quaternion RetargetedLeadingGuardHipsRotation = Quaternion.identity;
         public int DiffusionSteps;
         public float TextWeight = 1f;
         public int EffectiveSeed;

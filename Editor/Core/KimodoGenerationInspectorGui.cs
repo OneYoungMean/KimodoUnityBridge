@@ -149,7 +149,7 @@ namespace KimodoBridge.Editor
             EditorGUI.BeginChangeCheck();
             float duration = EditorGUILayout.Slider(
                 new GUIContent("Duration (s)", tooltip),
-                KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(oldFrames),
+                KimodoInOutConstraintTools.FrameCountToDurationSeconds(oldFrames),
                 minSeconds,
                 maxSeconds);
             bool changed = EditorGUI.EndChangeCheck();
@@ -158,7 +158,7 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
-            generationFrames.intValue = KimodoInOutConstraintAdapter.DurationSecondsToFrameCount(duration);
+            generationFrames.intValue = KimodoInOutConstraintTools.DurationSecondsToFrameCount(duration);
             return true;
         }
 

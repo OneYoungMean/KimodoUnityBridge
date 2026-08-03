@@ -35,7 +35,7 @@ namespace KimodoBridge.Editor.Tests
             Vector3 kimodoAnchorPosition = new Vector3(rawAnchor.kimodoRootPosition.x, 0f, rawAnchor.kimodoRootPosition.z);
             Vector3 rebuiltRootPosition = kimodoAnchorPosition + kimodoAnchorRotation * anchor.kimodoRootPosition;
             Quaternion rebuiltRootRotation = kimodoAnchorRotation *
-                KimodoConstraintNormalizationUtility.AxisAngleToQuaternion(anchor.localAxisAngles[0]);
+                KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(anchor.localAxisAngles[0]);
 
             Assert.That(info.AnchorSample.kimodoRootPosition, Is.EqualTo(rawAnchor.kimodoRootPosition));
             Assert.That(info.AnchorSample.unityRootPos, Is.EqualTo(rawAnchor.unityRootPos));

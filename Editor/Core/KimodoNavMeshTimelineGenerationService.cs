@@ -334,8 +334,8 @@ namespace KimodoBridge.Editor
 
                 float durationSeconds = Mathf.Max(
                     MinSegmentDurationSeconds,
-                    KimodoInOutConstraintAdapter.FrameCountToDurationSeconds(
-                        KimodoInOutConstraintAdapter.DurationSecondsToFrameCount(group.DurationSeconds)));
+                    KimodoInOutConstraintTools.FrameCountToDurationSeconds(
+                        KimodoInOutConstraintTools.DurationSecondsToFrameCount(group.DurationSeconds)));
                 timelineClip.duration = durationSeconds;
                 timelineClip.displayName = $"{GeneratedTrackNamePrefix} {groupIndex + 1}";
 

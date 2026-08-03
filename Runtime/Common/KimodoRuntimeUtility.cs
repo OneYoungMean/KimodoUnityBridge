@@ -1,3 +1,4 @@
+using TimelineInject;
 using UnityEngine;
 
 namespace KimodoBridge
@@ -16,20 +17,7 @@ namespace KimodoBridge
 
         public static Vector3 QuaternionToAxisAngleVector(Quaternion q)
         {
-            q.Normalize();
-            q.ToAngleAxis(out float degrees, out Vector3 axis);
-            if (float.IsNaN(axis.x) || axis == Vector3.zero)
-            {
-                return Vector3.zero;
-            }
-
-            if (degrees > 180f)
-            {
-                degrees -= 360f;
-            }
-
-            float radians = degrees * Mathf.Deg2Rad;
-            return axis.normalized * radians;
+            return KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(q);
         }
     }
 }

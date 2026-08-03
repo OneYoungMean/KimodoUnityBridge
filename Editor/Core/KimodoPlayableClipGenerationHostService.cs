@@ -50,12 +50,6 @@ namespace KimodoBridge.Editor
             int runtimeFrameCount = targetFrameCount + (useOutsideGuardFrame ? 1 : 0);
             int runtimeTrimStartFrame = useOutsideGuardFrame ? 1 : 0;
             double runtimeSampleOffsetSeconds = useOutsideGuardFrame ? 1.0 / targetFrameRate : 0.0;
-            int constraintFrames = Mathf.Max(
-                KimodoPlayableClip.MIN_FRAMES,
-                KimodoFrameTimeUtility.SecondsToFrameCount(
-                    timelineClip.duration,
-                    KimodoPlayableClip.FIXED_FRAME_RATE));
-            int runtimeConstraintFrames = constraintFrames + (useOutsideGuardFrame ? 1 : 0);
             float runtimeLengthSeconds = runtimeFrameCount / targetFrameRate;
 
             string constraintsJson;
@@ -72,7 +66,7 @@ namespace KimodoBridge.Editor
             {
                 KimodoInOutConstraintResult constraintResult = ConstraintProvider.BuildConstraintDataOrThrow(
                     clip,
-                    runtimeConstraintFrames,
+                    runtimeFrameCount,
                     disableTimelineInOut,
                     deferConstraintNormalization,
                     enableAutoBeginAnchor,
@@ -364,6 +358,22 @@ namespace KimodoBridge.Editor
 
             string hipsOffsetError = string.Empty;
             if (hasHistoryAnchor &&
+                request.RuntimeTrimStartFrame > 0 &&
+                request.HasRetargetedLeadingGuardHipsPose)
+            {
+                ApplyPlanarHipsAnchorOffset(
+                    playableClip,
+                    trackPosition,
+                    trackRotation,
+                    request.InitialArdyHistorySource.TimelineWorldAnchorPosition,
+                    request.InitialArdyHistorySource.TimelineWorldAnchorRotation,
+                    request.RetargetedLeadingGuardHipsPosition,
+                    request.RetargetedLeadingGuardHipsRotation,
+                    "ArdyHistoryGuard");
+                return;
+            }
+
+            if (hasHistoryAnchor &&
                 TryApplyGeneratedHipsAnchorOffset(
                     playableClip,
                     request,
@@ -453,6 +463,28 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            ApplyPlanarHipsAnchorOffset(
+                playableClip,
+                trackPosition,
+                trackRotation,
+                sourceHipsPosition,
+                sourceHipsRotation,
+                generatedHipsPosition,
+                generatedHipsRotation,
+                anchorLabel);
+            return true;
+        }
+
+        private static void ApplyPlanarHipsAnchorOffset(
+            KimodoPlayableClip playableClip,
+            Vector3 trackPosition,
+            Quaternion trackRotation,
+            Vector3 sourceHipsPosition,
+            Quaternion sourceHipsRotation,
+            Vector3 generatedHipsPosition,
+            Quaternion generatedHipsRotation,
+            string anchorLabel)
+        {
             Quaternion trackYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(trackRotation);
             Quaternion sourceHipsYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(sourceHipsRotation);
             Quaternion generatedHipsYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(generatedHipsRotation);
@@ -473,10 +505,9 @@ namespace KimodoBridge.Editor
                 $"sourceHipsTrackLocal={sourceHipsTrackLocal:F6}, generatedHipsPlanar={generatedHipsPlanar:F6}, " +
                 $"computedPosition={clipPosition:F6}, position={playableClip.position}, " +
                 $"rotation={playableClip.rotation.eulerAngles}.");
-            return true;
         }
 
-        private static Avatar ResolveGeneratedClipSamplingAvatar(KimodoEditorGenerateRequest request)
+        internal static Avatar ResolveGeneratedClipSamplingAvatar(KimodoEditorGenerateRequest request)
         {
             KimodoEditorGenerateOutputPlan plan = request?.OutputPlan;
             if (plan != null && plan.SkipRetarget && KimodoRetargetCoreUtility.IsValidHumanoid(plan.OriginRetargetAvatar))
@@ -495,7 +526,7 @@ namespace KimodoBridge.Editor
             return null;
         }
 
-        private static bool TrySampleGeneratedClipHipsPose(
+        internal static bool TrySampleGeneratedClipHipsPose(
             AnimationClip generatedClip,
             Avatar samplingAvatar,
             float sampleTime,

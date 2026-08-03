@@ -209,7 +209,7 @@ namespace KimodoBridge.Editor
                 }
 
                 float duration = Mathf.Max(0f, sourceClip.length);
-                int frameCount = KimodoRetargetSamplingUtility.ResolveFrameCount(duration, frameRate);
+                int frameCount = KimodoRetargetSamplingUtility.ResolveInclusiveSampleCount(duration, frameRate);
                 if (!KimodoRetargetSamplingUtility.TryCollectBoneSamplesFromClip(
                         sourceHumanoidClip,
                         targetCache,
@@ -370,7 +370,7 @@ namespace KimodoBridge.Editor
                 }
 
                 float duration = Mathf.Max(0f, sourceClip.length);
-                int frameCount = KimodoRetargetSamplingUtility.ResolveFrameCount(duration, frameRate);
+                int frameCount = KimodoRetargetSamplingUtility.ResolveInclusiveSampleCount(duration, frameRate);
                 if (!KimodoRetargetSamplingUtility.TryCollectMuscleSamplesFromClip(
                         sourceClip,
                         sourceCache,

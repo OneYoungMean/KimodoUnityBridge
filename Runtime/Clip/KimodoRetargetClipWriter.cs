@@ -1,0 +1,390 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace KimodoBridge
+{
+    internal static class KimodoRetargetClipWriter
+    {
+        // Keep generated Unity muscle clips aligned with the 49-dimension body representation.
+        // Unity's remaining humanoid muscles cover jaw, eyes and fingers and must not be exported.
+        private static readonly int[] GeneratedMuscleIndices =
+        {
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+            21, 22, 23, 24, 25, 26, 27, 28,
+            29, 30, 31, 32, 33, 34, 35, 36,
+            37, 38, 39, 40, 41, 42, 43, 44, 45,
+            46, 47, 48, 49, 50, 51, 52, 53, 54
+        };
+
+        internal static bool WriteMuscleCurves(IReadOnlyList<MuscleSample> samples, AnimationClip clip, out string error)
+        {
+            if (!ValidateWriteInputs(samples, clip, "Muscle", out error))
+            {
+                return false;
+            }
+
+            string[] muscleNames = HumanTrait.MuscleName;
+            if (muscleNames == null || muscleNames.Length == 0)
+            {
+                error = "HumanTrait muscle list is empty.";
+                return false;
+            }
+
+            for (int i = 0; i < GeneratedMuscleIndices.Length; i++)
+            {
+                if (GeneratedMuscleIndices[i] < 0 || GeneratedMuscleIndices[i] >= muscleNames.Length)
+                {
+                    error = $"Generated muscle index {GeneratedMuscleIndices[i]} is not available in this Unity version.";
+                    return false;
+                }
+            }
+
+            AnimationCurve rootTx = new AnimationCurve();
+            AnimationCurve rootTy = new AnimationCurve();
+            AnimationCurve rootTz = new AnimationCurve();
+            AnimationCurve rootQx = new AnimationCurve();
+            AnimationCurve rootQy = new AnimationCurve();
+            AnimationCurve rootQz = new AnimationCurve();
+            AnimationCurve rootQw = new AnimationCurve();
+            AnimationCurve leftFootTx = new AnimationCurve();
+            AnimationCurve leftFootTy = new AnimationCurve();
+            AnimationCurve leftFootTz = new AnimationCurve();
+            AnimationCurve leftFootQx = new AnimationCurve();
+            AnimationCurve leftFootQy = new AnimationCurve();
+            AnimationCurve leftFootQz = new AnimationCurve();
+            AnimationCurve leftFootQw = new AnimationCurve();
+            AnimationCurve rightFootTx = new AnimationCurve();
+            AnimationCurve rightFootTy = new AnimationCurve();
+            AnimationCurve rightFootTz = new AnimationCurve();
+            AnimationCurve rightFootQx = new AnimationCurve();
+            AnimationCurve rightFootQy = new AnimationCurve();
+            AnimationCurve rightFootQz = new AnimationCurve();
+            AnimationCurve rightFootQw = new AnimationCurve();
+
+            var muscleCurves = new AnimationCurve[GeneratedMuscleIndices.Length];
+            for (int i = 0; i < muscleCurves.Length; i++)
+            {
+                muscleCurves[i] = new AnimationCurve();
+            }
+
+            float frameRate = KimodoRetargetClipSamplingUtility.ResolveFrameRate(clip);
+            bool hasPreviousRootRotation = false;
+            Quaternion previousRootRotation = Quaternion.identity;
+            for (int frame = 0; frame < samples.Count; frame++)
+            {
+                MuscleSample sample = samples[frame];
+                if (sample == null)
+                {
+                    continue;
+                }
+
+                float time = frame / frameRate;
+                HumanPose pose = sample.pose;
+                EnsureHumanPoseMuscles(ref pose);
+                Quaternion rootRotation = ResolveContinuousRotation(
+                    pose.bodyRotation,
+                    ref previousRootRotation,
+                    ref hasPreviousRootRotation);
+
+                AddVector3Key(time, pose.bodyPosition, rootTx, rootTy, rootTz);
+                AddQuaternionKey(time, rootRotation, rootQx, rootQy, rootQz, rootQw);
+                AddVector3Key(time, sample.leftFootPosition, leftFootTx, leftFootTy, leftFootTz);
+                AddQuaternionKey(time, sample.leftFootRotation, leftFootQx, leftFootQy, leftFootQz, leftFootQw);
+                AddVector3Key(time, sample.rightFootPosition, rightFootTx, rightFootTy, rightFootTz);
+                AddQuaternionKey(time, sample.rightFootRotation, rightFootQx, rightFootQy, rightFootQz, rightFootQw);
+
+                for (int muscle = 0; muscle < muscleCurves.Length; muscle++)
+                {
+                    int unityMuscleIndex = GeneratedMuscleIndices[muscle];
+                    float value = unityMuscleIndex < pose.muscles.Length ? pose.muscles[unityMuscleIndex] : 0f;
+                    muscleCurves[muscle].AddKey(time, value);
+                }
+            }
+
+            SetAnimatorVector3Curves(clip, "RootT", rootTx, rootTy, rootTz);
+            SetAnimatorQuaternionCurves(clip, "RootQ", rootQx, rootQy, rootQz, rootQw);
+            SetAnimatorVector3Curves(clip, "LeftFootT", leftFootTx, leftFootTy, leftFootTz);
+            SetAnimatorQuaternionCurves(clip, "LeftFootQ", leftFootQx, leftFootQy, leftFootQz, leftFootQw);
+            SetAnimatorVector3Curves(clip, "RightFootT", rightFootTx, rightFootTy, rightFootTz);
+            SetAnimatorQuaternionCurves(clip, "RightFootQ", rightFootQx, rightFootQy, rightFootQz, rightFootQw);
+
+            for (int muscle = 0; muscle < muscleCurves.Length; muscle++)
+            {
+                string muscleName = GetAnimatorMusclePropertyName(muscleNames[GeneratedMuscleIndices[muscle]]);
+                if (!string.IsNullOrWhiteSpace(muscleName))
+                {
+                    SetFloatCurve(clip, muscleName, muscleCurves[muscle]);
+                }
+            }
+
+            return true;
+        }
+
+        internal static bool WriteBoneCurves(IReadOnlyList<BoneSample> samples, AnimationClip clip, out string error)
+        {
+            if (!ValidateWriteInputs(samples, clip, "Bone", out error))
+            {
+                return false;
+            }
+
+            BoneSample first = samples[0];
+            if (!ValidateBoneSampleForWrite(first, out error))
+            {
+                return false;
+            }
+
+            float frameRate = KimodoRetargetClipSamplingUtility.ResolveFrameRate(clip);
+            string[] boneNames = first.boneNames;
+
+            for (int i = 0; i < boneNames.Length; i++)
+            {
+                AnimationCurve posX = new AnimationCurve();
+                AnimationCurve posY = new AnimationCurve();
+                AnimationCurve posZ = new AnimationCurve();
+                AnimationCurve rotX = new AnimationCurve();
+                AnimationCurve rotY = new AnimationCurve();
+                AnimationCurve rotZ = new AnimationCurve();
+                AnimationCurve rotW = new AnimationCurve();
+                bool hasPreviousRotation = false;
+                Quaternion previousRotation = Quaternion.identity;
+
+                for (int frame = 0; frame < samples.Count; frame++)
+                {
+                    BoneSample sample = samples[frame];
+                    if (!IsBoneSampleFrameUsable(sample, i))
+                    {
+                        continue;
+                    }
+
+                    float time = frame / frameRate;
+                    Vector3 localPosition = sample.localPositions[i];
+                    Quaternion localRotation = ResolveContinuousRotation(
+                        sample.localRotations[i],
+                        ref previousRotation,
+                        ref hasPreviousRotation);
+                    AddVector3Key(time, localPosition, posX, posY, posZ);
+                    AddQuaternionKey(time, localRotation, rotX, rotY, rotZ, rotW);
+                }
+
+                SetTransformCurves(
+                    clip,
+                    i == 0 ? string.Empty : boneNames[i],
+                    posX,
+                    posY,
+                    posZ,
+                    rotX,
+                    rotY,
+                    rotZ,
+                    rotW);
+            }
+
+            return true;
+        }
+
+        internal static void SetFloatCurve(AnimationClip clip, string propertyName, AnimationCurve curve)
+        {
+            clip.SetCurve(string.Empty, typeof(Animator), propertyName, curve);
+        }
+
+        private static void AddVector3Key(
+            float time,
+            Vector3 value,
+            AnimationCurve x,
+            AnimationCurve y,
+            AnimationCurve z)
+        {
+            x.AddKey(time, value.x);
+            y.AddKey(time, value.y);
+            z.AddKey(time, value.z);
+        }
+
+        private static void AddQuaternionKey(
+            float time,
+            Quaternion value,
+            AnimationCurve x,
+            AnimationCurve y,
+            AnimationCurve z,
+            AnimationCurve w)
+        {
+            x.AddKey(time, value.x);
+            y.AddKey(time, value.y);
+            z.AddKey(time, value.z);
+            w.AddKey(time, value.w);
+        }
+
+        private static void SetAnimatorVector3Curves(
+            AnimationClip clip,
+            string propertyPrefix,
+            AnimationCurve x,
+            AnimationCurve y,
+            AnimationCurve z)
+        {
+            SetFloatCurve(clip, propertyPrefix + ".x", x);
+            SetFloatCurve(clip, propertyPrefix + ".y", y);
+            SetFloatCurve(clip, propertyPrefix + ".z", z);
+        }
+
+        private static void SetAnimatorQuaternionCurves(
+            AnimationClip clip,
+            string propertyPrefix,
+            AnimationCurve x,
+            AnimationCurve y,
+            AnimationCurve z,
+            AnimationCurve w)
+        {
+            SetFloatCurve(clip, propertyPrefix + ".x", x);
+            SetFloatCurve(clip, propertyPrefix + ".y", y);
+            SetFloatCurve(clip, propertyPrefix + ".z", z);
+            SetFloatCurve(clip, propertyPrefix + ".w", w);
+        }
+
+        private static void SetTransformCurves(
+            AnimationClip clip,
+            string path,
+            AnimationCurve posX,
+            AnimationCurve posY,
+            AnimationCurve posZ,
+            AnimationCurve rotX,
+            AnimationCurve rotY,
+            AnimationCurve rotZ,
+            AnimationCurve rotW)
+        {
+            clip.SetCurve(path, typeof(Transform), "m_LocalPosition.x", posX);
+            clip.SetCurve(path, typeof(Transform), "m_LocalPosition.y", posY);
+            clip.SetCurve(path, typeof(Transform), "m_LocalPosition.z", posZ);
+            clip.SetCurve(path, typeof(Transform), "m_LocalRotation.x", rotX);
+            clip.SetCurve(path, typeof(Transform), "m_LocalRotation.y", rotY);
+            clip.SetCurve(path, typeof(Transform), "m_LocalRotation.z", rotZ);
+            clip.SetCurve(path, typeof(Transform), "m_LocalRotation.w", rotW);
+        }
+
+        private static Quaternion ResolveContinuousRotation(
+            Quaternion rotation,
+            ref Quaternion previousRotation,
+            ref bool hasPreviousRotation)
+        {
+            Quaternion result = rotation;
+            if (hasPreviousRotation && Quaternion.Dot(previousRotation, result) < 0f)
+            {
+                result = new Quaternion(-result.x, -result.y, -result.z, -result.w);
+            }
+
+            previousRotation = result;
+            hasPreviousRotation = true;
+            return result;
+        }
+
+        internal static string GetAnimatorMusclePropertyName(string muscleName)
+        {
+            if (string.IsNullOrWhiteSpace(muscleName))
+            {
+                return string.Empty;
+            }
+
+            if (TryConvertFingerMusclePropertyName(muscleName, out string propertyName))
+            {
+                return propertyName;
+            }
+
+            return muscleName;
+        }
+
+        internal static bool TryConvertFingerMusclePropertyName(string muscleName, out string propertyName)
+        {
+            propertyName = null;
+
+            string[] tokens = muscleName.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length < 3 || tokens.Length > 4)
+            {
+                return false;
+            }
+
+            string side = tokens[0];
+            if (!string.Equals(side, "Left", StringComparison.Ordinal) &&
+                !string.Equals(side, "Right", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            string finger = tokens[1];
+            if (!string.Equals(finger, "Thumb", StringComparison.Ordinal) &&
+                !string.Equals(finger, "Index", StringComparison.Ordinal) &&
+                !string.Equals(finger, "Middle", StringComparison.Ordinal) &&
+                !string.Equals(finger, "Ring", StringComparison.Ordinal) &&
+                !string.Equals(finger, "Little", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (tokens.Length == 3 && string.Equals(tokens[2], "Spread", StringComparison.Ordinal))
+            {
+                propertyName = $"{side}Hand.{finger}.Spread";
+                return true;
+            }
+
+            if (tokens.Length == 4 &&
+                (string.Equals(tokens[2], "1", StringComparison.Ordinal) ||
+                 string.Equals(tokens[2], "2", StringComparison.Ordinal) ||
+                 string.Equals(tokens[2], "3", StringComparison.Ordinal)) &&
+                string.Equals(tokens[3], "Stretched", StringComparison.Ordinal))
+            {
+                propertyName = $"{side}Hand.{finger}.{tokens[2]} Stretched";
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static void EnsureHumanPoseMuscles(ref HumanPose pose)
+        {
+            if (pose.muscles == null || pose.muscles.Length != HumanTrait.MuscleCount)
+            {
+                pose.muscles = new float[HumanTrait.MuscleCount];
+            }
+        }
+
+        private static bool ValidateWriteInputs<TSample>(
+            IReadOnlyList<TSample> samples,
+            AnimationClip clip,
+            string sampleKind,
+            out string error)
+        {
+            error = string.Empty;
+            if (samples == null || samples.Count == 0)
+            {
+                error = $"{sampleKind} samples are empty.";
+                return false;
+            }
+
+            if (clip == null)
+            {
+                error = "Target clip is null.";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool ValidateBoneSampleForWrite(BoneSample sample, out string error)
+        {
+            error = string.Empty;
+            if (sample == null || !sample.IsValid)
+            {
+                error = "Bone sample is invalid.";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsBoneSampleFrameUsable(BoneSample sample, int boneIndex)
+        {
+            return sample != null &&
+                sample.IsValid &&
+                boneIndex >= 0 &&
+                boneIndex < sample.localPositions.Length &&
+                boneIndex < sample.localRotations.Length;
+        }
+    }
+}

@@ -418,6 +418,38 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void TimelineOutsideGuard_ArdyOutUsesModelFrameRateAndTargetsRuntimeTail()
+        {
+            float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(
+                KimodoMotionModelProfiles.ArdyCoreModelName);
+            var request = new KimodoInOutConstraintRequest
+            {
+                GenerationFrames = 102
+            };
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintType = "fullbody",
+                sampleTime = KimodoInOutConstraintTools.ResolveConstraintEndSampleTimeSeconds(
+                    request.GenerationFrames,
+                    frameRate),
+                localAxisAngles = new List<Vector3> { Vector3.zero }
+            };
+
+            string json = KimodoConstraintJsonExporter.ToConstraintsJson(
+                new[] { sample },
+                clipStartSeconds: 0.0,
+                clipDurationSeconds: KimodoInOutConstraintTools.ResolveConstraintClipDurationSeconds(
+                    request.GenerationFrames,
+                    frameRate),
+                exportFps: frameRate);
+            JArray constraints = JArray.Parse(json);
+
+            Assert.That(frameRate, Is.EqualTo(20f));
+            Assert.That(constraints[0]["frame_indices"]?[0]?.Value<int>(), Is.EqualTo(101));
+        }
+
+        [Test]
+        [Category("ArdyGuardValidation")]
         public void TimelineOutsideGuard_TrimRuntimeResultDropsLeadingFrame()
         {
             KimodoRawMotionData source = CreateMotion(4, 2, 30f);
@@ -442,7 +474,7 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(trimmed.MotionData.FrameCount, Is.EqualTo(3));
             Assert.That(trimmed.MotionData.TryReadUnityRootPosition(0, out Vector3 first), Is.True);
             Assert.That(first.x, Is.EqualTo(1f));
-            Assert.That(trimmed.MotionJsonCompact, Does.Contain(""num_frames":3"));
+            Assert.That(trimmed.MotionJsonCompact, Does.Contain("\"num_frames\":3"));
             Assert.That(trimmed.MotionBytes, Is.Not.Null);
         }
 

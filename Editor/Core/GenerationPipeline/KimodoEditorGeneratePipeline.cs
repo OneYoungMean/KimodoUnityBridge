@@ -99,7 +99,7 @@ namespace KimodoBridge.Editor
                 KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
                 KimodoEditorClipWritebackService.FlushWritebackAssets();
                 request.Progress?.Invoke(KimodoBridgeCommandStage.Retarget, "Skipping retarget: binding hierarchy already matches clip bindings.");
-                return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
+                return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
             }
 
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(outputPlan.OriginRetargetAvatar))
@@ -126,7 +126,7 @@ namespace KimodoBridge.Editor
                 KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
                 EditorUtility.SetDirty(request.TargetClip);
                 KimodoEditorClipWritebackService.FlushWritebackAssets();
-                return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
+                return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
             }
 
             ThrowIfCanceled(request);
@@ -162,7 +162,7 @@ namespace KimodoBridge.Editor
             KimodoEditorClipWritebackService.FlushWritebackAssets();
             ThrowIfCanceled(request);
 
-            return Complete(request, prompt, motionJson, request.TargetClip, rawBoneClip);
+            return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
         }
 
         internal static async Task<KimodoBridgeCommandResult> ExecuteRuntimePipelineAsync(
@@ -226,10 +226,12 @@ namespace KimodoBridge.Editor
             request.GeneratedArdySeeds.Add(directResult.ResolvedSeed.Value);
             request.GeneratedArdyFingerprint = directResult.MotionRepFingerprint;
 
-            directResult = TrimRuntimeResultForOutput(request, directResult, profile.ModelName);
             KimodoRawMotionData sourceMotion = directResult.MotionData;
             byte[] sourcePayload = KimodoRawMotionUtility.ToFlatBuffer(sourceMotion, profile.ModelName);
-            request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(sourcePayload, "timeline-final");
+            if (request.RuntimeTrimStartFrame <= 0)
+            {
+                request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(sourcePayload, "timeline-final");
+            }
             return new KimodoBridgeCommandResult
             {
                 MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(sourceMotion),
@@ -276,6 +278,289 @@ namespace KimodoBridge.Editor
                 result.EndFrameExclusive = result.StartFrame + trimmed.FrameCount;
             }
             return result;
+        }
+
+        private static KimodoEditorGenerateResult CompleteBakedOutput(
+            KimodoEditorGenerateRequest request,
+            string prompt,
+            string modelName,
+            KimodoBridgeCommandResult runtimeResult,
+            KimodoEditorGenerateOutputPlan outputPlan,
+            AnimationClip rawBoneClip)
+        {
+            FinalizeArdyLeadingGuardOutput(
+                request,
+                modelName,
+                runtimeResult,
+                outputPlan,
+                rawBoneClip);
+            return Complete(
+                request,
+                prompt,
+                runtimeResult.MotionJsonCompact,
+                request.TargetClip,
+                rawBoneClip);
+        }
+
+        private static void FinalizeArdyLeadingGuardOutput(
+            KimodoEditorGenerateRequest request,
+            string modelName,
+            KimodoBridgeCommandResult runtimeResult,
+            KimodoEditorGenerateOutputPlan outputPlan,
+            AnimationClip rawBoneClip)
+        {
+            request.HasRetargetedLeadingGuardHipsPose = false;
+            if (request.RuntimeTrimStartFrame <= 0 ||
+                !KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
+            {
+                return;
+            }
+
+            Avatar samplingAvatar = KimodoPlayableClipGenerationHostService.ResolveGeneratedClipSamplingAvatar(request);
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(samplingAvatar))
+            {
+                throw new InvalidOperationException("ARDY guard trim requires a valid final sampling Avatar.");
+            }
+            if (!KimodoPlayableClipGenerationHostService.TrySampleGeneratedClipHipsPose(
+                    request.TargetClip,
+                    samplingAvatar,
+                    0f,
+                    out request.RetargetedLeadingGuardHipsPosition,
+                    out request.RetargetedLeadingGuardHipsRotation,
+                    out string guardError))
+            {
+                throw new InvalidOperationException($"Sample retargeted ARDY guard failed: {guardError}");
+            }
+            request.HasRetargetedLeadingGuardHipsPose = true;
+
+            if (!TryTrimRetargetedClipForOutput(
+                    request.TargetClip,
+                    samplingAvatar,
+                    outputPlan.ExportMuscleClip,
+                    request.RuntimeTrimStartFrame,
+                    request.TargetFrameCount,
+                    request.TargetFrameRate,
+                    out string clipTrimError))
+            {
+                throw new InvalidOperationException($"Trim retargeted ARDY guard failed: {clipTrimError}");
+            }
+
+            TrimRuntimeResultForOutput(request, runtimeResult, modelName);
+            KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
+            EditorUtility.SetDirty(request.TargetClip);
+
+            if (rawBoneClip != null && !ReferenceEquals(rawBoneClip, request.TargetClip))
+            {
+                if (!KimodoRetargetToolsEditor.BakeIntoClip(
+                        rawBoneClip,
+                        runtimeResult.MotionJsonCompact,
+                        KimodoPlayableClip.ResolveBakeSkeletonTypeFromModelName(modelName),
+                        modelName,
+                        null,
+                        out string rawTrimError))
+                {
+                    throw new InvalidOperationException($"Trim raw ARDY guard failed: {rawTrimError}");
+                }
+                EditorUtility.SetDirty(rawBoneClip);
+            }
+
+            request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(
+                runtimeResult.MotionBytes,
+                "timeline-final");
+            Debug.Log(
+                $"[Kimodo][TimelineOffset] retained final-target ARDY guard before output trim: " +
+                $"targetAvatar='{samplingAvatar.name}', hips={request.RetargetedLeadingGuardHipsPosition:F6}, " +
+                $"visibleFrames={runtimeResult.MotionData.FrameCount}.");
+        }
+
+        internal static bool TryTrimRetargetedClipForOutput(
+            AnimationClip clip,
+            Avatar samplingAvatar,
+            bool exportMuscleClip,
+            int trimStartFrame,
+            int targetFrameCount,
+            float sourceFrameRate,
+            out string error)
+        {
+            error = string.Empty;
+            if (clip == null ||
+                !KimodoRetargetCoreUtility.IsValidHumanoid(samplingAvatar) ||
+                trimStartFrame <= 0 ||
+                targetFrameCount <= 0 ||
+                sourceFrameRate <= 0f ||
+                float.IsNaN(sourceFrameRate) ||
+                float.IsInfinity(sourceFrameRate))
+            {
+                error = "Retargeted clip trim inputs are invalid.";
+                return false;
+            }
+
+            SkeletonCache cache = null;
+            AnimationClip trimmedClip = null;
+            try
+            {
+                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                        samplingAvatar,
+                        "KimodoArdyRetargetedGuardTrim",
+                        out cache,
+                        out error))
+                {
+                    return false;
+                }
+
+                float startTime = trimStartFrame / sourceFrameRate;
+                if (exportMuscleClip)
+                {
+                    if (!TryCollectMuscleSamplesFromClipRange(
+                            clip,
+                            cache,
+                            targetFrameCount,
+                            startTime,
+                            sourceFrameRate,
+                            KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                            out MuscleSample[] samples,
+                            out error) ||
+                        !KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
+                            samples,
+                            sourceFrameRate,
+                            out trimmedClip,
+                            out error))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    if (!TryCollectBoneSamplesFromClipRange(
+                            clip,
+                            cache,
+                            targetFrameCount,
+                            startTime,
+                            sourceFrameRate,
+                            KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(clip),
+                            out BoneSample[] samples,
+                            out error) ||
+                        !KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
+                            samples,
+                            sourceFrameRate,
+                            out trimmedClip,
+                            out error))
+                    {
+                        return false;
+                    }
+                }
+
+                float outputFrameRate = clip.frameRate;
+                AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(clip);
+                KimodoEditorClipUtility.CopyClipData(trimmedClip, clip, forceNoLoopKeepY: false);
+                clip.frameRate = outputFrameRate > 0f ? outputFrameRate : sourceFrameRate;
+                AnimationUtility.SetAnimationClipSettings(clip, settings);
+                clip.EnsureQuaternionContinuity();
+                return true;
+            }
+            finally
+            {
+                cache?.Dispose();
+                if (trimmedClip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(trimmedClip);
+                }
+            }
+        }
+
+        private static bool TryCollectBoneSamplesFromClipRange(
+            AnimationClip clip,
+            SkeletonCache cache,
+            int frameCount,
+            float sampleStartTime,
+            float sampleFrameRate,
+            KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
+            out BoneSample[] samples,
+            out string error)
+        {
+            samples = null;
+            if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+                    clip,
+                    cache,
+                    "KimodoArdyGuardBoneRange",
+                    samplingMode,
+                    out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
+                    out error))
+            {
+                return false;
+            }
+
+            try
+            {
+                samples = new BoneSample[frameCount];
+                for (int frame = 0; frame < frameCount; frame++)
+                {
+                    float sampleTime = sampleStartTime + frame / sampleFrameRate;
+                    if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
+                            context,
+                            sampleTime,
+                            out error))
+                    {
+                        samples = null;
+                        return false;
+                    }
+                    samples[frame] = KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
+                }
+                return true;
+            }
+            finally
+            {
+                context.Dispose();
+            }
+        }
+
+        private static bool TryCollectMuscleSamplesFromClipRange(
+            AnimationClip clip,
+            SkeletonCache cache,
+            int frameCount,
+            float sampleStartTime,
+            float sampleFrameRate,
+            KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
+            out MuscleSample[] samples,
+            out string error)
+        {
+            samples = null;
+            if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+                    clip,
+                    cache,
+                    "KimodoArdyGuardMuscleRange",
+                    samplingMode,
+                    out KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
+                    out error))
+            {
+                return false;
+            }
+
+            try
+            {
+                samples = new MuscleSample[frameCount];
+                for (int frame = 0; frame < frameCount; frame++)
+                {
+                    float sampleTime = sampleStartTime + frame / sampleFrameRate;
+                    if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
+                            context,
+                            sampleTime,
+                            out error) ||
+                        !KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                            cache,
+                            out samples[frame],
+                            out error))
+                    {
+                        samples = null;
+                        return false;
+                    }
+                }
+                return true;
+            }
+            finally
+            {
+                context.Dispose();
+            }
         }
 
         internal static byte[] BuildInitialArdyHistoryPayload(
