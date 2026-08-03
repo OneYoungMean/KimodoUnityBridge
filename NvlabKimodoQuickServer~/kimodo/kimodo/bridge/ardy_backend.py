@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from typing import Any, Callable
+import warnings
 
 import numpy as np
 
@@ -330,10 +331,11 @@ def _plan_root_2d_target(
         return None
 
     direction = delta / distance
-    velocity = np.asarray(current_velocity_2d, dtype=np.float64)
-    speed = float(np.linalg.norm(velocity))
-    if speed > target.max_speed:
-        velocity *= target.max_speed / speed
+    unlimited_velocity = np.asarray(current_velocity_2d, dtype=np.float64)
+    velocity = unlimited_velocity.copy()
+    initial_speed = float(np.linalg.norm(velocity))
+    if initial_speed > target.max_speed:
+        velocity *= target.max_speed / initial_speed
 
     prediction_frames = max(1, seconds_to_frame_count(TARGET_VELOCITY_PREDICTION_SECONDS, fps))
     dt = 1.0 / fps
@@ -344,33 +346,55 @@ def _plan_root_2d_target(
         if remaining_frames <= 0:
             return None
         duration = remaining_frames * dt
-        timed_positions = []
-        timed_velocities = []
-        previous_position = position.copy()
-        previous_velocity = velocity.copy()
-        for step in range(1, remaining_frames + 1):
-            t = step / remaining_frames
-            t2 = t * t
-            t3 = t2 * t
-            planned_position = (
-                (2.0 * t3 - 3.0 * t2 + 1.0) * position
-                + (t3 - 2.0 * t2 + t) * duration * velocity
-                + (-2.0 * t3 + 3.0 * t2) * goal
+
+        def build_timed_path(start_velocity: np.ndarray):
+            planned_positions: list[np.ndarray] = []
+            planned_velocities: list[np.ndarray] = []
+            peak_speed = 0.0
+            peak_acceleration = 0.0
+            previous_position = position.copy()
+            previous_velocity = start_velocity.copy()
+            for step in range(1, remaining_frames + 1):
+                t = step / remaining_frames
+                t2 = t * t
+                t3 = t2 * t
+                planned_position = (
+                    (2.0 * t3 - 3.0 * t2 + 1.0) * position
+                    + (t3 - 2.0 * t2 + t) * duration * start_velocity
+                    + (-2.0 * t3 + 3.0 * t2) * goal
+                )
+                planned_velocity = (planned_position - previous_position) / dt
+                planned_acceleration = (planned_velocity - previous_velocity) / dt
+                peak_speed = max(peak_speed, float(np.linalg.norm(planned_velocity)))
+                peak_acceleration = max(peak_acceleration, float(np.linalg.norm(planned_acceleration)))
+                planned_positions.append(planned_position)
+                planned_velocities.append(planned_velocity)
+                previous_position = planned_position
+                previous_velocity = planned_velocity
+            return planned_positions, planned_velocities, peak_speed, peak_acceleration
+
+        timed_positions, timed_velocities, peak_speed, peak_acceleration = build_timed_path(velocity)
+        if (
+            initial_speed > target.max_speed + 1e-4
+            or peak_speed > target.max_speed + 1e-4
+            or peak_acceleration > target.max_acceleration + 1e-4
+        ):
+            warnings.warn(
+                "[WARN] Timed root2d_target exceeds configured motion limits "
+                f"(peak_speed={max(initial_speed, peak_speed):.3f}, "
+                f"peak_acceleration={peak_acceleration:.3f}); retrying with max_speed=inf.",
+                RuntimeWarning,
+                stacklevel=2,
             )
-            planned_velocity = (planned_position - previous_position) / dt
-            planned_acceleration = (planned_velocity - previous_velocity) / dt
-            if float(np.linalg.norm(planned_velocity)) > target.max_speed + 1e-4:
-                raise ArdyBackendError(
-                    "root2d_target cannot reach target_frame within max_speed."
+            velocity = unlimited_velocity.copy()
+            timed_positions, timed_velocities, _, peak_acceleration = build_timed_path(velocity)
+            if peak_acceleration > target.max_acceleration + 1e-4:
+                warnings.warn(
+                    "[WARN] Timed root2d_target still exceeds max_acceleration "
+                    f"(peak_acceleration={peak_acceleration:.3f}); retrying with max_acceleration=inf.",
+                    RuntimeWarning,
+                    stacklevel=2,
                 )
-            if float(np.linalg.norm(planned_acceleration)) > target.max_acceleration + 1e-4:
-                raise ArdyBackendError(
-                    "root2d_target cannot reach target_frame within max_acceleration."
-                )
-            timed_positions.append(planned_position)
-            timed_velocities.append(planned_velocity)
-            previous_position = planned_position
-            previous_velocity = planned_velocity
         prediction_frames = min(prediction_frames, remaining_frames)
 
     frame_indices: list[int] = []

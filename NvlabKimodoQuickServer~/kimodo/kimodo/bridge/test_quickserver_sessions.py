@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from types import MethodType
 import unittest
 from unittest.mock import ANY, patch
+import warnings
 
 import numpy as np
 import torch
@@ -575,6 +576,42 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         )
         self.assertEqual(tail["frame_indices"], [101])
         np.testing.assert_allclose(tail["smooth_root_2d"][-1], goal, atol=1e-7)
+
+    def test_timed_root_target_warns_and_relaxes_motion_limits_in_order(self):
+        speed_limited = ardy_backend.Root2DTarget(
+            (1.0, 0.0),
+            0.1,
+            1.5,
+            0.001,
+            True,
+            arrival_frame=99,
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            planned = ardy_backend._plan_root_2d_target(
+                speed_limited, (0.0, 0.0), (0.0, 0.0), -1, 20.0
+            )
+        self.assertIsNotNone(planned)
+        self.assertEqual(len(caught), 1)
+        self.assertIn("max_speed=inf", str(caught[0].message))
+
+        acceleration_limited = ardy_backend.Root2DTarget(
+            (1.0, 0.0),
+            2.0,
+            0.1,
+            0.001,
+            True,
+            arrival_frame=99,
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            planned = ardy_backend._plan_root_2d_target(
+                acceleration_limited, (0.0, 0.0), (0.0, 0.0), -1, 20.0
+            )
+        self.assertIsNotNone(planned)
+        self.assertEqual(len(caught), 2)
+        self.assertIn("max_speed=inf", str(caught[0].message))
+        self.assertIn("max_acceleration=inf", str(caught[1].message))
 
     def test_root_target_behind_uses_backward_world_heading_not_backward_motion(self):
         target = ardy_backend.Root2DTarget((-10.0, 0.0), 1.25, 1.5, 0.1, True)
