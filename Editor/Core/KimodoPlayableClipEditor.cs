@@ -169,14 +169,14 @@ namespace KimodoBridge.Editor
             bool previousOutEnabled = enableOutConstraint?.boolValue ?? false;
             if (inOutConstraintModeProp != null)
             {
-                EditorGUILayout.PropertyField(
-                    inOutConstraintModeProp,
-                    new GUIContent("InOut Constraint", "None disables boundary constraints. Inside uses this clip's own start/end poses. Outside uses neighboring clip boundary poses."));
-                if ((KimodoInOutConstraintMode)inOutConstraintModeProp.enumValueIndex != KimodoInOutConstraintMode.None)
+                using (new EditorGUILayout.HorizontalScope())
                 {
-                    using (new EditorGUILayout.HorizontalScope())
+                    EditorGUILayout.PropertyField(
+                        inOutConstraintModeProp,
+                        new GUIContent("InOut Constraint", "None disables boundary constraints. Inside uses this clip's own start/end poses. Outside uses neighboring clip boundary poses."));
+                    if ((KimodoInOutConstraintMode)inOutConstraintModeProp.enumValueIndex != KimodoInOutConstraintMode.None)
                     {
-                        EditorGUILayout.PrefixLabel("Boundaries");
+                        GUILayout.Label("Boundary", GUILayout.Width(58f));
                         EditorGUILayout.PropertyField(enableInConstraint, new GUIContent("In"), GUILayout.Width(42f));
                         EditorGUILayout.PropertyField(enableOutConstraint, new GUIContent("Out"), GUILayout.Width(50f));
                     }

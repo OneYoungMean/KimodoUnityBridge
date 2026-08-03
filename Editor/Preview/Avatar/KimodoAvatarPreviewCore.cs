@@ -359,7 +359,7 @@ namespace KimodoBridge.Editor
             {
                 previewController.AddLayer("Base Layer");
             }
-            Debug.Log("[Kimodo][Preview] Created preview controller: " + previewControllerAssetPath);
+            KimodoPlayableClipGenerationSettings.DebugLog("[Kimodo][Preview] Created preview controller: " + previewControllerAssetPath);
             return true;
         }
 

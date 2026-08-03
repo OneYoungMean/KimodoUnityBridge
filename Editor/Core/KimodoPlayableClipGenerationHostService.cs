@@ -330,7 +330,7 @@ namespace KimodoBridge.Editor
             if (request.AnchorOffsetSourceClip != null)
             {
                 CopyClipOffset(request.AnchorOffsetSourceClip, playableClip);
-                Debug.Log($"[Kimodo][TimelineOffset] reused connected-sequence Hips offset for '{playableClip.name}'.");
+                KimodoPlayableClipGenerationSettings.DebugLog($"[Kimodo][TimelineOffset] reused connected-sequence Hips offset for '{playableClip.name}'.");
                 return;
             }
 
@@ -350,7 +350,7 @@ namespace KimodoBridge.Editor
                 out Vector3 trackPosition,
                 out Quaternion trackRotation);
 
-            Debug.Log(
+            KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][TimelineOffset] resolve clip='{playableClip.name}' " +
                 $"hasNormalizationAnchor={hasNormalizationAnchor} anchorKind={normalization?.AnchorKind} " +
                 $"hasArdyHistoryAnchor={hasHistoryAnchor} trackPosition={trackPosition:F6} " +
@@ -390,7 +390,7 @@ namespace KimodoBridge.Editor
 
             if (!string.IsNullOrWhiteSpace(hipsOffsetError))
             {
-                Debug.LogWarning($"[Kimodo][TimelineOffset] Hips-based ARDY offset failed, falling back to root anchor: {hipsOffsetError}");
+                KimodoPlayableClipGenerationSettings.DebugLogWarning($"[Kimodo][TimelineOffset] Hips-based ARDY offset failed, falling back to root anchor: {hipsOffsetError}");
             }
 
             if (hasNormalizationAnchor)
@@ -414,15 +414,15 @@ namespace KimodoBridge.Editor
 
                 if (!string.IsNullOrWhiteSpace(hipsOffsetError))
                 {
-                    Debug.LogWarning($"[Kimodo][TimelineOffset] Hips-based normalization offset failed, falling back to root anchor: {hipsOffsetError}");
+                    KimodoPlayableClipGenerationSettings.DebugLogWarning($"[Kimodo][TimelineOffset] Hips-based normalization offset failed, falling back to root anchor: {hipsOffsetError}");
                 }
 
-                Debug.LogWarning(
+                KimodoPlayableClipGenerationSettings.DebugLogWarning(
                     $"[Kimodo][TimelineOffset] skipped {normalization.AnchorKind} alignment because its world Hips pose is unavailable.");
                 return;
             }
 
-            Debug.LogWarning($"[Kimodo][TimelineOffset] skipped alignment: {hipsOffsetError}");
+            KimodoPlayableClipGenerationSettings.DebugLogWarning($"[Kimodo][TimelineOffset] skipped alignment: {hipsOffsetError}");
         }
 
         private static bool TryApplyGeneratedHipsAnchorOffset(
@@ -499,7 +499,7 @@ namespace KimodoBridge.Editor
             playableClip.rotation = clipYaw;
             playableClip.removeStartOffset = false;
             EditorUtility.SetDirty(playableClip);
-            Debug.Log(
+            KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][TimelineOffset] applied {anchorLabel} planar Hips anchor to '{playableClip.name}': " +
                 $"sourceHips={sourceHipsPosition:F6}, generatedHips={generatedHipsPosition:F6}, " +
                 $"sourceHipsTrackLocal={sourceHipsTrackLocal:F6}, generatedHipsPlanar={generatedHipsPlanar:F6}, " +

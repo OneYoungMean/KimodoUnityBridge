@@ -238,6 +238,18 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUI.BeginChangeCheck();
+            bool enableDebugLog = EditorGUILayout.Toggle(
+                new GUIContent(
+                    "Enable Debug Log",
+                    "Show diagnostic logs outside the main generation path, such as retarget, sampling, constraint export, and Timeline offset details."),
+                settings.EnableDebugLog);
+            if (EditorGUI.EndChangeCheck())
+            {
+                settings.EnableDebugLog = enableDebugLog;
+                settings.SaveSettings();
+            }
+
+            EditorGUI.BeginChangeCheck();
             float timeoutSeconds = EditorGUILayout.FloatField(
                 new GUIContent("Generate Timeout (sec)", "Global timeout used by Kimodo generation requests."),
                 settings.GenerationTimeoutSeconds);

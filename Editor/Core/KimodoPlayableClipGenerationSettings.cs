@@ -26,6 +26,7 @@ namespace KimodoBridge.Editor
         [SerializeField] private float generationTimeoutSeconds = DefaultGenerationTimeoutSeconds;
         [SerializeField] private bool keepCpuForceExperimental;
         [SerializeField] private bool writeResampledTimelineCacheClips;
+        [SerializeField] private bool enableDebugLog;
         [SerializeField] private bool setupWizardCompleted;
         [SerializeField] private string quickServerPath = string.Empty;
         [SerializeField, HideInInspector] private bool advancedCurveFilterFoldout = true;
@@ -86,6 +87,28 @@ namespace KimodoBridge.Editor
         {
             get => writeResampledTimelineCacheClips;
             set => writeResampledTimelineCacheClips = value;
+        }
+
+        internal bool EnableDebugLog
+        {
+            get => enableDebugLog;
+            set => enableDebugLog = value;
+        }
+
+        internal static void DebugLog(string message)
+        {
+            if (instance.EnableDebugLog && !string.IsNullOrWhiteSpace(message))
+            {
+                Debug.Log(message);
+            }
+        }
+
+        internal static void DebugLogWarning(string message)
+        {
+            if (instance.EnableDebugLog && !string.IsNullOrWhiteSpace(message))
+            {
+                Debug.LogWarning(message);
+            }
         }
 
         internal float GenerationTimeoutSeconds

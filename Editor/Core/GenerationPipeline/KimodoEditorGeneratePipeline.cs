@@ -367,7 +367,7 @@ namespace KimodoBridge.Editor
             request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(
                 runtimeResult.MotionBytes,
                 "timeline-final");
-            Debug.Log(
+            KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][TimelineOffset] retained final-target ARDY guard before output trim: " +
                 $"targetAvatar='{samplingAvatar.name}', hips={request.RetargetedLeadingGuardHipsPosition:F6}, " +
                 $"visibleFrames={runtimeResult.MotionData.FrameCount}.");

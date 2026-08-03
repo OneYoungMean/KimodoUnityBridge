@@ -234,7 +234,7 @@ namespace KimodoBridge.Editor
             boneCacheClip = writableClip;
             boneCacheClip.name = cacheName;
             EditorUtility.SetDirty(boneCacheClip);
-            Debug.Log($"[Kimodo][RetargetCache] Generated bone cache animation: cache='{cacheName}', source='{sourceClip.name}', targetAvatar='{targetAvatar.name}'.");
+            KimodoPlayableClipGenerationSettings.DebugLog($"[Kimodo][RetargetCache] Generated bone cache animation: cache='{cacheName}', source='{sourceClip.name}', targetAvatar='{targetAvatar.name}'.");
             return true;
         }
 
@@ -395,7 +395,7 @@ namespace KimodoBridge.Editor
 
                 writableClip.name = cacheName;
                 EditorUtility.SetDirty(writableClip);
-                Debug.Log($"[Kimodo][RetargetCache] Generated muscle cache animation: cache='{cacheName}', source='{sourceClip.name}'.");
+                KimodoPlayableClipGenerationSettings.DebugLog($"[Kimodo][RetargetCache] Generated muscle cache animation: cache='{cacheName}', source='{sourceClip.name}'.");
 
                 muscleClip = writableClip;
                 return true;

@@ -152,7 +152,7 @@ namespace KimodoBridge.Editor
                     return false;
                 }
                 source.HasTimelineWorldAnchor = true;
-                Debug.Log(
+                KimodoPlayableClipGenerationSettings.DebugLog(
                     $"[Kimodo][ArdyHistory] frames={frameCount} " +
                     $"sampleRange={timelineTimes[0]:F6}->{timelineTimes[frameCount - 1]:F6} " +
                     $"rootFirst={rootPositions[0]:F6} rootLast={rootPositions[frameCount - 1]:F6} " +

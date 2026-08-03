@@ -986,7 +986,7 @@ namespace KimodoBridge.Editor
             double timelineSampleTime = KimodoTimelineConstraintClipCache.ResolveTimelineSampleTime(
                 sampleTime,
                 timelineFrameRate);
-            Debug.Log(
+            KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][ConstraintSampleFrame] marker='{marker.ConstraintType}' " +
                 $"markerTime={sampleTime:R}s timelineFps={timelineFrameRate:R} " +
                 $"exactFrame={(sampleTime * timelineFrameRate):R} " +

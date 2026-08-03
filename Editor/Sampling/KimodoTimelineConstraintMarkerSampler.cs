@@ -138,7 +138,7 @@ namespace KimodoBridge.Editor
             AppendDragMuscleSample(text, "TargetCharacter", targetCharacter, targetCharacterScale);
             AppendDragMuscleDiff(text, "TimelinePoseClip->VirtualSkeleton", timelinePose, timelinePoseScale, virtualSkeleton, virtualSkeletonScale);
             AppendDragMuscleDiff(text, "VirtualSkeleton->TargetCharacter", virtualSkeleton, virtualSkeletonScale, targetCharacter, targetCharacterScale);
-            Debug.Log(text.ToString().TrimEnd());
+            KimodoPlayableClipGenerationSettings.DebugLog(text.ToString().TrimEnd());
         }
 
         private static void AppendDragMuscleSample(
@@ -841,7 +841,7 @@ namespace KimodoBridge.Editor
                 return $"Write resampled {label} clip failed: {error}";
             }
 
-            Debug.Log($"[Kimodo][TimelineSample] Wrote resampled {label}: '{AssetDatabase.GetAssetPath(savedClip)}'.");
+            KimodoPlayableClipGenerationSettings.DebugLog($"[Kimodo][TimelineSample] Wrote resampled {label}: '{AssetDatabase.GetAssetPath(savedClip)}'.");
             return string.Empty;
         }
 
@@ -1672,7 +1672,7 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
-            Debug.Log(
+            KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][ConstraintExport] marker='{marker.ConstraintType}' time={marker.time:F3} mode={mode} " +
                 $"jointNames=[{string.Join(", ", sample.jointNames ?? new List<string>())}] hasHeading={sample.hasRootHeading}");
             return true;
