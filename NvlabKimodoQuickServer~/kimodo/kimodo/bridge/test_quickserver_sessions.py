@@ -704,6 +704,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                     "type": "root2d",
                     "frame_indices": [0],
                     "smooth_root_2d": [[10.0, 20.0]],
+                    "global_root_heading": [[0.0, 1.0]],
                 },
                 {
                     "type": "root2d_target",
@@ -719,7 +720,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         )
 
         np.testing.assert_allclose(session.constraint_origin[0].cpu(), [10.0, 20.0])
-        np.testing.assert_allclose(session.root_2d_target.position, [3.0, 4.0], atol=1e-6)
+        np.testing.assert_allclose(session.root_2d_target.position, [-4.0, 3.0], atol=1e-6)
         self.assertEqual(session.root_2d_target.max_speed, 2.25)
         self.assertEqual(session.root_2d_target.max_acceleration, 3.5)
 

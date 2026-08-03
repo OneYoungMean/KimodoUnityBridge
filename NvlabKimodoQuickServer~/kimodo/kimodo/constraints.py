@@ -75,17 +75,23 @@ def transform_constraints_to_origin(constraints_lst: list, transform) -> None:
         local_translation = translation.to(device=device, dtype=dtype)
         local_yaw = yaw.to(device=device, dtype=dtype)
         local_rotation = RotateFeatures((-local_yaw).reshape(1))
-        rotation_2d_t = local_rotation.corrective_mat_2d_T[0]
+        heading_rotation_2d_t = local_rotation.corrective_mat_2d_T[0]
         rotation_3d = local_rotation.corrective_mat_Y[0]
         rotation_3d_t = local_rotation.corrective_mat_Y_T[0]
-        setattr(constraint, root_attribute, (root_2d - local_translation) @ rotation_2d_t)
+        # Root positions are stored as (x, z), while heading vectors are stored
+        # as (cos(yaw), sin(yaw)).  Those two pairs use opposite matrix layouts;
+        # using the heading matrix for root positions mirrors the trajectory at
+        # non-zero anchor yaw.  Take the x/z block from the 3D position rotation
+        # so root_2d stays in the same space as global_joints_positions.
+        root_rotation_2d_t = rotation_3d_t[[0, 2]][:, [0, 2]]
+        setattr(constraint, root_attribute, (root_2d - local_translation) @ root_rotation_2d_t)
 
         heading = getattr(constraint, "global_root_heading", None)
         if heading is not None:
             constraint.global_root_heading = (
                 heading - local_yaw
                 if heading.ndim == 1
-                else heading @ rotation_2d_t
+                else heading @ heading_rotation_2d_t
             )
         if hasattr(constraint, "global_joints_positions"):
             offset = torch.zeros(3, device=device, dtype=dtype)
