@@ -84,13 +84,14 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
-        [Test]
-        public void ArdyOutsideOut_AddsTimedRootTargetWithClipParameters()
+        [TestCase(KimodoInOutConstraintMode.Inside)]
+        [TestCase(KimodoInOutConstraintMode.Outside)]
+        public void ArdyOut_AddsTimedRootTargetWithClipParameters(KimodoInOutConstraintMode mode)
         {
             KimodoPlayableClip clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
             try
             {
-                clip.inOutConstraintMode = KimodoInOutConstraintMode.Outside;
+                clip.inOutConstraintMode = mode;
                 clip.enableOutConstraint = true;
                 clip.ardyTargetMaxSpeed = 2.25f;
                 clip.ardyTargetMaxAcceleration = 3.5f;
@@ -105,14 +106,14 @@ namespace KimodoBridge.Editor.Tests
                 };
 
                 Assert.That(
-                    KimodoPlayableClipGenerationHostService.AppendArdyOutsideOutRootTarget(
+                    KimodoPlayableClipGenerationHostService.AppendArdyOutRootTarget(
                         clip,
                         samples),
                     Is.False);
 
                 clip.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
                 Assert.That(
-                    KimodoPlayableClipGenerationHostService.AppendArdyOutsideOutRootTarget(
+                    KimodoPlayableClipGenerationHostService.AppendArdyOutRootTarget(
                         clip,
                         samples),
                     Is.True);

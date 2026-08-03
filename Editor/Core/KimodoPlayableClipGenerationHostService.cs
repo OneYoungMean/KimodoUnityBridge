@@ -90,9 +90,10 @@ namespace KimodoBridge.Editor
                         ardyProfile,
                         out initialHistorySource);
                 }
-                if (externalConstraint == null || !externalConstraint.Enabled)
+                if (!disableTimelineInOut &&
+                    (externalConstraint == null || !externalConstraint.Enabled))
                 {
-                    AppendArdyOutsideOutRootTarget(
+                    AppendArdyOutRootTarget(
                         clip,
                         constraintSamples);
                 }
@@ -177,13 +178,13 @@ namespace KimodoBridge.Editor
             };
         }
 
-        internal static bool AppendArdyOutsideOutRootTarget(
+        internal static bool AppendArdyOutRootTarget(
             KimodoPlayableClip clip,
             List<KimodoMarkerSampleResult> constraintSamples)
         {
             if (clip == null ||
                 constraintSamples == null ||
-                clip.inOutConstraintMode != KimodoInOutConstraintMode.Outside ||
+                clip.inOutConstraintMode == KimodoInOutConstraintMode.None ||
                 !clip.enableOutConstraint ||
                 !KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _))
             {

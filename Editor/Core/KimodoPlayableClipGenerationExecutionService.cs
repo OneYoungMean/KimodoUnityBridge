@@ -369,7 +369,7 @@ namespace KimodoBridge.Editor
                 AppendConnectedBoundarySamples(entry, i, entries.Count);
                 if (i == entries.Count - 1)
                 {
-                    KimodoPlayableClipGenerationHostService.AppendArdyOutsideOutRootTarget(
+                    KimodoPlayableClipGenerationHostService.AppendArdyOutRootTarget(
                         entry.Clip,
                         entry.Request.ConstraintSamples);
                 }
