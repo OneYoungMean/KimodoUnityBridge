@@ -302,33 +302,43 @@ namespace KimodoBridge
             Vector3 hipsOffset = sourceHipsBone.position - targetState.HipsBone.position;
             targetState.Animator.transform.position += new Vector3(hipsOffset.x, 0f, hipsOffset.z);
 
-            if (!enableFootIk)
+            // The setting drives explicitly named IK targets.  Do not run the
+            // legacy source-foot solver when a target is absent: it mixes the
+            // temporary source skeleton with the destination avatar and can
+            // move the legs at a segment boundary.
+            if (ShouldSolveFootIk(enableFootIk, targetState.LeftFootIkTarget))
             {
-                return;
+                SolveTwoBoneLeg(
+                    targetState.HipsBone,
+                    targetState.LeftUpperLegBone,
+                    targetState.LeftLowerLegBone,
+                    targetState.LeftFootBone,
+                    sourceHipsBone,
+                    sourceLeftUpperLegBone,
+                    sourceLeftLowerLegBone,
+                    sourceLeftFootBone,
+                    ref targetState.LeftKneePoleLocalDirection,
+                    ref targetState.LeftKneePoleInitialized);
             }
+            if (ShouldSolveFootIk(enableFootIk, targetState.RightFootIkTarget))
+            {
+                SolveTwoBoneLeg(
+                    targetState.HipsBone,
+                    targetState.RightUpperLegBone,
+                    targetState.RightLowerLegBone,
+                    targetState.RightFootBone,
+                    sourceHipsBone,
+                    sourceRightUpperLegBone,
+                    sourceRightLowerLegBone,
+                    sourceRightFootBone,
+                    ref targetState.RightKneePoleLocalDirection,
+                    ref targetState.RightKneePoleInitialized);
+            }
+        }
 
-            SolveTwoBoneLeg(
-                targetState.HipsBone,
-                targetState.LeftUpperLegBone,
-                targetState.LeftLowerLegBone,
-                targetState.LeftFootBone,
-                sourceHipsBone,
-                sourceLeftUpperLegBone,
-                sourceLeftLowerLegBone,
-                sourceLeftFootBone,
-                ref targetState.LeftKneePoleLocalDirection,
-                ref targetState.LeftKneePoleInitialized);
-            SolveTwoBoneLeg(
-                targetState.HipsBone,
-                targetState.RightUpperLegBone,
-                targetState.RightLowerLegBone,
-                targetState.RightFootBone,
-                sourceHipsBone,
-                sourceRightUpperLegBone,
-                sourceRightLowerLegBone,
-                sourceRightFootBone,
-                ref targetState.RightKneePoleLocalDirection,
-                ref targetState.RightKneePoleInitialized);
+        internal static bool ShouldSolveFootIk(bool enabled, Transform ikTarget)
+        {
+            return enabled && ikTarget != null;
         }
 
         public void Stop()

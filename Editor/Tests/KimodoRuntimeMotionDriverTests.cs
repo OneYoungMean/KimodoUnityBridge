@@ -807,6 +807,13 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void FootIk_RequiresAnExplicitTargetBeforeSolvingTheLeg()
+        {
+            Assert.That(KimodoRuntimeMotionPlayer.ShouldSolveFootIk(false, null), Is.False);
+            Assert.That(KimodoRuntimeMotionPlayer.ShouldSolveFootIk(true, null), Is.False);
+        }
+
+        [Test]
         public void ConstraintJson_EndEffectorTargetUsesRootLocalPointAndKeepsLegacyFrames()
         {
             Quaternion rootRotation = Quaternion.Euler(0f, 90f, 0f);
