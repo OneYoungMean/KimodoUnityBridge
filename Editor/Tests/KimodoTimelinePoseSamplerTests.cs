@@ -2105,10 +2105,56 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void ConstraintPoseCache_IsolatesPreviewSessionsByTrack()
+        {
+            KimodoConstraintPoseCache.DestroyAll();
+            try
+            {
+                var firstContext = new PoseCacheRenderContext(
+                    clipId: 1,
+                    animatorId: 2,
+                    trackId: 3,
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoConstraintRigType.Soma77);
+                var secondContext = new PoseCacheRenderContext(
+                    clipId: 1,
+                    animatorId: 2,
+                    trackId: 4,
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoConstraintRigType.Soma77);
+
+                Assert.That(
+                    KimodoConstraintPoseCache.TryGetOrCreateSession(
+                        firstContext,
+                        out ConstraintPosePreviewSession first,
+                        out string firstError),
+                    Is.True,
+                    firstError);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryGetOrCreateSession(
+                        secondContext,
+                        out ConstraintPosePreviewSession second,
+                        out string secondError),
+                    Is.True,
+                    secondError);
+                Assert.That(second, Is.Not.SameAs(first));
+
+                first.Dispose();
+                Assert.That(first.IsDisposed, Is.True);
+                Assert.That(second.IsDisposed, Is.False);
+            }
+            finally
+            {
+                KimodoConstraintPoseCache.DestroyAll();
+            }
+        }
+
+        [Test]
         public void ConstraintPoseCache_RecognizesClipRemovedFromOriginalTrack()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject previewRoot = null;
+            ConstraintPosePreviewSession session = null;
             try
             {
                 KimodoConstraintPoseCache.DestroyAll();
@@ -2119,31 +2165,32 @@ namespace KimodoBridge.Editor.Tests
 
                 Assert.That(KimodoConstraintPoseCache.IsClipStillOnTrack(clipId, trackId), Is.True);
 
-                Type entryType = typeof(KimodoConstraintPoseCache).GetNestedType(
-                    "PoseCacheEntry",
-                    BindingFlags.NonPublic);
-                object entry = Activator.CreateInstance(entryType, nonPublic: true);
+                var context = new PoseCacheRenderContext(
+                    clipId,
+                    animatorId: 1,
+                    trackId,
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoConstraintRigType.Soma77);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryGetOrCreateSession(context, out session, out string error),
+                    Is.True,
+                    error);
                 previewRoot = new GameObject("KimodoDeletedClipPreviewTest");
-                entryType.GetField("Key").SetValue(entry, "deleted-clip-test");
-                entryType.GetField("ContextKey").SetValue(entry, "deleted-clip-context");
-                entryType.GetField("ClipId").SetValue(entry, clipId);
-                entryType.GetField("TrackId").SetValue(entry, trackId);
-                entryType.GetField("Root").SetValue(entry, previewRoot.transform);
-                FieldInfo entriesField = typeof(KimodoConstraintPoseCache).GetField(
-                    "Entries",
-                    BindingFlags.NonPublic | BindingFlags.Static);
-                var entries = entriesField.GetValue(null) as System.Collections.IDictionary;
-                entries.Add("deleted-clip-test", entry);
+                session.Entries.Add(
+                    "deleted-clip-test",
+                    new ConstraintPosePreviewEntry
+                    {
+                        Key = "deleted-clip-test",
+                        Root = previewRoot.transform
+                    });
 
                 Assert.That(timeline.DeleteClip(timelineClip), Is.True);
                 Assert.That(KimodoConstraintPoseCache.IsClipStillOnTrack(clipId, trackId), Is.False);
 
-                typeof(KimodoConstraintPoseCache).GetMethod(
-                        "DestroyInvalidContexts",
-                        BindingFlags.NonPublic | BindingFlags.Static)
-                    .Invoke(null, null);
+                KimodoConstraintPoseCache.DestroyInvalidContexts();
 
-                Assert.That(entries.Count, Is.EqualTo(0));
+                Assert.That(session.IsDisposed, Is.True);
+                Assert.That(session.Entries, Is.Empty);
                 Assert.That(previewRoot == null, Is.True);
             }
             finally
