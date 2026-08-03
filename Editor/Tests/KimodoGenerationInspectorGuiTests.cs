@@ -85,7 +85,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ArdyOutsideOut_AddsInteractiveRootTargetWithClipParameters()
+        public void ArdyOutsideOut_AddsTimedRootTargetWithClipParameters()
         {
             KimodoPlayableClip clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
             try
@@ -121,6 +121,7 @@ namespace KimodoBridge.Editor.Tests
                 KimodoConstraintJson target = KimodoConstraintJsonExporter.BuildConstraint(samples[1], 0.0, 2.0, 20.0);
                 Assert.That(target.type, Is.EqualTo("root2d_target"));
                 Assert.That(target.target_root_2d, Is.EqualTo(new[] { -2f, 4f }));
+                Assert.That(target.target_frame, Is.EqualTo(39));
                 Assert.That(target.max_speed, Is.EqualTo(2.25f));
                 Assert.That(target.max_acceleration, Is.EqualTo(3.5f));
             }

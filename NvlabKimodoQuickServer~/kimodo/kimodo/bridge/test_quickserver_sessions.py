@@ -410,13 +410,16 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         session = self._fake_ardy_session()
         session._normalize_constraint_origin = True
         session.quickserver_root = Path.cwd()
+        root_positions = np.zeros((166, 3), dtype=np.float32)
+        root_positions[:, 0] = np.arange(166, dtype=np.float32) * 0.01
+        root_positions[:, 2] = np.arange(166, dtype=np.float32) * 0.02
         motion = ardy_backend.KmbMotion(
             payload=b"kmb",
             model_name="test",
             fps=20.0,
             joint_names=("root",),
             joint_parents=(-1,),
-            root_positions=np.zeros((166, 3), dtype=np.float32),
+            root_positions=root_positions,
             local_rot_quats=np.zeros((166, 1, 4), dtype=np.float32),
             foot_contacts=None,
         )
@@ -440,6 +443,11 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(tuple(session.initial_history_cpu.shape), (1, 160, 1))
         self.assertTrue(torch.equal(session.initial_history_cpu, encoded[:, 6:]))
         self.assertIsNone(session.constraint_origin)
+        np.testing.assert_allclose(session.initial_history_root_2d, [1.65, 3.3], atol=1e-6)
+        np.testing.assert_allclose(session.initial_history_velocity_2d, [0.2, 0.4], atol=1e-5)
+        root_2d, velocity_2d = session._root_state_at_boundary(0)
+        np.testing.assert_allclose(root_2d, [1.65, 3.3], atol=1e-6)
+        np.testing.assert_allclose(velocity_2d, [0.2, 0.4], atol=1e-5)
 
     def test_truncate_rebuilds_history_from_initial_history_and_generated_prefix(self):
         session = self._fake_ardy_session()
@@ -528,6 +536,45 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             np.full(4, math.pi / 2),
             atol=1e-7,
         )
+
+    def test_timed_root_target_frame_is_offset_with_the_constraint_patch(self):
+        target = ardy_backend._parse_root_2d_target(
+            {
+                "type": "root2d_target",
+                "target_root_2d": [1.0, 2.0],
+                "target_frame": 12,
+            },
+            frame_offset=8,
+        )
+
+        self.assertEqual(target.arrival_frame, 20)
+
+    def test_timed_root_target_uses_the_full_arrival_window(self):
+        start = (-0.6220054, 1.545403)
+        goal = (-0.5491493, 0.00175527157)
+        target = ardy_backend.Root2DTarget(
+            goal,
+            1.25,
+            1.5,
+            0.001,
+            True,
+            arrival_frame=101,
+        )
+
+        planned = ardy_backend._plan_root_2d_target(target, start, (0.0, 0.0), -1, 20.0)
+
+        self.assertEqual(planned["frame_indices"], [9, 19, 29, 39])
+        self.assertLess(math.dist(start, planned["smooth_root_2d"][0]), 0.1)
+
+        tail = ardy_backend._plan_root_2d_target(
+            target,
+            (-0.55, 0.05),
+            (0.0, 0.0),
+            91,
+            20.0,
+        )
+        self.assertEqual(tail["frame_indices"], [101])
+        np.testing.assert_allclose(tail["smooth_root_2d"][-1], goal, atol=1e-7)
 
     def test_root_target_behind_uses_backward_world_heading_not_backward_motion(self):
         target = ardy_backend.Root2DTarget((-10.0, 0.0), 1.25, 1.5, 0.1, True)
@@ -669,7 +716,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         def refresh(self, _model, boundary_frame):
             replanned_from.append(boundary_frame)
 
-        def generate_horizon(self, _model):
+        def generate_horizon(self, _model, _cancel_event=None):
             frame_count = self.frame_count + self.profile.horizon_frames
             self.motion_cpu = torch.zeros((1, frame_count, 1), dtype=torch.float32)
             self.outputs = {"root_positions": np.zeros((1, frame_count, 3), dtype=np.float32)}
@@ -987,6 +1034,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         session.motion_cpu = torch.zeros((1, 0, 1), dtype=torch.float32)
         session.outputs = {"root_positions": np.zeros((1, 0, 3), dtype=np.float32)}
         session.initial_history_cpu = None
+        session.initial_history_root_2d = None
+        session.initial_history_velocity_2d = None
         session.history_cpu = None
         session.constraints = []
         session.constraint_items = []

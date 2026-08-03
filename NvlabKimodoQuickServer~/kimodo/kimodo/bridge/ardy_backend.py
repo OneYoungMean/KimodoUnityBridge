@@ -65,6 +65,7 @@ class Root2DTarget:
     max_acceleration: float
     arrival_threshold: float
     include_heading: bool
+    arrival_frame: int | None = None
 
 
 @dataclass(frozen=True)
@@ -279,7 +280,7 @@ def _normalize_root_heading(item: dict[str, Any]) -> None:
     ]
 
 
-def _parse_root_2d_target(item: dict[str, Any]) -> Root2DTarget:
+def _parse_root_2d_target(item: dict[str, Any], frame_offset: int = 0) -> Root2DTarget:
     position = item.get("target_root_2d")
     if not isinstance(position, (list, tuple)) or len(position) != 2:
         raise ArdyBackendError("root2d_target target_root_2d must contain exactly two coordinates.")
@@ -299,12 +300,18 @@ def _parse_root_2d_target(item: dict[str, Any]) -> Root2DTarget:
     include_heading = item.get("include_heading", True)
     if not isinstance(include_heading, bool):
         raise ArdyBackendError("root2d_target include_heading must be a boolean.")
+    arrival_frame = item.get("target_frame")
+    if arrival_frame is not None:
+        if isinstance(arrival_frame, bool) or not isinstance(arrival_frame, int) or arrival_frame < 0:
+            raise ArdyBackendError("root2d_target target_frame must be a non-negative integer.")
+        arrival_frame += int(frame_offset)
     return Root2DTarget(
         position=point,
         max_speed=values["max_speed"],
         max_acceleration=values["max_acceleration"],
         arrival_threshold=values["arrival_threshold"],
         include_heading=include_heading,
+        arrival_frame=arrival_frame,
     )
 
 
@@ -330,31 +337,78 @@ def _plan_root_2d_target(
 
     prediction_frames = max(1, seconds_to_frame_count(TARGET_VELOCITY_PREDICTION_SECONDS, fps))
     dt = 1.0 / fps
+    timed_positions: list[np.ndarray] | None = None
+    timed_velocities: list[np.ndarray] | None = None
+    if target.arrival_frame is not None:
+        remaining_frames = target.arrival_frame - anchor_frame
+        if remaining_frames <= 0:
+            return None
+        duration = remaining_frames * dt
+        timed_positions = []
+        timed_velocities = []
+        previous_position = position.copy()
+        previous_velocity = velocity.copy()
+        for step in range(1, remaining_frames + 1):
+            t = step / remaining_frames
+            t2 = t * t
+            t3 = t2 * t
+            planned_position = (
+                (2.0 * t3 - 3.0 * t2 + 1.0) * position
+                + (t3 - 2.0 * t2 + t) * duration * velocity
+                + (-2.0 * t3 + 3.0 * t2) * goal
+            )
+            planned_velocity = (planned_position - previous_position) / dt
+            planned_acceleration = (planned_velocity - previous_velocity) / dt
+            if float(np.linalg.norm(planned_velocity)) > target.max_speed + 1e-4:
+                raise ArdyBackendError(
+                    "root2d_target cannot reach target_frame within max_speed."
+                )
+            if float(np.linalg.norm(planned_acceleration)) > target.max_acceleration + 1e-4:
+                raise ArdyBackendError(
+                    "root2d_target cannot reach target_frame within max_acceleration."
+                )
+            timed_positions.append(planned_position)
+            timed_velocities.append(planned_velocity)
+            previous_position = planned_position
+            previous_velocity = planned_velocity
+        prediction_frames = min(prediction_frames, remaining_frames)
+
     frame_indices: list[int] = []
     positions: list[list[float]] = []
     headings: list[float] = []
     for step in range(1, prediction_frames + 1):
-        remaining_delta = goal - position
-        remaining_distance = float(np.linalg.norm(remaining_delta))
-        if remaining_distance <= target.arrival_threshold:
-            position = goal.copy()
-            remaining_distance = 0.0
+        if timed_positions is not None and timed_velocities is not None:
+            position = timed_positions[step - 1]
+            velocity = timed_velocities[step - 1]
+            remaining_delta = goal - position
+            remaining_distance = float(np.linalg.norm(remaining_delta))
+            direction = (
+                remaining_delta / remaining_distance
+                if remaining_distance > 1e-8
+                else np.array([0.0, 1.0])
+            )
         else:
-            direction = remaining_delta / remaining_distance
-            stopping_speed = math.sqrt(max(0.0, 2.0 * target.max_acceleration * remaining_distance))
-            desired_velocity = direction * min(target.max_speed, stopping_speed)
-            velocity_delta = desired_velocity - velocity
-            max_velocity_delta = target.max_acceleration * dt
-            velocity_delta_length = float(np.linalg.norm(velocity_delta))
-            if velocity_delta_length > max_velocity_delta:
-                velocity_delta *= max_velocity_delta / velocity_delta_length
-            velocity += velocity_delta
-            displacement = velocity * dt
-            if float(np.dot(displacement, direction)) >= remaining_distance:
+            remaining_delta = goal - position
+            remaining_distance = float(np.linalg.norm(remaining_delta))
+            if remaining_distance <= target.arrival_threshold:
                 position = goal.copy()
-                velocity[:] = 0.0
+                remaining_distance = 0.0
             else:
-                position += displacement
+                direction = remaining_delta / remaining_distance
+                stopping_speed = math.sqrt(max(0.0, 2.0 * target.max_acceleration * remaining_distance))
+                desired_velocity = direction * min(target.max_speed, stopping_speed)
+                velocity_delta = desired_velocity - velocity
+                max_velocity_delta = target.max_acceleration * dt
+                velocity_delta_length = float(np.linalg.norm(velocity_delta))
+                if velocity_delta_length > max_velocity_delta:
+                    velocity_delta *= max_velocity_delta / velocity_delta_length
+                velocity += velocity_delta
+                displacement = velocity * dt
+                if float(np.dot(displacement, direction)) >= remaining_distance:
+                    position = goal.copy()
+                    velocity[:] = 0.0
+                else:
+                    position += displacement
 
         if step % TARGET_VELOCITY_GOAL_FRAME_INTERVAL == 0 or step == prediction_frames:
             frame_indices.append(anchor_frame + step)
@@ -398,6 +452,7 @@ def _normalize_root_2d_target(target: Root2DTarget, transform: Any, skeleton: An
         max_acceleration=target.max_acceleration,
         arrival_threshold=target.arrival_threshold,
         include_heading=target.include_heading,
+        arrival_frame=target.arrival_frame,
     )
 
 
@@ -590,6 +645,8 @@ class ArdySession:
         self.motion_cpu = None
         self.outputs: dict[str, np.ndarray] | None = None
         self.initial_history_cpu = None
+        self.initial_history_root_2d: tuple[float, float] | None = None
+        self.initial_history_velocity_2d: tuple[float, float] | None = None
         self.history_cpu = None
         self.constraints: list[Any] = []
         self.constraint_items: list[dict[str, Any]] = []
@@ -714,6 +771,7 @@ class ArdySession:
         plain: list[dict[str, Any]] = []
         root_2d_target = None
         history_tensors: list[Any] = []
+        history_root_positions: list[np.ndarray] = []
         future_clips: list[tuple[int, Any, list[bool]]] = []
         anchor_root_2d = None
         if apply_from > 0 and self.outputs is not None and "root_positions" in self.outputs:
@@ -721,7 +779,7 @@ class ArdySession:
             anchor_root_2d = (float(anchor[0]), float(anchor[2]))
         for item in _parse_constraints(value):
             if item.get("type") == "root2d_target":
-                root_2d_target = _parse_root_2d_target(item)
+                root_2d_target = _parse_root_2d_target(item, apply_from)
                 continue
             if item.get("type") != "clip":
                 copied = dict(item)
@@ -746,10 +804,20 @@ class ArdySession:
                 if "mask" in item:
                     raise ArdyBackendError("History KMB attachments cannot specify a mask.")
                 history_tensors.append(tensor)
+                history_root_positions.append(np.asarray(motion.root_positions[start:end], dtype=np.float64))
             else:
                 future_clips.append(
                     (apply_from, tensor.detach().cpu(), _future_clip_mask(item, len(motion.joint_names)))
                 )
+
+        if history_root_positions:
+            roots = np.concatenate(history_root_positions, axis=0)
+            current = roots[-1]
+            velocity = np.zeros(2, dtype=np.float64)
+            if len(roots) > 1:
+                velocity = (current[[0, 2]] - roots[-2, [0, 2]]) * float(self.profile.source_fps)
+            self.initial_history_root_2d = (float(current[0]), float(current[2]))
+            self.initial_history_velocity_2d = (float(velocity[0]), float(velocity[1]))
 
         self.constraint_items = plain
         self.root_2d_target = root_2d_target
@@ -796,6 +864,8 @@ class ArdySession:
 
     def _root_state_at_boundary(self, boundary_frame: int) -> tuple[tuple[float, float], tuple[float, float]]:
         fps = float(self.profile.source_fps)
+        if boundary_frame <= 0 and self.initial_history_root_2d is not None:
+            return self.initial_history_root_2d, self.initial_history_velocity_2d or (0.0, 0.0)
         if self.outputs is None or "root_positions" not in self.outputs or boundary_frame <= 0:
             return (0.0, 0.0), (0.0, 0.0)
         roots = self.outputs["root_positions"][0]
@@ -1132,6 +1202,8 @@ class ArdySession:
         self.motion_cpu = None
         self.outputs = None
         self.initial_history_cpu = None
+        self.initial_history_root_2d = None
+        self.initial_history_velocity_2d = None
         self.history_cpu = None
         self.constraints = []
         self.constraint_items = []

@@ -24,6 +24,7 @@ namespace TimelineInject
         public List<string> joint_names;
         public bool? dense_path;
         public float[] target_root_2d;
+        public int? target_frame;
         public float? max_speed;
         public float? max_acceleration;
         public float? arrival_threshold;
@@ -52,6 +53,7 @@ namespace TimelineInject
         public float rootTargetMaxAcceleration = 1.5f;
         public float rootTargetArrivalThreshold = 0.1f;
         public bool rootTargetIncludeHeading = true;
+        public bool rootTargetUseSampleTime;
         public Vector3 unityRootPos;
         public Quaternion unityRootRot = Quaternion.identity;
         public bool hasUnityHipsPose;
@@ -77,6 +79,7 @@ namespace TimelineInject
                 rootTargetMaxAcceleration = rootTargetMaxAcceleration,
                 rootTargetArrivalThreshold = rootTargetArrivalThreshold,
                 rootTargetIncludeHeading = rootTargetIncludeHeading,
+                rootTargetUseSampleTime = rootTargetUseSampleTime,
                 unityRootPos = unityRootPos,
                 unityRootRot = unityRootRot,
                 hasUnityHipsPose = hasUnityHipsPose,

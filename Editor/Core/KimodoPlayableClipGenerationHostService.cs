@@ -205,6 +205,7 @@ namespace KimodoBridge.Editor
                 target.rootTargetMaxAcceleration = Mathf.Max(0.01f, clip.ardyTargetMaxAcceleration);
                 target.rootTargetArrivalThreshold = 0.1f;
                 target.rootTargetIncludeHeading = true;
+                target.rootTargetUseSampleTime = true;
                 constraintSamples.Add(target);
                 return true;
             }
