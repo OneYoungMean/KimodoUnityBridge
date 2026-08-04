@@ -685,10 +685,15 @@ namespace KimodoBridge.Editor
 
         private Task EnsureRuntimeRootAsync()
         {
+            bool restartServer = runtimeExists && KimodoBridgeService.Shared.IsConnected;
             return RunOperationAsync(
                 initialStatus: runtimeExists ? "Reinstalling runtime root (keep models)..." : "Creating runtime root...",
-                successStatus: runtimeExists ? "Runtime root reinstalled (models preserved)." : "Runtime root ready.",
-                async _ =>
+                successStatus: runtimeExists
+                    ? (restartServer
+                        ? "Runtime root reinstalled and server reconnected (models preserved)."
+                        : "Runtime root reinstalled (models preserved).")
+                    : "Runtime root ready.",
+                async progress =>
                 {
                     using (KimodoBridgeServerTool.EnterRuntimeMaintenanceScope())
                     {
@@ -700,7 +705,10 @@ namespace KimodoBridge.Editor
                         }
                     }
 
-                    await Task.CompletedTask;
+                    if (restartServer)
+                    {
+                        await StartServerConnectionAsync(progress);
+                    }
                 });
         }
 
