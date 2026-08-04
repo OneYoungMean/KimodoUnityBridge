@@ -253,7 +253,8 @@ namespace KimodoBridge
             int[] parentIndicesOverride,
             Transform[] jointsOverride,
             out KimodoMarkerSampleResult result,
-            out string error)
+            out string error,
+            Transform endEffectorOverride = null)
         {
             result = null;
             error = string.Empty;
@@ -362,17 +363,22 @@ namespace KimodoBridge
                 sampledJointIndices = sampledJointIndices
             };
 
-            if (TryResolveAnimatorHipsPose(animator, out Vector3 hipsPosition, out Quaternion hipsRotation))
+            if (TryResolveEndEffectorBone(markerType, out HumanBodyBones endEffectorBone))
             {
-                result.hasUnityHipsPose = true;
-                result.unityHipsPos = hipsPosition;
-                result.unityHipsRot = hipsRotation;
-            }
-
-            if (TryResolveEndEffectorBone(markerType, out HumanBodyBones endEffectorBone) &&
-                animator != null)
-            {
-                Transform endEffector = animator.GetBoneTransform(endEffectorBone);
+                Transform endEffector = endEffectorOverride;
+                if (endEffector == null &&
+                    animator != null &&
+                    KimodoRetargetCoreUtility.IsValidHumanoid(animator.avatar))
+                {
+                    try
+                    {
+                        endEffector = animator.GetBoneTransform(endEffectorBone);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        endEffector = null;
+                    }
+                }
                 if (endEffector != null)
                 {
                     result.hasEndEffectorTargetPosition = true;
@@ -383,40 +389,7 @@ namespace KimodoBridge
             return true;
         }
 
-        private static bool TryResolveAnimatorHipsPose(
-            Animator animator,
-            out Vector3 position,
-            out Quaternion rotation)
-        {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            if (animator == null ||
-                animator.avatar == null ||
-                !animator.avatar.isValid ||
-                !animator.avatar.isHuman)
-            {
-                return false;
-            }
-
-            try
-            {
-                Transform hips = animator.GetBoneTransform(HumanBodyBones.Hips);
-                if (hips == null)
-                {
-                    return false;
-                }
-
-                position = hips.position;
-                rotation = hips.rotation.normalized;
-                return true;
-            }
-            catch (InvalidOperationException)
-            {
-                return false;
-            }
-        }
-
-        private static bool TryResolveEndEffectorBone(string markerType, out HumanBodyBones bone)
+        internal static bool TryResolveEndEffectorBone(string markerType, out HumanBodyBones bone)
         {
             switch ((markerType ?? string.Empty).Trim().ToLowerInvariant())
             {

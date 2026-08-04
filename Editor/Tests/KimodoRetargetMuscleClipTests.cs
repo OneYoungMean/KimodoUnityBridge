@@ -111,6 +111,41 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [Test]
+        public void RemoveTimelinePlanarOffset_ConvertsTargetOffsetToSourceScale()
+        {
+            MuscleSample sample = CreateRootRotationSample(Quaternion.identity);
+            sample.pose.bodyPosition = new Vector3(100f, 0f, 100f);
+
+            KimodoRetargetToolsEditor.RemoveTimelinePlanarOffsetFromMuscleSamples(
+                new[] { sample },
+                new Vector3(100f, 0f, 100f),
+                Quaternion.identity,
+                sourceHumanScale: 2f,
+                targetHumanScale: 1f);
+
+            Assert.That(Vector3.Distance(sample.pose.bodyPosition, Vector3.zero), Is.LessThan(1e-5f));
+        }
+
+        [Test]
+        public void RemoveTimelinePlanarOffset_SubtractsOffsetBeforeInverseYaw()
+        {
+            Quaternion targetYaw = Quaternion.Euler(0f, 90f, 0f);
+            Vector3 expectedPosition = new Vector3(3f, 2f, 4f);
+            MuscleSample sample = CreateRootRotationSample(targetYaw * Quaternion.Euler(0f, 25f, 0f));
+            sample.pose.bodyPosition = new Vector3(10f, 0f, 20f) + targetYaw * expectedPosition;
+
+            KimodoRetargetToolsEditor.RemoveTimelinePlanarOffsetFromMuscleSamples(
+                new[] { sample },
+                new Vector3(10f, 50f, 20f),
+                targetYaw,
+                sourceHumanScale: 1f,
+                targetHumanScale: 1f);
+
+            Assert.That(Vector3.Distance(sample.pose.bodyPosition, expectedPosition), Is.LessThan(1e-5f));
+            Assert.That(Quaternion.Angle(sample.pose.bodyRotation, Quaternion.Euler(0f, 25f, 0f)), Is.LessThan(1e-4f));
+        }
+
         private static MuscleSample CreateRootRotationSample(Quaternion rootRotation)
         {
             return new MuscleSample

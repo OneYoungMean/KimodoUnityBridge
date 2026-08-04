@@ -123,7 +123,6 @@ namespace KimodoBridge.Editor
                         return false;
                     }
 
-                    // Keep the History in the ARDY skeleton space; Unity world placement is a separate anchor.
                     Quaternion rootRotation = rootJoint.rotation.normalized;
                     rootRotations[frame] = rootRotation;
                     rootPositions[frame] = rootJoint.position;
@@ -141,22 +140,10 @@ namespace KimodoBridge.Editor
                     }
                 }
 
-                // Use the exact time passed through the batch sampler so its Timeline-frame cache key is identical.
-                double anchorSampleTime = timelineTimes[frameCount - 1];
-                if (!sampler.TryGetSourceHipsPose(
-                        anchorSampleTime,
-                        out source.TimelineWorldAnchorPosition,
-                        out source.TimelineWorldAnchorRotation,
-                        out error))
-                {
-                    return false;
-                }
-                source.HasTimelineWorldAnchor = true;
                 KimodoPlayableClipGenerationSettings.DebugLog(
                     $"[Kimodo][ArdyHistory] frames={frameCount} " +
                     $"sampleRange={timelineTimes[0]:F6}->{timelineTimes[frameCount - 1]:F6} " +
-                    $"rootFirst={rootPositions[0]:F6} rootLast={rootPositions[frameCount - 1]:F6} " +
-                    $"sourceHipsWorld={source.TimelineWorldAnchorPosition:F6}.");
+                    $"rootFirst={rootPositions[0]:F6} rootLast={rootPositions[frameCount - 1]:F6}.");
 
                 var motion = new KimodoRawMotionData(
                     frameCount,

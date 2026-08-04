@@ -460,16 +460,6 @@ namespace KimodoBridge.Editor
 
             try
             {
-                firstRequest.NormalizationInfo = KimodoConstraintNormalizationUtility.ResolveTimelineAlignment(
-                    allSamples,
-                    anchorWindowSeconds: entries[0].Clip.autoBeginAnchor
-                        ? 1.0
-                        : double.PositiveInfinity,
-                    out string warning);
-                if (!string.IsNullOrWhiteSpace(warning))
-                {
-                    Debug.LogWarning($"[Kimodo][ConnectedClips] {warning}");
-                }
                 int totalFrameCount = entries[entries.Count - 1].StartFrame + entries[entries.Count - 1].FrameCount;
                 firstRequest.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                     allSamples,
@@ -486,10 +476,6 @@ namespace KimodoBridge.Editor
                         allSamples[i].sampleTime -= sampleTimeOffsets[i];
                     }
                 }
-            }
-            for (int i = 1; i < entries.Count; i++)
-            {
-                entries[i].Request.AnchorOffsetSourceClip = entries[0].Clip;
             }
         }
 

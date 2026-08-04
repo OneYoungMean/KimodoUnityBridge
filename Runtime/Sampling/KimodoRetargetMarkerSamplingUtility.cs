@@ -78,6 +78,12 @@ namespace KimodoBridge
                 return false;
             }
 
+            Transform endEffector = null;
+            if (KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(markerType, out HumanBodyBones endEffectorBone))
+            {
+                endEffector = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(targetCache, endEffectorBone);
+            }
+
             return KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
                 targetCache.animator,
                 targetCache.skeletonRoot,
@@ -88,7 +94,8 @@ namespace KimodoBridge
                 parentIndices,
                 jointTransforms,
                 out result,
-                out error);
+                out error,
+                endEffector);
         }
     }
 }

@@ -25,6 +25,23 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void MarkerMenu_HidesGenericEndEffectorOnly()
+        {
+            Assert.That(
+                System.Attribute.IsDefined(
+                    typeof(KimodoEndEffectorConstraintMarker),
+                    typeof(HideInMenuAttribute),
+                    inherit: false),
+                Is.True);
+            Assert.That(
+                System.Attribute.IsDefined(
+                    typeof(KimodoLeftHandConstraintMarker),
+                    typeof(HideInMenuAttribute),
+                    inherit: false),
+                Is.False);
+        }
+
+        [Test]
         public void PromptEdit_PreservesMixedValuesUntilTheUserChangesTheField()
         {
             KimodoPlayableClip first = ScriptableObject.CreateInstance<KimodoPlayableClip>();

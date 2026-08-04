@@ -53,13 +53,11 @@ namespace KimodoBridge.Editor
             float runtimeLengthSeconds = runtimeFrameCount / targetFrameRate;
 
             string constraintsJson;
-            var normalizationInfo = new KimodoConstraintNormalizationInfo();
             bool hasSyntheticAutoBeginConstraint = false;
             var constraintSamples = new List<KimodoMarkerSampleResult>();
             if (externalConstraint != null && externalConstraint.Enabled)
             {
                 constraintsJson = externalConstraint.ConstraintsJson ?? string.Empty;
-                normalizationInfo = externalConstraint.BuildNormalizationInfo();
                 KimodoInOutConstraintComposer.AppendSamples(externalConstraint.ConstraintSamples, constraintSamples);
             }
             else
@@ -74,10 +72,6 @@ namespace KimodoBridge.Editor
                 constraintsJson = constraintResult.ConstraintsJson ?? string.Empty;
                 KimodoInOutConstraintComposer.AppendSamples(constraintResult.CombinedSamples, constraintSamples);
                 hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
-                if (constraintResult.NormalizationInfo != null)
-                {
-                    normalizationInfo = constraintResult.NormalizationInfo.Clone();
-                }
             }
 
             ArdyEditorHistorySource initialHistorySource = null;
@@ -116,14 +110,6 @@ namespace KimodoBridge.Editor
                     out outputDirector,
                     out _);
             }
-            PoseCacheRenderContext? outputPoseContext =
-                KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForPlayableClip(
-                    clip,
-                    out PoseCacheRenderContext capturedPoseContext,
-                    out _,
-                    out _)
-                        ? capturedPoseContext
-                        : null;
             KimodoEditorGenerateOutputPlan outputPlanSnapshot = CaptureTimelineOutputPlan(
                 clip,
                 externalConstraint?.RetargetAvatar,
@@ -154,7 +140,6 @@ namespace KimodoBridge.Editor
                 ModelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim() ?? string.Empty,
                 GenerationTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance.GenerationTimeoutSeconds,
                 Token = token,
-                NormalizationInfo = normalizationInfo,
                 HasSyntheticAutoBeginConstraint = hasSyntheticAutoBeginConstraint,
                 ConstraintSamples = constraintSamples,
                 TimelineClipSnapshot = timelineClip,
@@ -165,9 +150,7 @@ namespace KimodoBridge.Editor
                     (clip.enableInConstraint || clip.enableOutConstraint) &&
                     !Mathf.Approximately((float)timelineClip.timeScale, 1f),
                 TimelineDirectorSnapshot = outputDirector,
-                TimelinePoseContextSnapshot = outputPoseContext,
                 InitialArdyHistorySource = initialHistorySource,
-                DisableTimelineInOut = disableTimelineInOut,
                 ArdyHistoryCropSeconds = isArdy ? 0.0 : (double?)null,
                 ArdyMaxSpeed = isArdy ? Mathf.Max(0.01f, clip.ardyTargetMaxSpeed) : (double?)null,
                 ArdyMaxAcceleration = isArdy
@@ -213,7 +196,7 @@ namespace KimodoBridge.Editor
                 EditorUtility.SetDirty(clip);
                 EditorUtility.SetDirty(result.GeneratedClip);
                 result.ConstraintsPath = string.IsNullOrWhiteSpace(request.ConstraintsJson) ? "(none)" : "(inline-json)";
-                HandleGeneratedClipWritebackCompleted(clip, request);
+                HandleGeneratedClipWritebackCompleted(clip);
 
                 if (!KimodoEditorClipWritebackService.TryMaterializeGeneratedClipCache(
                         result.GeneratedClip,
@@ -322,381 +305,15 @@ namespace KimodoBridge.Editor
             clip.fps = Mathf.RoundToInt(obj.Value<float?>("fps") ?? KimodoPlayableClip.FIXED_FRAME_RATE);
         }
 
-        private static void HandleGeneratedClipWritebackCompleted(
-            KimodoPlayableClip playableClip,
-            KimodoEditorGenerateRequest request)
+        private static void HandleGeneratedClipWritebackCompleted(KimodoPlayableClip playableClip)
         {
-            ApplyTimelineOffsets(playableClip, request);
+            if (playableClip != null)
+            {
+                playableClip.position = Vector3.zero;
+                playableClip.rotation = Quaternion.identity;
+                EditorUtility.SetDirty(playableClip);
+            }
             KimodoTimelinePreviewRefreshUtility.RefreshIfPreviewing();
-        }
-
-        private static void ApplyTimelineOffsets(
-            KimodoPlayableClip playableClip,
-            KimodoEditorGenerateRequest request)
-        {
-            if (playableClip == null || request == null)
-            {
-                return;
-            }
-            if (request.AnchorOffsetSourceClip != null)
-            {
-                CopyClipOffset(request.AnchorOffsetSourceClip, playableClip);
-                KimodoPlayableClipGenerationSettings.DebugLog($"[Kimodo][TimelineOffset] reused connected-sequence Hips offset for '{playableClip.name}'.");
-                return;
-            }
-
-            bool hasHistoryAnchor = request.InitialArdyHistorySource?.HasTimelineWorldAnchor == true;
-            KimodoConstraintNormalizationInfo normalization = request.NormalizationInfo;
-            bool hasNormalizationAnchor = normalization?.Applied == true && normalization.AnchorSample != null;
-            if (!hasHistoryAnchor && !hasNormalizationAnchor)
-            {
-                return;
-            }
-
-            TrackAsset track = request.TimelineClipSnapshot?.GetParentTrack();
-            Animator animator = ResolveTimelineBindingAnimator(request.TimelineDirectorSnapshot, track);
-            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
-                track,
-                animator,
-                out Vector3 trackPosition,
-                out Quaternion trackRotation);
-
-            KimodoPlayableClipGenerationSettings.DebugLog(
-                $"[Kimodo][TimelineOffset] resolve clip='{playableClip.name}' " +
-                $"hasNormalizationAnchor={hasNormalizationAnchor} anchorKind={normalization?.AnchorKind} " +
-                $"hasArdyHistoryAnchor={hasHistoryAnchor} trackPosition={trackPosition:F6} " +
-                $"trackRotation={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(trackRotation).eulerAngles:F6}.");
-
-            string hipsOffsetError = string.Empty;
-            if (hasHistoryAnchor &&
-                request.RuntimeTrimStartFrame > 0 &&
-                request.HasRetargetedLeadingGuardHipsPose)
-            {
-                ApplyPlanarHipsAnchorOffset(
-                    playableClip,
-                    trackPosition,
-                    trackRotation,
-                    request.InitialArdyHistorySource.TimelineWorldAnchorPosition,
-                    request.InitialArdyHistorySource.TimelineWorldAnchorRotation,
-                    request.RetargetedLeadingGuardHipsPosition,
-                    request.RetargetedLeadingGuardHipsRotation,
-                    "ArdyHistoryGuard");
-                return;
-            }
-
-            if (hasHistoryAnchor &&
-                TryApplyGeneratedHipsAnchorOffset(
-                    playableClip,
-                    request,
-                    trackPosition,
-                    trackRotation,
-                    request.InitialArdyHistorySource.TimelineWorldAnchorPosition,
-                    request.InitialArdyHistorySource.TimelineWorldAnchorRotation,
-                    0f,
-                    "ArdyHistoryEnd",
-                    out hipsOffsetError))
-            {
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(hipsOffsetError))
-            {
-                KimodoPlayableClipGenerationSettings.DebugLogWarning($"[Kimodo][TimelineOffset] Hips-based ARDY offset failed, falling back to root anchor: {hipsOffsetError}");
-            }
-
-            if (hasNormalizationAnchor)
-            {
-                KimodoMarkerSampleResult anchor = normalization.AnchorSample;
-                if (TryApplyGeneratedRootAnchorOffset(
-                        playableClip,
-                        request,
-                        trackPosition,
-                        trackRotation,
-                        anchor.unityRootPos,
-                        anchor.unityRootRot,
-                        Mathf.Max(0f, (float)anchor.sampleTime),
-                        normalization.AnchorKind + " Root",
-                        out string rootOffsetError))
-                {
-                    return;
-                }
-
-                KimodoPlayableClipGenerationSettings.DebugLogWarning(
-                    $"[Kimodo][TimelineOffset] generated root sampling failed; using direct {normalization.AnchorKind} root anchor: {rootOffsetError}");
-                ApplyPlanarHipsAnchorOffset(
-                    playableClip,
-                    trackPosition,
-                    trackRotation,
-                    anchor.unityRootPos,
-                    anchor.unityRootRot,
-                    Vector3.zero,
-                    Quaternion.identity,
-                    normalization.AnchorKind + " RootFallback");
-                return;
-            }
-
-            KimodoPlayableClipGenerationSettings.DebugLogWarning($"[Kimodo][TimelineOffset] skipped alignment: {hipsOffsetError}");
-        }
-
-        private static bool TryApplyGeneratedHipsAnchorOffset(
-            KimodoPlayableClip playableClip,
-            KimodoEditorGenerateRequest request,
-            Vector3 trackPosition,
-            Quaternion trackRotation,
-            Vector3 sourceHipsPosition,
-            Quaternion sourceHipsRotation,
-            float generatedSampleTime,
-            string anchorLabel,
-            out string error)
-        {
-            error = string.Empty;
-            AnimationClip generatedClip = playableClip != null && playableClip.clip != null
-                ? playableClip.clip
-                : request?.TargetClip;
-            Avatar samplingAvatar = ResolveGeneratedClipSamplingAvatar(request);
-            if (generatedClip == null)
-            {
-                error = "generated clip is null";
-                return false;
-            }
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(samplingAvatar))
-            {
-                error = "generated clip sampling avatar is null/invalid/non-humanoid";
-                return false;
-            }
-
-            if (!TrySampleGeneratedClipHipsPose(
-                    generatedClip,
-                    samplingAvatar,
-                    generatedSampleTime,
-                    out Vector3 generatedHipsPosition,
-                    out Quaternion generatedHipsRotation,
-                    out error))
-            {
-                return false;
-            }
-
-            ApplyPlanarHipsAnchorOffset(
-                playableClip,
-                trackPosition,
-                trackRotation,
-                sourceHipsPosition,
-                sourceHipsRotation,
-                generatedHipsPosition,
-                generatedHipsRotation,
-                anchorLabel);
-            return true;
-        }
-
-        private static bool TryApplyGeneratedRootAnchorOffset(
-            KimodoPlayableClip playableClip,
-            KimodoEditorGenerateRequest request,
-            Vector3 trackPosition,
-            Quaternion trackRotation,
-            Vector3 sourceRootPosition,
-            Quaternion sourceRootRotation,
-            float generatedSampleTime,
-            string anchorLabel,
-            out string error)
-        {
-            error = string.Empty;
-            AnimationClip generatedClip = playableClip != null && playableClip.clip != null
-                ? playableClip.clip
-                : request?.TargetClip;
-            Avatar samplingAvatar = ResolveGeneratedClipSamplingAvatar(request);
-            if (generatedClip == null)
-            {
-                error = "generated clip is null";
-                return false;
-            }
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(samplingAvatar))
-            {
-                error = "generated clip sampling avatar is null/invalid/non-humanoid";
-                return false;
-            }
-
-            if (!TrySampleGeneratedClipRootPose(
-                    generatedClip,
-                    samplingAvatar,
-                    generatedSampleTime,
-                    out Vector3 generatedRootPosition,
-                    out Quaternion generatedRootRotation,
-                    out error))
-            {
-                return false;
-            }
-
-            ApplyPlanarHipsAnchorOffset(
-                playableClip,
-                trackPosition,
-                trackRotation,
-                sourceRootPosition,
-                sourceRootRotation,
-                generatedRootPosition,
-                generatedRootRotation,
-                anchorLabel);
-            return true;
-        }
-
-        private static void ApplyPlanarHipsAnchorOffset(
-            KimodoPlayableClip playableClip,
-            Vector3 trackPosition,
-            Quaternion trackRotation,
-            Vector3 sourceHipsPosition,
-            Quaternion sourceHipsRotation,
-            Vector3 generatedHipsPosition,
-            Quaternion generatedHipsRotation,
-            string anchorLabel)
-        {
-            Quaternion trackYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(trackRotation);
-            Quaternion sourceHipsYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(sourceHipsRotation);
-            Quaternion generatedHipsYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(generatedHipsRotation);
-            Quaternion clipYaw = (Quaternion.Inverse(trackYaw) * sourceHipsYaw * Quaternion.Inverse(generatedHipsYaw)).normalized;
-            Vector3 sourceHipsTrackLocal = Quaternion.Inverse(trackYaw) *
-                (new Vector3(sourceHipsPosition.x, 0f, sourceHipsPosition.z) -
-                 new Vector3(trackPosition.x, 0f, trackPosition.z));
-            Vector3 generatedHipsPlanar = new Vector3(generatedHipsPosition.x, 0f, generatedHipsPosition.z);
-            Vector3 clipPosition = sourceHipsTrackLocal - (clipYaw * generatedHipsPlanar);
-
-            playableClip.position = new Vector3(clipPosition.x, playableClip.position.y, clipPosition.z);
-            playableClip.rotation = clipYaw;
-            EditorUtility.SetDirty(playableClip);
-            KimodoPlayableClipGenerationSettings.DebugLog(
-                $"[Kimodo][TimelineOffset] applied {anchorLabel} planar pose anchor to '{playableClip.name}': " +
-                $"sourceHips={sourceHipsPosition:F6}, generatedHips={generatedHipsPosition:F6}, " +
-                $"sourceHipsTrackLocal={sourceHipsTrackLocal:F6}, generatedHipsPlanar={generatedHipsPlanar:F6}, " +
-                $"computedPosition={clipPosition:F6}, position={playableClip.position}, " +
-                $"rotation={playableClip.rotation.eulerAngles}.");
-        }
-
-        internal static Avatar ResolveGeneratedClipSamplingAvatar(KimodoEditorGenerateRequest request)
-        {
-            KimodoEditorGenerateOutputPlan plan = request?.OutputPlan;
-            if (plan != null && plan.SkipRetarget && KimodoRetargetCoreUtility.IsValidHumanoid(plan.OriginRetargetAvatar))
-            {
-                return plan.OriginRetargetAvatar;
-            }
-            if (plan != null && KimodoRetargetCoreUtility.IsValidHumanoid(plan.TargetRetargetAvatar))
-            {
-                return plan.TargetRetargetAvatar;
-            }
-            if (plan != null && KimodoRetargetCoreUtility.IsValidHumanoid(plan.OriginRetargetAvatar))
-            {
-                return plan.OriginRetargetAvatar;
-            }
-
-            return null;
-        }
-
-        internal static bool TrySampleGeneratedClipHipsPose(
-            AnimationClip generatedClip,
-            Avatar samplingAvatar,
-            float sampleTime,
-            out Vector3 position,
-            out Quaternion rotation,
-            out string error)
-        {
-            return TrySampleGeneratedClipPose(
-                generatedClip,
-                samplingAvatar,
-                sampleTime,
-                sampleHips: true,
-                out position,
-                out rotation,
-                out error);
-        }
-
-        private static bool TrySampleGeneratedClipRootPose(
-            AnimationClip generatedClip,
-            Avatar samplingAvatar,
-            float sampleTime,
-            out Vector3 position,
-            out Quaternion rotation,
-            out string error)
-        {
-            return TrySampleGeneratedClipPose(
-                generatedClip,
-                samplingAvatar,
-                sampleTime,
-                sampleHips: false,
-                out position,
-                out rotation,
-                out error);
-        }
-
-        private static bool TrySampleGeneratedClipPose(
-            AnimationClip generatedClip,
-            Avatar samplingAvatar,
-            float sampleTime,
-            bool sampleHips,
-            out Vector3 position,
-            out Quaternion rotation,
-            out string error)
-        {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            SkeletonCache cache = null;
-            try
-            {
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
-                        samplingAvatar,
-                        "KimodoArdyGeneratedHipsOffsetSampler",
-                        out cache,
-                        out error))
-                {
-                    return false;
-                }
-
-                if (!KimodoRetargetSamplingUtility.SampleBoneClipToBoneSample(
-                        generatedClip,
-                        cache,
-                        Mathf.Clamp(sampleTime, 0f, Mathf.Max(0f, generatedClip.length)),
-                        out BoneSample sample,
-                        out error) ||
-                    !KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(sample, cache, out error))
-                {
-                    return false;
-                }
-
-                Transform sampledTransform = cache.skeletonRoot;
-                if (sampleHips &&
-                    (cache.humanBoneTransforms == null ||
-                     !cache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out sampledTransform) ||
-                     sampledTransform == null))
-                {
-                    error = "generated clip sampling avatar has no Hips transform";
-                    return false;
-                }
-                if (sampledTransform == null)
-                {
-                    error = "generated clip sampling skeleton has no root transform";
-                    return false;
-                }
-
-                position = sampledTransform.position;
-                rotation = sampledTransform.rotation.normalized;
-                return true;
-            }
-            finally
-            {
-                cache?.Dispose();
-            }
-        }
-
-        private static Animator ResolveTimelineBindingAnimator(PlayableDirector director, TrackAsset track)
-        {
-            UnityEngine.Object binding = director != null && track != null
-                ? director.GetGenericBinding(track)
-                : null;
-            return binding as Animator ??
-                (binding as GameObject)?.GetComponentInChildren<Animator>(true);
-        }
-
-        private static void CopyClipOffset(KimodoPlayableClip source, KimodoPlayableClip destination)
-        {
-            destination.position = source.position;
-            destination.rotation = source.rotation;
-            EditorUtility.SetDirty(destination);
         }
 
         private static int BeginReplaceTimelineAnimationUndo(

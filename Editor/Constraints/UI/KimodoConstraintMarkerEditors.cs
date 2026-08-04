@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Globalization;
 using TimelineInject;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEditor.Timeline;
 using UnityEngine;
 using UnityEngine.Playables;
+using UnityEngine.SceneManagement;
 using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
@@ -65,6 +67,8 @@ namespace KimodoBridge.Editor
             EditorApplication.update += PollSelection;
             EditorApplication.quitting += Clear;
             AssemblyReloadEvents.beforeAssemblyReload += Clear;
+            EditorSceneManager.sceneClosing += OnSceneClosing;
+            EditorSceneManager.activeSceneChangedInEditMode += OnActiveSceneChanged;
             SceneView.duringSceneGui += DrawLabels;
             ScheduleRefresh();
         }
@@ -98,6 +102,25 @@ namespace KimodoBridge.Editor
             {
                 ScheduleRefresh();
             }
+        }
+
+        private static void OnSceneClosing(Scene _, bool __)
+        {
+            ClearSceneSamplingState();
+        }
+
+        private static void OnActiveSceneChanged(Scene _, Scene __)
+        {
+            ClearSceneSamplingState();
+            ScheduleRefresh();
+        }
+
+        private static void ClearSceneSamplingState()
+        {
+            KimodoTimelineConstraintClipCache.Clear();
+            KimodoConstraintMarkerEditorUtility.ClearSamplingCaches();
+            Clear();
+            selectionSignature = 0;
         }
 
         private static void Refresh()
@@ -523,7 +546,6 @@ namespace KimodoBridge.Editor
         private void OnDisable()
         {
             KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(target as KimodoConstraintMarkerBase, keepIfOverrideWindowOpen: true);
-            KimodoTimelineConstraintClipCache.Clear();
         }
 
         public override void OnInspectorGUI()
@@ -638,7 +660,6 @@ namespace KimodoBridge.Editor
         private void OnDisable()
         {
             KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(target as KimodoConstraintMarkerBase, keepIfOverrideWindowOpen: true);
-            KimodoTimelineConstraintClipCache.Clear();
         }
 
         public override void OnInspectorGUI()
@@ -795,7 +816,8 @@ namespace KimodoBridge.Editor
             public int TrackId;
             public int AnimatorId;
             public int SourceAvatarId;
-            public int TrackDirtyIndex;
+            public int SourceAvatarDirtyCount;
+            public int SourceSignature;
             public int CacheTimeFrames;
             public Vector3 TrackOffsetPosition;
             public Quaternion TrackOffsetRotation;
@@ -805,9 +827,6 @@ namespace KimodoBridge.Editor
             public Vector3 EndEffectorTargetPositionRootLocal;
             public Vector3 UnityRootPos;
             public Quaternion UnityRootRot;
-            public bool HasUnityHipsPose;
-            public Vector3 UnityHipsPos;
-            public Quaternion UnityHipsRot;
             public string[] JointNames;
         }
 
@@ -827,9 +846,6 @@ namespace KimodoBridge.Editor
             public Vector3 EndEffectorTargetPositionRootLocal;
             public Vector3 UnityRootPos;
             public Quaternion UnityRootRot;
-            public bool HasUnityHipsPose;
-            public Vector3 UnityHipsPos;
-            public Quaternion UnityHipsRot;
             public string[] JointNames;
             public Vector3[] LocalAxisAngles;
             public int[] SampledJointIndices;
@@ -1083,7 +1099,8 @@ namespace KimodoBridge.Editor
                 TrackId = context.Track != null ? context.Track.GetInstanceID() : 0,
                 AnimatorId = context.Animator != null ? context.Animator.GetInstanceID() : 0,
                 SourceAvatarId = context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0,
-                TrackDirtyIndex = KimodoTimelinePreviewRefreshUtility.GetDirtyIndex(context.Track),
+                SourceAvatarDirtyCount = context.SourceAvatar != null ? EditorUtility.GetDirtyCount(context.SourceAvatar) : 0,
+                SourceSignature = KimodoTimelineConstraintClipCache.ComputeSamplingSourceSignature(context.Track),
                 CacheTimeFrames = context.CacheTimeFrames,
                 TrackOffsetPosition = trackOffsetPosition,
                 TrackOffsetRotation = trackOffsetRotation,
@@ -1093,9 +1110,6 @@ namespace KimodoBridge.Editor
                 EndEffectorTargetPositionRootLocal = source != null ? source.endEffectorTargetPositionRootLocal : default,
                 UnityRootPos = source != null ? source.unityRootPos : default,
                 UnityRootRot = source != null ? source.unityRootRot : default,
-                HasUnityHipsPose = source != null && source.hasUnityHipsPose,
-                UnityHipsPos = source != null ? source.unityHipsPos : default,
-                UnityHipsRot = source != null ? source.unityHipsRot : default,
                 JointNames = CopyStringArray(source != null ? source.jointNames : null)
             };
         }
@@ -1118,7 +1132,8 @@ namespace KimodoBridge.Editor
                 snapshot.TrackId == (context.Track != null ? context.Track.GetInstanceID() : 0) &&
                 snapshot.AnimatorId == (context.Animator != null ? context.Animator.GetInstanceID() : 0) &&
                 snapshot.SourceAvatarId == (context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0) &&
-                snapshot.TrackDirtyIndex == KimodoTimelinePreviewRefreshUtility.GetDirtyIndex(context.Track) &&
+                snapshot.SourceAvatarDirtyCount == (context.SourceAvatar != null ? EditorUtility.GetDirtyCount(context.SourceAvatar) : 0) &&
+                snapshot.SourceSignature == KimodoTimelineConstraintClipCache.ComputeSamplingSourceSignature(context.Track) &&
                 snapshot.CacheTimeFrames == context.CacheTimeFrames &&
                 Vector3Approximately(snapshot.TrackOffsetPosition, trackOffsetPosition) &&
                 QuaternionApproximately(snapshot.TrackOffsetRotation, trackOffsetRotation) &&
@@ -1128,9 +1143,6 @@ namespace KimodoBridge.Editor
                 Vector3Approximately(snapshot.EndEffectorTargetPositionRootLocal, sample != null ? sample.endEffectorTargetPositionRootLocal : default) &&
                 Vector3Approximately(snapshot.UnityRootPos, sample != null ? sample.unityRootPos : default) &&
                 QuaternionApproximately(snapshot.UnityRootRot, sample != null ? sample.unityRootRot : default) &&
-                snapshot.HasUnityHipsPose == (sample != null && sample.hasUnityHipsPose) &&
-                Vector3Approximately(snapshot.UnityHipsPos, sample != null ? sample.unityHipsPos : default) &&
-                QuaternionApproximately(snapshot.UnityHipsRot, sample != null ? sample.unityHipsRot : default) &&
                 StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null);
         }
 
@@ -1861,9 +1873,6 @@ namespace KimodoBridge.Editor
                 EndEffectorTargetPositionRootLocal = source != null ? source.endEffectorTargetPositionRootLocal : default,
                 UnityRootPos = source != null ? source.unityRootPos : default,
                 UnityRootRot = source != null ? source.unityRootRot : default,
-                HasUnityHipsPose = source != null && source.hasUnityHipsPose,
-                UnityHipsPos = source != null ? source.unityHipsPos : default,
-                UnityHipsRot = source != null ? source.unityHipsRot : default,
                 JointNames = CopyStringArray(source != null ? source.jointNames : null),
                 LocalAxisAngles = CopyVector3Array(source != null ? source.localAxisAngles : null),
                 SampledJointIndices = CopyIntArray(source != null ? source.sampledJointIndices : null)
@@ -1890,9 +1899,6 @@ namespace KimodoBridge.Editor
                 Vector3Approximately(snapshot.EndEffectorTargetPositionRootLocal, sample != null ? sample.endEffectorTargetPositionRootLocal : default) &&
                 Vector3Approximately(snapshot.UnityRootPos, sample != null ? sample.unityRootPos : default) &&
                 QuaternionApproximately(snapshot.UnityRootRot, sample != null ? sample.unityRootRot : default) &&
-                snapshot.HasUnityHipsPose == (sample != null && sample.hasUnityHipsPose) &&
-                Vector3Approximately(snapshot.UnityHipsPos, sample != null ? sample.unityHipsPos : default) &&
-                QuaternionApproximately(snapshot.UnityHipsRot, sample != null ? sample.unityHipsRot : default) &&
                 StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null) &&
                 Vector3ArrayEquals(snapshot.LocalAxisAngles, sample != null ? sample.localAxisAngles : null) &&
                 IntArrayEquals(snapshot.SampledJointIndices, sample != null ? sample.sampledJointIndices : null);
@@ -1912,9 +1918,6 @@ namespace KimodoBridge.Editor
                 sample.hasRootHeading ? "1" : "0",
                 FormatVector3(sample.kimodoRootPosition),
                 FormatVector2(sample.rootHeading),
-                sample.hasUnityHipsPose ? "1" : "0",
-                FormatVector3(sample.unityHipsPos),
-                FormatQuaternion(sample.unityHipsRot),
                 sample.hasEndEffectorTargetPosition ? "1" : "0",
                 FormatVector3(sample.endEffectorTargetPositionRootLocal),
                 BuildStringListSignature(sample.jointNames),

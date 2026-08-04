@@ -111,7 +111,6 @@ namespace KimodoBridge.Editor
 
         private void OnDisable()
         {
-            KimodoTimelineConstraintClipCache.Clear();
             EditorUtility.ClearProgressBar();
             repaintQueued = false;
         }

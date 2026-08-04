@@ -56,38 +56,6 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ResolveSourceHumanBone_UsesSourceAvatarWhenAnimatorAvatarIsNull()
-        {
-            Assert.That(
-                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
-                    out Avatar avatar,
-                    out string error),
-                Is.True,
-                error);
-
-            HumanBone hips = Array.Find(
-                avatar.humanDescription.human,
-                bone => bone.humanName == HumanBodyBones.Hips.ToString());
-            var root = new GameObject("Root");
-            try
-            {
-                Animator animator = root.AddComponent<Animator>();
-                Transform expected = new GameObject(hips.boneName).transform;
-                expected.SetParent(root.transform);
-
-                Assert.That(animator.avatar, Is.Null);
-                Assert.That(
-                    KimodoTimelineSamplingSession.ResolveSourceHumanBone(animator, avatar, HumanBodyBones.Hips),
-                    Is.SameAs(expected));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
         public void ConstraintPreviewClone_WithResolvedAvatarAndNullBindingAvatar_AppliesAndKeepsSampledPose()
         {
             Assert.That(
@@ -643,13 +611,6 @@ namespace KimodoBridge.Editor.Tests
                         out error),
                     Is.True,
                     error);
-                Transform sourceHips = KimodoTimelineSamplingSession.ResolveSourceHumanBone(
-                    source.animator,
-                    avatar,
-                    HumanBodyBones.Hips);
-                Assert.That(sourceHips, Is.Not.Null);
-                Vector3 firstHipsPosition = sourceHips.position;
-                Quaternion firstHipsRotation = sourceHips.rotation;
                 Vector3 expectedBodyPosition = track.position + track.rotation * baselineBodyPosition;
                 Quaternion expectedBodyRotation = track.rotation * baselineBodyRotation;
                 Assert.That(
@@ -671,29 +632,6 @@ namespace KimodoBridge.Editor.Tests
                     Is.GreaterThan(0.1f));
                 Assert.That(Quaternion.Angle(spine.localRotation, sampledRotation), Is.LessThan(1f));
                 Assert.That(source.animator.avatar, Is.Null, "Timeline sampling must leave the binding Animator Avatar unchanged.");
-                Vector3 secondHipsPosition = sourceHips.position;
-                Quaternion secondHipsRotation = sourceHips.rotation;
-                Assert.That(Vector3.Distance(firstHipsPosition, secondHipsPosition), Is.GreaterThan(0.1f));
-                Assert.That(
-                    sampler.TryGetSourceHipsPose(
-                        0.0,
-                        out Vector3 sampledFirstHipsPosition,
-                        out Quaternion sampledFirstHipsRotation,
-                        out error),
-                    Is.True,
-                    error);
-                Assert.That(
-                    sampler.TryGetSourceHipsPose(
-                        1.0 / 30.0,
-                        out Vector3 sampledSecondHipsPosition,
-                        out Quaternion sampledSecondHipsRotation,
-                        out error),
-                    Is.True,
-                    error);
-                Assert.That(Vector3.Distance(sampledFirstHipsPosition, firstHipsPosition), Is.LessThan(1e-5f));
-                Assert.That(Vector3.Distance(sampledSecondHipsPosition, secondHipsPosition), Is.LessThan(1e-5f));
-                Assert.That(Quaternion.Angle(sampledFirstHipsRotation, firstHipsRotation), Is.LessThan(1e-3f));
-                Assert.That(Quaternion.Angle(sampledSecondHipsRotation, secondHipsRotation), Is.LessThan(1e-3f));
 
                 Assert.That(
                     sampler.TryCaptureTargetBoneSamples(
@@ -919,285 +857,29 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void GeneratedWriteback_PreservesClipOffsetExceptForContinuousCopy()
+        public void GeneratedWriteback_ClearsClipOffsetWithoutChangingRemoveStartOffset()
         {
-            var source = ScriptableObject.CreateInstance<KimodoPlayableClip>();
             var destination = ScriptableObject.CreateInstance<KimodoPlayableClip>();
             try
             {
-                MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
-                    "ApplyTimelineOffsets",
+                MethodInfo complete = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
+                    "HandleGeneratedClipWritebackCompleted",
                     BindingFlags.NonPublic | BindingFlags.Static);
-                Assert.That(apply, Is.Not.Null);
+                Assert.That(complete, Is.Not.Null);
 
-                Vector3 originalPosition = new Vector3(1f, 2f, 3f);
-                Quaternion originalRotation = Quaternion.Euler(10f, 20f, 30f);
-                destination.position = originalPosition;
-                destination.rotation = originalRotation;
+                destination.position = new Vector3(1f, 2f, 3f);
+                destination.rotation = Quaternion.Euler(10f, 20f, 30f);
                 destination.removeStartOffset = true;
 
-                apply.Invoke(null, new object[] { destination, new KimodoEditorGenerateRequest() });
+                complete.Invoke(null, new object[] { destination });
 
-                Assert.That(Vector3.Distance(destination.position, originalPosition), Is.LessThan(1e-5f));
-                Assert.That(Quaternion.Angle(destination.rotation, originalRotation), Is.LessThan(1e-4f));
-                Assert.That(destination.removeStartOffset, Is.True);
-
-                source.position = new Vector3(-4f, 5f, 6f);
-                source.rotation = Quaternion.Euler(-15f, 40f, 5f);
-                source.removeStartOffset = false;
-                apply.Invoke(
-                    null,
-                    new object[]
-                    {
-                        destination,
-                        new KimodoEditorGenerateRequest { AnchorOffsetSourceClip = source }
-                    });
-
-                Assert.That(Vector3.Distance(destination.position, source.position), Is.LessThan(1e-5f));
-                Assert.That(Quaternion.Angle(destination.rotation, source.rotation), Is.LessThan(1e-4f));
+                Assert.That(Vector3.Distance(destination.position, Vector3.zero), Is.LessThan(1e-5f));
+                Assert.That(Quaternion.Angle(destination.rotation, Quaternion.identity), Is.LessThan(1e-4f));
                 Assert.That(destination.removeStartOffset, Is.True);
             }
             finally
             {
-                UnityEngine.Object.DestroyImmediate(source);
                 UnityEngine.Object.DestroyImmediate(destination);
-            }
-        }
-
-        [Test]
-        public void GeneratedWriteback_AppliesNormalizedAnchorRelativeToTrackOffset()
-        {
-            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            try
-            {
-                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
-                track.trackOffset = TrackOffset.ApplyTransformOffsets;
-                track.position = new Vector3(10f, 1f, 20f);
-                track.rotation = Quaternion.Euler(0f, 30f, 0f);
-                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
-                var playable = (KimodoPlayableClip)timelineClip.asset;
-                playable.position = new Vector3(0f, 4f, 0f);
-                playable.removeStartOffset = true;
-
-                Vector3 expectedLocalPosition = new Vector3(2f, 0f, 3f);
-                Quaternion anchorRotation = Quaternion.Euler(0f, 70f, 0f);
-                Vector3 anchorPosition = track.position + track.rotation * expectedLocalPosition;
-                var request = new KimodoEditorGenerateRequest
-                {
-                    NormalizationInfo = new KimodoConstraintNormalizationInfo
-                    {
-                        Applied = true,
-                        AnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
-                        AnchorSample = new KimodoMarkerSampleResult
-                        {
-                            constraintType = "fullbody",
-                            kimodoRootPosition = Vector3.zero,
-                            unityRootPos = anchorPosition,
-                            unityRootRot = anchorRotation,
-                            localAxisAngles = new System.Collections.Generic.List<Vector3>
-                            {
-                                KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.identity)
-                            }
-                        }
-                    },
-                    TimelineClipSnapshot = timelineClip
-                };
-                MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
-                    "ApplyTimelineOffsets",
-                    BindingFlags.NonPublic | BindingFlags.Static);
-
-                Assert.That(apply, Is.Not.Null);
-                apply.Invoke(null, new object[] { playable, request });
-
-                Assert.That(playable.position.x, Is.EqualTo(expectedLocalPosition.x).Within(1e-5f));
-                Assert.That(playable.position.y, Is.EqualTo(4f).Within(1e-5f));
-                Assert.That(playable.position.z, Is.EqualTo(expectedLocalPosition.z).Within(1e-5f));
-                Assert.That(Quaternion.Angle(playable.rotation, Quaternion.Euler(0f, 40f, 0f)), Is.LessThan(1e-4f));
-                Assert.That(playable.removeStartOffset, Is.True);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(timeline);
-            }
-        }
-
-        [Test]
-        public void GeneratedWriteback_NormalizedConstraintAnchorOverridesArdyHistoryAnchor()
-        {
-            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            try
-            {
-                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
-                track.trackOffset = TrackOffset.ApplyTransformOffsets;
-                track.position = new Vector3(10f, 1f, 20f);
-                track.rotation = Quaternion.Euler(0f, 30f, 0f);
-                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
-                var playable = (KimodoPlayableClip)timelineClip.asset;
-                playable.position = new Vector3(0f, 4f, 0f);
-                playable.removeStartOffset = true;
-
-                var request = new KimodoEditorGenerateRequest
-                {
-                    NormalizationInfo = new KimodoConstraintNormalizationInfo
-                    {
-                        Applied = true,
-                        AnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
-                        AnchorSample = new KimodoMarkerSampleResult
-                        {
-                            kimodoRootPosition = Vector3.zero,
-                            unityRootPos = new Vector3(4f, 0f, 6f),
-                            unityRootRot = Quaternion.Euler(0f, 70f, 0f),
-                            localAxisAngles = new System.Collections.Generic.List<Vector3>
-                            {
-                                KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.identity)
-                            }
-                        }
-                    },
-                    InitialArdyHistorySource = new ArdyEditorHistorySource
-                    {
-                        HasTimelineWorldAnchor = true,
-                        TimelineWorldAnchorPosition = new Vector3(100f, 0f, 200f),
-                        TimelineWorldAnchorRotation = Quaternion.Euler(0f, 150f, 0f)
-                    },
-                    TimelineClipSnapshot = timelineClip
-                };
-                MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
-                    "ApplyTimelineOffsets",
-                    BindingFlags.NonPublic | BindingFlags.Static);
-
-                Assert.That(apply, Is.Not.Null);
-                apply.Invoke(null, new object[] { playable, request });
-
-                Vector3 expectedLocal = Quaternion.Inverse(track.rotation) *
-                    (new Vector3(4f, 0f, 6f) - new Vector3(10f, 0f, 20f));
-                Assert.That(Vector3.Distance(playable.position, new Vector3(expectedLocal.x, 4f, expectedLocal.z)), Is.LessThan(1e-5f));
-                Assert.That(Quaternion.Angle(playable.rotation, Quaternion.Euler(0f, 40f, 0f)), Is.LessThan(1e-4f));
-                Assert.That(playable.removeStartOffset, Is.True);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(timeline);
-            }
-        }
-
-        [Test]
-        [Category("ArdyGuardValidation")]
-        public void GeneratedWriteback_ArdyHistoryGuardUsesRetargetedGuardHips()
-        {
-            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            AnimationClip generatedClip = null;
-            SkeletonCache cache = null;
-            try
-            {
-                Assert.That(
-                    KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                        KimodoPlayableClip.DefaultBridgeModelName,
-                        out Avatar avatar,
-                        out string error),
-                    Is.True,
-                    error);
-                Assert.That(
-                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
-                        avatar,
-                        "KimodoGeneratedHipsOffsetTest",
-                        out cache,
-                        out error),
-                    Is.True,
-                    error);
-                Assert.That(cache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out Transform hips), Is.True);
-                string hipsPath = AnimationUtility.CalculateTransformPath(hips, cache.skeletonRoot);
-                generatedClip = new AnimationClip { frameRate = 30f };
-                Vector3 guardHipsPosition = new Vector3(1f, 2f, 3f);
-                Vector3 visibleHipsPosition = guardHipsPosition + new Vector3(0f, 0f, 0.03f);
-                Quaternion generatedHipsRotation = Quaternion.Euler(0f, 15f, 0f);
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.x"),
-                    new AnimationCurve(new Keyframe(0f, visibleHipsPosition.x), new Keyframe(1f / 30f, visibleHipsPosition.x)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.y"),
-                    new AnimationCurve(new Keyframe(0f, visibleHipsPosition.y), new Keyframe(1f / 30f, visibleHipsPosition.y)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.z"),
-                    new AnimationCurve(new Keyframe(0f, visibleHipsPosition.z), new Keyframe(1f / 30f, visibleHipsPosition.z)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalRotation.x"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsRotation.x), new Keyframe(1f / 30f, generatedHipsRotation.x)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalRotation.y"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsRotation.y), new Keyframe(1f / 30f, generatedHipsRotation.y)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalRotation.z"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsRotation.z), new Keyframe(1f / 30f, generatedHipsRotation.z)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalRotation.w"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsRotation.w), new Keyframe(1f / 30f, generatedHipsRotation.w)));
-
-                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
-                track.trackOffset = TrackOffset.ApplyTransformOffsets;
-                track.position = new Vector3(10f, 4f, 20f);
-                track.rotation = Quaternion.Euler(0f, 30f, 0f);
-                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
-                var playable = (KimodoPlayableClip)timelineClip.asset;
-                playable.clip = generatedClip;
-                playable.position = new Vector3(0f, -9f, 0f);
-                playable.removeStartOffset = true;
-
-                Vector3 sourceHipsLocal = new Vector3(5f, 6f, 7f);
-                Quaternion sourceHipsLocalYaw = Quaternion.Euler(0f, 70f, 0f);
-                Quaternion worldAnchorRotation = track.rotation * sourceHipsLocalYaw;
-                Vector3 worldAnchorPosition = track.position + track.rotation * sourceHipsLocal;
-                Quaternion expectedClipRotation = (sourceHipsLocalYaw * Quaternion.Inverse(generatedHipsRotation)).normalized;
-                Vector3 expectedPlanarPosition = sourceHipsLocal -
-                    (expectedClipRotation * new Vector3(guardHipsPosition.x, 0f, guardHipsPosition.z));
-                Vector3 expectedLocalPosition = new Vector3(
-                    expectedPlanarPosition.x,
-                    playable.position.y,
-                    expectedPlanarPosition.z);
-                var request = new KimodoEditorGenerateRequest
-                {
-                    InitialArdyHistorySource = new ArdyEditorHistorySource
-                    {
-                        HasTimelineWorldAnchor = true,
-                        TimelineWorldAnchorPosition = worldAnchorPosition,
-                        TimelineWorldAnchorRotation = worldAnchorRotation
-                    },
-                    OutputPlan = new KimodoEditorGenerateOutputPlan
-                    {
-                        TargetRetargetAvatar = avatar
-                    },
-                    RuntimeTrimStartFrame = 1,
-                    HasRetargetedLeadingGuardHipsPose = true,
-                    RetargetedLeadingGuardHipsPosition = guardHipsPosition,
-                    RetargetedLeadingGuardHipsRotation = generatedHipsRotation,
-                    TargetClip = generatedClip,
-                    TimelineClipSnapshot = timelineClip
-                };
-                MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
-                    "ApplyTimelineOffsets",
-                    BindingFlags.NonPublic | BindingFlags.Static);
-
-                Assert.That(apply, Is.Not.Null);
-                apply.Invoke(null, new object[] { playable, request });
-
-                Assert.That(Vector3.Distance(playable.position, expectedLocalPosition), Is.LessThan(1e-5f));
-                Assert.That(Quaternion.Angle(playable.rotation, expectedClipRotation), Is.LessThan(1e-4f));
-                Assert.That(playable.removeStartOffset, Is.True);
-            }
-            finally
-            {
-                cache?.Dispose();
-                if (generatedClip != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(generatedClip);
-                }
-                UnityEngine.Object.DestroyImmediate(timeline);
             }
         }
 
@@ -1291,183 +973,6 @@ namespace KimodoBridge.Editor.Tests
                 {
                     UnityEngine.Object.DestroyImmediate(generatedClip);
                 }
-            }
-        }
-
-        [Test]
-        public void GeneratedWriteback_NormalizedConstraintAnchorUsesRootEvenWhenHipsAvailable()
-        {
-            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            AnimationClip generatedClip = null;
-            SkeletonCache cache = null;
-            try
-            {
-                Assert.That(
-                    KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                        KimodoPlayableClip.DefaultBridgeModelName,
-                        out Avatar avatar,
-                        out string error),
-                    Is.True,
-                    error);
-                Assert.That(
-                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
-                        avatar,
-                        "KimodoNormalizedHipsOffsetTest",
-                        out cache,
-                        out error),
-                    Is.True,
-                    error);
-                Assert.That(cache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out Transform hips), Is.True);
-                string hipsPath = AnimationUtility.CalculateTransformPath(hips, cache.skeletonRoot);
-                generatedClip = new AnimationClip { frameRate = 30f };
-                Vector3 generatedHipsPosition = new Vector3(1f, 2f, 3f);
-                Quaternion generatedHipsRotation = Quaternion.Euler(0f, 15f, 0f);
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.x"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsPosition.x), new Keyframe(1f / 30f, generatedHipsPosition.x)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.y"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsPosition.y), new Keyframe(1f / 30f, generatedHipsPosition.y)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.z"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsPosition.z), new Keyframe(1f / 30f, generatedHipsPosition.z)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalRotation.x"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsRotation.x), new Keyframe(1f / 30f, generatedHipsRotation.x)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalRotation.y"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsRotation.y), new Keyframe(1f / 30f, generatedHipsRotation.y)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalRotation.z"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsRotation.z), new Keyframe(1f / 30f, generatedHipsRotation.z)));
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalRotation.w"),
-                    new AnimationCurve(new Keyframe(0f, generatedHipsRotation.w), new Keyframe(1f / 30f, generatedHipsRotation.w)));
-
-                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
-                track.trackOffset = TrackOffset.ApplyTransformOffsets;
-                track.position = new Vector3(10f, 4f, 20f);
-                track.rotation = Quaternion.Euler(0f, 30f, 0f);
-                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
-                var playable = (KimodoPlayableClip)timelineClip.asset;
-                playable.clip = generatedClip;
-                playable.position = new Vector3(0f, -9f, 0f);
-                playable.removeStartOffset = true;
-
-                Vector3 sourceRootLocal = new Vector3(0.5f, 0f, 0.75f);
-                Quaternion sourceRootLocalYaw = Quaternion.Euler(0f, 20f, 0f);
-                Vector3 worldRootPosition = track.position + track.rotation * sourceRootLocal;
-                Quaternion worldRootRotation = track.rotation * sourceRootLocalYaw;
-                Vector3 misleadingHipsLocal = new Vector3(5f, 6f, 7f);
-                Quaternion misleadingHipsLocalYaw = Quaternion.Euler(0f, 70f, 0f);
-                Vector3 worldHipsPosition = track.position + track.rotation * misleadingHipsLocal;
-                Quaternion worldHipsRotation = track.rotation * misleadingHipsLocalYaw;
-                Quaternion expectedClipRotation = sourceRootLocalYaw;
-                Vector3 expectedLocalPosition = new Vector3(
-                    sourceRootLocal.x,
-                    playable.position.y,
-                    sourceRootLocal.z);
-                var request = new KimodoEditorGenerateRequest
-                {
-                    NormalizationInfo = new KimodoConstraintNormalizationInfo
-                    {
-                        Applied = true,
-                        AnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
-                        AnchorSample = new KimodoMarkerSampleResult
-                        {
-                            constraintType = "fullbody",
-                            kimodoRootPosition = sourceRootLocal,
-                            unityRootPos = worldRootPosition,
-                            unityRootRot = worldRootRotation,
-                            hasUnityHipsPose = true,
-                            unityHipsPos = worldHipsPosition,
-                            unityHipsRot = worldHipsRotation
-                        }
-                    },
-                    OutputPlan = new KimodoEditorGenerateOutputPlan
-                    {
-                        TargetRetargetAvatar = avatar
-                    },
-                    TargetClip = generatedClip,
-                    TimelineClipSnapshot = timelineClip
-                };
-                MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
-                    "ApplyTimelineOffsets",
-                    BindingFlags.NonPublic | BindingFlags.Static);
-
-                Assert.That(apply, Is.Not.Null);
-                apply.Invoke(null, new object[] { playable, request });
-
-                Assert.That(Vector3.Distance(playable.position, expectedLocalPosition), Is.LessThan(1e-5f));
-                Assert.That(Quaternion.Angle(playable.rotation, expectedClipRotation), Is.LessThan(1e-4f));
-                Assert.That(playable.removeStartOffset, Is.True);
-            }
-            finally
-            {
-                cache?.Dispose();
-                if (generatedClip != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(generatedClip);
-                }
-                UnityEngine.Object.DestroyImmediate(timeline);
-            }
-        }
-
-        [Test]
-        public void GeneratedWriteback_UsesSampledUnityAnchorWorldSpace()
-        {
-            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            try
-            {
-                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
-                track.trackOffset = TrackOffset.ApplyTransformOffsets;
-                track.position = new Vector3(10f, 0f, 20f);
-                track.rotation = Quaternion.Euler(0f, 30f, 0f);
-                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
-                var playable = (KimodoPlayableClip)timelineClip.asset;
-                playable.position = Vector3.zero;
-
-                var request = new KimodoEditorGenerateRequest
-                {
-                    NormalizationInfo = new KimodoConstraintNormalizationInfo
-                    {
-                        Applied = true,
-                        AnchorKind = KimodoConstraintNormalizationAnchorKind.FullBody,
-                        AnchorSample = new KimodoMarkerSampleResult
-                        {
-                            constraintType = "fullbody",
-                            kimodoRootPosition = new Vector3(4f, 0f, 6f),
-                            unityRootPos = new Vector3(100f, 0f, 200f),
-                            unityRootRot = Quaternion.Euler(0f, 80f, 0f),
-                            localAxisAngles = new System.Collections.Generic.List<Vector3>
-                            {
-                                KimodoRuntimeUtility.QuaternionToAxisAngleVector(Quaternion.Euler(0f, 70f, 0f))
-                            }
-                        }
-                    },
-                    TimelineClipSnapshot = timelineClip
-                };
-                MethodInfo apply = typeof(KimodoPlayableClipGenerationHostService).GetMethod(
-                    "ApplyTimelineOffsets",
-                    BindingFlags.NonPublic | BindingFlags.Static);
-
-                apply.Invoke(null, new object[] { playable, request });
-
-                Vector3 expectedLocal = Quaternion.Inverse(track.rotation) *
-                    (new Vector3(100f, 0f, 200f) - new Vector3(10f, 0f, 20f));
-                Assert.That(Vector3.Distance(playable.position, expectedLocal), Is.LessThan(1e-5f));
-                Assert.That(Quaternion.Angle(playable.rotation, Quaternion.Euler(0f, 50f, 0f)), Is.LessThan(1e-4f));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(timeline);
             }
         }
 
@@ -1850,6 +1355,43 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void TimelineConstraintCache_SourceSignatureIgnoresMarkersAndTracksMotionChanges()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            var sourceClip = new AnimationClip();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip timelineClip = track.CreateClip<AnimationPlayableAsset>();
+                var playableAsset = (AnimationPlayableAsset)timelineClip.asset;
+                playableAsset.clip = sourceClip;
+                timelineClip.start = 0.0;
+                timelineClip.duration = 2.0;
+
+                int initial = KimodoTimelineConstraintClipCache.ComputeSamplingSourceSignature(track);
+                KimodoFullBodyConstraintMarker marker = track.CreateMarker<KimodoFullBodyConstraintMarker>(0.5);
+                marker.time = 1.0;
+                EditorUtility.SetDirty(track);
+
+                Assert.That(
+                    KimodoTimelineConstraintClipCache.ComputeSamplingSourceSignature(track),
+                    Is.EqualTo(initial),
+                    "Constraint marker edits must not invalidate sampled motion windows.");
+
+                timelineClip.start = 0.25;
+                Assert.That(
+                    KimodoTimelineConstraintClipCache.ComputeSamplingSourceSignature(track),
+                    Is.Not.EqualTo(initial),
+                    "Timeline motion edits must invalidate sampled motion windows.");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+                UnityEngine.Object.DestroyImmediate(sourceClip);
+            }
+        }
+
+        [Test]
         public void TimelineConstraintCache_UsesFixedHalfOpenFrameBuckets()
         {
             KimodoTimelineConstraintCacheRange first = KimodoTimelineConstraintClipCache.ResolveRange(
@@ -2046,6 +1588,9 @@ namespace KimodoBridge.Editor.Tests
             var entries = field.GetValue(null) as System.Collections.IDictionary;
             Assert.That(entries, Is.Not.Null);
             entries.Add(firstKey, new KimodoTimelineConstraintCacheEntry { Clip = firstClip });
+            KimodoTimelineConstraintClipCache.RemoveStaleEntries(secondKey);
+            Assert.That(entries.Contains(firstKey), Is.True);
+            Assert.That(firstClip == null, Is.False);
             entries.Add(secondKey, new KimodoTimelineConstraintCacheEntry { Clip = secondClip });
             Assert.That(entries.Count, Is.EqualTo(2));
 
@@ -2054,6 +1599,99 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(firstClip == null, Is.True);
             Assert.That(secondClip == null, Is.True);
             Assert.That(entries.Count, Is.Zero);
+        }
+
+        [Test]
+        public void TimelineConstraintCache_SourceChangeInvalidatesAllCachedRanges()
+        {
+            KimodoTimelineConstraintCacheRange firstRange = KimodoTimelineConstraintClipCache.ResolveRange(1.0, 10.0, 60, 30f);
+            KimodoTimelineConstraintCacheRange secondRange = KimodoTimelineConstraintClipCache.ResolveRange(5.0, 10.0, 60, 30f);
+            var firstKey = new KimodoTimelineConstraintCacheKey(21, 22, 23, firstRange, "model", sourceSignature: 1);
+            var secondKey = new KimodoTimelineConstraintCacheKey(21, 22, 23, secondRange, "model", sourceSignature: 1);
+            var changedKey = new KimodoTimelineConstraintCacheKey(21, 22, 23, secondRange, "model", sourceSignature: 2);
+            var firstClip = new AnimationClip { hideFlags = HideFlags.HideAndDontSave };
+            var secondClip = new AnimationClip { hideFlags = HideFlags.HideAndDontSave };
+            FieldInfo field = typeof(KimodoTimelineConstraintClipCache).GetField(
+                "Entries",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var entries = field.GetValue(null) as System.Collections.IDictionary;
+            entries.Add(firstKey, new KimodoTimelineConstraintCacheEntry { Clip = firstClip });
+            entries.Add(secondKey, new KimodoTimelineConstraintCacheEntry { Clip = secondClip });
+
+            KimodoTimelineConstraintClipCache.RemoveStaleEntries(changedKey);
+
+            Assert.That(entries.Count, Is.Zero);
+            Assert.That(firstClip == null, Is.True);
+            Assert.That(secondClip == null, Is.True);
+        }
+
+        [Test]
+        public void TimelineConstraintCache_TargetAnimatorOrAvatarChangeInvalidatesOldEntries()
+        {
+            KimodoTimelineConstraintCacheRange range = KimodoTimelineConstraintClipCache.ResolveRange(1.0, 10.0, 60, 30f);
+            var oldAnimatorKey = new KimodoTimelineConstraintCacheKey(31, 32, 33, range, "model", avatarDirtyCount: 2);
+            var oldAvatarKey = new KimodoTimelineConstraintCacheKey(31, 42, 34, range, "model", avatarDirtyCount: 2);
+            var oldAvatarVersionKey = new KimodoTimelineConstraintCacheKey(31, 42, 33, range, "model", avatarDirtyCount: 1);
+            var currentKey = new KimodoTimelineConstraintCacheKey(31, 42, 33, range, "model", avatarDirtyCount: 2);
+            var oldAnimatorClip = new AnimationClip { hideFlags = HideFlags.HideAndDontSave };
+            var oldAvatarClip = new AnimationClip { hideFlags = HideFlags.HideAndDontSave };
+            var oldAvatarVersionClip = new AnimationClip { hideFlags = HideFlags.HideAndDontSave };
+            FieldInfo field = typeof(KimodoTimelineConstraintClipCache).GetField(
+                "Entries",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var entries = field.GetValue(null) as System.Collections.IDictionary;
+            entries.Add(oldAnimatorKey, new KimodoTimelineConstraintCacheEntry { Clip = oldAnimatorClip });
+            entries.Add(oldAvatarKey, new KimodoTimelineConstraintCacheEntry { Clip = oldAvatarClip });
+            entries.Add(oldAvatarVersionKey, new KimodoTimelineConstraintCacheEntry { Clip = oldAvatarVersionClip });
+
+            KimodoTimelineConstraintClipCache.RemoveStaleEntries(currentKey);
+
+            Assert.That(entries.Count, Is.Zero);
+            Assert.That(oldAnimatorClip == null, Is.True);
+            Assert.That(oldAvatarClip == null, Is.True);
+            Assert.That(oldAvatarVersionClip == null, Is.True);
+        }
+
+        [Test]
+        public void EndEffectorSampling_UsesCachedHumanBoneWhenAnimatorAvatarIsTemporarilyNull()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoAvatarlessEndEffectorTest",
+                    out SkeletonCache cache,
+                    out error),
+                Is.True,
+                error);
+            try
+            {
+                BoneSample sample = KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
+                cache.animator.avatar = null;
+
+                Assert.That(
+                    KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                        sample,
+                        cache,
+                        KimodoPlayableClip.DefaultBridgeModelName,
+                        "left-hand",
+                        0.0,
+                        out KimodoMarkerSampleResult result,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(result.hasEndEffectorTargetPosition, Is.True);
+            }
+            finally
+            {
+                cache.Dispose();
+            }
         }
 
         [Test]
@@ -2402,67 +2040,5 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
-        [Test]
-        public void WorldConstraint_RoundTripsThroughKimodoAndTrackSpaces()
-        {
-            Vector3 trackPosition = new Vector3(-1f, 0f, 2f);
-            Quaternion trackRotation = Quaternion.Euler(0f, 35f, 0f);
-            Vector3 secondKimodoPosition = new Vector3(2f, 1f, 0.5f);
-            Quaternion secondKimodoRotation = Quaternion.Euler(0f, 20f, 0f);
-            Vector3 secondWorldPosition = trackPosition + trackRotation * secondKimodoPosition;
-            Quaternion secondWorldRotation = trackRotation * secondKimodoRotation;
-            var samples = new System.Collections.Generic.List<TimelineInject.KimodoMarkerSampleResult>
-            {
-                new TimelineInject.KimodoMarkerSampleResult
-                {
-                    constraintType = "fullbody",
-                    sampleTime = 0.0,
-                    kimodoRootPosition = trackPosition + Vector3.up,
-                    unityRootPos = trackPosition,
-                    unityRootRot = trackRotation,
-                    hasRootHeading = true,
-                    rootHeading = new Vector2(
-                        (trackRotation * Vector3.forward).x,
-                        (trackRotation * Vector3.forward).z),
-                    localAxisAngles = new System.Collections.Generic.List<Vector3>
-                    {
-                        KimodoRuntimeUtility.QuaternionToAxisAngleVector(trackRotation)
-                    }
-                },
-                new TimelineInject.KimodoMarkerSampleResult
-                {
-                    constraintType = "fullbody",
-                    sampleTime = 1.0,
-                    kimodoRootPosition = secondWorldPosition,
-                    unityRootPos = secondWorldPosition,
-                    unityRootRot = secondWorldRotation,
-                    hasRootHeading = true,
-                    rootHeading = new Vector2(
-                        (secondWorldRotation * Vector3.forward).x,
-                        (secondWorldRotation * Vector3.forward).z),
-                    localAxisAngles = new System.Collections.Generic.List<Vector3>
-                    {
-                        KimodoRuntimeUtility.QuaternionToAxisAngleVector(secondWorldRotation)
-                    }
-                }
-            };
-
-            KimodoConstraintNormalizationUtility.NormalizeConstraintOrigin(
-                samples,
-                out KimodoConstraintNormalizationInfo normalization,
-                out string warning);
-
-            Assert.That(warning, Is.Empty);
-            Assert.That(normalization.Applied, Is.True);
-            Assert.That(Vector3.Distance(normalization.AnchorSample.unityRootPos, trackPosition), Is.LessThan(1e-5f));
-            Assert.That(Vector3.Distance(samples[0].kimodoRootPosition, Vector3.up), Is.LessThan(1e-5f));
-            Assert.That(Vector3.Distance(samples[1].kimodoRootPosition, secondKimodoPosition), Is.LessThan(1e-5f));
-
-            Assert.That(
-                Vector3.Distance(
-                    trackPosition + trackRotation * secondKimodoPosition,
-                    secondWorldPosition),
-                Is.LessThan(1e-5f));
-        }
     }
 }

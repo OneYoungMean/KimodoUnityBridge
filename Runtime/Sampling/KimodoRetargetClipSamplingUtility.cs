@@ -453,6 +453,22 @@ namespace KimodoBridge
                 out error);
         }
 
+        internal static bool TrySampleBoneClipSession(
+            KimodoRetargetClipSamplingUtility.ClipSamplingSession session,
+            float sampleTime,
+            out BoneSample sample,
+            out string error)
+        {
+            sample = null;
+            if (session == null)
+            {
+                error = "Clip sampling session is null.";
+                return false;
+            }
+
+            return session.TrySample(sampleTime, TrySampleBoneClipToBoneSampleInternal, out sample, out error);
+        }
+
         internal static bool TryResolveSourceHumanoidClip(
             AnimationClip sourceClip,
             Avatar sourceAvatar,

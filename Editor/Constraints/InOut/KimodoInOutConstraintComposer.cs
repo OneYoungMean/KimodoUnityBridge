@@ -70,17 +70,6 @@ namespace KimodoBridge.Editor
                 built.HasSyntheticAutoBeginConstraint = true;
             }
 
-            built.NormalizationInfo = KimodoConstraintNormalizationUtility.ResolveTimelineAlignment(
-                built.CombinedSamples,
-                normalizationAnchorWindowSeconds,
-                out string alignmentWarning);
-            if (!string.IsNullOrWhiteSpace(alignmentWarning))
-            {
-                warning = string.IsNullOrWhiteSpace(warning)
-                    ? alignmentWarning
-                    : $"{warning}\n{alignmentWarning}";
-            }
-
             float generationFrameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(request.ModelName);
             double clipDurationSeconds = KimodoInOutConstraintTools.ResolveConstraintClipDurationSeconds(
                 request.GenerationFrames,

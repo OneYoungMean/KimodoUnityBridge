@@ -17,9 +17,6 @@ namespace KimodoBridge.Editor
         public float TargetFrameRate = KimodoPlayableClip.FIXED_FRAME_RATE;
         public int RuntimeFrameCount;
         public int RuntimeTrimStartFrame;
-        public bool HasRetargetedLeadingGuardHipsPose;
-        public Vector3 RetargetedLeadingGuardHipsPosition;
-        public Quaternion RetargetedLeadingGuardHipsRotation = Quaternion.identity;
         public int DiffusionSteps;
         public float TextWeight = 1f;
         public int EffectiveSeed;
@@ -33,20 +30,16 @@ namespace KimodoBridge.Editor
         public AnimationClip RawBoneClip;
         public Action<KimodoBridgeCommandStage, string> Progress;
         public CancellationToken Token;
-        public KimodoConstraintNormalizationInfo NormalizationInfo = new KimodoConstraintNormalizationInfo();
         public bool HasSyntheticAutoBeginConstraint;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
         public TimelineClip TimelineClipSnapshot;
         public bool ResetTimelineTimeScaleAfterGeneration;
         public PlayableDirector TimelineDirectorSnapshot;
-        public PoseCacheRenderContext? TimelinePoseContextSnapshot;
         public ArdyEditorHistorySource InitialArdyHistorySource;
-        public bool DisableTimelineInOut;
         public double? ArdyHistoryCropSeconds;
         public double? ArdyMaxSpeed;
         public double? ArdyMaxAcceleration;
         public double? ArdyHistoryTransitionWeight;
-        public KimodoPlayableClip AnchorOffsetSourceClip;
         public string GeneratedArdyMotionCachePath = string.Empty;
         public List<string> GeneratedArdyWindowCachePaths = new List<string>();
         public List<int> GeneratedArdySeeds = new List<int>();
@@ -64,9 +57,6 @@ namespace KimodoBridge.Editor
         public KimodoTimelineInOutConstraintContext TimelineContext;
         public double RangeStartSeconds;
         public double RangeEndSeconds;
-        public bool HasTimelineWorldAnchor;
-        public Vector3 TimelineWorldAnchorPosition;
-        public Quaternion TimelineWorldAnchorRotation = Quaternion.identity;
     }
 
     internal sealed class KimodoEditorGenerateOutputPlan

@@ -56,9 +56,6 @@ namespace TimelineInject
         public bool rootTargetUseSampleTime;
         public Vector3 unityRootPos;
         public Quaternion unityRootRot = Quaternion.identity;
-        public bool hasUnityHipsPose;
-        public Vector3 unityHipsPos;
-        public Quaternion unityHipsRot = Quaternion.identity;
         public bool hasEndEffectorTargetPosition;
         public Vector3 endEffectorTargetPositionRootLocal;
         public List<string> jointNames = new List<string>();
@@ -82,9 +79,6 @@ namespace TimelineInject
                 rootTargetUseSampleTime = rootTargetUseSampleTime,
                 unityRootPos = unityRootPos,
                 unityRootRot = unityRootRot,
-                hasUnityHipsPose = hasUnityHipsPose,
-                unityHipsPos = unityHipsPos,
-                unityHipsRot = unityHipsRot,
                 hasEndEffectorTargetPosition = hasEndEffectorTargetPosition,
                 endEffectorTargetPositionRootLocal = endEffectorTargetPositionRootLocal,
                 jointNames = jointNames != null ? new List<string>(jointNames) : new List<string>(),

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
@@ -114,10 +115,19 @@ namespace KimodoBridge.Editor
 
             ThrowIfCanceled(request);
             request.Progress?.Invoke(KimodoBridgeCommandStage.Retarget, "Retargeting...");
+            ResolveTimelinePlanarOffset(
+                request,
+                outputPlan,
+                out Vector3 targetPlanarOffset,
+                out Quaternion targetPlanarRotation,
+                out float targetHumanScale);
             if (!KimodoRetargetToolsEditor.TryBakeMuscleClipToClip(
                     request.TargetClip,
                     outputPlan.OriginRetargetAvatar,
                     request.TargetClip,
+                    targetPlanarOffset,
+                    targetPlanarRotation,
+                    targetHumanScale,
                     out string muscleCacheError))
             {
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(muscleCacheError)
@@ -169,6 +179,46 @@ namespace KimodoBridge.Editor
             ThrowIfCanceled(request);
 
             return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
+        }
+
+        private static void ResolveTimelinePlanarOffset(
+            KimodoEditorGenerateRequest request,
+            KimodoEditorGenerateOutputPlan outputPlan,
+            out Vector3 targetPlanarOffset,
+            out Quaternion targetPlanarRotation,
+            out float targetHumanScale)
+        {
+            targetPlanarOffset = Vector3.zero;
+            targetPlanarRotation = Quaternion.identity;
+            targetHumanScale = 1f;
+
+            TrackAsset track = request?.TimelineClipSnapshot?.GetParentTrack();
+            if (track == null)
+            {
+                return;
+            }
+
+            Animator animator = null;
+            if (request.TimelineDirectorSnapshot != null)
+            {
+                UnityEngine.Object binding = request.TimelineDirectorSnapshot.GetGenericBinding(track);
+                animator = binding as Animator ??
+                    (binding as GameObject)?.GetComponentInChildren<Animator>(true);
+            }
+
+            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                track,
+                animator,
+                out Vector3 trackPosition,
+                out Quaternion trackRotation);
+
+            targetPlanarOffset = new Vector3(trackPosition.x, 0f, trackPosition.z);
+            targetPlanarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(trackRotation);
+
+            if (KimodoRetargetCoreUtility.IsValidHumanoid(outputPlan?.TargetRetargetAvatar))
+            {
+                targetHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(outputPlan.TargetRetargetAvatar);
+            }
         }
 
         internal static async Task<KimodoBridgeCommandResult> ExecuteRuntimePipelineAsync(
@@ -321,30 +371,25 @@ namespace KimodoBridge.Editor
             KimodoEditorGenerateOutputPlan outputPlan,
             AnimationClip rawBoneClip)
         {
-            request.HasRetargetedLeadingGuardHipsPose = false;
             if (request.RuntimeTrimStartFrame <= 0 ||
                 !KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
                 return;
             }
 
-            Avatar samplingAvatar = KimodoPlayableClipGenerationHostService.ResolveGeneratedClipSamplingAvatar(request);
+            Avatar samplingAvatar = outputPlan?.TargetRetargetAvatar;
+            if (outputPlan != null && outputPlan.SkipRetarget)
+            {
+                samplingAvatar = outputPlan.OriginRetargetAvatar;
+            }
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(samplingAvatar))
+            {
+                samplingAvatar = outputPlan?.OriginRetargetAvatar;
+            }
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(samplingAvatar))
             {
                 throw new InvalidOperationException("ARDY guard trim requires a valid final sampling Avatar.");
             }
-            if (!KimodoPlayableClipGenerationHostService.TrySampleGeneratedClipHipsPose(
-                    request.TargetClip,
-                    samplingAvatar,
-                    0f,
-                    out request.RetargetedLeadingGuardHipsPosition,
-                    out request.RetargetedLeadingGuardHipsRotation,
-                    out string guardError))
-            {
-                throw new InvalidOperationException($"Sample retargeted ARDY guard failed: {guardError}");
-            }
-            request.HasRetargetedLeadingGuardHipsPose = true;
-
             if (!TryTrimRetargetedClipForOutput(
                     request.TargetClip,
                     samplingAvatar,
@@ -380,9 +425,8 @@ namespace KimodoBridge.Editor
                 runtimeResult.MotionBytes,
                 "timeline-final");
             KimodoPlayableClipGenerationSettings.DebugLog(
-                $"[Kimodo][TimelineOffset] retained final-target ARDY guard before output trim: " +
-                $"targetAvatar='{samplingAvatar.name}', hips={request.RetargetedLeadingGuardHipsPosition:F6}, " +
-                $"visibleFrames={runtimeResult.MotionData.FrameCount}.");
+                $"[Kimodo][ArdyGuard] trimmed final-target leading guard: " +
+                $"targetAvatar='{samplingAvatar.name}', visibleFrames={runtimeResult.MotionData.FrameCount}.");
         }
 
         internal static bool TryTrimRetargetedClipForOutput(
