@@ -407,27 +407,6 @@ namespace KimodoBridge.Editor
             if (hasNormalizationAnchor)
             {
                 KimodoMarkerSampleResult anchor = normalization.AnchorSample;
-                hipsOffsetError = string.Empty;
-                if (anchor.hasUnityHipsPose &&
-                    TryApplyGeneratedHipsAnchorOffset(
-                        playableClip,
-                        request,
-                        trackPosition,
-                        trackRotation,
-                        anchor.unityHipsPos,
-                        anchor.unityHipsRot,
-                        Mathf.Max(0f, (float)anchor.sampleTime),
-                        normalization.AnchorKind + " Hips",
-                        out hipsOffsetError))
-                {
-                    return;
-                }
-
-                if (!string.IsNullOrWhiteSpace(hipsOffsetError))
-                {
-                    KimodoPlayableClipGenerationSettings.DebugLogWarning($"[Kimodo][TimelineOffset] Hips-based normalization offset failed, falling back to root anchor: {hipsOffsetError}");
-                }
-
                 if (TryApplyGeneratedRootAnchorOffset(
                         playableClip,
                         request,

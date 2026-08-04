@@ -1295,7 +1295,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void GeneratedWriteback_NormalizedConstraintAnchorUsesHipsWhenAvailable()
+        public void GeneratedWriteback_NormalizedConstraintAnchorUsesRootEvenWhenHipsAvailable()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             AnimationClip generatedClip = null;
@@ -1361,17 +1361,19 @@ namespace KimodoBridge.Editor.Tests
                 playable.position = new Vector3(0f, -9f, 0f);
                 playable.removeStartOffset = true;
 
-                Vector3 sourceHipsLocal = new Vector3(5f, 6f, 7f);
-                Quaternion sourceHipsLocalYaw = Quaternion.Euler(0f, 70f, 0f);
-                Quaternion worldAnchorRotation = track.rotation * sourceHipsLocalYaw;
-                Vector3 worldAnchorPosition = track.position + track.rotation * sourceHipsLocal;
-                Quaternion expectedClipRotation = (sourceHipsLocalYaw * Quaternion.Inverse(generatedHipsRotation)).normalized;
-                Vector3 expectedPlanarPosition = sourceHipsLocal -
-                    (expectedClipRotation * new Vector3(generatedHipsPosition.x, 0f, generatedHipsPosition.z));
+                Vector3 sourceRootLocal = new Vector3(0.5f, 0f, 0.75f);
+                Quaternion sourceRootLocalYaw = Quaternion.Euler(0f, 20f, 0f);
+                Vector3 worldRootPosition = track.position + track.rotation * sourceRootLocal;
+                Quaternion worldRootRotation = track.rotation * sourceRootLocalYaw;
+                Vector3 misleadingHipsLocal = new Vector3(5f, 6f, 7f);
+                Quaternion misleadingHipsLocalYaw = Quaternion.Euler(0f, 70f, 0f);
+                Vector3 worldHipsPosition = track.position + track.rotation * misleadingHipsLocal;
+                Quaternion worldHipsRotation = track.rotation * misleadingHipsLocalYaw;
+                Quaternion expectedClipRotation = sourceRootLocalYaw;
                 Vector3 expectedLocalPosition = new Vector3(
-                    expectedPlanarPosition.x,
+                    sourceRootLocal.x,
                     playable.position.y,
-                    expectedPlanarPosition.z);
+                    sourceRootLocal.z);
                 var request = new KimodoEditorGenerateRequest
                 {
                     NormalizationInfo = new KimodoConstraintNormalizationInfo
@@ -1381,11 +1383,12 @@ namespace KimodoBridge.Editor.Tests
                         AnchorSample = new KimodoMarkerSampleResult
                         {
                             constraintType = "fullbody",
-                            unityRootPos = Vector3.one * 999f,
-                            unityRootRot = Quaternion.identity,
+                            kimodoRootPosition = sourceRootLocal,
+                            unityRootPos = worldRootPosition,
+                            unityRootRot = worldRootRotation,
                             hasUnityHipsPose = true,
-                            unityHipsPos = worldAnchorPosition,
-                            unityHipsRot = worldAnchorRotation
+                            unityHipsPos = worldHipsPosition,
+                            unityHipsRot = worldHipsRotation
                         }
                     },
                     OutputPlan = new KimodoEditorGenerateOutputPlan
