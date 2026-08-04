@@ -8,8 +8,11 @@ import os
 import numpy as np
 import torch
 from torch import nn
-from kimodo.bridge.quickserver_assets import NF4_LOCAL_DIR
 from .llm2vec import LLM2Vec
+
+
+NF4_LOCAL_DIR = "KIMODO-Meta3_llm2vec_NF4"
+
 
 class LLM2VecEncoder(nn.Module):
     """LLM2Vec text embeddings."""

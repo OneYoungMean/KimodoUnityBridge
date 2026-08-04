@@ -136,10 +136,35 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            return KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
-                targetSample,
-                targetCache,
-                out error);
+            if (!KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                    targetSample,
+                    targetCache,
+                    out error))
+            {
+                return false;
+            }
+
+            ApplyRoot2DHeadingToPreviewRoot(sample, targetCache.skeletonRoot);
+            return true;
+        }
+
+        internal static void ApplyRoot2DHeadingToPreviewRoot(
+            KimodoMarkerSampleResult sample,
+            Transform previewRoot)
+        {
+            if (previewRoot == null ||
+                sample == null ||
+                !string.Equals(sample.constraintType, "root2d", StringComparison.OrdinalIgnoreCase) ||
+                !sample.hasRootHeading)
+            {
+                return;
+            }
+
+            Vector3 forward = new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y);
+            if (forward.sqrMagnitude > 1e-8f)
+            {
+                previewRoot.rotation = Quaternion.LookRotation(forward.normalized, Vector3.up);
+            }
         }
 
         internal static bool TryResolveHumanBonePair(
@@ -1137,8 +1162,8 @@ namespace KimodoBridge.Editor
             }
 
             entry.Root.gameObject.hideFlags = selectable
-                ? HideFlags.NotEditable | HideFlags.DontSave
-                : HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
+                ? HideFlags.DontSave
+                : HideFlags.HideInHierarchy | HideFlags.DontSave;
             SetEndEffectorMarkerSelectable(entry, selectable);
         }
 

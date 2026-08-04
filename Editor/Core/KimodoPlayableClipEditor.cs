@@ -228,7 +228,14 @@ namespace KimodoBridge.Editor
                 KimodoBridgeServerTool.IsRuntimeMaintenanceInProgress ||
                 EditorCompilationStateGate.IsCompilingOrReloading;
             GUI.enabled = !disableGenerate;
-            if (GUILayout.Button(new GUIContent("Generate & Bake", "Generate only this Timeline clip."), GUILayout.Height(32)))
+            int selectedGenerateClipCount = KimodoPlayableClipGenerationExecutionService.GetSelectedPlayableClipCount(clip);
+            string generateLabel = selectedGenerateClipCount > 1
+                ? $"Generate {selectedGenerateClipCount} Clips & Bake"
+                : "Generate & Bake";
+            string generateTooltip = selectedGenerateClipCount > 1
+                ? "Generate the selected Timeline clips one at a time in Timeline order."
+                : "Generate only this Timeline clip.";
+            if (GUILayout.Button(new GUIContent(generateLabel, generateTooltip), GUILayout.Height(32)))
             {
                 serializedObject.ApplyModifiedProperties();
                 bool accepted = KimodoPlayableClipGenerationExecutionService.TryStartGenerate(

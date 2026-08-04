@@ -94,7 +94,7 @@ class SetupLogger:
 
 
 def discover_project_paths(root_dir: str | os.PathLike[str] | None = None) -> ProjectPaths:
-    root_path = Path(root_dir).resolve() if root_dir else Path(__file__).resolve().parents[3]
+    root_path = Path(root_dir).resolve() if root_dir else Path(__file__).resolve().parents[1]
     source_root = root_path / "kimodo"
     if not (source_root / "pyproject.toml").is_file():
         if (root_path / "pyproject.toml").is_file():

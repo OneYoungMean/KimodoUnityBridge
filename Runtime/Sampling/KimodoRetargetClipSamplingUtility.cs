@@ -652,7 +652,7 @@ namespace KimodoBridge
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                         out context,
                         out error,
-                        applyMotionXToDelta: false))
+                        applyMotionXToDelta: true))
                 {
                     return false;
                 }

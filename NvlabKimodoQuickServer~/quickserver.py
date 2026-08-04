@@ -12,17 +12,8 @@ def _root_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
-def _source_root(root_dir: Path) -> Path:
-    candidate = root_dir / "kimodo"
-    if (candidate / "pyproject.toml").is_file():
-        return candidate
-    if (root_dir / "pyproject.toml").is_file():
-        return root_dir
-    raise RuntimeError(f"Unable to locate source root from {root_dir}")
-
-
 def _setup_module_path(root_dir: Path) -> Path:
-    return _source_root(root_dir) / "kimodo" / "bridge" / "quickserver_setup.py"
+    return root_dir / "core" / "quickserver_setup.py"
 
 
 def _load_setup_module(root_dir: Path):

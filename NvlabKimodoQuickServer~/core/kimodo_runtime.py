@@ -1,31 +1,26 @@
 #!/usr/bin/env python
-"""
-Kimodo Unity Bridge Server
+"""Kimodo generation and runtime helpers used by the QuickServer supervisor.
 
-Persistent process for Unity Editor:
-- Loads kimodo model once
-- Listens on TCP socket for newline-delimited JSON requests
-- Responds with newline-delimited JSON over the same TCP connection
+TCP routing, Session state, and process lifecycle live in ``quickserver_cli``.
+This module owns model provisioning, Kimodo generation, output conversion, and
+the shared runtime checks that those services call.
 """
 
-import argparse
 import json
 import math
 import os
 from pathlib import Path
-import socket
 import sys
 import threading
 import time
-import traceback
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 from tqdm.auto import tqdm
 
-from kimodo.bridge import quickserver_assets as assets
-from kimodo.bridge.frame_time import seconds_to_frame_count
+from core import quickserver_assets as assets
+from kimodo.frame_time import seconds_to_frame_count
 
 
 class GenerateCancelledError(Exception):
@@ -820,7 +815,7 @@ def _build_generate_response(model: Any, output: dict, prompt: str, sample_index
 def _build_generate_flatbuffer_payload(model: Any, output: dict, sample_index: int = 0) -> bytes:
     import flatbuffers
 
-    from kimodo.bridge.protocol.generated import MotionPacket
+    from core.protocol.generated import MotionPacket
 
     sample_joints = np.asarray(output["posed_joints"][sample_index], dtype=np.float32)
     if sample_joints.ndim != 3 or sample_joints.shape[2] < 3:
@@ -993,359 +988,5 @@ def _generate(req: dict, model, cancel_event: threading.Event | None = None):
     output, prompt = _run_generate(req, model, cancel_event)
 
     _out(_build_generate_response(model, output, prompt, sample_index=0))
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Kimodo Unity Bridge Server")
-    parser.add_argument("--model", default="Kimodo-SOMA-RP-v1")
-    parser.add_argument("--device", default=None)
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=0)
-    parser.add_argument("--kimodo-root", default=None)
-    parser.add_argument("--force-hf-download", action="store_true")
-    args = parser.parse_args()
-    _log(
-        f"[bridge] bootstrap start pid={os.getpid()} model={args.model} "
-        f"kimodo_root={args.kimodo_root or ''} force_hf_download={bool(args.force_hf_download)}"
-    )
-
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((args.host, int(args.port)))
-    server.listen(16)
-
-    host, port = server.getsockname()
-    kimodo_root = args.kimodo_root or os.environ.get("KIMODO_ROOT_PATH") or os.getcwd()
-    port_file = os.path.join(kimodo_root, "serverport")
-    _write_text_atomic(port_file, f"{host}:{port}\n")
-    os.environ["KIMODO_BRIDGE_LOG"] = _default_bridge_log_path(kimodo_root)
-    _log(f"[bridge] listening host={host} port={port} model={args.model}")
-
-    state = {
-        "model": None,
-        "fps": 30,
-        "device": "unknown",
-        "loading": True,
-        "error": "",
-        "loading_message": "Importing Kimodo...",
-        "loading_started_at": time.time(),
-    }
-    state_lock = threading.Lock()
-    idle_timeout_seconds = max(0, int(float(os.environ.get("KIMODO_IDLE_TIMEOUT_SEC", "600"))))
-    last_command_ts = time.time()
-    last_command_lock = threading.Lock()
-    active_command_count = 0
-    active_command_lock = threading.Lock()
-    active_generation_cancel_event = None
-    active_generation_lock = threading.Lock()
-    quitting = False
-    quitting_lock = threading.Lock()
-
-    def _set_loading_message(message: str):
-        with state_lock:
-            if state["loading"]:
-                state["loading_message"] = str(message)
-
-    def _load_model_worker():
-        _set_loading_message("Importing Kimodo...")
-        _out({"status": "loading", "message": "Importing Kimodo..."})
-        _log("[bridge] load stage: importing torch and kimodo...")
-        try:
-            import torch
-            _log("[bridge] load stage: torch imported.")
-            from kimodo.bridge.bridge_load_model import load_bridge_model
-            _log("[bridge] load stage: kimodo imported.")
-        except Exception as exc:
-            with state_lock:
-                state["error"] = f"Failed to import kimodo: {exc}"
-                state["loading"] = False
-            _log(f"[bridge] load error {state['error']}")
-            return
-
-        runtime_profile = _runtime_self_check(args.device)
-        free_vram_gb = runtime_profile.free_vram_gb
-        os.environ["KIMODO_RUNTIME_BACKEND_PROFILE"] = runtime_profile.backend_profile
-        _log(
-            "[bridge] runtime self-check: "
-            f"profile={runtime_profile.backend_profile} device={runtime_profile.runtime_device} "
-            f"kernel_ok={runtime_profile.kernel_ok} "
-            f"bnb_present={runtime_profile.bnb_present} bnb_ok={runtime_profile.bnb_ok} "
-            f"nf4_available={runtime_profile.nf4_available} free_vram={free_vram_gb:.2f}GB"
-        )
-        if args.device and runtime_profile.runtime_device == "cpu" and str(args.device).strip().lower() != "cpu":
-            _out({"status": "loading", "message": f"Requested device {args.device} is unavailable; running on CPU."})
-
-        _set_loading_message("Checking local models...")
-        _out({"status": "loading", "message": "Checking local models..."})
-        try:
-            force_download_site = assets.DownloadSite.HUGGINGFACE if args.force_hf_download else None
-            provision_plan = _provision_bridge_assets(
-                kimodo_root,
-                args.model,
-                runtime_profile=runtime_profile,
-                force_download_site=force_download_site,
-            )
-        except Exception as exc:
-            with state_lock:
-                state["error"] = f"Model prepare failed: {exc}\n{traceback.format_exc()}"
-                state["loading"] = False
-            _log(f"[bridge] model prepare error {exc}")
-            return
-
-        decision = provision_plan.runtime_decision
-        device = decision.motion_device
-        os.environ["KIMODO_RUNTIME_DEVICE"] = device
-        use_int8_encoder = provision_plan.encoder_route == assets.ENCODER_ROUTE_INT8
-        _log(
-            f"[bridge] route decision: profile={runtime_profile.backend_profile} free_vram={free_vram_gb:.2f}GB device={device} "
-            f"encoder_route={provision_plan.encoder_route} "
-            f"encoder_device={decision.encoder_device} "
-            f"encoder_layout={provision_plan.text_encoder_layout.layout_id} reason={decision.reason}"
-        )
-
-        if provision_plan.encoder_route == assets.ENCODER_ROUTE_NF4:
-            _log("[bridge] NF4 text encoder selected for low-VRAM mode on validated CUDA runtime.")
-        elif use_int8_encoder:
-            _log(f"[bridge] INT8 text encoder selected on {decision.encoder_device}.")
-        elif provision_plan.text_encoder_layout.layout_id == "legacy_base_peft":
-            _log("[bridge] local legacy Meta-Llama-3-8B + LLM2Vec PEFT layout selected (compatibility hit).")
-        else:
-            _log("[bridge] FP16 text encoder selected.")
-
-        resolved_model_name = provision_plan.resolved_model.local_name
-        _set_loading_message(f"Loading {resolved_model_name} on {device}...")
-        _out({"status": "loading", "message": f"Loading {resolved_model_name} on {device}..."})
-        _log(f"[bridge] load stage: load_model start model={resolved_model_name} device={device}")
-        try:
-            model = load_bridge_model(
-                resolved_model_name,
-                models_root=provision_plan.models_root,
-                device=device,
-            )
-        except Exception as exc:
-            with state_lock:
-                state["error"] = f"Model load failed: {exc}\n{traceback.format_exc()}"
-                state["loading"] = False
-            _log(f"[bridge] load error {exc}")
-            return
-        _log("[bridge] load stage: load_model done.")
-
-        with state_lock:
-            state["model"] = model
-            state["fps"] = int(model.fps)
-            state["device"] = device
-            state["loading"] = False
-            state["error"] = ""
-
-        _log(f"[bridge] ready host={host} port={port} model={resolved_model_name} device={device}")
-        _out({
-            "status": "ready",
-            "model": resolved_model_name,
-            "device": device,
-            "text_encoder_mode": decision.mode,
-            "text_encoder_route": decision.encoder_route,
-            "text_encoder_device": decision.encoder_device,
-            "text_encoder_reason": decision.reason,
-            "effective_free_vram_gb": decision.effective_free_vram_gb,
-            "fps": int(model.fps),
-            "host": host,
-            "port": int(port)
-        })
-
-    threading.Thread(target=_load_model_worker, daemon=True).start()
-
-    def _is_quitting() -> bool:
-        with quitting_lock:
-            return quitting
-
-    def _set_quitting() -> None:
-        nonlocal quitting
-        with quitting_lock:
-            quitting = True
-
-    def _touch_last_command() -> None:
-        nonlocal last_command_ts
-        with last_command_lock:
-            last_command_ts = time.time()
-
-    def _command_started() -> None:
-        nonlocal active_command_count
-        with active_command_lock:
-            active_command_count += 1
-
-    def _command_finished() -> None:
-        nonlocal active_command_count
-        with active_command_lock:
-            active_command_count = max(0, active_command_count - 1)
-
-    def _try_begin_generate() -> threading.Event | None:
-        nonlocal active_generation_cancel_event
-        with active_generation_lock:
-            if active_generation_cancel_event is not None:
-                return None
-            active_generation_cancel_event = threading.Event()
-            return active_generation_cancel_event
-
-    def _finish_generate(cancel_event: threading.Event) -> None:
-        nonlocal active_generation_cancel_event
-        with active_generation_lock:
-            if active_generation_cancel_event is cancel_event:
-                active_generation_cancel_event = None
-
-    def _request_generate_cancel() -> bool:
-        with active_generation_lock:
-            if active_generation_cancel_event is None:
-                return False
-            active_generation_cancel_event.set()
-            return True
-
-    def _idle_watchdog_worker():
-        while not _is_quitting():
-            time.sleep(1.0)
-            with active_command_lock:
-                busy = active_command_count > 0
-            if busy:
-                continue
-            with last_command_lock:
-                idle_seconds = time.time() - last_command_ts
-            if idle_timeout_seconds > 0 and idle_seconds >= idle_timeout_seconds:
-                _log(
-                    f"[bridge] idle timeout reached: {int(idle_seconds)}s >= {idle_timeout_seconds}s, shutting down"
-                )
-                _set_quitting()
-                try:
-                    server.close()
-                except Exception:
-                    pass
-                return
-
-    threading.Thread(target=_idle_watchdog_worker, daemon=True).start()
-
-    def _client_worker(conn: socket.socket, addr) -> None:
-        with conn:
-            file = conn.makefile("rwb")
-            while not _is_quitting():
-                try:
-                    line = file.readline()
-                except (ConnectionResetError, BrokenPipeError, OSError):
-                    break
-                if not line:
-                    break
-
-                try:
-                    req = json.loads(line.decode("utf-8").strip())
-                except Exception as exc:
-                    resp = {"status": "error", "message": f"Bad JSON: {exc}"}
-                    file.write((json.dumps(resp) + "\n").encode("utf-8"))
-                    file.flush()
-                    continue
-
-                cmd = req.get("cmd", "")
-                _touch_last_command()
-                _log(f"[bridge] cmd={cmd}")
-                stage = f"cmd:{cmd}" if cmd else "cmd:unknown"
-                _command_started()
-                try:
-                    if cmd == "cancel":
-                        if _request_generate_cancel():
-                            resp = {"status": "cancelling", "message": "Cancel requested."}
-                        else:
-                            resp = {"status": "idle", "message": "No active generation."}
-                    elif cmd == "generate":
-                        with state_lock:
-                            loading = state["loading"]
-                            load_error = state["error"]
-                            model = state["model"]
-                            fps = state["fps"]
-
-                        if loading:
-                            resp = {"status": "loading", "message": "Model is loading."}
-                            file.write((json.dumps(resp) + "\n").encode("utf-8"))
-                            file.flush()
-                            continue
-                        if load_error:
-                            resp = {"status": "error", "message": load_error}
-                            file.write((json.dumps(resp) + "\n").encode("utf-8"))
-                            file.flush()
-                            continue
-                        if model is None:
-                            resp = {"status": "error", "message": "Model not available."}
-                            file.write((json.dumps(resp) + "\n").encode("utf-8"))
-                            file.flush()
-                            continue
-
-                        cancel_event = _try_begin_generate()
-                        if cancel_event is None:
-                            resp = {"status": "busy", "message": "Another generation is already running."}
-                            file.write((json.dumps(resp) + "\n").encode("utf-8"))
-                            file.flush()
-                            continue
-
-                        try:
-                            output, prompt = _run_generate(req, model, cancel_event)
-
-                            requested_output_format = _resolve_requested_output_format(req)
-                            if requested_output_format == "kmb_v1":
-                                payload = _build_generate_flatbuffer_payload(model, output, sample_index=0)
-                                _write_kmb_generate_response(file, payload)
-                                continue
-
-                            resp = _build_generate_response(model, output, prompt, sample_index=0)
-                        except GenerateCancelledError as exc:
-                            resp = {"status": "cancelled", "message": str(exc)}
-                        finally:
-                            _finish_generate(cancel_event)
-                    elif cmd == "quit":
-                        resp = {"status": "bye"}
-                        _set_quitting()
-                        try:
-                            server.close()
-                        except Exception:
-                            pass
-                    else:
-                        resp = {"status": "error", "message": f"Unknown cmd: {cmd!r}"}
-                except Exception as exc:
-                    resp = {
-                        "status": "error",
-                        "message": str(exc),
-                        "server_message": f"Bridge exception while handling {stage}",
-                        "error_type": type(exc).__name__,
-                        "stage": stage,
-                        "traceback": traceback.format_exc(),
-                    }
-                    _log(f"[bridge] error {exc}")
-                finally:
-                    _command_finished()
-
-                try:
-                    _write_json_line(file, resp)
-                except (ConnectionResetError, BrokenPipeError, OSError):
-                    break
-
-    try:
-        while not _is_quitting():
-            try:
-                conn, _addr = server.accept()
-            except OSError:
-                if _is_quitting():
-                    break
-                raise
-            _log(f"[bridge] accept {_addr}")
-            threading.Thread(target=_client_worker, args=(conn, _addr), daemon=True).start()
-    finally:
-        try:
-            server.close()
-        except Exception:
-            pass
-        try:
-            if os.path.exists(port_file):
-                os.remove(port_file)
-        except Exception:
-            _log("[bridge] shutdown")
-            pass
-
-
-if __name__ == "__main__":
-    main()
 
 

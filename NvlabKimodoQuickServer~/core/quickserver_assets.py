@@ -1077,7 +1077,15 @@ def build_runtime_env(
     primary_dir, peft_dir = resolve_text_encoder_layout_paths(selected_layout, models_path)
 
     env: dict[str, str] = {
-        "PYTHONPATH": str(Path(source_root).resolve()),
+        "PYTHONPATH": os.pathsep.join(
+            str(path)
+            for path in (
+                root,
+                Path(source_root).resolve(),
+                root / "ardy",
+            )
+            if path.is_dir()
+        ),
         "KIMODO_ROOT_PATH": str(root),
         "KIMODO_MODELS_ROOT": str(models_path),
         "KIMODO_TEXT_ENCODER_MODE": normalize_text_encoder_mode(text_encoder_mode),

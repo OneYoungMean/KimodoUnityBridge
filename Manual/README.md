@@ -33,6 +33,7 @@
 ### 配置与运行时
 
 - **[Kimodo Server Manager](Kimodo%20Server%20Manager%20说明书.md)** — 本地服务器、模型管理与全局选项的控制台（位于 Project Settings）。
+- **[QuickServer 启动与协议](QuickServer%20启动与协议说明书.md)** — 命令行启动、Windows/Linux 差异、TCP 协议、JSON/BVH/KMB 输出和外部客户端示例。
 - **[Runtime Motion Driver](Runtime%20Motion%20Driver%20说明书.md)** — 在 Play Mode 或发布版连续生成、实时重定向、更新提示词和运行时约束。
 - 旧版 `KimodoInfiniteMotionDemo` 与对应 API 文档已移入仓库 `Archive~`，不再代表 2.0.1 的现行接口。
 

@@ -11,10 +11,10 @@ import warnings
 import numpy as np
 import torch
 
-from kimodo.bridge import ardy_backend
-from kimodo.bridge import bridge_server
-from kimodo.bridge import quickserver_cli
-from kimodo.bridge.frame_time import seconds_to_frame_count
+from core import ardy_backend
+from core import kimodo_runtime
+from core import quickserver_cli
+from kimodo.frame_time import seconds_to_frame_count
 
 
 class QuickServerProtocolV2Tests(unittest.TestCase):
@@ -27,10 +27,10 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             seconds_to_frame_count(float("nan"), 30.0)
 
     def test_kimodo_long_generation_segments_are_equal_and_never_exceed_ten_seconds(self):
-        self.assertEqual(bridge_server._generation_segment_frames(300, 30.0), [300])
-        self.assertEqual(bridge_server._generation_segment_frames(360, 30.0), [180, 180])
-        self.assertEqual(bridge_server._generation_segment_frames(630, 30.0), [210, 210, 210])
-        self.assertEqual(bridge_server._generation_segment_frames(301, 30.0), [151, 150])
+        self.assertEqual(kimodo_runtime._generation_segment_frames(300, 30.0), [300])
+        self.assertEqual(kimodo_runtime._generation_segment_frames(360, 30.0), [180, 180])
+        self.assertEqual(kimodo_runtime._generation_segment_frames(630, 30.0), [210, 210, 210])
+        self.assertEqual(kimodo_runtime._generation_segment_frames(301, 30.0), [151, 150])
 
     def test_kimodo_long_generation_uses_transition_connected_segments(self):
         class RecordingModel:
@@ -42,8 +42,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 return {"generated": True}
 
         model = RecordingModel()
-        with patch.object(bridge_server, "_load_constraints", return_value=[]), patch.object(bridge_server, "_out"):
-            output, prompt = bridge_server._run_generate(
+        with patch.object(kimodo_runtime, "_load_constraints", return_value=[]), patch.object(kimodo_runtime, "_out"):
+            output, prompt = kimodo_runtime._run_generate(
                 {"duration": 11.0, "prompt": "walk"},
                 model,
                 emit_progress=False,
@@ -59,9 +59,9 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         model = SimpleNamespace()
         expected_output = {"posed_joints": np.zeros((1, 1, 1, 3), dtype=np.float32)}
         expected_response = {"status": "done"}
-        with patch.object(bridge_server, "_run_generate", return_value=(expected_output, "walk.")) as run_generate, patch.object(
-            bridge_server, "_resolve_requested_output_format", return_value="json_compact"
-        ), patch.object(bridge_server, "_build_generate_response", return_value=expected_response):
+        with patch.object(kimodo_runtime, "_run_generate", return_value=(expected_output, "walk.")) as run_generate, patch.object(
+            kimodo_runtime, "_resolve_requested_output_format", return_value="json_compact"
+        ), patch.object(kimodo_runtime, "_build_generate_response", return_value=expected_response):
             response, payload = quickserver_cli._execute_generate({"duration": 11.0}, model, threading.Event())
 
         self.assertEqual(response, expected_response)
@@ -121,7 +121,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             "global_root_heading": np.asarray([[[1.0, 0.0]]], dtype=np.float32),
             "local_rot_mats": np.eye(3, dtype=np.float32).reshape(1, 1, 1, 3, 3),
         }
-        restored = bridge_server._restore_kimodo_output_origin(
+        restored = kimodo_runtime._restore_kimodo_output_origin(
             output,
             session.constraint_origin,
             model,
@@ -132,17 +132,17 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
     def test_direct_kmb_is_the_only_binary_motion_format(self):
         self.assertEqual(
-            bridge_server._resolve_requested_output_format({"output_format": "kmb_v1"}),
+            kimodo_runtime._resolve_requested_output_format({"output_format": "kmb_v1"}),
             "kmb_v1",
         )
         self.assertNotEqual(
-            bridge_server._resolve_requested_output_format({"output_format": "removed_format"}),
+            kimodo_runtime._resolve_requested_output_format({"output_format": "removed_format"}),
             "removed_format",
         )
 
     def test_kimodo_rejects_automatic_root_target_with_explicit_semantics(self):
         with self.assertRaisesRegex(ValueError, "automatic ARDY-only navigation constraint"):
-            bridge_server._load_constraints(
+            kimodo_runtime._load_constraints(
                 '[{"type":"root2d_target","target_root_2d":[1.0,2.0]}]',
                 SimpleNamespace(skeleton=object()),
             )
@@ -201,7 +201,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             text_encoder=SimpleNamespace(model=None),
             _encode_text=encode,
         )
-        with self.assertRaises(bridge_server.GenerateCancelledError):
+        with self.assertRaises(kimodo_runtime.GenerateCancelledError):
             session._encode_prompt(model, cancel_event=cancel)
 
     def test_active_cancel_publishes_terminal_generate_response_immediately(self):
@@ -225,7 +225,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         cancel = threading.Event()
         cancel.set()
         model = SimpleNamespace(fps=30.0)
-        with self.assertRaises(bridge_server.GenerateCancelledError):
+        with self.assertRaises(kimodo_runtime.GenerateCancelledError):
             quickserver_cli._execute_generate({}, model, cancel)
 
     def test_shared_text_encoder_signature_uses_mode_not_models_directory_or_placement(self):
@@ -311,7 +311,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             target.text_encoder = object()
 
         with (
-            patch.object(quickserver_cli.bridge_runtime_helpers, "_runtime_self_check", return_value=profile),
+            patch.object(quickserver_cli.runtime_helpers, "_runtime_self_check", return_value=profile),
             patch.object(quickserver_cli.assets, "motion_model_min_free_vram_gb", return_value=2.0),
             patch.object(quickserver_cli.assets, "resolve_text_encoder_runtime", return_value=decision),
             patch.object(quickserver_cli, "_replace_text_encoder", side_effect=attach_encoder) as replace_encoder,
@@ -945,7 +945,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         profile = SimpleNamespace(source_fps=20.0, motion_rep_fingerprint="test")
         with (
             patch.object(ardy_backend, "ArdySession", return_value=fixed),
-            patch.object(bridge_server, "_build_generate_flatbuffer_payload", return_value=b"kmb") as build_payload,
+            patch.object(kimodo_runtime, "_build_generate_flatbuffer_payload", return_value=b"kmb") as build_payload,
         ):
             _, _, payload = ardy_backend.execute_stream_generate(
                 None,

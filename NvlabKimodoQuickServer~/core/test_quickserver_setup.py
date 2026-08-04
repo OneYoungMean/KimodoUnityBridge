@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from kimodo.bridge import quickserver_setup
+from core import quickserver_setup
 
 
 class QuickServerSetupTests(unittest.TestCase):

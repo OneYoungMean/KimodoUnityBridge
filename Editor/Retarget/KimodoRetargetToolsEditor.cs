@@ -250,7 +250,7 @@ namespace KimodoBridge.Editor
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                         out BoneSample[] boneSamples,
                         out error,
-                        applyMotionXToDelta: false))
+                        applyMotionXToDelta: true))
                 {
                     return false;
                 }
@@ -259,7 +259,7 @@ namespace KimodoBridge.Editor
                     $"[Kimodo][RetargetAvatar] Humanoid->Bone sample completed: " +
                     $"sourceHumanoidClip='{sourceHumanoidClip.name}', isHumanMotion={sourceHumanoidClip.isHumanMotion}, " +
                     $"samplingMode={KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid}, " +
-                    $"applyMotionXToDelta=false, frames={boneSamples?.Length ?? 0}, " +
+                    $"applyMotionXToDelta=true, frames={boneSamples?.Length ?? 0}, " +
                     $"{DescribeBoneSampleMotionForDebug(boneSamples)}.");
                 KimodoPlayableClipGenerationSettings.DebugLog(
                     $"[Kimodo][RetargetAvatar] animator avatar after Humanoid->Bone sample: " +

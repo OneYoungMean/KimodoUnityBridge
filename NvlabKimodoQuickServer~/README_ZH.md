@@ -12,6 +12,11 @@
 - 复用同一条 TCP 连接处理 Session、Generate、Cancel 和直接 KMB 结果。
 - 返回按任务 id 归属的 `queued / loading / progress / cancelling / cancelled / done / error` 状态。
 
+## 运行时目录边界
+
+- `kimodo/`：只放 Kimodo 模型和动作生成算法。
+- `core/`：放 QuickServer TCP 路由、Session/交互状态、资产准备、协议序列化和 ARDY 集成。
+
 ## 环境要求
 - Windows 10/11 x64、macOS 或 Linux；Windows 使用 `run_server.bat`，macOS/Linux 使用 `run_server.sh`。
 - CUDA 是当前最完整的加速路线；Apple MPS、AMD/ROCm 与 Intel XPU 属于实验性支持，不可用时会回退到 CPU。
@@ -31,6 +36,20 @@ cd /path/to/NvlabKimodoQuickServer~
 ```
 
 启动脚本会先自动检查并完成 setup，再启动 TCP supervisor；无需也不应追加 `setup` 子命令。模型、文本编码器模式和模型目录通常由 Unity 的每次生成请求传入。Windows 批处理脚本只处理生命周期参数，不会转发 `--model`、`--models-root` 或 `--output` 等高级运行参数；详见 `PARAMETERS.md`。
+
+更完整的命令行启动、Windows/Linux 差异、TCP 协议和外部客户端示例见 `Manual/QuickServer 启动与协议说明书.md`。
+
+### Windows 与 Linux/macOS 差异摘要
+
+两边最终都启动同一个 `core.quickserver_cli run`，TCP 协议一致；差异主要在启动脚本参数处理：
+
+| 项目 | Windows `run_server.bat` | macOS / Linux `run_server.sh` |
+| --- | --- | --- |
+| 高级运行参数 | 不转发 `--model/--models-root/--text-encoder-mode` | 会原样转发给 supervisor |
+| `--watchpid` | 显式支持 | 原样转发，supervisor 支持 |
+| `--hold-cli` | 支持，调试批处理窗口 | 不支持 |
+| uv 自动安装 | 支持 `KIMODO_AUTO_INSTALL_UV` 跳过询问 | 交互询问；不读取该变量 |
+| 推荐配置方式 | Unity 设置、环境变量或每次 `generate` 请求 | Unity 设置、环境变量、每次请求或脚本参数 |
 
 文本编码器由 `text_encoder_mode=high_precision|high_performance` 选择精度偏好，再按实时剩余显存和设备能力自动放置。QuickServer 先为 motion 模型预留约 2GB，随后把剩余显存作为文本编码器预算；NF4/INT8/FP16 的门槛分别为 6GB/8GB/16GB。显式 `simulate_free_vram_gb=0` 会让整个运行时走 CPU。
 
@@ -88,6 +107,42 @@ Python 会从 KMB 的 Root position 与 local quaternion 重建 ARDY 特征。�
 - `cancel` 同样支持可选 `task_id`；若未传，则取消当前队列中第一个可取消任务，并在响应里回传实际命中的任务标识。
 - ARDY 在 Horizon 内不可中断；Cancel 只取消当前等待中的 Generate 响应，Session 时间线由 `session.close` 销毁。
 - KMB 返回保持 `byte_length` 后紧跟该任务的二进制 payload。
+
+## TCP examples
+
+默认 JSON 生成：
+
+```json
+{"cmd":"generate","request_id":"demo-json","prompt":"a person walks forward","duration":3.0,"output_format":"json_compact"}
+```
+
+返回 BVH：
+
+```json
+{"cmd":"generate","request_id":"demo-bvh","prompt":"a person waves","duration":3.0,"output_format":"bvh"}
+```
+
+返回 KMB 二进制：
+
+```json
+{"cmd":"generate","request_id":"demo-kmb","prompt":"a person runs","duration":2.0,"output_format":"kmb_v1"}
+```
+
+显式 Session：
+
+```json
+{"cmd":"session.open","request_id":"open-1"}
+{"cmd":"generate","request_id":"s1-g1","task_id":"s1-g1","prompt":"walk forward","duration":2.0}
+{"cmd":"cancel","request_id":"cancel-1","task_id":"s1-g1"}
+{"cmd":"session.close","request_id":"close-1"}
+```
+
+ARDY 流式生成（省略 `duration`）：
+
+```json
+{"cmd":"generate","request_id":"ardy-0","model":"ARDY-Core-RP-20FPS-Horizon40","prompt":"a humanoid robot walks forward","time_as_double":0.0,"output_format":"kmb_v1"}
+{"cmd":"generate","request_id":"ardy-1","model":"ARDY-Core-RP-20FPS-Horizon40","time_as_double":1.0,"output_format":"kmb_v1"}
+```
 
 ## 参数文档
 - 见 `PARAMETERS.md`

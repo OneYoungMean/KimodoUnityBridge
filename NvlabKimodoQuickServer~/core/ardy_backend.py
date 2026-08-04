@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from kimodo.bridge.frame_time import seconds_to_frame_count
+from kimodo.frame_time import seconds_to_frame_count
 
 
 MAX_KMB_BYTES = 256 * 1024**2
@@ -22,7 +22,7 @@ TARGET_VELOCITY_GOAL_FRAME_INTERVAL = 10
 
 
 def _install_bundled_ardy_path() -> Path:
-    bundled_root = Path(__file__).resolve().parents[3] / "ardy"
+    bundled_root = Path(__file__).resolve().parents[1] / "ardy"
     if not (bundled_root / "ardy" / "__init__.py").is_file():
         raise RuntimeError(f"Bundled ARDY source is missing: {bundled_root}")
     root_text = str(bundled_root)
@@ -154,7 +154,7 @@ class ArdySettings:
 
 
 def parse_kmb1(payload: bytes) -> KmbMotion:
-    from kimodo.bridge.protocol.generated import MotionPacket
+    from core.protocol.generated import MotionPacket
 
     if len(payload or b"") > MAX_KMB_BYTES:
         raise ArdyBackendError(f"KMB1 payload exceeds the {MAX_KMB_BYTES}-byte limit.")
@@ -799,9 +799,9 @@ class ArdySession:
 
     @staticmethod
     def _resolve_cfg(request: dict[str, Any]) -> float:
-        from kimodo.bridge import bridge_server
+        from core import kimodo_runtime
 
-        return bridge_server._resolve_cfg_text_weight(request)
+        return kimodo_runtime._resolve_cfg_text_weight(request)
 
     def _resolve_steps(self, value: Any) -> int:
         if isinstance(value, bool):
@@ -835,10 +835,10 @@ class ArdySession:
         progress: Callable[[str], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
-        from kimodo.bridge import bridge_server
+        from core import kimodo_runtime
 
         if cancel_event is not None and cancel_event.is_set():
-            raise bridge_server.GenerateCancelledError("Generation canceled.")
+            raise kimodo_runtime.GenerateCancelledError("Generation canceled.")
         encode_text = getattr(model, "_encode_text", None)
         if callable(encode_text):
             encoder = getattr(model, "text_encoder", None)
@@ -851,7 +851,7 @@ class ArdySession:
                 )
             self.text_feat, self.text_pad_mask = encode_text([self.prompt])
             if cancel_event is not None and cancel_event.is_set():
-                raise bridge_server.GenerateCancelledError("Generation canceled.")
+                raise kimodo_runtime.GenerateCancelledError("Generation canceled.")
             if progress is not None:
                 progress("TextEncoder ready. Generating ARDY motion...")
         else:
@@ -1347,16 +1347,16 @@ class ArdySession:
         self.outputs = _append_outputs(self.outputs, to_numpy(output))
 
     def _ensure_generated(self, frame_exclusive: int, model: Any, cancel_event: threading.Event) -> None:
-        from kimodo.bridge import bridge_server
+        from core import kimodo_runtime
 
         while self.frame_count < frame_exclusive:
             if cancel_event.is_set():
-                raise bridge_server.GenerateCancelledError("Generation canceled.")
+                raise kimodo_runtime.GenerateCancelledError("Generation canceled.")
             if self.root_2d_target is not None:
                 self._refresh_root_2d_target_constraints(model, self.frame_count)
             self._generate_horizon(model, cancel_event)
         if cancel_event.is_set():
-            raise bridge_server.GenerateCancelledError("Generation canceled.")
+            raise kimodo_runtime.GenerateCancelledError("Generation canceled.")
 
     def record_response_duration(self, elapsed_seconds: float, delivered_frames: int) -> None:
         if not self.settings.adaptive_playback_reserve or delivered_frames <= 0:
@@ -1465,7 +1465,7 @@ def execute_stream_generate(
     quickserver_root: str | Path,
     progress: Callable[[str], None] | None = None,
 ) -> tuple[ArdySession | None, dict[str, Any], bytes | None]:
-    from kimodo.bridge import bridge_server
+    from core import kimodo_runtime
 
     fixed_length = "duration" in request
     if fixed_length:
@@ -1494,12 +1494,12 @@ def execute_stream_generate(
         metadata, output = session.generate(request, attachments, model, cancel_event)
         payload = b""
         if output:
-            output = bridge_server._restore_kimodo_output_origin(
+            output = kimodo_runtime._restore_kimodo_output_origin(
                 output,
                 session.constraint_origin,
                 model,
             )
-            payload = bridge_server._build_generate_flatbuffer_payload(model, output, sample_index=0)
+            payload = kimodo_runtime._build_generate_flatbuffer_payload(model, output, sample_index=0)
         elapsed = time.perf_counter() - started
         session.record_response_duration(
             elapsed,

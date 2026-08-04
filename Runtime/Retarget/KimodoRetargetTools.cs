@@ -178,7 +178,7 @@ namespace KimodoBridge
                         $"clip='{sourceHumanoidClip.name}', isHumanMotion={sourceHumanoidClip.isHumanMotion}, " +
                         $"provided={ReferenceEquals(sourceHumanoidClip, providedSourceHumanoidClip)}, " +
                         $"samplingMode={KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid}, " +
-                        $"applyMotionXToDelta=false.");
+                        $"applyMotionXToDelta=true.");
                     if (!KimodoRetargetSamplingUtility.TryCollectBoneSamplesFromClip(
                             sourceHumanoidClip,
                             targetCache,
@@ -186,7 +186,7 @@ namespace KimodoBridge
                             KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                             out BoneSample[] targetBoneSamples,
                             out error,
-                            applyMotionXToDelta: false))
+                            applyMotionXToDelta: true))
                     {
                         return false;
                     }

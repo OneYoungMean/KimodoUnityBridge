@@ -6,7 +6,7 @@ import os
 from typing import Any, Optional
 
 from kimodo.tools import load_json
-from kimodo.bridge.frame_time import seconds_to_frame_count
+from .frame_time import seconds_to_frame_count
 
 from .sanitize import sanitize_text, sanitize_texts
 

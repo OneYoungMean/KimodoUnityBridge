@@ -15,9 +15,10 @@ import torch
 from torch import nn
 from transformers import AutoConfig, AutoTokenizer
 
-from kimodo.bridge.quickserver_assets import INT8_LOCAL_DIR
-
 from .llm2vec import LLM2Vec
+
+
+INT8_LOCAL_DIR = "KIMODO-Meta3_llm2vec_INT8"
 
 
 DEFAULT_LLM2VEC_CONFIG: dict[str, Any] = {

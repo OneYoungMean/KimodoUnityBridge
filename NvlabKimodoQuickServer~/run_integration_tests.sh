@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPT="$ROOT_DIR/kimodo/kimodo/bridge/integration_test_suite.py"
+SCRIPT="$ROOT_DIR/core/integration_test_suite.py"
 
 resolve_python() {
   if command -v python3 >/dev/null 2>&1; then

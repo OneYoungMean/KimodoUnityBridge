@@ -369,5 +369,5 @@ if [[ ! -f "${ARDY_SOURCE_ROOT}/ardy/__init__.py" ]]; then
   echo "[ERROR] Bundled ARDY package is missing: ${ARDY_SOURCE_ROOT}/ardy/__init__.py" >&2
   exit 1
 fi
-export PYTHONPATH="${SOURCE_ROOT}:${ARDY_SOURCE_ROOT}"
-exec "${VENV_PYTHON}" -m kimodo.bridge.quickserver_cli run --output file "${ARGS[@]}"
+export PYTHONPATH="${ROOT_DIR}:${SOURCE_ROOT}:${ARDY_SOURCE_ROOT}"
+exec "${VENV_PYTHON}" -m core.quickserver_cli run --output file "${ARGS[@]}"

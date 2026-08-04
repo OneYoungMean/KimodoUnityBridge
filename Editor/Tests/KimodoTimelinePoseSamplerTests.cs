@@ -30,6 +30,32 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void Root2DPreviewHeading_RotatesOnlyTheVirtualRoot()
+        {
+            var preview = new GameObject("Root2DPreviewHeadingTest");
+            try
+            {
+                Quaternion storedRotation = Quaternion.Euler(0f, 15f, 0f);
+                var sample = new KimodoMarkerSampleResult
+                {
+                    constraintType = "root2d",
+                    hasRootHeading = true,
+                    rootHeading = Vector2.right,
+                    unityRootRot = storedRotation
+                };
+
+                KimodoConstraintSpaceConverter.ApplyRoot2DHeadingToPreviewRoot(sample, preview.transform);
+
+                Assert.That(Vector3.Dot(preview.transform.forward, Vector3.right), Is.GreaterThan(0.999f));
+                Assert.That(Quaternion.Angle(sample.unityRootRot, storedRotation), Is.LessThan(0.001f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(preview);
+            }
+        }
+
+        [Test]
         public void ResolveSourceHumanBone_UsesSourceAvatarWhenAnimatorAvatarIsNull()
         {
             Assert.That(

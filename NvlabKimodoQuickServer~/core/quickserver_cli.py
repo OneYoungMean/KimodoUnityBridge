@@ -17,10 +17,10 @@ import time
 import sys
 from typing import Any
 
-from . import bridge_server as bridge_runtime_helpers
+from . import kimodo_runtime as runtime_helpers
 from . import ardy_backend
 from . import quickserver_assets as assets
-from .frame_time import seconds_to_frame_count
+from kimodo.frame_time import seconds_to_frame_count
 from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 
 
@@ -231,7 +231,7 @@ def _try_reuse_existing_supervisor(serverport_path: Path, logger: SetupLogger) -
 
 
 def _write_serverport(path: Path, host: str, port: int, state_name: str) -> None:
-    bridge_runtime_helpers._write_text_atomic(
+    runtime_helpers._write_text_atomic(
         str(path),
         "\n".join(
             [
@@ -450,7 +450,7 @@ def _refresh_encoder_route_after_motion_load(
 ) -> assets.TextEncoderRuntimeDecision:
     if runtime_profile.runtime_device == "cpu" or config["simulate_free_vram_gb"] is not None:
         return current
-    free_vram_gb = bridge_runtime_helpers._detect_free_vram_gb(runtime_profile.runtime_device)
+    free_vram_gb = runtime_helpers._detect_free_vram_gb(runtime_profile.runtime_device)
     updated = assets.resolve_text_encoder_runtime(
         config["text_encoder_mode"],
         runtime_profile.runtime_device,
@@ -521,7 +521,7 @@ def _ensure_runtime(
         os.environ.pop("KIMODO_SIMULATE_FREE_VRAM_GB", None)
     os.environ.pop("KIMODO_SIMULATE_VRAM_GB", None)
 
-    runtime_profile = bridge_runtime_helpers._runtime_self_check(
+    runtime_profile = runtime_helpers._runtime_self_check(
         str(state.get("runtime_device") or "") if same_runtime else None
     )
     motion_required_gb = 0.0 if same_runtime else assets.motion_model_min_free_vram_gb(config["model"])
@@ -531,7 +531,7 @@ def _ensure_runtime(
             "[WARN] Motion runtime does not fit in current free VRAM; loading it on CPU: "
             f"model={config['model']} required={motion_required_gb:g}GB free={free_vram_gb:.2f}GB"
         )
-        runtime_profile = bridge_runtime_helpers._runtime_self_check("cpu")
+        runtime_profile = runtime_helpers._runtime_self_check("cpu")
         free_vram_gb = runtime_profile.free_vram_gb
     encoder_free_vram_gb = max(0.0, free_vram_gb - motion_required_gb)
     runtime_decision = assets.resolve_text_encoder_runtime(
@@ -666,7 +666,7 @@ def _ensure_runtime(
         }
 
     force_download_site = assets.DownloadSite.HUGGINGFACE if config["force_hf_download"] else None
-    plan = bridge_runtime_helpers._provision_bridge_assets(
+    plan = runtime_helpers._provision_bridge_assets(
         kimodo_root,
         config["model"],
             runtime_profile=runtime_profile,
@@ -674,7 +674,7 @@ def _ensure_runtime(
             encoder_free_vram_gb=encoder_free_vram_gb,
         )
 
-    from kimodo.bridge.bridge_load_model import load_bridge_model
+    from core.bridge_load_model import load_bridge_model
 
     resolved_model_name = plan.resolved_model.local_name
     model = load_bridge_model(
@@ -718,25 +718,25 @@ def _execute_generate(
     cancel_event: threading.Event,
 ) -> tuple[dict[str, Any], bytes | None]:
     if cancel_event.is_set():
-        raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
+        raise runtime_helpers.GenerateCancelledError("Generation canceled.")
 
-    output, prompt = bridge_runtime_helpers._run_generate(
+    output, prompt = runtime_helpers._run_generate(
         task_request,
         model,
         cancel_event,
         emit_progress=False,
     )
 
-    output_format = bridge_runtime_helpers._resolve_requested_output_format(task_request)
+    output_format = runtime_helpers._resolve_requested_output_format(task_request)
     if output_format == "kmb_v1":
-        payload = bridge_runtime_helpers._build_generate_flatbuffer_payload(model, output, sample_index=0)
+        payload = runtime_helpers._build_generate_flatbuffer_payload(model, output, sample_index=0)
         return {
             "status": "done",
             "output_format": "kmb_v1",
             "byte_length": len(payload),
         }, payload
 
-    return bridge_runtime_helpers._build_generate_response(model, output, prompt, sample_index=0), None
+    return runtime_helpers._build_generate_response(model, output, prompt, sample_index=0), None
 
 
 def _build_streaming_status_message(
@@ -821,7 +821,7 @@ def _is_encoder_oom(error: Exception) -> bool:
 
 def _write_protocol_message(file, writer_lock: threading.Lock, payload: dict[str, Any], binary_payload: bytes | None = None) -> None:
     with writer_lock:
-        bridge_runtime_helpers._write_json_line(file, payload)
+        runtime_helpers._write_json_line(file, payload)
         if binary_payload:
             file.write(binary_payload)
             file.flush()
@@ -1324,15 +1324,15 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 publish_state("loading_runtime")
                 task["status_message"] = "Preparing motion runtime..."
                 if task["cancel_event"].is_set():
-                    raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
+                    raise runtime_helpers.GenerateCancelledError("Generation canceled.")
                 runtime = get_runtime(session, task["runtime_config"])
                 if task["cancel_event"].is_set():
-                    raise bridge_runtime_helpers.GenerateCancelledError("Generation canceled.")
+                    raise runtime_helpers.GenerateCancelledError("Generation canceled.")
                 task["status_message"] = "Generating motion..."
                 publish_state("generating")
                 response, binary_payload = run_one_shot(task, runtime, session)
                 response = _attach_runtime_metadata(response, runtime.get("text_encoder_decision"))
-            except bridge_runtime_helpers.GenerateCancelledError as exc:
+            except runtime_helpers.GenerateCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
                 binary_payload = None
             except ardy_backend.ArdyBackendError as exc:

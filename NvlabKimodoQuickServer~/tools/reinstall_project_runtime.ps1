@@ -74,6 +74,9 @@ if ($LASTEXITCODE -ne 0 -or -not $trackedFiles) {
 foreach ($tracked in $trackedFiles) {
     $relativePath = $tracked.Substring($trackedPrefix.Length).Replace('/', [IO.Path]::DirectorySeparatorChar)
     $source = Join-Path $sourceRoot $relativePath
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+        continue
+    }
     $destination = Join-Path $runtimeRoot $relativePath
     New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($destination)) -Force | Out-Null
     Copy-Item -LiteralPath $source -Destination $destination -Force

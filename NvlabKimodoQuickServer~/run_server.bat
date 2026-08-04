@@ -76,7 +76,6 @@ if /I "%~1"=="--venv" (
     goto cleanup_fail
   )
   set "EXPLICIT_VENV=%~2"
-  set "SETUP_ARGS=%SETUP_ARGS% --venv ""%~2"""
   shift
   shift
   goto parse_args
@@ -103,7 +102,7 @@ if not exist "%ARDY_SOURCE_ROOT%\ardy\__init__.py" (
   echo [ERROR] Bundled ARDY package is missing: %ARDY_SOURCE_ROOT%\ardy\__init__.py
   goto cleanup_fail
 )
-set "PYTHONPATH=%SOURCE_ROOT%;%ARDY_SOURCE_ROOT%"
+set "PYTHONPATH=%ROOT_DIR%;%SOURCE_ROOT%;%ARDY_SOURCE_ROOT%"
 if not exist "%ROOT_DIR%\log" mkdir "%ROOT_DIR%\log" >nul 2>nul
 > "%ROOT_DIR%\log\run_server_cli_launch.log" (
   echo VENV_PYTHON=%VENV_PYTHON%
@@ -114,7 +113,7 @@ if not exist "%ROOT_DIR%\log" mkdir "%ROOT_DIR%\log" >nul 2>nul
 if defined HOLD_CLI (
   echo [INFO] Holding batch until quickserver_cli exits...
 )
-"%VENV_PYTHON%" -m kimodo.bridge.quickserver_cli %CLI_ARGS%
+"%VENV_PYTHON%" -m core.quickserver_cli %CLI_ARGS%
 >> "%ROOT_DIR%\log\run_server_cli_launch.log" echo CLI_RC=%ERRORLEVEL%
 exit /b %ERRORLEVEL%
 

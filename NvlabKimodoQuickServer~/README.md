@@ -12,6 +12,12 @@
 - Reuse a single TCP connection for Session, Generate, Cancel, and direct KMB results.
 - Return task-scoped `queued / loading / progress / cancelling / cancelled / done / error` messages.
 
+## Runtime layout
+
+- `kimodo/`: Kimodo model and motion-generation algorithms only.
+- `core/`: QuickServer TCP routing, session/interaction state, asset setup,
+  protocol serialization, and ARDY integration.
+
 ## Requirements
 - Windows 10/11 x64, macOS, or Linux. Use `run_server.bat` on Windows and `run_server.sh` on macOS/Linux.
 - CUDA is the most complete accelerator path. Apple MPS, AMD/ROCm, and Intel XPU are experimental and fall back to CPU when runtime validation fails.

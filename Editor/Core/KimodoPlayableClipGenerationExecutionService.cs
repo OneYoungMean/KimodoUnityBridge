@@ -35,7 +35,52 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            return StartSingle(clip, out session, out error);
+            List<TimelineClip> selected = KimodoEditorSelectionBridge.GetSelectedPlayableClips(clip);
+            selected.Sort(CompareTimelineClips);
+            if (selected.Count <= 1)
+            {
+                return StartSingle(clip, out session, out error);
+            }
+
+            var selectedClips = new List<KimodoPlayableClip>(selected.Count);
+            for (int i = 0; i < selected.Count; i++)
+            {
+                if (selected[i]?.asset is not KimodoPlayableClip selectedClip)
+                {
+                    continue;
+                }
+
+                if (EditorGenerateSessionRunner.TryGet(selectedClip, out EditorGenerateSession active) &&
+                    active != null &&
+                    active.IsRunning)
+                {
+                    error = $"A generation session is already running for '{selectedClip.name}'.";
+                    session = active;
+                    return false;
+                }
+
+                selectedClips.Add(selectedClip);
+            }
+
+            return EditorGenerateSessionRunner.Start(
+                clip,
+                $"clip-selected:{clip.GetInstanceID()}",
+                KimodoEditorCommandKind.GeneratePlayableClip,
+                async (handle, token) => await GenerateSelectedAndFinalizeAsync(
+                    selectedClips,
+                    (stage, message) => EditorGenerateSessionRunner.UpdateProgress(
+                        clip,
+                        handle.RequestId,
+                        stage,
+                        message),
+                    token),
+                out session,
+                out error);
+        }
+
+        internal static int GetSelectedPlayableClipCount(KimodoPlayableClip clip)
+        {
+            return KimodoEditorSelectionBridge.GetSelectedPlayableClips(clip).Count;
         }
 
         internal static bool TryStartGenerateConnectedArdy(
@@ -542,10 +587,31 @@ namespace KimodoBridge.Editor
                 : (stage, message) => progress(stage, $"[{index + 1}/{count}] {message}");
         }
 
-        private static int CompareTimelineClips(TimelineClip left, TimelineClip right)
+        internal static int CompareTimelineClips(TimelineClip left, TimelineClip right)
         {
             int byStart = (left?.start ?? 0.0).CompareTo(right?.start ?? 0.0);
             return byStart != 0 ? byStart : (left?.end ?? 0.0).CompareTo(right?.end ?? 0.0);
+        }
+
+        private static async Task<KimodoEditorGenerateResult> GenerateSelectedAndFinalizeAsync(
+            IReadOnlyList<KimodoPlayableClip> clips,
+            Action<KimodoBridgeCommandStage, string> progress,
+            CancellationToken token)
+        {
+            KimodoEditorGenerateResult result = null;
+            for (int i = 0; i < clips.Count; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                KimodoPlayableClip selectedClip = clips[i];
+                string prefix = $"[{i + 1}/{clips.Count}] {selectedClip.name}";
+                result = await GenerateAndFinalizeAsync(
+                    selectedClip,
+                    externalConstraint: null,
+                    (stage, message) => progress?.Invoke(stage, $"{prefix}: {message}"),
+                    token);
+            }
+
+            return result ?? throw new InvalidOperationException("No Timeline clips were selected for generation.");
         }
 
         private static void AddDifference(List<string> differences, string message)

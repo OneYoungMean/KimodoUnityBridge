@@ -91,7 +91,7 @@ namespace KimodoBridge.Editor
                 }
 
                 targetCache.root.name = $"__KimodoConstraintAvatar_{clipId}_{animatorId}";
-                targetCache.root.hideFlags = HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
+                targetCache.root.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
                 profileCache.root.hideFlags = HideFlags.HideAndDontSave;
                 instance = new PoseRigInstance
                 {
@@ -161,7 +161,7 @@ namespace KimodoBridge.Editor
                 animator.enabled = true;
                 animator.Rebind();
                 animator.Update(0f);
-                root.hideFlags = HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
+                root.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
                 return true;
             }
             catch (Exception ex)

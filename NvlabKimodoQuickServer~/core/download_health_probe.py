@@ -19,7 +19,7 @@ STREAM_CHUNK_SIZE = 1024 * 1024
 
 
 def _runtime_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    return Path(__file__).resolve().parents[1]
 
 
 def _source_root(runtime_root: Path) -> Path:
@@ -377,7 +377,7 @@ def _probe_command(
 
 def _internal_model_download(runtime_root: Path, site_name: str, target_dir: Path) -> int:
     sys.path.insert(0, str(_source_root(runtime_root)))
-    from kimodo.bridge import quickserver_assets as assets
+    from core import quickserver_assets as assets
 
     model = assets.resolve_main_model(assets.DEFAULT_MODEL_NAME)
     asset = assets.AssetSpec(

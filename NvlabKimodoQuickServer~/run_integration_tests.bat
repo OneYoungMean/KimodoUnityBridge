@@ -4,7 +4,7 @@ chcp 65001 >nul
 
 set "ROOT_DIR=%~dp0"
 if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
-set "SCRIPT=%ROOT_DIR%\kimodo\kimodo\bridge\integration_test_suite.py"
+set "SCRIPT=%ROOT_DIR%\core\integration_test_suite.py"
 set "PYTHON_EXE="
 set "PYTHON_ARGS="
 

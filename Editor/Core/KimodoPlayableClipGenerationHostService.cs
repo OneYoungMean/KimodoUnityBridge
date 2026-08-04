@@ -428,8 +428,31 @@ namespace KimodoBridge.Editor
                     KimodoPlayableClipGenerationSettings.DebugLogWarning($"[Kimodo][TimelineOffset] Hips-based normalization offset failed, falling back to root anchor: {hipsOffsetError}");
                 }
 
+                if (TryApplyGeneratedRootAnchorOffset(
+                        playableClip,
+                        request,
+                        trackPosition,
+                        trackRotation,
+                        anchor.unityRootPos,
+                        anchor.unityRootRot,
+                        Mathf.Max(0f, (float)anchor.sampleTime),
+                        normalization.AnchorKind + " Root",
+                        out string rootOffsetError))
+                {
+                    return;
+                }
+
                 KimodoPlayableClipGenerationSettings.DebugLogWarning(
-                    $"[Kimodo][TimelineOffset] skipped {normalization.AnchorKind} alignment because its world Hips pose is unavailable.");
+                    $"[Kimodo][TimelineOffset] generated root sampling failed; using direct {normalization.AnchorKind} root anchor: {rootOffsetError}");
+                ApplyPlanarHipsAnchorOffset(
+                    playableClip,
+                    trackPosition,
+                    trackRotation,
+                    anchor.unityRootPos,
+                    anchor.unityRootRot,
+                    Vector3.zero,
+                    Quaternion.identity,
+                    normalization.AnchorKind + " RootFallback");
                 return;
             }
 
@@ -486,6 +509,56 @@ namespace KimodoBridge.Editor
             return true;
         }
 
+        private static bool TryApplyGeneratedRootAnchorOffset(
+            KimodoPlayableClip playableClip,
+            KimodoEditorGenerateRequest request,
+            Vector3 trackPosition,
+            Quaternion trackRotation,
+            Vector3 sourceRootPosition,
+            Quaternion sourceRootRotation,
+            float generatedSampleTime,
+            string anchorLabel,
+            out string error)
+        {
+            error = string.Empty;
+            AnimationClip generatedClip = playableClip != null && playableClip.clip != null
+                ? playableClip.clip
+                : request?.TargetClip;
+            Avatar samplingAvatar = ResolveGeneratedClipSamplingAvatar(request);
+            if (generatedClip == null)
+            {
+                error = "generated clip is null";
+                return false;
+            }
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(samplingAvatar))
+            {
+                error = "generated clip sampling avatar is null/invalid/non-humanoid";
+                return false;
+            }
+
+            if (!TrySampleGeneratedClipRootPose(
+                    generatedClip,
+                    samplingAvatar,
+                    generatedSampleTime,
+                    out Vector3 generatedRootPosition,
+                    out Quaternion generatedRootRotation,
+                    out error))
+            {
+                return false;
+            }
+
+            ApplyPlanarHipsAnchorOffset(
+                playableClip,
+                trackPosition,
+                trackRotation,
+                sourceRootPosition,
+                sourceRootRotation,
+                generatedRootPosition,
+                generatedRootRotation,
+                anchorLabel);
+            return true;
+        }
+
         private static void ApplyPlanarHipsAnchorOffset(
             KimodoPlayableClip playableClip,
             Vector3 trackPosition,
@@ -511,7 +584,7 @@ namespace KimodoBridge.Editor
             playableClip.removeStartOffset = false;
             EditorUtility.SetDirty(playableClip);
             KimodoPlayableClipGenerationSettings.DebugLog(
-                $"[Kimodo][TimelineOffset] applied {anchorLabel} planar Hips anchor to '{playableClip.name}': " +
+                $"[Kimodo][TimelineOffset] applied {anchorLabel} planar pose anchor to '{playableClip.name}': " +
                 $"sourceHips={sourceHipsPosition:F6}, generatedHips={generatedHipsPosition:F6}, " +
                 $"sourceHipsTrackLocal={sourceHipsTrackLocal:F6}, generatedHipsPlanar={generatedHipsPlanar:F6}, " +
                 $"computedPosition={clipPosition:F6}, position={playableClip.position}, " +
@@ -545,6 +618,43 @@ namespace KimodoBridge.Editor
             out Quaternion rotation,
             out string error)
         {
+            return TrySampleGeneratedClipPose(
+                generatedClip,
+                samplingAvatar,
+                sampleTime,
+                sampleHips: true,
+                out position,
+                out rotation,
+                out error);
+        }
+
+        private static bool TrySampleGeneratedClipRootPose(
+            AnimationClip generatedClip,
+            Avatar samplingAvatar,
+            float sampleTime,
+            out Vector3 position,
+            out Quaternion rotation,
+            out string error)
+        {
+            return TrySampleGeneratedClipPose(
+                generatedClip,
+                samplingAvatar,
+                sampleTime,
+                sampleHips: false,
+                out position,
+                out rotation,
+                out error);
+        }
+
+        private static bool TrySampleGeneratedClipPose(
+            AnimationClip generatedClip,
+            Avatar samplingAvatar,
+            float sampleTime,
+            bool sampleHips,
+            out Vector3 position,
+            out Quaternion rotation,
+            out string error)
+        {
             position = Vector3.zero;
             rotation = Quaternion.identity;
             SkeletonCache cache = null;
@@ -570,16 +680,23 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (cache.humanBoneTransforms == null ||
-                    !cache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out Transform hips) ||
-                    hips == null)
+                Transform sampledTransform = cache.skeletonRoot;
+                if (sampleHips &&
+                    (cache.humanBoneTransforms == null ||
+                     !cache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out sampledTransform) ||
+                     sampledTransform == null))
                 {
                     error = "generated clip sampling avatar has no Hips transform";
                     return false;
                 }
+                if (sampledTransform == null)
+                {
+                    error = "generated clip sampling skeleton has no root transform";
+                    return false;
+                }
 
-                position = hips.position;
-                rotation = hips.rotation.normalized;
+                position = sampledTransform.position;
+                rotation = sampledTransform.rotation.normalized;
                 return true;
             }
             finally

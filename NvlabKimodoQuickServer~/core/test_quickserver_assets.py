@@ -5,10 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import call, patch
 
-from kimodo.bridge import quickserver_assets as assets
-from kimodo.bridge import bridge_server
-from kimodo.bridge import quickserver_cli
-from kimodo.bridge.quickserver_cli import _is_accelerator_oom, _is_encoder_oom, _normalize_runtime_config
+from core import quickserver_assets as assets
+from core import kimodo_runtime
+from core import quickserver_cli
+from core.quickserver_cli import _is_accelerator_oom, _is_encoder_oom, _normalize_runtime_config
 
 
 class TextEncoderRuntimeDecisionTests(unittest.TestCase):
@@ -120,15 +120,15 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
     def test_simulated_memory_is_treated_as_current_free_vram(self):
         with patch.dict("os.environ", {"KIMODO_SIMULATE_FREE_VRAM_GB": "6"}, clear=False), patch(
             "torch.cuda.is_available", return_value=True
-        ), patch.object(bridge_server, "_probe_device_kernel", return_value=True
-        ), patch.object(bridge_server, "_probe_bitsandbytes", return_value=(True, True, True)), patch.object(
-            bridge_server, "_probe_fp16_kernel", return_value=True
+        ), patch.object(kimodo_runtime, "_probe_device_kernel", return_value=True
+        ), patch.object(kimodo_runtime, "_probe_bitsandbytes", return_value=(True, True, True)), patch.object(
+            kimodo_runtime, "_probe_fp16_kernel", return_value=True
         ):
-            profile = bridge_server._runtime_self_check("cuda:0")
+            profile = kimodo_runtime._runtime_self_check("cuda:0")
         self.assertEqual(profile.free_vram_gb, 6.0)
 
     def test_motion_model_requires_two_gb_before_encoder_routing(self):
-        profile = bridge_server._RuntimeSelfCheckResult(
+        profile = kimodo_runtime._RuntimeSelfCheckResult(
             backend_profile="cuda",
             runtime_device="cuda:0",
             kernel_ok=True,
@@ -139,16 +139,16 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
             fp16_accelerator_available=True,
             free_vram_gb=1.9,
         )
-        with patch("kimodo.bridge.quickserver_assets.resolve_models_root", return_value=(Path("."), True)):
+        with patch("core.quickserver_assets.resolve_models_root", return_value=(Path("."), True)):
             with self.assertRaisesRegex(RuntimeError, "before model load"):
-                bridge_server._build_bridge_provision_plan(
+                kimodo_runtime._build_bridge_provision_plan(
                     ".",
                     assets.DEFAULT_MODEL_NAME,
                     runtime_profile=profile,
                 )
 
     def test_quickserver_moves_motion_runtime_to_cpu_when_free_vram_is_too_low(self):
-        gpu = bridge_server._RuntimeSelfCheckResult(
+        gpu = kimodo_runtime._RuntimeSelfCheckResult(
             backend_profile="cuda",
             runtime_device="cuda:0",
             kernel_ok=True,
@@ -159,7 +159,7 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
             fp16_accelerator_available=True,
             free_vram_gb=1.0,
         )
-        cpu = bridge_server._RuntimeSelfCheckResult(
+        cpu = kimodo_runtime._RuntimeSelfCheckResult(
             backend_profile="cpu",
             runtime_device="cpu",
             kernel_ok=False,
@@ -182,7 +182,7 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
         }
         logger = SimpleNamespace(log=lambda _message: None)
         with patch.dict("os.environ", {}, clear=False), patch.object(
-            quickserver_cli.bridge_runtime_helpers,
+            quickserver_cli.runtime_helpers,
             "_runtime_self_check",
             side_effect=(gpu, cpu),
         ) as self_check, patch.object(

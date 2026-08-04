@@ -4,6 +4,20 @@
 
 启动脚本每次都会先检查 setup 状态，必要时自动准备环境，然后启动 TCP supervisor；没有面向用户的 `setup` 子命令。
 
+### Windows 与 Linux/macOS 参数转发差异
+
+| 项目 | Windows `run_server.bat` | macOS / Linux `run_server.sh` |
+| --- | --- | --- |
+| 最终入口 | `python -m core.quickserver_cli run --output file` | `python -m core.quickserver_cli run --output file` |
+| `--force-setup` | 支持，传给 setup 与 supervisor | 支持，传给 setup 与 supervisor |
+| `--force` | 不作为独立参数处理 | 支持，传给 setup，并继续传给 supervisor |
+| `--venv <path>` | 用于 setup 和选择 Python | 用于 setup 和选择 Python，并保留在 supervisor 参数中 |
+| `--watchpid <pid>` | 显式解析并转发 | 原样转发，supervisor 支持 |
+| `--hold-cli` | 支持，Windows 调试用 | 不支持 |
+| `--model/--models-root/--text-encoder-mode` | 不转发；请用 Unity 设置、环境变量或 `generate` 请求 | 原样转发给 supervisor |
+
+跨平台自动化建议：把模型、模型目录、文本编码器模式和输出格式放到每次 TCP `generate` 请求里，或使用环境变量；不要依赖 Windows bat 转发高级运行参数。
+
 - `--force-setup`: 归档 setup sentinel 并重新准备环境。
 - `--venv <path>`: 复用指定虚拟环境。
 - `--watchpid <pid>`: 让 supervisor 监视宿主进程；Windows 和 macOS/Linux 启动器均支持。
