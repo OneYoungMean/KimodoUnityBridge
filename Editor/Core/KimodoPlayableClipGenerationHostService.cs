@@ -581,7 +581,6 @@ namespace KimodoBridge.Editor
 
             playableClip.position = new Vector3(clipPosition.x, playableClip.position.y, clipPosition.z);
             playableClip.rotation = clipYaw;
-            playableClip.removeStartOffset = false;
             EditorUtility.SetDirty(playableClip);
             KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][TimelineOffset] applied {anchorLabel} planar pose anchor to '{playableClip.name}': " +
@@ -718,7 +717,6 @@ namespace KimodoBridge.Editor
         {
             destination.position = source.position;
             destination.rotation = source.rotation;
-            destination.removeStartOffset = source.removeStartOffset;
             EditorUtility.SetDirty(destination);
         }
 

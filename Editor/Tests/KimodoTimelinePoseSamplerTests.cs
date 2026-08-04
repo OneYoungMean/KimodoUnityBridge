@@ -955,7 +955,7 @@ namespace KimodoBridge.Editor.Tests
 
                 Assert.That(Vector3.Distance(destination.position, source.position), Is.LessThan(1e-5f));
                 Assert.That(Quaternion.Angle(destination.rotation, source.rotation), Is.LessThan(1e-4f));
-                Assert.That(destination.removeStartOffset, Is.False);
+                Assert.That(destination.removeStartOffset, Is.True);
             }
             finally
             {
@@ -1013,7 +1013,7 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(playable.position.y, Is.EqualTo(4f).Within(1e-5f));
                 Assert.That(playable.position.z, Is.EqualTo(expectedLocalPosition.z).Within(1e-5f));
                 Assert.That(Quaternion.Angle(playable.rotation, Quaternion.Euler(0f, 40f, 0f)), Is.LessThan(1e-4f));
-                Assert.That(playable.removeStartOffset, Is.False);
+                Assert.That(playable.removeStartOffset, Is.True);
             }
             finally
             {
@@ -1034,6 +1034,7 @@ namespace KimodoBridge.Editor.Tests
                 TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
                 var playable = (KimodoPlayableClip)timelineClip.asset;
                 playable.position = new Vector3(0f, 4f, 0f);
+                playable.removeStartOffset = true;
 
                 var request = new KimodoEditorGenerateRequest
                 {
@@ -1071,7 +1072,7 @@ namespace KimodoBridge.Editor.Tests
                     (new Vector3(4f, 0f, 6f) - new Vector3(10f, 0f, 20f));
                 Assert.That(Vector3.Distance(playable.position, new Vector3(expectedLocal.x, 4f, expectedLocal.z)), Is.LessThan(1e-5f));
                 Assert.That(Quaternion.Angle(playable.rotation, Quaternion.Euler(0f, 40f, 0f)), Is.LessThan(1e-4f));
-                Assert.That(playable.removeStartOffset, Is.False);
+                Assert.That(playable.removeStartOffset, Is.True);
             }
             finally
             {
@@ -1146,6 +1147,7 @@ namespace KimodoBridge.Editor.Tests
                 var playable = (KimodoPlayableClip)timelineClip.asset;
                 playable.clip = generatedClip;
                 playable.position = new Vector3(0f, -9f, 0f);
+                playable.removeStartOffset = true;
 
                 Vector3 sourceHipsLocal = new Vector3(5f, 6f, 7f);
                 Quaternion sourceHipsLocalYaw = Quaternion.Euler(0f, 70f, 0f);
@@ -1186,7 +1188,7 @@ namespace KimodoBridge.Editor.Tests
 
                 Assert.That(Vector3.Distance(playable.position, expectedLocalPosition), Is.LessThan(1e-5f));
                 Assert.That(Quaternion.Angle(playable.rotation, expectedClipRotation), Is.LessThan(1e-4f));
-                Assert.That(playable.removeStartOffset, Is.False);
+                Assert.That(playable.removeStartOffset, Is.True);
             }
             finally
             {
@@ -1357,6 +1359,7 @@ namespace KimodoBridge.Editor.Tests
                 var playable = (KimodoPlayableClip)timelineClip.asset;
                 playable.clip = generatedClip;
                 playable.position = new Vector3(0f, -9f, 0f);
+                playable.removeStartOffset = true;
 
                 Vector3 sourceHipsLocal = new Vector3(5f, 6f, 7f);
                 Quaternion sourceHipsLocalYaw = Quaternion.Euler(0f, 70f, 0f);
@@ -1401,7 +1404,7 @@ namespace KimodoBridge.Editor.Tests
 
                 Assert.That(Vector3.Distance(playable.position, expectedLocalPosition), Is.LessThan(1e-5f));
                 Assert.That(Quaternion.Angle(playable.rotation, expectedClipRotation), Is.LessThan(1e-4f));
-                Assert.That(playable.removeStartOffset, Is.False);
+                Assert.That(playable.removeStartOffset, Is.True);
             }
             finally
             {
