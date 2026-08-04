@@ -89,7 +89,8 @@ namespace KimodoBridge
                 string rootName,
                 ClipSamplingMode samplingMode,
                 out ClipSamplingSession session,
-                out string error)
+                out string error,
+                bool applyMotionXToDelta = true)
             {
                 session = null;
                 if (!TryBuildClipSamplingContext(
@@ -98,7 +99,8 @@ namespace KimodoBridge
                         rootName,
                         samplingMode,
                         out ClipSamplingContext context,
-                        out error))
+                        out error,
+                        applyMotionXToDelta))
                 {
                     return false;
                 }
@@ -237,7 +239,8 @@ namespace KimodoBridge
             string rootName,
             ClipSamplingMode samplingMode,
             out ClipSamplingContext context,
-            out string error)
+            out string error,
+            bool applyMotionXToDelta = true)
         {
             context = null;
             error = string.Empty;
@@ -268,10 +271,11 @@ namespace KimodoBridge
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
                 clipPlayable.SetApplyFootIK(RetargetSamplingDefaultFootIk);
                 clipPlayable.SetApplyPlayableIK(RetargetSamplingDefaultPlayableIk);
-                Playable motionXToDelta =
-                    AnimationOffsetPlayableAccess.CreateMotionXToDeltaAndConnect(graph, clipPlayable);
+                Playable sourcePlayable = applyMotionXToDelta
+                    ? AnimationOffsetPlayableAccess.CreateMotionXToDeltaAndConnect(graph, clipPlayable)
+                    : clipPlayable;
                 AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, rootName + "Output", cache.animator);
-                output.SetSourcePlayable(motionXToDelta);
+                output.SetSourcePlayable(sourcePlayable);
 
                 clipPlayable.SetTime(0f);
                 graph.Play();
@@ -509,7 +513,8 @@ namespace KimodoBridge
             int frameCount,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out BoneSample[] samples,
-            out string error)
+            out string error,
+            bool applyMotionXToDelta = true)
         {
             return TryCollectSamplesFromClip(
                 clip,
@@ -520,7 +525,8 @@ namespace KimodoBridge
                 TrySampleBoneClipToBoneSampleInternal,
                 CloneBoneSample,
                 out samples,
-                out error);
+                out error,
+                applyMotionXToDelta);
         }
 
         internal static bool TryCollectMuscleSamplesFromClip(
@@ -540,7 +546,8 @@ namespace KimodoBridge
                 TrySampleMuscleClipToMuscleSampleInternal,
                 CloneMuscleSample,
                 out samples,
-                out error);
+                out error,
+                applyMotionXToDelta: true);
         }
 
         internal static bool TrySampleTargetFromSingleMuscleSample(
@@ -644,7 +651,8 @@ namespace KimodoBridge
                         "KimodoRetarget_TargetPoseClip",
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                         out context,
-                        out error))
+                        out error,
+                        applyMotionXToDelta: false))
                 {
                     return false;
                 }
@@ -884,7 +892,8 @@ namespace KimodoBridge
             KimodoRetargetClipSamplingUtility.ClipSampleCallback<TSample> sampleCallback,
             Func<TSample, TSample> cloneSample,
             out TSample[] samples,
-            out string error)
+            out string error,
+            bool applyMotionXToDelta)
         {
             samples = null;
             error = string.Empty;
@@ -895,7 +904,8 @@ namespace KimodoBridge
                     rootName,
                     samplingMode,
                     out KimodoRetargetClipSamplingUtility.ClipSamplingSession session,
-                    out error))
+                    out error,
+                    applyMotionXToDelta))
             {
                 return false;
             }

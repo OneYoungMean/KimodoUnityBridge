@@ -165,6 +165,25 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void Root2DWorldTarget_AddsSceneDeltaToCurrentModelRoot()
+        {
+            Vector3 currentModelRootPosition = new Vector3(-4f, 0.9f, 7f);
+            Vector3 currentWorldPosition = new Vector3(10f, 1f, 20f);
+            Quaternion worldRotation = Quaternion.Euler(0f, 90f, 0f);
+            Vector3 expectedLocalOffset = new Vector3(2f, 0f, 3f);
+            Vector3 targetWorldPosition = currentWorldPosition + worldRotation * expectedLocalOffset;
+
+            Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DTarget(
+                currentModelRootPosition,
+                currentWorldPosition,
+                worldRotation,
+                targetWorldPosition);
+
+            Assert.That(actual.x, Is.EqualTo(-2f).Within(1e-5f));
+            Assert.That(actual.y, Is.EqualTo(10f).Within(1e-5f));
+        }
+
+        [Test]
         public void StreamRefresh_DoesNotCancelAnActiveArdyGenerate()
         {
             Assert.That(KimodoRuntimeMotionDriver.ShouldCancelActiveGenerationForRefresh(isArdy: true), Is.False);
@@ -246,16 +265,24 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void RuntimeConstraintBuffer_OnlyAddsOverlapPosesToNormalKimodo()
+        public void RuntimeConstraintBuffer_OnlyAddsTerminalOverlapPoseToNormalKimodo()
         {
             var buffer = new KimodoRuntimeConstraintBuffer();
-            var overlap = new KimodoMarkerSampleResult
+            buffer.SetOverlapPoses(new[]
             {
-                constraintType = "left-hand",
-                sampleTime = 0.5,
-                kimodoRootPosition = new Vector3(4f, 2f, 3f)
-            };
-            buffer.SetOverlapPoses(new[] { overlap });
+                new KimodoMarkerSampleResult
+                {
+                    constraintType = "left-hand",
+                    sampleTime = 0.2,
+                    kimodoRootPosition = new Vector3(4f, 2f, 3f)
+                },
+                new KimodoMarkerSampleResult
+                {
+                    constraintType = "right-hand",
+                    sampleTime = 0.0,
+                    kimodoRootPosition = new Vector3(8f, 3f, 9f)
+                }
+            });
 
             List<KimodoMarkerSampleResult> normalActive = buffer.BuildActive(
                 isArdy: false,
@@ -266,7 +293,8 @@ namespace KimodoBridge.Editor.Tests
                 root2DTargetConstraintType: "root2d_target");
             Assert.That(normalActive, Has.Count.EqualTo(1));
             Assert.That(normalActive[0].constraintType, Is.EqualTo("fullbody"));
-            Assert.That(normalActive[0].kimodoRootPosition, Is.EqualTo(new Vector3(0f, 2f, 0f)));
+            Assert.That(normalActive[0].sampleTime, Is.Zero);
+            Assert.That(normalActive[0].kimodoRootPosition, Is.EqualTo(new Vector3(0f, 3f, 0f)));
 
             Assert.That(
                 buffer.BuildActive(

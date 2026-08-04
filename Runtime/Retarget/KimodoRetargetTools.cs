@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -73,7 +74,8 @@ namespace KimodoBridge
             bool exportMuscleClip,
             AnimationClip providedSourceHumanoidClip,
             out AnimationClip targetClip,
-            out string error)
+            out string error,
+            Action<string> debugLog = null)
         {
             SkeletonCache sourceCache = null;
             SkeletonCache targetCache = null;
@@ -127,6 +129,13 @@ namespace KimodoBridge
                     {
                         return false;
                     }
+
+                    debugLog?.Invoke(
+                        $"[Kimodo][RetargetAvatar] runtime target cache ready: " +
+                        $"avatar={DescribeAvatarForDebug(targetCache.avatar)}, " +
+                        $"animatorAvatar={DescribeAvatarForDebug(targetCache.animator != null ? targetCache.animator.avatar : null)}, " +
+                        $"root='{targetCache.skeletonRoot?.name}', bones={targetCache.boneTransforms?.Length ?? 0}, " +
+                        $"humanBones={targetCache.humanBoneTransforms?.Count ?? 0}.");
                 }
 
                 if (targetClip != null)
@@ -164,16 +173,28 @@ namespace KimodoBridge
 
                 try
                 {
+                    debugLog?.Invoke(
+                        $"[Kimodo][RetargetAvatar] runtime Humanoid->Bone input: " +
+                        $"clip='{sourceHumanoidClip.name}', isHumanMotion={sourceHumanoidClip.isHumanMotion}, " +
+                        $"provided={ReferenceEquals(sourceHumanoidClip, providedSourceHumanoidClip)}, " +
+                        $"samplingMode={KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid}, " +
+                        $"applyMotionXToDelta=false.");
                     if (!KimodoRetargetSamplingUtility.TryCollectBoneSamplesFromClip(
                             sourceHumanoidClip,
                             targetCache,
                             frameCount,
                             KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                             out BoneSample[] targetBoneSamples,
-                            out error))
+                            out error,
+                            applyMotionXToDelta: false))
                     {
                         return false;
                     }
+
+                    debugLog?.Invoke(
+                        $"[Kimodo][RetargetAvatar] runtime Humanoid->Bone output: " +
+                        $"{DescribeBoneSampleMotionForDebug(targetBoneSamples)}, " +
+                        $"animatorAvatar={DescribeAvatarForDebug(targetCache.animator != null ? targetCache.animator.avatar : null)}.");
 
                     return WriteBoneSampleToBoneClip(targetBoneSamples, targetClip, out error);
                 }
@@ -191,6 +212,51 @@ namespace KimodoBridge
                 targetCache?.Dispose();
                 sourceCache?.Dispose();
             }
+        }
+
+        private static string DescribeAvatarForDebug(Avatar avatar)
+        {
+            if (avatar == null)
+            {
+                return "<null>";
+            }
+
+            HumanDescription description = avatar.humanDescription;
+            int humanCount = description.human != null ? description.human.Length : 0;
+            int skeletonCount = description.skeleton != null ? description.skeleton.Length : 0;
+            return $"name='{avatar.name}',id={avatar.GetInstanceID()},isValid={avatar.isValid}," +
+                $"isHuman={avatar.isHuman},human={humanCount},skeleton={skeletonCount}";
+        }
+
+        private static string DescribeBoneSampleMotionForDebug(IReadOnlyList<BoneSample> samples)
+        {
+            if (samples == null || samples.Count < 2 || samples[0] == null || samples[samples.Count - 1] == null)
+            {
+                return "dynamicBones=unknown";
+            }
+
+            BoneSample first = samples[0];
+            BoneSample last = samples[samples.Count - 1];
+            int count = Mathf.Min(first.localRotations?.Length ?? 0, last.localRotations?.Length ?? 0);
+            int dynamic = 0;
+            var names = new List<string>();
+            for (int i = 0; i < count; i++)
+            {
+                float rotationDelta = Quaternion.Angle(first.localRotations[i], last.localRotations[i]);
+                Vector3 positionDelta = last.localPositions[i] - first.localPositions[i];
+                if (rotationDelta > 0.01f || positionDelta.sqrMagnitude > 1e-8f)
+                {
+                    dynamic++;
+                    if (names.Count < 8)
+                    {
+                        names.Add(first.boneNames != null && i < first.boneNames.Length
+                            ? (string.IsNullOrWhiteSpace(first.boneNames[i]) ? "<root>" : first.boneNames[i])
+                            : $"#{i}");
+                    }
+                }
+            }
+
+            return $"dynamicBones={dynamic}/{count},names=[{string.Join(",", names)}]";
         }
     }
 

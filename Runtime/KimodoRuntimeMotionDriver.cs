@@ -96,17 +96,22 @@ namespace KimodoBridge
             var samples = new List<KimodoMarkerSampleResult>();
             if (includeOverlap)
             {
+                KimodoMarkerSampleResult terminalPose = null;
                 for (int i = 0; i < overlapPoses.Count; i++)
                 {
-                    KimodoMarkerSampleResult source = overlapPoses[i];
-                    if (source == null)
+                    KimodoMarkerSampleResult candidate = overlapPoses[i];
+                    if (candidate != null &&
+                        (terminalPose == null || candidate.sampleTime < terminalPose.sampleTime))
                     {
-                        continue;
+                        terminalPose = candidate;
                     }
+                }
 
-                    KimodoMarkerSampleResult sample = source.Clone();
+                if (terminalPose != null)
+                {
+                    KimodoMarkerSampleResult sample = terminalPose.Clone();
                     sample.constraintType = fullBodyConstraintType;
-                    sample.sampleTime = source.sampleTime;
+                    sample.sampleTime = 0.0;
                     sample.kimodoRootPosition = new Vector3(0f, sample.kimodoRootPosition.y, 0f);
                     sample.unityRootPos = sample.kimodoRootPosition;
                     samples.Add(sample);
@@ -530,11 +535,15 @@ namespace KimodoBridge
         public void SetRoot2DWorld(float worldX, float worldZ, float duration = 1f)
         {
             Vector3 currentWorldPosition = GetCurrentPositionInternal();
-            Vector2 modelOffset = ResolveModelRoot2DOffset(
+            Vector3 currentModelRootPosition = motionPlayer != null && motionPlayer.HasCurrentSegment
+                ? motionPlayer.CurrentRootPosition
+                : Vector3.zero;
+            Vector2 modelTarget = ResolveModelRoot2DTarget(
+                currentModelRootPosition,
                 currentWorldPosition,
                 transform.rotation,
                 new Vector3(worldX, currentWorldPosition.y, worldZ));
-            StageRoot2DConstraintInternal(modelOffset.x, modelOffset.y, duration, null);
+            StageRoot2DConstraintInternal(modelTarget.x, modelTarget.y, duration, null);
         }
 
         public void SetRoot2DTarget(
@@ -1636,6 +1645,18 @@ namespace KimodoBridge
             worldDelta.y = 0f;
             Vector3 localDelta = Quaternion.Inverse(worldRotation) * worldDelta;
             return new Vector2(localDelta.x, localDelta.z);
+        }
+
+        internal static Vector2 ResolveModelRoot2DTarget(
+            Vector3 currentModelRootPosition,
+            Vector3 currentWorldPosition,
+            Quaternion worldRotation,
+            Vector3 targetWorldPosition)
+        {
+            Vector2 offset = ResolveModelRoot2DOffset(currentWorldPosition, worldRotation, targetWorldPosition);
+            return new Vector2(
+                currentModelRootPosition.x + offset.x,
+                currentModelRootPosition.z + offset.y);
         }
 
         private void OnProgress(string message)

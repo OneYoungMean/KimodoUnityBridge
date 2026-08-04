@@ -66,6 +66,45 @@ namespace KimodoBridge.Editor.Tests
                 Is.EqualTo(expected));
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public void RawBoneWriteback_PersistsOnlyWhenEnabled(bool persist)
+        {
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            bool previous = settings.WriteResampledTimelineCacheClips;
+            var source = new AnimationClip
+            {
+                name = $"RawBoneWritebackTest_{System.Guid.NewGuid():N}",
+                frameRate = 24f
+            };
+            AnimationClip rawBone = null;
+            try
+            {
+                settings.WriteResampledTimelineCacheClips = persist;
+                rawBone = KimodoEditorGeneratePipeline.CreateRawBoneWritebackClip(source);
+
+                string assetPath = AssetDatabase.GetAssetPath(rawBone);
+                Assert.That(string.IsNullOrWhiteSpace(assetPath), Is.EqualTo(!persist));
+                if (persist)
+                {
+                    Assert.That(assetPath, Does.StartWith(KimodoEditorClipWritebackService.CacheClipFolder + "/"));
+                }
+                else
+                {
+                    Assert.That(rawBone.hideFlags, Is.EqualTo(HideFlags.HideAndDontSave));
+                }
+            }
+            finally
+            {
+                settings.WriteResampledTimelineCacheClips = previous;
+                if (rawBone != null && !KimodoEditorClipWritebackService.TryDeleteGeneratedAnimationClipAsset(rawBone))
+                {
+                    Object.DestroyImmediate(rawBone);
+                }
+                Object.DestroyImmediate(source);
+            }
+        }
+
         [Test]
         public void DisabledConstraint_IsIgnoredByNormalization()
         {

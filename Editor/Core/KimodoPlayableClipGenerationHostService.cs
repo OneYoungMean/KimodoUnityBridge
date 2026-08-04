@@ -294,6 +294,11 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            if (string.IsNullOrWhiteSpace(AssetDatabase.GetAssetPath(clip)))
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+                return;
+            }
             KimodoEditorClipWritebackService.TryDeleteGeneratedAnimationClipAsset(clip);
         }
 

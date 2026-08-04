@@ -439,7 +439,15 @@ namespace KimodoBridge.Editor.Tests
                     bodyRotation = Quaternion.Euler(0f, 25f, 0f) * firstPose.bodyRotation,
                     muscles = (float[])firstPose.muscles.Clone()
                 };
-                secondPose.muscles[0] = Mathf.Clamp(firstPose.muscles[0] + 0.35f, -1f, 1f);
+                int[] changedMuscles = { 0, 1, 2, 21, 22, 23, 37, 38 };
+                for (int i = 0; i < changedMuscles.Length; i++)
+                {
+                    int muscle = changedMuscles[i];
+                    if (muscle >= 0 && muscle < secondPose.muscles.Length)
+                    {
+                        secondPose.muscles[muscle] = Mathf.Clamp(firstPose.muscles[muscle] + 0.35f, -1f, 1f);
+                    }
+                }
                 MuscleSample[] sourceSamples =
                 {
                     KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, firstPose),
@@ -471,6 +479,16 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     Vector3.Distance(samples[0].localPositions[0], samples[1].localPositions[0]),
                     Is.GreaterThan(0.05f));
+                bool nonRootBoneChanged = false;
+                for (int i = 1; i < samples[0].localRotations.Length; i++)
+                {
+                    if (Quaternion.Angle(samples[0].localRotations[i], samples[1].localRotations[i]) > 0.1f)
+                    {
+                        nonRootBoneChanged = true;
+                        break;
+                    }
+                }
+                Assert.That(nonRootBoneChanged, Is.True, "Retargeted bone clip must not collapse to root-only motion.");
             }
             finally
             {

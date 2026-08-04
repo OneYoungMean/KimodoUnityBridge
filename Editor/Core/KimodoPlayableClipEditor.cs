@@ -182,8 +182,9 @@ namespace KimodoBridge.Editor
                     {
                         float previousLabelWidth = EditorGUIUtility.labelWidth;
                         EditorGUIUtility.labelWidth = 28f;
-                        EditorGUILayout.PropertyField(enableInConstraint, new GUIContent("In"), GUILayout.Width(70f));
-                        EditorGUILayout.PropertyField(enableOutConstraint, new GUIContent("Out"), GUILayout.Width(70f));
+                        EditorGUILayout.PropertyField(enableInConstraint, new GUIContent("In"), GUILayout.Width(60f));
+                        EditorGUIUtility.labelWidth = 36f;
+                        EditorGUILayout.PropertyField(enableOutConstraint, new GUIContent("Out"), GUILayout.Width(60f));
                         EditorGUIUtility.labelWidth = previousLabelWidth;
                     }
                 }

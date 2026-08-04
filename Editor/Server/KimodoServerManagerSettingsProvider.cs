@@ -35,6 +35,7 @@ namespace KimodoBridge.Editor
         private List<InstalledModelInfoView> models = new List<InstalledModelInfoView>();
         private bool runtimeExists;
         private bool usingCustomModelsPath;
+        private bool advancedSettingsFoldout;
         private string setupProfile = "unknown";
 
         private ServerState serverState = ServerState.Disabled;
@@ -237,55 +238,64 @@ namespace KimodoBridge.Editor
                 settings.SaveSettings();
             }
 
-            EditorGUI.BeginChangeCheck();
-            bool enableDebugLog = EditorGUILayout.Toggle(
-                new GUIContent(
-                    "Enable Debug Log",
-                    "Show diagnostic logs outside the main generation path, such as retarget, sampling, constraint export, and Timeline offset details."),
-                settings.EnableDebugLog);
-            if (EditorGUI.EndChangeCheck())
+            advancedSettingsFoldout = EditorGUILayout.Foldout(
+                advancedSettingsFoldout,
+                new GUIContent("Advanced"),
+                true);
+            if (advancedSettingsFoldout)
             {
-                settings.EnableDebugLog = enableDebugLog;
-                settings.SaveSettings();
-            }
+                EditorGUI.indentLevel++;
+                EditorGUI.BeginChangeCheck();
+                bool enableDebugLog = EditorGUILayout.Toggle(
+                    new GUIContent(
+                        "Enable Debug Log",
+                        "Show diagnostic logs outside the main generation path, such as retarget, sampling, constraint export, and Timeline offset details."),
+                    settings.EnableDebugLog);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    settings.EnableDebugLog = enableDebugLog;
+                    settings.SaveSettings();
+                }
 
-            EditorGUI.BeginChangeCheck();
-            float timeoutSeconds = EditorGUILayout.FloatField(
-                new GUIContent("Generate Timeout (sec)", "Global timeout used by Kimodo generation requests."),
-                settings.GenerationTimeoutSeconds);
-            if (EditorGUI.EndChangeCheck())
-            {
-                settings.GenerationTimeoutSeconds = timeoutSeconds;
-                settings.SaveSettings();
-            }
+                EditorGUI.BeginChangeCheck();
+                float timeoutSeconds = EditorGUILayout.FloatField(
+                    new GUIContent("Generate Timeout (sec)", "Global timeout used by Kimodo generation requests."),
+                    settings.GenerationTimeoutSeconds);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    settings.GenerationTimeoutSeconds = timeoutSeconds;
+                    settings.SaveSettings();
+                }
 
-            EditorGUI.BeginChangeCheck();
-            bool keepCpuForceExperimental = EditorGUILayout.Toggle(
-                new GUIContent(
-                    "Force CPU",
-                    "Send simulate_free_vram_gb=0 so Kimodo and the text encoder both run on CPU."),
-                settings.KeepCpuForceExperimental);
-            if (EditorGUI.EndChangeCheck())
-            {
-                settings.KeepCpuForceExperimental = keepCpuForceExperimental;
-                settings.SaveSettings();
-            }
+                EditorGUI.BeginChangeCheck();
+                bool keepCpuForceExperimental = EditorGUILayout.Toggle(
+                    new GUIContent(
+                        "Force CPU",
+                        "Send simulate_free_vram_gb=0 so Kimodo and the text encoder both run on CPU."),
+                    settings.KeepCpuForceExperimental);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    settings.KeepCpuForceExperimental = keepCpuForceExperimental;
+                    settings.SaveSettings();
+                }
 
-            EditorGUI.BeginChangeCheck();
-            bool writeResampledTimelineCacheClips = EditorGUILayout.Toggle(
-                new GUIContent(
-                    "Debug: Write Resampled Cache Clips",
-                    "When Timeline constraint sampling rebuilds a cache interval, save the intermediate BoneClip, MuscleClip and final target BoneClip through the clip writeback path."),
-                settings.WriteResampledTimelineCacheClips);
-            if (EditorGUI.EndChangeCheck())
-            {
-                settings.WriteResampledTimelineCacheClips = writeResampledTimelineCacheClips;
-                settings.SaveSettings();
-            }
+                EditorGUI.BeginChangeCheck();
+                bool writeResampledTimelineCacheClips = EditorGUILayout.Toggle(
+                    new GUIContent(
+                        "Write Resampled Clips",
+                        "Persist RawBone, Muscle and target Bone intermediates plus Timeline resample diagnostics under Assets/KimodoGeneratedClips/Cache. Off keeps intermediates transient."),
+                    settings.WriteResampledTimelineCacheClips);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    settings.WriteResampledTimelineCacheClips = writeResampledTimelineCacheClips;
+                    settings.SaveSettings();
+                }
 
-            EditorGUILayout.HelpBox(
-                "These are default generation parameters. QuickServer now switches runtime behavior per request; starting the server no longer depends on these values.",
-                MessageType.Info);
+                EditorGUILayout.HelpBox(
+                    "These are advanced generation parameters. QuickServer switches runtime behavior per request; starting the server does not depend on these values.",
+                    MessageType.Info);
+                EditorGUI.indentLevel--;
+            }
 
             string localModelsPath = ResolveDisplayedModelsPath(settings.LocalModelsPath, runtimeRoot);
             EditorGUILayout.BeginHorizontal();

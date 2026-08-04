@@ -91,6 +91,11 @@ namespace KimodoBridge.Editor
             {
                 throw new InvalidOperationException("Output plan is null.");
             }
+            KimodoPlayableClipGenerationSettings.DebugLog(
+                $"[Kimodo][RetargetAvatar] output plan: model='{modelName}', " +
+                $"skipRetarget={outputPlan.SkipRetarget}, exportMuscleClip={outputPlan.ExportMuscleClip}, " +
+                $"origin={KimodoRetargetToolsEditor.DescribeAvatarForDebug(outputPlan.OriginRetargetAvatar)}, " +
+                $"target={KimodoRetargetToolsEditor.DescribeAvatarForDebug(outputPlan.TargetRetargetAvatar)}.");
             ThrowIfCanceled(request);
 
             if (outputPlan.SkipRetarget)
@@ -143,7 +148,8 @@ namespace KimodoBridge.Editor
                     outputPlan.ExportMuscleClip,
                     providedSourceHumanoidClip: request.TargetClip,
                     out AnimationClip retargetClip,
-                    out string retargetError))
+                    out string retargetError,
+                    debugLog: KimodoPlayableClipGenerationSettings.DebugLog))
             {
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(retargetError)
                     ? "Retarget failed."
@@ -294,6 +300,12 @@ namespace KimodoBridge.Editor
                 runtimeResult,
                 outputPlan,
                 rawBoneClip);
+            if (rawBoneClip != null && string.IsNullOrWhiteSpace(AssetDatabase.GetAssetPath(rawBoneClip)))
+            {
+                UnityEngine.Object.DestroyImmediate(rawBoneClip);
+                rawBoneClip = null;
+                request.RawBoneClip = null;
+            }
             return Complete(
                 request,
                 prompt,
@@ -723,7 +735,7 @@ namespace KimodoBridge.Editor
             return plan;
         }
 
-        private static AnimationClip CreateRawBoneWritebackClip(AnimationClip sourceClip)
+        internal static AnimationClip CreateRawBoneWritebackClip(AnimationClip sourceClip)
         {
             if (sourceClip == null)
             {
@@ -731,12 +743,23 @@ namespace KimodoBridge.Editor
             }
 
             string sourceName = string.IsNullOrWhiteSpace(sourceClip.name) ? "KimodoRawBone" : sourceClip.name.Trim();
-            AnimationClip rawBoneClip = KimodoEditorClipWritebackService.CreateGeneratedCacheAnimationClipAsset($"{sourceName}_RawBone");
+            bool persist = KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips;
+            AnimationClip rawBoneClip = persist
+                ? KimodoEditorClipWritebackService.CreateGeneratedCacheAnimationClipAsset($"{sourceName}_RawBone")
+                : new AnimationClip
+                {
+                    hideFlags = HideFlags.HideAndDontSave,
+                    name = $"{sourceName}_RawBone"
+                };
             KimodoEditorClipUtility.CopyClipData(sourceClip, rawBoneClip, forceNoLoopKeepY: true);
             rawBoneClip.legacy = sourceClip.legacy;
             rawBoneClip.frameRate = sourceClip.frameRate;
-            EditorUtility.SetDirty(rawBoneClip);
-            Debug.Log($"[Kimodo][Generate] Wrote raw Kimodo bone clip: '{AssetDatabase.GetAssetPath(rawBoneClip)}'.");
+            if (persist)
+            {
+                EditorUtility.SetDirty(rawBoneClip);
+                KimodoPlayableClipGenerationSettings.DebugLog(
+                    $"[Kimodo][Generate] Wrote raw Kimodo bone clip: '{AssetDatabase.GetAssetPath(rawBoneClip)}'.");
+            }
             return rawBoneClip;
         }
 
