@@ -381,7 +381,7 @@ namespace KimodoBridge.Editor
 
             return EditorGenerateSessionRunner.Start(
                 context.Track,
-                $"navmesh-track:{context.Track.GetInstanceID()}",
+                $"navmesh-track:{KimodoUnityObjectIdUtility.NameKey(context.Track)}",
                 KimodoEditorCommandKind.GenerateNavMeshTrackClips,
                 async (handle, token) =>
                 {

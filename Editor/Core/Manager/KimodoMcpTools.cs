@@ -222,7 +222,7 @@ namespace KimodoBridge.Editor
 
                 bool started = EditorGenerateSessionRunner.Start(
                     character.Target,
-                    $"mcp-asset:{character.Target.GetInstanceID()}",
+                    $"mcp-asset:{KimodoUnityObjectIdUtility.NameKey(character.Target)}",
                     KimodoEditorCommandKind.GenerateAnimationAsset,
                     async (session, token) => await ExecuteAssetGenerationAsync(request, character.Target, session, token),
                     out EditorGenerateSession generation,
@@ -321,7 +321,7 @@ namespace KimodoBridge.Editor
                     };
                 bool started = EditorGenerateSessionRunner.Start(
                     playableClip,
-                    $"mcp-timeline:{playableClip.GetInstanceID()}",
+                    $"mcp-timeline:{KimodoUnityObjectIdUtility.NameKey(playableClip)}",
                     KimodoEditorCommandKind.GeneratePlayableClip,
                     async (session, token) => await KimodoPlayableClipGenerationExecutionService.GenerateAndFinalizeAsync(
                         playableClip,

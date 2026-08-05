@@ -506,12 +506,12 @@ namespace KimodoBridge.Editor
         {
             if (selectedTransition != null)
             {
-                return selectedTransition.GetInstanceID();
+                return KimodoUnityObjectIdUtility.IdHash(selectedTransition);
             }
 
             if (selectedState != null)
             {
-                return selectedState.GetInstanceID();
+                return KimodoUnityObjectIdUtility.IdHash(selectedState);
             }
 
             return 0;
@@ -533,7 +533,7 @@ namespace KimodoBridge.Editor
                 selectedController = KimodoAnimatorSelectionUtility.FindControllerForObject(transition);
                 selectedStateMachine = KimodoAnimatorSelectionUtility.FindStateMachineForTransition(selectedController, transition, out selectedFromState);
                 selectionLatched = lockSelection;
-                latchedSelectionInstanceId = lockSelection ? obj.GetInstanceID() : 0;
+                latchedSelectionInstanceId = lockSelection ? KimodoUnityObjectIdUtility.IdHash(obj) : 0;
                 return true;
             }
 
@@ -545,7 +545,7 @@ namespace KimodoBridge.Editor
                 selectedController = KimodoAnimatorSelectionUtility.FindControllerForObject(state);
                 selectedStateMachine = KimodoAnimatorSelectionUtility.FindStateMachineForState(selectedController, state);
                 selectionLatched = lockSelection;
-                latchedSelectionInstanceId = lockSelection ? obj.GetInstanceID() : 0;
+                latchedSelectionInstanceId = lockSelection ? KimodoUnityObjectIdUtility.IdHash(obj) : 0;
                 return true;
             }
 

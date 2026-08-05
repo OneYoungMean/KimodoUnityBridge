@@ -178,7 +178,7 @@ namespace KimodoBridge.Editor.Tests
                 source.animator.avatar = null;
                 var context = new PoseCacheRenderContext(
                     1,
-                    source.animator.GetInstanceID(),
+                    KimodoUnityObjectIdUtility.IdHash(source.animator),
                     1,
                     KimodoPlayableClip.DefaultBridgeModelName,
                     KimodoConstraintRigType.Soma77,
@@ -733,7 +733,7 @@ namespace KimodoBridge.Editor.Tests
 
             var context = new PoseCacheRenderContext(
                 101,
-                source.animator.GetInstanceID(),
+                KimodoUnityObjectIdUtility.IdHash(source.animator),
                 102,
                 KimodoPlayableClip.DefaultBridgeModelName,
                 KimodoConstraintRigType.Soma77,
@@ -1916,8 +1916,8 @@ namespace KimodoBridge.Editor.Tests
                 KimodoConstraintPoseCache.DestroyAll();
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
                 TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
-                int clipId = ((UnityEngine.Object)timelineClip.asset).GetInstanceID();
-                int trackId = track.GetInstanceID();
+                int clipId = KimodoUnityObjectIdUtility.IdHash((UnityEngine.Object)timelineClip.asset);
+                int trackId = KimodoUnityObjectIdUtility.IdHash(track);
 
                 Assert.That(KimodoConstraintPoseCache.IsClipStillOnTrack(clipId, trackId), Is.True);
 
@@ -2011,7 +2011,7 @@ namespace KimodoBridge.Editor.Tests
 
                 var context = new PoseCacheRenderContext(
                     1,
-                    source.animator.GetInstanceID(),
+                    KimodoUnityObjectIdUtility.IdHash(source.animator),
                     1,
                     KimodoPlayableClip.DefaultBridgeModelName,
                     KimodoConstraintRigType.Soma77);

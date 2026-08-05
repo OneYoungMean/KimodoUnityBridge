@@ -1838,8 +1838,8 @@ namespace KimodoBridge
                 for (int i = 0; i < targets.Count; i++)
                 {
                     Animator animator = targets[i];
-                    hash = hash * 31 + animator.GetInstanceID();
-                    hash = hash * 31 + (animator.avatar != null ? animator.avatar.GetInstanceID() : 0);
+                    hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(animator);
+                    hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(animator.avatar);
                 }
                 return hash;
             }

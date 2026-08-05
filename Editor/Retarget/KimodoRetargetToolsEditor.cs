@@ -960,7 +960,7 @@ namespace KimodoBridge.Editor
             }
 
             string assetPath = AssetDatabase.GetAssetPath(avatar);
-            return $"name='{avatar.name}',id={avatar.GetInstanceID()},asset='{assetPath}'," +
+            return $"name='{avatar.name}',id='{KimodoUnityObjectIdUtility.NameKey(avatar)}',asset='{assetPath}'," +
                 $"isValid={avatar.isValid},isHuman={avatar.isHuman},human={humanCount},skeleton={skeletonCount}";
         }
 

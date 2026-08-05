@@ -481,7 +481,7 @@ namespace KimodoBridge.Editor
                 int hash = 17;
                 // Track DirtyIndex also changes when constraint markers write sampled data.
                 // Hash only state that can change the evaluated animation pose.
-                hash = hash * 31 + (track != null ? track.GetInstanceID() : 0);
+                hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(track);
                 if (track == null)
                 {
                     return hash;
@@ -528,7 +528,7 @@ namespace KimodoBridge.Editor
                     hash = AppendObjectSignature(hash, clip.curves);
                     if (clip.asset is AnimationPlayableAsset animationAsset)
                     {
-                        hash = hash * 31 + animationAsset.GetInstanceID();
+                        hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(animationAsset);
                         hash = AppendObjectSignature(hash, animationAsset.clip);
                         hash = hash * 31 + animationAsset.position.GetHashCode();
                         hash = hash * 31 + animationAsset.rotation.GetHashCode();
@@ -552,7 +552,7 @@ namespace KimodoBridge.Editor
         {
             unchecked
             {
-                hash = hash * 31 + (value != null ? value.GetInstanceID() : 0);
+                hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(value);
                 return hash * 31 + (value != null ? EditorUtility.GetDirtyCount(value) : 0);
             }
         }
@@ -708,9 +708,9 @@ namespace KimodoBridge.Editor
                 out Vector3 trackOffsetPosition,
                 out Quaternion trackOffsetRotation);
             var key = new KimodoTimelineConstraintCacheKey(
-                context.Track.GetInstanceID(),
-                context.Animator.GetInstanceID(),
-                context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0,
+                KimodoUnityObjectIdUtility.IdHash(context.Track),
+                KimodoUnityObjectIdUtility.IdHash(context.Animator),
+                KimodoUnityObjectIdUtility.IdHash(context.SourceAvatar),
                 range,
                 modelName,
                 ComputeSamplingSourceSignature(context.Track),

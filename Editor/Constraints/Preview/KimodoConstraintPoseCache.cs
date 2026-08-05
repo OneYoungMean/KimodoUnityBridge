@@ -35,7 +35,7 @@ namespace KimodoBridge.Editor
             ContextKey = KimodoConstraintMarkerEditorUtility.GetCachedIntString(clipId) + ":" +
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(animatorId) + ":" +
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(trackId) + ":" +
-                KimodoConstraintMarkerEditorUtility.GetCachedIntString(sourceAvatar != null ? sourceAvatar.GetInstanceID() : 0);
+                KimodoConstraintMarkerEditorUtility.GetCachedIntString(KimodoUnityObjectIdUtility.IdHash(sourceAvatar));
         }
     }
 
@@ -905,7 +905,7 @@ namespace KimodoBridge.Editor
             foreach (TimelineClip timelineClip in track.GetClips())
             {
                 UnityEngine.Object asset = timelineClip?.asset as UnityEngine.Object;
-                if (asset != null && asset.GetInstanceID() == clipId)
+                if (asset != null && KimodoUnityObjectIdUtility.IdHash(asset) == clipId)
                 {
                     return true;
                 }

@@ -48,7 +48,7 @@ namespace KimodoBridge.Editor
                         continue;
                     }
 
-                    int id = driver.GetInstanceID();
+                    int id = KimodoUnityObjectIdUtility.IdHash(driver);
                     ActiveDriverIds.Add(id);
                     UpdateDriver(id, driver);
                 }

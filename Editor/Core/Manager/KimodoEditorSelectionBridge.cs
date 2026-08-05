@@ -67,7 +67,7 @@ namespace KimodoBridge.Editor
                     if (selectedClips[i]?.asset is KimodoPlayableClip playableFromTimeline)
                     {
                         info = new KimodoSelectedPlayableClipInfo(
-                            playableFromTimeline.GetInstanceID(),
+                            KimodoUnityObjectIdUtility.IdHash(playableFromTimeline),
                             playableFromTimeline.motionPrompt);
                         return true;
                     }
@@ -76,7 +76,7 @@ namespace KimodoBridge.Editor
 
             if (Selection.activeObject is KimodoPlayableClip selectedAsset)
             {
-                info = new KimodoSelectedPlayableClipInfo(selectedAsset.GetInstanceID(), selectedAsset.motionPrompt);
+                info = new KimodoSelectedPlayableClipInfo(KimodoUnityObjectIdUtility.IdHash(selectedAsset), selectedAsset.motionPrompt);
                 return true;
             }
 

@@ -256,8 +256,8 @@ namespace KimodoBridge.Editor
 
         private static string BuildClipInputKey(GameObject root, AnimationClip clip)
         {
-            int rootId = root != null ? root.GetInstanceID() : 0;
-            int clipId = clip != null ? clip.GetInstanceID() : 0;
+            int rootId = KimodoUnityObjectIdUtility.IdHash(root);
+            int clipId = KimodoUnityObjectIdUtility.IdHash(clip);
             return "clip:" + rootId + ":" + clipId;
         }
 
@@ -268,10 +268,10 @@ namespace KimodoBridge.Editor
             AnimatorStateTransition transition,
             PreviewTransitionSettings previewSettings)
         {
-            int rootId = root != null ? root.GetInstanceID() : 0;
-            int fromId = fromClip != null ? fromClip.GetInstanceID() : 0;
-            int toId = toClip != null ? toClip.GetInstanceID() : 0;
-            int transitionId = transition != null ? transition.GetInstanceID() : 0;
+            int rootId = KimodoUnityObjectIdUtility.IdHash(root);
+            int fromId = KimodoUnityObjectIdUtility.IdHash(fromClip);
+            int toId = KimodoUnityObjectIdUtility.IdHash(toClip);
+            int transitionId = KimodoUnityObjectIdUtility.IdHash(transition);
             int exitMs = Mathf.RoundToInt(previewSettings.ExitNormalizedTime * 1000f);
             int durationMs = Mathf.RoundToInt(previewSettings.DurationParameter * 1000f);
             int offsetMs = Mathf.RoundToInt(previewSettings.OffsetNormalizedTime * 1000f);
@@ -366,7 +366,7 @@ namespace KimodoBridge.Editor
         private string EnsureClipState(AnimationClip clip)
         {
             AnimatorStateMachine sm = previewController.layers[0].stateMachine;
-            string stateName = "Clip_" + clip.GetInstanceID();
+            string stateName = "Clip_" + KimodoUnityObjectIdUtility.NameKey(clip);
             AnimatorState state = FindState(sm, stateName) ?? sm.AddState(stateName);
             state.motion = clip;
             sm.defaultState = state;
@@ -381,8 +381,8 @@ namespace KimodoBridge.Editor
             PreviewTransitionSettings previewSettings)
         {
             AnimatorStateMachine sm = previewController.layers[0].stateMachine;
-            string fromName = "TransitionFrom_" + fromClip.GetInstanceID();
-            string toName = "TransitionTo_" + toClip.GetInstanceID();
+            string fromName = "TransitionFrom_" + KimodoUnityObjectIdUtility.NameKey(fromClip);
+            string toName = "TransitionTo_" + KimodoUnityObjectIdUtility.NameKey(toClip);
 
             AnimatorState from = FindState(sm, fromName) ?? sm.AddState(fromName);
             AnimatorState to = FindState(sm, toName) ?? sm.AddState(toName);

@@ -143,7 +143,7 @@ namespace KimodoBridge.Editor
             {
                 if (sources[i].Object is KimodoConstraintMarkerBase marker)
                 {
-                    selectedMarkerIds.Add(marker.GetInstanceID());
+                    selectedMarkerIds.Add(KimodoUnityObjectIdUtility.IdHash(marker));
                 }
             }
 
@@ -210,7 +210,7 @@ namespace KimodoBridge.Editor
                     TimelineClip timelineClip = selectedClips[i];
                     if (timelineClip?.asset is KimodoPlayableClip playable)
                     {
-                        AddSource(result, keys, playable, timelineClip, "clip:" + playable.GetInstanceID());
+                        AddSource(result, keys, playable, timelineClip, "clip:" + KimodoUnityObjectIdUtility.NameKey(playable));
                     }
                 }
             }
@@ -221,12 +221,12 @@ namespace KimodoBridge.Editor
                 UnityEngine.Object selected = selectedObjects[i];
                 if (selected is KimodoConstraintMarkerBase marker)
                 {
-                    AddSource(result, keys, marker, null, "marker:" + marker.GetInstanceID());
+                    AddSource(result, keys, marker, null, "marker:" + KimodoUnityObjectIdUtility.NameKey(marker));
                 }
                 else if (selected is KimodoPlayableClip playable)
                 {
                     TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(playable);
-                    AddSource(result, keys, playable, timelineClip, "clip:" + playable.GetInstanceID());
+                    AddSource(result, keys, playable, timelineClip, "clip:" + KimodoUnityObjectIdUtility.NameKey(playable));
                 }
             }
 
@@ -290,7 +290,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            string entryId = "marker:" + marker.GetInstanceID();
+            string entryId = "marker:" + KimodoUnityObjectIdUtility.NameKey(marker);
             AddItem(
                 groups,
                 context,
@@ -331,7 +331,7 @@ namespace KimodoBridge.Editor
             {
                 if (!(candidate is KimodoConstraintMarkerBase marker) ||
                     !marker.constraintEnabled ||
-                    selectedMarkerIds.Contains(marker.GetInstanceID()) ||
+                    selectedMarkerIds.Contains(KimodoUnityObjectIdUtility.IdHash(marker)) ||
                     !KimodoConstraintMarkerEditorUtility.IsTimeInClipFrameRange(marker.time, timelineClip))
                 {
                     continue;
@@ -358,7 +358,7 @@ namespace KimodoBridge.Editor
                 AddItem(
                     groups,
                     context,
-                    $"clip:{playable.GetInstanceID()}:marker:{marker.GetInstanceID()}",
+                    $"clip:{KimodoUnityObjectIdUtility.NameKey(playable)}:marker:{KimodoUnityObjectIdUtility.NameKey(marker)}",
                     sample,
                     marker.ConstraintType,
                     KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
@@ -390,14 +390,14 @@ namespace KimodoBridge.Editor
             if (begin != null)
             {
                 AddItem(
-                    groups, context, $"clip:{playable.GetInstanceID()}:in", begin, "fullbody", null,
+                    groups, context, $"clip:{KimodoUnityObjectIdUtility.NameKey(playable)}:in", begin, "fullbody", null,
                     $"{playable.ConstraintPreviewName} · In", timelineClip.start,
                     playable.ConstraintPreviewPriority, color);
             }
             if (end != null)
             {
                 AddItem(
-                    groups, context, $"clip:{playable.GetInstanceID()}:out", end, "fullbody", null,
+                    groups, context, $"clip:{KimodoUnityObjectIdUtility.NameKey(playable)}:out", end, "fullbody", null,
                     $"{playable.ConstraintPreviewName} · Out", timelineClip.start + end.sampleTime,
                     playable.ConstraintPreviewPriority, color);
             }
@@ -483,7 +483,11 @@ namespace KimodoBridge.Editor
                 return compare;
             }
             compare = left.Time.CompareTo(right.Time);
-            return compare != 0 ? compare : left.Object.GetInstanceID().CompareTo(right.Object.GetInstanceID());
+            return compare != 0
+                ? compare
+                : string.CompareOrdinal(
+                    KimodoUnityObjectIdUtility.NameKey(left.Object),
+                    KimodoUnityObjectIdUtility.NameKey(right.Object));
         }
 
         private static int CompareLabels(PreviewLabel left, PreviewLabel right)
@@ -501,7 +505,7 @@ namespace KimodoBridge.Editor
                 for (int i = 0; i < selectedObjects.Length; i++)
                 {
                     UnityEngine.Object selected = selectedObjects[i];
-                    hash = hash * 31 + (selected != null ? selected.GetInstanceID() : 0);
+                    hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(selected);
                     hash = hash * 31 + (selected != null ? EditorUtility.GetDirtyCount(selected) : 0);
                 }
 
@@ -512,16 +516,16 @@ namespace KimodoBridge.Editor
                     {
                         TimelineClip timelineClip = selectedClips[i];
                         UnityEngine.Object asset = timelineClip?.asset as UnityEngine.Object;
-                        hash = hash * 31 + (asset != null ? asset.GetInstanceID() : 0);
+                        hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(asset);
                         hash = hash * 31 + (asset != null ? EditorUtility.GetDirtyCount(asset) : 0);
                         hash = hash * 31 + (timelineClip?.start.GetHashCode() ?? 0);
                         hash = hash * 31 + (timelineClip?.duration.GetHashCode() ?? 0);
-                        hash = hash * 31 + (timelineClip?.GetParentTrack()?.GetInstanceID() ?? 0);
+                        hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(timelineClip?.GetParentTrack());
                     }
                 }
 
                 hash = hash * 31 + (TimelineEditor.inspectedDirector != null
-                    ? TimelineEditor.inspectedDirector.GetInstanceID()
+                    ? KimodoUnityObjectIdUtility.IdHash(TimelineEditor.inspectedDirector)
                     : 0);
                 return hash;
             }
@@ -957,7 +961,7 @@ namespace KimodoBridge.Editor
                 CacheTimeFrames = KimodoPlayableClipGenerationSettings.instance.TimelineConstraintCacheTimeFrames
             };
 
-            int id = marker.GetInstanceID();
+            int id = KimodoUnityObjectIdUtility.IdHash(marker);
             if (!forceRefresh &&
                 AutoSampleCache.TryGetValue(id, out AutoSampleCacheEntry cached) &&
                 AutoSampleSnapshotMatches(marker, context, cached.Snapshot))
@@ -1096,9 +1100,9 @@ namespace KimodoBridge.Editor
                 ConstraintType = marker != null ? marker.ConstraintType ?? string.Empty : string.Empty,
                 GlobalTime = globalTime,
                 ModelName = context.ModelName ?? string.Empty,
-                TrackId = context.Track != null ? context.Track.GetInstanceID() : 0,
-                AnimatorId = context.Animator != null ? context.Animator.GetInstanceID() : 0,
-                SourceAvatarId = context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0,
+                TrackId = KimodoUnityObjectIdUtility.IdHash(context.Track),
+                AnimatorId = KimodoUnityObjectIdUtility.IdHash(context.Animator),
+                SourceAvatarId = KimodoUnityObjectIdUtility.IdHash(context.SourceAvatar),
                 SourceAvatarDirtyCount = context.SourceAvatar != null ? EditorUtility.GetDirtyCount(context.SourceAvatar) : 0,
                 SourceSignature = KimodoTimelineConstraintClipCache.ComputeSamplingSourceSignature(context.Track),
                 CacheTimeFrames = context.CacheTimeFrames,
@@ -1129,9 +1133,9 @@ namespace KimodoBridge.Editor
             return string.Equals(snapshot.ConstraintType ?? string.Empty, marker != null ? marker.ConstraintType ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
                 Math.Abs(snapshot.GlobalTime - globalTime) <= 1e-9 &&
                 string.Equals(snapshot.ModelName ?? string.Empty, context.ModelName ?? string.Empty, StringComparison.Ordinal) &&
-                snapshot.TrackId == (context.Track != null ? context.Track.GetInstanceID() : 0) &&
-                snapshot.AnimatorId == (context.Animator != null ? context.Animator.GetInstanceID() : 0) &&
-                snapshot.SourceAvatarId == (context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0) &&
+                snapshot.TrackId == KimodoUnityObjectIdUtility.IdHash(context.Track) &&
+                snapshot.AnimatorId == KimodoUnityObjectIdUtility.IdHash(context.Animator) &&
+                snapshot.SourceAvatarId == KimodoUnityObjectIdUtility.IdHash(context.SourceAvatar) &&
                 snapshot.SourceAvatarDirtyCount == (context.SourceAvatar != null ? EditorUtility.GetDirtyCount(context.SourceAvatar) : 0) &&
                 snapshot.SourceSignature == KimodoTimelineConstraintClipCache.ComputeSamplingSourceSignature(context.Track) &&
                 snapshot.CacheTimeFrames == context.CacheTimeFrames &&
@@ -1372,14 +1376,14 @@ namespace KimodoBridge.Editor
             }
             KimodoConstraintRigType rigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName);
             int clipContextId = playableClip != null
-                ? playableClip.GetInstanceID()
+                ? KimodoUnityObjectIdUtility.IdHash(playableClip)
                 : ((referenceClip?.asset as UnityEngine.Object) != null
-                    ? (referenceClip.asset as UnityEngine.Object).GetInstanceID()
-                    : track.GetInstanceID());
+                    ? KimodoUnityObjectIdUtility.IdHash(referenceClip.asset as UnityEngine.Object)
+                    : KimodoUnityObjectIdUtility.IdHash(track));
             context = new PoseCacheRenderContext(
                 clipContextId,
-                animator.GetInstanceID(),
-                track.GetInstanceID(),
+                KimodoUnityObjectIdUtility.IdHash(animator),
+                KimodoUnityObjectIdUtility.IdHash(track),
                 modelName,
                 rigType,
                 avatarResult.Avatar);
@@ -1583,9 +1587,9 @@ namespace KimodoBridge.Editor
             }
             KimodoConstraintRigType rigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName);
             context = new PoseCacheRenderContext(
-                playableClip.GetInstanceID(),
-                animator.GetInstanceID(),
-                track.GetInstanceID(),
+                KimodoUnityObjectIdUtility.IdHash(playableClip),
+                KimodoUnityObjectIdUtility.IdHash(animator),
+                KimodoUnityObjectIdUtility.IdHash(track),
                 modelName,
                 rigType,
                 avatarResult.Avatar);
@@ -1655,7 +1659,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            PoseRenderSignatures[marker.GetInstanceID()] = new PoseRenderCacheEntry
+            PoseRenderSignatures[KimodoUnityObjectIdUtility.IdHash(marker)] = new PoseRenderCacheEntry
             {
                 Snapshot = BuildRenderSnapshot(marker, context, normalizedSample),
                 Success = true,
@@ -1748,7 +1752,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            int id = marker.GetInstanceID();
+            int id = KimodoUnityObjectIdUtility.IdHash(marker);
             AutoSampleCache.Remove(id);
             PoseRenderSignatures.Remove(id);
         }
@@ -1848,7 +1852,7 @@ namespace KimodoBridge.Editor
 
         internal static string GetMarkerEntryId(KimodoConstraintMarkerBase marker)
         {
-            return marker == null ? string.Empty : GetCachedIntString(marker.GetInstanceID());
+            return marker == null ? string.Empty : GetCachedIntString(KimodoUnityObjectIdUtility.IdHash(marker));
         }
 
         private static PoseRenderSignatureSnapshot BuildRenderSnapshot(
@@ -1863,7 +1867,7 @@ namespace KimodoBridge.Editor
                 SampleTime = source != null ? source.sampleTime : 0.0,
                 ClipId = context.ClipId,
                 AnimatorId = context.AnimatorId,
-                SourceAvatarId = context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0,
+                SourceAvatarId = KimodoUnityObjectIdUtility.IdHash(context.SourceAvatar),
                 ModelName = context.ModelName ?? string.Empty,
                 RigType = context.RigType,
                 HasRootHeading = source != null && source.hasRootHeading,
@@ -1889,7 +1893,7 @@ namespace KimodoBridge.Editor
                 Math.Abs(snapshot.SampleTime - (sample != null ? sample.sampleTime : 0.0)) <= 1e-9 &&
                 snapshot.ClipId == context.ClipId &&
                 snapshot.AnimatorId == context.AnimatorId &&
-                snapshot.SourceAvatarId == (context.SourceAvatar != null ? context.SourceAvatar.GetInstanceID() : 0) &&
+                snapshot.SourceAvatarId == KimodoUnityObjectIdUtility.IdHash(context.SourceAvatar) &&
                 string.Equals(snapshot.ModelName ?? string.Empty, context.ModelName ?? string.Empty, StringComparison.Ordinal) &&
                 snapshot.RigType == context.RigType &&
                 snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&

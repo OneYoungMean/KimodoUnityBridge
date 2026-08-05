@@ -233,7 +233,7 @@ namespace KimodoBridge.Editor
             lastStatus = "Generating and baking...";
             if (!EditorGenerateSessionRunner.Start(
                     requestTarget,
-                    $"animator:{requestTarget.GetInstanceID()}",
+                    $"animator:{KimodoUnityObjectIdUtility.NameKey(requestTarget)}",
                     KimodoEditorCommandKind.GeneratePlayableClip,
                     async (session, token) =>
                     {

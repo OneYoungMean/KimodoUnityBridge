@@ -224,7 +224,7 @@ namespace KimodoBridge
             HumanDescription description = avatar.humanDescription;
             int humanCount = description.human != null ? description.human.Length : 0;
             int skeletonCount = description.skeleton != null ? description.skeleton.Length : 0;
-            return $"name='{avatar.name}',id={avatar.GetInstanceID()},isValid={avatar.isValid}," +
+            return $"name='{avatar.name}',id='{KimodoUnityObjectIdUtility.NameKey(avatar)}',isValid={avatar.isValid}," +
                 $"isHuman={avatar.isHuman},human={humanCount},skeleton={skeletonCount}";
         }
 

@@ -64,7 +64,7 @@ namespace KimodoBridge.Editor
 
             return EditorGenerateSessionRunner.Start(
                 clip,
-                $"clip-selected:{clip.GetInstanceID()}",
+                $"clip-selected:{KimodoUnityObjectIdUtility.NameKey(clip)}",
                 KimodoEditorCommandKind.GeneratePlayableClip,
                 async (handle, token) => await GenerateSelectedAndFinalizeAsync(
                     selectedClips,
@@ -119,7 +119,7 @@ namespace KimodoBridge.Editor
 
             return EditorGenerateSessionRunner.Start(
                 clip,
-                $"clip-connected:{clip.GetInstanceID()}",
+                $"clip-connected:{KimodoUnityObjectIdUtility.NameKey(clip)}",
                 KimodoEditorCommandKind.GeneratePlayableClip,
                 async (handle, token) => await GenerateConnectedArdyAsync(
                     entries,
@@ -141,7 +141,7 @@ namespace KimodoBridge.Editor
         {
             return EditorGenerateSessionRunner.Start(
                 clip,
-                $"clip:{clip.GetInstanceID()}",
+                $"clip:{KimodoUnityObjectIdUtility.NameKey(clip)}",
                 KimodoEditorCommandKind.GeneratePlayableClip,
                 async (handle, token) => await GenerateAndFinalizeAsync(
                     clip,
