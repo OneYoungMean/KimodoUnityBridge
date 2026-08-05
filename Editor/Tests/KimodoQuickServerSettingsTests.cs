@@ -62,6 +62,38 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void SetupWarmupRequestUsesConfiguredDefaults()
+        {
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            string previousModel = settings.DefaultBridgeModelName;
+            KimodoTextEncoderMode previousEncoderMode = settings.DefaultTextEncoderMode;
+            string previousModelsPath = settings.LocalModelsPath;
+
+            try
+            {
+                settings.DefaultBridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
+                settings.DefaultTextEncoderMode = KimodoTextEncoderMode.HighPrecision;
+                settings.LocalModelsPath = Path.Combine(Path.GetTempPath(), "kimodo-warmup-models");
+
+                KimodoGenerationRequestDto request =
+                    KimodoSetupWizardWindow.CreateDefaultModelWarmupRequest(settings);
+
+                Assert.That(request.model, Is.EqualTo(KimodoMotionModelProfiles.ArdyCoreModelName));
+                Assert.That(request.text_encoder_mode, Is.EqualTo(KimodoTextEncoderModeProtocol.HighPrecision));
+                Assert.That(request.models_root, Is.EqualTo(settings.LocalModelsPath));
+                Assert.That(request.duration, Is.EqualTo(1f));
+                Assert.That(request.steps, Is.EqualTo(1));
+                Assert.That(request.prompt, Is.Not.Empty);
+            }
+            finally
+            {
+                settings.DefaultBridgeModelName = previousModel;
+                settings.DefaultTextEncoderMode = previousEncoderMode;
+                settings.LocalModelsPath = previousModelsPath;
+            }
+        }
+
+        [Test]
         public void ArdyModelInstallCheckUsesArdyCheckpointFiles()
         {
             string runtimeRoot = Path.Combine(Path.GetTempPath(), "kimodo-quickserver-" + Guid.NewGuid().ToString("N"));

@@ -382,6 +382,14 @@ namespace KimodoBridge.Editor
 
             try
             {
+                Action<string> updateStatus = progress =>
+                {
+                    if (!string.IsNullOrWhiteSpace(progress))
+                    {
+                        operationStatus = progress;
+                    }
+                };
+
                 using (KimodoBridgeServerTool.EnterRuntimeMaintenanceScope())
                 {
                     if (!runtimeExists)
@@ -395,16 +403,17 @@ namespace KimodoBridge.Editor
                 }
 
                 await KimodoBridgeService.Shared.WarmupAsync(
-                    progress =>
-                    {
-                        if (!string.IsNullOrWhiteSpace(progress))
-                        {
-                            operationStatus = progress;
-                        }
-                    },
+                    updateStatus,
                     CancellationToken.None);
 
-                operationStatus = "Server connected.";
+                KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+                operationStatus = $"Preparing default model '{settings.DefaultBridgeModelName}'...";
+                await KimodoBridgeService.Shared.GenerateAsync(
+                    CreateDefaultModelWarmupRequest(settings),
+                    updateStatus,
+                    CancellationToken.None);
+
+                operationStatus = "OK: Server connected and default model is ready.";
                 MarkWizardCompleted();
             }
             catch (Exception ex)
@@ -418,6 +427,25 @@ namespace KimodoBridge.Editor
                 operationInProgress = false;
                 Repaint();
             }
+        }
+
+        internal static KimodoGenerationRequestDto CreateDefaultModelWarmupRequest(
+            KimodoPlayableClipGenerationSettings settings)
+        {
+            if (settings == null)
+            {
+                throw new ArgumentNullException(nameof(settings));
+            }
+
+            return new KimodoGenerationRequestDto
+            {
+                prompt = "a person standing still",
+                duration = 1f,
+                steps = 1,
+                model = settings.DefaultBridgeModelName,
+                text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(settings.DefaultTextEncoderMode),
+                models_root = settings.LocalModelsPath
+            };
         }
 
         private void StartConnectivityCheck()

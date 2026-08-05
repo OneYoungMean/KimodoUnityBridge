@@ -355,6 +355,7 @@ namespace KimodoBridge
                         currentPort = port;
                         await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
                         StartLogPumpsIfNeeded();
+                        StartRuntimeLogPumpsIfNeeded();
                         ReportProgress(progress, $"Bridge attached to {host}:{port}.");
                         return;
                     }
@@ -397,6 +398,7 @@ namespace KimodoBridge
                 currentHost = host;
                 currentPort = port;
                 await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
+                StartRuntimeLogPumpsIfNeeded();
                 ReportProgress(progress, $"Bridge attached to {host}:{port}.");
             }
             finally
@@ -574,8 +576,6 @@ namespace KimodoBridge
                 return;
             }
 
-            StartLogPumpForPath(BridgeEndpointResolver.ResolveAttachLogPath(currentRuntimeRoot), "[Bridge]");
-            StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "bridge_server.log"), "[BridgeServer]");
             StartLogPumpForPath(
                 Path.Combine(currentRuntimeRoot, "log", "bridge_message.log"),
                 "[BridgeMessage]",
@@ -584,6 +584,17 @@ namespace KimodoBridge
                 BridgeRuntimeDefaults.LogPumpMissingFilePollMinMs);
             StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "run_server.log"), "[RunServer]");
             StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "setup.log"), "[Setup]");
+        }
+
+        private void StartRuntimeLogPumpsIfNeeded()
+        {
+            if (!isDefaultSession || string.IsNullOrWhiteSpace(currentRuntimeRoot))
+            {
+                return;
+            }
+
+            StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "bridge_server.log"), "[BridgeServer]");
+            StartLogPumpForPath(BridgeEndpointResolver.ResolveAttachLogPath(currentRuntimeRoot), "[Bridge]");
         }
 
         private void StartLogPumpForPath(
