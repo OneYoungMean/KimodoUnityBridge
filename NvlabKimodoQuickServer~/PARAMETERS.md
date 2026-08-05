@@ -24,7 +24,6 @@
 - `--hold-cli`: 仅 Windows 调试参数，让批处理等待 supervisor 退出。
 
 关键 setup 变量：
-- `KIMODO_AUTO_INSTALL_UV=1`: 缺少本地 uv 时跳过交互询问并自动下载；Unity 在 macOS/Linux 非交互启动时自动设置。
 - `KIMODO_SETUP_DEVICE=auto|cpu`: setup 安装模式；设为 `cpu` 时强制准备 CPU torch 环境。macOS 的 `auto` 会安装通用 torch，并验证 MPS；不可用时回退 CPU。
 - `KIMODO_VENV_PATH=<path>`: 复用指定虚拟环境；等价于启动时自动补 `--venv <path>`。
 
@@ -45,7 +44,6 @@
 - `KIMODO_ALLOW_MULTI_SERVER=0|1`: 默认 `0`，同一份 QuickServer 根目录只允许一个 `run server` 实例；设为 `1` 时跳过运行单例锁。兼容别名 `ALLOWMULTISERVER` / `allowmultiserver`。
 - `KIMODO_IDLE_TIMEOUT_SEC`: 服务空闲退出秒数（当前设定 `600`）。
 - `KIMODO_RUNTIME_IDLE_UNLOAD_SEC`: 模型资源空闲回收秒数，默认 `900`；设为更大值可延后显存释放。
-- `KIMODO_ARDY_BATCH_SIZE`: ARDY 同模型兼容请求的最大 batch 和准备线程数，默认 `8`，有效范围 `1-8`。实际 batch 容量从 `1` 开始，Session 数超过容量时按 `1/2/4/8` 扩容，低于容量一半时减半；设为 `1` 可关闭跨 Session batch。
 - `KIMODO_BRIDGE_OUTPUT_FORMAT=json_compact|bvh`: bridge TCP `generate` 返回格式。默认 `json_compact`；设为 `bvh` 时，仅返回 `motion_bvh`，不再返回 `motion_json_compact`。
 - `KIMODO_BRIDGE_BVH_STANDARD_TPOSE=0|1`: 仅在 `KIMODO_BRIDGE_OUTPUT_FORMAT=bvh` 时生效。设为 `1` 时，BVH 以标准 T-pose 作为 rest pose 导出。
 - 下载站点默认是自动探测 HF / ModelScope 后择优；`--force-hf-download` 会跳过探测并强制走 HF。

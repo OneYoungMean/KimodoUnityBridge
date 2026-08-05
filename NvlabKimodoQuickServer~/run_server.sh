@@ -3,11 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT_DIR="${SCRIPT_DIR}"
-LOG_DIR="${ROOT_DIR}/log"
-LAUNCHER_LOG="${LOG_DIR}/launcher.log"
-mkdir -p "${LOG_DIR}"
-exec > >(tee -a "${LAUNCHER_LOG}") 2>&1
-printf '[INFO] Kimodo QuickServer launcher started at %s (pid=%s)\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$$"
 SOURCE_ROOT="${ROOT_DIR}/kimodo"
 if [[ ! -f "${SOURCE_ROOT}/pyproject.toml" ]]; then
   SOURCE_ROOT="${ROOT_DIR}"
@@ -28,7 +23,7 @@ UV_SELECTED_MS=""
 LOCK_HELD=0
 BOOTSTRAP_WAIT_LOGGED=0
 BOOTSTRAP_HOLD_SEC="${KIMODO_BOOTSTRAP_HOLD_SEC:-}"
-BOOTSTRAP_WAIT_LOG="${LOG_DIR}/bootstrap_wait.log"
+BOOTSTRAP_WAIT_LOG="${ROOT_DIR}/log/bootstrap_wait.log"
 
 cleanup_lock() {
   if [[ "${LOCK_HELD}" == "1" && -f "${BOOTSTRAP_LOCK}" ]]; then
@@ -259,13 +254,7 @@ prompt_install_missing_tools() {
   local missing=("$@")
   local answer=""
   echo "[ERROR] Missing required command-line tool(s): ${missing[*]}"
-  if [[ -n "${KIMODO_AUTO_INSTALL_UV:-}" ]]; then
-    echo "[INFO] KIMODO_AUTO_INSTALL_UV is set; installing missing tools without prompting."
-    answer="yes"
-  elif ! read -r -p "Would you like Kimodo QuickServer to try installing them now? [Y/N] " answer; then
-    echo "[ERROR] Cannot read an install response. Set KIMODO_AUTO_INSTALL_UV=1 for non-interactive startup."
-    return 1
-  fi
+  read -r -p "Would you like Kimodo QuickServer to try installing them now? [Y/N] " answer
   case "${answer}" in
     Y|y|Yes|YES|yes)
       for tool in "${missing[@]}"; do

@@ -413,7 +413,6 @@ class Ardy(nn.Module):
         progress_bar=tqdm,
         target_motion: Optional[torch.Tensor] = None,
         cfg_type: Optional[str] = None,
-        initial_noise: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Generate a single window of ``gen_horizon_len`` frames.
 
@@ -479,14 +478,7 @@ class Ardy(nn.Module):
             num_generation_tokens,
             nframe_root_dim + latent_embedding_dim,
         )
-        if initial_noise is None:
-            x_t = torch.randn(shape, device=device)
-        else:
-            if tuple(initial_noise.shape) != shape:
-                raise ValueError(
-                    f"initial_noise shape mismatch: expected {shape}, got {tuple(initial_noise.shape)}"
-                )
-            x_t = initial_noise.to(device=device)
+        x_t = torch.randn(shape, device=device)
         x = torch.zeros(
             batch_size,
             (total_frames - history_start_frame) // num_frames_per_token,
@@ -724,7 +716,6 @@ class Ardy(nn.Module):
         init_history_sequence: Optional[torch.Tensor] = None,
         init_global_translation: Optional[torch.Tensor] = None,  # [B, 3]
         init_first_heading_angle: Optional[torch.Tensor] = None,  # [B,]
-        initial_noise: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Perform a single autoregressive generation step.
 
@@ -790,7 +781,6 @@ class Ardy(nn.Module):
             progress_bar=lambda iterable: iterable,
             target_motion=None,
             cfg_type=None,
-            initial_noise=initial_noise,
         )
 
         root_motion, latent_body_motion = self.hybrid.get_root_and_latent_body_motion_from_hybrid(history_sequence)
