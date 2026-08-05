@@ -32,7 +32,7 @@ run_server.bat
 macOS / Linux：
 ```bash
 cd /path/to/NvlabKimodoQuickServer~
-./run_server.sh
+bash ./run_server.sh
 ```
 
 启动脚本会先自动检查并完成 setup，再启动 TCP supervisor；无需也不应追加 `setup` 子命令。模型、文本编码器模式和模型目录通常由 Unity 的每次生成请求传入。Windows 批处理脚本只处理生命周期参数，不会转发 `--model`、`--models-root` 或 `--output` 等高级运行参数；详见 `PARAMETERS.md`。
@@ -48,7 +48,7 @@ cd /path/to/NvlabKimodoQuickServer~
 | 高级运行参数 | 不转发 `--model/--models-root/--text-encoder-mode` | 会原样转发给 supervisor |
 | `--watchpid` | 显式支持 | 原样转发，supervisor 支持 |
 | `--hold-cli` | 支持，调试批处理窗口 | 不支持 |
-| uv 自动安装 | 支持 `KIMODO_AUTO_INSTALL_UV` 跳过询问 | 交互询问；不读取该变量 |
+| uv 自动安装 | 支持 `KIMODO_AUTO_INSTALL_UV` 跳过询问 | 支持 `KIMODO_AUTO_INSTALL_UV` 跳过询问；Unity 非交互启动时自动设置 |
 | 推荐配置方式 | Unity 设置、环境变量或每次 `generate` 请求 | Unity 设置、环境变量、每次请求或脚本参数 |
 
 文本编码器由 `text_encoder_mode=high_precision|high_performance` 选择精度偏好，再按实时剩余显存和设备能力自动放置。QuickServer 先为 motion 模型预留约 2GB，随后把剩余显存作为文本编码器预算；NF4/INT8/FP16 的门槛分别为 6GB/8GB/16GB。显式 `simulate_free_vram_gb=0` 会让整个运行时走 CPU。

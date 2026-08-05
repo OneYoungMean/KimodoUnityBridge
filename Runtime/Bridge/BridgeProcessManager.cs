@@ -216,20 +216,26 @@ namespace KimodoBridge
             string message = $"Bridge exited with code {exitCode}.";
             try
             {
-                string setupLog = Path.Combine(runtimeRoot ?? string.Empty, "log", "setup.log");
-                if (!File.Exists(setupLog))
+                string logDirectory = Path.Combine(runtimeRoot ?? string.Empty, "log");
+                foreach (string logName in new[] { "launcher.log", "setup.log" })
                 {
-                    return message;
-                }
+                    string logPath = Path.Combine(logDirectory, logName);
+                    if (!File.Exists(logPath))
+                    {
+                        continue;
+                    }
 
-                string detail = File.ReadAllText(setupLog).Trim();
-                if (detail.Length > 2000)
-                {
-                    detail = detail.Substring(detail.Length - 2000);
+                    string detail = File.ReadAllText(logPath).Trim();
+                    if (detail.Length > 2000)
+                    {
+                        detail = detail.Substring(detail.Length - 2000);
+                    }
+                    if (!string.IsNullOrWhiteSpace(detail))
+                    {
+                        return $"{message}\n[{logName}]\n{detail}";
+                    }
                 }
-                return string.IsNullOrWhiteSpace(detail)
-                    ? message
-                    : $"{message}\n{detail}";
+                return message;
             }
             catch
             {

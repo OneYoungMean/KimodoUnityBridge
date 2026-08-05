@@ -33,10 +33,10 @@ run_server.bat
 macOS / Linux:
 ```bash
 cd /path/to/NvlabKimodoQuickServer~
-./run_server.sh
+bash ./run_server.sh
 ```
 
-The launcher checks and completes setup automatically before starting the TCP supervisor; do not append a `setup` subcommand. Unity normally supplies the model, text-encoder mode, and models directory with each generation request. The Windows batch launcher handles lifecycle arguments only and does not forward advanced runtime arguments such as `--model`, `--models-root`, or `--output`; see `PARAMETERS.md`.
+The launcher checks and completes setup automatically before starting the TCP supervisor; do not append a `setup` subcommand. Unity sets `KIMODO_AUTO_INSTALL_UV=1` for non-interactive macOS/Linux startup, so a missing local `uv` is downloaded without prompting. Unity normally supplies the model, text-encoder mode, and models directory with each generation request. The Windows batch launcher handles lifecycle arguments only and does not forward advanced runtime arguments such as `--model`, `--models-root`, or `--output`; see `PARAMETERS.md`.
 
 `text_encoder_mode=high_precision|high_performance` selects the precision preference; QuickServer then places the encoder from current free VRAM and backend capabilities. It first reserves about 2 GB for the motion model and treats the remaining free VRAM as the encoder budget; NF4/INT8/FP16 require 6/8/16 GB respectively. Explicit `simulate_free_vram_gb=0` moves the entire runtime to CPU.
 

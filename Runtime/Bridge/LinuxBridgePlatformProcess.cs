@@ -36,6 +36,7 @@ namespace KimodoBridge
                 WorkingDirectory = Path.GetDirectoryName(launcherPath) ?? Environment.CurrentDirectory
             };
             startInfo.EnvironmentVariables["KIMODO_IDLE_TIMEOUT_SEC"] = "0";
+            startInfo.EnvironmentVariables["KIMODO_AUTO_INSTALL_UV"] = "1";
             return startInfo;
         }
 

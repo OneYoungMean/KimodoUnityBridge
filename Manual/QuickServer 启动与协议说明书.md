@@ -84,7 +84,7 @@ python -m core.quickserver_cli run --output file
 | --- | --- | --- |
 | 本地 uv 路径 | `program\exe\uv\uv.exe` | `program/exe/uv/uv`，也兼容 `uv.exe` |
 | uv 下载包 | 固定 Windows x64 zip | 按 `uname` 选择 macOS/Linux 与 CPU 架构 |
-| 自动安装 uv | 支持交互询问；也支持 `KIMODO_AUTO_INSTALL_UV` 跳过询问 | 支持交互询问；当前不读取 `KIMODO_AUTO_INSTALL_UV` |
+| 自动安装 uv | 支持交互询问；也支持 `KIMODO_AUTO_INSTALL_UV` 跳过询问 | 支持交互询问；也支持 `KIMODO_AUTO_INSTALL_UV` 跳过询问，Unity 非交互启动时自动设置 |
 | `--force-setup` | 支持，传给 setup 与 supervisor | 支持，传给 setup 与 supervisor |
 | `--force` | 不作为独立参数处理 | 支持，传给 setup，并继续传给 supervisor |
 | `--venv <path>` | 用于 setup 和选择 Python；不作为运行参数转发 | 用于 setup 和选择 Python；同时保留在运行参数中 |

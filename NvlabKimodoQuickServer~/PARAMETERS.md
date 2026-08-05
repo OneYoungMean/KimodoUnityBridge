@@ -24,6 +24,7 @@
 - `--hold-cli`: 仅 Windows 调试参数，让批处理等待 supervisor 退出。
 
 关键 setup 变量：
+- `KIMODO_AUTO_INSTALL_UV=1`: 缺少本地 uv 时跳过交互询问并自动下载；Unity 在 macOS/Linux 非交互启动时自动设置。
 - `KIMODO_SETUP_DEVICE=auto|cpu`: setup 安装模式；设为 `cpu` 时强制准备 CPU torch 环境。macOS 的 `auto` 会安装通用 torch，并验证 MPS；不可用时回退 CPU。
 - `KIMODO_VENV_PATH=<path>`: 复用指定虚拟环境；等价于启动时自动补 `--venv <path>`。
 
