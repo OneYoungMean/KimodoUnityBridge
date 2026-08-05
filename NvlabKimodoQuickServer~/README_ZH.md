@@ -32,7 +32,7 @@ run_server.bat
 macOS / Linux：
 ```bash
 cd /path/to/NvlabKimodoQuickServer~
-./run_server.sh
+bash ./run_server.sh
 ```
 
 启动脚本会先自动检查并完成 setup，再启动 TCP supervisor；无需也不应追加 `setup` 子命令。模型、文本编码器模式和模型目录通常由 Unity 的每次生成请求传入。Windows 批处理脚本只处理生命周期参数，不会转发 `--model`、`--models-root` 或 `--output` 等高级运行参数；详见 `PARAMETERS.md`。
@@ -48,7 +48,7 @@ cd /path/to/NvlabKimodoQuickServer~
 | 高级运行参数 | 不转发 `--model/--models-root/--text-encoder-mode` | 会原样转发给 supervisor |
 | `--watchpid` | 显式支持 | 原样转发，supervisor 支持 |
 | `--hold-cli` | 支持，调试批处理窗口 | 不支持 |
-| uv 自动安装 | 支持 `KIMODO_AUTO_INSTALL_UV` 跳过询问 | 交互询问；不读取该变量 |
+| uv 自动安装 | 支持 `KIMODO_AUTO_INSTALL_UV` 跳过询问 | 支持 `KIMODO_AUTO_INSTALL_UV` 跳过询问；Unity 非交互启动时自动设置 |
 | 推荐配置方式 | Unity 设置、环境变量或每次 `generate` 请求 | Unity 设置、环境变量、每次请求或脚本参数 |
 
 文本编码器由 `text_encoder_mode=high_precision|high_performance` 选择精度偏好，再按实时剩余显存和设备能力自动放置。QuickServer 先为 motion 模型预留约 2GB，随后把剩余显存作为文本编码器预算；NF4/INT8/FP16 的门槛分别为 6GB/8GB/16GB。显式 `simulate_free_vram_gb=0` 会让整个运行时走 CPU。
@@ -69,7 +69,8 @@ TCP 协议补充：
 - `session.close` 只关闭显式 Session；关闭 `session:default` 会关闭 QuickServer。旧 `quit` 保持相同的全局关闭效果。
 - `generate` 使用 `text_encoder_mode`，不再接受 `highvram` 或 `force_cpu`；Force CPU UI 会发送 `simulate_free_vram_gb=0`。
 - `generate` 的 `task_id` 现在是可选的；如果调用方不传，QuickServer 会在入队前自动补一个稳定任务标识。
-- 新的 ARDY Generate 不会取消正在执行的 Horizon；当前请求完成后再执行，并且等待队列只保留最新的 ARDY 更新。
+- 新的流式 ARDY Generate 不会取消正在执行的 Horizon；当前请求完成后再执行，并且同一 Session 的等待队列只保留最新流式更新。带正数 `duration` 的固定长度请求不会互相替换。
+- 不同 Session 使用相同 ARDY runtime、history/window、steps 和 CFG 时会机会式合并为一次 motion batch；容量从 `1` 开始，ARDY Session 数超过容量时按 `1/2/4/8` 扩容，低于容量一半时减半。默认上限为 `8`，可用 `KIMODO_ARDY_BATCH_SIZE=1-8` 调整。
 
 ## KMB 直接传输
 

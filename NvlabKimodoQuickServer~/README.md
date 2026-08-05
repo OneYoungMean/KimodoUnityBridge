@@ -33,10 +33,10 @@ run_server.bat
 macOS / Linux:
 ```bash
 cd /path/to/NvlabKimodoQuickServer~
-./run_server.sh
+bash ./run_server.sh
 ```
 
-The launcher checks and completes setup automatically before starting the TCP supervisor; do not append a `setup` subcommand. Unity normally supplies the model, text-encoder mode, and models directory with each generation request. The Windows batch launcher handles lifecycle arguments only and does not forward advanced runtime arguments such as `--model`, `--models-root`, or `--output`; see `PARAMETERS.md`.
+The launcher checks and completes setup automatically before starting the TCP supervisor; do not append a `setup` subcommand. Unity sets `KIMODO_AUTO_INSTALL_UV=1` for non-interactive macOS/Linux startup, so a missing local `uv` is downloaded without prompting. Unity normally supplies the model, text-encoder mode, and models directory with each generation request. The Windows batch launcher handles lifecycle arguments only and does not forward advanced runtime arguments such as `--model`, `--models-root`, or `--output`; see `PARAMETERS.md`.
 
 `text_encoder_mode=high_precision|high_performance` selects the precision preference; QuickServer then places the encoder from current free VRAM and backend capabilities. It first reserves about 2 GB for the motion model and treats the remaining free VRAM as the encoder budget; NF4/INT8/FP16 require 6/8/16 GB respectively. Explicit `simulate_free_vram_gb=0` moves the entire runtime to CPU.
 
@@ -51,7 +51,8 @@ The launcher checks and completes setup automatically before starting the TCP su
 - A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.
 - `cancel` accepts an optional `task_id`. If omitted, QuickServer cancels the first cancellable queued task and returns the resolved task id.
 - ARDY generation is non-interruptible inside a Horizon. Cancel stops the waiting Generate response at the next Horizon boundary but keeps the Session timeline until `session.close`.
-- A newer ARDY Generate does not cancel the active Horizon. The active request finishes first, and only the newest queued ARDY update is retained.
+- A newer streaming ARDY Generate does not cancel the active Horizon. The active request finishes first, and only the newest queued streaming update in that Session is retained. Positive-duration fixed-length requests do not supersede each other.
+- Compatible requests from different Sessions opportunistically share one ARDY motion batch when runtime, history/window shape, steps, and CFG match. Capacity starts at `1`, grows through `2/4/8` as ARDY Sessions exceed it, and halves when the Session count drops below half capacity. `KIMODO_ARDY_BATCH_SIZE=1-8` controls the maximum (default `8`) and preparation workers; `1` disables cross-Session batching.
 
 ## Direct KMB transport
 
