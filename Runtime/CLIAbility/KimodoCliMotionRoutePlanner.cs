@@ -65,12 +65,12 @@ namespace KimodoBridge
             Unsubscribe();
         }
 
-        public string Animate(string prompt, float localX, float localZ)
+        public string Animate(string prompt, float worldX, float worldZ)
         {
-            return AnimateRoute(prompt, new[] { new Vector2(localX, localZ) });
+            return AnimateRoute(prompt, new[] { new Vector2(worldX, worldZ) });
         }
 
-        public string AnimateRoute(string prompt, IList<Vector2> localWaypoints)
+        public string AnimateRoute(string prompt, IList<Vector2> worldWaypoints)
         {
             if (motionDriver == null)
             {
@@ -89,20 +89,16 @@ namespace KimodoBridge
             startedSegmentCount = 0;
             activePrompt = string.IsNullOrWhiteSpace(prompt) ? "idle" : prompt.Trim();
 
-            if (localWaypoints == null || localWaypoints.Count == 0)
+            if (worldWaypoints == null || worldWaypoints.Count == 0)
             {
                 motionDriver.SetAnimationPrompt(activePrompt);
                 return $"Animation configured: prompt = \"{activePrompt}\" (no displacement)";
             }
 
-            Vector3 routeOrigin = root.position;
-            Vector3 routeRight = root.right;
-            Vector3 routeForward = root.forward;
-            for (int i = 0; i < localWaypoints.Count; i++)
+            for (int i = 0; i < worldWaypoints.Count; i++)
             {
-                Vector2 waypoint = localWaypoints[i];
-                Vector3 worldTarget = routeOrigin + routeRight * waypoint.x + routeForward * waypoint.y;
-                pendingWorldTargets.Enqueue(new Vector3(worldTarget.x, root.position.y, worldTarget.z));
+                Vector2 waypoint = worldWaypoints[i];
+                pendingWorldTargets.Enqueue(new Vector3(waypoint.x, root.position.y, waypoint.y));
             }
 
             while (pendingWorldTargets.Count > 0)
@@ -127,7 +123,7 @@ namespace KimodoBridge
             routeActive = true;
             DispatchNextSegment();
 
-            return $"Route queued: prompt=\"{activePrompt}\", waypoints={localWaypoints.Count}, pendingSegments={pendingWorldTargets.Count}";
+            return $"Route queued: prompt=\"{activePrompt}\", waypoints={worldWaypoints.Count}, pendingSegments={pendingWorldTargets.Count}";
         }
 
         private void Subscribe()
@@ -191,15 +187,14 @@ namespace KimodoBridge
                     continue;
                 }
 
-                Vector3 localDelta = Quaternion.Inverse(root.rotation) * deltaWorld;
                 float durationSeconds = EstimateSegmentDuration(deltaWorld.magnitude);
-                motionDriver.QueuePromptedRoot2DLocal(activePrompt, localDelta.x, localDelta.z, durationSeconds);
+                motionDriver.QueuePromptedRoot2D(activePrompt, targetWorld.x, targetWorld.z, durationSeconds);
                 dispatchedSegmentCount++;
 
                 if (verboseLogging)
                 {
                     Debug.Log(
-                        $"[KimodoCliMotionRoutePlanner] Dispatch segment {dispatchedSegmentCount} target={targetWorld} localDelta=({localDelta.x:0.###}, {localDelta.z:0.###}) duration={durationSeconds:0.###}",
+                        $"[KimodoCliMotionRoutePlanner] Dispatch segment {dispatchedSegmentCount} worldTarget={targetWorld} duration={durationSeconds:0.###}",
                         this);
                 }
 

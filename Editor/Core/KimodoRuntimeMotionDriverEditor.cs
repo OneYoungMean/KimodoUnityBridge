@@ -6,7 +6,7 @@ namespace KimodoBridge.Editor
     [CustomEditor(typeof(KimodoRuntimeMotionDriver))]
     internal sealed class KimodoRuntimeMotionDriverEditor : UnityEditor.Editor
     {
-        private SerializedProperty targetAnimator;
+        private SerializedProperty targetAnimators;
         private SerializedProperty modelsRoot;
         private SerializedProperty modelName;
         private SerializedProperty textEncoderMode;
@@ -23,14 +23,11 @@ namespace KimodoBridge.Editor
         private SerializedProperty seed;
         private SerializedProperty driveFootIkTargets;
         private SerializedProperty drawDebugSkeleton;
-        private SerializedProperty debugBoneColor;
-        private SerializedProperty debugJointColor;
-        private SerializedProperty debugJointSize;
         private SerializedProperty verboseLogging;
 
         private void OnEnable()
         {
-            targetAnimator = serializedObject.FindProperty("targetHumanoidAnimator");
+            targetAnimators = serializedObject.FindProperty("targetHumanoidAnimators");
             modelsRoot = serializedObject.FindProperty("modelsRoot");
             modelName = serializedObject.FindProperty("modelName");
             textEncoderMode = serializedObject.FindProperty("textEncoderMode");
@@ -47,9 +44,6 @@ namespace KimodoBridge.Editor
             seed = serializedObject.FindProperty("fixedSeed");
             driveFootIkTargets = serializedObject.FindProperty("driveFootIkTargets");
             drawDebugSkeleton = serializedObject.FindProperty("drawDebugSkeleton");
-            debugBoneColor = serializedObject.FindProperty("debugSkeletonBoneColor");
-            debugJointColor = serializedObject.FindProperty("debugSkeletonJointColor");
-            debugJointSize = serializedObject.FindProperty("debugJointMarkerSize");
             verboseLogging = serializedObject.FindProperty("verboseLogging");
         }
 
@@ -74,7 +68,10 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.LabelField("Generate Motion", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.PropertyField(targetAnimator, new GUIContent("Target Animator"));
+            EditorGUILayout.PropertyField(
+                targetAnimators,
+                new GUIContent("Target Animators", "The first valid Animator defines world-space constraints; all targets receive the same motion."),
+                includeChildren: true);
             bool isArdy = KimodoGenerationInspectorGui.DrawModelSelector(modelName, diffusionSteps, textEncoderMode);
             EditorGUILayout.PropertyField(
                 modelsRoot,
@@ -187,9 +184,9 @@ namespace KimodoBridge.Editor
             EditorGUILayout.PropertyField(drawDebugSkeleton, new GUIContent("Draw Debug Skeleton"));
             if (drawDebugSkeleton.boolValue)
             {
-                EditorGUILayout.PropertyField(debugBoneColor, new GUIContent("Bone Color"));
-                EditorGUILayout.PropertyField(debugJointColor, new GUIContent("Joint Color"));
-                EditorGUILayout.PropertyField(debugJointSize, new GUIContent("Joint Marker Size"));
+                EditorGUILayout.LabelField(
+                    "Editor-only profile model driven by the current source pose.",
+                    EditorStyles.wordWrappedMiniLabel);
             }
             EditorGUILayout.PropertyField(verboseLogging, new GUIContent("Verbose Logging"));
             EditorGUILayout.EndVertical();

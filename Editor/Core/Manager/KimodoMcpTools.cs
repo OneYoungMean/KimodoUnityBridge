@@ -53,7 +53,10 @@ namespace KimodoBridge.Editor
                             Optional("text_weight", "number", "Prompt weight in [0,4]; defaults to 1."),
                             Enum("output_mode", "humanoid_muscle", "character_bone", "model_bone"),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."),
-                            Optional("asset_name", "string", "Output asset name without extension."))),
+                            Optional("asset_name", "string", "Output asset name without extension."),
+                            OptionalArray("pose_refs", "string", "Scene humanoid GameObject or Animator GlobalObjectIds used as pose constraints."),
+                            OptionalArray("times", "number", "Pose times in seconds; omitted distributes poses from the first through the last generated frame."),
+                            OptionalEnumArray("constraint_types", "Constraint type per pose; omitted defaults every pose to fullbody.", "fullbody", "root2d"))),
                     Tool(GenerateTimelineAnimationTool,
                         "Create and generate a Kimodo clip on a PlayableDirector Timeline.",
                         Properties(
@@ -67,7 +70,10 @@ namespace KimodoBridge.Editor
                             Optional("seed", "integer", "Deterministic seed; omitted chooses a random seed."),
                             Optional("diffusion_steps", "integer", "Diffusion steps; omitted uses the model default."),
                             Optional("text_weight", "number", "Prompt weight in [0,4]; defaults to 1."),
-                            Optional("use_constraints", "boolean", "Use enabled Timeline constraints; defaults to true."))),
+                            Optional("use_constraints", "boolean", "Use enabled Timeline constraints; defaults to true."),
+                            OptionalArray("pose_refs", "string", "Scene humanoid GameObject or Animator GlobalObjectIds used as pose constraints."),
+                            OptionalArray("times", "number", "Pose times in seconds; omitted distributes poses from the first through the last generated frame."),
+                            OptionalEnumArray("constraint_types", "Constraint type per pose; omitted defaults every pose to fullbody.", "fullbody", "root2d"))),
                     Tool(GetGenerationTool,
                         "Get generation progress and the generated AnimationClip asset path.",
                         Properties(Required("request_id", "string", "Request id returned by a generate tool."))),
@@ -177,6 +183,13 @@ namespace KimodoBridge.Editor
                 {
                     throw new InvalidOperationException($"Model '{modelName}' does not provide a valid humanoid origin Avatar.");
                 }
+                List<KimodoMarkerSampleResult> poseConstraints = BuildPoseConstraints(
+                    arguments,
+                    modelName,
+                    originAvatar,
+                    frameCount,
+                    frameRate,
+                    duration);
 
                 var request = new KimodoEditorGenerateRequest
                 {
@@ -188,13 +201,18 @@ namespace KimodoBridge.Editor
                     DiffusionSteps = steps,
                     TextWeight = textWeight,
                     EffectiveSeed = seed,
-                    ConstraintsJson = string.Empty,
+                    ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
+                        poseConstraints,
+                        0.0,
+                        duration,
+                        frameRate),
                     ModelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim() ?? string.Empty,
                     GenerationTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance.GenerationTimeoutSeconds,
                     CreateTargetClip = () => KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(assetName, outputFolder),
                     OutputPlan = BuildOutputPlan(outputMode, originAvatar, character.Avatar),
                     ResolveOutputPlan = (generatedClip, _) => BuildOutputPlan(outputMode, originAvatar, character.Avatar),
-                    Token = CancellationToken.None
+                    Token = CancellationToken.None,
+                    ConstraintSamples = poseConstraints
                 };
 
                 if (outputMode != "model_bone" && !KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
@@ -250,6 +268,20 @@ namespace KimodoBridge.Editor
                 double start = NonNegativeDouble(arguments, "start_seconds", 0.0);
                 double duration = PositiveDouble(arguments, "duration_seconds", 5.0);
                 string modelName = ResolveModelName(arguments.Value<string>("model"));
+                float frameRate = ResolveFrameRate(modelName);
+                int frameCount = Math.Max(1, KimodoFrameTimeUtility.SecondsToFrameCount(duration, frameRate));
+                Avatar originAvatar = KimodoPlayableClipGenerationHostService.ResolveOriginRetargetAvatar(modelName);
+                if (!KimodoRetargetCoreUtility.IsValidHumanoid(originAvatar))
+                {
+                    throw new InvalidOperationException($"Model '{modelName}' does not provide a valid humanoid origin Avatar.");
+                }
+                List<KimodoMarkerSampleResult> poseConstraints = BuildPoseConstraints(
+                    arguments,
+                    modelName,
+                    originAvatar,
+                    frameCount,
+                    frameRate,
+                    duration);
                 int seed = arguments.Value<int?>("seed") ?? (Guid.NewGuid().GetHashCode() & int.MaxValue);
                 bool useConstraints = arguments.Value<bool?>("use_constraints") ?? true;
 
@@ -277,13 +309,15 @@ namespace KimodoBridge.Editor
                 EditorUtility.SetDirty(timelineAsset);
                 AssetDatabase.SaveAssets();
 
-                KimodoExternalConstraintRequest externalConstraint = useConstraints
+                KimodoExternalConstraintRequest externalConstraint = useConstraints && poseConstraints.Count == 0
                     ? null
                     : new KimodoExternalConstraintRequest
                     {
                         Enabled = true,
                         ConstraintsJson = string.Empty,
-                        RetargetAvatar = character.Avatar
+                        RetargetAvatar = character.Avatar,
+                        IncludeTimelineConstraints = useConstraints,
+                        ConstraintSamples = poseConstraints
                     };
                 bool started = EditorGenerateSessionRunner.Start(
                     playableClip,
@@ -409,6 +443,244 @@ namespace KimodoBridge.Editor
                         ExportMuscleClip = true,
                         SkipRetarget = false
                     };
+            }
+        }
+
+        private static List<KimodoMarkerSampleResult> BuildPoseConstraints(
+            JObject arguments,
+            string modelName,
+            Avatar targetAvatar,
+            int frameCount,
+            float frameRate,
+            double durationSeconds)
+        {
+            JToken poseRefsToken = arguments?["pose_refs"];
+            JToken timesToken = arguments?["times"];
+            JToken typesToken = arguments?["constraint_types"];
+            if (poseRefsToken == null)
+            {
+                if (timesToken != null || typesToken != null)
+                {
+                    throw new InvalidOperationException("pose_refs is required when times or constraint_types is supplied.");
+                }
+                return new List<KimodoMarkerSampleResult>();
+            }
+            if (poseRefsToken is not JArray poseRefs)
+            {
+                throw new InvalidOperationException("pose_refs must be an array.");
+            }
+
+            List<double> times = ParsePoseTimes(timesToken, poseRefs.Count);
+            times = ResolvePoseConstraintTimes(poseRefs.Count, frameCount, frameRate, times);
+            for (int i = 0; i < times.Count; i++)
+            {
+                if (times[i] < 0.0 || times[i] > durationSeconds)
+                {
+                    throw new InvalidOperationException($"times[{i}] must be between 0 and duration_seconds ({durationSeconds:0.###}).");
+                }
+            }
+            List<string> constraintTypes = ParsePoseConstraintTypes(typesToken, poseRefs.Count);
+            var samples = new List<KimodoMarkerSampleResult>(poseRefs.Count);
+            SkeletonCache targetCache = null;
+            try
+            {
+                if (poseRefs.Count > 0 &&
+                    !KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                        targetAvatar,
+                        "KimodoMcpPoseConstraints",
+                        out targetCache,
+                        out string cacheError))
+                {
+                    throw new InvalidOperationException($"Build pose constraint target failed: {cacheError}");
+                }
+
+                for (int i = 0; i < poseRefs.Count; i++)
+                {
+                    string poseReference = poseRefs[i]?.Type == JTokenType.String
+                        ? poseRefs[i].Value<string>()?.Trim()
+                        : null;
+                    if (string.IsNullOrWhiteSpace(poseReference))
+                    {
+                        throw new InvalidOperationException($"pose_refs[{i}] must be a non-empty GlobalObjectId string.");
+                    }
+
+                    ResolvedCharacter pose;
+                    try
+                    {
+                        pose = ResolveCharacter(poseReference);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new InvalidOperationException($"Resolve pose_refs[{i}] failed: {ex.Message}");
+                    }
+                    if (EditorUtility.IsPersistent(pose.Root) || !pose.Root.scene.IsValid())
+                    {
+                        throw new InvalidOperationException($"pose_refs[{i}] must resolve to a scene GameObject or Animator.");
+                    }
+                    if (!TrySamplePoseConstraint(
+                            pose,
+                            targetCache,
+                            modelName,
+                            constraintTypes[i],
+                            times[i],
+                            out KimodoMarkerSampleResult sample,
+                            out string error))
+                    {
+                        throw new InvalidOperationException($"Sample pose_refs[{i}] failed: {error}");
+                    }
+                    samples.Add(sample);
+                }
+            }
+            finally
+            {
+                targetCache?.Dispose();
+            }
+            return samples;
+        }
+
+        internal static List<double> ResolvePoseConstraintTimes(
+            int poseCount,
+            int frameCount,
+            float frameRate,
+            IReadOnlyList<double> suppliedTimes)
+        {
+            if (poseCount < 0)
+            {
+                throw new InvalidOperationException("pose count cannot be negative.");
+            }
+            if (suppliedTimes != null)
+            {
+                if (suppliedTimes.Count != poseCount)
+                {
+                    throw new InvalidOperationException("times count must match pose_refs count.");
+                }
+                return new List<double>(suppliedTimes);
+            }
+
+            var times = new List<double>(poseCount);
+            if (poseCount == 0)
+            {
+                return times;
+            }
+            double endTime = KimodoInOutConstraintTools.ResolveConstraintEndSampleTimeSeconds(frameCount, frameRate);
+            for (int i = 0; i < poseCount; i++)
+            {
+                times.Add(poseCount == 1 ? 0.0 : endTime * i / (poseCount - 1));
+            }
+            return times;
+        }
+
+        internal static List<string> ResolvePoseConstraintTypes(
+            int poseCount,
+            IReadOnlyList<string> suppliedTypes)
+        {
+            if (suppliedTypes != null && suppliedTypes.Count != poseCount)
+            {
+                throw new InvalidOperationException("constraint_types count must match pose_refs count.");
+            }
+
+            var types = new List<string>(poseCount);
+            for (int i = 0; i < poseCount; i++)
+            {
+                string type = suppliedTypes == null ? "fullbody" : suppliedTypes[i]?.Trim().ToLowerInvariant();
+                if (type != "fullbody" && type != "root2d")
+                {
+                    throw new InvalidOperationException($"constraint_types[{i}] must be fullbody or root2d.");
+                }
+                types.Add(type);
+            }
+            return types;
+        }
+
+        private static List<double> ParsePoseTimes(JToken token, int poseCount)
+        {
+            if (token == null)
+            {
+                return null;
+            }
+            if (token is not JArray values || values.Count != poseCount)
+            {
+                throw new InvalidOperationException("times count must match pose_refs count.");
+            }
+
+            var times = new List<double>(values.Count);
+            for (int i = 0; i < values.Count; i++)
+            {
+                if ((values[i].Type != JTokenType.Float && values[i].Type != JTokenType.Integer) ||
+                    double.IsNaN(values[i].Value<double>()) ||
+                    double.IsInfinity(values[i].Value<double>()))
+                {
+                    throw new InvalidOperationException($"times[{i}] must be a finite number.");
+                }
+                times.Add(values[i].Value<double>());
+            }
+            return times;
+        }
+
+        private static List<string> ParsePoseConstraintTypes(JToken token, int poseCount)
+        {
+            if (token == null)
+            {
+                return ResolvePoseConstraintTypes(poseCount, null);
+            }
+            if (token is not JArray values || values.Count != poseCount)
+            {
+                throw new InvalidOperationException("constraint_types count must match pose_refs count.");
+            }
+            return ResolvePoseConstraintTypes(
+                poseCount,
+                values.Select((value, index) => value.Type == JTokenType.String
+                    ? value.Value<string>()
+                    : throw new InvalidOperationException($"constraint_types[{index}] must be a string.")).ToArray());
+        }
+
+        private static bool TrySamplePoseConstraint(
+            ResolvedCharacter pose,
+            SkeletonCache targetCache,
+            string modelName,
+            string constraintType,
+            double sampleTime,
+            out KimodoMarkerSampleResult sample,
+            out string error)
+        {
+            sample = null;
+            error = string.Empty;
+            if (pose.Animator == null || !KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out error))
+            {
+                return false;
+            }
+
+            try
+            {
+                var humanPose = new HumanPose();
+                using (var poseHandler = new HumanPoseHandler(pose.Avatar, pose.Animator.transform))
+                {
+                    poseHandler.GetHumanPose(ref humanPose);
+                }
+                KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref humanPose);
+                KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(targetCache);
+                targetCache.poseHandler.SetHumanPose(ref humanPose);
+                BoneSample targetSample = KimodoRetargetSamplingUtility.CaptureBoneSample(targetCache);
+                if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                        targetSample,
+                        targetCache,
+                        modelName,
+                        constraintType,
+                        sampleTime,
+                        out sample,
+                        out error))
+                {
+                    return false;
+                }
+
+                sample.unityRootPos = pose.Animator.transform.position;
+                sample.unityRootRot = pose.Animator.transform.rotation;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
             }
         }
 
@@ -781,6 +1053,30 @@ namespace KimodoBridge.Editor
         private static PropertyDefinition Optional(string name, string type, string description)
         {
             return new PropertyDefinition(name, type, description, false);
+        }
+
+        private static PropertyDefinition OptionalArray(string name, string itemType, string description)
+        {
+            return new PropertyDefinition(name, new JObject
+            {
+                ["type"] = "array",
+                ["items"] = new JObject { ["type"] = itemType },
+                ["description"] = description
+            }, false);
+        }
+
+        private static PropertyDefinition OptionalEnumArray(string name, string description, params string[] values)
+        {
+            return new PropertyDefinition(name, new JObject
+            {
+                ["type"] = "array",
+                ["items"] = new JObject
+                {
+                    ["type"] = "string",
+                    ["enum"] = new JArray(values)
+                },
+                ["description"] = description
+            }, false);
         }
 
         private static PropertyDefinition Enum(string name, params string[] values)

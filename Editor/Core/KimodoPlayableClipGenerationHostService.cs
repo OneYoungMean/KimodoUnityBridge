@@ -57,8 +57,47 @@ namespace KimodoBridge.Editor
             var constraintSamples = new List<KimodoMarkerSampleResult>();
             if (externalConstraint != null && externalConstraint.Enabled)
             {
-                constraintsJson = externalConstraint.ConstraintsJson ?? string.Empty;
+                if (externalConstraint.IncludeTimelineConstraints)
+                {
+                    KimodoInOutConstraintResult constraintResult = ConstraintProvider.BuildConstraintDataOrThrow(
+                        clip,
+                        runtimeFrameCount,
+                        disableTimelineInOut,
+                        deferConstraintNormalization,
+                        enableAutoBeginAnchor,
+                        runtimeSampleOffsetSeconds);
+                    constraintsJson = constraintResult.ConstraintsJson ?? string.Empty;
+                    KimodoInOutConstraintComposer.AppendSamples(constraintResult.CombinedSamples, constraintSamples);
+                    hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
+                }
+                else
+                {
+                    constraintsJson = externalConstraint.ConstraintsJson ?? string.Empty;
+                }
+                int externalSampleStart = constraintSamples.Count;
                 KimodoInOutConstraintComposer.AppendSamples(externalConstraint.ConstraintSamples, constraintSamples);
+                for (int i = externalSampleStart; i < constraintSamples.Count; i++)
+                {
+                    constraintSamples[i].sampleTime += runtimeSampleOffsetSeconds;
+                }
+                if (hasSyntheticAutoBeginConstraint &&
+                    constraintSamples.Count > 0 &&
+                    KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
+                        constraintSamples,
+                        1.0,
+                        constraintSamples[0]))
+                {
+                    constraintSamples.RemoveAt(0);
+                    hasSyntheticAutoBeginConstraint = false;
+                }
+                if (constraintSamples.Count > 0)
+                {
+                    constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
+                        constraintSamples,
+                        0.0,
+                        runtimeLengthSeconds,
+                        targetFrameRate);
+                }
             }
             else
             {
@@ -145,7 +184,9 @@ namespace KimodoBridge.Editor
                 TimelineClipSnapshot = timelineClip,
                 ResetTimelineTimeScaleAfterGeneration =
                     !disableTimelineInOut &&
-                    (externalConstraint == null || !externalConstraint.Enabled) &&
+                    (externalConstraint == null ||
+                        !externalConstraint.Enabled ||
+                        externalConstraint.IncludeTimelineConstraints) &&
                     clip.inOutConstraintMode == KimodoInOutConstraintMode.Inside &&
                     (clip.enableInConstraint || clip.enableOutConstraint) &&
                     !Mathf.Approximately((float)timelineClip.timeScale, 1f),
@@ -167,7 +208,7 @@ namespace KimodoBridge.Editor
         {
             return clip != null &&
                 !disableTimelineInOut &&
-                externalConstraint?.Enabled != true &&
+                (externalConstraint?.Enabled != true || externalConstraint.IncludeTimelineConstraints) &&
                 clip.inOutConstraintMode == KimodoInOutConstraintMode.Outside &&
                 (clip.enableInConstraint || clip.enableOutConstraint);
         }

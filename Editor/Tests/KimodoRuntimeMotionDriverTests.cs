@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using TimelineInject;
@@ -182,22 +183,90 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void Root2DWorldTarget_AddsSceneDeltaToCurrentModelRoot()
+        public void Root2DWorldTarget_NormalKimodoUsesNormalizedSceneDelta()
         {
-            Vector3 currentModelRootPosition = new Vector3(-4f, 0.9f, 7f);
             Vector3 currentWorldPosition = new Vector3(10f, 1f, 20f);
             Quaternion worldRotation = Quaternion.Euler(0f, 90f, 0f);
             Vector3 expectedLocalOffset = new Vector3(2f, 0f, 3f);
             Vector3 targetWorldPosition = currentWorldPosition + worldRotation * expectedLocalOffset;
 
             Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DTarget(
+                Vector3.zero,
+                Vector3.zero,
+                currentWorldPosition,
+                worldRotation,
+                targetWorldPosition);
+
+            Assert.That(actual.x, Is.EqualTo(2f).Within(1e-5f));
+            Assert.That(actual.y, Is.EqualTo(3f).Within(1e-5f));
+        }
+
+        [Test]
+        public void Root2DWorldTarget_ArdyKeepsContinuousModelOrigin()
+        {
+            Vector3 currentModelRootPosition = new Vector3(-4f, 0.9f, 7f);
+            Vector3 currentWorldPosition = new Vector3(10f, 1f, 20f);
+            Quaternion worldRotation = Quaternion.Euler(0f, 90f, 0f);
+            Vector3 targetWorldPosition = currentWorldPosition + worldRotation * new Vector3(2f, 0f, 3f);
+
+            Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DTarget(
                 currentModelRootPosition,
+                Vector3.zero,
                 currentWorldPosition,
                 worldRotation,
                 targetWorldPosition);
 
             Assert.That(actual.x, Is.EqualTo(-2f).Within(1e-5f));
             Assert.That(actual.y, Is.EqualTo(10f).Within(1e-5f));
+        }
+
+        [Test]
+        public void Root2DWorldTarget_NormalKimodoUsesNextSegmentOriginAndHumanScale()
+        {
+            Vector3 currentModelRootPosition = new Vector3(4f, 0.9f, 7f);
+            Vector3 nextSegmentRootOrigin = new Vector3(5f, 0f, 9f);
+            Vector3 currentWorldPosition = new Vector3(10f, 1f, 20f);
+            Quaternion modelToWorldRotation = Quaternion.Euler(0f, 90f, 0f);
+            Vector3 targetWorldPosition = currentWorldPosition +
+                modelToWorldRotation * new Vector3(1f, 0f, 1.5f);
+
+            Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DTarget(
+                currentModelRootPosition,
+                nextSegmentRootOrigin,
+                currentWorldPosition,
+                modelToWorldRotation,
+                targetWorldPosition,
+                sourceHumanScale: 2f,
+                targetHumanScale: 1f);
+
+            Assert.That(actual.x, Is.EqualTo(1f).Within(1e-5f));
+            Assert.That(actual.y, Is.EqualTo(1f).Within(1e-5f));
+        }
+
+        [Test]
+        public void Root2DWorldHeading_ConvertsIntoModelBasis()
+        {
+            Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DHeading(
+                Quaternion.Euler(0f, 90f, 0f),
+                Vector2.right);
+
+            Assert.That(actual.x, Is.Zero.Within(1e-5f));
+            Assert.That(actual.y, Is.EqualTo(1f).Within(1e-5f));
+        }
+
+        [Test]
+        public void Root2DPublicApi_ExposesOnlyWorldSpaceEntryPoints()
+        {
+            var methodNames = new HashSet<string>(
+                typeof(KimodoRuntimeMotionDriver)
+                    .GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public)
+                    .Select(method => method.Name));
+
+            Assert.That(methodNames, Does.Contain("SetRoot2D"));
+            Assert.That(methodNames, Does.Contain("QueuePromptedRoot2D"));
+            Assert.That(methodNames, Does.Not.Contain("SetRoot2DWorld"));
+            Assert.That(methodNames, Does.Not.Contain("SetRoot2DLocal"));
+            Assert.That(methodNames, Does.Not.Contain("QueuePromptedRoot2DLocal"));
         }
 
         [Test]

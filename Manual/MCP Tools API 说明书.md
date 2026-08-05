@@ -106,6 +106,7 @@ Project 中的角色资产使用 `Assets/...` 路径，例如：
 ```
 
 只有 `kimodo_generate_animation_asset` 接受 Project 角色资产；Timeline 生成所用的角色和 `PlayableDirector` 必须是当前场景对象。
+`pose_refs` 也必须是场景对象的 `GlobalObjectId`，每项可指向 Humanoid GameObject 或其 Animator。
 
 
 
@@ -171,7 +172,7 @@ Project 中的角色资产使用 `Assets/...` 路径，例如：
 
 ## kimodo_generate_animation_asset
 
-根据提示词生成独立的 `.anim` 资产。这个接口不读取 Timeline Constraint，适合资产批量生产、Agent 自动化和离线动画库构建。
+根据提示词生成独立的 `.anim` 资产。这个接口不读取 Timeline Marker Constraint，但可以使用 `pose_refs` 提交显式姿态约束，适合资产批量生产、Agent 自动化和离线动画库构建。
 
 ### 参数
 
@@ -187,6 +188,11 @@ Project 中的角色资产使用 `Assets/...` 路径，例如：
 | `output_mode` | string | 否 | `humanoid_muscle` | 输出格式，见下表 |
 | `output_folder` | string | 否 | `Assets/KimodoGeneratedClips` | 输出目录，必须位于 `Assets` 下 |
 | `asset_name` | string | 否 | 角色名加时间戳 | 资产名，不需要 `.anim` 扩展名 |
+| `pose_refs` | string[] | 否 | 空 | 场景 Humanoid GameObject 或 Animator 的 `GlobalObjectId`，作为姿态约束 |
+| `times` | number[] | 否 | 首尾等间隔 | 每个姿态在生成动画内的秒数；提供时数量必须与 `pose_refs` 相等 |
+| `constraint_types` | string[] | 否 | 每项 `fullbody` | 每个姿态的约束类型，只接受 `fullbody` 或 `root2d`，数量必须与 `pose_refs` 相等 |
+
+省略 `times` 时：1 个姿态位于首帧；2 个位于首帧和尾帧；更多姿态在首尾帧之间等间隔分布。接口只读取每个对象调用时的当前 Humanoid 姿态，不会修改其 Animator、Avatar 或 Transform。
 
 ### 输出格式
 
@@ -259,6 +265,9 @@ Project 中的角色资产使用 `Assets/...` 路径，例如：
 | `diffusion_steps` | integer | 否 | 模型默认值 | 扩散步数 |
 | `text_weight` | number | 否 | `1` | 提示词权重，限制在 `0..4` |
 | `use_constraints` | boolean | 否 | `true` | 是否走现有 Timeline Constraint / Auto Begin 流程 |
+| `pose_refs` | string[] | 否 | 空 | 场景 Humanoid GameObject 或 Animator 的 `GlobalObjectId`，作为姿态约束 |
+| `times` | number[] | 否 | 首尾等间隔 | 每个姿态相对生成 Clip 开头的秒数；提供时数量必须与 `pose_refs` 相等 |
+| `constraint_types` | string[] | 否 | 每项 `fullbody` | 每个姿态的约束类型，只接受 `fullbody` 或 `root2d`，数量必须与 `pose_refs` 相等 |
 
 ### Track 选择规则
 
@@ -272,6 +281,9 @@ Project 中的角色资产使用 `Assets/...` 路径，例如：
 
 - `use_constraints: true`：使用当前 Timeline 上启用的 Constraint，并沿用现有 Auto Begin 锚点流程。
 - `use_constraints: false`：显式提交空外部 Constraint，不采集 Timeline Constraint。
+- `pose_refs` 始终作为显式姿态约束；`use_constraints: true` 时会与 Timeline Constraint 合并，`false` 时只使用这些显式姿态。
+- `pose_refs` 中的对象只读取调用时的当前 Humanoid 姿态，不会修改其 Animator、Avatar 或 Transform。
+- 省略 `times` 时：1 个姿态位于首帧；2 个位于首帧和尾帧；更多姿态在首尾帧之间等间隔分布。
 
 ### 示例
 

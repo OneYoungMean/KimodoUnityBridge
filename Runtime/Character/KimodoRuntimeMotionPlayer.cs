@@ -25,7 +25,7 @@ namespace KimodoBridge
         private KimodoRuntimeGeneratedSegment currentSegment;
         private KimodoRuntimeGeneratedSegment ardySegment;
         private KimodoArdyMotionBuffer ardyBuffer;
-        private TargetRetargetState targetState;
+        private readonly List<TargetRetargetState> targetStates = new List<TargetRetargetState>();
         private float timeSeconds;
         private bool playing;
 
@@ -60,6 +60,10 @@ namespace KimodoBridge
             public bool AnimatorWasEnabled;
             public bool AnimatorDisabledForRetarget;
             public bool DriveFootIk;
+            public Quaternion SourceToTargetRotation = Quaternion.identity;
+            public Vector3 SourceHipsAnchorPosition;
+            public Vector3 TargetHipsAnchorPosition;
+            public bool RetargetAnchorInitialized;
 
             public void Dispose()
             {
@@ -89,7 +93,15 @@ namespace KimodoBridge
         public bool HasCurrentSegment => currentSegment != null;
         public string CurrentPromptText => currentSegment != null ? currentSegment.PromptText : string.Empty;
         public Vector3 CurrentRootPosition => sourceRootJoint != null ? sourceRootJoint.position : Vector3.zero;
+        public Vector3 NextSegmentRootOrigin => currentSegment != null
+            ? currentSegment.WorldAccumulatedOffset + new Vector3(
+                currentSegment.LastRootPosition.x - currentSegment.FirstRootPosition.x,
+                0f,
+                currentSegment.LastRootPosition.z - currentSegment.FirstRootPosition.z)
+            : lastCompletedWorldOffset;
+        public float SourceHumanScale => sourceCache != null ? Mathf.Max(1e-6f, sourceCache.humanScale) : 1f;
         public Transform ConstraintSkeletonRoot => sourceCache != null ? sourceCache.skeletonRoot : null;
+        internal Transform DebugProfileSkeletonRoot => sourceCache != null ? sourceCache.skeletonRoot : null;
         public int LastCompletedSegmentIndex { get; private set; } = -1;
         public double PlaybackTimeAsDouble => timeSeconds;
         public float BufferedDurationSeconds
@@ -220,7 +232,7 @@ namespace KimodoBridge
         public void Update(
             float deltaTime,
             string modelName,
-            Animator targetAnimator,
+            IReadOnlyList<Animator> targetAnimators,
             bool allowPartialJoints,
             bool driveFootIkTargets,
             string leftFootIkTargetName,
@@ -249,7 +261,7 @@ namespace KimodoBridge
                 if (!Play(
                         ardySegment,
                         modelName,
-                        targetAnimator,
+                        targetAnimators,
                         allowPartialJoints,
                         driveFootIkTargets,
                         leftFootIkTargetName,
@@ -273,7 +285,7 @@ namespace KimodoBridge
                 if (!Play(
                         next,
                         modelName,
-                        targetAnimator,
+                        targetAnimators,
                         allowPartialJoints,
                         driveFootIkTargets,
                         leftFootIkTargetName,
@@ -290,49 +302,62 @@ namespace KimodoBridge
 
         public void ApplyLateRetargetCorrection(bool enableFootIk)
         {
-            if (!playing ||
-                targetState?.Animator == null ||
-                !targetState.Animator.applyRootMotion ||
-                sourceHipsBone == null ||
-                targetState.HipsBone == null)
+            if (!playing || sourceHipsBone == null)
             {
                 return;
             }
 
-            Vector3 hipsOffset = sourceHipsBone.position - targetState.HipsBone.position;
-            targetState.Animator.transform.position += new Vector3(hipsOffset.x, 0f, hipsOffset.z);
+            for (int i = 0; i < targetStates.Count; i++)
+            {
+                TargetRetargetState state = targetStates[i];
+                if (state?.Animator == null || state.HipsBone == null)
+                {
+                    continue;
+                }
 
-            // The setting drives explicitly named IK targets.  Do not run the
-            // legacy source-foot solver when a target is absent: it mixes the
-            // temporary source skeleton with the destination avatar and can
-            // move the legs at a segment boundary.
-            if (ShouldSolveFootIk(enableFootIk, targetState.LeftFootIkTarget))
-            {
-                SolveTwoBoneLeg(
-                    targetState.HipsBone,
-                    targetState.LeftUpperLegBone,
-                    targetState.LeftLowerLegBone,
-                    targetState.LeftFootBone,
-                    sourceHipsBone,
-                    sourceLeftUpperLegBone,
-                    sourceLeftLowerLegBone,
-                    sourceLeftFootBone,
-                    ref targetState.LeftKneePoleLocalDirection,
-                    ref targetState.LeftKneePoleInitialized);
-            }
-            if (ShouldSolveFootIk(enableFootIk, targetState.RightFootIkTarget))
-            {
-                SolveTwoBoneLeg(
-                    targetState.HipsBone,
-                    targetState.RightUpperLegBone,
-                    targetState.RightLowerLegBone,
-                    targetState.RightFootBone,
-                    sourceHipsBone,
-                    sourceRightUpperLegBone,
-                    sourceRightLowerLegBone,
-                    sourceRightFootBone,
-                    ref targetState.RightKneePoleLocalDirection,
-                    ref targetState.RightKneePoleInitialized);
+                if (!state.RetargetAnchorInitialized)
+                {
+                    continue;
+                }
+
+                Vector3 sourceDelta = sourceHipsBone.position - state.SourceHipsAnchorPosition;
+                Vector3 desiredHipsPosition = state.TargetHipsAnchorPosition +
+                    state.SourceToTargetRotation * sourceDelta;
+                Vector3 hipsOffset = desiredHipsPosition - state.HipsBone.position;
+                state.Animator.transform.position += new Vector3(hipsOffset.x, 0f, hipsOffset.z);
+
+                // Explicit IK targets remain per-character. Each target uses its
+                // own scene anchor instead of collapsing onto the source skeleton.
+                if (ShouldSolveFootIk(enableFootIk, state.LeftFootIkTarget))
+                {
+                    SolveTwoBoneLeg(
+                        state.HipsBone,
+                        state.LeftUpperLegBone,
+                        state.LeftLowerLegBone,
+                        state.LeftFootBone,
+                        sourceHipsBone,
+                        sourceLeftUpperLegBone,
+                        sourceLeftLowerLegBone,
+                        sourceLeftFootBone,
+                        TransformSourcePositionForTarget(state, sourceLeftFootBone),
+                        ref state.LeftKneePoleLocalDirection,
+                        ref state.LeftKneePoleInitialized);
+                }
+                if (ShouldSolveFootIk(enableFootIk, state.RightFootIkTarget))
+                {
+                    SolveTwoBoneLeg(
+                        state.HipsBone,
+                        state.RightUpperLegBone,
+                        state.RightLowerLegBone,
+                        state.RightFootBone,
+                        sourceHipsBone,
+                        sourceRightUpperLegBone,
+                        sourceRightLowerLegBone,
+                        sourceRightFootBone,
+                        TransformSourcePositionForTarget(state, sourceRightFootBone),
+                        ref state.RightKneePoleLocalDirection,
+                        ref state.RightKneePoleInitialized);
+                }
             }
         }
 
@@ -348,49 +373,6 @@ namespace KimodoBridge
             ardyBuffer = null;
             ardySegment = null;
             DisposeRetargetCache();
-        }
-
-        public void DrawDebugSkeleton(Color boneColor, Color jointColor, float jointMarkerSize)
-        {
-            Transform[] joints = sourceBinding != null ? sourceBinding.joints : null;
-            KimodoRawMotionData motion = sourceBinding != null ? sourceBinding.motion : null;
-            int[] parents = ardyBuffer != null ? ardyBuffer.JointParents : motion?.jointParents;
-            if (joints == null || parents == null)
-            {
-                return;
-            }
-
-            int count = Mathf.Min(joints.Length, parents.Length);
-            for (int i = 0; i < count; i++)
-            {
-                Transform joint = joints[i];
-                if (joint == null)
-                {
-                    continue;
-                }
-
-                Vector3 position = joint.position;
-                DrawJointMarker(position, jointMarkerSize, jointColor);
-
-                if (parents == null || i >= parents.Length)
-                {
-                    continue;
-                }
-
-                int parentIndex = parents[i];
-                if (parentIndex < 0 || parentIndex >= count)
-                {
-                    continue;
-                }
-
-                Transform parent = joints[parentIndex];
-                if (parent == null)
-                {
-                    continue;
-                }
-
-                Debug.DrawLine(parent.position, position, boneColor, 0f, false);
-            }
         }
 
         public bool EnsureConstraintSkeletonReady(string modelName, out string error)
@@ -423,7 +405,7 @@ namespace KimodoBridge
         private bool Play(
             KimodoRuntimeGeneratedSegment segment,
             string modelName,
-            Animator targetAnimator,
+            IReadOnlyList<Animator> targetAnimators,
             bool allowPartialJoints,
             bool driveFootIkTargets,
             string leftFootIkTargetName,
@@ -435,7 +417,7 @@ namespace KimodoBridge
             if (!TryCreateDirectRetargetBinding(
                     segment.Motion,
                     modelName,
-                    targetAnimator,
+                    targetAnimators,
                     allowPartialJoints,
                     driveFootIkTargets,
                     leftFootIkTargetName,
@@ -577,8 +559,11 @@ namespace KimodoBridge
 
         private void DisposeTargetState()
         {
-            targetState?.Dispose();
-            targetState = null;
+            for (int i = 0; i < targetStates.Count; i++)
+            {
+                targetStates[i]?.Dispose();
+            }
+            targetStates.Clear();
         }
 
         private Vector3 ResolveNextWorldOffset(Vector3 nextSegmentFirstRootPosition)
@@ -589,7 +574,7 @@ namespace KimodoBridge
         private bool TryCreateDirectRetargetBinding(
             KimodoRawMotionData motion,
             string modelName,
-            Animator targetAnimator,
+            IReadOnlyList<Animator> targetAnimators,
             bool allowPartialJoints,
             bool driveFootIkTargets,
             string leftFootIkTargetName,
@@ -597,8 +582,8 @@ namespace KimodoBridge
             out string error)
         {
             error = string.Empty;
-            if (!TrySyncTargetState(
-                    targetAnimator,
+            if (!TrySyncTargetStates(
+                    targetAnimators,
                     driveFootIkTargets,
                     leftFootIkTargetName,
                     rightFootIkTargetName,
@@ -791,7 +776,7 @@ namespace KimodoBridge
         private bool TryApplyHumanoidPose(out string error)
         {
             error = string.Empty;
-            if (sourceCache == null || targetState == null)
+            if (sourceCache == null || targetStates.Count == 0)
             {
                 return true;
             }
@@ -810,24 +795,46 @@ namespace KimodoBridge
                 out Vector3 rightFootWorldPosition,
                 out Quaternion rightFootWorldRotation);
 
-            if (targetState.PoseHandler == null)
+            for (int i = 0; i < targetStates.Count; i++)
             {
-                error = "Target pose handler is not initialized.";
-                return false;
-            }
+                TargetRetargetState state = targetStates[i];
+                if (state?.PoseHandler == null)
+                {
+                    error = $"Target pose handler {i} is not initialized.";
+                    return false;
+                }
 
-            targetState.PoseHandler.SetHumanPose(ref pose);
-            ApplyFootIkTargets(
-                targetState,
-                leftFootWorldPosition,
-                leftFootWorldRotation,
-                rightFootWorldPosition,
-                rightFootWorldRotation);
+                if (!state.RetargetAnchorInitialized)
+                {
+                    state.SourceHipsAnchorPosition = sourceHipsBone != null
+                        ? sourceHipsBone.position
+                        : sample.pose.bodyPosition;
+                    state.TargetHipsAnchorPosition = state.HipsBone != null
+                        ? state.HipsBone.position
+                        : state.Animator.transform.position;
+                    Quaternion sourceRotation = sourceCache?.skeletonRoot != null
+                        ? ResolvePlanarRotation(sourceCache.skeletonRoot.rotation)
+                        : Quaternion.identity;
+                    state.SourceToTargetRotation =
+                        ResolvePlanarRotation(state.Animator.transform.rotation) *
+                        Quaternion.Inverse(sourceRotation);
+                    state.RetargetAnchorInitialized = true;
+                }
+
+                HumanPose targetPose = pose;
+                state.PoseHandler.SetHumanPose(ref targetPose);
+                ApplyFootIkTargets(
+                    state,
+                    leftFootWorldPosition,
+                    leftFootWorldRotation,
+                    rightFootWorldPosition,
+                    rightFootWorldRotation);
+            }
             return true;
         }
 
-        private bool TrySyncTargetState(
-            Animator animator,
+        private bool TrySyncTargetStates(
+            IReadOnlyList<Animator> animators,
             bool driveFootIkTargets,
             string leftFootIkTargetName,
             string rightFootIkTargetName,
@@ -835,74 +842,72 @@ namespace KimodoBridge
             out string error)
         {
             error = string.Empty;
-            hasTarget = animator != null;
-
-            if (animator == null)
+            DisposeTargetState();
+            hasTarget = animators != null && animators.Count > 0;
+            if (!hasTarget)
             {
-                DisposeTargetState();
                 return true;
             }
 
-            Avatar avatar = animator.avatar;
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar))
+            var seen = new HashSet<Animator>();
+            for (int i = 0; i < animators.Count; i++)
             {
-                error = "Humanoid retarget animator avatar is null, invalid, or not humanoid.";
-                return false;
-            }
-
-            bool needsNewState = targetState == null || !ReferenceEquals(targetState.Animator, animator);
-            bool needsNewPoseHandler = needsNewState || targetState.PoseHandler == null || !ReferenceEquals(targetState.Avatar, avatar);
-            if (needsNewState)
-            {
-                DisposeTargetState();
-                targetState = new TargetRetargetState
+                Animator animator = animators[i];
+                if (animator == null || !seen.Add(animator))
                 {
-                    Animator = animator
+                    continue;
+                }
+
+                Avatar avatar = animator.avatar;
+                if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar))
+                {
+                    error = $"Humanoid retarget animator '{animator.name}' avatar is null, invalid, or not humanoid.";
+                    DisposeTargetState();
+                    return false;
+                }
+
+                var state = new TargetRetargetState
+                {
+                    Animator = animator,
+                    Avatar = avatar,
+                    PoseHandler = new HumanPoseHandler(avatar, animator.transform),
+                    HipsBone = animator.GetBoneTransform(HumanBodyBones.Hips),
+                    LeftUpperLegBone = animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg),
+                    LeftLowerLegBone = animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg),
+                    LeftFootBone = animator.GetBoneTransform(HumanBodyBones.LeftFoot),
+                    RightUpperLegBone = animator.GetBoneTransform(HumanBodyBones.RightUpperLeg),
+                    RightLowerLegBone = animator.GetBoneTransform(HumanBodyBones.RightLowerLeg),
+                    RightFootBone = animator.GetBoneTransform(HumanBodyBones.RightFoot),
+                    LeftFootIkTarget = driveFootIkTargets
+                        ? FindChildByNameRecursive(animator.transform, leftFootIkTargetName)
+                        : null,
+                    RightFootIkTarget = driveFootIkTargets
+                        ? FindChildByNameRecursive(animator.transform, rightFootIkTargetName)
+                        : null,
+                    SourceToTargetRotation = ResolvePlanarRotation(animator.transform.rotation),
+                    AnimatorWasEnabled = animator.enabled,
+                    AnimatorDisabledForRetarget = true,
+                    DriveFootIk = driveFootIkTargets
                 };
+                animator.enabled = false;
+                targetStates.Add(state);
             }
 
-            targetState.Avatar = avatar;
-            if (needsNewPoseHandler)
-            {
-                targetState.PoseHandler = new HumanPoseHandler(avatar, animator.transform);
-            }
-
-            targetState.HipsBone = animator.GetBoneTransform(HumanBodyBones.Hips);
-            targetState.LeftUpperLegBone = animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg);
-            targetState.LeftLowerLegBone = animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg);
-            targetState.LeftFootBone = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
-            targetState.RightUpperLegBone = animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
-            targetState.RightLowerLegBone = animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
-            targetState.RightFootBone = animator.GetBoneTransform(HumanBodyBones.RightFoot);
-            targetState.LeftFootIkTarget = driveFootIkTargets
-                ? FindChildByNameRecursive(animator.transform, leftFootIkTargetName)
-                : null;
-            targetState.RightFootIkTarget = driveFootIkTargets
-                ? FindChildByNameRecursive(animator.transform, rightFootIkTargetName)
-                : null;
-
-            if (!targetState.AnimatorDisabledForRetarget)
-            {
-                targetState.AnimatorWasEnabled = animator.enabled;
-                targetState.AnimatorDisabledForRetarget = true;
-            }
-
-            targetState.DriveFootIk = driveFootIkTargets;
-            animator.enabled = false;
-            return true;
+            hasTarget = targetStates.Count > 0;
+            return hasTarget;
         }
 
         private void ResetTargetFootIkBaselines()
         {
-            if (targetState == null)
+            for (int i = 0; i < targetStates.Count; i++)
             {
-                return;
+                TargetRetargetState state = targetStates[i];
+                state.LeftFootIkInitialized = false;
+                state.RightFootIkInitialized = false;
+                state.LeftKneePoleInitialized = false;
+                state.RightKneePoleInitialized = false;
+                state.RetargetAnchorInitialized = false;
             }
-
-            targetState.LeftFootIkInitialized = false;
-            targetState.RightFootIkInitialized = false;
-            targetState.LeftKneePoleInitialized = false;
-            targetState.RightKneePoleInitialized = false;
         }
 
         private void SyncFootIkSetting(
@@ -910,19 +915,28 @@ namespace KimodoBridge
             string leftFootIkTargetName,
             string rightFootIkTargetName)
         {
-            if (targetState == null || targetState.DriveFootIk == driveFootIkTargets)
+            bool changed = false;
+            for (int i = 0; i < targetStates.Count; i++)
             {
-                return;
-            }
+                TargetRetargetState state = targetStates[i];
+                if (state == null || state.DriveFootIk == driveFootIkTargets)
+                {
+                    continue;
+                }
 
-            targetState.DriveFootIk = driveFootIkTargets;
-            targetState.LeftFootIkTarget = driveFootIkTargets
-                ? FindChildByNameRecursive(targetState.Animator.transform, leftFootIkTargetName)
-                : null;
-            targetState.RightFootIkTarget = driveFootIkTargets
-                ? FindChildByNameRecursive(targetState.Animator.transform, rightFootIkTargetName)
-                : null;
-            ResetTargetFootIkBaselines();
+                state.DriveFootIk = driveFootIkTargets;
+                state.LeftFootIkTarget = driveFootIkTargets
+                    ? FindChildByNameRecursive(state.Animator.transform, leftFootIkTargetName)
+                    : null;
+                state.RightFootIkTarget = driveFootIkTargets
+                    ? FindChildByNameRecursive(state.Animator.transform, rightFootIkTargetName)
+                    : null;
+                changed = true;
+            }
+            if (changed)
+            {
+                ResetTargetFootIkBaselines();
+            }
         }
 
         private static void BuildFootWorldPose(
@@ -941,12 +955,25 @@ namespace KimodoBridge
             rightFootWorldRotation = rootRotation * (sample != null ? sample.rightFootRotation : Quaternion.identity);
         }
 
-        private static void DrawJointMarker(Vector3 position, float size, Color color)
+        private static Quaternion ResolvePlanarRotation(Quaternion rotation)
         {
-            float markerSize = Mathf.Max(0.001f, size);
-            Debug.DrawLine(position + Vector3.left * markerSize, position + Vector3.right * markerSize, color, 0f, false);
-            Debug.DrawLine(position + Vector3.up * markerSize, position + Vector3.down * markerSize, color, 0f, false);
-            Debug.DrawLine(position + Vector3.forward * markerSize, position + Vector3.back * markerSize, color, 0f, false);
+            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
+            return forward.sqrMagnitude > 1e-8f
+                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
+                : Quaternion.identity;
+        }
+
+        private static Vector3 TransformSourcePositionForTarget(
+            TargetRetargetState state,
+            Transform sourceTransform)
+        {
+            if (state == null || sourceTransform == null)
+            {
+                return Vector3.zero;
+            }
+
+            return state.TargetHipsAnchorPosition + state.SourceToTargetRotation *
+                (sourceTransform.position - state.SourceHipsAnchorPosition);
         }
 
         private static void ApplyFootIkTargets(
@@ -970,7 +997,8 @@ namespace KimodoBridge
                 ref state.SourceLeftFootBaselineWorldPosition,
                 ref state.SourceLeftFootBaselineWorldRotation,
                 leftFootWorldPosition,
-                leftFootWorldRotation);
+                leftFootWorldRotation,
+                state.SourceToTargetRotation);
 
             ApplyFootIkTarget(
                 state.RightFootBone,
@@ -981,7 +1009,8 @@ namespace KimodoBridge
                 ref state.SourceRightFootBaselineWorldPosition,
                 ref state.SourceRightFootBaselineWorldRotation,
                 rightFootWorldPosition,
-                rightFootWorldRotation);
+                rightFootWorldRotation,
+                state.SourceToTargetRotation);
         }
 
         private static void ApplyFootIkTarget(
@@ -993,7 +1022,8 @@ namespace KimodoBridge
             ref Vector3 sourceBaselineWorldPosition,
             ref Quaternion sourceBaselineWorldRotation,
             Vector3 sourceCurrentWorldPosition,
-            Quaternion sourceCurrentWorldRotation)
+            Quaternion sourceCurrentWorldRotation,
+            Quaternion sourceToTargetRotation)
         {
             if (ikTarget == null)
             {
@@ -1013,8 +1043,10 @@ namespace KimodoBridge
                 return;
             }
 
-            Vector3 deltaPosition = sourceCurrentWorldPosition - sourceBaselineWorldPosition;
+            Vector3 deltaPosition = sourceToTargetRotation *
+                (sourceCurrentWorldPosition - sourceBaselineWorldPosition);
             Quaternion deltaRotation = sourceCurrentWorldRotation * Quaternion.Inverse(sourceBaselineWorldRotation);
+            deltaRotation = sourceToTargetRotation * deltaRotation * Quaternion.Inverse(sourceToTargetRotation);
             ikTarget.SetPositionAndRotation(
                 targetBaselinePosition + deltaPosition,
                 deltaRotation * targetBaselineRotation);
@@ -1029,6 +1061,33 @@ namespace KimodoBridge
             Transform sourceUpperLeg,
             Transform sourceLowerLeg,
             Transform sourceFoot,
+            ref Vector3 previousPoleLocalDirection,
+            ref bool poleInitialized)
+        {
+            SolveTwoBoneLeg(
+                targetHips,
+                upperLeg,
+                lowerLeg,
+                foot,
+                sourceHips,
+                sourceUpperLeg,
+                sourceLowerLeg,
+                sourceFoot,
+                sourceFoot != null ? sourceFoot.position : Vector3.zero,
+                ref previousPoleLocalDirection,
+                ref poleInitialized);
+        }
+
+        private static void SolveTwoBoneLeg(
+            Transform targetHips,
+            Transform upperLeg,
+            Transform lowerLeg,
+            Transform foot,
+            Transform sourceHips,
+            Transform sourceUpperLeg,
+            Transform sourceLowerLeg,
+            Transform sourceFoot,
+            Vector3 targetFootPosition,
             ref Vector3 previousPoleLocalDirection,
             ref bool poleInitialized)
         {
@@ -1047,7 +1106,7 @@ namespace KimodoBridge
                 return;
             }
 
-            Vector3 upperToTarget = sourceFoot.position - upperPosition;
+            Vector3 upperToTarget = targetFootPosition - upperPosition;
             float targetDistance = upperToTarget.magnitude;
             Vector3 targetDirection = targetDistance > 1e-5f
                 ? upperToTarget / targetDistance

@@ -190,7 +190,7 @@ namespace KimodoBridge
         internal float ArdyEffectivePlaybackReserveSeconds = 1f;
         internal bool GenerationBlocked;
         internal bool AppliedRuntimeSettingsInitialized;
-        internal Animator AppliedTargetHumanoidAnimator;
+        internal int AppliedTargetSignature;
         internal string AppliedModelsRoot = string.Empty;
         internal string AppliedModelName = string.Empty;
         internal KimodoTextEncoderMode AppliedTextEncoderMode;
@@ -242,7 +242,9 @@ namespace KimodoBridge
     public sealed class KimodoRuntimeMotionDriver : MonoBehaviour
     {
         [Header("Scene References")]
-        [SerializeField] private Animator targetHumanoidAnimator;
+        [SerializeField, HideInInspector]
+        private Animator targetHumanoidAnimator;
+        [SerializeField] private List<Animator> targetHumanoidAnimators = new List<Animator>();
 
         [Header("Bridge Runtime")]
         [SerializeField] private string modelsRoot = string.Empty;
@@ -283,11 +285,8 @@ namespace KimodoBridge
         [SerializeField] private string rightFootIkTargetName = "RightFootIK";
 
         [Header("Debug")]
-        [SerializeField, Tooltip("Debug only. Draw the internal source skeleton in the scene using Debug.DrawLine.")]
+        [SerializeField, Tooltip("Editor only. Show the model's profile-skeleton FBX driven by the current source pose.")]
         private bool drawDebugSkeleton;
-        [SerializeField] private Color debugSkeletonBoneColor = new Color(0.2f, 0.95f, 1f, 1f);
-        [SerializeField] private Color debugSkeletonJointColor = new Color(1f, 0.7f, 0.2f, 1f);
-        [SerializeField][Min(0.001f)] private float debugJointMarkerSize = 0.025f;
         [SerializeField] private bool verboseLogging = true;
 
         private const string FullBodyConstraintType = "fullbody";
@@ -309,6 +308,7 @@ namespace KimodoBridge
         private string promptDraft;
         private string statusMessage = "Idle.";
         private readonly KimodoRuntimeConstraintBuffer constraintBuffer = new KimodoRuntimeConstraintBuffer();
+        private readonly List<Animator> resolvedTargetAnimatorBuffer = new List<Animator>();
         private KimodoBridgeService bridgeService;
         private KimodoRuntimeMotionPlayer motionPlayer;
 
@@ -329,12 +329,15 @@ namespace KimodoBridge
             get => drawDebugSkeleton;
             set => drawDebugSkeleton = value;
         }
+        internal string DebugModelName => modelName;
+        internal Transform DebugProfileSkeletonRoot => motionPlayer?.DebugProfileSkeletonRoot;
 
         private void Reset()
         {
-            if (targetHumanoidAnimator == null)
+            Animator animator = GetComponent<Animator>();
+            if (animator != null && targetHumanoidAnimators.Count == 0)
             {
-                targetHumanoidAnimator = GetComponent<Animator>();
+                targetHumanoidAnimators.Add(animator);
             }
         }
 
@@ -376,7 +379,7 @@ namespace KimodoBridge
             motionPlayer.Update(
                 Time.deltaTime,
                 modelName,
-                targetHumanoidAnimator,
+                ResolveTargetAnimators(),
                 allowPartialJoints,
                 driveFootIkTargets,
                 leftFootIkTargetName,
@@ -396,11 +399,6 @@ namespace KimodoBridge
                 if (completedSegment != null)
                 {
                     SegmentCompleted?.Invoke(CreateSegmentReport(completedSegment));
-                }
-
-                if (drawDebugSkeleton)
-                {
-                    motionPlayer.DrawDebugSkeleton(debugSkeletonBoneColor, debugSkeletonJointColor, debugJointMarkerSize);
                 }
 
                 return;
@@ -423,10 +421,6 @@ namespace KimodoBridge
                 SegmentCompleted?.Invoke(CreateSegmentReport(completedSegment));
             }
 
-            if (drawDebugSkeleton)
-            {
-                motionPlayer.DrawDebugSkeleton(debugSkeletonBoneColor, debugSkeletonJointColor, debugJointMarkerSize);
-            }
         }
 
         private void LateUpdate()
@@ -500,55 +494,78 @@ namespace KimodoBridge
             return ResolveGenerationDurationSeconds();
         }
 
-        public void SetLeftHandConstraint(float x, float y, float z, float duration = 1f)
+        public void SetLeftHandConstraint(float worldX, float worldY, float worldZ, float duration = 1f)
         {
-            StageEndEffectorConstraintInternal("LeftHand constraint", LeftHandConstraintType, "LeftHand", x, y, z, duration);
+            StageEndEffectorConstraintInternal(
+                "LeftHand constraint",
+                LeftHandConstraintType,
+                "LeftHand",
+                worldX,
+                worldY,
+                worldZ,
+                duration);
         }
 
-        public void SetRightHandConstraint(float x, float y, float z, float duration = 1f)
+        public void SetRightHandConstraint(float worldX, float worldY, float worldZ, float duration = 1f)
         {
-            StageEndEffectorConstraintInternal("RightHand constraint", RightHandConstraintType, "RightHand", x, y, z, duration);
+            StageEndEffectorConstraintInternal(
+                "RightHand constraint",
+                RightHandConstraintType,
+                "RightHand",
+                worldX,
+                worldY,
+                worldZ,
+                duration);
         }
 
-        public void SetLeftFootConstraint(float x, float y, float z, float duration = 1f)
+        public void SetLeftFootConstraint(float worldX, float worldY, float worldZ, float duration = 1f)
         {
-            StageEndEffectorConstraintInternal("LeftFoot constraint", LeftFootConstraintType, "LeftFoot", x, y, z, duration);
+            StageEndEffectorConstraintInternal(
+                "LeftFoot constraint",
+                LeftFootConstraintType,
+                "LeftFoot",
+                worldX,
+                worldY,
+                worldZ,
+                duration);
         }
 
-        public void SetRightFootConstraint(float x, float y, float z, float duration = 1f)
+        public void SetRightFootConstraint(float worldX, float worldY, float worldZ, float duration = 1f)
         {
-            StageEndEffectorConstraintInternal("RightFoot constraint", RightFootConstraintType, "RightFoot", x, y, z, duration);
+            StageEndEffectorConstraintInternal(
+                "RightFoot constraint",
+                RightFootConstraintType,
+                "RightFoot",
+                worldX,
+                worldY,
+                worldZ,
+                duration);
         }
 
-        /// <summary>Stages an absolute Root2D position in generated-motion coordinates.</summary>
-        public void SetRoot2D(float x, float z, float duration = 1f)
+        /// <summary>Stages an absolute Unity world-space Root2D target.</summary>
+        public void SetRoot2D(float worldX, float worldZ, float duration = 1f)
         {
-            StageRoot2DConstraintInternal(x, z, duration, null);
+            StageRoot2DWorldConstraintInternal(worldX, worldZ, duration, null);
         }
 
-        public void SetRoot2D(float x, float z, float headingX, float headingZ, float duration = 1f)
+        /// <summary>Stages an absolute Unity world-space Root2D target and heading.</summary>
+        public void SetRoot2D(
+            float worldX,
+            float worldZ,
+            float worldHeadingX,
+            float worldHeadingZ,
+            float duration = 1f)
         {
-            StageRoot2DConstraintInternal(x, z, duration, NormalizeHeading(new Vector2(headingX, headingZ)));
-        }
-
-        /// <summary>Stages a Unity world-space target in generated-motion coordinates.</summary>
-        public void SetRoot2DWorld(float worldX, float worldZ, float duration = 1f)
-        {
-            Vector3 currentWorldPosition = GetCurrentPositionInternal();
-            Vector3 currentModelRootPosition = motionPlayer != null && motionPlayer.HasCurrentSegment
-                ? motionPlayer.CurrentRootPosition
-                : Vector3.zero;
-            Vector2 modelTarget = ResolveModelRoot2DTarget(
-                currentModelRootPosition,
-                currentWorldPosition,
-                transform.rotation,
-                new Vector3(worldX, currentWorldPosition.y, worldZ));
-            StageRoot2DConstraintInternal(modelTarget.x, modelTarget.y, duration, null);
+            StageRoot2DWorldConstraintInternal(
+                worldX,
+                worldZ,
+                duration,
+                NormalizeHeading(new Vector2(worldHeadingX, worldHeadingZ)));
         }
 
         public void SetRoot2DTarget(
-            float x,
-            float z,
+            float worldX,
+            float worldZ,
             float maxSpeedMetersPerSecond = 1.25f,
             float maxAccelerationMetersPerSecond2 = 1.5f,
             float arrivalThresholdMeters = 0.1f,
@@ -560,21 +577,32 @@ namespace KimodoBridge
                 return;
             }
 
-            StageConstraintSample(new KimodoMarkerSampleResult
+            if (!TryCreateRoot2DWorldConstraintSample(
+                    worldX,
+                    worldZ,
+                    0f,
+                    null,
+                    out KimodoMarkerSampleResult sample,
+                    out string error))
             {
-                constraintType = Root2DTargetConstraintType,
-                kimodoRootPosition = new Vector3(x, 0f, z),
-                unityRootPos = new Vector3(x, 0f, z),
-                hasRootHeading = false,
-                rootTargetMaxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond),
-                rootTargetMaxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2),
-                rootTargetArrivalThreshold = Mathf.Max(0f, arrivalThresholdMeters),
-                rootTargetIncludeHeading = includeHeading
-            });
-            UpdateStatus($"Root2D target staged at ({x:0.###}, {z:0.###}).");
+                UpdateStatus(error);
+                return;
+            }
+
+            sample.constraintType = Root2DTargetConstraintType;
+            sample.rootTargetMaxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond);
+            sample.rootTargetMaxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
+            sample.rootTargetArrivalThreshold = Mathf.Max(0f, arrivalThresholdMeters);
+            sample.rootTargetIncludeHeading = includeHeading;
+            StageConstraintSample(sample);
+            UpdateStatus($"Root2D world target staged at ({worldX:0.###}, {worldZ:0.###}).");
         }
 
-        public string QueuePromptedRoot2DLocal(string prompt, float x, float z, float generationDurationSeconds)
+        public string QueuePromptedRoot2D(
+            string prompt,
+            float worldX,
+            float worldZ,
+            float generationDurationSeconds)
         {
             ApplyGenerationDurationSeconds(generationDurationSeconds);
             if (!string.IsNullOrWhiteSpace(prompt))
@@ -582,7 +610,11 @@ namespace KimodoBridge
                 promptDraft = prompt.Trim();
             }
 
-            string stageResult = StageRoot2DLocalConstraintInternal(x, z, generationDurationSeconds, null);
+            string stageResult = StageRoot2DWorldConstraintInternal(
+                worldX,
+                worldZ,
+                generationDurationSeconds,
+                null);
             if (stageResult.StartsWith("Cannot", StringComparison.OrdinalIgnoreCase) ||
                 stageResult.StartsWith("Failed", StringComparison.OrdinalIgnoreCase))
             {
@@ -591,16 +623,6 @@ namespace KimodoBridge
 
             ApplyStagedConstraints();
             return stageResult;
-        }
-
-        public void SetRoot2DLocal(float x, float z, float duration = 1f)
-        {
-            StageRoot2DLocalConstraintInternal(x, z, duration, null);
-        }
-
-        public void SetRoot2DLocal(float x, float z, float headingX, float headingZ, float duration = 1f)
-        {
-            StageRoot2DLocalConstraintInternal(x, z, duration, new Vector2(headingX, headingZ));
         }
 
         public void ApplyStagedConstraints()
@@ -1266,7 +1288,7 @@ namespace KimodoBridge
 
             string currentModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
             string currentModelsRoot = (modelsRoot ?? string.Empty).Trim();
-            bool targetChanged = !ReferenceEquals(generationSession.AppliedTargetHumanoidAnimator, targetHumanoidAnimator);
+            bool targetChanged = generationSession.AppliedTargetSignature != ComputeTargetSignature();
             bool runtimeSignatureChanged =
                 !string.Equals(generationSession.AppliedModelName, currentModelName, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(generationSession.AppliedModelsRoot, currentModelsRoot, StringComparison.Ordinal) ||
@@ -1294,7 +1316,7 @@ namespace KimodoBridge
 
         private void CaptureAppliedRuntimeSettings()
         {
-            generationSession.AppliedTargetHumanoidAnimator = targetHumanoidAnimator;
+            generationSession.AppliedTargetSignature = ComputeTargetSignature();
             generationSession.AppliedModelsRoot = (modelsRoot ?? string.Empty).Trim();
             generationSession.AppliedModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
             generationSession.AppliedTextEncoderMode = textEncoderMode;
@@ -1407,30 +1429,26 @@ namespace KimodoBridge
             return result;
         }
 
-        private string StageRoot2DConstraintInternal(float x, float z, float durationSeconds, Vector2? heading)
+        private string StageRoot2DWorldConstraintInternal(
+            float worldX,
+            float worldZ,
+            float durationSeconds,
+            Vector2? worldHeading)
         {
-            if (!TryCreateRoot2DConstraintSample(x, z, durationSeconds, heading, out KimodoMarkerSampleResult sample, out string error))
+            if (!TryCreateRoot2DWorldConstraintSample(
+                    worldX,
+                    worldZ,
+                    durationSeconds,
+                    worldHeading,
+                    out KimodoMarkerSampleResult sample,
+                    out string error))
             {
                 UpdateStatus(error);
                 return error;
             }
 
             StageConstraintSample(sample);
-            string result = $"Root2D staged at ({x:0.###}, {z:0.###}).";
-            UpdateStatus(result);
-            return result;
-        }
-
-        private string StageRoot2DLocalConstraintInternal(float x, float z, float durationSeconds, Vector2? heading)
-        {
-            if (!TryCreateRoot2DLocalConstraintSample(x, z, durationSeconds, heading, out KimodoMarkerSampleResult sample, out string error))
-            {
-                UpdateStatus(error);
-                return error;
-            }
-
-            StageConstraintSample(sample);
-            string result = $"Root2D local staged at ({x:0.###}, {z:0.###}).";
+            string result = $"Root2D world target staged at ({worldX:0.###}, {worldZ:0.###}).";
             UpdateStatus(result);
             return result;
         }
@@ -1478,8 +1496,9 @@ namespace KimodoBridge
 
         private Vector3 GetCurrentPositionInternal()
         {
-            Transform hips = targetHumanoidAnimator != null
-                ? targetHumanoidAnimator.GetBoneTransform(HumanBodyBones.Hips)
+            Animator primaryTarget = ResolvePrimaryTargetAnimator();
+            Transform hips = primaryTarget != null
+                ? primaryTarget.GetBoneTransform(HumanBodyBones.Hips)
                 : null;
             if (hips != null)
             {
@@ -1491,7 +1510,7 @@ namespace KimodoBridge
                 return motionPlayer.CurrentRootPosition;
             }
 
-            return targetHumanoidAnimator != null ? targetHumanoidAnimator.transform.position : transform.position;
+            return primaryTarget != null ? primaryTarget.transform.position : transform.position;
         }
 
         private float ClampConstraintTime(float durationSeconds)
@@ -1529,11 +1548,11 @@ namespace KimodoBridge
             return true;
         }
 
-        private bool TryCreateRoot2DConstraintSample(
-            float x,
-            float z,
+        private bool TryCreateRoot2DWorldConstraintSample(
+            float worldX,
+            float worldZ,
             float durationSeconds,
-            Vector2? heading,
+            Vector2? worldHeading,
             out KimodoMarkerSampleResult sample,
             out string error)
         {
@@ -1542,59 +1561,33 @@ namespace KimodoBridge
                 return false;
             }
 
-            Vector3 offset = new Vector3(x - sample.kimodoRootPosition.x, 0f, z - sample.kimodoRootPosition.z);
-            sample.kimodoRootPosition += offset;
-            sample.unityRootPos += offset;
-            sample.constraintType = Root2DConstraintType;
-            sample.localAxisAngles = new List<Vector3>();
-            sample.sampledJointIndices = new List<int>();
-            sample.hasRootHeading = false;
-            if (heading.HasValue)
-            {
-                sample.hasRootHeading = true;
-                sample.rootHeading = NormalizeHeading(heading.Value);
-            }
-
-            return true;
-        }
-
-        private bool TryCreateRoot2DLocalConstraintSample(
-            float localX,
-            float localZ,
-            float durationSeconds,
-            Vector2? localHeading,
-            out KimodoMarkerSampleResult sample,
-            out string error)
-        {
-            if (!TryCaptureCurrentPoseConstraint(Root2DConstraintType, durationSeconds, out sample, out error))
-            {
-                return false;
-            }
-
-            Vector2 basisForward = sample.hasRootHeading
-                ? NormalizeHeading(sample.rootHeading)
-                : Vector2.up;
-            Vector2 basisRight = new Vector2(basisForward.y, -basisForward.x);
-
-            Vector2 worldOffset2D = basisRight * localX + basisForward * localZ;
+            Vector3 currentWorldPosition = GetCurrentPositionInternal();
+            Quaternion modelToWorldRotation = ResolveModelToWorldRotation();
+            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
+            Vector3 constraintModelOrigin = isArdy
+                ? Vector3.zero
+                : motionPlayer.NextSegmentRootOrigin;
+            Vector2 modelTarget = ResolveModelRoot2DTarget(
+                sample.kimodoRootPosition,
+                constraintModelOrigin,
+                currentWorldPosition,
+                modelToWorldRotation,
+                new Vector3(worldX, currentWorldPosition.y, worldZ),
+                motionPlayer.SourceHumanScale,
+                ResolveTargetHumanScale());
             sample.kimodoRootPosition = new Vector3(
-                worldOffset2D.x,
+                modelTarget.x,
                 sample.kimodoRootPosition.y,
-                worldOffset2D.y);
-            sample.unityRootPos = new Vector3(
-                worldOffset2D.x,
-                sample.unityRootPos.y,
-                worldOffset2D.y);
+                modelTarget.y);
+            sample.unityRootPos = new Vector3(worldX, sample.unityRootPos.y, worldZ);
             sample.constraintType = Root2DConstraintType;
             sample.localAxisAngles = new List<Vector3>();
             sample.sampledJointIndices = new List<int>();
             sample.hasRootHeading = false;
-            if (localHeading.HasValue)
+            if (worldHeading.HasValue)
             {
-                Vector2 normalizedLocalHeading = NormalizeHeading(localHeading.Value);
-                Vector2 worldHeading = basisRight * normalizedLocalHeading.x + basisForward * normalizedLocalHeading.y;
                 sample.hasRootHeading = true;
-                sample.rootHeading = NormalizeHeading(worldHeading);
+                sample.rootHeading = ResolveModelRoot2DHeading(modelToWorldRotation, worldHeading.Value);
             }
 
             return true;
@@ -1649,14 +1642,52 @@ namespace KimodoBridge
 
         internal static Vector2 ResolveModelRoot2DTarget(
             Vector3 currentModelRootPosition,
+            Vector3 constraintModelOrigin,
             Vector3 currentWorldPosition,
-            Quaternion worldRotation,
-            Vector3 targetWorldPosition)
+            Quaternion modelToWorldRotation,
+            Vector3 targetWorldPosition,
+            float sourceHumanScale = 1f,
+            float targetHumanScale = 1f)
         {
-            Vector2 offset = ResolveModelRoot2DOffset(currentWorldPosition, worldRotation, targetWorldPosition);
+            Vector2 offset = ResolveModelRoot2DOffset(
+                currentWorldPosition,
+                modelToWorldRotation,
+                targetWorldPosition);
+            offset *= Mathf.Max(1e-6f, sourceHumanScale) / Mathf.Max(1e-6f, targetHumanScale);
             return new Vector2(
-                currentModelRootPosition.x + offset.x,
-                currentModelRootPosition.z + offset.y);
+                currentModelRootPosition.x + offset.x - constraintModelOrigin.x,
+                currentModelRootPosition.z + offset.y - constraintModelOrigin.z);
+        }
+
+        internal static Vector2 ResolveModelRoot2DHeading(
+            Quaternion modelToWorldRotation,
+            Vector2 worldHeading)
+        {
+            Vector2 normalizedWorldHeading = NormalizeHeading(worldHeading);
+            Vector3 modelHeading = Quaternion.Inverse(modelToWorldRotation) *
+                new Vector3(normalizedWorldHeading.x, 0f, normalizedWorldHeading.y);
+            return NormalizeHeading(new Vector2(modelHeading.x, modelHeading.z));
+        }
+
+        private Quaternion ResolveModelToWorldRotation()
+        {
+            Animator primaryTarget = ResolvePrimaryTargetAnimator();
+            Transform modelRoot = primaryTarget != null
+                ? primaryTarget.transform
+                : transform;
+            Vector3 forward = Vector3.ProjectOnPlane(modelRoot.forward, Vector3.up);
+            return forward.sqrMagnitude > 1e-8f
+                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
+                : Quaternion.identity;
+        }
+
+        private float ResolveTargetHumanScale()
+        {
+            Animator primaryTarget = ResolvePrimaryTargetAnimator();
+            return primaryTarget != null &&
+                KimodoRetargetCoreUtility.IsValidHumanoid(primaryTarget.avatar)
+                ? Mathf.Max(1e-6f, primaryTarget.humanScale)
+                : 1f;
         }
 
         private void OnProgress(string message)
@@ -1734,10 +1765,21 @@ namespace KimodoBridge
 
         private bool ValidateConfiguration(out string error)
         {
-            if (targetHumanoidAnimator == null)
+            IReadOnlyList<Animator> targets = ResolveTargetAnimators();
+            if (targets.Count == 0)
             {
-                error = "Target humanoid animator is not assigned.";
+                error = "At least one target humanoid Animator is required.";
                 return false;
+            }
+
+            for (int i = 0; i < targets.Count; i++)
+            {
+                Animator target = targets[i];
+                if (!KimodoRetargetCoreUtility.IsValidHumanoid(target.avatar))
+                {
+                    error = $"Target Animator '{target.name}' avatar is null, invalid, or not humanoid.";
+                    return false;
+                }
             }
 
             string resolvedRuntimeRoot = EnsureRuntimeRootReady();
@@ -1755,6 +1797,52 @@ namespace KimodoBridge
 
             error = string.Empty;
             return true;
+        }
+
+        private IReadOnlyList<Animator> ResolveTargetAnimators()
+        {
+            resolvedTargetAnimatorBuffer.Clear();
+            var seen = new HashSet<Animator>();
+            if (targetHumanoidAnimators != null)
+            {
+                for (int i = 0; i < targetHumanoidAnimators.Count; i++)
+                {
+                    Animator animator = targetHumanoidAnimators[i];
+                    if (animator != null && seen.Add(animator))
+                    {
+                        resolvedTargetAnimatorBuffer.Add(animator);
+                    }
+                }
+            }
+
+            // Preserve scenes serialized before multi-target support.
+            if (resolvedTargetAnimatorBuffer.Count == 0 && targetHumanoidAnimator != null)
+            {
+                resolvedTargetAnimatorBuffer.Add(targetHumanoidAnimator);
+            }
+            return resolvedTargetAnimatorBuffer;
+        }
+
+        private Animator ResolvePrimaryTargetAnimator()
+        {
+            IReadOnlyList<Animator> targets = ResolveTargetAnimators();
+            return targets.Count > 0 ? targets[0] : null;
+        }
+
+        private int ComputeTargetSignature()
+        {
+            unchecked
+            {
+                int hash = 17;
+                IReadOnlyList<Animator> targets = ResolveTargetAnimators();
+                for (int i = 0; i < targets.Count; i++)
+                {
+                    Animator animator = targets[i];
+                    hash = hash * 31 + animator.GetInstanceID();
+                    hash = hash * 31 + (animator.avatar != null ? animator.avatar.GetInstanceID() : 0);
+                }
+                return hash;
+            }
         }
 
         private string ResolveRuntimeRoot()

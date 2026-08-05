@@ -52,9 +52,9 @@ public sealed class RuntimeMotionExample : UnityEngine.MonoBehaviour
         driver.ApplyGenerationSettings();
     }
 
-    public void MoveToLocalTarget()
+    public void MoveToWorldTarget()
     {
-        driver.SetRoot2DLocal(2f, 0f, 4f);
+        driver.SetRoot2D(2f, 0f, 4f);
         driver.ApplyStagedConstraints();
     }
 
@@ -70,11 +70,10 @@ public sealed class RuntimeMotionExample : UnityEngine.MonoBehaviour
 - `SetPrompt` / `SetAnimationPrompt`：更新提示词。
 - `GetCurrentPrompt` / `GetAnimationPrompt`：读取当前提示词。
 - `SetAnimationDurationSeconds`：设置普通 Kimodo 分段时长；合法范围会被限制为 1–10 秒。
-- `SetLeftHandConstraint`、`SetRightHandConstraint`、`SetLeftFootConstraint`、`SetRightFootConstraint`：暂存末端位置约束。
-- `SetRoot2D`：暂存生成坐标中的 Root2D 约束。
-- `SetRoot2DWorld`：把 Unity 世界坐标目标转换为生成坐标后暂存。
-- `SetRoot2DLocal`：暂存相对角色当前朝向的局部 Root2D 约束。
-- `SetRoot2DTarget`：ARDY 专用的自动导航目标。
+- `SetLeftHandConstraint`、`SetRightHandConstraint`、`SetLeftFootConstraint`、`SetRightFootConstraint`：暂存 Unity 世界坐标中的末端位置约束。
+- `SetRoot2D`：暂存 Unity 世界坐标中的 Root2D 位置及可选世界朝向；朝向参数是世界 X/Z 平面方向向量。
+- `SetRoot2DTarget`：ARDY 专用的世界坐标自动导航目标。
+- `QueuePromptedRoot2D`：用世界坐标目标一次设置 Prompt、时长并提交 Root2D。
 - `ApplyStagedConstraints` / `ClearConstraints`：应用或清除暂存约束。
 - `GetPosition`：读取角色当前位置。
 - `SegmentReady`、`SegmentStarted`、`SegmentCompleted`：监听分段生命周期。
@@ -82,6 +81,7 @@ public sealed class RuntimeMotionExample : UnityEngine.MonoBehaviour
 ## ARDY 注意事项
 
 - ARDY 在一个 Horizon 内不可中断；新更新会等待当前 Horizon 完成，并只保留最新的待处理更新。
+- 所有公开位置与 Root2D 朝向参数都使用 Unity 世界坐标；不再提供生成坐标或角色局部坐标入口。
 - Core Horizon40 的 token 粒度是 4 帧、交付 Horizon 是 40 帧、有效 history 上限是 160 帧；这三个值彼此独立。
 - ARDY 的提示词、约束或 seek 更新可能返回与旧帧重叠的绝对区间；Driver 会从响应的 `start_frame` 替换未播放时间线。
 
