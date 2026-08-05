@@ -19,6 +19,7 @@ from kimodo.frame_time import seconds_to_frame_count
 MAX_KMB_BYTES = 256 * 1024**2
 TARGET_VELOCITY_PREDICTION_SECONDS = 2.0
 TARGET_VELOCITY_GOAL_FRAME_INTERVAL = 10
+TARGET_HEADING_TURN_FRAMES = 40
 
 
 def _resolve_ardy_batch_size() -> int:
@@ -573,6 +574,10 @@ def _plan_root_2d_target(
     dt = 1.0 / fps
     timed_positions: list[np.ndarray] | None = None
     timed_velocities: list[np.ndarray] | None = None
+    limited_positions: list[np.ndarray] | None = None
+    limited_velocities: list[np.ndarray] | None = None
+    limited_directions: list[np.ndarray] | None = None
+    arrival_step: int | None = None
     if target.arrival_frame is not None:
         remaining_frames = target.arrival_frame - anchor_frame
         if remaining_frames <= 0:
@@ -614,6 +619,41 @@ def _plan_root_2d_target(
             velocity = unlimited_velocity.copy()
             timed_positions, timed_velocities, _, _ = build_timed_path(velocity)
         prediction_frames = min(prediction_frames, remaining_frames)
+        arrival_step = remaining_frames
+    else:
+        limited_positions = []
+        limited_velocities = []
+        limited_directions = []
+        simulation_position = position.copy()
+        simulation_velocity = velocity.copy()
+        simulation_direction = direction.copy()
+        for step in range(1, prediction_frames + TARGET_HEADING_TURN_FRAMES + 1):
+            remaining_delta = goal - simulation_position
+            remaining_distance = float(np.linalg.norm(remaining_delta))
+            if remaining_distance <= target.arrival_threshold:
+                simulation_position = goal.copy()
+            else:
+                simulation_direction = remaining_delta / remaining_distance
+                stopping_speed = math.sqrt(max(0.0, 2.0 * target.max_acceleration * remaining_distance))
+                desired_velocity = simulation_direction * min(target.max_speed, stopping_speed)
+                velocity_delta = desired_velocity - simulation_velocity
+                max_velocity_delta = target.max_acceleration * dt
+                velocity_delta_length = float(np.linalg.norm(velocity_delta))
+                if velocity_delta_length > max_velocity_delta:
+                    velocity_delta *= max_velocity_delta / velocity_delta_length
+                simulation_velocity += velocity_delta
+                displacement = simulation_velocity * dt
+                if float(np.dot(displacement, simulation_direction)) >= remaining_distance:
+                    simulation_position = goal.copy()
+                    simulation_velocity[:] = 0.0
+                else:
+                    simulation_position += displacement
+
+            if arrival_step is None and float(np.linalg.norm(goal - simulation_position)) <= target.arrival_threshold:
+                arrival_step = step
+            limited_positions.append(simulation_position.copy())
+            limited_velocities.append(simulation_velocity.copy())
+            limited_directions.append(simulation_direction.copy())
 
     frame_indices: list[int] = []
     positions: list[list[float]] = []
@@ -630,41 +670,31 @@ def _plan_root_2d_target(
                 else np.array([0.0, 1.0])
             )
         else:
-            remaining_delta = goal - position
-            remaining_distance = float(np.linalg.norm(remaining_delta))
-            if remaining_distance <= target.arrival_threshold:
-                position = goal.copy()
-                remaining_distance = 0.0
-            else:
-                direction = remaining_delta / remaining_distance
-                stopping_speed = math.sqrt(max(0.0, 2.0 * target.max_acceleration * remaining_distance))
-                desired_velocity = direction * min(target.max_speed, stopping_speed)
-                velocity_delta = desired_velocity - velocity
-                max_velocity_delta = target.max_acceleration * dt
-                velocity_delta_length = float(np.linalg.norm(velocity_delta))
-                if velocity_delta_length > max_velocity_delta:
-                    velocity_delta *= max_velocity_delta / velocity_delta_length
-                velocity += velocity_delta
-                displacement = velocity * dt
-                if float(np.dot(displacement, direction)) >= remaining_distance:
-                    position = goal.copy()
-                    velocity[:] = 0.0
-                else:
-                    position += displacement
+            position = limited_positions[step - 1]
+            velocity = limited_velocities[step - 1]
+            direction = limited_directions[step - 1]
 
         if step % TARGET_VELOCITY_GOAL_FRAME_INTERVAL == 0 or step == prediction_frames:
             frame_indices.append(anchor_frame + step)
             positions.append([float(position[0]), float(position[1])])
             if target.include_heading:
-                if target.heading is not None:
-                    headings.append(target.heading)
+                velocity_length = float(np.linalg.norm(velocity))
+                if velocity_length > 1e-8:
+                    heading_direction = velocity / velocity_length
                 else:
-                    velocity_length = float(np.linalg.norm(velocity))
-                    if velocity_length > 1e-8:
-                        heading_direction = velocity / velocity_length
-                    else:
-                        heading_direction = direction
-                    headings.append(math.atan2(float(heading_direction[0]), float(heading_direction[1])))
+                    heading_direction = direction
+                motion_heading = math.atan2(float(heading_direction[0]), float(heading_direction[1]))
+                if target.heading is not None and arrival_step is not None:
+                    remaining = max(0, arrival_step - step)
+                    progress = max(0.0, min(1.0, 1.0 - remaining / TARGET_HEADING_TURN_FRAMES))
+                    progress = progress * progress * (3.0 - 2.0 * progress)
+                    shortest_delta = math.atan2(
+                        math.sin(target.heading - motion_heading),
+                        math.cos(target.heading - motion_heading),
+                    )
+                    motion_heading += shortest_delta * progress
+                    motion_heading = math.atan2(math.sin(motion_heading), math.cos(motion_heading))
+                headings.append(motion_heading)
 
     result: dict[str, Any] = {
         "type": "root2d",

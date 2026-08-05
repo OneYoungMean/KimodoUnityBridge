@@ -72,7 +72,7 @@ public sealed class RuntimeMotionExample : UnityEngine.MonoBehaviour
 - `SetAnimationDurationSeconds`：设置普通 Kimodo 分段时长；合法范围会被限制为 1–10 秒。
 - `SetLeftHandConstraint`、`SetRightHandConstraint`、`SetLeftFootConstraint`、`SetRightFootConstraint`：暂存 Unity 世界坐标中的末端位置约束。
 - `SetRoot2D`：暂存 Unity 世界坐标中的 Root2D 位置及可选世界朝向；朝向参数是世界 X/Z 平面方向向量。
-- `SetRoot2DTarget`：世界坐标自动导航目标。ARDY 会跨 horizon 按速度/加速度持续重规划；普通 Kimodo 会据此估算本段时长并生成 Root2D 终点约束。
+- `SetRoot2DTarget`：世界坐标自动导航目标。ARDY 会跨 horizon 按速度/加速度持续重规划；传入的 `worldHeading` 是最终到达朝向，远离目标时朝向规划速度，并在预计剩余 40 帧内平滑转向。普通 Kimodo 会据此估算本段时长并生成 Root2D 终点约束。
 - `QueuePromptedRoot2D`：用世界坐标目标一次设置 Prompt、时长并提交 Root2D。
 - `ApplyStagedConstraints` / `ClearConstraints`：应用或清除暂存约束。
 - `GetPosition`：读取角色当前位置。

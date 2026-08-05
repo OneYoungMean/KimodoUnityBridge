@@ -747,12 +747,67 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertAlmostEqual(planned["global_root_heading"][0], math.pi / 2)
         self.assertAlmostEqual(planned["global_root_heading"][-1], -math.pi / 2)
 
-    def test_root_target_can_use_fixed_heading(self):
+    def test_root_target_keeps_motion_heading_until_the_last_forty_frames(self):
         target = ardy_backend.Root2DTarget((-10.0, 0.0), 1.25, 1.5, 0.1, True, heading=0.25)
+        motion_target = ardy_backend.Root2DTarget((-10.0, 0.0), 1.25, 1.5, 0.1, True)
 
         planned = ardy_backend._plan_root_2d_target(target, (0.0, 0.0), (1.0, 0.0), -1, 20.0)
+        motion_planned = ardy_backend._plan_root_2d_target(
+            motion_target, (0.0, 0.0), (1.0, 0.0), -1, 20.0
+        )
 
-        np.testing.assert_allclose(planned["global_root_heading"], np.full(4, 0.25), atol=1e-7)
+        np.testing.assert_allclose(
+            planned["global_root_heading"], motion_planned["global_root_heading"], atol=1e-7
+        )
+
+    def test_root_target_smoothly_reaches_final_heading_over_the_last_forty_frames(self):
+        target = ardy_backend.Root2DTarget(
+            (0.0, -2.0),
+            10.0,
+            10.0,
+            0.001,
+            True,
+            heading=-math.pi + 0.2,
+            arrival_frame=39,
+        )
+
+        planned = ardy_backend._plan_root_2d_target(
+            target, (0.0, 0.0), (0.0, 0.0), -1, 20.0
+        )
+
+        headings = planned["global_root_heading"]
+        self.assertEqual(planned["frame_indices"], [9, 19, 29, 39])
+        self.assertLess(headings[0], -3.0)
+        remaining_angles = [
+            abs(math.atan2(math.sin(target.heading - heading), math.cos(target.heading - heading)))
+            for heading in headings
+        ]
+        self.assertTrue(all(a > b for a, b in zip(remaining_angles, remaining_angles[1:])))
+        self.assertAlmostEqual(headings[-1], target.heading, places=7)
+
+    def test_untimed_root_target_uses_its_discrete_arrival_prediction_for_heading(self):
+        target = ardy_backend.Root2DTarget(
+            (1.0, 0.0), 1.25, 1.5, 0.001, True, heading=0.0
+        )
+
+        planned = ardy_backend._plan_root_2d_target(
+            target, (0.0, 0.0), (0.0, 0.0), -1, 20.0
+        )
+
+        headings = planned["global_root_heading"]
+        self.assertGreater(headings[0], headings[1])
+        self.assertGreater(headings[1], headings[2])
+        self.assertAlmostEqual(headings[2], target.heading, places=7)
+        np.testing.assert_allclose(planned["smooth_root_2d"][2], target.position, atol=1e-7)
+
+    def test_root_target_omits_heading_when_disabled_even_with_final_heading(self):
+        target = ardy_backend.Root2DTarget(
+            (1.0, 0.0), 1.25, 1.5, 0.1, False, heading=0.25
+        )
+
+        planned = ardy_backend._plan_root_2d_target(target, (0.0, 0.0), (0.0, 0.0), -1, 20.0)
+
+        self.assertNotIn("global_root_heading", planned)
 
     def test_root_target_parses_fixed_heading_vector(self):
         target = ardy_backend._parse_root_2d_target(
