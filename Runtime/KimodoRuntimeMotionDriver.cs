@@ -270,8 +270,6 @@ namespace KimodoBridge
         private bool ardyAdaptivePlaybackReserve = true;
         [SerializeField][Min(0f), Tooltip("0 selects adaptive ARDY History Crop.")]
         private float ardyHistoryCropSeconds;
-        [SerializeField][Min(0f), Tooltip("0 uses the selected ARDY profile maximum.")]
-        private float ardyFutureCropSeconds;
         [SerializeField, Tooltip("Expand ARDY Root2D waypoints into the official dense per-frame root path.")]
         private bool ardyDenseRootPath;
         [SerializeField] private bool loopHint = true;
@@ -296,8 +294,6 @@ namespace KimodoBridge
         private const string RightFootConstraintType = "right-foot";
         private const string Root2DConstraintType = "root2d";
         private const string Root2DTargetConstraintType = "root2d_target";
-        private const string Root2DTargetArdyOnlyMessage =
-            "Root2D Target is an automatic ARDY-only navigation constraint. Use SetRoot2D for a single endpoint constraint.";
         private const string IdlePrompt = "idle";
         private const string KimodoFolderName = "NvlabKimodoQuickServer~";
         private const float MinGenerationDurationSeconds = 1f;
@@ -569,11 +565,37 @@ namespace KimodoBridge
             float maxSpeedMetersPerSecond = 1.25f,
             float maxAccelerationMetersPerSecond2 = 1.5f,
             float arrivalThresholdMeters = 0.1f,
-            bool includeHeading = true)
+            bool includeHeading = true,
+            Vector2? worldHeading = null)
         {
+            float maxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond);
+            float maxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
+            float arrivalThreshold = Mathf.Max(0f, arrivalThresholdMeters);
             if (!KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
-                UpdateStatus(Root2DTargetArdyOnlyMessage);
+                Vector3 currentWorldPosition = GetCurrentPositionInternal();
+                Vector2 worldDelta = new Vector2(
+                    worldX - currentWorldPosition.x,
+                    worldZ - currentWorldPosition.z);
+                float distance = worldDelta.magnitude;
+                if (distance <= arrivalThreshold)
+                {
+                    UpdateStatus("Root2D target is already within the arrival threshold.");
+                    return;
+                }
+
+                float duration = EstimateRoot2DTargetDuration(
+                    distance,
+                    maxSpeed,
+                    maxAcceleration,
+                    MinGenerationDurationSeconds,
+                    MaxGenerationDurationSeconds);
+                ApplyGenerationDurationSeconds(duration);
+                StageRoot2DWorldConstraintInternal(
+                    worldX,
+                    worldZ,
+                    duration,
+                    includeHeading ? worldHeading ?? worldDelta : (Vector2?)null);
                 return;
             }
 
@@ -590,10 +612,17 @@ namespace KimodoBridge
             }
 
             sample.constraintType = Root2DTargetConstraintType;
-            sample.rootTargetMaxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond);
-            sample.rootTargetMaxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
-            sample.rootTargetArrivalThreshold = Mathf.Max(0f, arrivalThresholdMeters);
+            sample.rootTargetMaxSpeed = maxSpeed;
+            sample.rootTargetMaxAcceleration = maxAcceleration;
+            sample.rootTargetArrivalThreshold = arrivalThreshold;
             sample.rootTargetIncludeHeading = includeHeading;
+            if (includeHeading && worldHeading.HasValue)
+            {
+                sample.rootTargetHasHeading = true;
+                sample.rootTargetHeading = ResolveModelRoot2DHeading(
+                    ResolveModelToWorldRotation(),
+                    worldHeading.Value);
+            }
             StageConstraintSample(sample);
             UpdateStatus($"Root2D world target staged at ({worldX:0.###}, {worldZ:0.###}).");
         }
@@ -939,9 +968,6 @@ namespace KimodoBridge
                     if (sendSettings)
                     {
                         request.ardy_history_crop_seconds = ardyHistoryCropSeconds;
-                        request.ardy_future_crop_seconds = ardyFutureCropSeconds > 0f
-                            ? ardyFutureCropSeconds
-                            : (double?)null;
                         request.ardy_playback_reserve_seconds = Mathf.Max(0.2f, ardyPlaybackReserveSeconds);
                         request.ardy_adaptive_playback_reserve = ardyAdaptivePlaybackReserve;
                     }
@@ -1505,7 +1531,7 @@ namespace KimodoBridge
                 return hips.position;
             }
 
-            if (motionPlayer.HasCurrentSegment)
+            if (motionPlayer != null && motionPlayer.HasCurrentSegment)
             {
                 return motionPlayer.CurrentRootPosition;
             }
@@ -1667,6 +1693,24 @@ namespace KimodoBridge
             Vector3 modelHeading = Quaternion.Inverse(modelToWorldRotation) *
                 new Vector3(normalizedWorldHeading.x, 0f, normalizedWorldHeading.y);
             return NormalizeHeading(new Vector2(modelHeading.x, modelHeading.z));
+        }
+
+        internal static float EstimateRoot2DTargetDuration(
+            float distanceMeters,
+            float maxSpeedMetersPerSecond,
+            float maxAccelerationMetersPerSecond2,
+            float minimumDurationSeconds,
+            float maximumDurationSeconds)
+        {
+            float distance = Mathf.Max(0f, distanceMeters);
+            float maxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond);
+            float maxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
+            float accelerationTime = maxSpeed / maxAcceleration;
+            float accelerationDistance = 0.5f * maxAcceleration * accelerationTime * accelerationTime;
+            float duration = distance <= 2f * accelerationDistance
+                ? 2f * Mathf.Sqrt(distance / maxAcceleration)
+                : 2f * accelerationTime + (distance - 2f * accelerationDistance) / maxSpeed;
+            return Mathf.Clamp(duration, minimumDurationSeconds, maximumDurationSeconds);
         }
 
         private Quaternion ResolveModelToWorldRotation()

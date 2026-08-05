@@ -16,7 +16,6 @@ namespace KimodoBridge.Editor
         private SerializedProperty ardyPlaybackReserveSeconds;
         private SerializedProperty ardyAdaptivePlaybackReserve;
         private SerializedProperty ardyHistoryCropSeconds;
-        private SerializedProperty ardyFutureCropSeconds;
         private SerializedProperty diffusionSteps;
         private SerializedProperty textWeight;
         private SerializedProperty randomSeed;
@@ -37,7 +36,6 @@ namespace KimodoBridge.Editor
             ardyPlaybackReserveSeconds = serializedObject.FindProperty("ardyPlaybackReserveSeconds");
             ardyAdaptivePlaybackReserve = serializedObject.FindProperty("ardyAdaptivePlaybackReserve");
             ardyHistoryCropSeconds = serializedObject.FindProperty("ardyHistoryCropSeconds");
-            ardyFutureCropSeconds = serializedObject.FindProperty("ardyFutureCropSeconds");
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
             textWeight = serializedObject.FindProperty("textWeight");
             randomSeed = serializedObject.FindProperty("randomSeed");
@@ -108,10 +106,7 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.LabelField("ARDY Settings (seconds)", EditorStyles.miniBoldLabel);
                 EditorGUILayout.PropertyField(
                     ardyHistoryCropSeconds,
-                    new GUIContent("History Crop", "0 adaptively balances ARDY history against the next Full-Body target."));
-                EditorGUILayout.PropertyField(
-                    ardyFutureCropSeconds,
-                    new GUIContent("Future Crop", "0 uses the selected profile maximum."));
+                    new GUIContent("History Crop", "0 adaptively balances ARDY history against the next Root2D or Full-Body target."));
             }
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, modelName);
             KimodoGenerationInspectorGui.DrawTextWeight(textWeight);

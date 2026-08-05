@@ -146,7 +146,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void Root2DTarget_KimodoReportsThatAutomaticTargetsRequireArdy()
+        public void Root2DTarget_KimodoAcceptsTheAutomaticTargetApi()
         {
             var gameObject = new GameObject("KimodoRuntimeMotionDriverTests.Root2DTarget");
             gameObject.SetActive(false);
@@ -154,15 +154,32 @@ namespace KimodoBridge.Editor.Tests
             {
                 var driver = gameObject.AddComponent<KimodoRuntimeMotionDriver>();
 
-                driver.SetRoot2DTarget(1f, 2f);
+                driver.SetRoot2DTarget(1f, 2f, arrivalThresholdMeters: 3f);
 
-                Assert.That(driver.StatusMessage, Does.Contain("automatic ARDY-only"));
-                Assert.That(driver.StatusMessage, Does.Contain("SetRoot2D"));
+                Assert.That(driver.StatusMessage, Does.Contain("already within"));
             }
             finally
             {
                 UnityEngine.Object.DestroyImmediate(gameObject);
             }
+        }
+
+        [TestCase(0.5f, 1.25f, 1.5f, 1.1547005f)]
+        [TestCase(5f, 1.25f, 1.5f, 4.8333335f)]
+        public void Root2DTargetDuration_UsesAccelerationAndCruiseLimits(
+            float distance,
+            float maxSpeed,
+            float maxAcceleration,
+            float expected)
+        {
+            Assert.That(
+                KimodoRuntimeMotionDriver.EstimateRoot2DTargetDuration(
+                    distance,
+                    maxSpeed,
+                    maxAcceleration,
+                    0.1f,
+                    10f),
+                Is.EqualTo(expected).Within(1e-5f));
         }
 
         [Test]
@@ -880,7 +897,9 @@ namespace KimodoBridge.Editor.Tests
                 rootTargetMaxSpeed = 1.25f,
                 rootTargetMaxAcceleration = 1.5f,
                 rootTargetArrivalThreshold = 0.1f,
-                rootTargetIncludeHeading = true
+                rootTargetIncludeHeading = true,
+                rootTargetHasHeading = true,
+                rootTargetHeading = new Vector2(0.6f, 0.8f)
             };
 
             JObject target = (JObject)JArray.Parse(
@@ -895,6 +914,8 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(target.Value<float>("max_speed"), Is.EqualTo(1.25f));
             Assert.That(target.Value<float>("max_acceleration"), Is.EqualTo(1.5f));
             Assert.That(target.Value<bool>("include_heading"), Is.True);
+            Assert.That(target["target_root_heading"]?[0]?.Value<float>(), Is.EqualTo(0.8f).Within(1e-6f));
+            Assert.That(target["target_root_heading"]?[1]?.Value<float>(), Is.EqualTo(-0.6f).Within(1e-6f));
             Assert.That(target["frame_indices"], Is.Null);
         }
 

@@ -69,7 +69,8 @@ TCP 协议补充：
 - `session.close` 只关闭显式 Session；关闭 `session:default` 会关闭 QuickServer。旧 `quit` 保持相同的全局关闭效果。
 - `generate` 使用 `text_encoder_mode`，不再接受 `highvram` 或 `force_cpu`；Force CPU UI 会发送 `simulate_free_vram_gb=0`。
 - `generate` 的 `task_id` 现在是可选的；如果调用方不传，QuickServer 会在入队前自动补一个稳定任务标识。
-- 新的 ARDY Generate 不会取消正在执行的 Horizon；当前请求完成后再执行，并且等待队列只保留最新的 ARDY 更新。
+- 新的流式 ARDY Generate 不会取消正在执行的 Horizon；当前请求完成后再执行，并且同一 Session 的等待队列只保留最新流式更新。带正数 `duration` 的固定长度请求不会互相替换。
+- 不同 Session 使用相同 ARDY runtime、history/window、steps 和 CFG 时会机会式合并为一次 motion batch；默认上限为 2，可用 `KIMODO_ARDY_BATCH_SIZE=1-8` 调整。
 
 ## KMB 直接传输
 

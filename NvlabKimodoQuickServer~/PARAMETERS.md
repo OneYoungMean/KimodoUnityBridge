@@ -44,6 +44,7 @@
 - `KIMODO_ALLOW_MULTI_SERVER=0|1`: 默认 `0`，同一份 QuickServer 根目录只允许一个 `run server` 实例；设为 `1` 时跳过运行单例锁。兼容别名 `ALLOWMULTISERVER` / `allowmultiserver`。
 - `KIMODO_IDLE_TIMEOUT_SEC`: 服务空闲退出秒数（当前设定 `600`）。
 - `KIMODO_RUNTIME_IDLE_UNLOAD_SEC`: 模型资源空闲回收秒数，默认 `900`；设为更大值可延后显存释放。
+- `KIMODO_ARDY_BATCH_SIZE`: ARDY 同模型兼容请求的最大 batch 和准备线程数，默认 `2`，有效范围 `1-8`；设为 `1` 可关闭跨 Session batch。
 - `KIMODO_BRIDGE_OUTPUT_FORMAT=json_compact|bvh`: bridge TCP `generate` 返回格式。默认 `json_compact`；设为 `bvh` 时，仅返回 `motion_bvh`，不再返回 `motion_json_compact`。
 - `KIMODO_BRIDGE_BVH_STANDARD_TPOSE=0|1`: 仅在 `KIMODO_BRIDGE_OUTPUT_FORMAT=bvh` 时生效。设为 `1` 时，BVH 以标准 T-pose 作为 rest pose 导出。
 - 下载站点默认是自动探测 HF / ModelScope 后择优；`--force-hf-download` 会跳过探测并强制走 HF。

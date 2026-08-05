@@ -206,23 +206,12 @@ namespace KimodoBridge
 
         private float EstimateSegmentDuration(float distanceMeters)
         {
-            float maxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond);
-            float maxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
-            float accelTime = maxSpeed / maxAcceleration;
-            float accelDistance = 0.5f * maxAcceleration * accelTime * accelTime;
-            float durationSeconds;
-
-            if (distanceMeters <= 2f * accelDistance)
-            {
-                durationSeconds = 2f * Mathf.Sqrt(distanceMeters / maxAcceleration);
-            }
-            else
-            {
-                float cruiseDistance = distanceMeters - 2f * accelDistance;
-                durationSeconds = 2f * accelTime + cruiseDistance / maxSpeed;
-            }
-
-            return Mathf.Clamp(durationSeconds, minSegmentDurationSeconds, maxSegmentDurationSeconds);
+            return KimodoRuntimeMotionDriver.EstimateRoot2DTargetDuration(
+                distanceMeters,
+                maxSpeedMetersPerSecond,
+                maxAccelerationMetersPerSecond2,
+                minSegmentDurationSeconds,
+                maxSegmentDurationSeconds);
         }
 
         private Transform ResolveRoot()

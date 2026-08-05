@@ -280,6 +280,35 @@ def _build_text_encoder_signature(config: dict[str, Any]) -> str:
     return f"text_encoder_mode={config['text_encoder_mode']}"
 
 
+def _build_text_encoder_execution_key(config: dict[str, Any]) -> tuple[str, str]:
+    profile = assets.resolve_motion_model_profile(config["model"])
+    backend = str(getattr(profile, "backend", "kimodo") or "kimodo")
+    return _build_text_encoder_signature(config), backend
+
+
+class _TextEncoderExecutionGate:
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._active_key: tuple[str, str] | None = None
+        self._active_count = 0
+
+    def acquire(self, key: tuple[str, str]) -> None:
+        with self._condition:
+            while self._active_count > 0 and self._active_key != key:
+                self._condition.wait()
+            self._active_key = key
+            self._active_count += 1
+
+    def release(self, key: tuple[str, str]) -> None:
+        with self._condition:
+            if self._active_count <= 0 or self._active_key != key:
+                raise RuntimeError("TextEncoder execution gate was released by a non-owner.")
+            self._active_count -= 1
+            if self._active_count == 0:
+                self._active_key = None
+                self._condition.notify_all()
+
+
 def _normalize_runtime_config(req: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
     removed_keys = [key for key in ("highvram", "force_cpu") if key in req]
     if removed_keys:
@@ -334,7 +363,7 @@ def _unload_runtime_model(state: dict[str, Any], logger: SetupLogger) -> None:
 
 def _clear_shared_text_encoder_state(state: dict[str, Any]) -> Any:
     encoder = state.get("shared_text_encoder")
-    runtimes = [state["active_runtime"]] + [
+    runtimes = [state["active_runtime"]] + list((state.get("ardy_runtimes") or {}).values()) + [
         session.get("ardy_runtime") or {} for session in state["sessions"].values()
     ] + list(state["retired_runtimes"])
     for runtime in runtimes:
@@ -747,18 +776,16 @@ def _build_streaming_status_message(
 ) -> tuple[str, str]:
     normalized = str(server_state or "").strip().lower()
     detail = str(task_message or "").strip()
+    if queue_index > 0:
+        return "queued", f"Task '{task_id}' waiting in queue. queue_index={queue_index}"
     if normalized == "loading_runtime":
         if detail and not detail.startswith("Task '"):
             return "loading", detail
         return "loading", "Preparing motion runtime..."
     if normalized == "generating":
-        if queue_index > 0:
-            return "queued", f"Task '{task_id}' waiting in queue. queue_index={queue_index}"
         if detail and not detail.startswith("Task '"):
             return "progress", detail
         return "progress", "Generating motion..."
-    if queue_index > 0:
-        return "queued", f"Task '{task_id}' waiting in queue. queue_index={queue_index}"
     return "progress", f"Task '{task_id}' is still running..."
 
 
@@ -893,6 +920,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     host, port = server.getsockname()
     _write_serverport(serverport_path, host, int(port), "boot")
     logger.log(f"[INFO] quickserver_cli listening on {host}:{port}")
+    logger.log(f"[INFO] ARDY cross-Session batch size: {ardy_backend.ARDY_BATCH_SIZE}")
 
     default_config = {
         "model": str(args.model or assets.DEFAULT_MODEL_NAME).strip() or assets.DEFAULT_MODEL_NAME,
@@ -922,6 +950,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "owner_pid": max(0, int(args.watchpid or 0)),
         "last_activity": time.time(),
         "active_runtime": {},
+        "ardy_runtimes": {},
         "shared_text_encoder": None,
         "shared_text_encoder_signature": "",
         "shared_text_encoder_decision": None,
@@ -934,6 +963,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "tasks": {},
         "retired_runtimes": deque(),
         "active_task_id": "",
+        "active_worker_count": 0,
         "active_command_count": 0,
         "server_state": "boot",
         "task_counter": count(1),
@@ -943,6 +973,12 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     state_lock = threading.Lock()
     queue_changed = threading.Condition(state_lock)
     runtime_gate = threading.Lock()
+    non_ardy_generation_gate = threading.Lock()
+    # ponytail: mixed backends/modes serialize while the server owns one shared TextEncoder slot.
+    # Replace this gate with keyed resident encoders only if mixed-mode parallelism becomes necessary.
+    text_encoder_execution_gate = _TextEncoderExecutionGate()
+    publish_lock = threading.Lock()
+    task_context = threading.local()
 
     def capture_task_runtime_progress(message: str) -> None:
         text = str(message or "").strip()
@@ -961,7 +997,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             )
         ):
             return
-        task = state["tasks"].get(str(state.get("active_task_id") or ""))
+        task = state["tasks"].get(str(getattr(task_context, "task_id", "") or ""))
         if task is not None:
             task["status_message"] = text
 
@@ -973,9 +1009,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             stream.close()
         session["ardy_stream"] = None
         session["ardy_stream_signature"] = ""
-        runtime = session.get("ardy_runtime")
-        if runtime is not None and runtime.get("model") is not None:
-            state["retired_runtimes"].append(runtime)
         session["ardy_runtime"] = {}
         state["sessions"].pop(session["session_id"], None)
         state["model_workers"].pop(f"ardy_session={session['session_id']}", None)
@@ -988,7 +1021,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         decision = runtime.get("text_encoder_decision")
         models_root = str((runtime.get("runtime_config") or {}).get("models_root") or "")
         with state_lock:
-            runtimes = [state["active_runtime"]] + [
+            runtimes = [state["active_runtime"]] + list(state["ardy_runtimes"].values()) + [
                 session.get("ardy_runtime") or {} for session in state["sessions"].values()
             ]
             state["shared_text_encoder"] = encoder
@@ -1014,8 +1047,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             state["last_activity"] = time.time()
 
     def publish_state(state_name: str) -> None:
-        state["server_state"] = state_name
-        _write_serverport(serverport_path, host, int(port), state_name)
+        with publish_lock:
+            state["server_state"] = state_name
+            _write_serverport(serverport_path, host, int(port), state_name)
 
     def begin_command() -> None:
         with state_lock:
@@ -1044,6 +1078,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         if session["ready"]:
             return
         active = session.get("active")
+        if active is not None and str(active.get("state") or "") in ("running", "cancelling"):
+            return
         if state["shutdown"] or session["closed"]:
             if active is None or not active["cancel_event"].is_set():
                 return
@@ -1147,8 +1183,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 owner_pid = int(state.get("owner_pid") or 0)
                 idle_seconds = time.time() - float(state.get("last_activity") or 0.0)
                 runtime_loaded = state["active_runtime"].get("model") is not None or any(
-                    (session.get("ardy_runtime") or {}).get("model") is not None
-                    for session in state["sessions"].values()
+                    runtime.get("model") is not None for runtime in state["ardy_runtimes"].values()
                 )
                 work_in_flight = any(
                     session["queue"]
@@ -1172,9 +1207,10 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             session["queue"] or session.get("active") is not None
                             for session in state["sessions"].values()
                         ) and int(state.get("active_command_count") or 0) == 0:
-                            runtimes = [state["active_runtime"]] + [
-                                session.get("ardy_runtime") or {} for session in state["sessions"].values()
-                            ]
+                            runtimes = [state["active_runtime"]] + list(state["ardy_runtimes"].values())
+                            state["ardy_runtimes"] = {}
+                            for session in state["sessions"].values():
+                                session["ardy_runtime"] = {}
                             state["shared_text_encoder"] = None
                             state["shared_text_encoder_signature"] = ""
                             state["shared_text_encoder_decision"] = None
@@ -1202,7 +1238,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             encoder_signature = _build_text_encoder_signature(runtime_config)
             profile = assets.resolve_motion_model_profile(runtime_config["model"])
             is_ardy = profile is not None and profile.backend == "ardy"
-            runtime = session["ardy_runtime"] if is_ardy else state["active_runtime"]
+            if is_ardy:
+                runtime = state["ardy_runtimes"].setdefault(signature, {})
+                session["ardy_runtime"] = runtime
+            else:
+                runtime = state["active_runtime"]
             if shared_encoder is not None and shared_signature != encoder_signature:
                 logger.log(
                     "[INFO] Shared text encoder mode changed; releasing the previous encoder: "
@@ -1215,6 +1255,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 if shared_encoder is not None:
                     runtime["model"].text_encoder = shared_encoder
                 if getattr(runtime["model"], "text_encoder", None) is not None:
+                    runtime["model"]._kimodo_runtime_signature = signature
                     state["active_model_worker_key"] = _build_task_worker_key(
                         runtime_config, session["session_id"]
                     )
@@ -1227,6 +1268,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 text_encoder=shared_encoder,
                 text_encoder_decision=shared_decision,
             )
+            runtime["model"]._kimodo_runtime_signature = signature
             bind_shared_text_encoder(runtime, encoder_signature)
             state["active_model_worker_key"] = _build_task_worker_key(
                 runtime_config, session["session_id"]
@@ -1316,22 +1358,43 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                         continue
                     task = session["queue"].popleft()
                     session["active"] = task
+                if str(task.get("state") or "") in ("running", "cancelling"):
+                    continue
+                task["state"] = "running"
                 task_id = task["task_id"]
                 state["active_task_id"] = task_id
+                state["active_worker_count"] = int(state.get("active_worker_count") or 0) + 1
                 publish_state("generating")
 
+            task_context.task_id = task_id
             try:
-                publish_state("loading_runtime")
-                task["status_message"] = "Preparing motion runtime..."
-                if task["cancel_event"].is_set():
-                    raise runtime_helpers.GenerateCancelledError("Generation canceled.")
-                runtime = get_runtime(session, task["runtime_config"])
-                if task["cancel_event"].is_set():
-                    raise runtime_helpers.GenerateCancelledError("Generation canceled.")
-                task["status_message"] = "Generating motion..."
-                publish_state("generating")
-                response, binary_payload = run_one_shot(task, runtime, session)
-                response = _attach_runtime_metadata(response, runtime.get("text_encoder_decision"))
+                def execute_task() -> tuple[dict[str, Any], bytes | None]:
+                    encoder_key = _build_text_encoder_execution_key(task["runtime_config"])
+                    text_encoder_execution_gate.acquire(encoder_key)
+                    try:
+                        publish_state("loading_runtime")
+                        task["status_message"] = "Preparing motion runtime..."
+                        if task["cancel_event"].is_set():
+                            raise runtime_helpers.GenerateCancelledError("Generation canceled.")
+                        runtime = get_runtime(session, task["runtime_config"])
+                        if task["cancel_event"].is_set():
+                            raise runtime_helpers.GenerateCancelledError("Generation canceled.")
+                        task["status_message"] = "Generating motion..."
+                        publish_state("generating")
+                        task_response, task_binary = run_one_shot(task, runtime, session)
+                        return _attach_runtime_metadata(
+                            task_response,
+                            runtime.get("text_encoder_decision"),
+                        ), task_binary
+                    finally:
+                        text_encoder_execution_gate.release(encoder_key)
+
+                profile = assets.resolve_motion_model_profile(task["runtime_config"]["model"])
+                if profile is not None and profile.backend == "ardy":
+                    response, binary_payload = execute_task()
+                else:
+                    with non_ardy_generation_gate:
+                        response, binary_payload = execute_task()
             except runtime_helpers.GenerateCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
                 binary_payload = None
@@ -1357,18 +1420,25 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     }
                 binary_payload = None
                 logger.log(f"[ERROR] Generate task {task_id} failed: {exc}")
+            finally:
+                task_context.task_id = ""
             with queue_changed:
                 if task["cancel_event"].is_set():
                     response = {"status": "cancelled", "message": "Generation canceled."}
                     binary_payload = None
                 finish_task_locked(session, task, response, binary_payload)
                 state["last_activity"] = time.time()
-                publish_state("idle")
+                state["active_worker_count"] = max(0, int(state.get("active_worker_count") or 0) - 1)
+                publish_state("generating" if state["active_worker_count"] else "idle")
                 queue_changed.notify_all()
 
     threading.Thread(target=lifecycle_monitor_loop, daemon=True).start()
-    worker_thread = threading.Thread(target=worker_loop, daemon=True)
-    worker_thread.start()
+    worker_threads = [
+        threading.Thread(target=worker_loop, name=f"KimodoGenerate-{index + 1}", daemon=True)
+        for index in range(ardy_backend.ARDY_BATCH_SIZE)
+    ]
+    for worker_thread in worker_threads:
+        worker_thread.start()
 
     def resolve_request_task_id(request: dict[str, Any]) -> str:
         raw_task_id = str(request.get("task_id") or request.get("id") or "").strip()
@@ -1588,7 +1658,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                 owner_pid = int(request.get("owner_pid") or 0)
                                 if owner_pid > 0:
                                     state["owner_pid"] = owner_pid
-                                if is_ardy_request:
+                                if is_ardy_request and "duration" not in request:
                                     while session["queue"]:
                                         superseded = session["queue"].popleft()
                                         finish_task_locked(
@@ -1679,16 +1749,18 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 raise
             threading.Thread(target=client_worker, args=(conn, addr), daemon=True).start()
     finally:
-        worker_thread.join()
+        for worker_thread in worker_threads:
+            worker_thread.join()
         with state_lock:
             for session in state["sessions"].values():
                 stream = session.get("ardy_stream")
                 if stream is not None:
                     stream.close()
                 session["ardy_stream"] = None
-            runtimes = [state["active_runtime"]] + [
-                session.get("ardy_runtime") or {} for session in state["sessions"].values()
-            ] + list(state["retired_runtimes"])
+            runtimes = [state["active_runtime"]] + list(state["ardy_runtimes"].values()) + list(
+                state["retired_runtimes"]
+            )
+            state["ardy_runtimes"] = {}
             state["retired_runtimes"].clear()
             state["shared_text_encoder"] = None
             state["shared_text_encoder_signature"] = ""

@@ -29,6 +29,7 @@ namespace TimelineInject
         public float? max_acceleration;
         public float? arrival_threshold;
         public bool? include_heading;
+        public float[] target_root_heading;
     }
 
     public enum KimodoConstraintRigType
@@ -53,6 +54,8 @@ namespace TimelineInject
         public float rootTargetMaxAcceleration = 1.5f;
         public float rootTargetArrivalThreshold = 0.1f;
         public bool rootTargetIncludeHeading = true;
+        public bool rootTargetHasHeading;
+        public Vector2 rootTargetHeading = Vector2.right;
         public bool rootTargetUseSampleTime;
         public Vector3 unityRootPos;
         public Quaternion unityRootRot = Quaternion.identity;
@@ -76,6 +79,8 @@ namespace TimelineInject
                 rootTargetMaxAcceleration = rootTargetMaxAcceleration,
                 rootTargetArrivalThreshold = rootTargetArrivalThreshold,
                 rootTargetIncludeHeading = rootTargetIncludeHeading,
+                rootTargetHasHeading = rootTargetHasHeading,
+                rootTargetHeading = rootTargetHeading,
                 rootTargetUseSampleTime = rootTargetUseSampleTime,
                 unityRootPos = unityRootPos,
                 unityRootRot = unityRootRot,

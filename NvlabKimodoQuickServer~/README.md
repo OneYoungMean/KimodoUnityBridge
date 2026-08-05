@@ -51,7 +51,8 @@ The launcher checks and completes setup automatically before starting the TCP su
 - A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.
 - `cancel` accepts an optional `task_id`. If omitted, QuickServer cancels the first cancellable queued task and returns the resolved task id.
 - ARDY generation is non-interruptible inside a Horizon. Cancel stops the waiting Generate response at the next Horizon boundary but keeps the Session timeline until `session.close`.
-- A newer ARDY Generate does not cancel the active Horizon. The active request finishes first, and only the newest queued ARDY update is retained.
+- A newer streaming ARDY Generate does not cancel the active Horizon. The active request finishes first, and only the newest queued streaming update in that Session is retained. Positive-duration fixed-length requests do not supersede each other.
+- Compatible requests from different Sessions opportunistically share one ARDY motion batch when runtime, history/window shape, steps, and CFG match. `KIMODO_ARDY_BATCH_SIZE=1-8` controls the maximum batch size and preparation workers; `1` disables cross-Session batching.
 
 ## Direct KMB transport
 

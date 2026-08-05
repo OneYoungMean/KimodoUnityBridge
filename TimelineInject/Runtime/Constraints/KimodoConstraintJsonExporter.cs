@@ -229,7 +229,10 @@ namespace TimelineInject
                 max_speed = Mathf.Max(0.01f, sample.rootTargetMaxSpeed),
                 max_acceleration = Mathf.Max(0.01f, sample.rootTargetMaxAcceleration),
                 arrival_threshold = Mathf.Max(0f, sample.rootTargetArrivalThreshold),
-                include_heading = sample.rootTargetIncludeHeading
+                include_heading = sample.rootTargetIncludeHeading,
+                target_root_heading = sample.rootTargetHasHeading
+                    ? new[] { sample.rootTargetHeading.y, -sample.rootTargetHeading.x }
+                    : null
             };
         }
 

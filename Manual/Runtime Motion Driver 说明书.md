@@ -30,7 +30,7 @@
 | **Duration (s)** | 普通 Kimodo 每段时长，范围 1–10 秒。ARDY 使用 Profile 的流式时间窗，不显示此项。 |
 | **Playback Reserve** | ARDY 剩余可播放时间到此阈值时请求后续动作，默认 1 秒。 |
 | **Adaptive Playback Reserve** | 让 ARDY 根据实测响应耗时自动调整储备。 |
-| **History Crop / Future Crop** | ARDY 历史和未来窗口裁剪秒数；0 使用 Profile 上限。 |
+| **History Crop** | ARDY 历史窗口裁剪秒数；0 会根据下一个 Root2D/Full-Body 目标动态计算。未来窗口使用 Profile 上限，不在 Runtime Driver 中暴露。 |
 | **Diffusion Steps** | Runtime Driver 的 ARDY 请求范围为 1–10；普通 Kimodo 范围为 1–1000。 |
 | **Text Weight** | 提示词权重，范围 0–4。 |
 | **Random / Seed** | 随机或固定种子。 |
@@ -72,7 +72,7 @@ public sealed class RuntimeMotionExample : UnityEngine.MonoBehaviour
 - `SetAnimationDurationSeconds`：设置普通 Kimodo 分段时长；合法范围会被限制为 1–10 秒。
 - `SetLeftHandConstraint`、`SetRightHandConstraint`、`SetLeftFootConstraint`、`SetRightFootConstraint`：暂存 Unity 世界坐标中的末端位置约束。
 - `SetRoot2D`：暂存 Unity 世界坐标中的 Root2D 位置及可选世界朝向；朝向参数是世界 X/Z 平面方向向量。
-- `SetRoot2DTarget`：ARDY 专用的世界坐标自动导航目标。
+- `SetRoot2DTarget`：世界坐标自动导航目标。ARDY 会跨 horizon 按速度/加速度持续重规划；普通 Kimodo 会据此估算本段时长并生成 Root2D 终点约束。
 - `QueuePromptedRoot2D`：用世界坐标目标一次设置 Prompt、时长并提交 Root2D。
 - `ApplyStagedConstraints` / `ClearConstraints`：应用或清除暂存约束。
 - `GetPosition`：读取角色当前位置。

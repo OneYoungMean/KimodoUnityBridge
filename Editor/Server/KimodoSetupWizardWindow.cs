@@ -414,6 +414,7 @@ namespace KimodoBridge.Editor
                     CancellationToken.None);
 
                 operationStatus = "OK: Server connected and default model is ready.";
+                Debug.Log($"[KimodoSetupWizard] Install successful. Default model '{settings.DefaultBridgeModelName}' is ready.");
                 MarkWizardCompleted();
             }
             catch (Exception ex)
