@@ -1257,16 +1257,6 @@ class ArdySession:
             if target_constraint is None:
                 self.root_2d_target = None
             else:
-                if boundary_frame > 0 or self.initial_history_root_2d is not None:
-                    fps = float(self.profile.source_fps)
-                    seam_root_2d = np.asarray(root_2d) + np.asarray(velocity_2d) / fps
-                    plain.append(
-                        {
-                            "type": "root2d",
-                            "frame_indices": [boundary_frame],
-                            "smooth_root_2d": [seam_root_2d.tolist()],
-                        }
-                    )
                 plain.append(target_constraint)
         self.constraints = load_constraints_lst(plain, model.motion_rep.skeleton) if plain else []
 

@@ -147,7 +147,7 @@ install_uv_locally() {
     fi
     unzip -oq "${tmp_dir}/${artifact}" -d "${tmp_dir}" >/dev/null
   else
-    tar -xzf "${tmp_dir}/${artifact}" -C "${tmp_dir}"
+    tar -xzf "${tmp_dir}/${artifact}" --strip-components=1 -C "${tmp_dir}"
   fi
   if [[ -f "${tmp_dir}/uv" ]]; then
     cp -f "${tmp_dir}/uv" "${uv_dir}/uv"
@@ -161,9 +161,14 @@ install_uv_locally() {
     cp -f "${tmp_dir}/uvw" "${uv_dir}/uvw"
     chmod +x "${uv_dir}/uvw"
   fi
+  if [[ ! -x "${uv_dir}/uv" ]] || ! "${uv_dir}/uv" --version >/dev/null 2>&1; then
+    echo "[ERROR] Downloaded uv archive did not produce a working executable: ${uv_dir}/uv"
+    rm -f "${uv_dir}/uv" "${uv_dir}/uvx" "${uv_dir}/uvw"
+    return 1
+  fi
   trap - RETURN
   rm -rf "${tmp_dir}"
-  echo "[INFO] Download uv complete."
+  echo "[INFO] Download and install uv complete."
 }
 
 resolve_uv_artifact() {
@@ -323,7 +328,7 @@ fi
 
 if [[ "${#MISSING_TOOLS[@]}" -gt 0 ]]; then
   prompt_install_missing_tools "${MISSING_TOOLS[@]}" || exit 1
-  UV_BIN="$(resolve_uv_bin)"
+  UV_BIN="${ROOT_DIR}/program/exe/uv/uv"
 fi
 
 if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
