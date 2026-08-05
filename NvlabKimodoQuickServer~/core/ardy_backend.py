@@ -23,9 +23,9 @@ TARGET_VELOCITY_GOAL_FRAME_INTERVAL = 10
 
 def _resolve_ardy_batch_size() -> int:
     try:
-        return max(1, min(8, int(os.environ.get("KIMODO_ARDY_BATCH_SIZE", "2"))))
+        return max(1, min(8, int(os.environ.get("KIMODO_ARDY_BATCH_SIZE", "8"))))
     except (TypeError, ValueError):
-        return 2
+        return 8
 
 
 ARDY_BATCH_SIZE = _resolve_ardy_batch_size()
@@ -45,11 +45,22 @@ class _ArdyBatchRequest:
 class _ArdyInferenceBatcher:
     def __init__(self, max_batch_size: int = ARDY_BATCH_SIZE, wait_seconds: float = 0.005):
         self.max_batch_size = max(1, int(max_batch_size))
+        self.current_batch_size = 1
         self.wait_seconds = max(0.0, float(wait_seconds))
         self._condition = threading.Condition()
         self._pending: list[_ArdyBatchRequest] = []
         self._thread = threading.Thread(target=self._loop, name="KimodoArdyBatch", daemon=True)
         self._thread.start()
+
+    def set_session_count(self, session_count: int) -> int:
+        count = max(0, int(session_count))
+        with self._condition:
+            while self.current_batch_size < self.max_batch_size and count > self.current_batch_size:
+                self.current_batch_size = min(self.max_batch_size, self.current_batch_size * 2)
+            while self.current_batch_size > 1 and count < self.current_batch_size / 2:
+                self.current_batch_size = max(1, self.current_batch_size // 2)
+            self._condition.notify_all()
+            return self.current_batch_size
 
     @staticmethod
     def _batch_key(model: Any, kwargs: dict[str, Any]) -> tuple[Any, ...] | None:
@@ -95,7 +106,7 @@ class _ArdyInferenceBatcher:
 
     def run(self, model: Any, kwargs: dict[str, Any]) -> Any:
         key = self._batch_key(model, kwargs)
-        if self.max_batch_size <= 1 or key is None:
+        if key is None:
             return model.autoregressive_step(**kwargs)
 
         request = _ArdyBatchRequest(model, kwargs, key, threading.Event())
@@ -115,7 +126,7 @@ class _ArdyInferenceBatcher:
                 first = self._pending.pop(0)
                 batch = [first]
                 deadline = time.monotonic() + self.wait_seconds
-                while len(batch) < self.max_batch_size:
+                while len(batch) < self.current_batch_size:
                     match_index = next(
                         (index for index, item in enumerate(self._pending) if item.key == first.key),
                         None,
@@ -191,6 +202,10 @@ class _ArdyInferenceBatcher:
 
 
 _ARDY_INFERENCE_BATCHER = _ArdyInferenceBatcher()
+
+
+def set_inference_session_count(session_count: int) -> int:
+    return _ARDY_INFERENCE_BATCHER.set_session_count(session_count)
 
 
 def _install_bundled_ardy_path() -> Path:

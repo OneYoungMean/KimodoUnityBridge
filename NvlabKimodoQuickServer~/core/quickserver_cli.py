@@ -941,6 +941,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             "ardy_runtime": {},
             "ardy_stream": None,
             "ardy_stream_signature": "",
+            "ardy_registered": False,
             "ready": False,
             "closed": False,
         }
@@ -964,6 +965,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "retired_runtimes": deque(),
         "active_task_id": "",
         "active_worker_count": 0,
+        "ardy_session_count": 0,
         "active_command_count": 0,
         "server_state": "boot",
         "task_counter": count(1),
@@ -979,6 +981,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     text_encoder_execution_gate = _TextEncoderExecutionGate()
     publish_lock = threading.Lock()
     task_context = threading.local()
+    ardy_backend.set_inference_session_count(0)
 
     def capture_task_runtime_progress(message: str) -> None:
         text = str(message or "").strip()
@@ -1010,8 +1013,19 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         session["ardy_stream"] = None
         session["ardy_stream_signature"] = ""
         session["ardy_runtime"] = {}
+        if session.get("ardy_registered"):
+            session["ardy_registered"] = False
+            state["ardy_session_count"] = max(0, int(state["ardy_session_count"]) - 1)
+            ardy_backend.set_inference_session_count(state["ardy_session_count"])
         state["sessions"].pop(session["session_id"], None)
         state["model_workers"].pop(f"ardy_session={session['session_id']}", None)
+
+    def register_ardy_session_locked(session: dict[str, Any]) -> None:
+        if session.get("ardy_registered"):
+            return
+        session["ardy_registered"] = True
+        state["ardy_session_count"] = int(state["ardy_session_count"]) + 1
+        ardy_backend.set_inference_session_count(state["ardy_session_count"])
 
     def bind_shared_text_encoder(runtime: dict[str, Any], encoder_signature: str) -> None:
         model = runtime.get("model")
@@ -1655,6 +1669,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     continue
                                 active_config = _normalize_runtime_config(request, session["default_config"])
                                 session["default_config"] = dict(active_config)
+                                if is_ardy_request:
+                                    register_ardy_session_locked(session)
                                 owner_pid = int(request.get("owner_pid") or 0)
                                 if owner_pid > 0:
                                     state["owner_pid"] = owner_pid

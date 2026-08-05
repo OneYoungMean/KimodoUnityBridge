@@ -190,6 +190,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 return kwargs["initial_noise"]
 
         batcher = ardy_backend._ArdyInferenceBatcher(max_batch_size=2, wait_seconds=0.05)
+        batcher.set_session_count(2)
         barrier = threading.Barrier(3)
         results = [None, None]
 
@@ -225,6 +226,16 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(tuple(calls[0]["text_feat"].shape), (2, 3, 4))
         self.assertEqual(tuple(calls[0]["init_history_sequence"].shape), (2, 4, 5))
         self.assertEqual(sorted(float(result[0, 0, 0]) for result in results), [1.0, 2.0])
+
+    def test_ardy_batch_capacity_grows_and_shrinks_with_session_count(self):
+        batcher = ardy_backend._ArdyInferenceBatcher(max_batch_size=8)
+
+        self.assertEqual(
+            [batcher.set_session_count(count) for count in (1, 2, 3, 4, 5, 8)],
+            [1, 2, 4, 4, 8, 8],
+        )
+        self.assertEqual(batcher.set_session_count(4), 8)
+        self.assertEqual(batcher.set_session_count(3), 4)
 
     def test_cold_text_encoder_reports_loading_and_generation_stages(self):
         session = object.__new__(ardy_backend.ArdySession)

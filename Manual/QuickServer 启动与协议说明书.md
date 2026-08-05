@@ -469,7 +469,7 @@ ARDY 请求缺省 `duration` 时表示流式生成。客户端需要持续发送
 
 ARDY 请求带正数 `duration` 时，表示一次性固定长度生成；它不会继承流式 Session 的历史、随机状态或时间游标。
 
-不同 Session 的 ARDY 请求若使用相同 runtime、history/window 形状、扩散步数和 CFG，QuickServer 会机会式合并为一次 motion batch，再按 batch 行写回各 Session。默认最大 batch 为 2；启动前设置 `KIMODO_ARDY_BATCH_SIZE=1-8` 可调整，设为 `1` 可关闭跨 Session batch。固定长度请求不会被同一 Session 的新 ARDY 请求替换；仅流式更新保留“等待队列只取最新值”的语义。
+不同 Session 的 ARDY 请求若使用相同 runtime、history/window 形状、扩散步数和 CFG，QuickServer 会机会式合并为一次 motion batch，再按 batch 行写回各 Session。容量从 `1` 开始，ARDY Session 数超过容量时按 `1/2/4/8` 扩容，低于容量一半时减半；默认最大 batch 为 `8`，启动前设置 `KIMODO_ARDY_BATCH_SIZE=1-8` 可调整，设为 `1` 可关闭跨 Session batch。固定长度请求不会被同一 Session 的新 ARDY 请求替换；仅流式更新保留“等待队列只取最新值”的语义。
 
 ```json
 {
