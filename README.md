@@ -3,15 +3,15 @@
 # License
 [Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
 
-# 2.0.1 更新点速览
-
+# 2.0.6 更新点速览
+- **新增 ARDY 流式生成**、History/seek、Playback Reserve，以及 KMB History/Future Clip 约束协议/API。
+- **新增 `KimodoRuntimeMotionDriver`** ，支持 Runtime 连续生成、实时重定向、提示词更新与运行时约束。
+- **支持 Windows、macOS、Linux**；NVIDIA CUDA 是当前最完整的加速路线，Apple MPS、AMD/ROCm 与 Intel XPU 为实验性支持。
 - 重构生成管线和 QuickServer 通讯，统一 Session、任务状态、取消与 KMB 直接传输。
-- 新增 `KimodoRuntimeMotionDriver`，支持 Runtime 连续生成、实时重定向、提示词更新与运行时约束。
-- 新增 ARDY 流式生成、History/seek、Playback Reserve，以及 KMB History/Future Clip 约束协议/API。
-- 改进 Timeline 首尾约束、约束预览、Avatar 自动解析和前后片段对齐。
-- 支持 Windows、macOS、Linux；NVIDIA CUDA 是当前最完整的加速路线，Apple MPS、AMD/ROCm 与 Intel XPU 为实验性支持。
 - 缩减服务器包体，改进下载站点探测、错误提示和生成进度反馈。
 - 普通 Kimodo 的超过 10 秒生成现在由 QuickServer 自动均分为连续片段；后续片段复用前段末尾姿态完成过渡，整条约束仍按原始时间轴处理。
+- 改进 Timeline 首尾约束、约束预览、Avatar 自动解析和前后片段对齐。
+
 
 ## 更新注意事项
 **从 1.x 升级时，请先在 Server Manager 停止服务器，再点击 `Reinstall Kimodo Server` 重铺运行目录；该操作会保留已有的 `models` 目录。**
@@ -20,7 +20,7 @@
 # KimodoUnityBridge
 ![](Manual/Kimodo%20Unity%20Bridge_01.png)
 **开箱即用，完全运行在本地的免费 AI 人形动画生成系统**[快速开始](FastBegin.md) .   
-* 基于 https://github.com/nv-tlabs/kimodo 
+* 基于 https://github.com/nv-tlabs/kimodo  |  https://github.com/nv-tlabs/ardy
 * 基于 https://github.com/OneYoungMean/NvlabKimodoQuickServer (感谢[Aero-Ex](https://gist.github.com/Aero-Ex) 他的文档解决了我很大问题)
 * CPU/GPU 模式自适应；支持 Windows、macOS、Linux，无法使用加速器时会回退 CPU。
 * 完全本地部署，你无需为任何内容付任何费用（也不必为此感到自责）！
@@ -30,7 +30,7 @@
 - Unity 2022.3+，Windows、macOS 和 Linux 平台。
 - 内存>=8G,硬盘空间>=16G
 - NVIDIA CUDA 是当前最完整的 GPU 路线；Apple MPS、AMD/ROCm 与 Intel XPU 属于实验性支持。
-- CPU 始终可用，但生成速度会明显慢于 GPU。
+- 始终可用，但 CPU 生成速度会明显慢于 GPU。
 
 ## 特性
 
@@ -73,5 +73,5 @@
 肴核既尽，不知东方之既白
 ```
 ## 致谢 
-感谢以下人员对本项目的付出！
-[AkiKurisu](https://github.com/AkiKurisu )   
+感谢以下人员对本项目的付出！  
+[AkiKurisu](https://github.com/AkiKurisu )     
