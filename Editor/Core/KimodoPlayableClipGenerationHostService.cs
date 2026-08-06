@@ -166,7 +166,7 @@ namespace KimodoBridge.Editor
                 DiffusionSteps = KimodoMotionModelProfiles.ClampDiffusionSteps(
                     resolvedModelName,
                     clip.diffusionSteps),
-                TextWeight = Mathf.Clamp(clip.textWeight, 0f, 4f),
+                TextWeight = 1f,
                 EffectiveSeed = effectiveSeed,
                 ConstraintsJson = constraintsJson,
                 CreateTargetClip = () => CreateTimelineTargetClip(clip),
@@ -192,12 +192,17 @@ namespace KimodoBridge.Editor
                     !Mathf.Approximately((float)timelineClip.timeScale, 1f),
                 TimelineDirectorSnapshot = outputDirector,
                 InitialArdyHistorySource = initialHistorySource,
-                ArdyHistoryCropSeconds = isArdy ? 0.0 : (double?)null,
-                ArdyMaxSpeed = isArdy ? Mathf.Max(0.01f, clip.ardyTargetMaxSpeed) : (double?)null,
-                ArdyMaxAcceleration = isArdy
+                ArdyHistoryCropSeconds = isArdy && clip.ardyAutoHistory ? 0.0 : (double?)null,
+                ArdyHistoryWeight = isArdy && !clip.ardyAutoHistory
+                    ? Mathf.Clamp01(clip.ardyHistoryWeight)
+                    : (double?)null,
+                ArdyMaxSpeed = isArdy && clip.ardyAutoHistory
+                    ? Mathf.Max(0.01f, clip.ardyTargetMaxSpeed)
+                    : (double?)null,
+                ArdyMaxAcceleration = isArdy && clip.ardyAutoHistory
                     ? Mathf.Max(0.01f, clip.ardyTargetMaxAcceleration)
                     : (double?)null,
-                ArdyHistoryTransitionWeight = isArdy ? 0.5 : (double?)null
+                ArdyHistoryTransitionWeight = isArdy && clip.ardyAutoHistory ? 0.5 : (double?)null
             };
         }
 

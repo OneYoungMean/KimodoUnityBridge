@@ -28,6 +28,7 @@ namespace KimodoBridge
         public bool force_hf_download;
         public int owner_pid;
         public double? ardy_history_crop_seconds;
+        public double? ardy_history_weight;
         public double? ardy_future_crop_seconds;
         public double? ardy_max_speed;
         public double? ardy_max_acceleration;

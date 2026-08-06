@@ -19,7 +19,6 @@ namespace KimodoBridge.Editor
         private KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPerformance;
         private string motionPrompt = string.Empty;
         private int diffusionSteps = 100;
-        private float textWeight = 1f;
         private KimodoInOutConstraintMode inOutConstraintMode = KimodoInOutConstraintMode.Inside;
         private bool isLoop;
         private bool randomSeed;
@@ -117,7 +116,6 @@ namespace KimodoBridge.Editor
                     ref motionPrompt,
                     suggestedDurationSeconds,
                     ref diffusionSteps,
-                    ref textWeight,
                     ref inOutConstraintMode,
                     ref isLoop,
                     ref randomSeed,
@@ -387,7 +385,7 @@ namespace KimodoBridge.Editor
                 TargetFrameCount = generationFrameCount,
                 TargetFrameRate = targetFrameRate,
                 DiffusionSteps = diffusionSteps,
-                TextWeight = Mathf.Clamp(textWeight, 0f, 4f),
+                TextWeight = 1f,
                 EffectiveSeed = effectiveSeed,
                 ConstraintsJson = resolvedConstraintsJson,
                 ConstraintSamples = samples,

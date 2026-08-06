@@ -179,5 +179,43 @@ namespace KimodoBridge.Editor.Tests
                 Object.DestroyImmediate(timeline);
             }
         }
+
+        [Test]
+        public void ArdyRequest_UsesManualHistoryWeightWhenAutoHistoryIsDisabled()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                timelineClip.duration = 4.0;
+                var clip = (KimodoPlayableClip)timelineClip.asset;
+                clip.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
+                clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
+                clip.ardyAutoHistory = false;
+                clip.ardyHistoryWeight = 0.25f;
+
+                KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    "walk",
+                    externalConstraint: null,
+                    default);
+                KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
+                    request,
+                    "walk",
+                    clip.bridgeModelName).GenerationRequest;
+
+                Assert.That(generation.text_weight, Is.EqualTo(1f));
+                Assert.That(generation.ardy_history_crop_seconds, Is.Null);
+                Assert.That(generation.ardy_history_weight, Is.EqualTo(0.25));
+                Assert.That(generation.ardy_max_speed, Is.Null);
+                Assert.That(generation.ardy_max_acceleration, Is.Null);
+                Assert.That(generation.ardy_history_transition_weight, Is.Null);
+            }
+            finally
+            {
+                Object.DestroyImmediate(timeline);
+            }
+        }
     }
 }

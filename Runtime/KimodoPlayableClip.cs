@@ -59,7 +59,7 @@ namespace KimodoBridge
         public string motionPrompt = "a man walk and say hello";
         public int generationFrames = DEFAULT_FRAMES;
         public int diffusionSteps = 100;
-        [Range(0f, 4f)] public float textWeight = 1f;
+        [HideInInspector, Range(0f, 4f)] public float textWeight = 1f;
         public bool randomSeed = false;
         public int seed = 42;
         [SerializeField, HideInInspector]
@@ -70,6 +70,11 @@ namespace KimodoBridge
         public bool enableInConstraint = true;
         [Tooltip("Generate the Out boundary constraint when InOut Constraint is Inside or Outside.")]
         public bool enableOutConstraint = true;
+        [Tooltip("Adapt the ARDY history window from upcoming motion constraints.")]
+        public bool ardyAutoHistory = true;
+        [Range(0f, 1f)]
+        [Tooltip("0 uses one motion token of history; 1 uses the largest history window allowed by the model context.")]
+        public float ardyHistoryWeight = 1f;
         [Min(0.01f)]
         [Tooltip("Maximum root speed used by ARDY Auto History for a future Full-Body target.")]
         public float ardyTargetMaxSpeed = DefaultArdyTargetMaxSpeed;

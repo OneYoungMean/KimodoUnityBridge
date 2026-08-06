@@ -1,6 +1,7 @@
 import io
 import json
 import math
+import os
 from pathlib import Path
 import threading
 from types import SimpleNamespace
@@ -16,6 +17,7 @@ from core import ardy_backend
 from core import kimodo_runtime
 from core import quickserver_cli
 from kimodo.frame_time import seconds_to_frame_count
+from kimodo.model import kimodo_model
 
 
 class QuickServerProtocolV2Tests(unittest.TestCase):
@@ -32,6 +34,12 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(kimodo_runtime._generation_segment_frames(360, 30.0), [180, 180])
         self.assertEqual(kimodo_runtime._generation_segment_frames(630, 30.0), [210, 210, 210])
         self.assertEqual(kimodo_runtime._generation_segment_frames(301, 30.0), [151, 150])
+
+    def test_kimodo_static_graph_requires_explicit_opt_in(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(kimodo_model._kimodo_static_graph_enabled())
+        with patch.dict(os.environ, {"KIMODO_STATIC_GRAPH": "1"}, clear=True):
+            self.assertTrue(kimodo_model._kimodo_static_graph_enabled())
 
     def test_kimodo_long_generation_uses_transition_connected_segments(self):
         class RecordingModel:
@@ -466,6 +474,25 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 profile,
             )
             self.assertFalse(fixed.auto_history)
+
+    def test_history_weight_maps_to_token_aligned_window(self):
+        profile = SimpleNamespace(
+            source_fps=20.0,
+            horizon_frames=40,
+            frames_per_token=4,
+            max_context_frames=200,
+        )
+
+        for weight, expected_frames in ((0.0, 4), (0.5, 84), (1.0, 160)):
+            settings = ardy_backend.ArdySettings.from_request(
+                {"ardy_history_weight": weight},
+                profile,
+            )
+            self.assertEqual(settings.history_crop_frames, expected_frames)
+            self.assertFalse(settings.auto_history)
+
+        with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "ardy_history_weight"):
+            ardy_backend.ArdySettings.from_request({"ardy_history_weight": 1.01}, profile)
 
     def test_cursor_patch_pause_and_seek_use_one_cached_timeline(self):
         session = self._fake_ardy_session()

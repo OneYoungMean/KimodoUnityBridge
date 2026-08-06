@@ -18,12 +18,13 @@ namespace KimodoBridge.Editor
         private SerializedProperty motionPrompt;
         private SerializedProperty generationFrames;
         private SerializedProperty diffusionSteps;
-        private SerializedProperty textWeight;
         private SerializedProperty randomProp;
         private SerializedProperty seed;
         private SerializedProperty inOutConstraintModeProp;
         private SerializedProperty enableInConstraint;
         private SerializedProperty enableOutConstraint;
+        private SerializedProperty ardyAutoHistory;
+        private SerializedProperty ardyHistoryWeight;
         private SerializedProperty ardyTargetMaxSpeed;
         private SerializedProperty ardyTargetMaxAcceleration;
         private SerializedProperty showConstraint;
@@ -68,12 +69,13 @@ namespace KimodoBridge.Editor
             motionPrompt = serializedObject.FindProperty("motionPrompt");
             generationFrames = serializedObject.FindProperty("generationFrames");
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
-            textWeight = serializedObject.FindProperty("textWeight");
             randomProp = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("seed");
             inOutConstraintModeProp = serializedObject.FindProperty("inOutConstraintMode");
             enableInConstraint = serializedObject.FindProperty("enableInConstraint");
             enableOutConstraint = serializedObject.FindProperty("enableOutConstraint");
+            ardyAutoHistory = serializedObject.FindProperty("ardyAutoHistory");
+            ardyHistoryWeight = serializedObject.FindProperty("ardyHistoryWeight");
             ardyTargetMaxSpeed = serializedObject.FindProperty("ardyTargetMaxSpeed");
             ardyTargetMaxAcceleration = serializedObject.FindProperty("ardyTargetMaxAcceleration");
             showConstraint = serializedObject.FindProperty("showConstraint");
@@ -165,7 +167,20 @@ namespace KimodoBridge.Editor
             }
 
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, bridgeModelName);
-            KimodoGenerationInspectorGui.DrawTextWeight(textWeight);
+            if (isArdy && ardyAutoHistory != null)
+            {
+                EditorGUILayout.PropertyField(
+                    ardyAutoHistory,
+                    new GUIContent("Auto History", "Adapt the history window from upcoming motion constraints."));
+                if (!ardyAutoHistory.hasMultipleDifferentValues &&
+                    !ardyAutoHistory.boolValue &&
+                    ardyHistoryWeight != null)
+                {
+                    EditorGUILayout.PropertyField(
+                        ardyHistoryWeight,
+                        new GUIContent("ARDY History Weight", "0 uses one motion token; 1 uses the maximum history window."));
+                }
+            }
             KimodoGenerationInspectorGui.DrawSeed(randomProp, seed);
             int previousInOutMode = inOutConstraintModeProp?.enumValueIndex ?? 0;
             bool previousInEnabled = enableInConstraint?.boolValue ?? false;
@@ -569,6 +584,9 @@ namespace KimodoBridge.Editor
             }
 
             if (KimodoGenerationInspectorGui.IsArdy(bridgeModelName?.stringValue) &&
+                ardyAutoHistory != null &&
+                !ardyAutoHistory.hasMultipleDifferentValues &&
+                ardyAutoHistory.boolValue &&
                 ardyTargetMaxSpeed != null &&
                 ardyTargetMaxAcceleration != null)
             {

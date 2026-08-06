@@ -691,6 +691,7 @@ namespace KimodoBridge.Editor
                 force_hf_download = false,
                 owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id,
                 ardy_history_crop_seconds = request.ArdyHistoryCropSeconds,
+                ardy_history_weight = request.ArdyHistoryWeight,
                 ardy_max_speed = request.ArdyMaxSpeed,
                 ardy_max_acceleration = request.ArdyMaxAcceleration,
                 ardy_history_transition_weight = request.ArdyHistoryTransitionWeight

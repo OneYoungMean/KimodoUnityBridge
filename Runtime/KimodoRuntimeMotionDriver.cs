@@ -258,7 +258,6 @@ namespace KimodoBridge
         [SerializeField] private string defaultPrompt = IdlePrompt;
         [SerializeField][Min(1)] private int generationFrames = 150;
         [SerializeField][Min(1)] private int diffusionSteps = 100;
-        [SerializeField, Range(0f, 4f)] private float textWeight = 1f;
         [SerializeField] private bool randomSeed = true;
         [SerializeField] private int fixedSeed = 42;
         [SerializeField][Min(0.1f)] private float segmentIntervalSeconds = 5f;
@@ -268,8 +267,10 @@ namespace KimodoBridge
         private float ardyPlaybackReserveSeconds = 1f;
         [SerializeField, Tooltip("Let the ARDY backend adapt the playback reserve from measured response time.")]
         private bool ardyAdaptivePlaybackReserve = true;
-        [SerializeField][Min(0f), Tooltip("0 selects adaptive ARDY History Crop.")]
-        private float ardyHistoryCropSeconds;
+        [SerializeField, Tooltip("Adapt the ARDY history window from upcoming motion constraints.")]
+        private bool ardyAutoHistory = true;
+        [SerializeField, Range(0f, 1f), Tooltip("0 uses one motion token of history; 1 uses the largest history window allowed by the model context.")]
+        private float ardyHistoryWeight = 1f;
         [SerializeField, Tooltip("Expand ARDY Root2D waypoints into the official dense per-frame root path.")]
         private bool ardyDenseRootPath;
         [SerializeField] private bool loopHint = true;
@@ -950,7 +951,7 @@ namespace KimodoBridge
                     duration = isArdy ? (float?)null : ResolveGenerationDurationSeconds(),
                     seed = resolvedRequestSeed,
                     steps = Mathf.Clamp(diffusionSteps, 1, isArdy ? ardyProfile.MaxDiffusionSteps : 1000),
-                    text_weight = Mathf.Clamp(textWeight, 0f, 4f),
+                    text_weight = 1f,
                     constraints_json = sendConstraints
                         ? (isArdy && string.IsNullOrWhiteSpace(constraintsJson) ? "[]" : constraintsJson)
                         : null,
@@ -967,7 +968,14 @@ namespace KimodoBridge
                     request.time_as_double = motionPlayer.PlaybackTimeAsDouble;
                     if (sendSettings)
                     {
-                        request.ardy_history_crop_seconds = ardyHistoryCropSeconds;
+                        if (ardyAutoHistory)
+                        {
+                            request.ardy_history_crop_seconds = 0.0;
+                        }
+                        else
+                        {
+                            request.ardy_history_weight = Mathf.Clamp01(ardyHistoryWeight);
+                        }
                         request.ardy_playback_reserve_seconds = Mathf.Max(0.2f, ardyPlaybackReserveSeconds);
                         request.ardy_adaptive_playback_reserve = ardyAdaptivePlaybackReserve;
                     }

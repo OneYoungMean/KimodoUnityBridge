@@ -196,28 +196,6 @@ namespace KimodoBridge.Editor
             EditorGUI.showMixedValue = previousShowMixedValue;
         }
 
-        internal static void DrawTextWeight(SerializedProperty textWeight)
-        {
-            bool previousShowMixedValue = EditorGUI.showMixedValue;
-            EditorGUI.showMixedValue = textWeight.hasMultipleDifferentValues;
-            EditorGUI.BeginChangeCheck();
-            float value = DrawTextWeight(textWeight.floatValue);
-            if (EditorGUI.EndChangeCheck())
-            {
-                textWeight.floatValue = value;
-            }
-            EditorGUI.showMixedValue = previousShowMixedValue;
-        }
-
-        internal static float DrawTextWeight(float textWeight)
-        {
-            return EditorGUILayout.Slider(
-                new GUIContent("Text Weight", "Text guidance exponent sent to the bridge. Effective CFG weight is 2^value (0-4 maps to 1-16)."),
-                Mathf.Clamp(textWeight, 0f, 4f),
-                0f,
-                4f);
-        }
-
         internal static void DrawSeed(SerializedProperty randomSeed, SerializedProperty seed)
         {
             EditorGUILayout.BeginHorizontal();

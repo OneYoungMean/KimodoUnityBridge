@@ -37,6 +37,7 @@ namespace KimodoBridge.Editor
         public PlayableDirector TimelineDirectorSnapshot;
         public ArdyEditorHistorySource InitialArdyHistorySource;
         public double? ArdyHistoryCropSeconds;
+        public double? ArdyHistoryWeight;
         public double? ArdyMaxSpeed;
         public double? ArdyMaxAcceleration;
         public double? ArdyHistoryTransitionWeight;

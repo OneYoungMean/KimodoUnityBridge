@@ -301,20 +301,30 @@ class ArdySettings:
                 raise ArdyBackendError(f"{name} must be a finite non-negative number of seconds.")
             return max(minimum, seconds_to_frame_count(value, fps))
 
-        raw_history = request.get("ardy_history_crop_seconds")
-        auto_history = raw_history is None
-        if raw_history is None:
-            history = crop_max
+        raw_history_weight = request.get("ardy_history_weight")
+        if raw_history_weight is not None:
+            history_weight = float(raw_history_weight)
+            if not math.isfinite(history_weight) or not 0.0 <= history_weight <= 1.0:
+                raise ArdyBackendError("ardy_history_weight must be a finite number in [0, 1].")
+            max_tokens = max(1, crop_max // patch)
+            history_tokens = 1 + math.floor(history_weight * (max_tokens - 1) + 0.5)
+            history = history_tokens * patch
+            auto_history = False
         else:
-            history_seconds = float(raw_history)
-            if not math.isfinite(history_seconds) or history_seconds < 0.0:
-                raise ArdyBackendError(
-                    "ardy_history_crop_seconds must be a finite non-negative number of seconds."
-                )
-            auto_history = history_seconds <= 0.0
-            history = seconds_to_frames("ardy_history_crop_seconds", crop_max / fps, minimum=patch)
-            if auto_history:
+            raw_history = request.get("ardy_history_crop_seconds")
+            auto_history = raw_history is None
+            if raw_history is None:
                 history = crop_max
+            else:
+                history_seconds = float(raw_history)
+                if not math.isfinite(history_seconds) or history_seconds < 0.0:
+                    raise ArdyBackendError(
+                        "ardy_history_crop_seconds must be a finite non-negative number of seconds."
+                    )
+                auto_history = history_seconds <= 0.0
+                history = seconds_to_frames("ardy_history_crop_seconds", crop_max / fps, minimum=patch)
+                if auto_history:
+                    history = crop_max
         history = min(crop_max, history // patch * patch)
         future = seconds_to_frames("ardy_future_crop_seconds", crop_max / fps)
         future = min(crop_max, future // patch * patch)
@@ -1311,6 +1321,7 @@ class ArdySession:
     def _apply_settings(self, request: dict[str, Any]) -> bool:
         settings_keys = {
             "ardy_history_crop_seconds",
+            "ardy_history_weight",
             "ardy_future_crop_seconds",
             "ardy_playback_reserve_seconds",
             "ardy_adaptive_playback_reserve",

@@ -17,7 +17,6 @@ namespace KimodoBridge.Editor
             ref string motionPrompt,
             float suggestedDurationSeconds,
             ref int diffusionSteps,
-            ref float textWeight,
             ref KimodoInOutConstraintMode inOutConstraintMode,
             ref bool isLoop,
             ref bool randomSeed,
@@ -53,7 +52,6 @@ namespace KimodoBridge.Editor
                         ref motionPrompt,
                         suggestedDurationSeconds,
                         ref diffusionSteps,
-                        ref textWeight,
                         ref inOutConstraintMode,
                         ref isLoop,
                         ref randomSeed,
@@ -81,7 +79,6 @@ namespace KimodoBridge.Editor
             ref string motionPrompt,
             float suggestedDurationSeconds,
             ref int diffusionSteps,
-            ref float textWeight,
             ref KimodoInOutConstraintMode inOutConstraintMode,
             ref bool isLoop,
             ref bool randomSeed,
@@ -111,8 +108,6 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.IntField(new GUIContent("Diffusion Steps"), diffusionSteps),
                 1,
                 1000);
-            textWeight = KimodoGenerationInspectorGui.DrawTextWeight(textWeight);
-
             inOutConstraintMode = (KimodoInOutConstraintMode)EditorGUILayout.EnumPopup(
                 new GUIContent("InOut Constraint", "None disables boundary constraints. Inside uses the selected clip's own start/end poses. Outside uses transition boundary poses."),
                 inOutConstraintMode);
