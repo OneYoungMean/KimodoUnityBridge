@@ -47,18 +47,27 @@ namespace KimodoBridge.Editor.Tests
         [Test]
         public void SelectedTimelineGeneration_OrdersClipsByStart()
         {
-            var clips = new List<TimelineClip>
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
             {
-                new TimelineClip { start = 4.0, duration = 1.0 },
-                new TimelineClip { start = 1.0, duration = 1.0 },
-                new TimelineClip { start = 2.0, duration = 1.0 }
-            };
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                var clips = new List<TimelineClip>
+                {
+                    CreateArdyTimelineClip(track, 4.0, 1.0, 10),
+                    CreateArdyTimelineClip(track, 1.0, 1.0, 10),
+                    CreateArdyTimelineClip(track, 2.0, 1.0, 10)
+                };
 
-            clips.Sort(KimodoPlayableClipGenerationExecutionService.CompareTimelineClips);
+                clips.Sort(KimodoPlayableClipGenerationExecutionService.CompareTimelineClips);
 
-            Assert.That(clips[0].start, Is.EqualTo(1.0));
-            Assert.That(clips[1].start, Is.EqualTo(2.0));
-            Assert.That(clips[2].start, Is.EqualTo(4.0));
+                Assert.That(clips[0].start, Is.EqualTo(1.0));
+                Assert.That(clips[1].start, Is.EqualTo(2.0));
+                Assert.That(clips[2].start, Is.EqualTo(4.0));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
         }
 
         [TestCase(KimodoMotionModelProfiles.ArdyCoreModelName, 4)]

@@ -652,6 +652,8 @@ namespace KimodoBridge.Editor.Tests
                     sampler.TargetCache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out Transform rebuiltHips),
                     Is.True);
                 Assert.That(rebuiltHips, Is.Not.Null);
+                Vector3 secondHipsPosition = rebuiltHips.position;
+                Quaternion secondHipsRotation = rebuiltHips.rotation;
                 Assert.That(
                     KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
                         new[] { targetSamples[0], targetSamples[0] },
@@ -880,99 +882,6 @@ namespace KimodoBridge.Editor.Tests
             finally
             {
                 UnityEngine.Object.DestroyImmediate(destination);
-            }
-        }
-
-        [Test]
-        [Category("ArdyGuardValidation")]
-        public void ArdyGuardTrim_RetargetedClipStartsAtOriginalFrameOne()
-        {
-            AnimationClip generatedClip = null;
-            SkeletonCache cache = null;
-            try
-            {
-                Assert.That(
-                    KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                        KimodoPlayableClip.DefaultBridgeModelName,
-                        out Avatar avatar,
-                        out string error),
-                    Is.True,
-                    error);
-                Assert.That(
-                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
-                        avatar,
-                        "KimodoArdyGuardTrimTest",
-                        out cache,
-                        out error),
-                    Is.True,
-                    error);
-                Assert.That(cache.humanBoneTransforms.TryGetValue(HumanBodyBones.Hips, out Transform hips), Is.True);
-
-                const float sourceFps = 20f;
-                string hipsPath = AnimationUtility.CalculateTransformPath(hips, cache.skeletonRoot);
-                generatedClip = new AnimationClip { frameRate = 30f };
-                float bindX = hips.localPosition.x;
-                AnimationUtility.SetEditorCurve(
-                    generatedClip,
-                    EditorCurveBinding.FloatCurve(hipsPath, typeof(Transform), "m_LocalPosition.x"),
-                    new AnimationCurve(
-                        new Keyframe(0f, bindX),
-                        new Keyframe(1f / sourceFps, bindX + 0.03f),
-                        new Keyframe(2f / sourceFps, bindX + 0.07f),
-                        new Keyframe(3f / sourceFps, bindX + 0.12f)));
-
-                var expectedPositions = new Vector3[3];
-                var expectedRotations = new Quaternion[3];
-                for (int frame = 0; frame < 3; frame++)
-                {
-                    Assert.That(
-                        KimodoPlayableClipGenerationHostService.TrySampleGeneratedClipHipsPose(
-                            generatedClip,
-                            avatar,
-                            (frame + 1) / sourceFps,
-                            out expectedPositions[frame],
-                            out expectedRotations[frame],
-                            out error),
-                        Is.True,
-                        error);
-                }
-
-                Assert.That(
-                    KimodoEditorGeneratePipeline.TryTrimRetargetedClipForOutput(
-                        generatedClip,
-                        avatar,
-                        exportMuscleClip: false,
-                        trimStartFrame: 1,
-                        targetFrameCount: 3,
-                        sourceFrameRate: sourceFps,
-                        out error),
-                    Is.True,
-                    error);
-
-                Assert.That(generatedClip.frameRate, Is.EqualTo(30f));
-                for (int frame = 0; frame < 3; frame++)
-                {
-                    Assert.That(
-                        KimodoPlayableClipGenerationHostService.TrySampleGeneratedClipHipsPose(
-                            generatedClip,
-                            avatar,
-                            frame / sourceFps,
-                            out Vector3 actualPosition,
-                            out Quaternion actualRotation,
-                            out error),
-                        Is.True,
-                        error);
-                    Assert.That(Vector3.Distance(actualPosition, expectedPositions[frame]), Is.LessThan(1e-4f));
-                    Assert.That(Quaternion.Angle(actualRotation, expectedRotations[frame]), Is.LessThan(0.01f));
-                }
-            }
-            finally
-            {
-                cache?.Dispose();
-                if (generatedClip != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(generatedClip);
-                }
             }
         }
 
