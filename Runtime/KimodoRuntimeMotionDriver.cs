@@ -14,10 +14,12 @@ namespace KimodoBridge
         private readonly List<KimodoMarkerSampleResult> overlapPoses = new List<KimodoMarkerSampleResult>();
         private readonly List<KimodoMarkerSampleResult> stagedSamples = new List<KimodoMarkerSampleResult>();
         private readonly List<KimodoMarkerSampleResult> pendingSamples = new List<KimodoMarkerSampleResult>();
+        private int pendingRevision;
 
         internal int StagedCount => stagedSamples.Count;
         internal int PendingCount => pendingSamples.Count;
         internal int OverlapCount => overlapPoses.Count;
+        internal int PendingRevision => pendingRevision;
 
         internal void Stage(KimodoMarkerSampleResult sample, double absoluteTimeOffset = 0.0)
         {
@@ -43,6 +45,7 @@ namespace KimodoBridge
             }
 
             stagedSamples.Clear();
+            pendingRevision++;
             return true;
         }
 
@@ -50,6 +53,7 @@ namespace KimodoBridge
         {
             stagedSamples.Clear();
             pendingSamples.Clear();
+            pendingRevision++;
         }
 
         internal void ClearAll()
@@ -88,11 +92,6 @@ namespace KimodoBridge
             string fullBodyConstraintType,
             string root2DTargetConstraintType)
         {
-            if (!isArdy)
-            {
-                RemoveByType(pendingSamples, root2DTargetConstraintType);
-            }
-
             var samples = new List<KimodoMarkerSampleResult>();
             if (includeOverlap)
             {
@@ -139,7 +138,12 @@ namespace KimodoBridge
 
         internal void CompleteGeneration(bool isArdy)
         {
-            if (!isArdy)
+            CompleteGeneration(isArdy, pendingRevision);
+        }
+
+        internal void CompleteGeneration(bool isArdy, int consumedPendingRevision)
+        {
+            if (!isArdy && consumedPendingRevision == pendingRevision)
             {
                 pendingSamples.Clear();
             }
@@ -572,34 +576,6 @@ namespace KimodoBridge
             float maxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond);
             float maxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
             float arrivalThreshold = Mathf.Max(0f, arrivalThresholdMeters);
-            if (!KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
-            {
-                Vector3 currentWorldPosition = GetCurrentPositionInternal();
-                Vector2 worldDelta = new Vector2(
-                    worldX - currentWorldPosition.x,
-                    worldZ - currentWorldPosition.z);
-                float distance = worldDelta.magnitude;
-                if (distance <= arrivalThreshold)
-                {
-                    UpdateStatus("Root2D target is already within the arrival threshold.");
-                    return;
-                }
-
-                float duration = EstimateRoot2DTargetDuration(
-                    distance,
-                    maxSpeed,
-                    maxAcceleration,
-                    MinGenerationDurationSeconds,
-                    MaxGenerationDurationSeconds);
-                ApplyGenerationDurationSeconds(duration);
-                StageRoot2DWorldConstraintInternal(
-                    worldX,
-                    worldZ,
-                    duration,
-                    includeHeading ? worldHeading ?? worldDelta : (Vector2?)null);
-                return;
-            }
-
             if (!TryCreateRoot2DWorldConstraintSample(
                     worldX,
                     worldZ,
@@ -928,7 +904,8 @@ namespace KimodoBridge
                 CancellationToken generationToken = generationCts.Token;
 
                 string prompt = ResolvePrompt();
-                string constraintsJson = BuildNextConstraintsJson();
+                int consumedPendingRevision;
+                string constraintsJson = BuildNextConstraintsJson(out consumedPendingRevision);
                 bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile ardyProfile);
                 bool sendPrompt = !isArdy || !generationSession.ArdySessionStarted || generationSession.ArdyPromptDirty;
                 bool sendConstraints = !isArdy || !generationSession.ArdySessionStarted || generationSession.ArdyConstraintsDirty;
@@ -1161,7 +1138,7 @@ namespace KimodoBridge
                         : metadata.Motion.LastFrameTimeSeconds
                 }));
 
-                constraintBuffer.CompleteGeneration(isArdy);
+                constraintBuffer.CompleteGeneration(isArdy, consumedPendingRevision);
                 generationSession.SegmentIndex = requestSegmentIndex + 1;
                 UpdateStatus($"Segment {requestSegmentIndex} ready.");
             }
@@ -1202,9 +1179,10 @@ namespace KimodoBridge
                 Root2DTargetConstraintType);
         }
 
-        private string BuildNextConstraintsJson()
+        private string BuildNextConstraintsJson(out int consumedPendingRevision)
         {
             List<KimodoMarkerSampleResult> activeConstraints = BuildActiveGenerationConstraints();
+            consumedPendingRevision = constraintBuffer.PendingRevision;
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile);
             if (activeConstraints.Count == 0)
             {
@@ -1226,17 +1204,11 @@ namespace KimodoBridge
             string generatingStatus)
         {
             generationSession.LastGenerationWaitStatusSegment = -1;
-            generationSession.GenerationRequestVersion++;
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
             if (isArdy)
             {
+                generationSession.GenerationRequestVersion++;
                 generationSession.ArdyRefreshPending = true;
-            }
-            if (!isArdy)
-            {
-                int clearedQueuedSegmentCount = motionPlayer.QueuedSegmentCount;
-                motionPlayer.ClearQueue();
-                RewindSegmentIndexAfterQueueInvalidation(clearedQueuedSegmentCount);
             }
 
             if (!generationSession.Running || generationSession.LifetimeCts == null || generationSession.LifetimeCts.IsCancellationRequested)
@@ -1248,19 +1220,23 @@ namespace KimodoBridge
             if (generationSession.GenerationInFlight)
             {
                 UpdateStatus(waitingStatus);
-                if (isArdy)
+                if (!ShouldCancelActiveGenerationForRefresh(isArdy))
                 {
                     return;
                 }
-                if (ShouldCancelActiveGenerationForRefresh(isArdy))
-                {
-                    TryCancelActiveGeneration();
-                }
+
+                TryCancelActiveGeneration();
                 await WaitForGenerationSlotAsync(generationSession.LifetimeCts.Token);
                 if (!generationSession.Running || generationSession.LifetimeCts == null || generationSession.LifetimeCts.IsCancellationRequested)
                 {
                     return;
                 }
+            }
+
+            if (!isArdy && motionPlayer.QueuedSegmentCount > 0)
+            {
+                UpdateStatus(waitingStatus);
+                return;
             }
 
             UpdateStatus(generatingStatus);
@@ -1269,7 +1245,7 @@ namespace KimodoBridge
 
         internal static bool ShouldCancelActiveGenerationForRefresh(bool isArdy)
         {
-            return !isArdy;
+            return false;
         }
 
         private void TryCancelActiveGeneration()
@@ -1295,17 +1271,6 @@ namespace KimodoBridge
             {
                 await Task.Delay(50, token);
             }
-        }
-
-        private void RewindSegmentIndexAfterQueueInvalidation(int clearedQueuedSegmentCount)
-        {
-            if (clearedQueuedSegmentCount <= 0)
-            {
-                return;
-            }
-
-            int minSegmentIndex = Mathf.Max(0, motionPlayer.LastCompletedSegmentIndex + 1);
-            generationSession.SegmentIndex = Mathf.Max(minSegmentIndex, generationSession.SegmentIndex - clearedQueuedSegmentCount);
         }
 
         private void ResetArdySessionState()

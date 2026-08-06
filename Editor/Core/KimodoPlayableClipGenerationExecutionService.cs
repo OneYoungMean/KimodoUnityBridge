@@ -43,6 +43,7 @@ namespace KimodoBridge.Editor
             }
 
             var selectedClips = new List<KimodoPlayableClip>(selected.Count);
+            var selectedTimelineClips = new List<TimelineClip>(selected.Count);
             for (int i = 0; i < selected.Count; i++)
             {
                 if (selected[i]?.asset is not KimodoPlayableClip selectedClip)
@@ -60,6 +61,7 @@ namespace KimodoBridge.Editor
                 }
 
                 selectedClips.Add(selectedClip);
+                selectedTimelineClips.Add(selected[i]);
             }
 
             return EditorGenerateSessionRunner.Start(
@@ -68,6 +70,7 @@ namespace KimodoBridge.Editor
                 KimodoEditorCommandKind.GeneratePlayableClip,
                 async (handle, token) => await GenerateSelectedAndFinalizeAsync(
                     selectedClips,
+                    selectedTimelineClips,
                     (stage, message) => EditorGenerateSessionRunner.UpdateProgress(
                         clip,
                         handle.RequestId,
@@ -410,7 +413,8 @@ namespace KimodoBridge.Editor
                     effectiveSeedOverride: groupSeed,
                     disableTimelineInOut: true,
                     deferConstraintNormalization: true,
-                    enableAutoBeginAnchor: i == 0);
+                    enableAutoBeginAnchor: i == 0,
+                    timelineClipOverride: entry.TimelineClip);
                 AppendConnectedBoundarySamples(entry, i, entries.Count);
                 entry.Request.Progress = PrefixProgress(progress, i, entries.Count);
                 if (string.IsNullOrWhiteSpace(entry.Request.Prompt))
@@ -581,6 +585,7 @@ namespace KimodoBridge.Editor
 
         private static async Task<KimodoEditorGenerateResult> GenerateSelectedAndFinalizeAsync(
             IReadOnlyList<KimodoPlayableClip> clips,
+            IReadOnlyList<TimelineClip> timelineClips,
             Action<KimodoBridgeCommandStage, string> progress,
             CancellationToken token)
         {
@@ -594,7 +599,8 @@ namespace KimodoBridge.Editor
                     selectedClip,
                     externalConstraint: null,
                     (stage, message) => progress?.Invoke(stage, $"{prefix}: {message}"),
-                    token);
+                    token,
+                    timelineClipOverride: timelineClips != null && i < timelineClips.Count ? timelineClips[i] : null);
             }
 
             return result ?? throw new InvalidOperationException("No Timeline clips were selected for generation.");
@@ -612,7 +618,8 @@ namespace KimodoBridge.Editor
             KimodoPlayableClip clip,
             KimodoExternalConstraintRequest externalConstraint,
             Action<KimodoBridgeCommandStage, string> progress,
-            CancellationToken token)
+            CancellationToken token,
+            TimelineClip timelineClipOverride = null)
         {
             if (clip == null)
             {
@@ -624,7 +631,8 @@ namespace KimodoBridge.Editor
                 clip,
                 prompt,
                 externalConstraint,
-                token);
+                token,
+                timelineClipOverride: timelineClipOverride);
 
             try
             {

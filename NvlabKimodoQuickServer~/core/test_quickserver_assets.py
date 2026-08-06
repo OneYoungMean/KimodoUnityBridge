@@ -49,10 +49,10 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
             "high_performance",
             16,
             device="mps",
-            nf4=False,
-            int8=False,
+            nf4=True,
+            int8=True,
         )
-        self.assertEqual((decision.motion_device, decision.encoder_route, decision.encoder_device), ("mps", "int8", "cpu"))
+        self.assertEqual((decision.motion_device, decision.encoder_route, decision.encoder_device), ("mps", "fp16", "mps"))
         precision = self.resolve(
             "high_precision",
             18,
@@ -62,6 +62,22 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
             fp16=True,
         )
         self.assertEqual((precision.motion_device, precision.encoder_device), ("mps", "mps"))
+
+    def test_mps_uses_fp16_even_when_fp16_acceleration_is_unavailable(self):
+        decision = self.resolve(
+            "high_performance",
+            48,
+            device="mps",
+            nf4=True,
+            int8=True,
+            fp16=False,
+        )
+        self.assertEqual((decision.motion_device, decision.encoder_route, decision.encoder_device), ("mps", "fp16", "cpu"))
+
+    def test_mps_fp16_oom_fallback_does_not_switch_to_int8(self):
+        decision = self.resolve("high_performance", 48, device="mps")
+        fallback = assets.force_text_encoder_cpu(decision)
+        self.assertEqual((fallback.encoder_route, fallback.encoder_device), ("fp16", "cpu"))
 
     def test_cpu_only_backend_ignores_reported_accelerator_memory(self):
         decision = self.resolve("high_precision", 48, device="cpu")

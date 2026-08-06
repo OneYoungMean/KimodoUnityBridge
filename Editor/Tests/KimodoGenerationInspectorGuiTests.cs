@@ -3,6 +3,7 @@ using NUnit.Framework;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor.Tests
@@ -144,11 +145,13 @@ namespace KimodoBridge.Editor.Tests
         public void ArdyRequest_UsesAutoHistoryAndClipMotionLimits()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            GameObject directorRoot = new GameObject("KimodoArdyAutoHistoryRequestTest");
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
                 TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
                 timelineClip.duration = 4.0;
+                directorRoot.AddComponent<PlayableDirector>().playableAsset = timeline;
                 var clip = (KimodoPlayableClip)timelineClip.asset;
                 clip.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
                 clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
@@ -176,6 +179,7 @@ namespace KimodoBridge.Editor.Tests
             }
             finally
             {
+                Object.DestroyImmediate(directorRoot);
                 Object.DestroyImmediate(timeline);
             }
         }
@@ -184,11 +188,13 @@ namespace KimodoBridge.Editor.Tests
         public void ArdyRequest_UsesManualHistoryWeightWhenAutoHistoryIsDisabled()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            GameObject directorRoot = new GameObject("KimodoArdyManualHistoryRequestTest");
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
                 TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
                 timelineClip.duration = 4.0;
+                directorRoot.AddComponent<PlayableDirector>().playableAsset = timeline;
                 var clip = (KimodoPlayableClip)timelineClip.asset;
                 clip.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
                 clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
@@ -214,6 +220,7 @@ namespace KimodoBridge.Editor.Tests
             }
             finally
             {
+                Object.DestroyImmediate(directorRoot);
                 Object.DestroyImmediate(timeline);
             }
         }

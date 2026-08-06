@@ -23,7 +23,8 @@ namespace KimodoBridge.Editor
             int? effectiveSeedOverride = null,
             bool disableTimelineInOut = false,
             bool deferConstraintNormalization = false,
-            bool enableAutoBeginAnchor = true)
+            bool enableAutoBeginAnchor = true,
+            TimelineClip timelineClipOverride = null)
         {
             if (clip == null)
             {
@@ -34,7 +35,7 @@ namespace KimodoBridge.Editor
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(
                 resolvedModelName,
                 out KimodoMotionModelProfile ardyProfile);
-            TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
+            TimelineClip timelineClip = timelineClipOverride ?? KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
             if (timelineClip == null || timelineClip.duration <= 0.0)
             {
                 throw new InvalidOperationException("Generation length requires a Timeline clip with positive duration.");
@@ -65,7 +66,8 @@ namespace KimodoBridge.Editor
                         disableTimelineInOut,
                         deferConstraintNormalization,
                         enableAutoBeginAnchor,
-                        runtimeSampleOffsetSeconds);
+                        runtimeSampleOffsetSeconds,
+                        timelineClip);
                     constraintsJson = constraintResult.ConstraintsJson ?? string.Empty;
                     KimodoInOutConstraintComposer.AppendSamples(constraintResult.CombinedSamples, constraintSamples);
                     hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
@@ -107,7 +109,8 @@ namespace KimodoBridge.Editor
                     disableTimelineInOut,
                     deferConstraintNormalization,
                     enableAutoBeginAnchor,
-                    runtimeSampleOffsetSeconds);
+                    runtimeSampleOffsetSeconds,
+                    timelineClip);
                 constraintsJson = constraintResult.ConstraintsJson ?? string.Empty;
                 KimodoInOutConstraintComposer.AppendSamples(constraintResult.CombinedSamples, constraintSamples);
                 hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
@@ -121,6 +124,7 @@ namespace KimodoBridge.Editor
                     ResolveArdyInitialHistory(
                         clip,
                         ardyProfile,
+                        timelineClip,
                         out initialHistorySource);
                 }
                 if (constraintSamples.Count > 0)
@@ -138,7 +142,7 @@ namespace KimodoBridge.Editor
                 clip.seed = effectiveSeed;
                 EditorUtility.SetDirty(clip);
             }
-            GameObject outputBindingObject = ConstraintProvider.FindTimelineBindingObjectForAsset(clip);
+            GameObject outputBindingObject = ConstraintProvider.FindTimelineBindingObjectForAsset(clip, timelineClip);
             PlayableDirector outputDirector = null;
             TrackAsset outputTrack = timelineClip.GetParentTrack();
             if (outputTrack != null)
@@ -329,11 +333,6 @@ namespace KimodoBridge.Editor
                 return;
             }
             KimodoEditorClipWritebackService.TryDeleteGeneratedAnimationClipAsset(clip);
-        }
-
-        public static IReadOnlyList<KimodoConstraintMarkerBase> GetLatestConstraintMarkers()
-        {
-            return KimodoEditorConstraintProvider.LatestMarkers;
         }
 
         private static void ApplyGeneratedMetadata(KimodoPlayableClip clip, string prompt, string motionJson)
@@ -562,6 +561,7 @@ namespace KimodoBridge.Editor
         private static void ResolveArdyInitialHistory(
             KimodoPlayableClip clip,
             KimodoMotionModelProfile profile,
+            TimelineClip timelineClipOverride,
             out ArdyEditorHistorySource source)
         {
             source = null;
@@ -570,7 +570,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
+            TimelineClip timelineClip = timelineClipOverride ?? KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
             if (timelineClip == null ||
                 !KimodoInOutConstraintAdapter.TryResolveTimelineContext(
                     timelineClip,

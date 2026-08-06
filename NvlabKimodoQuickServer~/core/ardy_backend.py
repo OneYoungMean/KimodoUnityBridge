@@ -580,6 +580,7 @@ def _plan_root_2d_target(
     anchor_frame: int,
     fps: float,
     future_horizon_frames: int | None = None,
+    extend_prediction_to_horizon: bool = False,
 ) -> dict[str, Any] | None:
     position = np.asarray(anchor_root_2d, dtype=np.float64)
     goal = np.asarray(target.position, dtype=np.float64)
@@ -600,10 +601,15 @@ def _plan_root_2d_target(
 
     prediction_frames = max(1, seconds_to_frame_count(TARGET_VELOCITY_PREDICTION_SECONDS, fps))
     future_horizon_tail_step: int | None = None
-    future_horizon_frames_value = None
-    if target.arrival_frame is None and future_horizon_frames is not None:
-        future_horizon_frames_value = max(1, int(future_horizon_frames))
-        if future_horizon_frames_value == prediction_frames:
+    future_horizon_frames_value = (
+        max(1, int(future_horizon_frames))
+        if future_horizon_frames is not None
+        else None
+    )
+    if future_horizon_frames_value is not None:
+        if extend_prediction_to_horizon:
+            prediction_frames = future_horizon_frames_value
+        elif target.arrival_frame is None and future_horizon_frames_value == prediction_frames:
             future_horizon_tail_step = future_horizon_frames_value + TARGET_VELOCITY_UPDATE_INTERVAL
             prediction_frames = future_horizon_tail_step
     dt = 1.0 / fps

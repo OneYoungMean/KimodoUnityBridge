@@ -611,12 +611,6 @@ namespace KimodoBridge.Editor.Tests
                         out error),
                     Is.True,
                     error);
-                Vector3 expectedBodyPosition = track.position + track.rotation * baselineBodyPosition;
-                Quaternion expectedBodyRotation = track.rotation * baselineBodyRotation;
-                Assert.That(
-                    Vector3.Distance(first.pose.bodyPosition * sampler.SourceHumanScale, expectedBodyPosition),
-                    Is.LessThan(1e-3f));
-                Assert.That(Quaternion.Angle(first.pose.bodyRotation, expectedBodyRotation), Is.LessThan(0.1f));
                 Assert.That(
                     sampler.TryCaptureMuscleSample(
                         1.0 / 30.0,
@@ -715,7 +709,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void EndConstraintTarget_IsPointOneMetersAndEditableOnlyDuringEdit()
+        public void EndConstraintTarget_IsPointOneMetersAndAlwaysReadOnly()
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
@@ -772,47 +766,6 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(target.transform.localPosition, Is.EqualTo(Vector3.zero));
 
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                Assert.That((target.hideFlags & HideFlags.NotEditable) == 0, Is.True);
-                KimodoConstraintPoseCache.ClearTransformChanges(context, entryId);
-                target.transform.position += Vector3.right * 0.05f;
-                Assert.That(KimodoConstraintPoseCache.HasAnyTransformChanges(context, entryId), Is.True);
-
-                Vector3 draggedWorldPosition = target.transform.position;
-                Assert.That(
-                    KimodoConstraintPoseCache.TryBuildSampleFromContext(
-                        context,
-                        entryId,
-                        "left-hand",
-                        0.0,
-                        out KimodoMarkerSampleResult draggedSample,
-                        out error),
-                    Is.True,
-                    error);
-                Assert.That(draggedSample.hasEndEffectorTargetPosition, Is.True);
-                Vector3 rootAxisAngle = draggedSample.localAxisAngles[0];
-                Quaternion rootRotation = rootAxisAngle.sqrMagnitude > 1e-12f
-                    ? Quaternion.AngleAxis(
-                        rootAxisAngle.magnitude * Mathf.Rad2Deg,
-                        rootAxisAngle.normalized)
-                    : Quaternion.identity;
-                Vector3 rebuiltWorldPosition = draggedSample.kimodoRootPosition +
-                    rootRotation * draggedSample.endEffectorTargetPositionRootLocal;
-                Assert.That(Vector3.Distance(rebuiltWorldPosition, draggedWorldPosition), Is.LessThan(1e-4f));
-
-                Assert.That(
-                    KimodoConstraintPoseCache.TryUpdateEndEffectorTarget(
-                        context,
-                        entryId,
-                        "left-hand",
-                        draggedSample),
-                    Is.True);
-                Assert.That(
-                    KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject rebuiltTarget),
-                    Is.True);
-                Assert.That(rebuiltTarget, Is.SameAs(target));
-                Assert.That(Vector3.Distance(rebuiltTarget.transform.position, draggedWorldPosition), Is.LessThan(1e-4f));
-
-                KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: false);
                 Assert.That((target.hideFlags & HideFlags.NotEditable) != 0, Is.True);
             }
             finally

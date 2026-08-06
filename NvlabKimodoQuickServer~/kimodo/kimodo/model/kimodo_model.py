@@ -729,7 +729,7 @@ class Kimodo(nn.Module):
                             cfg_weight,
                             guide_masks=guide_masks,
                             cfg_type=cfg_type,
-                        )
+                        ).clone()
                     else:
                         cur_mot = denoising_step(
                             cur_mot,

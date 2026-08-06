@@ -1174,9 +1174,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            entry.EndEffectorMarker.hideFlags = selectable
-                ? HideFlags.DontSave
-                : HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
+            entry.EndEffectorMarker.hideFlags = HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
         }
 
         private static void ApplyEntryState(ConstraintPosePreviewEntry entry, bool visible, bool selectable)

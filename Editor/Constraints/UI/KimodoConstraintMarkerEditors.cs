@@ -210,7 +210,7 @@ namespace KimodoBridge.Editor
                     TimelineClip timelineClip = selectedClips[i];
                     if (timelineClip?.asset is KimodoPlayableClip playable)
                     {
-                        AddSource(result, keys, playable, timelineClip, "clip:" + KimodoUnityObjectIdUtility.NameKey(playable));
+                        AddSource(result, keys, playable, timelineClip, GetTimelineClipKey(timelineClip));
                     }
                 }
             }
@@ -221,12 +221,12 @@ namespace KimodoBridge.Editor
                 UnityEngine.Object selected = selectedObjects[i];
                 if (selected is KimodoConstraintMarkerBase marker)
                 {
-                    AddSource(result, keys, marker, null, "marker:" + KimodoUnityObjectIdUtility.NameKey(marker));
+                    AddSource(result, keys, marker, null, "marker:" + KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker));
                 }
                 else if (selected is KimodoPlayableClip playable)
                 {
                     TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(playable);
-                    AddSource(result, keys, playable, timelineClip, "clip:" + KimodoUnityObjectIdUtility.NameKey(playable));
+                    AddSource(result, keys, playable, timelineClip, GetTimelineClipKey(timelineClip));
                 }
             }
 
@@ -256,6 +256,18 @@ namespace KimodoBridge.Editor
                     ? marker.time
                     : timelineClip?.start ?? 0.0
             });
+        }
+
+        private static string GetTimelineClipKey(TimelineClip timelineClip)
+        {
+            if (timelineClip == null)
+            {
+                return "clip:(none)";
+            }
+
+            return $"clip:{KimodoUnityObjectIdUtility.IdHash(timelineClip.GetParentTrack())}:" +
+                $"{KimodoUnityObjectIdUtility.IdHash(timelineClip.asset as UnityEngine.Object)}:" +
+                $"{timelineClip.start:R}:{timelineClip.duration:R}";
         }
 
         private static void AddMarkerPreview(
@@ -290,7 +302,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            string entryId = "marker:" + KimodoUnityObjectIdUtility.NameKey(marker);
+            string entryId = "marker:" + KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker);
             AddItem(
                 groups,
                 context,
@@ -316,7 +328,8 @@ namespace KimodoBridge.Editor
                     playable,
                     out PoseCacheRenderContext context,
                     out _,
-                    out _))
+                    out _,
+                    timelineClip))
             {
                 return;
             }
@@ -327,12 +340,12 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            foreach (IMarker candidate in track.GetMarkers())
+            List<KimodoConstraintMarkerBase> references =
+                KimodoTimelineConstraintMarkerSampler.CollectMarkersForClip(track, timelineClip);
+            string clipKey = GetTimelineClipKey(timelineClip);
+            foreach (KimodoConstraintMarkerBase marker in references)
             {
-                if (!(candidate is KimodoConstraintMarkerBase marker) ||
-                    !marker.constraintEnabled ||
-                    selectedMarkerIds.Contains(KimodoUnityObjectIdUtility.IdHash(marker)) ||
-                    !KimodoConstraintMarkerEditorUtility.IsTimeInClipFrameRange(marker.time, timelineClip))
+                if (selectedMarkerIds.Contains(KimodoUnityObjectIdUtility.IdHash(marker)))
                 {
                     continue;
                 }
@@ -358,7 +371,7 @@ namespace KimodoBridge.Editor
                 AddItem(
                     groups,
                     context,
-                    $"clip:{KimodoUnityObjectIdUtility.NameKey(playable)}:marker:{KimodoUnityObjectIdUtility.NameKey(marker)}",
+                    $"{clipKey}:marker:{KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker)}",
                     sample,
                     marker.ConstraintType,
                     KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
@@ -390,14 +403,14 @@ namespace KimodoBridge.Editor
             if (begin != null)
             {
                 AddItem(
-                    groups, context, $"clip:{KimodoUnityObjectIdUtility.NameKey(playable)}:in", begin, "fullbody", null,
+                    groups, context, $"{clipKey}:in", begin, "fullbody", null,
                     $"{playable.ConstraintPreviewName} · In", timelineClip.start,
                     playable.ConstraintPreviewPriority, color);
             }
             if (end != null)
             {
                 AddItem(
-                    groups, context, $"clip:{KimodoUnityObjectIdUtility.NameKey(playable)}:out", end, "fullbody", null,
+                    groups, context, $"{clipKey}:out", end, "fullbody", null,
                     $"{playable.ConstraintPreviewName} · Out", timelineClip.start + end.sampleTime,
                     playable.ConstraintPreviewPriority, color);
             }
@@ -761,12 +774,6 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.kimodoRootPosition"));
-            if (!string.Equals(typeName, "end-effector", StringComparison.OrdinalIgnoreCase))
-            {
-                EditorGUILayout.PropertyField(
-                    serializedObject.FindProperty("sampleData.endEffectorTargetPositionRootLocal"),
-                    new GUIContent("Hand/Foot Point (Root Local)"));
-            }
             EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.localAxisAngles"), true);
             EditorGUI.EndDisabledGroup();
         }
@@ -1170,6 +1177,12 @@ namespace KimodoBridge.Editor
                 return activeClip;
             }
 
+            TimelineClip owningClip = KimodoTimelineConstraintMarkerSampler.FindOwningClip(track, timelineTime);
+            if (owningClip != null)
+            {
+                return owningClip;
+            }
+
             TimelineClip nearestKimodo = null;
             double nearestDistance = double.PositiveInfinity;
             if (track != null)
@@ -1183,10 +1196,10 @@ namespace KimodoBridge.Editor
 
                     double distance = timelineTime < clip.start
                         ? clip.start - timelineTime
-                        : timelineTime > clip.end
-                            ? timelineTime - clip.end
-                            : 0.0;
-                    if (distance < nearestDistance)
+                        : timelineTime - clip.end;
+                    if (distance < nearestDistance ||
+                        (Math.Abs(distance - nearestDistance) <= 1e-9 &&
+                         (nearestKimodo == null || clip.start > nearestKimodo.start)))
                     {
                         nearestKimodo = clip;
                         nearestDistance = distance;
@@ -1536,7 +1549,8 @@ namespace KimodoBridge.Editor
             KimodoPlayableClip playableClip,
             out PoseCacheRenderContext context,
             out TimelineClip timelineClip,
-            out string error)
+            out string error,
+            TimelineClip timelineClipOverride = null)
         {
             context = default;
             timelineClip = null;
@@ -1547,7 +1561,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(playableClip);
+            timelineClip = timelineClipOverride ?? KimodoTimelineClipResolver.FindTimelineClipForAsset(playableClip);
             if (timelineClip == null)
             {
                 error = "timeline clip not found for playable clip";

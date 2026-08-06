@@ -149,12 +149,63 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             "removed_format",
         )
 
-    def test_kimodo_rejects_automatic_root_target_with_explicit_semantics(self):
-        with self.assertRaisesRegex(ValueError, "automatic ARDY-only navigation constraint"):
-            kimodo_runtime._load_constraints(
-                '[{"type":"root2d_target","target_root_2d":[1.0,2.0]}]',
-                SimpleNamespace(skeleton=object()),
+    def test_kimodo_root_target_uses_the_fixed_request_horizon(self):
+        model = SimpleNamespace(fps=30.0, skeleton=object())
+        with patch("kimodo.constraints.load_constraints_lst", side_effect=lambda items, _skeleton: items):
+            constraints = kimodo_runtime._load_constraints(
+                '[{"type":"root2d_target","target_root_2d":[100.0,0.0]}]',
+                model,
+                horizon_frames=150,
             )
+
+        self.assertEqual([item["type"] for item in constraints], ["root2d"])
+        frames = constraints[0]["frame_indices"]
+        self.assertEqual(frames[0], 38)
+        self.assertEqual(frames[-1], 149)
+
+        with patch("kimodo.constraints.load_constraints_lst", side_effect=lambda items, _skeleton: items):
+            short_constraints = kimodo_runtime._load_constraints(
+                '[{"type":"root2d_target","target_root_2d":[100.0,0.0]}]',
+                model,
+                horizon_frames=30,
+            )
+        self.assertEqual(short_constraints[0]["frame_indices"][-1], 29)
+
+    def test_kimodo_root_target_clamps_an_explicit_arrival_to_the_fixed_horizon(self):
+        model = SimpleNamespace(fps=30.0, skeleton=object())
+        with patch("kimodo.constraints.load_constraints_lst", side_effect=lambda items, _skeleton: items):
+            constraints = kimodo_runtime._load_constraints(
+                '[{"type":"root2d_target","target_root_2d":[100.0,0.0],"target_frame":600}]',
+                model,
+                horizon_frames=150,
+            )
+
+        self.assertEqual(constraints[0]["frame_indices"][-1], 149)
+
+    def test_kimodo_root_target_heading_uses_cos_sin_pairs(self):
+        model = SimpleNamespace(fps=30.0, skeleton=SimpleNamespace(device=torch.device("cpu")))
+        constraints = kimodo_runtime._load_constraints(
+            json.dumps(
+                [
+                    {
+                        "type": "root2d",
+                        "frame_indices": [0],
+                        "smooth_root_2d": [[0.0, 0.0]],
+                        "global_root_heading": [[1.0, 0.0]],
+                    },
+                    {"type": "root2d_target", "target_root_2d": [100.0, 0.0]},
+                ]
+            ),
+            model,
+            horizon_frames=30,
+        )
+
+        from kimodo.motion_rep.conditioning import build_condition_dicts
+
+        _, data_dict = build_condition_dicts(constraints)
+        headings = torch.cat(data_dict["global_root_heading"])
+        self.assertEqual(headings.ndim, 2)
+        self.assertEqual(headings.shape[-1], 2)
 
     def test_runtime_loading_progress_uses_stage_details_without_task_ids(self):
         self.assertEqual(

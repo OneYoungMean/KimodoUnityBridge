@@ -5,6 +5,7 @@ using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using TimelineInject;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor.Tests
@@ -296,10 +297,10 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void StreamRefresh_DoesNotCancelAnActiveArdyGenerate()
+        public void ConstraintRefresh_DoesNotCancelAnActiveGenerate()
         {
             Assert.That(KimodoRuntimeMotionDriver.ShouldCancelActiveGenerationForRefresh(isArdy: true), Is.False);
-            Assert.That(KimodoRuntimeMotionDriver.ShouldCancelActiveGenerationForRefresh(isArdy: false), Is.True);
+            Assert.That(KimodoRuntimeMotionDriver.ShouldCancelActiveGenerationForRefresh(isArdy: false), Is.False);
         }
 
         [Test]
@@ -342,7 +343,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void RuntimeConstraintBuffer_UsesArdyAbsoluteTimeAndNormalTargetFiltering()
+        public void RuntimeConstraintBuffer_UsesArdyAbsoluteTimeAndNormalTargetTiming()
         {
             var buffer = new KimodoRuntimeConstraintBuffer();
             buffer.Stage(new KimodoMarkerSampleResult
@@ -364,16 +365,49 @@ namespace KimodoBridge.Editor.Tests
 
             buffer.CompleteGeneration(isArdy: true);
             Assert.That(buffer.PendingCount, Is.EqualTo(1));
-            Assert.That(
-                buffer.BuildActive(
-                    isArdy: false,
-                    ardyApplyTime: 0.0,
-                    includeOverlap: false,
-                    maxConstraintTime: 5f,
-                    fullBodyConstraintType: "fullbody",
-                    root2DTargetConstraintType: "root2d_target"),
-                Is.Empty);
+            List<KimodoMarkerSampleResult> normalActive = buffer.BuildActive(
+                isArdy: false,
+                ardyApplyTime: 0.0,
+                includeOverlap: false,
+                maxConstraintTime: 5f,
+                fullBodyConstraintType: "fullbody",
+                root2DTargetConstraintType: "root2d_target");
+            Assert.That(normalActive, Has.Count.EqualTo(1));
+            Assert.That(normalActive[0].sampleTime, Is.EqualTo(5.0).Within(1e-6));
+
+            buffer.CompleteGeneration(isArdy: false);
             Assert.That(buffer.PendingCount, Is.Zero);
+        }
+
+        [Test]
+        public void RuntimeConstraintBuffer_PreservesConstraintCommittedDuringGeneration()
+        {
+            var buffer = new KimodoRuntimeConstraintBuffer();
+            buffer.Stage(new KimodoMarkerSampleResult
+            {
+                constraintType = "root2d_target",
+                sampleTime = 1.0
+            });
+            Assert.That(buffer.CommitStaged(), Is.True);
+            int consumedRevision = buffer.PendingRevision;
+
+            buffer.Stage(new KimodoMarkerSampleResult
+            {
+                constraintType = "root2d_target",
+                sampleTime = 2.0
+            });
+            Assert.That(buffer.CommitStaged(), Is.True);
+            buffer.CompleteGeneration(isArdy: false, consumedPendingRevision: consumedRevision);
+
+            Assert.That(buffer.PendingCount, Is.EqualTo(1));
+            List<KimodoMarkerSampleResult> active = buffer.BuildActive(
+                isArdy: false,
+                ardyApplyTime: 0.0,
+                includeOverlap: false,
+                maxConstraintTime: 5f,
+                fullBodyConstraintType: "fullbody",
+                root2DTargetConstraintType: "root2d_target");
+            Assert.That(active[0].sampleTime, Is.EqualTo(2.0).Within(1e-6));
         }
 
         [Test]
@@ -958,7 +992,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ConstraintJson_EndEffectorTargetUsesRootLocalPointAndKeepsLegacyFrames()
+        public void ConstraintJson_EndEffectorOmitsManualTargetPositionPendingIk()
         {
             Quaternion rootRotation = Quaternion.Euler(0f, 90f, 0f);
             var targeted = new KimodoMarkerSampleResult
@@ -973,25 +1007,14 @@ namespace KimodoBridge.Editor.Tests
                     KimodoRuntimeUtility.QuaternionToAxisAngleVector(rootRotation)
                 }
             };
-            var legacy = targeted.Clone();
-            legacy.sampleTime = 2.0;
-            legacy.hasEndEffectorTargetPosition = false;
-
             JArray constraints = JArray.Parse(
                 KimodoConstraintJsonExporter.ToConstraintsJson(
-                    new[] { targeted, legacy },
+                    new[] { targeted },
                     clipDurationSeconds: 4.0,
                     exportFps: 30.0));
 
-            Vector3 unityTarget = targeted.kimodoRootPosition +
-                rootRotation * targeted.endEffectorTargetPositionRootLocal;
             JToken positions = constraints[0]["target_positions"];
-            Assert.That(positions, Is.Not.Null);
-            Assert.That(((JArray)positions).Count, Is.EqualTo(2));
-            Assert.That(positions[0]?[0]?.Value<float>(), Is.EqualTo(-unityTarget.x).Within(1e-5f));
-            Assert.That(positions[0]?[1]?.Value<float>(), Is.EqualTo(unityTarget.y).Within(1e-5f));
-            Assert.That(positions[0]?[2]?.Value<float>(), Is.EqualTo(unityTarget.z).Within(1e-5f));
-            Assert.That(positions[1]?.Type, Is.EqualTo(JTokenType.Null));
+            Assert.That(positions, Is.Null);
         }
 
         [Test]
@@ -1071,11 +1094,13 @@ namespace KimodoBridge.Editor.Tests
         public void TimelineRequest_DerivesKimodoLengthBeyondTenSecondsFromTimeline()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            GameObject directorRoot = new GameObject("KimodoTimelineRequestLengthTest");
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
                 TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
                 timelineClip.duration = 12.0;
+                directorRoot.AddComponent<PlayableDirector>().playableAsset = timeline;
                 var playable = (KimodoPlayableClip)timelineClip.asset;
                 playable.bridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
                 playable.inOutConstraintMode = KimodoInOutConstraintMode.None;
@@ -1091,6 +1116,7 @@ namespace KimodoBridge.Editor.Tests
             }
             finally
             {
+                UnityEngine.Object.DestroyImmediate(directorRoot);
                 UnityEngine.Object.DestroyImmediate(timeline);
             }
         }

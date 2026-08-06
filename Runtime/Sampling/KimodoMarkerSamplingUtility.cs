@@ -38,17 +38,28 @@ namespace KimodoBridge
             }
             else if (marker is KimodoEndEffectorConstraintMarker)
             {
-                List<string> configured = sample.jointNames != null && sample.jointNames.Count > 0
-                    ? sample.jointNames
-                    : marker.SampleData != null && marker.SampleData.jointNames != null
-                        ? marker.SampleData.jointNames
-                    : null;
-                if (configured == null || configured.Count == 0)
+                string fixedJointName = ResolveFixedEndEffectorJointName(marker.ConstraintType);
+                if (!string.IsNullOrEmpty(fixedJointName))
                 {
-                    return null;
+                    // Fixed marker classes map to backend constraint classes whose
+                    // canonical names are model-independent. Do not leak profile
+                    // skeleton names or stale custom names into the JSON payload.
+                    cloned.jointNames = new List<string> { fixedJointName };
                 }
+                else
+                {
+                    List<string> configured = sample.jointNames != null && sample.jointNames.Count > 0
+                        ? sample.jointNames
+                        : marker.SampleData != null && marker.SampleData.jointNames != null
+                            ? marker.SampleData.jointNames
+                            : null;
+                    if (configured == null || configured.Count == 0)
+                    {
+                        return null;
+                    }
 
-                cloned.jointNames = new List<string>(configured);
+                    cloned.jointNames = new List<string>(configured);
+                }
             }
 
             cloned.constraintType = marker.ConstraintType;
@@ -57,6 +68,23 @@ namespace KimodoBridge
             cloned.sampledJointIndices ??= new List<int>();
             cloned.jointNames ??= new List<string>();
             return cloned;
+        }
+
+        private static string ResolveFixedEndEffectorJointName(string constraintType)
+        {
+            switch ((constraintType ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "left-hand":
+                    return "LeftHand";
+                case "right-hand":
+                    return "RightHand";
+                case "left-foot":
+                    return "LeftFoot";
+                case "right-foot":
+                    return "RightFoot";
+                default:
+                    return string.Empty;
+            }
         }
 
         public static bool TryNormalizeConstraintMarkerSample(

@@ -264,16 +264,6 @@ namespace TimelineInject
             return json;
         }
 
-        private static float[] BuildEndEffectorTargetPosition(KimodoMarkerSampleResult sample)
-        {
-            Quaternion rootRotation = sample.localAxisAngles != null && sample.localAxisAngles.Count > 0
-                ? KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0])
-                : Quaternion.identity;
-            Vector3 target = sample.kimodoRootPosition +
-                rootRotation * sample.endEffectorTargetPositionRootLocal;
-            return new[] { -target.x, target.y, target.z };
-        }
-
         private static KimodoConstraintJson BuildEndEffector(
             KimodoMarkerSampleResult sample,
             double clipStartSeconds,
@@ -299,14 +289,6 @@ namespace TimelineInject
                     BuildLocalJointFrame(sample.localAxisAngles)
                 }
             };
-
-            if (sample.hasEndEffectorTargetPosition)
-            {
-                json.target_positions = new List<float[]>
-                {
-                    BuildEndEffectorTargetPosition(sample)
-                };
-            }
 
             return json;
         }
@@ -455,11 +437,6 @@ namespace TimelineInject
             {
                 merged.joint_names = new List<string>(group[0].joint_names);
             }
-            if (isEndEffectorFamily && group.Exists(c => c?.target_positions != null && c.target_positions.Count > 0))
-            {
-                merged.target_positions = new List<float[]>();
-            }
-
             for (int i = 0; i < group.Count; i++)
             {
                 KimodoConstraintJson c = group[i];
@@ -480,16 +457,6 @@ namespace TimelineInject
                 if (merged.local_joints_rot != null && c.local_joints_rot != null)
                 {
                     merged.local_joints_rot.AddRange(c.local_joints_rot);
-                }
-                if (merged.target_positions != null)
-                {
-                    for (int frame = 0; frame < c.frame_indices.Count; frame++)
-                    {
-                        merged.target_positions.Add(
-                            c.target_positions != null && frame < c.target_positions.Count
-                                ? c.target_positions[frame]
-                                : null);
-                    }
                 }
                 if (merged.global_root_heading != null && c.global_root_heading != null)
                 {

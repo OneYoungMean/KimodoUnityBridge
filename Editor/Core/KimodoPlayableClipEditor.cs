@@ -47,7 +47,6 @@ namespace KimodoBridge.Editor
         private string lastStatus;
         private string lastError;
         private string lastConstraintsPath = string.Empty;
-        private readonly List<KimodoConstraintMarkerBase> lastConstraintMarkers = new List<KimodoConstraintMarkerBase>();
         private bool bridgeConnectedCached;
         private bool showAdvancedFoldout = true;
         private double lastRepaintTime;
@@ -328,15 +327,16 @@ namespace KimodoBridge.Editor
         private void DrawConstraintReferenceList()
         {
             EditorGUILayout.LabelField("Constraint References", EditorStyles.miniBoldLabel);
-            if (lastConstraintMarkers.Count == 0)
+            List<KimodoConstraintMarkerBase> references = CollectConstraintReferences();
+            if (references.Count == 0)
             {
                 EditorGUILayout.LabelField("(none)", EditorStyles.miniLabel);
             }
             else
             {
-                for (int i = 0; i < lastConstraintMarkers.Count; i++)
+                for (int i = 0; i < references.Count; i++)
                 {
-                    KimodoConstraintMarkerBase marker = lastConstraintMarkers[i];
+                    KimodoConstraintMarkerBase marker = references[i];
                     if (marker == null)
                     {
                         continue;
@@ -352,6 +352,15 @@ namespace KimodoBridge.Editor
                     }
                 }
             }
+        }
+
+        private List<KimodoConstraintMarkerBase> CollectConstraintReferences()
+        {
+            TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
+            TrackAsset track = timelineClip != null ? timelineClip.GetParentTrack() : null;
+            return track == null
+                ? new List<KimodoConstraintMarkerBase>()
+                : KimodoTimelineConstraintMarkerSampler.CollectMarkersForClip(track, timelineClip);
         }
 
         private void PullBridgeStatusSnapshot()
@@ -528,19 +537,6 @@ namespace KimodoBridge.Editor
                         lastConstraintsPath = generateResult.ConstraintsPath;
                     }
 
-                    lastConstraintMarkers.Clear();
-                    var latestMarkers = KimodoPlayableClipGenerationHostService.GetLatestConstraintMarkers();
-                    if (latestMarkers != null)
-                    {
-                        for (int i = 0; i < latestMarkers.Count; i++)
-                        {
-                            KimodoConstraintMarkerBase marker = latestMarkers[i];
-                            if (marker != null)
-                            {
-                                lastConstraintMarkers.Add(marker);
-                            }
-                        }
-                    }
                     break;
                 case KimodoEditorRequestStatus.Failed:
                     lastStatus = "Generation failed.";

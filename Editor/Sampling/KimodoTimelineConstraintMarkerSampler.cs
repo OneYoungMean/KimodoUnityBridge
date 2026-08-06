@@ -1405,6 +1405,74 @@ namespace KimodoBridge.Editor
 
     internal static class KimodoTimelineConstraintMarkerSampler
     {
+        private const double SeamTimeEpsilon = 1e-9;
+
+        internal static bool IsMarkerInClipRange(
+            TrackAsset track,
+            TimelineClip clipRange,
+            double markerTime)
+        {
+            if (clipRange == null)
+            {
+                return true;
+            }
+
+            if (track == null)
+            {
+                return markerTime >= clipRange.start && markerTime < clipRange.end;
+            }
+
+            if (ReferenceEquals(FindOwningClip(track, markerTime), clipRange))
+            {
+                return true;
+            }
+
+            if (Math.Abs(markerTime - clipRange.end) > SeamTimeEpsilon)
+            {
+                return false;
+            }
+
+            foreach (TimelineClip nextClip in track.GetClips())
+            {
+                if (!ReferenceEquals(nextClip, clipRange) &&
+                    nextClip?.asset is KimodoPlayableClip &&
+                    Math.Abs(nextClip.start - clipRange.end) <= SeamTimeEpsilon)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static TimelineClip FindOwningClip(TrackAsset track, double markerTime)
+        {
+            TimelineClip owner = null;
+            if (track == null)
+            {
+                return null;
+            }
+
+            foreach (TimelineClip clip in track.GetClips())
+            {
+                if (clip?.asset is not KimodoPlayableClip ||
+                    markerTime < clip.start ||
+                    markerTime >= clip.end)
+                {
+                    continue;
+                }
+
+                if (owner == null ||
+                    clip.start > owner.start ||
+                    Math.Abs(clip.start - owner.start) <= SeamTimeEpsilon && clip.end < owner.end)
+                {
+                    owner = clip;
+                }
+            }
+
+            return owner;
+        }
+
         internal static bool TryBuildMarkerSamplesForExport(
             KimodoTimelineInOutConstraintContext context,
             out List<KimodoMarkerSampleResult> samples,
@@ -1425,7 +1493,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            List<KimodoConstraintMarkerBase> markers = GatherKimodoMarkers(context.Track, context.SourceClip);
+            List<KimodoConstraintMarkerBase> markers = CollectMarkersForClip(context.Track, context.SourceClip);
             if (markers.Count == 0)
             {
                 return true;
@@ -1569,11 +1637,11 @@ namespace KimodoBridge.Editor
                 !string.Equals(ee.ConstraintType, "end-effector", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static List<KimodoConstraintMarkerBase> GatherKimodoMarkers(TrackAsset track, TimelineClip clipRange)
+        internal static List<KimodoConstraintMarkerBase> CollectMarkersForClip(
+            TrackAsset track,
+            TimelineClip clipRange)
         {
             var markers = new List<KimodoConstraintMarkerBase>();
-            double minTime = clipRange != null ? clipRange.start : double.MinValue;
-            double maxTime = clipRange != null ? clipRange.end : double.MaxValue;
             foreach (IMarker marker in track.GetMarkers())
             {
                 if (marker is KimodoConstraintMarkerBase kimodoMarker)
@@ -1583,7 +1651,7 @@ namespace KimodoBridge.Editor
                         continue;
                     }
 
-                    if (kimodoMarker.time < minTime || kimodoMarker.time > maxTime)
+                    if (!IsMarkerInClipRange(track, clipRange, kimodoMarker.time))
                     {
                         continue;
                     }

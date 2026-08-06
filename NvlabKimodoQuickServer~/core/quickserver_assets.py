@@ -145,7 +145,11 @@ def resolve_text_encoder_runtime(
     has_accelerator = device != "cpu"
     motion_device = device if has_accelerator else "cpu"
 
-    if resolved_mode == TEXT_ENCODER_MODE_HIGH_PRECISION:
+    # Apple Silicon/MPS cannot reliably load the dynamic INT8 bundles produced
+    # on x86 CPUs (for example, AMD/FBGEMM). Always use the portable FP16
+    # encoder route on Metal; it may still run on CPU when the memory budget or
+    # kernel probe does not allow MPS execution.
+    if resolved_mode == TEXT_ENCODER_MODE_HIGH_PRECISION or device == "mps":
         use_accelerator = (
             has_accelerator
             and fp16_accelerator_available
@@ -200,10 +204,13 @@ def force_text_encoder_cpu(
     return TextEncoderRuntimeDecision(
         mode=decision.mode,
         motion_device=decision.motion_device,
+        # NF4 has no CPU layout, so preserve the existing NF4 -> INT8 fallback.
+        # MPS deliberately selects FP16; keep that route instead of switching
+        # back to an x86-generated INT8 bundle.
         encoder_route=(
-            ENCODER_ROUTE_FP16
-            if decision.mode == TEXT_ENCODER_MODE_HIGH_PRECISION
-            else ENCODER_ROUTE_INT8
+            ENCODER_ROUTE_INT8
+            if decision.encoder_route == ENCODER_ROUTE_NF4
+            else decision.encoder_route
         ),
         encoder_device="cpu",
         reason=reason,
