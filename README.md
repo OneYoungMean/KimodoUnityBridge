@@ -57,13 +57,11 @@
 - **免费!以及作者长期在线!** 作者只想让更多的Unity开发者能够用上便宜好用的动画！ 有issue必回!包君满意!
 
 ### 已知问题
-
+kimodo runtime生成暂时有点卡顿  
+feet/hand 手动调整约束位置暂时不可用  
 
 ### Bug Report
-由于项目较大且开发时间较短，bug难免有所疏漏，在这里提前给用户老爷抱歉啦，如果你很不幸（或者说很幸运）遇到了bug，请提交一下log，方便作者改进和维护，感激不尽：  
-如果你遇到的是unity报错：请提交[Editor.log](https://blog.csdn.net/codingriver/article/details/86551964)  
-如果你遇到的是 server 报错（例如 server exit with code 1），请将项目根目录下 `NvlabKimodoQuickServer~/log` 的内容发送给我；发布版 Runtime 日志位于 `StreamingAssets/NvlabKimodoQuickServer~/log`。
-再次诚恳表示抱歉！Orz
+由于项目较大且开发时间较短，bug难免有所疏漏，在这里提前给用户老爷抱歉啦，如果你很不幸（或者说很幸运）遇到了bug，请提交一下[Editor.log](https://blog.csdn.net/codingriver/article/details/86551964)  ，方便作者改进和维护，感激不尽！
 
 ### 最后,如果你喜欢本项目记得给本项目star!
 ```C#
