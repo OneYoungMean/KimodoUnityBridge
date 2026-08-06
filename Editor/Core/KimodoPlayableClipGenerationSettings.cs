@@ -27,6 +27,7 @@ namespace KimodoBridge.Editor
         [SerializeField] private bool keepCpuForceExperimental;
         [SerializeField] private bool writeResampledTimelineCacheClips;
         [SerializeField] private bool enableDebugLog;
+        [SerializeField] private bool enableKimodoStaticGraph;
         [SerializeField] private bool setupWizardCompleted;
         [SerializeField] private string quickServerPath = string.Empty;
         [SerializeField, HideInInspector] private bool advancedCurveFilterFoldout = true;
@@ -93,6 +94,12 @@ namespace KimodoBridge.Editor
         {
             get => enableDebugLog;
             set => enableDebugLog = value;
+        }
+
+        internal bool EnableKimodoStaticGraph
+        {
+            get => enableKimodoStaticGraph;
+            set => enableKimodoStaticGraph = value;
         }
 
         internal static void DebugLog(string message)

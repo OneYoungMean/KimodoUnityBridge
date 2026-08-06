@@ -48,7 +48,8 @@ namespace KimodoBridge
 
         public Process Start(
             string launcherPath,
-            int ownerProcessId)
+            int ownerProcessId,
+            bool? enableKimodoStaticGraph = null)
         {
             ThrowIfDisposed();
             if (IsRunning)
@@ -70,6 +71,11 @@ namespace KimodoBridge
             ProcessStartInfo startInfo = platformProcess.BuildLauncherStartInfo(
                 resolvedLauncher,
                 ownerProcessId);
+            if (enableKimodoStaticGraph.HasValue)
+            {
+                startInfo.EnvironmentVariables["KIMODO_STATIC_GRAPH"] =
+                    enableKimodoStaticGraph.Value ? "1" : "0";
+            }
             UnityEngine.Debug.Log($"[Kimodo][BridgeProcess] launch cmd: {startInfo.FileName} {startInfo.Arguments} (cwd={startInfo.WorkingDirectory})");
             var proc = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             if (!proc.Start())

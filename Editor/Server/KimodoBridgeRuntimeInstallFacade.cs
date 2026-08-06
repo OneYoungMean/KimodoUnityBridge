@@ -12,6 +12,11 @@ namespace KimodoBridge.Editor
             return KimodoServerRuntimeUtil.GetRuntimeRootPath();
         }
 
+        internal static bool ResolveKimodoStaticGraphEnabled()
+        {
+            return KimodoPlayableClipGenerationSettings.instance.EnableKimodoStaticGraph;
+        }
+
         internal static bool BootstrapRuntimeRootIfMissing()
         {
             return KimodoServerRuntimeUtil.BootstrapRuntimeRootIfMissing();

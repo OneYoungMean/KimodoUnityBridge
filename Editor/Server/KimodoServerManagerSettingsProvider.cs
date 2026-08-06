@@ -258,6 +258,18 @@ namespace KimodoBridge.Editor
                 }
 
                 EditorGUI.BeginChangeCheck();
+                bool enableKimodoStaticGraph = EditorGUILayout.Toggle(
+                    new GUIContent(
+                        "Kimodo Static Graph",
+                        "Experimental: compile the ordinary Kimodo denoising step for fixed tensor shapes. The first matching request may be slower; restart QuickServer after changing this setting."),
+                    settings.EnableKimodoStaticGraph);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    settings.EnableKimodoStaticGraph = enableKimodoStaticGraph;
+                    settings.SaveSettings();
+                }
+
+                EditorGUI.BeginChangeCheck();
                 float timeoutSeconds = EditorGUILayout.FloatField(
                     new GUIContent("Generate Timeout (sec)", "Global timeout used by Kimodo generation requests."),
                     settings.GenerationTimeoutSeconds);
@@ -292,7 +304,7 @@ namespace KimodoBridge.Editor
                 }
 
                 EditorGUILayout.HelpBox(
-                    "These are advanced generation parameters. QuickServer switches runtime behavior per request; starting the server does not depend on these values.",
+                    "Kimodo Static Graph applies when QuickServer next starts. Other advanced generation parameters are applied per request.",
                     MessageType.Info);
                 EditorGUI.indentLevel--;
             }

@@ -38,6 +38,7 @@ namespace KimodoBridge
         {
             public string RuntimeRoot = string.Empty;
             public string LauncherPath = string.Empty;
+            public bool? EnableKimodoStaticGraph;
         }
 
         private static readonly object RegistryLock = new object();
@@ -371,7 +372,8 @@ namespace KimodoBridge
                 {
                     processManager.Start(
                         context.LauncherPath,
-                        ownerProcessId: Process.GetCurrentProcess().Id);
+                        ownerProcessId: Process.GetCurrentProcess().Id,
+                        enableKimodoStaticGraph: context.EnableKimodoStaticGraph);
                     ReportProgress(progress, "Bridge process launched.");
                 }
                 else
@@ -805,8 +807,10 @@ namespace KimodoBridge
         private static ResolvedRuntimeContext ResolveRuntimeContext()
         {
             string runtimeRoot;
+            bool? enableKimodoStaticGraph = null;
 #if UNITY_EDITOR
             runtimeRoot = ResolveEditorRuntimeRootOrThrow();
+            enableKimodoStaticGraph = ResolveEditorKimodoStaticGraphEnabled();
 #else
             runtimeRoot = KimodoRuntimeBootstrapUtility.EnsureRuntimeRootForCurrentMode(
                 Path.GetFullPath(Path.Combine(Application.streamingAssetsPath, "NvlabKimodoQuickServer~")));
@@ -826,16 +830,15 @@ namespace KimodoBridge
             return new ResolvedRuntimeContext
             {
                 RuntimeRoot = Path.GetFullPath(runtimeRoot),
-                LauncherPath = Path.GetFullPath(launcherPath)
+                LauncherPath = Path.GetFullPath(launcherPath),
+                EnableKimodoStaticGraph = enableKimodoStaticGraph
             };
         }
 
 #if UNITY_EDITOR
-        private static string ResolveEditorRuntimeRootOrThrow()
+        private static Type ResolveEditorRuntimeFacadeTypeOrThrow()
         {
             const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
-            const string methodName = "ResolveRuntimeRootOrThrow";
-
             Type facadeType = Type.GetType($"{typeName}, KimodoTool.Editor");
             if (facadeType == null)
             {
@@ -850,11 +853,16 @@ namespace KimodoBridge
                 }
             }
 
-            if (facadeType == null)
-            {
+            return facadeType ??
                 throw new TypeLoadException($"Cannot resolve editor runtime facade '{typeName}'.");
-            }
+        }
 
+        private static string ResolveEditorRuntimeRootOrThrow()
+        {
+            const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
+            const string methodName = "ResolveRuntimeRootOrThrow";
+
+            Type facadeType = ResolveEditorRuntimeFacadeTypeOrThrow();
             MethodInfo resolveMethod = facadeType.GetMethod(
                 methodName,
                 BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
@@ -870,6 +878,23 @@ namespace KimodoBridge
             }
 
             throw new InvalidOperationException("Editor runtime root resolve returned an empty path.");
+        }
+
+        private static bool ResolveEditorKimodoStaticGraphEnabled()
+        {
+            const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
+            const string methodName = "ResolveKimodoStaticGraphEnabled";
+
+            Type facadeType = ResolveEditorRuntimeFacadeTypeOrThrow();
+            MethodInfo resolveMethod = facadeType.GetMethod(
+                methodName,
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            if (resolveMethod == null)
+            {
+                throw new MissingMethodException(typeName, methodName);
+            }
+
+            return resolveMethod.Invoke(null, null) is bool enabled && enabled;
         }
 #endif
     }

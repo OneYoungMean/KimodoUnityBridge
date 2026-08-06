@@ -94,6 +94,25 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void StaticGraphSettingIsExposedThroughRuntimeFacade()
+        {
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            bool previousValue = settings.EnableKimodoStaticGraph;
+            try
+            {
+                settings.EnableKimodoStaticGraph = true;
+                Assert.That(KimodoBridgeRuntimeInstallFacade.ResolveKimodoStaticGraphEnabled(), Is.True);
+
+                settings.EnableKimodoStaticGraph = false;
+                Assert.That(KimodoBridgeRuntimeInstallFacade.ResolveKimodoStaticGraphEnabled(), Is.False);
+            }
+            finally
+            {
+                settings.EnableKimodoStaticGraph = previousValue;
+            }
+        }
+
+        [Test]
         public void ArdyModelInstallCheckUsesArdyCheckpointFiles()
         {
             string runtimeRoot = Path.Combine(Path.GetTempPath(), "kimodo-quickserver-" + Guid.NewGuid().ToString("N"));
