@@ -28,6 +28,7 @@ namespace KimodoBridge.Editor
         private SerializedProperty ardyTargetMaxSpeed;
         private SerializedProperty ardyTargetMaxAcceleration;
         private SerializedProperty showConstraint;
+        private SerializedProperty splinePathEnabled;
         private SerializedProperty autoBeginAnchor;
 
         private SerializedProperty animationClipProp;
@@ -78,6 +79,7 @@ namespace KimodoBridge.Editor
             ardyTargetMaxSpeed = serializedObject.FindProperty("ardyTargetMaxSpeed");
             ardyTargetMaxAcceleration = serializedObject.FindProperty("ardyTargetMaxAcceleration");
             showConstraint = serializedObject.FindProperty("showConstraint");
+            splinePathEnabled = serializedObject.FindProperty("splinePathEnabled");
             autoBeginAnchor = serializedObject.FindProperty("autoBeginAnchor");
 
             animationClipProp = serializedObject.FindProperty("m_Clip");
@@ -233,6 +235,8 @@ namespace KimodoBridge.Editor
             }
             KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
 
+            DrawSplinePathSection(timelineClip);
+
             DrawConstraintReferenceList();
 
             bool disableGenerate =
@@ -322,6 +326,81 @@ namespace KimodoBridge.Editor
 
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
+        }
+
+        private void DrawSplinePathSection(TimelineClip timelineClip)
+        {
+            if (splinePathEnabled == null)
+            {
+                return;
+            }
+
+            if (targets.Length != 1)
+            {
+                EditorGUILayout.HelpBox("Spline Path can only be edited for one Kimodo Playable clip at a time.", MessageType.Info);
+                return;
+            }
+
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(
+                splinePathEnabled,
+                new GUIContent("Spline Path", "Create/show a scene spline for this clip. Its Root2D waypoints are exported when generating."));
+            if (EditorGUI.EndChangeCheck())
+            {
+                serializedObject.ApplyModifiedProperties();
+                if (KimodoPlayableSplinePathUtility.TrySetEnabled(
+                        clip,
+                        splinePathEnabled.boolValue,
+                        out KimodoPlayableSplinePath path,
+                        out string pathError))
+                {
+                    lastError = string.Empty;
+                    lastStatus = splinePathEnabled.boolValue
+                        ? "Spline Path enabled. Select Edit Spline to change its knots."
+                        : "Spline Path hidden.";
+                }
+                else
+                {
+                    lastError = pathError;
+                }
+            }
+
+            if (!splinePathEnabled.boolValue)
+            {
+                return;
+            }
+
+            if (KimodoPlayableSplinePathUtility.TryGetPath(
+                    clip,
+                    timelineClip,
+                    out KimodoPlayableSplinePath existingPath,
+                    out string findError))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button(new GUIContent("Edit Spline", "Select the scene SplineContainer and use Unity's spline handles.")))
+                    {
+                        Selection.activeGameObject = existingPath.gameObject;
+                        SceneView.lastActiveSceneView?.FrameSelected();
+                    }
+
+                    EditorGUILayout.LabelField(
+                        $"{existingPath.WaypointCount} Root2D samples",
+                        EditorStyles.miniLabel,
+                        GUILayout.Width(132f));
+                }
+                EditorGUILayout.HelpBox(
+                    "Use Unity's spline handles to move knots/tangents. Right-click directly on this path to insert a knot without changing its shape. Only XZ is exported to Root2D.",
+                    MessageType.None);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox(
+                    string.IsNullOrWhiteSpace(findError)
+                        ? "Open the Timeline on its scene PlayableDirector, then toggle Spline Path off and on to create the path."
+                        : findError,
+                    MessageType.Warning);
+            }
         }
 
         private void DrawConstraintReferenceList()

@@ -31,6 +31,7 @@ namespace KimodoBridge.Editor
         public Action<KimodoBridgeCommandStage, string> Progress;
         public CancellationToken Token;
         public bool HasSyntheticAutoBeginConstraint;
+        public bool DenseRootPath;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
         public TimelineClip TimelineClipSnapshot;
         public bool ResetTimelineTimeScaleAfterGeneration;

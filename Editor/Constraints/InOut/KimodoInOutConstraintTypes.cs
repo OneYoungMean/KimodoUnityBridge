@@ -36,5 +36,6 @@ namespace KimodoBridge.Editor
         public List<KimodoMarkerSampleResult> CombinedSamples = new List<KimodoMarkerSampleResult>();
         public string ConstraintsJson = string.Empty;
         public bool HasSyntheticAutoBeginConstraint;
+        public bool DenseRootPath;
     }
 }

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "com.unity.nuget.newtonsoft-json": "3.2.2",
+    "com.unity.splines": "2.5.2",
     "com.unity.timeline": "1.7.7"
   },
   "samples": [

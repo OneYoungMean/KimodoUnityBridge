@@ -33,7 +33,8 @@ namespace KimodoBridge.Editor
             int generationFrames,
             double sampleTimeOffsetSeconds,
             out KimodoInOutConstraintResult result,
-            out string error)
+            out string error,
+            IReadOnlyList<KimodoMarkerSampleResult> additionalManualSamples = null)
         {
             result = null;
             error = string.Empty;
@@ -50,6 +51,7 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
+            KimodoInOutConstraintComposer.AppendSamples(additionalManualSamples, manualSamples);
 
             KimodoInOutConstraintRequest request = BuildTimelineRequest(
                 context,

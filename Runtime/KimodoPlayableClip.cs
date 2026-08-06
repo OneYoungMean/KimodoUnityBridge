@@ -83,6 +83,8 @@ namespace KimodoBridge
         public float ardyTargetMaxAcceleration = DefaultArdyTargetMaxAcceleration;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
+        [Tooltip("Enable the scene spline path for this Timeline clip. Its sampled points are exported as Root2D constraints during generation.")]
+        public bool splinePathEnabled;
         [Tooltip("When the first second has no effective constraint anchor, use the Timeline start pose as the anchor.")]
         public bool autoBeginAnchor = true;
         public bool isGenerated;

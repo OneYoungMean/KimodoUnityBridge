@@ -55,6 +55,7 @@ namespace KimodoBridge.Editor
 
             string constraintsJson;
             bool hasSyntheticAutoBeginConstraint = false;
+            bool denseRootPath = false;
             var constraintSamples = new List<KimodoMarkerSampleResult>();
             if (externalConstraint != null && externalConstraint.Enabled)
             {
@@ -71,6 +72,7 @@ namespace KimodoBridge.Editor
                     constraintsJson = constraintResult.ConstraintsJson ?? string.Empty;
                     KimodoInOutConstraintComposer.AppendSamples(constraintResult.CombinedSamples, constraintSamples);
                     hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
+                    denseRootPath = constraintResult.DenseRootPath;
                 }
                 else
                 {
@@ -98,7 +100,8 @@ namespace KimodoBridge.Editor
                         constraintSamples,
                         0.0,
                         runtimeLengthSeconds,
-                        targetFrameRate);
+                        targetFrameRate,
+                        denseRootPath);
                 }
             }
             else
@@ -114,6 +117,7 @@ namespace KimodoBridge.Editor
                 constraintsJson = constraintResult.ConstraintsJson ?? string.Empty;
                 KimodoInOutConstraintComposer.AppendSamples(constraintResult.CombinedSamples, constraintSamples);
                 hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
+                denseRootPath = constraintResult.DenseRootPath;
             }
 
             ArdyEditorHistorySource initialHistorySource = null;
@@ -133,7 +137,8 @@ namespace KimodoBridge.Editor
                         constraintSamples,
                         0.0,
                         runtimeLengthSeconds,
-                        ardyProfile.SourceFps);
+                        ardyProfile.SourceFps,
+                        denseRootPath);
                 }
             }
             int effectiveSeed = effectiveSeedOverride ?? ResolveEffectiveSeed(clip);
@@ -184,6 +189,7 @@ namespace KimodoBridge.Editor
                 GenerationTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance.GenerationTimeoutSeconds,
                 Token = token,
                 HasSyntheticAutoBeginConstraint = hasSyntheticAutoBeginConstraint,
+                DenseRootPath = denseRootPath,
                 ConstraintSamples = constraintSamples,
                 TimelineClipSnapshot = timelineClip,
                 ResetTimelineTimeScaleAfterGeneration =
