@@ -18,8 +18,10 @@ from kimodo.frame_time import seconds_to_frame_count
 
 MAX_KMB_BYTES = 256 * 1024**2
 TARGET_VELOCITY_PREDICTION_SECONDS = 2.0
+TARGET_VELOCITY_UPDATE_INTERVAL = 4
 TARGET_VELOCITY_GOAL_FRAME_INTERVAL = 10
 TARGET_HEADING_TURN_FRAMES = 40
+TARGET_ARRIVAL_RELEASE_DISTANCE = 0.15
 
 
 def _resolve_ardy_batch_size() -> int:
@@ -39,6 +41,7 @@ class _ArdyBatchRequest:
     kwargs: dict[str, Any]
     key: tuple[Any, ...]
     event: threading.Event
+    trace_id: str = ""
     result: Any = None
     error: BaseException | None = None
 
@@ -105,12 +108,12 @@ class _ArdyInferenceBatcher:
             motion_dim,
         )
 
-    def run(self, model: Any, kwargs: dict[str, Any]) -> Any:
+    def run(self, model: Any, kwargs: dict[str, Any], trace_id: str = "") -> Any:
         key = self._batch_key(model, kwargs)
         if key is None:
             return model.autoregressive_step(**kwargs)
 
-        request = _ArdyBatchRequest(model, kwargs, key, threading.Event())
+        request = _ArdyBatchRequest(model, kwargs, key, threading.Event(), str(trace_id or ""))
         with self._condition:
             self._pending.append(request)
             self._condition.notify_all()
@@ -176,6 +179,17 @@ class _ArdyInferenceBatcher:
     @classmethod
     def _execute(cls, batch: list[_ArdyBatchRequest]) -> None:
         try:
+            trace_ids = [request.trace_id for request in batch if request.trace_id]
+            if trace_ids:
+                print(
+                    "[ARDY_BATCH] "
+                    + json.dumps(
+                        {"size": len(batch), "sessions": trace_ids},
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    flush=True,
+                )
             merged = cls._merge(batch)
             output = batch[0].model.autoregressive_step(**merged)
             if int(output.shape[0]) != len(batch):
@@ -555,12 +569,16 @@ def _plan_root_2d_target(
     current_velocity_2d: tuple[float, float],
     anchor_frame: int,
     fps: float,
+    future_horizon_frames: int | None = None,
 ) -> dict[str, Any] | None:
     position = np.asarray(anchor_root_2d, dtype=np.float64)
     goal = np.asarray(target.position, dtype=np.float64)
     delta = goal - position
     distance = float(np.linalg.norm(delta))
-    if distance <= target.arrival_threshold:
+    release_distance = target.arrival_threshold
+    if target.arrival_frame is None:
+        release_distance = max(release_distance, TARGET_ARRIVAL_RELEASE_DISTANCE)
+    if distance <= release_distance:
         return None
 
     direction = delta / distance
@@ -571,6 +589,13 @@ def _plan_root_2d_target(
         velocity *= target.max_speed / initial_speed
 
     prediction_frames = max(1, seconds_to_frame_count(TARGET_VELOCITY_PREDICTION_SECONDS, fps))
+    future_horizon_tail_step: int | None = None
+    future_horizon_frames_value = None
+    if target.arrival_frame is None and future_horizon_frames is not None:
+        future_horizon_frames_value = max(1, int(future_horizon_frames))
+        if future_horizon_frames_value == prediction_frames:
+            future_horizon_tail_step = future_horizon_frames_value + TARGET_VELOCITY_UPDATE_INTERVAL
+            prediction_frames = future_horizon_tail_step
     dt = 1.0 / fps
     timed_positions: list[np.ndarray] | None = None
     timed_velocities: list[np.ndarray] | None = None
@@ -658,6 +683,23 @@ def _plan_root_2d_target(
     frame_indices: list[int] = []
     positions: list[list[float]] = []
     headings: list[float] = []
+    constraint_steps = list(
+        range(
+            TARGET_VELOCITY_GOAL_FRAME_INTERVAL,
+            prediction_frames + 1,
+            TARGET_VELOCITY_GOAL_FRAME_INTERVAL,
+        )
+    )
+    if not constraint_steps or constraint_steps[-1] != prediction_frames:
+        constraint_steps.append(prediction_frames)
+    if target.arrival_frame is None and future_horizon_frames is not None:
+        guard_frames = max(1, (int(future_horizon_frames) + 3) // 4)
+        if future_horizon_tail_step is not None:
+            constraint_steps = [
+                step for step in constraint_steps if step != future_horizon_frames_value
+            ]
+        constraint_steps = sorted({max(step, guard_frames + 1) for step in constraint_steps})
+    constraint_step_set = set(constraint_steps)
     for step in range(1, prediction_frames + 1):
         if timed_positions is not None and timed_velocities is not None:
             position = timed_positions[step - 1]
@@ -674,9 +716,12 @@ def _plan_root_2d_target(
             velocity = limited_velocities[step - 1]
             direction = limited_directions[step - 1]
 
-        if step % TARGET_VELOCITY_GOAL_FRAME_INTERVAL == 0 or step == prediction_frames:
+        if step in constraint_step_set:
+            point = [float(position[0]), float(position[1])]
+            if not target.include_heading and positions and point == positions[-1]:
+                continue
             frame_indices.append(anchor_frame + step)
-            positions.append([float(position[0]), float(position[1])])
+            positions.append(point)
             if target.include_heading:
                 velocity_length = float(np.linalg.norm(velocity))
                 if velocity_length > 1e-8:
@@ -975,6 +1020,8 @@ class ArdySession:
         import torch
 
         self.profile = profile
+        self.session_trace_id = str(request.get("_kimodo_session_id") or request.get("task_id") or "")
+        self.request_trace_id = str(request.get("task_id") or "")
         self.quickserver_root = Path(quickserver_root).resolve()
         self.settings = ArdySettings.from_request(request, profile)
         self._auto_history_frames = self.settings.history_crop_frames
@@ -1253,6 +1300,7 @@ class ArdySession:
                 velocity_2d,
                 boundary_frame - 1,
                 float(self.profile.source_fps),
+                int(self.profile.horizon_frames),
             )
             if target_constraint is None:
                 self.root_2d_target = None
@@ -1559,7 +1607,11 @@ class ArdySession:
                 kwargs["text_pad_mask"] = self.text_pad_mask
             if initial_noise is not None:
                 kwargs["initial_noise"] = initial_noise
-            motion = _ARDY_INFERENCE_BATCHER.run(model, kwargs)
+            motion = _ARDY_INFERENCE_BATCHER.run(
+                model,
+                kwargs,
+                getattr(self, "session_trace_id", ""),
+            )
         if next_rng_state is not None:
             if torch.device(model.device).type == "cuda":
                 self._cuda_rng_state = next_rng_state
@@ -1588,12 +1640,99 @@ class ArdySession:
                 )
             )
 
+        self._log_horizon_trace(
+            horizon_start,
+            horizon,
+            history_len,
+            window_start,
+            num_frames,
+            output,
+        )
+
         generated_cpu = generated.detach().cpu()
         self.motion_cpu = generated_cpu if self.motion_cpu is None else torch.cat((self.motion_cpu, generated_cpu), dim=1)
         keep = min(self.settings.history_crop_frames, int(motion.shape[1]))
         keep -= keep % int(self.profile.frames_per_token)
         self.history_cpu = motion[:, -keep:].detach().cpu() if keep > 0 else None
         self.outputs = _append_outputs(self.outputs, to_numpy(output))
+
+    def _log_horizon_trace(
+        self,
+        horizon_start: int,
+        horizon: int,
+        history_len: int,
+        window_start: int,
+        num_frames: int,
+        output: dict[str, Any],
+    ) -> None:
+        session_trace_id = getattr(self, "session_trace_id", "")
+        if not session_trace_id:
+            return
+        profile_horizon = int(self.profile.horizon_frames)
+        protected_end = horizon_start + max(1, (profile_horizon + 3) // 4)
+        constraints: list[dict[str, Any]] = []
+        protected_hits: list[dict[str, Any]] = []
+        for constraint in self.constraints:
+            indices = [int(value) for value in constraint.frame_indices.detach().cpu().tolist()]
+            item: dict[str, Any] = {
+                "type": str(getattr(constraint, "name", "constraint")),
+                "frames": indices,
+                "gaps": [right - left for left, right in zip(indices, indices[1:])],
+            }
+            roots = getattr(constraint, "root_2d", None)
+            if roots is not None:
+                item["root_xz"] = np.round(
+                    roots.detach().cpu().numpy().astype(np.float64), 4
+                ).tolist()
+            headings = getattr(constraint, "global_root_heading", None)
+            if headings is not None:
+                item["heading_rad"] = np.round(
+                    headings.detach().cpu().numpy().astype(np.float64), 4
+                ).tolist()
+            constraints.append(item)
+            for frame in indices:
+                if horizon_start <= frame < protected_end:
+                    protected_hits.append({"type": item["type"], "frame": frame})
+
+        roots = output.get("root_positions")
+        generated_root_xz: list[list[float]] = []
+        if roots is not None:
+            root_array = roots.detach().cpu().numpy()[0].astype(np.float64)
+            generated_root_xz = np.round(root_array[:, [0, 2]], 4).tolist()
+        heading = output.get("global_root_heading")
+        generated_heading: list[float] = []
+        if heading is not None:
+            heading_array = heading.detach().cpu().numpy()[0].astype(np.float64)
+            generated_heading = np.round(
+                np.arctan2(heading_array[:, 1], heading_array[:, 0]),
+                4,
+            ).tolist()
+
+        target = self.root_2d_target
+        trace = {
+            "session": session_trace_id,
+            "request": getattr(self, "request_trace_id", ""),
+            "horizon": [horizon_start, horizon_start + horizon],
+            "protected": [horizon_start, protected_end],
+            "history": [window_start, window_start + history_len],
+            "condition_window": [window_start, window_start + num_frames],
+            "protected_hits": protected_hits,
+            "root_target": None
+            if target is None
+            else {
+                "position": [round(float(value), 4) for value in target.position],
+                "include_heading": bool(target.include_heading),
+                "heading_rad": None if target.heading is None else round(float(target.heading), 4),
+            },
+            "constraints": constraints,
+            "generated_root_xz": generated_root_xz,
+            "generated_heading_rad": generated_heading,
+        }
+        print(
+            "[ARDY_HORIZON] "
+            + json.dumps(trace, ensure_ascii=False, separators=(",", ":")),
+            flush=True,
+        )
 
     def _ensure_generated(self, frame_exclusive: int, model: Any, cancel_event: threading.Event) -> None:
         from core import kimodo_runtime
@@ -1635,6 +1774,7 @@ class ArdySession:
         cancel_event: threading.Event,
     ) -> tuple[dict[str, Any], dict[str, np.ndarray] | None]:
         fps = float(self.profile.source_fps)
+        self.request_trace_id = str(request.get("task_id") or getattr(self, "request_trace_id", ""))
         patch = int(self.profile.frames_per_token)
         time_seconds = float(request.get("time_as_double", 0.0))
         if not math.isfinite(time_seconds) or time_seconds < 0.0:

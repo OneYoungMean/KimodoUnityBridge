@@ -1,4 +1,5 @@
 import io
+import json
 import math
 from pathlib import Path
 import threading
@@ -643,6 +644,73 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             atol=1e-7,
         )
 
+    def test_root_target_reserves_the_first_quarter_of_each_future_horizon(self):
+        target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, True)
+
+        for horizon in (8, 52):
+            with self.subTest(horizon=horizon):
+                planned = ardy_backend._plan_root_2d_target(
+                    target,
+                    (0.0, 0.0),
+                    (0.0, 0.0),
+                    39,
+                    20.0,
+                    horizon,
+                )
+                guard_frames = math.ceil(horizon / 4)
+                expected_first = max(49, 40 + guard_frames)
+                self.assertEqual(planned["frame_indices"][0], expected_first)
+                self.assertEqual(planned["frame_indices"][1:], [59, 69, 79])
+
+    def test_root_target_moves_core40_terminal_waypoint_past_the_horizon(self):
+        target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, True)
+
+        planned = ardy_backend._plan_root_2d_target(
+            target,
+            (0.0, 0.0),
+            (0.0, 0.0),
+            39,
+            20.0,
+            40,
+        )
+
+        self.assertEqual(planned["frame_indices"], [50, 59, 69, 83])
+
+    def test_horizon_trace_reports_protected_hits_and_generated_trajectory(self):
+        session = self._fake_ardy_session()
+        session.session_trace_id = "session:test"
+        session.request_trace_id = "task:test"
+        session.root_2d_target = ardy_backend.Root2DTarget(
+            (5.0, 2.0), 1.25, 1.5, 0.1, True, heading=0.25
+        )
+        session.constraints = [
+            SimpleNamespace(
+                name="root2d",
+                frame_indices=torch.tensor([40, 50], dtype=torch.long),
+                root_2d=torch.tensor([[1.0, 2.0], [3.0, 4.0]], dtype=torch.float32),
+                global_root_heading=torch.tensor([0.0, 0.25], dtype=torch.float32),
+            )
+        ]
+        output = {
+            "root_positions": torch.tensor(
+                [[[1.0, 0.0, 2.0], [3.0, 0.0, 4.0]]], dtype=torch.float32
+            ),
+            "global_root_heading": torch.tensor(
+                [[[1.0, 0.0], [0.0, 1.0]]], dtype=torch.float32
+            ),
+        }
+
+        with patch("builtins.print") as print_mock:
+            session._log_horizon_trace(40, 40, 20, 20, 60, output)
+
+        trace = json.loads(print_mock.call_args.args[0].removeprefix("[ARDY_HORIZON] "))
+        self.assertEqual(trace["horizon"], [40, 80])
+        self.assertEqual(trace["protected"], [40, 50])
+        self.assertEqual(trace["protected_hits"], [{"type": "root2d", "frame": 40}])
+        self.assertEqual(trace["constraints"][0]["gaps"], [10])
+        self.assertEqual(trace["generated_root_xz"], [[1.0, 2.0], [3.0, 4.0]])
+        self.assertEqual(trace["generated_heading_rad"], [0.0, 1.5708])
+
     def test_timed_root_target_frame_is_offset_with_the_constraint_patch(self):
         target = ardy_backend._parse_root_2d_target(
             {
@@ -826,6 +894,35 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             ardy_backend._plan_root_2d_target(target, (0.0, 0.0), (0.0, 0.0), -1, 20.0)
         )
 
+    def test_untimed_root_target_releases_near_arrival_before_an_extra_horizon(self):
+        target = ardy_backend.Root2DTarget((0.102, 0.0), 1.25, 1.5, 0.1, False)
+
+        self.assertIsNone(
+            ardy_backend._plan_root_2d_target(
+                target,
+                (0.0, 0.0),
+                (0.0, 0.0),
+                -1,
+                20.0,
+                40,
+            )
+        )
+
+    def test_root_target_omits_repeated_arrival_waypoints_when_heading_is_disabled(self):
+        target = ardy_backend.Root2DTarget((1.0, 0.0), 1.25, 1.5, 0.1, False)
+
+        planned = ardy_backend._plan_root_2d_target(
+            target,
+            (0.0, 0.0),
+            (0.0, 0.0),
+            -1,
+            20.0,
+            40,
+        )
+
+        self.assertEqual(planned["frame_indices"], [10, 19, 29])
+        self.assertEqual(planned["smooth_root_2d"].count([1.0, 0.0]), 1)
+
     def test_root_target_protocol_is_resolved_replaced_and_cleared_in_python(self):
         session = self._fake_ardy_session()
         session.motion_cpu = torch.zeros((1, 40, 1), dtype=torch.float32)
@@ -849,7 +946,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             )
             self.assertEqual(session.root_2d_target.position, (5.0, 0.0))
             self.assertEqual([item["type"] for item in loaded[-1]], ["root2d"])
-            self.assertEqual(loaded[-1][0]["frame_indices"], [49, 59, 69, 79])
+            self.assertEqual(loaded[-1][0]["frame_indices"], [50, 59, 69, 83])
 
             session._set_constraints(
                 [{"type": "root2d_target", "target_root_2d": [-3.0, 2.0]}],
