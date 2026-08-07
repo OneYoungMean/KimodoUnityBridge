@@ -70,6 +70,7 @@ namespace KimodoBridge.Editor
             }
 
             window.SetTimeline(director);
+            window.locked = true;
             window.Focus();
             TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
         }

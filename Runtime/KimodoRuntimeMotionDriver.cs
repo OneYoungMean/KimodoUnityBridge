@@ -1485,7 +1485,7 @@ namespace KimodoBridge
 
         private string GetCurrentPromptInternal(out bool isIdle)
         {
-            string currentPrompt = motionPlayer.CurrentPromptText;
+            string currentPrompt = motionPlayer != null ? motionPlayer.CurrentPromptText : null;
             string resolved = string.IsNullOrWhiteSpace(currentPrompt)
                 ? ResolvePrompt()
                 : currentPrompt.Trim();
