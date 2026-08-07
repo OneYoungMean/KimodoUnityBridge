@@ -257,6 +257,15 @@ def _write_serverport(path: Path, host: str, port: int, state_name: str) -> None
     )
 
 
+def _read_quickserver_version(root_dir: str) -> str:
+    try:
+        package_path = Path(root_dir).resolve() / "package.json"
+        version = str(json.loads(package_path.read_text(encoding="utf-8")).get("version") or "").strip()
+        return version or "unknown"
+    except Exception:
+        return "unknown"
+
+
 def _build_signature(config: dict[str, Any]) -> str:
     return "|".join(
         [
@@ -410,7 +419,9 @@ def _replace_text_encoder(
     decision: assets.TextEncoderRuntimeDecision,
     kimodo_root: str,
     logger: SetupLogger,
+    cancel_event: threading.Event | None = None,
 ) -> None:
+    assets.raise_if_download_cancelled(cancel_event)
     from kimodo.model.load_model import _select_text_encoder_conf
     from kimodo.model.loading import DEFAULT_TEXT_ENCODER_URL, get_env_var, instantiate_from_dict
 
@@ -446,7 +457,9 @@ def _replace_text_encoder(
             recovery_flag_dir,
             download_counter,
             force_site=force_site,
+            cancel_event=cancel_event,
         )
+    assets.raise_if_download_cancelled(cancel_event)
     old_encoder = getattr(model, "text_encoder", None)
     new_encoder = instantiate_from_dict(
         _select_text_encoder_conf(
@@ -487,6 +500,7 @@ def _refresh_encoder_route_after_motion_load(
     runtime_profile: Any,
     kimodo_root: str,
     logger: SetupLogger,
+    cancel_event: threading.Event | None = None,
 ) -> assets.TextEncoderRuntimeDecision:
     if runtime_profile.runtime_device == "cpu" or config["simulate_free_vram_gb"] is not None:
         return current
@@ -502,7 +516,7 @@ def _refresh_encoder_route_after_motion_load(
     if config.get("_force_text_encoder_cpu"):
         updated = assets.force_text_encoder_cpu(updated)
     if (updated.encoder_route, updated.encoder_device) != _text_encoder_placement(getattr(model, "text_encoder", None)):
-        _replace_text_encoder(model, config, updated, kimodo_root, logger)
+        _replace_text_encoder(model, config, updated, kimodo_root, logger, cancel_event)
     return updated
 
 
@@ -511,13 +525,14 @@ def _fallback_runtime_text_encoder_to_cpu(
     config: dict[str, Any],
     kimodo_root: str,
     logger: SetupLogger,
+    cancel_event: threading.Event | None = None,
 ) -> bool:
     decision = runtime.get("text_encoder_decision")
     if decision is None or decision.encoder_device == "cpu":
         return False
     fallback = assets.force_text_encoder_cpu(decision)
     logger.log("[WARN] Text encoder accelerator OOM; retrying once with the encoder on CPU.")
-    _replace_text_encoder(runtime["model"], config, fallback, kimodo_root, logger)
+    _replace_text_encoder(runtime["model"], config, fallback, kimodo_root, logger, cancel_event)
     runtime["text_encoder_decision"] = fallback
     _release_accelerator_cache()
     return True
@@ -529,7 +544,9 @@ def _ensure_runtime(
     logger: SetupLogger,
     text_encoder: Any = None,
     text_encoder_decision: assets.TextEncoderRuntimeDecision | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
+    assets.raise_if_download_cancelled(cancel_event)
     signature = _build_signature(config)
     existing_signature = str(state.get("runtime_signature") or "")
     same_runtime = existing_signature == signature and state.get("model") is not None
@@ -582,16 +599,7 @@ def _ensure_runtime(
         int8_accelerator_available=runtime_profile.int8_accelerator_available,
         fp16_accelerator_available=runtime_profile.fp16_accelerator_available,
     )
-    if text_encoder is not None and text_encoder_decision is not None:
-        runtime_decision = assets.TextEncoderRuntimeDecision(
-            mode=text_encoder_decision.mode,
-            motion_device=runtime_profile.runtime_device,
-            encoder_route=text_encoder_decision.encoder_route,
-            encoder_device=text_encoder_decision.encoder_device,
-            reason="shared_server_encoder",
-            effective_free_vram_gb=encoder_free_vram_gb,
-        )
-    elif config.get("_force_text_encoder_cpu"):
+    if config.get("_force_text_encoder_cpu"):
         runtime_decision = assets.force_text_encoder_cpu(runtime_decision)
         os.environ["KIMODO_TEXT_ENCODER_FORCE_CPU"] = "1"
     else:
@@ -617,7 +625,7 @@ def _ensure_runtime(
     )
 
     if same_runtime:
-        _replace_text_encoder(state["model"], config, runtime_decision, kimodo_root, logger)
+        _replace_text_encoder(state["model"], config, runtime_decision, kimodo_root, logger, cancel_event)
         state["text_encoder_decision"] = runtime_decision
         logger.log("[INFO] Text encoder ready; reusing current motion runtime.")
         return {
@@ -663,6 +671,7 @@ def _ensure_runtime(
                 recovery_flag_dir,
                 download_counter,
                 force_site=force_download_site,
+                cancel_event=cancel_event,
             )
         logger.log(
             f"[INFO] ARDY reusing Kimodo text encoder: route={encoder_route} "
@@ -676,6 +685,8 @@ def _ensure_runtime(
             kimodo_root,
             runtime_decision.motion_device,
             text_encoder=text_encoder,
+            cancel_event=cancel_event,
+            logger=logger,
         )
         runtime_decision = _refresh_encoder_route_after_motion_load(
             model,
@@ -684,6 +695,7 @@ def _ensure_runtime(
             runtime_profile,
             kimodo_root,
             logger,
+            cancel_event,
         )
         state["model"] = model
         state["fps"] = int(motion_profile.source_fps)
@@ -709,9 +721,10 @@ def _ensure_runtime(
     plan = runtime_helpers._provision_bridge_assets(
         kimodo_root,
         config["model"],
-            runtime_profile=runtime_profile,
-            force_download_site=force_download_site,
-            encoder_free_vram_gb=encoder_free_vram_gb,
+        runtime_profile=runtime_profile,
+        force_download_site=force_download_site,
+        encoder_free_vram_gb=encoder_free_vram_gb,
+        cancel_event=cancel_event,
         )
 
     from core.bridge_load_model import load_bridge_model
@@ -730,6 +743,7 @@ def _ensure_runtime(
         runtime_profile,
         kimodo_root,
         logger,
+        cancel_event,
     )
 
     state["model"] = model
@@ -930,6 +944,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     server.listen(16)
     host, port = server.getsockname()
     _write_serverport(serverport_path, host, int(port), "boot")
+    logger.log(f"[INFO] Kimodo QuickServer version: {_read_quickserver_version(kimodo_root)}")
     logger.log(f"[INFO] quickserver_cli listening on {host}:{port}")
     logger.log(f"[INFO] ARDY cross-Session batch size: {ardy_backend.ARDY_BATCH_SIZE}")
 
@@ -1247,7 +1262,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     for runtime in runtimes:
                         _unload_runtime_model(runtime, logger)
 
-    def get_runtime(session: dict[str, Any], runtime_config: dict[str, Any]) -> dict[str, Any]:
+    def get_runtime(
+        session: dict[str, Any],
+        runtime_config: dict[str, Any],
+        cancel_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
         with runtime_gate:
             shared_encoder = state.get("shared_text_encoder")
             shared_signature = str(state.get("shared_text_encoder_signature") or "")
@@ -1277,7 +1296,15 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 shared_encoder = None
                 shared_decision = None
             if runtime.get("model") is not None and runtime.get("runtime_signature") == signature:
-                if shared_encoder is not None:
+                expected_decision = runtime.get("text_encoder_decision")
+                if (
+                    shared_encoder is not None
+                    and expected_decision is not None
+                    and _text_encoder_placement(shared_encoder) == (
+                        expected_decision.encoder_route,
+                        expected_decision.encoder_device,
+                    )
+                ):
                     runtime["model"].text_encoder = shared_encoder
                 if getattr(runtime["model"], "text_encoder", None) is not None:
                     runtime["model"]._kimodo_runtime_signature = signature
@@ -1292,6 +1319,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 logger,
                 text_encoder=shared_encoder,
                 text_encoder_decision=shared_decision,
+                cancel_event=cancel_event,
             )
             runtime["model"]._kimodo_runtime_signature = signature
             bind_shared_text_encoder(runtime, encoder_signature)
@@ -1345,6 +1373,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 task["runtime_config"],
                 kimodo_root,
                 logger,
+                task["cancel_event"],
             ):
                 raise
             bind_shared_text_encoder(
@@ -1401,7 +1430,10 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                         task["status_message"] = "Preparing motion runtime..."
                         if task["cancel_event"].is_set():
                             raise runtime_helpers.GenerateCancelledError("Generation canceled.")
-                        runtime = get_runtime(session, task["runtime_config"])
+                        try:
+                            runtime = get_runtime(session, task["runtime_config"], task["cancel_event"])
+                        except assets.DownloadCancelledError as exc:
+                            raise runtime_helpers.GenerateCancelledError(str(exc)) from exc
                         if task["cancel_event"].is_set():
                             raise runtime_helpers.GenerateCancelledError("Generation canceled.")
                         task["status_message"] = "Generating motion..."
@@ -1421,6 +1453,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     with non_ardy_generation_gate:
                         response, binary_payload = execute_task()
             except runtime_helpers.GenerateCancelledError as exc:
+                response = {"status": "cancelled", "message": str(exc)}
+                binary_payload = None
+            except assets.DownloadCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
                 binary_payload = None
             except ardy_backend.ArdyBackendError as exc:

@@ -52,7 +52,7 @@ namespace KimodoBridge
         [Header("Kimodo Bridge")]
         public string bridgeModelName = DefaultBridgeModelName;
         [FormerlySerializedAs("bridgeVramMode")]
-        [Tooltip("High Performance uses NF4/INT8. High Precision uses FP16. Device placement is automatic.")]
+        [Tooltip("High Performance uses NF4/INT8 on CUDA. Apple Metal/MPS always uses FP16. High Precision uses FP16. Device placement is automatic.")]
         public KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPerformance;
 
         [TextArea(2, 6)]

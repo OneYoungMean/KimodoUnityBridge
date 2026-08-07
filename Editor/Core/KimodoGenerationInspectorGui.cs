@@ -83,7 +83,7 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.PropertyField(
                 textEncoderMode,
-                new GUIContent("Text Encoder Mode", "High Performance uses NF4/INT8. High Precision uses FP16. Device placement is automatic."));
+                new GUIContent("Text Encoder Mode", "High Performance uses NF4/INT8 on CUDA. Apple Metal/MPS always uses FP16. High Precision uses FP16. Device placement is automatic."));
             DrawTextEncoderEstimate((KimodoTextEncoderMode)textEncoderMode.enumValueIndex);
 
             DrawArdyTextEncoderWarning(ardy, (KimodoTextEncoderMode)textEncoderMode.enumValueIndex);
@@ -94,7 +94,7 @@ namespace KimodoBridge.Editor
             if (ardy && mode == KimodoTextEncoderMode.HighPerformance)
             {
                 EditorGUILayout.HelpBox(
-                    "ARDY is optimized for the high-precision text encoder. High Performance (NF4/INT8) reduces memory use but may degrade prompt adherence and cause motion quality to deteriorate.",
+                    "ARDY is optimized for the high-precision text encoder. On CUDA, High Performance (NF4/INT8) reduces memory use but may degrade prompt adherence and cause motion quality to deteriorate. Apple Metal/MPS uses FP16.",
                     MessageType.Warning);
             }
         }
@@ -105,7 +105,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.HelpBox(
                 highPrecision
                     ? "Automatic placement: FP16 uses the accelerator at 18 GB effective VRAM; otherwise text encoding runs on CPU. Kimodo reserves 2 GB."
-                    : "Automatic placement: NF4 uses the accelerator at 6 GB when supported; otherwise INT8 uses the accelerator at 8 GB or falls back to CPU. Kimodo reserves 2 GB.",
+                    : "CUDA automatic placement: NF4 uses the accelerator at 6 GB when supported; otherwise INT8 uses the accelerator at 8 GB or falls back to CPU. Apple Metal/MPS always uses FP16. Kimodo reserves 2 GB.",
                 MessageType.Info);
         }
 

@@ -376,7 +376,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.HelpBox(
                 selectedEncoderMode == KimodoTextEncoderMode.HighPrecision
                     ? "High Precision: FP16 uses the accelerator at 18 GB effective VRAM; otherwise the encoder runs on CPU."
-                    : "High Performance: NF4 uses the accelerator at 6 GB when supported; otherwise INT8 uses it at 8 GB or runs on CPU.",
+                    : "High Performance on CUDA: NF4 uses the accelerator at 6 GB when supported; otherwise INT8 uses it at 8 GB or runs on CPU. Apple Metal/MPS always uses FP16.",
                 MessageType.Info);
 
             if (KimodoBridgeServerTool.TryGetModelMissingSetupMinutes(

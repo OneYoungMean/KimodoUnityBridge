@@ -181,7 +181,7 @@ namespace KimodoBridge.Editor
             }
 
             textEncoderMode = (KimodoTextEncoderMode)EditorGUILayout.EnumPopup(
-                new GUIContent("Text Encoder Mode", "High Performance uses NF4/INT8. High Precision uses FP16. Device placement is automatic."),
+                new GUIContent("Text Encoder Mode", "High Performance uses NF4/INT8 on CUDA. Apple Metal/MPS always uses FP16. High Precision uses FP16. Device placement is automatic."),
                 textEncoderMode);
             KimodoGenerationInspectorGui.DrawTextEncoderEstimate(textEncoderMode);
             KimodoGenerationInspectorGui.DrawArdyTextEncoderWarning(

@@ -187,7 +187,9 @@ def _ensure_asset_ready(
     *,
     force_site: assets.DownloadSite | None,
     allow_download: bool,
+    cancel_event: threading.Event | None = None,
 ) -> None:
+    assets.raise_if_download_cancelled(cancel_event)
     if assets.asset_is_ready(asset, target_dir):
         logger.log(f"[SKIP] {asset.label} ready: {target_dir}")
         return
@@ -201,6 +203,7 @@ def _ensure_asset_ready(
         download_counter,
         force_site=force_site,
         allow_download=allow_download,
+        cancel_event=cancel_event,
     )
 
 
@@ -276,7 +279,9 @@ def _provision_bridge_assets(
     runtime_profile: _RuntimeSelfCheckResult,
     force_download_site: assets.DownloadSite | None = None,
     encoder_free_vram_gb: float | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> _BridgeProvisionPlan:
+    assets.raise_if_download_cancelled(cancel_event)
     plan = _build_bridge_provision_plan(
         kimodo_root,
         requested_model,
@@ -325,6 +330,7 @@ def _provision_bridge_assets(
         download_counter,
         force_site=force_download_site,
         allow_download=allow_download,
+        cancel_event=cancel_event,
     )
 
     encoder_assets = list(plan.text_encoder_layout.download_assets)
@@ -338,6 +344,7 @@ def _provision_bridge_assets(
             download_counter,
             force_site=force_download_site,
             allow_download=allow_download,
+            cancel_event=cancel_event,
         )
 
     if assets.should_inject_once(
