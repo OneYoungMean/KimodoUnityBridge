@@ -29,6 +29,9 @@ namespace KimodoBridge.Editor
         private SerializedProperty ardyTargetMaxAcceleration;
         private SerializedProperty showConstraint;
         private SerializedProperty splinePathEnabled;
+        private SerializedProperty splineWaypointCount;
+        private SerializedProperty splineDensePath;
+        private SerializedProperty splineIncludeHeading;
         private SerializedProperty autoBeginAnchor;
 
         private SerializedProperty animationClipProp;
@@ -56,9 +59,41 @@ namespace KimodoBridge.Editor
         private void OnEnable()
         {
             InitializeSerializedBindings();
+            ApplyProjectPromptDefault();
             showAdvancedFoldout = KimodoPlayableClipGenerationSettings.instance.AdvancedCurveFilterFoldout;
             PullBridgeStatusSnapshot();
             SyncRequestHandleState();
+        }
+
+        private void ApplyProjectPromptDefault()
+        {
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            string defaultPrompt = settings.DefaultPrompt;
+            foreach (UnityEngine.Object selectedTarget in targets)
+            {
+                if (selectedTarget is not KimodoPlayableClip playableClip)
+                {
+                    continue;
+                }
+
+                string currentPrompt = playableClip.motionPrompt?.Trim() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(currentPrompt) &&
+                    !string.Equals(
+                        currentPrompt,
+                        KimodoPlayableClipGenerationSettings.DefaultPromptFallback,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!string.Equals(playableClip.motionPrompt, defaultPrompt, StringComparison.Ordinal))
+                {
+                    playableClip.motionPrompt = defaultPrompt;
+                    EditorUtility.SetDirty(playableClip);
+                }
+            }
+
+            serializedObject.UpdateIfRequiredOrScript();
         }
 
         private void InitializeSerializedBindings()
@@ -80,6 +115,9 @@ namespace KimodoBridge.Editor
             ardyTargetMaxAcceleration = serializedObject.FindProperty("ardyTargetMaxAcceleration");
             showConstraint = serializedObject.FindProperty("showConstraint");
             splinePathEnabled = serializedObject.FindProperty("splinePathEnabled");
+            splineWaypointCount = serializedObject.FindProperty("splineWaypointCount");
+            splineDensePath = serializedObject.FindProperty("splineDensePath");
+            splineIncludeHeading = serializedObject.FindProperty("splineIncludeHeading");
             autoBeginAnchor = serializedObject.FindProperty("autoBeginAnchor");
 
             animationClipProp = serializedObject.FindProperty("m_Clip");
@@ -330,7 +368,8 @@ namespace KimodoBridge.Editor
 
         private void DrawSplinePathSection(TimelineClip timelineClip)
         {
-            if (splinePathEnabled == null)
+            if (splinePathEnabled == null ||
+                !KimodoPlayableClipGenerationSettings.instance.EnableSplineExperimental)
             {
                 return;
             }
@@ -344,14 +383,13 @@ namespace KimodoBridge.Editor
             EditorGUI.BeginChangeCheck();
             EditorGUILayout.PropertyField(
                 splinePathEnabled,
-                new GUIContent("Spline Path", "Create/show a scene spline for this clip. Its Root2D waypoints are exported when generating."));
+                new GUIContent("Spline Path", "Store an editable spline on this clip and export its Root2D waypoints when generating."));
             if (EditorGUI.EndChangeCheck())
             {
                 serializedObject.ApplyModifiedProperties();
-                if (KimodoPlayableSplinePathUtility.TrySetEnabled(
+                if (KimodoSplinePathEditorBridge.TrySetEnabled(
                         clip,
                         splinePathEnabled.boolValue,
-                        out KimodoPlayableSplinePath path,
                         out string pathError))
                 {
                     lastError = string.Empty;
@@ -370,37 +408,62 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (KimodoPlayableSplinePathUtility.TryGetPath(
-                    clip,
-                    timelineClip,
-                    out KimodoPlayableSplinePath existingPath,
-                    out string findError))
-            {
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    if (GUILayout.Button(new GUIContent("Edit Spline", "Select the scene SplineContainer and use Unity's spline handles.")))
-                    {
-                        Selection.activeGameObject = existingPath.gameObject;
-                        SceneView.lastActiveSceneView?.FrameSelected();
-                    }
+            EditorGUI.indentLevel++;
+            EditorGUILayout.PropertyField(
+                splineWaypointCount,
+                new GUIContent("Root2D Samples", "Number of evenly timed Root2D samples exported from the spline."));
+            EditorGUILayout.PropertyField(
+                splineDensePath,
+                new GUIContent("Dense Path", "Ask Kimodo to expand the Root2D samples into a dense path."));
+            EditorGUILayout.PropertyField(
+                splineIncludeHeading,
+                new GUIContent("Include Heading", "Export the planar spline tangent as Root2D heading."));
+            EditorGUI.indentLevel--;
 
-                    EditorGUILayout.LabelField(
-                        $"{existingPath.WaypointCount} Root2D samples",
-                        EditorStyles.miniLabel,
-                        GUILayout.Width(132f));
-                }
-                EditorGUILayout.HelpBox(
-                    "Use Unity's spline handles to move knots/tangents. Right-click directly on this path to insert a knot without changing its shape. Only XZ is exported to Root2D.",
-                    MessageType.None);
-            }
-            else
+            if (!KimodoSplinePathEditorBridge.IsAvailable)
             {
                 EditorGUILayout.HelpBox(
-                    string.IsNullOrWhiteSpace(findError)
-                        ? "Open the Timeline on its scene PlayableDirector, then toggle Spline Path off and on to create the path."
-                        : findError,
+                    "Install com.unity.splines to use this experimental editor integration. The main Kimodo package does not install it automatically.",
                     MessageType.Warning);
+                return;
             }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button(new GUIContent("Edit Spline", "Create a temporary hidden SplineContainer and enter Unity's spline editing mode.")))
+                {
+                    if (KimodoSplinePathEditorBridge.TryBeginEditing(clip, timelineClip, out string editError))
+                    {
+                        lastError = string.Empty;
+                        lastStatus = "Editing Spline Path.";
+                    }
+                    else
+                    {
+                        lastError = editError;
+                    }
+                }
+
+                if (GUILayout.Button(new GUIContent("Reset Spline", "Rebuild from the current animation root motion, or from duration at 1 m/s when no animation is assigned.")))
+                {
+                    if (KimodoSplinePathEditorBridge.TryResetPath(clip, out string resetError))
+                    {
+                        lastError = string.Empty;
+                        lastStatus = "Spline Path reset from the current clip.";
+                    }
+                    else
+                    {
+                        lastError = resetError;
+                    }
+                }
+
+                EditorGUILayout.LabelField(
+                    $"{splineWaypointCount.intValue} Root2D samples",
+                    EditorStyles.miniLabel,
+                    GUILayout.Width(132f));
+            }
+            EditorGUILayout.HelpBox(
+                "Spline data is stored on this PlayableAsset. Unity's temporary editor proxy is created only while the clip is selected or edited. Only XZ is exported to Root2D.",
+                MessageType.None);
         }
 
         private void DrawConstraintReferenceList()

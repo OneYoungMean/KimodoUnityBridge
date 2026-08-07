@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import gc
 import json
 import os
@@ -148,7 +149,17 @@ def _pid_is_running(pid: int) -> bool:
             return int(code.value) == 259
         finally:
             ctypes.windll.kernel32.CloseHandle(handle)
-    return Path(f"/proc/{pid}").exists()
+    try:
+        # Signal 0 performs a portable POSIX existence/permission check without
+        # sending a signal. macOS has no /proc filesystem.
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as exc:
+        return exc.errno == errno.EPERM
+    return True
 
 
 def _bool_value(value: Any, default: bool = False) -> bool:

@@ -68,12 +68,14 @@ namespace KimodoBridge.Editor.Tests
             string previousModel = settings.DefaultBridgeModelName;
             KimodoTextEncoderMode previousEncoderMode = settings.DefaultTextEncoderMode;
             string previousModelsPath = settings.LocalModelsPath;
+            string previousPrompt = settings.DefaultPrompt;
 
             try
             {
                 settings.DefaultBridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
                 settings.DefaultTextEncoderMode = KimodoTextEncoderMode.HighPrecision;
                 settings.LocalModelsPath = Path.Combine(Path.GetTempPath(), "kimodo-warmup-models");
+                settings.DefaultPrompt = "configured project prompt";
 
                 KimodoGenerationRequestDto request =
                     KimodoSetupWizardWindow.CreateDefaultModelWarmupRequest(settings);
@@ -83,13 +85,18 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(request.models_root, Is.EqualTo(settings.LocalModelsPath));
                 Assert.That(request.duration, Is.EqualTo(1f));
                 Assert.That(request.steps, Is.EqualTo(1));
-                Assert.That(request.prompt, Is.Not.Empty);
+                Assert.That(request.prompt, Is.EqualTo("configured project prompt"));
+                Assert.That(settings.ResolvePrompt(string.Empty), Is.EqualTo("configured project prompt"));
+                Assert.That(
+                    settings.ResolvePrompt(KimodoPlayableClipGenerationSettings.DefaultPromptFallback),
+                    Is.EqualTo("configured project prompt"));
             }
             finally
             {
                 settings.DefaultBridgeModelName = previousModel;
                 settings.DefaultTextEncoderMode = previousEncoderMode;
                 settings.LocalModelsPath = previousModelsPath;
+                settings.DefaultPrompt = previousPrompt;
             }
         }
 

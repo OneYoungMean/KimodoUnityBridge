@@ -342,7 +342,7 @@ namespace KimodoBridge.Editor
                 if (timelineClip.asset is KimodoPlayableClip playableClip)
                 {
                     playableClip.bridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
-                    playableClip.motionPrompt = prompt ?? string.Empty;
+                    playableClip.motionPrompt = KimodoPlayableClipGenerationSettings.instance.ResolvePrompt(prompt);
                     playableClip.inOutConstraintMode = groupIndex == 0
                         ? KimodoInOutConstraintMode.None
                         : KimodoInOutConstraintMode.Outside;

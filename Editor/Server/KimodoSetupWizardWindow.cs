@@ -316,6 +316,16 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUI.BeginChangeCheck();
+            string defaultPrompt = EditorGUILayout.DelayedTextField(
+                new GUIContent("Default Prompt", "Default motion prompt used by Editor generation flows when no explicit prompt is provided."),
+                settings.DefaultPrompt);
+            if (EditorGUI.EndChangeCheck())
+            {
+                settings.DefaultPrompt = defaultPrompt;
+                settings.SaveSettings();
+            }
+
+            EditorGUI.BeginChangeCheck();
             int newIndex = EditorGUILayout.Popup(
                 new GUIContent("Default Model", "Default Kimodo model used by editor flows that do not explicitly override the model."),
                 selectedIndex,
@@ -440,7 +450,7 @@ namespace KimodoBridge.Editor
 
             return new KimodoGenerationRequestDto
             {
-                prompt = "a person standing still",
+                prompt = settings.DefaultPrompt,
                 duration = 1f,
                 steps = 1,
                 model = settings.DefaultBridgeModelName,

@@ -338,7 +338,8 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            string suggestedPrompt = previewPanel.GetSuggestedPrompt();
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            string suggestedPrompt = settings.ResolvePrompt(previewPanel.GetSuggestedPrompt());
             if (forcePromptUpdate ||
                 string.IsNullOrWhiteSpace(motionPrompt) ||
                 string.Equals(motionPrompt, lastSuggestedPrompt, StringComparison.Ordinal))

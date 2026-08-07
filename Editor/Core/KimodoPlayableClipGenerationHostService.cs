@@ -163,9 +163,10 @@ namespace KimodoBridge.Editor
                 externalConstraint?.RetargetAvatar,
                 resolvedModelName,
                 outputBindingObject);
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             return new KimodoEditorGenerateRequest
             {
-                Prompt = prompt,
+                Prompt = settings.ResolvePrompt(prompt),
                 ModelName = resolvedModelName,
                 TextEncoderMode = clip.textEncoderMode,
                 TargetFrameCount = targetFrameCount,
@@ -185,8 +186,8 @@ namespace KimodoBridge.Editor
                     generatedClip,
                     modelName),
                 OutputPlan = outputPlanSnapshot,
-                ModelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim() ?? string.Empty,
-                GenerationTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance.GenerationTimeoutSeconds,
+                ModelsRoot = settings.LocalModelsPath?.Trim() ?? string.Empty,
+                GenerationTimeoutSeconds = settings.GenerationTimeoutSeconds,
                 Token = token,
                 HasSyntheticAutoBeginConstraint = hasSyntheticAutoBeginConstraint,
                 DenseRootPath = denseRootPath,

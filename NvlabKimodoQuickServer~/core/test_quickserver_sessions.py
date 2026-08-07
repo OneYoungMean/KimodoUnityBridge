@@ -21,6 +21,26 @@ from kimodo.model import kimodo_model
 
 
 class QuickServerProtocolV2Tests(unittest.TestCase):
+    def test_posix_pid_check_uses_signal_zero(self):
+        with patch.object(quickserver_cli.os, "name", "posix"), patch.object(
+            quickserver_cli.os, "kill"
+        ) as kill:
+            self.assertTrue(quickserver_cli._pid_is_running(1234))
+
+        kill.assert_called_once_with(1234, 0)
+
+    def test_posix_pid_check_treats_missing_process_as_stopped(self):
+        with patch.object(quickserver_cli.os, "name", "posix"), patch.object(
+            quickserver_cli.os, "kill", side_effect=ProcessLookupError()
+        ):
+            self.assertFalse(quickserver_cli._pid_is_running(1234))
+
+    def test_posix_pid_check_treats_permission_denied_as_running(self):
+        with patch.object(quickserver_cli.os, "name", "posix"), patch.object(
+            quickserver_cli.os, "kill", side_effect=PermissionError()
+        ):
+            self.assertTrue(quickserver_cli._pid_is_running(1234))
+
     def test_seconds_to_frame_count_uses_tolerance_protected_ceiling(self):
         self.assertEqual(seconds_to_frame_count(4.5666666, 30.0), 137)
         self.assertEqual(seconds_to_frame_count(5.0, 30.0), 150)

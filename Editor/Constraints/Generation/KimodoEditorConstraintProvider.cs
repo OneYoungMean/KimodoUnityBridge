@@ -28,7 +28,7 @@ namespace KimodoBridge.Editor
             int generationFrames = generationFramesOverride ?? clip.generationFrames;
             var splinePathSamples = new List<KimodoMarkerSampleResult>();
             bool denseSplinePath = false;
-            if (!KimodoPlayableSplinePathUtility.TryBuildConstraintSamples(
+            if (!KimodoSplinePathEditorBridge.TryBuildConstraintSamples(
                     clip,
                     sourceClip,
                     generationFrames,

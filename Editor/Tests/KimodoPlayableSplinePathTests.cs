@@ -1,38 +1,34 @@
 using NUnit.Framework;
-using Unity.Mathematics;
-using UnityEngine.Splines;
+using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
     public sealed class KimodoPlayableSplinePathTests
     {
         [Test]
-        public void InsertKnotPreservingCurve_LeavesCurvePositionsUnchanged()
+        public void ResolveSplineCurveTime_UsesStoredKnotTimes()
         {
-            var spline = new Spline();
-            spline.Add(new BezierKnot(
-                new float3(0f, 0f, 0f),
-                float3.zero,
-                new float3(2f, 0f, 1f)));
-            spline.Add(new BezierKnot(
-                new float3(6f, 0f, 3f),
-                new float3(-2f, 0f, 1f),
-                float3.zero));
-
-            float3[] before = new float3[9];
-            for (int i = 0; i < before.Length; i++)
+            var clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            clip.SetSplinePathData(new[]
             {
-                before[i] = spline.EvaluatePosition(i / (float)(before.Length - 1));
-            }
+                new KimodoSplineKnotData { time = 0f },
+                new KimodoSplineKnotData { time = 0.5f },
+                new KimodoSplineKnotData { time = 1f }
+            });
 
-            KimodoPlayableSplinePathSceneEditor.InsertKnotPreservingCurve(spline, 0.42f);
+            Assert.That(
+                clip.TryResolveSplineCurveTime(0.5f, out int firstCurve, out float firstCurveTime),
+                Is.True);
+            Assert.That(firstCurve, Is.Zero);
+            Assert.That(firstCurveTime, Is.EqualTo(1f));
 
-            Assert.That(spline.Count, Is.EqualTo(3));
-            for (int i = 0; i < before.Length; i++)
-            {
-                float3 after = spline.EvaluatePosition(i / (float)(before.Length - 1));
-                Assert.That(math.distance(before[i], after), Is.LessThan(0.001f));
-            }
+            Assert.That(
+                clip.TryResolveSplineCurveTime(0.75f, out int secondCurve, out float secondCurveTime),
+                Is.True);
+            Assert.That(secondCurve, Is.EqualTo(1));
+            Assert.That(secondCurveTime, Is.EqualTo(0.5f));
+
+            Object.DestroyImmediate(clip);
         }
     }
 }

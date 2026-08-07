@@ -15,11 +15,13 @@ namespace KimodoBridge.Editor
         internal const int DefaultTimelineConstraintCacheTimeFrames = 60;
         internal const float MinGenerationTimeoutSeconds = 10f;
         internal const float DefaultGenerationTimeoutSeconds = 600f;
+        internal const string DefaultPromptFallback = "a man walk and say hello";
         private const string KeepCpuForceEditorPrefsKey = "KimodoBridge.KeepCpuForceExperimental";
 
         [SerializeField] private int maxGeneratedClips = DefaultGeneratedClipsLimit;
         [SerializeField] private int timelineConstraintCacheTimeFrames = DefaultTimelineConstraintCacheTimeFrames;
         [SerializeField] private string localModelsPath = string.Empty;
+        [SerializeField] private string defaultPrompt = DefaultPromptFallback;
         [SerializeField] private string defaultBridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
         [FormerlySerializedAs("defaultBridgeVramMode")]
         [SerializeField] private KimodoTextEncoderMode defaultTextEncoderMode = KimodoTextEncoderMode.HighPerformance;
@@ -28,6 +30,7 @@ namespace KimodoBridge.Editor
         [SerializeField] private bool writeResampledTimelineCacheClips;
         [SerializeField] private bool enableDebugLog;
         [SerializeField] private bool enableKimodoStaticGraph;
+        [SerializeField] private bool enableSplineExperimental;
         [SerializeField] private bool setupWizardCompleted;
         [SerializeField] private string quickServerPath = string.Empty;
         [SerializeField, HideInInspector] private bool advancedCurveFilterFoldout = true;
@@ -54,6 +57,21 @@ namespace KimodoBridge.Editor
         {
             get => localModelsPath ?? string.Empty;
             set => localModelsPath = value ?? string.Empty;
+        }
+
+        internal string DefaultPrompt
+        {
+            get => string.IsNullOrWhiteSpace(defaultPrompt) ? DefaultPromptFallback : defaultPrompt.Trim();
+            set => defaultPrompt = string.IsNullOrWhiteSpace(value) ? DefaultPromptFallback : value.Trim();
+        }
+
+        internal string ResolvePrompt(string prompt)
+        {
+            string trimmed = prompt?.Trim() ?? string.Empty;
+            return string.IsNullOrWhiteSpace(trimmed) ||
+                string.Equals(trimmed, DefaultPromptFallback, System.StringComparison.Ordinal)
+                    ? DefaultPrompt
+                    : trimmed;
         }
 
         internal string DefaultBridgeModelName
@@ -102,6 +120,12 @@ namespace KimodoBridge.Editor
             set => enableKimodoStaticGraph = value;
         }
 
+        internal bool EnableSplineExperimental
+        {
+            get => enableSplineExperimental;
+            set => enableSplineExperimental = value;
+        }
+
         internal static void DebugLog(string message)
         {
             if (instance.EnableDebugLog && !string.IsNullOrWhiteSpace(message))
@@ -145,6 +169,7 @@ namespace KimodoBridge.Editor
                 MinTimelineConstraintCacheTimeFrames,
                 MaxTimelineConstraintCacheTimeFrames);
             localModelsPath = localModelsPath ?? string.Empty;
+            defaultPrompt = DefaultPrompt;
             defaultBridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(defaultBridgeModelName);
             generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);
             keepCpuForceExperimental = effectiveKeepCpuForce;

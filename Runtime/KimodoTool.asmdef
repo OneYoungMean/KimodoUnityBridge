@@ -2,8 +2,7 @@
     "name": "KimodoTool",
     "rootNamespace": "KimodoBridge",
     "references": [
-        "GUID:f06555f75b070af458a003d92f9efb00",
-        "Unity.Splines"
+        "GUID:f06555f75b070af458a003d92f9efb00"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

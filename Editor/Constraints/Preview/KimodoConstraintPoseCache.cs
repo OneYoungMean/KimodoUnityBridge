@@ -444,16 +444,6 @@ namespace KimodoBridge.Editor
             return false;
         }
 
-        internal static bool HasEndEffectorTargetTransformChanges(
-            PoseCacheRenderContext context,
-            string entryId)
-        {
-            return TryGetSession(context, out ConstraintPosePreviewSession session) &&
-                TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) &&
-                entry?.EndEffectorMarker != null &&
-                entry.EndEffectorMarker.transform.hasChanged;
-        }
-
         internal static void ClearTransformChanges(PoseCacheRenderContext context, string entryId = null)
         {
             if (!TryGetSession(context, out ConstraintPosePreviewSession session) ||
@@ -495,6 +485,77 @@ namespace KimodoBridge.Editor
 
             rootBone = entry.Root;
             return rootBone != null;
+        }
+
+        internal static bool TryGetEndEffectorBone(
+            PoseCacheRenderContext context,
+            string entryId,
+            string constraintType,
+            out Transform bone)
+        {
+            bone = null;
+            if (!TryGetSession(context, out ConstraintPosePreviewSession session) ||
+                !TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) ||
+                entry?.TargetCache == null)
+            {
+                return false;
+            }
+
+            HumanBodyBones humanBone = ResolveEndEffectorBone(constraintType);
+            bone = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(entry.TargetCache, humanBone);
+            return bone != null;
+        }
+
+        internal static bool IsNonRootPoseTransform(
+            PoseCacheRenderContext context,
+            string entryId,
+            Transform transform)
+        {
+            if (transform == null ||
+                !TryGetSession(context, out ConstraintPosePreviewSession session) ||
+                !TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) ||
+                entry?.Root == null ||
+                (transform != entry.Root && !transform.IsChildOf(entry.Root)) ||
+                IsAuxiliaryTransform(entry, transform))
+            {
+                return false;
+            }
+
+            Transform hips = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
+                entry.TargetCache,
+                HumanBodyBones.Hips);
+            return transform != entry.Root && transform != hips;
+        }
+
+        internal static void RestoreNonRootBoneTranslations(
+            PoseCacheRenderContext context,
+            string entryId)
+        {
+            if (!TryGetSession(context, out ConstraintPosePreviewSession session) ||
+                !TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) ||
+                entry?.Root == null ||
+                entry.TargetCache?.boneTransforms == null ||
+                entry.TargetCache.bindLocalPositions == null)
+            {
+                return;
+            }
+
+            Transform hips = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
+                entry.TargetCache,
+                HumanBodyBones.Hips);
+            Transform[] bones = entry.TargetCache.boneTransforms;
+            Vector3[] bindPositions = entry.TargetCache.bindLocalPositions;
+            int count = Mathf.Min(bones.Length, bindPositions.Length);
+            for (int i = 0; i < count; i++)
+            {
+                Transform bone = bones[i];
+                if (bone == null || bone == entry.Root || bone == hips)
+                {
+                    continue;
+                }
+
+                bone.localPosition = bindPositions[i];
+            }
         }
 
         internal static bool TryGetPreviewRoot(PoseCacheRenderContext context, string entryId, out Transform root)

@@ -47,7 +47,7 @@ namespace KimodoBridge
     }
 
     [System.Serializable]
-    public class KimodoPlayableClip : AnimationPlayableAsset, IKimodoConstraintPreviewSelectable
+    public partial class KimodoPlayableClip : AnimationPlayableAsset, IKimodoConstraintPreviewSelectable
     {
         [Header("Kimodo Bridge")]
         public string bridgeModelName = DefaultBridgeModelName;
@@ -56,7 +56,7 @@ namespace KimodoBridge
         public KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPerformance;
 
         [TextArea(2, 6)]
-        public string motionPrompt = "a man walk and say hello";
+        public string motionPrompt = string.Empty;
         public int generationFrames = DEFAULT_FRAMES;
         public int diffusionSteps = 100;
         [HideInInspector, Range(0f, 4f)] public float textWeight = 1f;
@@ -83,8 +83,6 @@ namespace KimodoBridge
         public float ardyTargetMaxAcceleration = DefaultArdyTargetMaxAcceleration;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
-        [Tooltip("Enable the scene spline path for this Timeline clip. Its sampled points are exported as Root2D constraints during generation.")]
-        public bool splinePathEnabled;
         [Tooltip("When the first second has no effective constraint anchor, use the Timeline start pose as the anchor.")]
         public bool autoBeginAnchor = true;
         public bool isGenerated;

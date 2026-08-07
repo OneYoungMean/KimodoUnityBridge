@@ -52,7 +52,7 @@ namespace KimodoBridge.Editor
         {
             return new KimodoServerManagerSettingsProvider("Project/Kimodo Server Manager", SettingsScope.Project)
             {
-                keywords = new HashSet<string>(new[] { "Kimodo", "Server", "Model", "Bridge", "VRAM", "Cache", "Runtime", "Debug", "Resample", "Writeback" })
+                keywords = new HashSet<string>(new[] { "Kimodo", "Server", "Model", "Prompt", "Bridge", "VRAM", "Cache", "Runtime", "Debug", "Resample", "Writeback" })
             };
         }
 
@@ -175,6 +175,16 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUI.BeginChangeCheck();
+            string defaultPrompt = EditorGUILayout.DelayedTextField(
+                new GUIContent("Default Prompt", "Default motion prompt used by Editor generation flows when no explicit prompt is provided."),
+                settings.DefaultPrompt);
+            if (EditorGUI.EndChangeCheck())
+            {
+                settings.DefaultPrompt = defaultPrompt;
+                settings.SaveSettings();
+            }
+
+            EditorGUI.BeginChangeCheck();
             int newIdx = EditorGUILayout.Popup(new GUIContent("Default Model", "Default Kimodo model used by editor flows that do not explicitly override the model."), idx, options);
             KimodoTextEncoderMode newEncoderMode = (KimodoTextEncoderMode)EditorGUILayout.EnumPopup(
                 new GUIContent("Default Text Encoder Mode", "Default precision/performance preference. Device placement is automatic."),
@@ -267,6 +277,28 @@ namespace KimodoBridge.Editor
                 {
                     settings.EnableKimodoStaticGraph = enableKimodoStaticGraph;
                     settings.SaveSettings();
+                }
+
+                using (new EditorGUI.DisabledScope(!KimodoSplinePathEditorBridge.IsAvailable))
+                {
+                    EditorGUI.BeginChangeCheck();
+                    bool enableSplineExperimental = EditorGUILayout.Toggle(
+                        new GUIContent(
+                            "Enable Spline (Experimental)",
+                            "Enable editable spline paths for Kimodo Playable clips and export them as Root2D constraints."),
+                        settings.EnableSplineExperimental);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        settings.EnableSplineExperimental = enableSplineExperimental;
+                        settings.SaveSettings();
+                        KimodoSplinePathEditorBridge.ScheduleRefresh();
+                    }
+                }
+                if (!KimodoSplinePathEditorBridge.IsAvailable)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Optional dependency com.unity.splines is not installed. Install it to enable Spline Path editing.",
+                        MessageType.None);
                 }
 
                 EditorGUI.BeginChangeCheck();
