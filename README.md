@@ -3,10 +3,11 @@
 # License
 [Apache License 2.0](https://github.com/OneYoungMean/KimodoUnityBridge/blob/main/LICENSE)
 
-# 2.0.6 更新点速览
+# 2.0.12 更新点速览
 - **新增 ARDY 流式生成**、History/seek、Playback Reserve，以及 KMB History/Future Clip 约束协议/API。
 - **新增 `KimodoRuntimeMotionDriver`** ，支持 Runtime 连续生成、实时重定向、提示词更新与运行时约束。
 - **支持 Windows、macOS、Linux**；NVIDIA CUDA 是当前最完整的加速路线，Apple MPS、AMD/ROCm 与 Intel XPU 为实验性支持。
+- 增加曲线路径生成（实验性）
 - 重构生成管线和 QuickServer 通讯，统一 Session、任务状态、取消与 KMB 直接传输。
 - 缩减服务器包体，改进下载站点探测、错误提示和生成进度反馈。
 - 普通 Kimodo 的超过 10 秒生成现在由 QuickServer 自动均分为连续片段；后续片段复用前段末尾姿态完成过渡，整条约束仍按原始时间轴处理。
@@ -57,8 +58,8 @@
 - **免费!以及作者长期在线!** 作者只想让更多的Unity开发者能够用上便宜好用的动画！ 有issue必回!包君满意!
 
 ### 已知问题
-kimodo runtime生成暂时有点卡顿  
-feet/hand 手动调整约束位置暂时不可用  
+kimodo runtime生成暂时有点卡顿    
+metal平台会暂时遇到模型不可用的问题  
 
 ### Bug Report
 由于项目较大且开发时间较短，bug难免有所疏漏，在这里提前给用户老爷抱歉啦，如果你很不幸（或者说很幸运）遇到了bug，请提交一下[Editor.log](https://blog.csdn.net/codingriver/article/details/86551964)  ，方便作者改进和维护，感激不尽！
