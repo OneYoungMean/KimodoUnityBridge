@@ -474,7 +474,7 @@ namespace KimodoBridge.Editor
                 return null;
             }
 
-            GameObject sourceRoot = EditorUtility.InstanceIDToObject(rootId) as GameObject;
+            GameObject sourceRoot = KimodoEditorObjectIdUtility.ObjectFromId(rootId) as GameObject;
             if (sourceRoot == null)
             {
                 return null;

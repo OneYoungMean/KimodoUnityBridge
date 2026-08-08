@@ -26,7 +26,7 @@ namespace KimodoBridge.Editor
         {
             instance = null;
             error = string.Empty;
-            Animator sourceAnimator = EditorUtility.InstanceIDToObject(animatorId) as Animator;
+            Animator sourceAnimator = KimodoEditorObjectIdUtility.ObjectFromId(animatorId) as Animator;
             if (sourceAnimator == null || sourceAnimator.gameObject == null)
             {
                 error = "Timeline binding Animator is missing.";

@@ -260,4 +260,21 @@ namespace KimodoBridge.Editor
             return (path ?? string.Empty).Replace('\\', '/').Trim('/');
         }
     }
+
+    internal static class KimodoEditorObjectIdUtility
+    {
+        internal static UnityEngine.Object ObjectFromId(int objectId)
+        {
+            if (objectId == 0)
+            {
+                return null;
+            }
+
+#if UNITY_6000_5_OR_NEWER
+            return EditorUtility.EntityIdToObject(objectId);
+#else
+            return EditorUtility.InstanceIDToObject(objectId);
+#endif
+        }
+    }
 }

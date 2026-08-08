@@ -957,7 +957,7 @@ namespace KimodoBridge.Editor
 
         internal static bool IsClipStillOnTrack(int clipId, int trackId)
         {
-            TrackAsset track = EditorUtility.InstanceIDToObject(trackId) as TrackAsset;
+            TrackAsset track = KimodoEditorObjectIdUtility.ObjectFromId(trackId) as TrackAsset;
             if (clipId == 0 || track == null || track.timelineAsset == null)
             {
                 return false;
