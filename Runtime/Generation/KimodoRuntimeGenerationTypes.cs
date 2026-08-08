@@ -14,6 +14,8 @@ namespace KimodoBridge
         public int steps;
         public float text_weight = 1f;
         public string constraints_json;
+        // Optional JSON object forwarded as the protocol-level analysis_options field.
+        public string analysis_options_json;
         [NonSerialized] public List<KimodoArdyTimelineSegmentDto> ardy_timeline_segments;
         [NonSerialized] public List<KimodoArdyClipConstraint> ardy_future_clips;
         [NonSerialized] public byte[] ardy_history_kmb;
@@ -69,5 +71,6 @@ namespace KimodoBridge
         public int? resolvedSeed;
         public int startFrame;
         public int endFrameExclusive;
+        public string analysisJson;
     }
 }

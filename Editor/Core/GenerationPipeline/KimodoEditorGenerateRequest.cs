@@ -21,6 +21,7 @@ namespace KimodoBridge.Editor
         public float TextWeight = 1f;
         public int EffectiveSeed;
         public string ConstraintsJson;
+        public string AnalysisOptionsJson;
         public Func<AnimationClip> CreateTargetClip;
         public Func<AnimationClip, string, KimodoEditorGenerateOutputPlan> ResolveOutputPlan;
         public KimodoEditorGenerateOutputPlan OutputPlan;

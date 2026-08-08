@@ -20,6 +20,7 @@ from typing import Any
 
 from . import kimodo_runtime as runtime_helpers
 from . import ardy_backend
+from . import animation_analysis
 from . import quickserver_assets as assets
 from kimodo.frame_time import seconds_to_frame_count
 from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
@@ -780,17 +781,24 @@ def _execute_generate(
         cancel_event,
         emit_progress=False,
     )
+    analysis = animation_analysis.build_generation_analysis(task_request, model, output)
 
     output_format = runtime_helpers._resolve_requested_output_format(task_request)
     if output_format == "kmb_v1":
         payload = runtime_helpers._build_generate_flatbuffer_payload(model, output, sample_index=0)
-        return {
+        response = {
             "status": "done",
             "output_format": "kmb_v1",
             "byte_length": len(payload),
-        }, payload
+        }
+        if analysis is not None:
+            response["analysis"] = analysis
+        return response, payload
 
-    return runtime_helpers._build_generate_response(model, output, prompt, sample_index=0), None
+    response = runtime_helpers._build_generate_response(model, output, prompt, sample_index=0)
+    if analysis is not None:
+        response["analysis"] = analysis
+    return response, None
 
 
 def _build_streaming_status_message(
@@ -1688,6 +1696,31 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     close_session_locked(session, "Session closed.")
                                 reply({"status": "done", "session_id": bound_session_id})
                             return
+                        elif cmd == "runtime.activate":
+                            active_config = _normalize_runtime_config(request, session["default_config"])
+                            with queue_changed:
+                                if any(
+                                    current["queue"] or current.get("active") is not None
+                                    for current in state["sessions"].values()
+                                ):
+                                    raise ValueError("Cannot activate a runtime while a generation is queued or running.")
+                                session["default_config"] = dict(active_config)
+                            begin_command()
+                            try:
+                                publish_state("loading_runtime")
+                                runtime = get_runtime(session, active_config)
+                                reply(_attach_runtime_metadata(
+                                    {
+                                        "status": "done",
+                                        "message": "Kimodo runtime activated.",
+                                        "model": str(runtime.get("resolved_model_name") or active_config["model"]),
+                                        "runtime_device": str(runtime.get("runtime_device") or ""),
+                                    },
+                                    runtime.get("text_encoder_decision"),
+                                ))
+                            finally:
+                                publish_state("ready")
+                                end_command()
                         elif cmd == "generate":
                             attachments = _read_kmb_attachments(file, request)
                             task_id = resolve_request_task_id(request)

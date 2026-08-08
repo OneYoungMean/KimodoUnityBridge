@@ -22,6 +22,7 @@ namespace KimodoBridge.Editor
         public string Prompt;
         public int Seed;
         public string MotionJsonCompact;
+        public string AnalysisJson;
         public AnimationClip GeneratedClip;
         public AnimationClip RawBoneClip;
         public string ArdyMotionCachePath;

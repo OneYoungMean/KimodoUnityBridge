@@ -2,7 +2,7 @@
 
 > 适用范围：KimodoUnityBridge v2.0.1，Unity Editor / Edit Mode
 
-Kimodo 提供 5 个面向自动化调用的 Tool，可根据角色和提示词生成独立 `AnimationClip` 资产，或直接在 Timeline 中创建并生成动画。
+Kimodo 提供 10 个面向自动化调用的 Tool，可查询可用模型、维护 QuickServer，并根据角色和提示词生成独立 `AnimationClip` 资产，或直接在 Timeline 中创建并生成动画。
 
 当前实现是**框架无关的 Unity Editor Tool 层**：`KimodoMcpTools` 负责 Tool 定义、JSON 参数解析和实际调用，但项目不会自动把这些 Tool 注册到某个 MCP Server。使用 Unity MCP 插件或自建 MCP Server 时，适配层需要把 Tool 名和 JSON 参数转发给本页介绍的统一入口。
 
@@ -115,10 +115,40 @@ Project 中的角色资产使用 `Assets/...` 路径，例如：
 | Tool | 用途 |
 | --- | --- |
 | `kimodo_list_characters` | 枚举可用于生成的 Humanoid 角色 |
+| `kimodo_list_models` | 枚举 QuickServer 支持的动作模型 |
+| `kimodo_list_text_encoder_models` | 枚举可选的文本编码器配置 |
+| `kimodo_reinstall_server` | 停止并重装 QuickServer，然后用高性能文本编码器激活默认模型 |
+| `kimodo_open_timeline_session` | 创建并加载一个临时 TimelineAsset，供同一角色的生成结果按顺序写回 |
+| `kimodo_close_timeline_session` | 关闭会话、清空 Timeline Window 选中并删除临时 TimelineAsset |
 | `kimodo_generate_animation_asset` | 根据角色和提示词生成独立 AnimationClip 资产 |
 | `kimodo_generate_timeline_animation` | 在指定 Director 的 Timeline 中创建并生成 Kimodo Clip |
 | `kimodo_get_generation` | 查询异步生成进度和结果 |
 | `kimodo_cancel_generation` | 取消仍在运行的生成任务 |
+
+
+
+## kimodo_list_models / kimodo_list_text_encoder_models
+
+这两个接口不启动推理，分别返回当前 Unity Bridge 支持的动作模型，以及文本编码器配置。生成时把返回的 `model` 和 `text_encoder_model` 原样传入即可。`high_performance` 不是单一权重文件名，而是让 QuickServer 根据设备与显存自动选择 INT8/NF4 路线；`high_precision` 优先使用 FP16 路线。
+
+
+## kimodo_reinstall_server
+
+该接口会停止当前 Bridge、重装打包的 `NvlabKimodoQuickServer~` 运行目录，并保留已有 `models` 缓存；重装完成后自动用 Project Settings 的默认动作模型和 `high_performance` 文本编码配置激活运行时。激活阶段可能下载缺失模型并等待加载完成，返回 `ok: true` 才表示可生成。运行中的生成会先被停止，建议在批量生成前调用。
+
+
+## kimodo_open_timeline_session / kimodo_close_timeline_session
+
+`kimodo_open_timeline_session` 会在 `Assets/KimodoGeneratedClips/Timelines` 创建唯一的临时 `.playable` TimelineAsset，创建并绑定一个新的 AnimationTrack，然后把指定场景 Director 加载到此资产并打开 Timeline Window。同一 Session 下的资产生成会在提交时依次预留时段。
+
+打开会话不会修改原 TimelineAsset；但 Director 会在会话期间指向该临时资产。关闭时，若 Director 仍指向会话资产，则会恢复其打开会话前的 Timeline 和播放时间；Timeline Window 会清空该会话的 Clip 选中和检查对象，临时 `.playable` 会被删除。已生成的独立 `.anim` 不会删除。运行中的生成任务必须先取消或结束，才能关闭 Session。
+
+| 字段 | 类型 | 必需 | 说明 |
+| --- | --- | --- | --- |
+| `director_ref` | string | 打开时是 | 场景 `PlayableDirector` 或其 GameObject 的 `GlobalObjectId` |
+| `character_ref` | string | 打开时是 | 场景 Humanoid 角色的 `GlobalObjectId` |
+| `start_seconds` | number | 否 | 首段起始秒；默认 `0` |
+| `timeline_session_id` | string | 关闭时是 | 打开接口返回的 Session id |
 
 
 
@@ -182,17 +212,42 @@ Project 中的角色资产使用 `Assets/...` 路径，例如：
 | `prompt` | string | 是 | — | 动作提示词 |
 | `duration_seconds` | number | 否 | `5` | 动画时长，必须为有限正数 |
 | `model` | string | 否 | Project Settings 默认模型 | Kimodo 模型名 |
+| `text_encoder_model` | string | 否 | Project Settings 默认值 | `high_performance` 或 `high_precision`；高性能配置会根据显存自动选择 INT8/NF4 路线 |
 | `seed` | integer | 否 | 随机 | 固定后可用于复现同配置生成 |
 | `diffusion_steps` | integer | 否 | 模型默认值 | 普通 Kimodo 省略时为 100；ARDY 省略时使用模型步数 |
 | `text_weight` | number | 否 | `1` | 提示词权重，限制在 `0..4` |
 | `output_mode` | string | 否 | `humanoid_muscle` | 输出格式，见下表 |
 | `output_folder` | string | 否 | `Assets/KimodoGeneratedClips` | 输出目录，必须位于 `Assets` 下 |
 | `asset_name` | string | 否 | 角色名加时间戳 | 资产名，不需要 `.anim` 扩展名 |
+| `timeline_session_id` | string | 否 | — | 来自 `kimodo_open_timeline_session`；生成成功后将 AnimationClip 写入该 Timeline |
+| `analysis_options` | object | 否 | — | 可选分析配置；见下方关键帧分析 |
 | `pose_refs` | string[] | 否 | 空 | 场景 Humanoid GameObject 或 Animator 的 `GlobalObjectId`，作为姿态约束 |
 | `times` | number[] | 否 | 首尾等间隔 | 每个姿态在生成动画内的秒数；提供时数量必须与 `pose_refs` 相等 |
 | `constraint_types` | string[] | 否 | 每项 `fullbody` | 每个姿态的约束类型，只接受 `fullbody` 或 `root2d`，数量必须与 `pose_refs` 相等 |
 
 省略 `times` 时：1 个姿态位于首帧；2 个位于首帧和尾帧；更多姿态在首尾帧之间等间隔分布。接口只读取每个对象调用时的当前 Humanoid 姿态，不会修改其 Animator、Avatar 或 Transform。
+
+### Timeline Session 与关键帧分析
+
+先打开 Session，再把返回的 `timeline_session_id` 传给资产生成请求。每次请求在**提交时**预留其 `duration_seconds`，所以并行任务也按提交顺序落在同一 AnimationTrack 上，而不是按完成顺序错位。
+
+```json
+{
+  "director_ref": "GlobalObjectId_V1-2-...",
+  "character_ref": "GlobalObjectId_V1-2-...",
+  "start_seconds": 0
+}
+```
+
+调用 `kimodo_open_timeline_session` 会返回 `timeline_session_id`、新建的 `timeline_asset_ref` / `timeline_asset_path`、`track_ref` 和下一段开始时间。生成任务完成后，`kimodo_get_generation` 会返回 Timeline Clip 资产引用；若开启关键帧分析，还会返回 `analysis_track_ref`。
+
+```json
+"analysis_options": {
+  "keyframes": { "enabled": true, "max_count": 8 }
+}
+```
+
+关键帧分析是 Python 侧的确定性后处理：保留首尾帧，并结合根加速度、转向、全身姿态变化、脚接触切换和时间覆盖选帧。结果随同生成完成响应的 `analysis.keyframes` 返回；每项的 `saliency` 是连续 `0..1` 值，`0` 表示平稳或普通，`1` 表示该生成片段内最显著的运动事件。首尾帧和时间覆盖仍可能被离散选中，因此“是否列为关键帧”不等同于显著性为二值。Session 存在时会额外写入 `Kimodo Analysis` MarkerTrack，供 Agent 按标记时间截图。它不会改变推理、KMB 载荷或生成出的 AnimationClip。
 
 ### 输出格式
 
@@ -261,10 +316,12 @@ Project 中的角色资产使用 `Assets/...` 路径，例如：
 | `start_seconds` | number | 否 | `0` | Timeline 起始时间，必须为有限非负数 |
 | `duration_seconds` | number | 否 | `5` | Clip 时长，必须为有限正数 |
 | `model` | string | 否 | Project Settings 默认模型 | Kimodo 模型名 |
+| `text_encoder_model` | string | 否 | Project Settings 默认值 | `high_performance` 或 `high_precision`；高性能配置会根据显存自动选择 INT8/NF4 路线 |
 | `seed` | integer | 否 | 随机 | 本次生成使用的固定种子 |
 | `diffusion_steps` | integer | 否 | 模型默认值 | 扩散步数 |
 | `text_weight` | number | 否 | `1` | 提示词权重，限制在 `0..4` |
 | `use_constraints` | boolean | 否 | `true` | 是否走现有 Timeline Constraint / Auto Begin 流程 |
+| `analysis_options` | object | 否 | — | 可选关键帧分析配置；完成后随 `kimodo_get_generation` 返回 |
 | `pose_refs` | string[] | 否 | 空 | 场景 Humanoid GameObject 或 Animator 的 `GlobalObjectId`，作为姿态约束 |
 | `times` | number[] | 否 | 首尾等间隔 | 每个姿态相对生成 Clip 开头的秒数；提供时数量必须与 `pose_refs` 相等 |
 | `constraint_types` | string[] | 否 | 每项 `fullbody` | 每个姿态的约束类型，只接受 `fullbody` 或 `root2d`，数量必须与 `pose_refs` 相等 |

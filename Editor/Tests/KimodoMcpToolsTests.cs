@@ -9,7 +9,7 @@ namespace KimodoBridge.Editor.Tests
     public sealed class KimodoMcpToolsTests
     {
         [Test]
-        public void ToolDefinitions_ExposeTheFiveStableEntrypoints()
+        public void ToolDefinitions_ExposeTheStableEntrypoints()
         {
             JObject definitions = JObject.Parse(KimodoMcpTools.GetToolDefinitionsJson());
             var names = definitions["tools"]
@@ -20,11 +20,34 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(names, Is.EqualTo(new[]
             {
                 KimodoMcpTools.ListCharactersTool,
+                KimodoMcpTools.ListModelsTool,
+                KimodoMcpTools.ListTextEncoderModelsTool,
+                KimodoMcpTools.ReinstallServerTool,
+                KimodoMcpTools.OpenTimelineSessionTool,
+                KimodoMcpTools.CloseTimelineSessionTool,
                 KimodoMcpTools.GenerateAnimationAssetTool,
                 KimodoMcpTools.GenerateTimelineAnimationTool,
                 KimodoMcpTools.GetGenerationTool,
                 KimodoMcpTools.CancelGenerationTool
             }));
+        }
+
+        [Test]
+        public void OpenTimelineSessionSchema_UsesATemporaryTimelineAsset()
+        {
+            JObject definitions = JObject.Parse(KimodoMcpTools.GetToolDefinitionsJson());
+            JObject openTool = definitions["tools"]
+                .Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == KimodoMcpTools.OpenTimelineSessionTool);
+            JObject closeTool = definitions["tools"]
+                .Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == KimodoMcpTools.CloseTimelineSessionTool);
+            JObject properties = (JObject)openTool["inputSchema"]["properties"];
+
+            Assert.That(openTool.Value<string>("description"), Does.Contain("temporary TimelineAsset"));
+            Assert.That(properties.Property("track_ref"), Is.Null);
+            Assert.That(properties["start_seconds"].Value<string>("description"), Does.Contain("defaults to 0"));
+            Assert.That(closeTool.Value<string>("description"), Does.Contain("delete its temporary TimelineAsset"));
         }
 
         [TestCase(null, "humanoid_muscle")]
@@ -91,7 +114,14 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     properties["constraint_types"]["items"]["enum"].Values<string>(),
                     Is.EqualTo(new[] { "fullbody", "root2d" }));
+                Assert.That(properties["analysis_options"].Value<string>("type"), Is.EqualTo("object"));
+                Assert.That(properties["model"].Value<string>("type"), Is.EqualTo("string"));
+                Assert.That(properties["text_encoder_model"]["enum"].Values<string>(),
+                    Is.EqualTo(new[] { "high_performance", "high_precision" }));
             }
+            JObject assetProperties = (JObject)generateTools
+                .Single(tool => tool.Value<string>("name") == KimodoMcpTools.GenerateAnimationAssetTool)["inputSchema"]["properties"];
+            Assert.That(assetProperties["timeline_session_id"].Value<string>("type"), Is.EqualTo("string"));
         }
 
         [Test]
@@ -128,6 +158,19 @@ namespace KimodoBridge.Editor.Tests
                 KimodoMcpTools.ResolvePoseConstraintTypes(2, new[] { "root2d" }));
             Assert.Throws<InvalidOperationException>(() =>
                 KimodoMcpTools.ResolvePoseConstraintTypes(1, new[] { "left-hand" }));
+        }
+
+        [TestCase("high_performance", KimodoTextEncoderMode.HighPerformance)]
+        [TestCase("high-precision", KimodoTextEncoderMode.HighPrecision)]
+        public void ResolveTextEncoderMode_UsesListedProfiles(string value, KimodoTextEncoderMode expected)
+        {
+            Assert.That(KimodoMcpTools.ResolveTextEncoderMode(value), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void ResolveTextEncoderMode_RejectsUnknownProfile()
+        {
+            Assert.Throws<InvalidOperationException>(() => KimodoMcpTools.ResolveTextEncoderMode("fp8"));
         }
     }
 }

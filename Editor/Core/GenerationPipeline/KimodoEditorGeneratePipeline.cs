@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -297,7 +299,8 @@ namespace KimodoBridge.Editor
                 Message = "ARDY generation complete.",
                 RawStatus = "done",
                 MotionRepFingerprint = profile.MotionRepFingerprint,
-                ResolvedSeed = directResult.ResolvedSeed
+                ResolvedSeed = directResult.ResolvedSeed,
+                AnalysisJson = directResult.AnalysisJson
             };
         }
 
@@ -323,6 +326,11 @@ namespace KimodoBridge.Editor
 
             result.MotionData = trimmed;
             result.MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(trimmed);
+            result.AnalysisJson = TrimAnalysisForOutput(
+                result.AnalysisJson,
+                request.RuntimeTrimStartFrame,
+                request.TargetFrameRate,
+                trimmed.FrameCount);
             if (result.MotionBytes != null ||
                 string.Equals(result.MotionFormat, "kmb_v1", StringComparison.OrdinalIgnoreCase))
             {
@@ -361,7 +369,8 @@ namespace KimodoBridge.Editor
                 prompt,
                 runtimeResult.MotionJsonCompact,
                 request.TargetClip,
-                rawBoneClip);
+                rawBoneClip,
+                runtimeResult.AnalysisJson);
         }
 
         private static void FinalizeArdyLeadingGuardOutput(
@@ -684,6 +693,7 @@ namespace KimodoBridge.Editor
                 steps = request.DiffusionSteps,
                 text_weight = Mathf.Clamp(request.TextWeight, 0f, 4f),
                 constraints_json = request.ConstraintsJson ?? string.Empty,
+                analysis_options_json = request.AnalysisOptionsJson ?? string.Empty,
                 model = modelName,
                 text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(request.TextEncoderMode),
                 simulate_free_vram_gb = KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental ? 0 : (int?)null,
@@ -720,7 +730,8 @@ namespace KimodoBridge.Editor
             string prompt,
             string motionJson,
             AnimationClip generatedClip,
-            AnimationClip rawBoneClip)
+            AnimationClip rawBoneClip,
+            string analysisJson)
         {
             ThrowIfCanceled(request);
             request.Progress?.Invoke(KimodoBridgeCommandStage.Finalize, "Finalizing generated assets...");
@@ -732,6 +743,7 @@ namespace KimodoBridge.Editor
                 Prompt = prompt,
                 Seed = request.EffectiveSeed,
                 MotionJsonCompact = motionJson,
+                AnalysisJson = analysisJson,
                 GeneratedClip = generatedClip,
                 RawBoneClip = rawBoneClip,
                 ArdyMotionCachePath = request.GeneratedArdyMotionCachePath,
@@ -743,6 +755,47 @@ namespace KimodoBridge.Editor
         private static void ThrowIfCanceled(KimodoEditorGenerateRequest request)
         {
             request?.Token.ThrowIfCancellationRequested();
+        }
+
+        private static string TrimAnalysisForOutput(
+            string analysisJson,
+            int trimStartFrame,
+            float frameRate,
+            int frameCount)
+        {
+            if (string.IsNullOrWhiteSpace(analysisJson) || trimStartFrame <= 0 || frameRate <= 0f)
+            {
+                return analysisJson;
+            }
+
+            try
+            {
+                var analysis = JObject.Parse(analysisJson);
+                if (analysis["keyframes"] is not JArray keyframes)
+                {
+                    return analysisJson;
+                }
+
+                var trimmed = new JArray();
+                foreach (JToken keyframe in keyframes)
+                {
+                    int frame = keyframe.Value<int?>("frame") ?? 0;
+                    frame -= trimStartFrame;
+                    if (frame < 0 || frame >= frameCount)
+                    {
+                        continue;
+                    }
+                    keyframe["frame"] = frame;
+                    keyframe["time"] = frame / (double)frameRate;
+                    trimmed.Add(keyframe);
+                }
+                analysis["keyframes"] = trimmed;
+                return analysis.ToString(Formatting.None);
+            }
+            catch
+            {
+                return analysisJson;
+            }
         }
 
         private static void CreateTargetClip(KimodoEditorGenerateRequest request)

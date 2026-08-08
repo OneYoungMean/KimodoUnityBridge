@@ -24,6 +24,7 @@ namespace KimodoBridge
         public int StartFrame { get; set; }
         public int EndFrameExclusive { get; set; }
         public double? ArdyPlaybackReserveSeconds { get; set; }
+        public string AnalysisJson { get; set; }
     }
 
     public sealed class KimodoBridgeService : IDisposable
@@ -122,6 +123,31 @@ namespace KimodoBridge
             await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
         }
 
+        internal async Task<JObject> ActivateRuntimeAsync(
+            string model,
+            string textEncoderMode,
+            string modelsRoot,
+            Action<string> progress,
+            CancellationToken token)
+        {
+            ThrowIfStopRequested();
+            await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
+            BridgeProtocolResponse response = await protocolClient.ActivateRuntimeAsync(
+                currentHost,
+                currentPort,
+                model,
+                textEncoderMode,
+                modelsRoot,
+                token).ConfigureAwait(false);
+            JObject header = response?.Header ?? throw new InvalidOperationException("Bridge activation returned no response.");
+            if (!string.Equals(header.Value<string>("status"), "done", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(header.Value<string>("message") ?? "Bridge runtime activation failed.");
+            }
+            ReportProgress(progress, "Kimodo runtime activated.");
+            return header;
+        }
+
         internal async Task<KimodoBridgeGenerationResult> GenerateAsync(
             KimodoGenerationRequestDto request,
             Action<string> progress,
@@ -171,6 +197,7 @@ namespace KimodoBridge
                 string responseMessage = header?.Value<string>("message") ?? string.Empty;
                 string outputFormat = header?.Value<string>("output_format") ?? string.Empty;
                 string motionJson = header?.Value<string>("motion_json_compact");
+                string analysisJson = header?["analysis"]?.ToString(Newtonsoft.Json.Formatting.None);
                 string errorCode = header?.Value<string>("error_code") ?? string.Empty;
                 string resolvedEncoderMode = header?.Value<string>("text_encoder_mode") ?? string.Empty;
                 string resolvedEncoderRoute = header?.Value<string>("text_encoder_route") ?? string.Empty;
@@ -221,7 +248,8 @@ namespace KimodoBridge
                         ResolvedSeed = header?.Value<int?>("resolved_seed"),
                         StartFrame = header?.Value<int?>("start_frame") ?? 0,
                         EndFrameExclusive = header?.Value<int?>("end_frame_exclusive") ?? 0,
-                        ArdyPlaybackReserveSeconds = header?.Value<double?>("ardy_playback_reserve_seconds")
+                        ArdyPlaybackReserveSeconds = header?.Value<double?>("ardy_playback_reserve_seconds"),
+                        AnalysisJson = analysisJson
                     };
                 }
 
@@ -236,7 +264,8 @@ namespace KimodoBridge
                     MotionJsonCompact = motionJson,
                     MotionFormat = string.IsNullOrWhiteSpace(outputFormat) ? "json_compact" : outputFormat,
                     RawStatus = status,
-                    Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage
+                    Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge generation complete." : responseMessage,
+                    AnalysisJson = analysisJson
                 };
             }
             catch (IOException exception) when (requestSessionVersion != Volatile.Read(ref sessionVersion))

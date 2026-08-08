@@ -1873,8 +1873,10 @@ def execute_stream_generate(
     progress: Callable[[str], None] | None = None,
 ) -> tuple[ArdySession | None, dict[str, Any], bytes | None]:
     from core import kimodo_runtime
+    from core import animation_analysis
 
     fixed_length = "duration" in request
+    analysis_options = request.get("analysis_options")
     if fixed_length:
         try:
             duration_seconds = float(request.get("duration"))
@@ -1895,11 +1897,15 @@ def execute_stream_generate(
             progress,
             cancel_event,
         )
-        request = {"time_as_double": request.get("time_as_double", 0.0)}
+        request = {
+            "time_as_double": request.get("time_as_double", 0.0),
+            "analysis_options": analysis_options,
+        }
     try:
         started = time.perf_counter()
         metadata, output = session.generate(request, attachments, model, cancel_event)
         payload = b""
+        analysis = None
         if output:
             output = kimodo_runtime._restore_kimodo_output_origin(
                 output,
@@ -1907,12 +1913,14 @@ def execute_stream_generate(
                 model,
             )
             payload = kimodo_runtime._build_generate_flatbuffer_payload(model, output, sample_index=0)
+            analysis = animation_analysis.build_generation_analysis(
+                {"analysis_options": analysis_options}, model, output)
         elapsed = time.perf_counter() - started
         session.record_response_duration(
             elapsed,
             int(metadata["end_frame_exclusive"]) - int(metadata["start_frame"]),
         )
-        return (None if fixed_length else session), {
+        response = {
             "status": "done",
             "output_format": "kmb_v1",
             "byte_length": len(payload),
@@ -1922,7 +1930,10 @@ def execute_stream_generate(
             "ardy_adaptive_playback_reserve": session.settings.adaptive_playback_reserve,
             "ardy_server_response_seconds": elapsed,
             **metadata,
-        }, payload or None
+        }
+        if analysis is not None:
+            response["analysis"] = analysis
+        return (None if fixed_length else session), response, payload or None
     finally:
         if fixed_length:
             session.close()

@@ -179,6 +179,7 @@ namespace KimodoBridge.Editor
                 TextWeight = 1f,
                 EffectiveSeed = effectiveSeed,
                 ConstraintsJson = constraintsJson,
+                AnalysisOptionsJson = externalConstraint?.AnalysisOptionsJson ?? string.Empty,
                 CreateTargetClip = () => CreateTimelineTargetClip(clip),
                 ResolveOutputPlan = (generatedClip, modelName) => ResolveTimelineOutputPlan(
                     outputPlanSnapshot,
