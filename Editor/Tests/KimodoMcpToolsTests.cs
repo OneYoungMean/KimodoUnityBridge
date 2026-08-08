@@ -21,7 +21,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 KimodoMcpTools.ListCharactersTool,
                 KimodoMcpTools.ListModelsTool,
-                KimodoMcpTools.ListTextEncoderModelsTool,
+                KimodoMcpTools.HelpTool,
                 KimodoMcpTools.ReinstallServerTool,
                 KimodoMcpTools.OpenTimelineSessionTool,
                 KimodoMcpTools.CloseTimelineSessionTool,
@@ -30,6 +30,24 @@ namespace KimodoBridge.Editor.Tests
                 KimodoMcpTools.GetGenerationTool,
                 KimodoMcpTools.CancelGenerationTool
             }));
+        }
+
+        [Test]
+        public void ModelListAndHelpSchemas_UseTheServerAsTheSourceOfTruth()
+        {
+            JObject definitions = JObject.Parse(KimodoMcpTools.GetToolDefinitionsJson());
+            JObject modelList = definitions["tools"]
+                .Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == KimodoMcpTools.ListModelsTool);
+            JObject help = definitions["tools"]
+                .Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == KimodoMcpTools.HelpTool);
+
+            Assert.That(modelList.Value<string>("description"), Does.Contain("QuickServer"));
+            Assert.That(help.Value<string>("description"), Does.Contain("protocol"));
+            Assert.That(definitions["tools"].Values<JObject>()
+                .Select(tool => tool.Value<string>("name")),
+                Does.Not.Contain("kimodo_list_text_encoder_models"));
         }
 
         [Test]

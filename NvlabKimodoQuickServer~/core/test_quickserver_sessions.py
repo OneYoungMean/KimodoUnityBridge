@@ -21,6 +21,41 @@ from kimodo.model import kimodo_model
 
 
 class QuickServerProtocolV2Tests(unittest.TestCase):
+    def test_protocol_help_lists_model_configuration_command(self):
+        commands = quickserver_cli._build_protocol_help()["commands"]
+        self.assertIn("runtime.list_models", [item["cmd"] for item in commands])
+        self.assertIn("help", [item["cmd"] for item in commands])
+
+    def test_model_configurations_are_flattened_by_model_and_encoder(self):
+        runtime_profile = SimpleNamespace(
+            runtime_device="cuda:0",
+            free_vram_gb=32.0,
+            nf4_available=True,
+            int8_accelerator_available=True,
+            fp16_accelerator_available=True,
+        )
+        result = quickserver_cli._build_model_configurations(
+            "C:/runtime",
+            {"model": "Kimodo-SOMA-RP-v1", "text_encoder_mode": "high_performance"},
+            runtime_profile,
+        )
+
+        self.assertEqual(
+            len(result["configs"]),
+            2 * (len(quickserver_cli.assets.MAIN_MODELS) + len(quickserver_cli.assets.MOTION_MODEL_PROFILES)),
+        )
+        default = next(item for item in result["configs"] if item["default"])
+        self.assertEqual(default["model"], "Kimodo-SOMA-RP-v1")
+        self.assertEqual(default["text_encoder_model"], "high_performance")
+        self.assertEqual(default["text_encoder_route"], "nf4")
+
+        ardy_result = quickserver_cli._build_model_configurations(
+            "C:/runtime",
+            {"model": "ardy-core", "text_encoder_mode": "high_precision"},
+            runtime_profile,
+        )
+        self.assertEqual(ardy_result["default"]["model"], "ARDY-Core-RP-20FPS-Horizon40")
+
     def test_posix_pid_check_uses_signal_zero(self):
         with patch.object(quickserver_cli.os, "name", "posix"), patch.object(
             quickserver_cli.os, "kill"

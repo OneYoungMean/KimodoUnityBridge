@@ -22,7 +22,7 @@ namespace KimodoBridge.Editor
     {
         public const string ListCharactersTool = "kimodo_list_characters";
         public const string ListModelsTool = "kimodo_list_models";
-        public const string ListTextEncoderModelsTool = "kimodo_list_text_encoder_models";
+        public const string HelpTool = "kimodo_help";
         public const string ReinstallServerTool = "kimodo_reinstall_server";
         public const string GenerateAnimationAssetTool = "kimodo_generate_animation_asset";
         public const string GenerateTimelineAnimationTool = "kimodo_generate_timeline_animation";
@@ -47,10 +47,10 @@ namespace KimodoBridge.Editor
                             Optional("include_project_assets", "boolean", "Also scan prefab/model assets under Assets."),
                             Optional("max_results", "integer", "Maximum returned characters; defaults to 100."))),
                     Tool(ListModelsTool,
-                        "List model names supported by the installed Kimodo QuickServer and identify the project default.",
+                        "List every model and text encoder configuration currently viable on the Kimodo QuickServer.",
                         Properties()),
-                    Tool(ListTextEncoderModelsTool,
-                        "List text encoder profiles accepted by Kimodo generation. High performance chooses the local INT8/NF4 route automatically.",
+                    Tool(HelpTool,
+                        "Return the Kimodo QuickServer built-in protocol reference.",
                         Properties()),
                     Tool(ReinstallServerTool,
                         "Stop, reinstall the packaged Kimodo QuickServer runtime, then activate the project default model with high performance text encoding.",
@@ -122,8 +122,8 @@ namespace KimodoBridge.Editor
                     return ListCharacters(argumentsJson);
                 case ListModelsTool:
                     return ListModels(argumentsJson);
-                case ListTextEncoderModelsTool:
-                    return ListTextEncoderModels(argumentsJson);
+                case HelpTool:
+                    return GetServerHelp(argumentsJson);
                 case ReinstallServerTool:
                     return ReinstallServer(argumentsJson);
                 case OpenTimelineSessionTool:
@@ -200,56 +200,32 @@ namespace KimodoBridge.Editor
         {
             return Execute(argumentsJson, _ =>
             {
-                string defaultModel = ResolveModelName(null);
-                var models = new JArray();
-                foreach (string modelName in KimodoBridgeServerTool.SupportedModelNames)
-                {
-                    bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile ardyProfile);
-                    models.Add(new JObject
-                    {
-                        ["model"] = modelName,
-                        ["backend"] = isArdy ? "ardy" : "kimodo",
-                        ["default"] = string.Equals(modelName, defaultModel, StringComparison.OrdinalIgnoreCase)
-                    });
-                }
-                return Ok(new JObject
-                {
-                    ["models"] = models,
-                    ["default_model"] = defaultModel,
-                    ["count"] = models.Count
-                });
+                EnsureCanManageServer();
+                KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+                JObject response = KimodoBridgeService.Shared.ListModelConfigurationsAsync(
+                    ResolveModelName(null),
+                    KimodoTextEncoderModeProtocol.ToProtocolValue(settings.DefaultTextEncoderMode),
+                    settings.LocalModelsPath?.Trim() ?? string.Empty,
+                    null,
+                    CancellationToken.None).GetAwaiter().GetResult();
+                var result = new JObject(response);
+                result.Remove("status");
+                result["count"] = (result["configs"] as JArray)?.Count ?? 0;
+                return Ok(result);
             });
         }
 
-        public static string ListTextEncoderModels(string argumentsJson = "{}")
+        public static string GetServerHelp(string argumentsJson = "{}")
         {
             return Execute(argumentsJson, _ =>
             {
-                string defaultModel = KimodoTextEncoderModeProtocol.ToProtocolValue(
-                    KimodoPlayableClipGenerationSettings.instance.DefaultTextEncoderMode);
-                var models = new JArray
-                {
-                    new JObject
-                    {
-                        ["text_encoder_model"] = KimodoTextEncoderModeProtocol.HighPerformance,
-                        ["label"] = "High Performance",
-                        ["default"] = string.Equals(defaultModel, KimodoTextEncoderModeProtocol.HighPerformance, StringComparison.Ordinal),
-                        ["description"] = "Automatically selects the local INT8/NF4 route based on device and free VRAM."
-                    },
-                    new JObject
-                    {
-                        ["text_encoder_model"] = KimodoTextEncoderModeProtocol.HighPrecision,
-                        ["label"] = "High Precision",
-                        ["default"] = string.Equals(defaultModel, KimodoTextEncoderModeProtocol.HighPrecision, StringComparison.Ordinal),
-                        ["description"] = "Uses the local FP16 route when available; otherwise falls back to CPU."
-                    }
-                };
-                return Ok(new JObject
-                {
-                    ["text_encoder_models"] = models,
-                    ["default_text_encoder_model"] = defaultModel,
-                    ["count"] = models.Count
-                });
+                EnsureCanManageServer();
+                JObject response = KimodoBridgeService.Shared.GetServerHelpAsync(
+                    null,
+                    CancellationToken.None).GetAwaiter().GetResult();
+                var result = new JObject(response);
+                result.Remove("status");
+                return Ok(result);
             });
         }
 

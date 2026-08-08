@@ -115,8 +115,8 @@ Project 中的角色资产使用 `Assets/...` 路径，例如：
 | Tool | 用途 |
 | --- | --- |
 | `kimodo_list_characters` | 枚举可用于生成的 Humanoid 角色 |
-| `kimodo_list_models` | 枚举 QuickServer 支持的动作模型 |
-| `kimodo_list_text_encoder_models` | 枚举可选的文本编码器配置 |
+| `kimodo_list_models` | 枚举当前服务器上所有可行的动作模型与文本编码器组合 |
+| `kimodo_help` | 获取 QuickServer 内置协议说明 |
 | `kimodo_reinstall_server` | 停止并重装 QuickServer，然后用高性能文本编码器激活默认模型 |
 | `kimodo_open_timeline_session` | 创建并加载一个临时 TimelineAsset，供同一角色的生成结果按顺序写回 |
 | `kimodo_close_timeline_session` | 关闭会话、清空 Timeline Window 选中并删除临时 TimelineAsset |
@@ -127,9 +127,16 @@ Project 中的角色资产使用 `Assets/...` 路径，例如：
 
 
 
-## kimodo_list_models / kimodo_list_text_encoder_models
+## kimodo_list_models
 
-这两个接口不启动推理，分别返回当前 Unity Bridge 支持的动作模型，以及文本编码器配置。生成时把返回的 `model` 和 `text_encoder_model` 原样传入即可。`high_performance` 不是单一权重文件名，而是让 QuickServer 根据设备与显存自动选择 INT8/NF4 路线；`high_precision` 优先使用 FP16 路线。
+该接口会连接 QuickServer（必要时启动服务器），但不下载或加载动作模型。它从服务器返回扁平的 `configs`：每项都包含可直接传给生成接口的 `model` 与 `text_encoder_model`，以及当前设备下解析出的 `runtime_device`、`text_encoder_route` 和 `text_encoder_device`。`high_performance` 会根据设备与显存选择 INT8/NF4 路线；`high_precision` 选择 FP16 路线或 CPU 回退。
+
+`available: true` 表示该组合受当前服务器支持并可请求；缺失权重仍会在首次激活或生成时下载。生成时应把同一项中的 `model` 和 `text_encoder_model` 原样传入。
+
+
+## kimodo_help
+
+该接口转发 QuickServer 的内置 `help` 协议，返回所有 TCP 命令及其简短说明，包括 `runtime.list_models`、`runtime.activate`、`generate`、`cancel` 和会话命令。它不加载模型，可用于 Agent 在运行时确认协议能力。
 
 
 ## kimodo_reinstall_server

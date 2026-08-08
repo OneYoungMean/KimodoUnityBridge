@@ -121,6 +121,47 @@ namespace KimodoBridge
                 reconnect: false);
         }
 
+        internal Task<BridgeProtocolResponse> GetHelpAsync(
+            string host,
+            int port,
+            CancellationToken token)
+        {
+            return SendRequestAsync(
+                host,
+                port,
+                new JObject { ["cmd"] = "help" },
+                null,
+                null,
+                token,
+                reconnect: true);
+        }
+
+        internal Task<BridgeProtocolResponse> ListModelConfigurationsAsync(
+            string host,
+            int port,
+            string model,
+            string textEncoderMode,
+            string modelsRoot,
+            CancellationToken token)
+        {
+            return SendRequestAsync(
+                host,
+                port,
+                new JObject
+                {
+                    ["cmd"] = "runtime.list_models",
+                    ["model"] = string.IsNullOrWhiteSpace(model) ? null : model,
+                    ["text_encoder_mode"] = string.IsNullOrWhiteSpace(textEncoderMode)
+                        ? KimodoTextEncoderModeProtocol.HighPrecision
+                        : textEncoderMode,
+                    ["models_root"] = modelsRoot ?? string.Empty
+                },
+                null,
+                null,
+                token,
+                reconnect: true);
+        }
+
         internal Task<BridgeProtocolResponse> ActivateRuntimeAsync(
             string host,
             int port,

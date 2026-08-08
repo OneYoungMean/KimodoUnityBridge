@@ -148,6 +148,38 @@ namespace KimodoBridge
             return header;
         }
 
+        internal async Task<JObject> GetServerHelpAsync(
+            Action<string> progress,
+            CancellationToken token)
+        {
+            ThrowIfStopRequested();
+            await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
+            BridgeProtocolResponse response = await protocolClient.GetHelpAsync(
+                currentHost,
+                currentPort,
+                token).ConfigureAwait(false);
+            return RequireDoneResponse(response, "Bridge help returned no response.", "Bridge help request failed.");
+        }
+
+        internal async Task<JObject> ListModelConfigurationsAsync(
+            string model,
+            string textEncoderMode,
+            string modelsRoot,
+            Action<string> progress,
+            CancellationToken token)
+        {
+            ThrowIfStopRequested();
+            await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
+            BridgeProtocolResponse response = await protocolClient.ListModelConfigurationsAsync(
+                currentHost,
+                currentPort,
+                model,
+                textEncoderMode,
+                modelsRoot,
+                token).ConfigureAwait(false);
+            return RequireDoneResponse(response, "Bridge model list returned no response.", "Bridge model list request failed.");
+        }
+
         internal async Task<KimodoBridgeGenerationResult> GenerateAsync(
             KimodoGenerationRequestDto request,
             Action<string> progress,
@@ -589,6 +621,19 @@ namespace KimodoBridge
             }
 
             SafeInvokeProgress(progress, message);
+        }
+
+        private static JObject RequireDoneResponse(
+            BridgeProtocolResponse response,
+            string emptyMessage,
+            string failureMessage)
+        {
+            JObject header = response?.Header ?? throw new InvalidOperationException(emptyMessage);
+            if (!string.Equals(header.Value<string>("status"), "done", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(header.Value<string>("message") ?? failureMessage);
+            }
+            return header;
         }
 
         private void StartLogPumpsIfNeeded()

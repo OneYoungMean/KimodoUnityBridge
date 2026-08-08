@@ -31,6 +31,107 @@ DEFAULT_TASK_ID_PREFIX = "task"
 DEFAULT_RUNTIME_IDLE_UNLOAD_SEC = 900
 
 
+def _build_protocol_help() -> dict[str, Any]:
+    return {
+        "protocol": "kimodo-quickserver-tcp",
+        "commands": [
+            {
+                "cmd": "help",
+                "description": "Return this built-in protocol reference without loading a model.",
+            },
+            {
+                "cmd": "runtime.list_models",
+                "description": "List every supported model and text encoder configuration for this server and device.",
+            },
+            {
+                "cmd": "runtime.activate",
+                "description": "Load a selected model and text encoder without generating motion.",
+                "fields": ["model", "text_encoder_mode", "models_root"],
+            },
+            {
+                "cmd": "session.open",
+                "description": "Open an isolated TCP generation session.",
+            },
+            {
+                "cmd": "session.close",
+                "description": "Close the current TCP generation session.",
+            },
+            {
+                "cmd": "generate",
+                "description": "Queue motion generation. Choose model and text_encoder_mode from runtime.list_models.",
+                "fields": ["prompt", "model", "text_encoder_mode", "duration", "constraints_json"],
+            },
+            {
+                "cmd": "cancel",
+                "description": "Cancel a queued or running generation by task_id.",
+            },
+            {
+                "cmd": "quit",
+                "description": "Stop the QuickServer process.",
+            },
+        ],
+    }
+
+
+def _build_model_configurations(
+    kimodo_root: str,
+    default_config: dict[str, Any],
+    runtime_profile: Any,
+) -> dict[str, Any]:
+    models_root, _ = assets.resolve_models_root(kimodo_root, default_config.get("models_root"))
+    free_vram_gb = max(0.0, float(getattr(runtime_profile, "free_vram_gb", 0.0) or 0.0))
+    detected_device = str(getattr(runtime_profile, "runtime_device", "cpu") or "cpu")
+    detected_device = detected_device if free_vram_gb >= assets.MOTION_MODEL_MIN_FREE_GB else "cpu"
+    nf4_available = bool(getattr(runtime_profile, "nf4_available", False)) and detected_device != "cpu"
+    int8_available = bool(getattr(runtime_profile, "int8_accelerator_available", False)) and detected_device != "cpu"
+    fp16_available = bool(getattr(runtime_profile, "fp16_accelerator_available", False)) and detected_device != "cpu"
+    default_model = str(default_config.get("model") or assets.DEFAULT_MODEL_NAME)
+    motion_profile = assets.resolve_motion_model_profile(default_model)
+    if motion_profile is not None:
+        default_model = motion_profile.model_name
+    else:
+        default_model = assets.resolve_main_model(default_model).local_name
+    default_encoder = assets.normalize_text_encoder_mode(default_config.get("text_encoder_mode"))
+    configs: list[dict[str, Any]] = []
+    model_entries = [(spec.local_name, "kimodo") for spec in assets.MAIN_MODELS]
+    model_entries.extend((profile.model_name, profile.backend) for profile in assets.MOTION_MODEL_PROFILES)
+    for model_name, backend in model_entries:
+        encoder_budget_gb = max(0.0, free_vram_gb - assets.motion_model_min_free_vram_gb(model_name))
+        for text_encoder_mode in (
+            assets.TEXT_ENCODER_MODE_HIGH_PERFORMANCE,
+            assets.TEXT_ENCODER_MODE_HIGH_PRECISION,
+        ):
+            decision = assets.resolve_text_encoder_runtime(
+                text_encoder_mode,
+                detected_device,
+                encoder_budget_gb,
+                nf4_available=nf4_available,
+                int8_accelerator_available=int8_available,
+                fp16_accelerator_available=fp16_available,
+            )
+            configs.append(
+                {
+                    "model": model_name,
+                    "backend": backend,
+                    "text_encoder_model": text_encoder_mode,
+                    "runtime_device": decision.motion_device,
+                    "text_encoder_route": decision.encoder_route,
+                    "text_encoder_device": decision.encoder_device,
+                    "available": True,
+                    "default": model_name == default_model and text_encoder_mode == default_encoder,
+                }
+            )
+    return {
+        "status": "done",
+        "models_root": str(models_root),
+        "configs": configs,
+        "default": {
+            "model": default_model,
+            "text_encoder_model": default_encoder,
+        },
+    }
+
+
 def _publish_cancelled_task_to_client(task: dict[str, Any], message: str) -> None:
     response = {
         "status": "cancelled",
@@ -1674,7 +1775,13 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                         if session is None:
                             raise ValueError("The TCP Session is closed.")
 
-                        if cmd == "session.open":
+                        if cmd == "help":
+                            reply({"status": "done", **_build_protocol_help()})
+                        elif cmd == "runtime.list_models":
+                            runtime_profile = runtime_helpers._runtime_self_check(None)
+                            list_config = _normalize_runtime_config(request, session["default_config"])
+                            reply(_build_model_configurations(kimodo_root, list_config, runtime_profile))
+                        elif cmd == "session.open":
                             if bound_session_id != default_session_id:
                                 reply({"status": "done", "session_id": bound_session_id})
                                 continue
