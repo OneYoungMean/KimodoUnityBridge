@@ -68,6 +68,9 @@ def transform_constraints_to_origin(constraints_lst: list, transform) -> None:
 
     translation, yaw = transform
     for constraint in constraints_lst:
+        if hasattr(constraint, "transform_to_origin"):
+            constraint.transform_to_origin(transform)
+            continue
         root_attribute = _root_2d_attribute(constraint)
         root_2d = getattr(constraint, root_attribute)
         device = root_2d.device
@@ -421,6 +424,66 @@ class FullBodyConstraintSet:
             global_joints_rots=global_joints_rots,
             smooth_root_2d=smooth_root_2d,
         )
+
+
+class LoopBodyPoseConstraintSet:
+    """Condition a repeated body pose without constraining root translation."""
+
+    name = "loop-body"
+
+    def __init__(
+        self,
+        skeleton: SkeletonBase,
+        frame_indices: Tensor,
+        local_joints_positions: Tensor,
+        global_joints_rots: Tensor,
+    ) -> None:
+        if len(frame_indices) != len(local_joints_positions) or len(frame_indices) != len(global_joints_rots):
+            raise ValueError("Loop body pose data must match frame_indices length.")
+        if local_joints_positions.shape[-2:] != (skeleton.nbjoints, 3):
+            raise ValueError("Loop body pose positions do not match the model skeleton.")
+        if global_joints_rots.shape[-3:] != (skeleton.nbjoints, 3, 3):
+            raise ValueError("Loop body pose rotations do not match the model skeleton.")
+        self.skeleton = skeleton
+        self.frame_indices = frame_indices
+        self.local_joints_positions = local_joints_positions
+        self.global_joints_rots = global_joints_rots
+        self.joint_indices = torch.tensor(
+            [index for index in range(skeleton.nbjoints) if index != skeleton.root_idx],
+            device=frame_indices.device,
+        )
+
+    def update_constraints(self, data_dict: dict, index_dict: dict) -> None:
+        position_indices = create_pairs(self.frame_indices, self.joint_indices)
+        data_dict["local_joints_positions"].append(
+            self.local_joints_positions[:, self.joint_indices].reshape(-1, 3)
+        )
+        index_dict["local_joints_positions"].append(position_indices)
+
+        rotation_indices = create_pairs(
+            self.frame_indices,
+            torch.arange(self.skeleton.nbjoints, device=self.frame_indices.device),
+        )
+        data_dict["global_joints_rots"].append(self.global_joints_rots.reshape(-1, 3, 3))
+        index_dict["global_joints_rots"].append(rotation_indices)
+
+    def crop_move(self, start: int, end: int) -> "LoopBodyPoseConstraintSet":
+        mask = (self.frame_indices >= start) & (self.frame_indices < end)
+        return LoopBodyPoseConstraintSet(
+            self.skeleton,
+            self.frame_indices[mask] - start,
+            self.local_joints_positions[mask],
+            self.global_joints_rots[mask],
+        )
+
+    def transform_to_origin(self, transform) -> None:
+        _, yaw = transform
+        local_yaw = yaw.to(device=self.local_joints_positions.device, dtype=self.local_joints_positions.dtype)
+        rotation = RotateFeatures((-local_yaw).reshape(1))
+        rotation_3d = rotation.corrective_mat_Y[0]
+        rotation_3d_t = rotation.corrective_mat_Y_T[0]
+        self.local_joints_positions = self.local_joints_positions @ rotation_3d_t
+        self.global_joints_rots = rotation_3d @ self.global_joints_rots
 
 
 class EndEffectorConstraintSet:

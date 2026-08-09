@@ -162,32 +162,6 @@ namespace KimodoBridge
                 reconnect: true);
         }
 
-        internal Task<BridgeProtocolResponse> ActivateRuntimeAsync(
-            string host,
-            int port,
-            string model,
-            string textEncoderMode,
-            string modelsRoot,
-            CancellationToken token)
-        {
-            return SendRequestAsync(
-                host,
-                port,
-                new JObject
-                {
-                    ["cmd"] = "runtime.activate",
-                    ["model"] = string.IsNullOrWhiteSpace(model) ? null : model,
-                    ["text_encoder_mode"] = string.IsNullOrWhiteSpace(textEncoderMode)
-                        ? KimodoTextEncoderModeProtocol.HighPerformance
-                        : textEncoderMode,
-                    ["models_root"] = modelsRoot ?? string.Empty
-                },
-                null,
-                null,
-                token,
-                reconnect: true);
-        }
-
         internal Task<BridgeProtocolResponse> GenerateAsync(
             string host,
             int port,
@@ -218,6 +192,37 @@ namespace KimodoBridge
                     attachments);
                 constraintsJson = KimodoArdyClipConstraintProtocol.Append(constraintsJson, futureClips);
             }
+            if (request.analysis_clip_constraints != null && request.analysis_clip_constraints.Count > 0)
+            {
+                var clips = new JArray();
+                for (int index = 0; index < request.analysis_clip_constraints.Count; index++)
+                {
+                    KimodoKmbClipConstraint clip = request.analysis_clip_constraints[index]
+                        ?? throw new InvalidOperationException("Analysis KMB clip is null.");
+                    byte[] bytes = clip.motionBytes;
+                    if (bytes == null || bytes.Length == 0)
+                    {
+                        throw new InvalidOperationException("Analysis KMB clip is empty.");
+                    }
+                    if (clip.startFrame < 0 || clip.endFrameExclusive <= clip.startFrame)
+                    {
+                        throw new InvalidOperationException("Analysis KMB clip frame range must be non-empty and non-negative.");
+                    }
+                    int attachment = attachments.Count;
+                    attachments.Add(bytes);
+                    clips.Add(new JObject
+                    {
+                        ["type"] = "clip",
+                        ["format"] = "kmb_attachment_v1",
+                        ["attachment"] = attachment,
+                        ["start_frame"] = clip.startFrame,
+                        ["end_frame_exclusive"] = clip.endFrameExclusive
+                    });
+                }
+                constraintsJson = KimodoArdyClipConstraintProtocol.Append(
+                    constraintsJson,
+                    clips.ToString(Formatting.None));
+            }
             var payload = new JObject
             {
                 ["cmd"] = "generate",
@@ -239,8 +244,11 @@ namespace KimodoBridge
                     payload["duration"] = duration;
                 }
                 payload["diffusion_steps"] = request.steps;
-                payload["text_weight"] = Math.Min(4f, Math.Max(0f, request.text_weight));
                 payload["seed"] = request.seed.HasValue ? request.seed.Value : null;
+                if (request.loop)
+                {
+                    payload["loop"] = true;
+                }
                 payload["transition_duration"] = request.transition_duration;
                 payload["model"] = string.IsNullOrWhiteSpace(request.model) ? null : request.model;
                 payload["text_encoder_mode"] = string.IsNullOrWhiteSpace(request.text_encoder_mode)
@@ -280,15 +288,15 @@ namespace KimodoBridge
             {
                 payload["constraints_json"] = constraintsJson;
             }
-            if (!string.IsNullOrWhiteSpace(request.analysis_options_json))
+            if (!string.IsNullOrWhiteSpace(request.analysis_option_json))
             {
                 try
                 {
-                    payload["analysis_options"] = JToken.Parse(request.analysis_options_json);
+                    payload["analysis_option"] = JToken.Parse(request.analysis_option_json);
                 }
                 catch (Exception ex)
                 {
-                    throw new InvalidOperationException($"analysis_options must be a JSON object: {ex.Message}");
+                    throw new InvalidOperationException($"analysis_option must be a JSON object: {ex.Message}");
                 }
             }
             if (!request.ardy_session_update_only && request.simulate_free_vram_gb.HasValue)
@@ -297,14 +305,10 @@ namespace KimodoBridge
             }
             if (!request.ardy_session_update_only)
             {
-                AddOptional(payload, "ardy_history_crop_seconds", request.ardy_history_crop_seconds);
                 AddOptional(payload, "ardy_history_weight", request.ardy_history_weight);
-                AddOptional(payload, "ardy_future_crop_seconds", request.ardy_future_crop_seconds);
                 AddOptional(payload, "ardy_max_speed", request.ardy_max_speed);
                 AddOptional(payload, "ardy_max_acceleration", request.ardy_max_acceleration);
-                AddOptional(payload, "ardy_history_transition_weight", request.ardy_history_transition_weight);
                 AddOptional(payload, "ardy_playback_reserve_seconds", request.ardy_playback_reserve_seconds);
-                AddOptional(payload, "ardy_adaptive_playback_reserve", request.ardy_adaptive_playback_reserve);
             }
 
             byte[] binaryPayload = null;

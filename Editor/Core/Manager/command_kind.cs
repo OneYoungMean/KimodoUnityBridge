@@ -1,6 +1,6 @@
-namespace KimodoBridge.Editor
+namespace KimodoUnityBridge.Command
 {
-    public enum KimodoEditorCommandKind
+    public enum command_kind
     {
         Unknown = 0,
         GeneratePlayableClip = 1,

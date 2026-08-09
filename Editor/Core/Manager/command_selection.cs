@@ -1,13 +1,15 @@
 using System.Collections.Generic;
+using KimodoBridge;
+using KimodoBridge.Editor;
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine.Timeline;
 
-namespace KimodoBridge.Editor
+namespace KimodoUnityBridge.Command
 {
-    public readonly struct KimodoSelectedPlayableClipInfo
+    public readonly struct command_selected_clip
     {
-        public KimodoSelectedPlayableClipInfo(int clipInstanceId, string prompt)
+        public command_selected_clip(int clipInstanceId, string prompt)
         {
             ClipInstanceId = clipInstanceId;
             Prompt = prompt ?? string.Empty;
@@ -22,7 +24,7 @@ namespace KimodoBridge.Editor
         public string TargetKey => IsValid ? "clip:" + ClipInstanceId : "clip:null";
     }
 
-    public static class KimodoEditorSelectionBridge
+    public static class command_selection
     {
         internal static List<TimelineClip> GetSelectedPlayableClips(KimodoPlayableClip fallback)
         {
@@ -55,7 +57,7 @@ namespace KimodoBridge.Editor
             return result;
         }
 
-        public static bool TryGetSelectedPlayableClip(out KimodoSelectedPlayableClipInfo info)
+        public static bool TryGetSelectedPlayableClip(out command_selected_clip info)
         {
             info = default;
 
@@ -66,7 +68,7 @@ namespace KimodoBridge.Editor
                 {
                     if (selectedClips[i]?.asset is KimodoPlayableClip playableFromTimeline)
                     {
-                        info = new KimodoSelectedPlayableClipInfo(
+                        info = new command_selected_clip(
                             KimodoUnityObjectIdUtility.IdHash(playableFromTimeline),
                             playableFromTimeline.motionPrompt);
                         return true;
@@ -76,7 +78,7 @@ namespace KimodoBridge.Editor
 
             if (Selection.activeObject is KimodoPlayableClip selectedAsset)
             {
-                info = new KimodoSelectedPlayableClipInfo(KimodoUnityObjectIdUtility.IdHash(selectedAsset), selectedAsset.motionPrompt);
+                info = new command_selected_clip(KimodoUnityObjectIdUtility.IdHash(selectedAsset), selectedAsset.motionPrompt);
                 return true;
             }
 

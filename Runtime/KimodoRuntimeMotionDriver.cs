@@ -89,8 +89,7 @@ namespace KimodoBridge
             double ardyApplyTime,
             bool includeOverlap,
             float maxConstraintTime,
-            string fullBodyConstraintType,
-            string root2DTargetConstraintType)
+            string fullBodyConstraintType)
         {
             var samples = new List<KimodoMarkerSampleResult>();
             if (includeOverlap)
@@ -153,10 +152,39 @@ namespace KimodoBridge
             List<KimodoMarkerSampleResult> samples,
             KimodoMarkerSampleResult sample)
         {
+            // Root2D is a waypoint sequence.  Unlike pose/end-effector
+            // constraints, subsequent targets must not evict an earlier point.
+            // Replacing an equal-time point still gives UI callers an easy way
+            // to correct the currently staged destination.
+            if (string.Equals(sample?.constraintType, "root2d", StringComparison.OrdinalIgnoreCase))
+            {
+                RemoveRoot2DAtTime(samples, sample.sampleTime);
+                if (sample != null)
+                {
+                    samples.Add(sample);
+                }
+                return;
+            }
+
             RemoveByType(samples, sample?.constraintType);
             if (sample != null)
             {
                 samples.Add(sample);
+            }
+        }
+
+        private static void RemoveRoot2DAtTime(List<KimodoMarkerSampleResult> samples, double sampleTime)
+        {
+            const double tolerance = 1e-6;
+            for (int i = samples.Count - 1; i >= 0; i--)
+            {
+                KimodoMarkerSampleResult existing = samples[i];
+                if (existing == null ||
+                    (string.Equals(existing.constraintType, "root2d", StringComparison.OrdinalIgnoreCase) &&
+                     Math.Abs(existing.sampleTime - sampleTime) <= tolerance))
+                {
+                    samples.RemoveAt(i);
+                }
             }
         }
 
@@ -269,14 +297,14 @@ namespace KimodoBridge
         [FormerlySerializedAs("ardySafeIntervalSeconds")]
         [SerializeField][Min(0.2f), Tooltip("Request more ARDY motion when this much playable animation remains.")]
         private float ardyPlaybackReserveSeconds = 1f;
-        [SerializeField, Tooltip("Let the ARDY backend adapt the playback reserve from measured response time.")]
-        private bool ardyAdaptivePlaybackReserve = true;
         [SerializeField, Tooltip("Adapt the ARDY history window from upcoming motion constraints.")]
         private bool ardyAutoHistory = true;
         [SerializeField, Range(0f, 1f), Tooltip("0 uses one motion token of history; 1 uses the largest history window allowed by the model context.")]
         private float ardyHistoryWeight = 1f;
-        [SerializeField, Tooltip("Expand ARDY Root2D waypoints into the official dense per-frame root path.")]
-        private bool ardyDenseRootPath;
+        [SerializeField, Min(0.01f), Tooltip("ARDY Root2D planning speed limit in meters per second.")]
+        private float ardyMaxSpeed = 1.25f;
+        [SerializeField, Min(0.01f), Tooltip("ARDY Root2D planning acceleration limit in meters per second squared.")]
+        private float ardyMaxAcceleration = 1.5f;
         [SerializeField] private bool loopHint = true;
         [SerializeField] private KimodoSegmentOverlapHeadSettings segmentOverlapHeadSettings = new KimodoSegmentOverlapHeadSettings();
         [SerializeField] private bool allowPartialJoints;
@@ -298,7 +326,6 @@ namespace KimodoBridge
         private const string LeftFootConstraintType = "left-foot";
         private const string RightFootConstraintType = "right-foot";
         private const string Root2DConstraintType = "root2d";
-        private const string Root2DTargetConstraintType = "root2d_target";
         private const string IdlePrompt = "idle";
         private const string KimodoFolderName = "NvlabKimodoQuickServer~";
         private const float MinGenerationDurationSeconds = 1f;
@@ -575,33 +602,25 @@ namespace KimodoBridge
         {
             float maxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond);
             float maxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
-            float arrivalThreshold = Mathf.Max(0f, arrivalThresholdMeters);
-            if (!TryCreateRoot2DWorldConstraintSample(
-                    worldX,
-                    worldZ,
-                    0f,
-                    null,
-                    out KimodoMarkerSampleResult sample,
-                    out string error))
-            {
-                UpdateStatus(error);
-                return;
-            }
-
-            sample.constraintType = Root2DTargetConstraintType;
-            sample.rootTargetMaxSpeed = maxSpeed;
-            sample.rootTargetMaxAcceleration = maxAcceleration;
-            sample.rootTargetArrivalThreshold = arrivalThreshold;
-            sample.rootTargetIncludeHeading = includeHeading;
-            if (includeHeading && worldHeading.HasValue)
-            {
-                sample.rootTargetHasHeading = true;
-                sample.rootTargetHeading = ResolveModelRoot2DHeading(
-                    ResolveModelToWorldRotation(),
-                    worldHeading.Value);
-            }
-            StageConstraintSample(sample);
-            UpdateStatus($"Root2D world target staged at ({worldX:0.###}, {worldZ:0.###}).");
+            ardyMaxSpeed = maxSpeed;
+            ardyMaxAcceleration = maxAcceleration;
+            Vector3 current = GetCurrentPositionInternal();
+            float distance = Vector2.Distance(
+                new Vector2(current.x, current.z),
+                new Vector2(worldX, worldZ));
+            float duration = distance <= Mathf.Max(0f, arrivalThresholdMeters)
+                ? MinGenerationDurationSeconds
+                : EstimateRoot2DTargetDuration(
+                    distance,
+                    maxSpeed,
+                    maxAcceleration,
+                    MinGenerationDurationSeconds,
+                    MaxGenerationDurationSeconds);
+            StageRoot2DWorldConstraintInternal(
+                worldX,
+                worldZ,
+                duration,
+                includeHeading && worldHeading.HasValue ? NormalizeHeading(worldHeading.Value) : (Vector2?)null);
         }
 
         public string QueuePromptedRoot2D(
@@ -928,7 +947,6 @@ namespace KimodoBridge
                     duration = isArdy ? (float?)null : ResolveGenerationDurationSeconds(),
                     seed = resolvedRequestSeed,
                     steps = Mathf.Clamp(diffusionSteps, 1, isArdy ? ardyProfile.MaxDiffusionSteps : 1000),
-                    text_weight = 1f,
                     constraints_json = sendConstraints
                         ? (isArdy && string.IsNullOrWhiteSpace(constraintsJson) ? "[]" : constraintsJson)
                         : null,
@@ -947,14 +965,15 @@ namespace KimodoBridge
                     {
                         if (ardyAutoHistory)
                         {
-                            request.ardy_history_crop_seconds = 0.0;
+                            request.ardy_history_weight = null;
                         }
                         else
                         {
                             request.ardy_history_weight = Mathf.Clamp01(ardyHistoryWeight);
                         }
                         request.ardy_playback_reserve_seconds = Mathf.Max(0.2f, ardyPlaybackReserveSeconds);
-                        request.ardy_adaptive_playback_reserve = ardyAdaptivePlaybackReserve;
+                        request.ardy_max_speed = Mathf.Max(0.01f, ardyMaxSpeed);
+                        request.ardy_max_acceleration = Mathf.Max(0.01f, ardyMaxAcceleration);
                     }
                 }
 
@@ -1175,8 +1194,7 @@ namespace KimodoBridge
                 isArdy ? motionPlayer.PlaybackTimeAsDouble : 0.0,
                 includeOverlap: loopHint && !isArdy,
                 ResolveGenerationDurationSeconds(),
-                FullBodyConstraintType,
-                Root2DTargetConstraintType);
+                FullBodyConstraintType);
         }
 
         private string BuildNextConstraintsJson(out int consumedPendingRevision)
@@ -1193,8 +1211,7 @@ namespace KimodoBridge
                 activeConstraints,
                 0.0,
                 ResolveGenerationDurationSeconds(),
-                isArdy ? profile.SourceFps : KimodoPlayableClip.FIXED_FRAME_RATE,
-                denseRootPath: isArdy && ardyDenseRootPath);
+                isArdy ? profile.SourceFps : KimodoPlayableClip.FIXED_FRAME_RATE);
             return futureConstraints;
         }
 

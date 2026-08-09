@@ -2,14 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using KimodoBridge;
+using KimodoBridge.Editor;
 using UnityEditor;
 using UnityEditor.Compilation;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
-namespace KimodoBridge.Editor
+namespace KimodoUnityBridge.Command
 {
-    internal enum KimodoEditorRequestStatus
+    internal enum command_status
     {
         None = 0,
         Running = 1,
@@ -18,26 +20,26 @@ namespace KimodoBridge.Editor
         Canceled = 4
     }
 
-    internal sealed class EditorGenerateSession
+    internal sealed class command_generation_session
     {
         public Guid RequestId;
         public string TargetKey = string.Empty;
-        public KimodoEditorCommandKind Kind;
+        public command_kind Kind;
         public KimodoBridgeCommandStage Stage;
         public string Message = string.Empty;
         public string Error = string.Empty;
-        public KimodoEditorRequestStatus Status;
-        public IKimodoEditorCommandResult Payload;
+        public command_status Status;
+        public command_result Payload;
         public DateTime StartedAtUtc;
 
-        public bool IsRunning => Status == KimodoEditorRequestStatus.Running;
-        public bool IsCompleted => Status == KimodoEditorRequestStatus.Completed;
-        public bool IsFailed => Status == KimodoEditorRequestStatus.Failed;
-        public bool IsCanceled => Status == KimodoEditorRequestStatus.Canceled;
+        public bool IsRunning => Status == command_status.Running;
+        public bool IsCompleted => Status == command_status.Completed;
+        public bool IsFailed => Status == command_status.Failed;
+        public bool IsCanceled => Status == command_status.Canceled;
     }
 
     [InitializeOnLoad]
-    internal static class EditorGenerateSessionRunner
+    internal static class command_generation_runner
     {
         private static readonly object Sync = new object();
         private static readonly Dictionary<UnityEngine.Object, RunningSessionState> SessionsByTarget =
@@ -45,7 +47,7 @@ namespace KimodoBridge.Editor
         private static readonly Dictionary<Guid, RunningSessionState> SessionsByRequest =
             new Dictionary<Guid, RunningSessionState>();
 
-        static EditorGenerateSessionRunner()
+        static command_generation_runner()
         {
             CompilationPipeline.compilationStarted += _ => CancelAll("Generation canceled: compilation started.");
             AssemblyReloadEvents.beforeAssemblyReload += () => CancelAll("Generation canceled: assembly reload.");
@@ -57,9 +59,9 @@ namespace KimodoBridge.Editor
         public static bool Start(
             UnityEngine.Object target,
             string targetKey,
-            KimodoEditorCommandKind kind,
-            Func<EditorGenerateSession, CancellationToken, Task<IKimodoEditorCommandResult>> executeAsync,
-            out EditorGenerateSession session,
+            command_kind kind,
+            Func<command_generation_session, CancellationToken, Task<command_result>> executeAsync,
+            out command_generation_session session,
             out string error)
         {
             session = null;
@@ -164,7 +166,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        public static bool TryGet(UnityEngine.Object target, out EditorGenerateSession session)
+        public static bool TryGet(UnityEngine.Object target, out command_generation_session session)
         {
             session = null;
             if (target == null)
@@ -202,7 +204,7 @@ namespace KimodoBridge.Editor
 
                 if (removed.Session != null && removed.Session.IsRunning)
                 {
-                    removed.Session.Status = KimodoEditorRequestStatus.Canceled;
+                    removed.Session.Status = command_status.Canceled;
                     removed.Session.Message = "Generation canceled.";
                     removed.Session.Error = string.Empty;
                     removed.RequestCancel();
@@ -223,7 +225,7 @@ namespace KimodoBridge.Editor
         {
             Mutate(target, requestId, session =>
             {
-                session.Status = KimodoEditorRequestStatus.Running;
+                session.Status = command_status.Running;
                 session.Stage = stage;
                 session.Message = message ?? string.Empty;
                 session.Error = string.Empty;
@@ -233,7 +235,7 @@ namespace KimodoBridge.Editor
         public static void Complete(
             UnityEngine.Object target,
             Guid requestId,
-            IKimodoEditorCommandResult payload,
+            command_result payload,
             string message)
         {
             Mutate(target, requestId, session =>
@@ -243,7 +245,7 @@ namespace KimodoBridge.Editor
                     return;
                 }
 
-                session.Status = KimodoEditorRequestStatus.Completed;
+                session.Status = command_status.Completed;
                 session.Stage = KimodoBridgeCommandStage.Completed;
                 session.Message = message ?? string.Empty;
                 session.Error = string.Empty;
@@ -263,7 +265,7 @@ namespace KimodoBridge.Editor
                     return;
                 }
 
-                session.Status = KimodoEditorRequestStatus.Failed;
+                session.Status = command_status.Failed;
                 session.Message = "Generation failed.";
                 session.Error = error ?? string.Empty;
             });
@@ -281,7 +283,7 @@ namespace KimodoBridge.Editor
                     return;
                 }
 
-                session.Status = KimodoEditorRequestStatus.Canceled;
+                session.Status = command_status.Canceled;
                 session.Message = string.IsNullOrWhiteSpace(reason) ? "Generation canceled." : reason;
                 session.Error = string.Empty;
             });
@@ -289,11 +291,11 @@ namespace KimodoBridge.Editor
 
         private static async Task ExecuteAsync(
             RunningSessionState state,
-            Func<EditorGenerateSession, CancellationToken, Task<IKimodoEditorCommandResult>> executeAsync)
+            Func<command_generation_session, CancellationToken, Task<command_result>> executeAsync)
         {
             try
             {
-                IKimodoEditorCommandResult payload = await executeAsync(state.Session, state.Token);
+                command_result payload = await executeAsync(state.Session, state.Token);
                 state.Token.ThrowIfCancellationRequested();
                 Complete(state.Target, state.Session.RequestId, payload, "Generation complete.");
             }
@@ -320,7 +322,7 @@ namespace KimodoBridge.Editor
         private static void Mutate(
             UnityEngine.Object target,
             Guid requestId,
-            Action<EditorGenerateSession> mutate)
+            Action<command_generation_session> mutate)
         {
             if (target == null || mutate == null)
             {
@@ -364,11 +366,11 @@ namespace KimodoBridge.Editor
         {
             private int disposed;
 
-            public RunningSessionState(UnityEngine.Object target, string targetKey, KimodoEditorCommandKind kind)
+            public RunningSessionState(UnityEngine.Object target, string targetKey, command_kind kind)
             {
                 Target = target;
                 CancellationTokenSource = new CancellationTokenSource();
-                Session = new EditorGenerateSession
+                Session = new command_generation_session
                 {
                     RequestId = Guid.NewGuid(),
                     TargetKey = string.IsNullOrWhiteSpace(targetKey) ? "global" : targetKey,
@@ -376,7 +378,7 @@ namespace KimodoBridge.Editor
                     Stage = KimodoBridgeCommandStage.None,
                     Message = "Queued.",
                     Error = string.Empty,
-                    Status = KimodoEditorRequestStatus.Running,
+                    Status = command_status.Running,
                     Payload = null,
                     StartedAtUtc = DateTime.UtcNow
                 };
@@ -384,7 +386,7 @@ namespace KimodoBridge.Editor
 
             public UnityEngine.Object Target { get; }
 
-            public EditorGenerateSession Session { get; }
+            public command_generation_session Session { get; }
 
             public CancellationTokenSource CancellationTokenSource { get; }
 

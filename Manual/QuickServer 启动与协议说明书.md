@@ -166,6 +166,8 @@ QuickServer 使用 newline-delimited JSON。客户端连接 `serverport` 记录�
 
 | cmd | 作用 |
 | --- | --- |
+| `help` | 返回服务器内置协议说明，不加载模型 |
+| `runtime.list_models` | 列出当前服务器与设备可用的模型/文本编码器组合 |
 | `session.open` | 在当前 TCP 连接上创建显式 Session |
 | `generate` | 提交生成任务 |
 | `cancel` | 取消队列中或正在运行的任务 |
@@ -186,9 +188,12 @@ QuickServer 使用 newline-delimited JSON。客户端连接 `serverport` 记录�
 | `duration` | 正数表示固定长度生成；ARDY 缺省 `duration` 表示流式生成 |
 | `seed` | 随机种子 |
 | `diffusion_steps` | 扩散步数；ARDY 受模型 profile 上限限制 |
-| `text_weight` / `cfg_weight` | 文本 CFG 权重；`cfg_weight` 可传数组，第一项作为文本权重 |
 | `constraints_json` | 内联 JSON 约束；对象或数组 |
+| `analysis_option` | 可选分析对象；`analysis_only:true` 时只分析 KMB ClipConstraint，不加载模型或文本编码器 |
+| `kmb_attachments` / `attachment_byte_length` | KMB 附件清单与拼接二进制长度；供 History/Future/analysis-only clip 使用 |
 | `output_format` | `json_compact`、`bvh` 或 `kmb_v1` |
+
+ARDY 只接受 `ardy_history_weight`、`ardy_max_speed`、`ardy_max_acceleration`、`ardy_playback_reserve_seconds`。不传有效 `ardy_history_weight` 时 reserve 自适应；传入有效值时关闭自适应。`root2d_target` 已移除，请用单个有序 `root2d` 的 `frame_indices`、`smooth_root_2d` 和可选 `global_root_heading` 表达所有途经点。
 
 ## 输出协议
 
@@ -236,6 +241,10 @@ BVH 适合外部工具快速预览，不建议在当前 Unity 客户端链路上
 
 ARDY 默认使用 KMB 直接传输；普通 Kimodo 也可以请求 `kmb_v1`。
 
+### `kmb_attachments_v1`（仅分析）
+
+当 `analysis_option.analysis_only=true` 时，`constraints_json` 必须含有一个或多个 `format:"kmb_attachment_v1"` 的 clip。服务器不加载 motion model 或 text encoder，返回原始 KMB 附件拼接成的二进制 payload，以及每段的 `kmb_attachments` manifest（`offset`、`byte_length`、`start_frame`、`end_frame_exclusive`）。响应中的 `analysis` 包含：整体 `quality_score`（越高越好）、带 `saliency` 的 `keyframes`，和带 `score`/`reasons` 的 `issues`；`issues` 分别标识连续性、速度/加速度与姿态异常。
+
 ## Example 1：最小 Python TCP 客户端
 
 ```python
@@ -277,7 +286,6 @@ with socket.create_connection((host, int(port_text)), timeout=10) as sock:
   "duration": 5.0,
   "seed": 1234,
   "diffusion_steps": 100,
-  "text_weight": 1.2,
   "output_format": "json_compact"
 }
 ```

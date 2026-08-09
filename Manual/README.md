@@ -39,7 +39,9 @@
 
 ### API 与自动化
 
-- **[MCP Tools API](MCP%20Tools%20API%20说明书.md)** — 通过角色引用和提示词生成 AnimationClip 或 Timeline 动画，并查询、取消异步生成任务。
+- **[Kimodo Animation Skill](../SKILL.md)** — 平台无关的最小生成自检和精确 API 契约：当前 Timeline Session、查询、采样、TryAdd/TryRemove、分析、Bake/Retarget 与异步生成。
+- **[中文对照](../SKILL-zh.md)** — 与英文 Skill 逐项对应的中文 API 契约。
+- **[自动化使用入口](Command%20API%20说明书.md)** — Unity MCP、Unity CLI、Unity Cowork 如何读取并遵循该 Skill。
 
 ### 排查问题
 

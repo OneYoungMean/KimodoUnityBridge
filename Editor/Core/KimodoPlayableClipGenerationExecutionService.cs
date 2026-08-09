@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using KimodoUnityBridge.Command;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -23,7 +24,7 @@ namespace KimodoBridge.Editor
 
         internal static bool TryStartGenerate(
             KimodoPlayableClip clip,
-            out EditorGenerateSession session,
+            out command_generation_session session,
             out string error)
         {
             session = null;
@@ -35,7 +36,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            List<TimelineClip> selected = KimodoEditorSelectionBridge.GetSelectedPlayableClips(clip);
+            List<TimelineClip> selected = command_selection.GetSelectedPlayableClips(clip);
             selected.Sort(CompareTimelineClips);
             if (selected.Count <= 1)
             {
@@ -51,7 +52,7 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                if (EditorGenerateSessionRunner.TryGet(selectedClip, out EditorGenerateSession active) &&
+                if (command_generation_runner.TryGet(selectedClip, out command_generation_session active) &&
                     active != null &&
                     active.IsRunning)
                 {
@@ -64,14 +65,14 @@ namespace KimodoBridge.Editor
                 selectedTimelineClips.Add(selected[i]);
             }
 
-            return EditorGenerateSessionRunner.Start(
+            return command_generation_runner.Start(
                 clip,
                 $"clip-selected:{KimodoUnityObjectIdUtility.NameKey(clip)}",
-                KimodoEditorCommandKind.GeneratePlayableClip,
+                command_kind.GeneratePlayableClip,
                 async (handle, token) => await GenerateSelectedAndFinalizeAsync(
                     selectedClips,
                     selectedTimelineClips,
-                    (stage, message) => EditorGenerateSessionRunner.UpdateProgress(
+                    (stage, message) => command_generation_runner.UpdateProgress(
                         clip,
                         handle.RequestId,
                         stage,
@@ -83,12 +84,12 @@ namespace KimodoBridge.Editor
 
         internal static int GetSelectedPlayableClipCount(KimodoPlayableClip clip)
         {
-            return KimodoEditorSelectionBridge.GetSelectedPlayableClips(clip).Count;
+            return command_selection.GetSelectedPlayableClips(clip).Count;
         }
 
         internal static bool TryStartGenerateConnectedArdy(
             KimodoPlayableClip clip,
-            out EditorGenerateSession session,
+            out command_generation_session session,
             out string error)
         {
             session = null;
@@ -110,7 +111,7 @@ namespace KimodoBridge.Editor
 
             for (int i = 0; i < entries.Count; i++)
             {
-                if (EditorGenerateSessionRunner.TryGet(entries[i].Clip, out EditorGenerateSession active) &&
+                if (command_generation_runner.TryGet(entries[i].Clip, out command_generation_session active) &&
                     active != null &&
                     active.IsRunning)
                 {
@@ -120,14 +121,14 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            return EditorGenerateSessionRunner.Start(
+            return command_generation_runner.Start(
                 clip,
                 $"clip-connected:{KimodoUnityObjectIdUtility.NameKey(clip)}",
-                KimodoEditorCommandKind.GeneratePlayableClip,
+                command_kind.GeneratePlayableClip,
                 async (handle, token) => await GenerateConnectedArdyAsync(
                     entries,
                     profile,
-                    (stage, message) => EditorGenerateSessionRunner.UpdateProgress(
+                    (stage, message) => command_generation_runner.UpdateProgress(
                         clip,
                         handle.RequestId,
                         stage,
@@ -139,17 +140,17 @@ namespace KimodoBridge.Editor
 
         private static bool StartSingle(
             KimodoPlayableClip clip,
-            out EditorGenerateSession session,
+            out command_generation_session session,
             out string error)
         {
-            return EditorGenerateSessionRunner.Start(
+            return command_generation_runner.Start(
                 clip,
                 $"clip:{KimodoUnityObjectIdUtility.NameKey(clip)}",
-                KimodoEditorCommandKind.GeneratePlayableClip,
+                command_kind.GeneratePlayableClip,
                 async (handle, token) => await GenerateAndFinalizeAsync(
                     clip,
                     externalConstraint: null,
-                    (stage, message) => EditorGenerateSessionRunner.UpdateProgress(clip, handle.RequestId, stage, message),
+                    (stage, message) => command_generation_runner.UpdateProgress(clip, handle.RequestId, stage, message),
                     token),
                 out session,
                 out error);
@@ -184,7 +185,7 @@ namespace KimodoBridge.Editor
             out int count)
         {
             count = 0;
-            List<TimelineClip> selected = KimodoEditorSelectionBridge.GetSelectedPlayableClips(clip);
+            List<TimelineClip> selected = command_selection.GetSelectedPlayableClips(clip);
             if (selected.Count < 2)
             {
                 return false;
@@ -212,7 +213,7 @@ namespace KimodoBridge.Editor
             entries = new List<ConnectedClipEntry>();
             profile = null;
             reason = string.Empty;
-            List<TimelineClip> selected = KimodoEditorSelectionBridge.GetSelectedPlayableClips(clip);
+            List<TimelineClip> selected = command_selection.GetSelectedPlayableClips(clip);
             selected.Sort(CompareTimelineClips);
             return TryCreateConnectedPlan(selected, out entries, out profile, out reason);
         }
@@ -292,7 +293,7 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        private static async Task<KimodoEditorGenerateResult> GenerateConnectedArdyAsync(
+        private static async Task<command_generate_result> GenerateConnectedArdyAsync(
             List<ConnectedClipEntry> entries,
             KimodoMotionModelProfile profile,
             Action<KimodoBridgeCommandStage, string> progress,
@@ -315,7 +316,6 @@ namespace KimodoBridge.Editor
             generation.constraints_json = ExplicitConstraints(firstRequest.ConstraintsJson);
             generation.ardy_history_kmb = KimodoEditorGeneratePipeline.BuildInitialArdyHistoryPayload(firstRequest, profile);
             generation.ardy_playback_reserve_seconds = 0.0;
-            generation.ardy_adaptive_playback_reserve = false;
             AddTimelineSegments(entries, profile, generation);
 
             firstRequest.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating connected ARDY KMB...");
@@ -331,7 +331,7 @@ namespace KimodoBridge.Editor
                     $"ARDY returned {aggregate.MotionData.FrameCount} frames; expected {totalFrameCount}.");
             }
 
-            var baked = new List<KimodoEditorGenerateResult>(entries.Count);
+            var baked = new List<command_generate_result>(entries.Count);
             int finalized = 0;
             try
             {
@@ -583,13 +583,13 @@ namespace KimodoBridge.Editor
             return byStart != 0 ? byStart : (left?.end ?? 0.0).CompareTo(right?.end ?? 0.0);
         }
 
-        private static async Task<KimodoEditorGenerateResult> GenerateSelectedAndFinalizeAsync(
+        private static async Task<command_generate_result> GenerateSelectedAndFinalizeAsync(
             IReadOnlyList<KimodoPlayableClip> clips,
             IReadOnlyList<TimelineClip> timelineClips,
             Action<KimodoBridgeCommandStage, string> progress,
             CancellationToken token)
         {
-            KimodoEditorGenerateResult result = null;
+            command_generate_result result = null;
             for (int i = 0; i < clips.Count; i++)
             {
                 token.ThrowIfCancellationRequested();
@@ -614,7 +614,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        internal static async Task<KimodoEditorGenerateResult> GenerateAndFinalizeAsync(
+        internal static async Task<command_generate_result> GenerateAndFinalizeAsync(
             KimodoPlayableClip clip,
             KimodoExternalConstraintRequest externalConstraint,
             Action<KimodoBridgeCommandStage, string> progress,
@@ -637,7 +637,7 @@ namespace KimodoBridge.Editor
             try
             {
                 request.Progress = progress;
-                KimodoEditorGenerateResult result = await KimodoEditorGeneratePipeline.ExecuteAsync(request);
+                command_generate_result result = await KimodoEditorGeneratePipeline.ExecuteAsync(request);
                 token.ThrowIfCancellationRequested();
                 KimodoPlayableClipGenerationHostService.FinalizeGeneration(clip, request, result);
                 return result;

@@ -44,11 +44,6 @@ def _build_protocol_help() -> dict[str, Any]:
                 "description": "List every supported model and text encoder configuration for this server and device.",
             },
             {
-                "cmd": "runtime.activate",
-                "description": "Load a selected model and text encoder without generating motion.",
-                "fields": ["model", "text_encoder_mode", "models_root"],
-            },
-            {
                 "cmd": "session.open",
                 "description": "Open an isolated TCP generation session.",
             },
@@ -58,8 +53,13 @@ def _build_protocol_help() -> dict[str, Any]:
             },
             {
                 "cmd": "generate",
-                "description": "Queue motion generation. Choose model and text_encoder_mode from runtime.list_models.",
-                "fields": ["prompt", "model", "text_encoder_mode", "duration", "constraints_json"],
+                "description": "Queue motion generation, or analyze KMB ClipConstraints when analysis_option.analysis_only is true. Choose model and text_encoder_mode from runtime.list_models for motion generation.",
+                "fields": [
+                    "prompt", "model", "text_encoder_mode", "duration", "constraints_json",
+                    "kmb_attachments", "attachment_byte_length", "analysis_option", "loop",
+                    "ardy_timeline_segments", "ardy_history_weight", "ardy_max_speed",
+                    "ardy_max_acceleration", "ardy_playback_reserve_seconds",
+                ],
             },
             {
                 "cmd": "cancel",
@@ -90,7 +90,14 @@ def _build_model_configurations(
     if motion_profile is not None:
         default_model = motion_profile.model_name
     else:
-        default_model = assets.resolve_main_model(default_model).local_name
+        model_path = Path(default_model).expanduser()
+        if model_path.is_file() and model_path.name.lower() == "config.yaml":
+            model_path = model_path.parent
+        default_model = (
+            str(model_path.resolve())
+            if model_path.is_dir() and (model_path / "config.yaml").is_file()
+            else assets.resolve_main_model(default_model).local_name
+        )
     default_encoder = assets.normalize_text_encoder_mode(default_config.get("text_encoder_mode"))
     configs: list[dict[str, Any]] = []
     model_entries = [(spec.local_name, "kimodo") for spec in assets.MAIN_MODELS]
@@ -872,16 +879,39 @@ def _execute_generate(
     task_request: dict[str, Any],
     model: Any,
     cancel_event: threading.Event,
+    progress=None,
 ) -> tuple[dict[str, Any], bytes | None]:
     if cancel_event.is_set():
         raise runtime_helpers.GenerateCancelledError("Generation canceled.")
 
-    output, prompt = runtime_helpers._run_generate(
-        task_request,
-        model,
-        cancel_event,
-        emit_progress=False,
-    )
+    if task_request.get("loop") is True:
+        if progress is not None:
+            progress("Generating loop seed motion...")
+        seed_output, _ = runtime_helpers._run_generate(
+            task_request,
+            model,
+            cancel_event,
+            emit_progress=False,
+        )
+        if cancel_event.is_set():
+            raise runtime_helpers.GenerateCancelledError("Generation canceled.")
+        loop_constraints = runtime_helpers._build_loop_body_pose_constraints(seed_output, model)
+        if progress is not None:
+            progress("Generating loop-constrained motion...")
+        output, prompt = runtime_helpers._run_generate(
+            task_request,
+            model,
+            cancel_event,
+            emit_progress=False,
+            additional_constraints=loop_constraints,
+        )
+    else:
+        output, prompt = runtime_helpers._run_generate(
+            task_request,
+            model,
+            cancel_event,
+            emit_progress=False,
+        )
     analysis = animation_analysis.build_generation_analysis(task_request, model, output)
 
     output_format = runtime_helpers._resolve_requested_output_format(task_request)
@@ -1028,6 +1058,66 @@ def _read_kmb_attachments(file, request: dict[str, Any]) -> tuple[bytes, ...]:
     if expected_offset != total:
         raise ardy_backend.ArdyBackendError("KMB attachment manifest does not cover the binary request payload.")
     return tuple(result)
+
+
+def _is_analysis_only_request(request: dict[str, Any]) -> bool:
+    options = request.get("analysis_option")
+    return isinstance(options, dict) and options.get("analysis_only") is True
+
+
+def _execute_analysis_only(
+    request: dict[str, Any],
+    attachments: tuple[bytes, ...],
+    quickserver_root: str,
+) -> tuple[dict[str, Any], bytes]:
+    options = request.get("analysis_option")
+    if not isinstance(options, dict) or options.get("analysis_only") is not True:
+        raise ardy_backend.ArdyBackendError("analysis_option.analysis_only must be true.")
+
+    clips: list[dict[str, Any]] = []
+    manifest: list[dict[str, Any]] = []
+    output = bytearray()
+    for item in ardy_backend._parse_constraints(request.get("constraints_json")):
+        if item.get("type") != "clip":
+            continue
+        payload = ardy_backend._clip_payload(item, attachments, quickserver_root)
+        motion = ardy_backend.parse_kmb1(payload)
+        start, end = ardy_backend._clip_slice(item, motion)
+        offset = len(output)
+        output.extend(payload)
+        manifest.append(
+            {
+                "index": len(manifest),
+                "offset": offset,
+                "byte_length": len(payload),
+                "start_frame": start,
+                "end_frame_exclusive": end,
+            }
+        )
+        clips.append(
+            {
+                "root_positions": motion.root_positions[start:end],
+                "local_rot_quats": motion.local_rot_quats[start:end],
+                "fps": motion.fps,
+            }
+        )
+
+    if not clips:
+        raise ardy_backend.ArdyBackendError("analysis_only requires one or more KMB ClipConstraints.")
+    if len(output) > ardy_backend.MAX_KMB_BYTES:
+        raise ardy_backend.ArdyBackendError(
+            f"analysis_only KMB output exceeds the {ardy_backend.MAX_KMB_BYTES}-byte limit."
+        )
+    return (
+        {
+            "status": "done",
+            "output_format": "kmb_attachments_v1",
+            "byte_length": len(output),
+            "kmb_attachments": manifest,
+            "analysis": animation_analysis.build_clip_constraint_analysis(clips, options),
+        },
+        bytes(output),
+    )
 
 
 def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger) -> int:
@@ -1448,7 +1538,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         def execute() -> tuple[dict[str, Any], bytes | None]:
             profile = runtime.get("motion_profile")
             if profile is None or profile.backend != "ardy":
-                return _execute_generate(task["request"], runtime["model"], task["cancel_event"])
+                return _execute_generate(task["request"], runtime["model"], task["cancel_event"], report_progress)
+            if task["request"].get("loop") is True:
+                raise ardy_backend.ArdyBackendError("loop=true is currently supported only by Kimodo models, not ARDY models.")
             signature = str(runtime.get("runtime_signature") or "")
             existing = session.get("ardy_stream")
             existing_signature = str(session.get("ardy_stream_signature") or "")
@@ -1555,12 +1647,20 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     finally:
                         text_encoder_execution_gate.release(encoder_key)
 
-                profile = assets.resolve_motion_model_profile(task["runtime_config"]["model"])
-                if profile is not None and profile.backend == "ardy":
-                    response, binary_payload = execute_task()
+                if _is_analysis_only_request(task["request"]):
+                    task["status_message"] = "Analyzing KMB ClipConstraints..."
+                    response, binary_payload = _execute_analysis_only(
+                        task["request"],
+                        tuple(task.get("attachments") or ()),
+                        kimodo_root,
+                    )
                 else:
-                    with non_ardy_generation_gate:
+                    profile = assets.resolve_motion_model_profile(task["runtime_config"]["model"])
+                    if profile is not None and profile.backend == "ardy":
                         response, binary_payload = execute_task()
+                    else:
+                        with non_ardy_generation_gate:
+                            response, binary_payload = execute_task()
             except runtime_helpers.GenerateCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
                 binary_payload = None
@@ -1803,31 +1903,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     close_session_locked(session, "Session closed.")
                                 reply({"status": "done", "session_id": bound_session_id})
                             return
-                        elif cmd == "runtime.activate":
-                            active_config = _normalize_runtime_config(request, session["default_config"])
-                            with queue_changed:
-                                if any(
-                                    current["queue"] or current.get("active") is not None
-                                    for current in state["sessions"].values()
-                                ):
-                                    raise ValueError("Cannot activate a runtime while a generation is queued or running.")
-                                session["default_config"] = dict(active_config)
-                            begin_command()
-                            try:
-                                publish_state("loading_runtime")
-                                runtime = get_runtime(session, active_config)
-                                reply(_attach_runtime_metadata(
-                                    {
-                                        "status": "done",
-                                        "message": "Kimodo runtime activated.",
-                                        "model": str(runtime.get("resolved_model_name") or active_config["model"]),
-                                        "runtime_device": str(runtime.get("runtime_device") or ""),
-                                    },
-                                    runtime.get("text_encoder_decision"),
-                                ))
-                            finally:
-                                publish_state("ready")
-                                end_command()
                         elif cmd == "generate":
                             attachments = _read_kmb_attachments(file, request)
                             task_id = resolve_request_task_id(request)

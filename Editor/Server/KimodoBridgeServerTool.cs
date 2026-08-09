@@ -51,6 +51,11 @@ namespace KimodoBridge.Editor
             return KimodoBridgeRuntimeInstallFacade.ReinstallRuntimeRoot();
         }
 
+        internal static bool RefreshRuntimeRoot()
+        {
+            return KimodoBridgeRuntimeInstallFacade.RefreshRuntimeRoot();
+        }
+
         internal static string ResolveRuntimeRootOrThrow()
         {
             return KimodoBridgeRuntimeInstallFacade.ResolveRuntimeRootOrThrow();

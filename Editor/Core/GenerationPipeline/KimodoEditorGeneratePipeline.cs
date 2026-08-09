@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using KimodoUnityBridge.Command;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -15,7 +16,7 @@ namespace KimodoBridge.Editor
     {
         private const string DefaultModelName = "Kimodo-SOMA-RP-v1";
 
-        public static async Task<KimodoEditorGenerateResult> ExecuteAsync(KimodoEditorGenerateRequest request)
+        public static async Task<command_generate_result> ExecuteAsync(KimodoEditorGenerateRequest request)
         {
             if (request == null)
             {
@@ -29,6 +30,10 @@ namespace KimodoBridge.Editor
             }
 
             string modelName = string.IsNullOrWhiteSpace(request.ModelName) ? DefaultModelName : request.ModelName.Trim();
+            if (request.Loop && KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
+            {
+                throw new InvalidOperationException("Loop generation is currently supported only by Kimodo models, not ARDY models.");
+            }
             ThrowIfCanceled(request);
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating motion...");
 
@@ -36,7 +41,7 @@ namespace KimodoBridge.Editor
             return BakeRuntimeResult(request, prompt, modelName, runtimeResult);
         }
 
-        internal static KimodoEditorGenerateResult BakeRuntimeResult(
+        internal static command_generate_result BakeRuntimeResult(
             KimodoEditorGenerateRequest request,
             string prompt,
             string modelName,
@@ -272,7 +277,6 @@ namespace KimodoBridge.Editor
                 profile);
             commandRequest.GenerationRequest.ardy_history_kmb = historyPayload;
             commandRequest.GenerationRequest.ardy_playback_reserve_seconds = 0.0;
-            commandRequest.GenerationRequest.ardy_adaptive_playback_reserve = false;
 
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating complete ARDY KMB...");
             var pipeline = new KimodoBridgeCommand();
@@ -344,7 +348,7 @@ namespace KimodoBridge.Editor
             return result;
         }
 
-        private static KimodoEditorGenerateResult CompleteBakedOutput(
+        private static command_generate_result CompleteBakedOutput(
             KimodoEditorGenerateRequest request,
             string prompt,
             string modelName,
@@ -368,6 +372,9 @@ namespace KimodoBridge.Editor
                 request,
                 prompt,
                 runtimeResult.MotionJsonCompact,
+                runtimeResult.MotionBytes,
+                runtimeResult.StartFrame,
+                runtimeResult.EndFrameExclusive,
                 request.TargetClip,
                 rawBoneClip,
                 runtimeResult.AnalysisJson);
@@ -691,20 +698,18 @@ namespace KimodoBridge.Editor
                 duration = request.EffectiveRuntimeDurationSeconds,
                 seed = request.EffectiveSeed,
                 steps = request.DiffusionSteps,
-                text_weight = Mathf.Clamp(request.TextWeight, 0f, 4f),
+                loop = request.Loop,
                 constraints_json = request.ConstraintsJson ?? string.Empty,
-                analysis_options_json = request.AnalysisOptionsJson ?? string.Empty,
+                analysis_option_json = request.AnalysisOptionsJson ?? string.Empty,
                 model = modelName,
                 text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(request.TextEncoderMode),
                 simulate_free_vram_gb = KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental ? 0 : (int?)null,
                 models_root = modelsRoot,
                 force_hf_download = false,
                 owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id,
-                ardy_history_crop_seconds = request.ArdyHistoryCropSeconds,
                 ardy_history_weight = request.ArdyHistoryWeight,
                 ardy_max_speed = request.ArdyMaxSpeed,
-                ardy_max_acceleration = request.ArdyMaxAcceleration,
-                ardy_history_transition_weight = request.ArdyHistoryTransitionWeight
+                ardy_max_acceleration = request.ArdyMaxAcceleration
             };
 
             return new KimodoBridgeCommandRequest
@@ -725,25 +730,38 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static KimodoEditorGenerateResult Complete(
+        private static command_generate_result Complete(
             KimodoEditorGenerateRequest request,
             string prompt,
             string motionJson,
+            byte[] motionBytes,
+            int startFrame,
+            int endFrameExclusive,
             AnimationClip generatedClip,
             AnimationClip rawBoneClip,
             string analysisJson)
         {
             ThrowIfCanceled(request);
+            if (request.Loop && generatedClip != null)
+            {
+                AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(generatedClip);
+                settings.loopTime = true;
+                AnimationUtility.SetAnimationClipSettings(generatedClip, settings);
+                EditorUtility.SetDirty(generatedClip);
+            }
             request.Progress?.Invoke(KimodoBridgeCommandStage.Finalize, "Finalizing generated assets...");
             request.Progress?.Invoke(KimodoBridgeCommandStage.Completed, "Generation complete.");
 
-            return new KimodoEditorGenerateResult
+            return new command_generate_result
             {
                 ConstraintsPath = string.Empty,
                 Prompt = prompt,
                 Seed = request.EffectiveSeed,
                 MotionJsonCompact = motionJson,
                 AnalysisJson = analysisJson,
+                MotionBytes = motionBytes,
+                StartFrame = startFrame,
+                EndFrameExclusive = endFrameExclusive,
                 GeneratedClip = generatedClip,
                 RawBoneClip = rawBoneClip,
                 ArdyMotionCachePath = request.GeneratedArdyMotionCachePath,

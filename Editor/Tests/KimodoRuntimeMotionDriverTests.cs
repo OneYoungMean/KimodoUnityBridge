@@ -335,8 +335,7 @@ namespace KimodoBridge.Editor.Tests
                 ardyApplyTime: 0.0,
                 includeOverlap: false,
                 maxConstraintTime: 5f,
-                fullBodyConstraintType: "fullbody",
-                root2DTargetConstraintType: "root2d_target");
+                fullBodyConstraintType: "fullbody");
             Assert.That(active, Has.Count.EqualTo(2));
             Assert.That(active[0].sampleTime, Is.EqualTo(2.0).Within(1e-6));
             Assert.That(active[1].sampleTime, Is.EqualTo(3.0).Within(1e-6));
@@ -348,7 +347,7 @@ namespace KimodoBridge.Editor.Tests
             var buffer = new KimodoRuntimeConstraintBuffer();
             buffer.Stage(new KimodoMarkerSampleResult
             {
-                constraintType = "root2d_target",
+                constraintType = "root2d",
                 sampleTime = 2.0
             }, absoluteTimeOffset: 10.0);
             Assert.That(buffer.CommitStaged(), Is.True);
@@ -358,8 +357,7 @@ namespace KimodoBridge.Editor.Tests
                 ardyApplyTime: 11.0,
                 includeOverlap: false,
                 maxConstraintTime: 5f,
-                fullBodyConstraintType: "fullbody",
-                root2DTargetConstraintType: "root2d_target");
+                fullBodyConstraintType: "fullbody");
             Assert.That(ardyActive, Has.Count.EqualTo(1));
             Assert.That(ardyActive[0].sampleTime, Is.EqualTo(1.0).Within(1e-6));
 
@@ -370,8 +368,7 @@ namespace KimodoBridge.Editor.Tests
                 ardyApplyTime: 0.0,
                 includeOverlap: false,
                 maxConstraintTime: 5f,
-                fullBodyConstraintType: "fullbody",
-                root2DTargetConstraintType: "root2d_target");
+                fullBodyConstraintType: "fullbody");
             Assert.That(normalActive, Has.Count.EqualTo(1));
             Assert.That(normalActive[0].sampleTime, Is.EqualTo(5.0).Within(1e-6));
 
@@ -385,7 +382,7 @@ namespace KimodoBridge.Editor.Tests
             var buffer = new KimodoRuntimeConstraintBuffer();
             buffer.Stage(new KimodoMarkerSampleResult
             {
-                constraintType = "root2d_target",
+                constraintType = "root2d",
                 sampleTime = 1.0
             });
             Assert.That(buffer.CommitStaged(), Is.True);
@@ -393,21 +390,20 @@ namespace KimodoBridge.Editor.Tests
 
             buffer.Stage(new KimodoMarkerSampleResult
             {
-                constraintType = "root2d_target",
+                constraintType = "root2d",
                 sampleTime = 2.0
             });
             Assert.That(buffer.CommitStaged(), Is.True);
             buffer.CompleteGeneration(isArdy: false, consumedPendingRevision: consumedRevision);
 
-            Assert.That(buffer.PendingCount, Is.EqualTo(1));
+            Assert.That(buffer.PendingCount, Is.EqualTo(2));
             List<KimodoMarkerSampleResult> active = buffer.BuildActive(
                 isArdy: false,
                 ardyApplyTime: 0.0,
                 includeOverlap: false,
                 maxConstraintTime: 5f,
-                fullBodyConstraintType: "fullbody",
-                root2DTargetConstraintType: "root2d_target");
-            Assert.That(active[0].sampleTime, Is.EqualTo(2.0).Within(1e-6));
+                fullBodyConstraintType: "fullbody");
+            Assert.That(active.Select(sample => sample.sampleTime), Is.EqualTo(new[] { 1.0, 2.0 }));
         }
 
         [Test]
@@ -435,8 +431,7 @@ namespace KimodoBridge.Editor.Tests
                 ardyApplyTime: 0.0,
                 includeOverlap: true,
                 maxConstraintTime: 5f,
-                fullBodyConstraintType: "fullbody",
-                root2DTargetConstraintType: "root2d_target");
+                fullBodyConstraintType: "fullbody");
             Assert.That(normalActive, Has.Count.EqualTo(1));
             Assert.That(normalActive[0].constraintType, Is.EqualTo("fullbody"));
             Assert.That(normalActive[0].sampleTime, Is.Zero);
@@ -448,8 +443,7 @@ namespace KimodoBridge.Editor.Tests
                     ardyApplyTime: 0.0,
                     includeOverlap: false,
                     maxConstraintTime: 5f,
-                    fullBodyConstraintType: "fullbody",
-                    root2DTargetConstraintType: "root2d_target"),
+                    fullBodyConstraintType: "fullbody"),
                 Is.Empty);
         }
 
@@ -582,7 +576,6 @@ namespace KimodoBridge.Editor.Tests
                 TimelineClip first = CreateArdyTimelineClip(track, 0.0, 0.23, 10);
                 TimelineClip second = CreateArdyTimelineClip(track, 1.0, 2.0, 5);
                 var secondPlayable = (KimodoPlayableClip)second.asset;
-                secondPlayable.textWeight = 2f;
                 secondPlayable.randomSeed = true;
                 secondPlayable.seed = 99;
 
@@ -931,18 +924,15 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ConstraintJson_ARDYRootTargetKeepsTimingInTheBackend()
+        public void ConstraintJson_Root2DKeepsExplicitTimingAndHeading()
         {
             var sample = new KimodoMarkerSampleResult
             {
-                constraintType = "root2d_target",
+                constraintType = "root2d",
+                sampleTime = 4.0,
                 kimodoRootPosition = new Vector3(2f, 0f, 3f),
-                rootTargetMaxSpeed = 1.25f,
-                rootTargetMaxAcceleration = 1.5f,
-                rootTargetArrivalThreshold = 0.1f,
-                rootTargetIncludeHeading = true,
-                rootTargetHasHeading = true,
-                rootTargetHeading = new Vector2(0.6f, 0.8f)
+                hasRootHeading = true,
+                rootHeading = new Vector2(0.6f, 0.8f)
             };
 
             JObject target = (JObject)JArray.Parse(
@@ -951,15 +941,12 @@ namespace KimodoBridge.Editor.Tests
                     clipDurationSeconds: 8.0,
                     exportFps: 20.0))[0];
 
-            Assert.That(target.Value<string>("type"), Is.EqualTo("root2d_target"));
-            Assert.That(target["target_root_2d"]?[0]?.Value<float>(), Is.EqualTo(-2f));
-            Assert.That(target["target_root_2d"]?[1]?.Value<float>(), Is.EqualTo(3f));
-            Assert.That(target.Value<float>("max_speed"), Is.EqualTo(1.25f));
-            Assert.That(target.Value<float>("max_acceleration"), Is.EqualTo(1.5f));
-            Assert.That(target.Value<bool>("include_heading"), Is.True);
-            Assert.That(target["target_root_heading"]?[0]?.Value<float>(), Is.EqualTo(0.8f).Within(1e-6f));
-            Assert.That(target["target_root_heading"]?[1]?.Value<float>(), Is.EqualTo(-0.6f).Within(1e-6f));
-            Assert.That(target["frame_indices"], Is.Null);
+            Assert.That(target.Value<string>("type"), Is.EqualTo("root2d"));
+            Assert.That(target["smooth_root_2d"]?[0]?[0]?.Value<float>(), Is.EqualTo(-2f));
+            Assert.That(target["smooth_root_2d"]?[0]?[1]?.Value<float>(), Is.EqualTo(3f));
+            Assert.That(target["global_root_heading"]?[0]?[0]?.Value<float>(), Is.EqualTo(0.8f).Within(1e-6f));
+            Assert.That(target["global_root_heading"]?[0]?[1]?.Value<float>(), Is.EqualTo(-0.6f).Within(1e-6f));
+            Assert.That(target["frame_indices"]?[0]?.Value<int>(), Is.EqualTo(80));
         }
 
         [Test]
@@ -1336,7 +1323,6 @@ namespace KimodoBridge.Editor.Tests
             var playable = (KimodoPlayableClip)timelineClip.asset;
             playable.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
             playable.diffusionSteps = diffusionSteps;
-            playable.textWeight = 1f;
             playable.randomSeed = false;
             playable.seed = 42;
             return timelineClip;

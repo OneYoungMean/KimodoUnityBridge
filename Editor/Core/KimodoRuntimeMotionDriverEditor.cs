@@ -14,9 +14,10 @@ namespace KimodoBridge.Editor
         private SerializedProperty prompt;
         private SerializedProperty generationFrames;
         private SerializedProperty ardyPlaybackReserveSeconds;
-        private SerializedProperty ardyAdaptivePlaybackReserve;
         private SerializedProperty ardyAutoHistory;
         private SerializedProperty ardyHistoryWeight;
+        private SerializedProperty ardyMaxSpeed;
+        private SerializedProperty ardyMaxAcceleration;
         private SerializedProperty diffusionSteps;
         private SerializedProperty randomSeed;
         private SerializedProperty seed;
@@ -34,9 +35,10 @@ namespace KimodoBridge.Editor
             prompt = serializedObject.FindProperty("defaultPrompt");
             generationFrames = serializedObject.FindProperty("generationFrames");
             ardyPlaybackReserveSeconds = serializedObject.FindProperty("ardyPlaybackReserveSeconds");
-            ardyAdaptivePlaybackReserve = serializedObject.FindProperty("ardyAdaptivePlaybackReserve");
             ardyAutoHistory = serializedObject.FindProperty("ardyAutoHistory");
             ardyHistoryWeight = serializedObject.FindProperty("ardyHistoryWeight");
+            ardyMaxSpeed = serializedObject.FindProperty("ardyMaxSpeed");
+            ardyMaxAcceleration = serializedObject.FindProperty("ardyMaxAcceleration");
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
             randomSeed = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("fixedSeed");
@@ -100,9 +102,6 @@ namespace KimodoBridge.Editor
                     ardyPlaybackReserveSeconds,
                     new GUIContent("Playback Reserve", "Request more motion when this much playable ARDY animation remains; default 1 second."));
                 EditorGUILayout.PropertyField(
-                    ardyAdaptivePlaybackReserve,
-                    new GUIContent("Adaptive Playback Reserve", "Let the backend adapt the reserve from measured response time."));
-                EditorGUILayout.PropertyField(
                     ardyAutoHistory,
                     new GUIContent("Auto History", "Adapt the history window from upcoming motion constraints."));
                 if (!ardyAutoHistory.hasMultipleDifferentValues && !ardyAutoHistory.boolValue)
@@ -111,6 +110,8 @@ namespace KimodoBridge.Editor
                         ardyHistoryWeight,
                         new GUIContent("ARDY History Weight", "0 uses one motion token; 1 uses the maximum history window."));
                 }
+                EditorGUILayout.PropertyField(ardyMaxSpeed, new GUIContent("Root2D Max Speed"));
+                EditorGUILayout.PropertyField(ardyMaxAcceleration, new GUIContent("Root2D Max Acceleration"));
             }
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, modelName);
             KimodoGenerationInspectorGui.DrawSeed(randomSeed, seed);

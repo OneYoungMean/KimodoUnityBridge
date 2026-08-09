@@ -12,12 +12,16 @@ namespace KimodoBridge
         public double time_as_double;
         public int? seed;
         public int steps;
-        public float text_weight = 1f;
+        public bool loop;
         public string constraints_json;
-        // Optional JSON object forwarded as the protocol-level analysis_options field.
-        public string analysis_options_json;
+        // Optional JSON object forwarded as the protocol-level analysis_option field.
+        public string analysis_option_json;
         [NonSerialized] public List<KimodoArdyTimelineSegmentDto> ardy_timeline_segments;
         [NonSerialized] public List<KimodoArdyClipConstraint> ardy_future_clips;
+        // Generic KMB ClipConstraints for `analysis_option.analysis_only`.
+        // They intentionally carry no ARDY mask so the server can analyze them
+        // without loading a motion model or text encoder.
+        [NonSerialized] public List<KimodoKmbClipConstraint> analysis_clip_constraints;
         [NonSerialized] public byte[] ardy_history_kmb;
         [NonSerialized] public bool ardy_session_update_only;
         // Optional desired transition overlap in seconds.
@@ -29,14 +33,10 @@ namespace KimodoBridge
         public string models_root;
         public bool force_hf_download;
         public int owner_pid;
-        public double? ardy_history_crop_seconds;
         public double? ardy_history_weight;
-        public double? ardy_future_crop_seconds;
         public double? ardy_max_speed;
         public double? ardy_max_acceleration;
-        public double? ardy_history_transition_weight;
         public double? ardy_playback_reserve_seconds;
-        public bool? ardy_adaptive_playback_reserve;
         public string output_format = "kmb_v1";
     }
 
@@ -45,6 +45,14 @@ namespace KimodoBridge
     {
         public string prompt;
         public float duration;
+    }
+
+    [Serializable]
+    public sealed class KimodoKmbClipConstraint
+    {
+        [NonSerialized] public byte[] motionBytes;
+        public int startFrame;
+        public int endFrameExclusive;
     }
 
     public static class KimodoTextEncoderModeProtocol
@@ -64,6 +72,7 @@ namespace KimodoBridge
         public string motionJsonCompact;
         [NonSerialized] public KimodoRawMotionData motionData;
         [NonSerialized] public byte[] motionBytes;
+        [NonSerialized] public IReadOnlyList<KimodoBridgeKmbAttachment> kmbAttachments;
         public string motionFormat;
         public string rawStatus;
         public string message;

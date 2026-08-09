@@ -59,7 +59,6 @@ namespace KimodoBridge
         public string motionPrompt = string.Empty;
         public int generationFrames = DEFAULT_FRAMES;
         public int diffusionSteps = 100;
-        [HideInInspector, Range(0f, 4f)] public float textWeight = 1f;
         public bool randomSeed = false;
         public int seed = 42;
         [SerializeField, HideInInspector]

@@ -115,6 +115,11 @@ namespace KimodoBridge.Editor
             return TryBootstrapRuntimeRootFromPackage(projectRoot, runtimeRoot);
         }
 
+        internal static bool RefreshRuntimeRoot()
+        {
+            return TryBootstrapRuntimeRootFromPackage(ResolveProjectRoot(), GetRuntimeRootPath());
+        }
+
         internal static bool TryBootstrapRuntimeRootFromPackage(string projectRoot, string runtimeRoot)
         {
             string packageResolvedPath = string.Empty;

@@ -161,11 +161,6 @@ namespace TimelineInject
                 return BuildRoot2D(sample, clipStartSeconds, clipDurationSeconds, exportFps);
             }
 
-            if (string.Equals(type, "root2d_target", StringComparison.OrdinalIgnoreCase))
-            {
-                return BuildRoot2DTarget(sample, clipStartSeconds, clipDurationSeconds, exportFps);
-            }
-
             if (string.Equals(type, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
                 return BuildFullBody(sample, clipStartSeconds, clipDurationSeconds, exportFps);
@@ -210,30 +205,6 @@ namespace TimelineInject
             }
 
             return json;
-        }
-
-        private static KimodoConstraintJson BuildRoot2DTarget(
-            KimodoMarkerSampleResult sample,
-            double clipStartSeconds,
-            double? clipDurationSeconds,
-            double exportFps)
-        {
-            return new KimodoConstraintJson
-            {
-                type = "root2d_target",
-                frame_indices = null,
-                target_root_2d = new[] { -sample.kimodoRootPosition.x, sample.kimodoRootPosition.z },
-                target_frame = sample.rootTargetUseSampleTime
-                    ? ToFrameIndex(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps)
-                    : (int?)null,
-                max_speed = Mathf.Max(0.01f, sample.rootTargetMaxSpeed),
-                max_acceleration = Mathf.Max(0.01f, sample.rootTargetMaxAcceleration),
-                arrival_threshold = Mathf.Max(0f, sample.rootTargetArrivalThreshold),
-                include_heading = sample.rootTargetIncludeHeading,
-                target_root_heading = sample.rootTargetHasHeading
-                    ? new[] { sample.rootTargetHeading.y, -sample.rootTargetHeading.x }
-                    : null
-            };
         }
 
         private static KimodoConstraintJson BuildFullBody(
@@ -384,11 +355,6 @@ namespace TimelineInject
 
         private static KimodoConstraintJson BuildMergedConstraint(string type, List<KimodoConstraintJson> group)
         {
-            if (string.Equals(type, "root2d_target", StringComparison.OrdinalIgnoreCase))
-            {
-                return group[group.Count - 1];
-            }
-
             var merged = new KimodoConstraintJson
             {
                 type = type,

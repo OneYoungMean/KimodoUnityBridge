@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -49,6 +50,7 @@ namespace KimodoBridge
             {
                 MotionJsonCompact = result.motionJsonCompact,
                 MotionData = result.motionData,
+                KmbAttachments = result.kmbAttachments,
                 MotionFormat = result.motionFormat,
                 Message = result.message ?? string.Empty,
                 RawStatus = result.rawStatus ?? string.Empty,
@@ -89,6 +91,7 @@ namespace KimodoBridge
                 motionJsonCompact = bridgeResult?.MotionJsonCompact,
                 motionData = bridgeResult?.MotionData,
                 motionBytes = bridgeResult?.MotionBytes,
+                kmbAttachments = bridgeResult?.KmbAttachments,
                 motionFormat = bridgeResult?.MotionFormat,
                 motionRepFingerprint = bridgeResult?.MotionRepFingerprint,
                 resolvedSeed = bridgeResult?.ResolvedSeed,
@@ -107,6 +110,7 @@ namespace KimodoBridge
         public string Message;
         public string RawStatus;
         public byte[] MotionBytes;
+        public IReadOnlyList<KimodoBridgeKmbAttachment> KmbAttachments;
         public string MotionRepFingerprint;
         public int? ResolvedSeed;
         public int StartFrame;

@@ -18,8 +18,8 @@ namespace KimodoBridge.Editor
         public int RuntimeFrameCount;
         public int RuntimeTrimStartFrame;
         public int DiffusionSteps;
-        public float TextWeight = 1f;
         public int EffectiveSeed;
+        public bool Loop;
         public string ConstraintsJson;
         public string AnalysisOptionsJson;
         public Func<AnimationClip> CreateTargetClip;
@@ -38,11 +38,9 @@ namespace KimodoBridge.Editor
         public bool ResetTimelineTimeScaleAfterGeneration;
         public PlayableDirector TimelineDirectorSnapshot;
         public ArdyEditorHistorySource InitialArdyHistorySource;
-        public double? ArdyHistoryCropSeconds;
         public double? ArdyHistoryWeight;
         public double? ArdyMaxSpeed;
         public double? ArdyMaxAcceleration;
-        public double? ArdyHistoryTransitionWeight;
         public string GeneratedArdyMotionCachePath = string.Empty;
         public List<string> GeneratedArdyWindowCachePaths = new List<string>();
         public List<int> GeneratedArdySeeds = new List<int>();

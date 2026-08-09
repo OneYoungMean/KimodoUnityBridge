@@ -16,6 +16,8 @@
 
 ## 更新注意事项
 **从 1.x 升级时，请先在 Server Manager 停止服务器，再点击 `Reinstall Kimodo Server` 重铺运行目录；该操作会保留已有的 `models` 目录。**
+
+自动化入口应完整读取根目录的 [Kimodo Animation Skill](SKILL.md)，并按其中的最小生成自检与 API 契约执行。中文对照见 [SKILL-zh.md](SKILL-zh.md)。它们是当前 Timeline Session、查询、生成、分析与 Bake 的唯一操作规范；不同 Unity 使用入口见 [Manual/自动化使用入口](Manual/Command%20API%20说明书.md)。
 ***
 
 # KimodoUnityBridge

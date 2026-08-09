@@ -25,6 +25,21 @@ namespace KimodoBridge
         public int EndFrameExclusive { get; set; }
         public double? ArdyPlaybackReserveSeconds { get; set; }
         public string AnalysisJson { get; set; }
+        // `kmb_attachments_v1` is used by analysis-only generate requests.  Each
+        // attachment stays independently parseable so callers can preserve the
+        // original clip boundaries instead of treating the concatenated wire
+        // payload as one KMB file.
+        public IReadOnlyList<KimodoBridgeKmbAttachment> KmbAttachments { get; set; }
+    }
+
+    public sealed class KimodoBridgeKmbAttachment
+    {
+        public int Index { get; internal set; }
+        public int Offset { get; internal set; }
+        public byte[] MotionBytes { get; internal set; }
+        public KimodoRawMotionData MotionData { get; internal set; }
+        public int StartFrame { get; internal set; }
+        public int EndFrameExclusive { get; internal set; }
     }
 
     public sealed class KimodoBridgeService : IDisposable
@@ -121,31 +136,6 @@ namespace KimodoBridge
             CancellationToken token)
         {
             await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
-        }
-
-        internal async Task<JObject> ActivateRuntimeAsync(
-            string model,
-            string textEncoderMode,
-            string modelsRoot,
-            Action<string> progress,
-            CancellationToken token)
-        {
-            ThrowIfStopRequested();
-            await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
-            BridgeProtocolResponse response = await protocolClient.ActivateRuntimeAsync(
-                currentHost,
-                currentPort,
-                model,
-                textEncoderMode,
-                modelsRoot,
-                token).ConfigureAwait(false);
-            JObject header = response?.Header ?? throw new InvalidOperationException("Bridge activation returned no response.");
-            if (!string.Equals(header.Value<string>("status"), "done", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(header.Value<string>("message") ?? "Bridge runtime activation failed.");
-            }
-            ReportProgress(progress, "Kimodo runtime activated.");
-            return header;
         }
 
         internal async Task<JObject> GetServerHelpAsync(
@@ -282,6 +272,29 @@ namespace KimodoBridge
                         EndFrameExclusive = header?.Value<int?>("end_frame_exclusive") ?? 0,
                         ArdyPlaybackReserveSeconds = header?.Value<double?>("ardy_playback_reserve_seconds"),
                         AnalysisJson = analysisJson
+                    };
+                }
+
+                if (string.Equals(outputFormat, "kmb_attachments_v1", StringComparison.OrdinalIgnoreCase))
+                {
+                    IReadOnlyList<KimodoBridgeKmbAttachment> attachments = ParseKmbAttachments(
+                        header,
+                        response?.BinaryPayload ?? Array.Empty<byte>());
+                    KimodoBridgeKmbAttachment first = attachments.Count > 0 ? attachments[0] : null;
+                    ReportProgress(progress, "Bridge KMB analysis complete.");
+                    return new KimodoBridgeGenerationResult
+                    {
+                        // Preserve the existing single-motion contract for callers that send
+                        // exactly one ClipConstraint, while exposing every attachment above.
+                        MotionData = first?.MotionData,
+                        MotionBytes = first?.MotionBytes,
+                        MotionFormat = outputFormat,
+                        RawStatus = status,
+                        Message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge KMB analysis complete." : responseMessage,
+                        StartFrame = first?.StartFrame ?? 0,
+                        EndFrameExclusive = first?.EndFrameExclusive ?? 0,
+                        AnalysisJson = analysisJson,
+                        KmbAttachments = attachments
                     };
                 }
 
@@ -621,6 +634,69 @@ namespace KimodoBridge
             }
 
             SafeInvokeProgress(progress, message);
+        }
+
+        private static IReadOnlyList<KimodoBridgeKmbAttachment> ParseKmbAttachments(JObject header, byte[] payload)
+        {
+            if (header?["kmb_attachments"] is not JArray manifest || manifest.Count == 0)
+            {
+                throw new Exception("Bridge KMB attachment response has no manifest.");
+            }
+
+            int declaredLength = header.Value<int?>("byte_length") ?? payload.Length;
+            if (declaredLength != payload.Length)
+            {
+                throw new Exception(
+                    $"Bridge KMB attachment byte length mismatch: header={declaredLength}, payload={payload.Length}.");
+            }
+
+            var result = new List<KimodoBridgeKmbAttachment>(manifest.Count);
+            int expectedOffset = 0;
+            for (int index = 0; index < manifest.Count; index++)
+            {
+                if (manifest[index] is not JObject item || item.Value<int?>("index") != index)
+                {
+                    throw new Exception("Bridge KMB attachment indices must be contiguous and zero-based.");
+                }
+
+                int offset = item.Value<int?>("offset") ?? -1;
+                int length = item.Value<int?>("byte_length") ?? 0;
+                if (offset != expectedOffset || length <= 0 || offset > payload.Length - length)
+                {
+                    throw new Exception("Bridge KMB attachment offsets or lengths are invalid.");
+                }
+
+                var bytes = new byte[length];
+                Buffer.BlockCopy(payload, offset, bytes, 0, length);
+                if (!KimodoRawMotionUtility.TryParseFlatBuffer(bytes, out KimodoRawMotionData motion, out string parseError))
+                {
+                    throw new Exception($"Failed to parse bridge KMB attachment {index}: {parseError}");
+                }
+
+                int start = item.Value<int?>("start_frame") ?? 0;
+                int end = item.Value<int?>("end_frame_exclusive") ?? motion.FrameCount;
+                if (start < 0 || end < start || end > motion.FrameCount)
+                {
+                    throw new Exception(
+                        $"Bridge KMB attachment {index} has invalid frame range [{start},{end}) for {motion.FrameCount} frames.");
+                }
+                result.Add(new KimodoBridgeKmbAttachment
+                {
+                    Index = index,
+                    Offset = offset,
+                    MotionBytes = bytes,
+                    MotionData = motion,
+                    StartFrame = start,
+                    EndFrameExclusive = end
+                });
+                expectedOffset += length;
+            }
+
+            if (expectedOffset != payload.Length)
+            {
+                throw new Exception("Bridge KMB attachment manifest does not cover the response payload.");
+            }
+            return result;
         }
 
         private static JObject RequireDoneResponse(

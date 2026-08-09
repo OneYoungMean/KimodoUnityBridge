@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using KimodoUnityBridge.Command;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Animations;
@@ -152,7 +153,7 @@ namespace KimodoBridge.Editor
         {
             if (previewPanel != null && previewPanel.RequestTargetObject != null)
             {
-                EditorGenerateSessionRunner.Clear(previewPanel.RequestTargetObject);
+                command_generation_runner.Clear(previewPanel.RequestTargetObject);
             }
             lastSuccessfulGeneratedClipForApply = null;
             SyncSelectionDrivenDefaults(forcePromptUpdate: false);
@@ -162,7 +163,7 @@ namespace KimodoBridge.Editor
         {
             if (previewPanel != null && previewPanel.RequestTargetObject != null)
             {
-                EditorGenerateSessionRunner.Clear(previewPanel.RequestTargetObject);
+                command_generation_runner.Clear(previewPanel.RequestTargetObject);
             }
             previewPanel?.ResetGeneratedOnly();
             lastSuccessfulGeneratedClipForApply = null;
@@ -229,10 +230,10 @@ namespace KimodoBridge.Editor
             isGenerating = true;
             lastError = string.Empty;
             lastStatus = "Generating and baking...";
-            if (!EditorGenerateSessionRunner.Start(
+            if (!command_generation_runner.Start(
                     requestTarget,
                     $"animator:{KimodoUnityObjectIdUtility.NameKey(requestTarget)}",
-                    KimodoEditorCommandKind.GeneratePlayableClip,
+                    command_kind.GeneratePlayableClip,
                     async (session, token) =>
                     {
                         KimodoEditorGenerateRequest request = BuildAnimatorGenerateRequest(
@@ -245,14 +246,14 @@ namespace KimodoBridge.Editor
                             token,
                             (stage, message) =>
                             {
-                                EditorGenerateSessionRunner.UpdateProgress(requestTarget, session.RequestId, stage, message);
+                                command_generation_runner.UpdateProgress(requestTarget, session.RequestId, stage, message);
                             });
 
-                        KimodoEditorGenerateResult result = await KimodoEditorGeneratePipeline.ExecuteAsync(request);
+                        command_generate_result result = await KimodoEditorGeneratePipeline.ExecuteAsync(request);
                         KimodoTimelinePreviewRefreshUtility.RefreshIfPreviewing();
-                        return (IKimodoEditorCommandResult)result;
+                        return (command_result)result;
                     },
-                    out EditorGenerateSession startedSession,
+                    out command_generation_session startedSession,
                     out error))
             {
                 isGenerating = false;
@@ -260,7 +261,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            EditorGenerateSessionRunner.UpdateProgress(
+            command_generation_runner.UpdateProgress(
                 requestTarget,
                 startedSession.RequestId,
                 KimodoBridgeCommandStage.Validate,
@@ -270,7 +271,7 @@ namespace KimodoBridge.Editor
 
         private void CancelGenerate()
         {
-            EditorGenerateSessionRunner.Cancel(previewPanel != null ? previewPanel.RequestTargetObject : null);
+            command_generation_runner.Cancel(previewPanel != null ? previewPanel.RequestTargetObject : null);
         }
 
         private void ApplyGeneratedResult()
@@ -386,8 +387,8 @@ namespace KimodoBridge.Editor
                 TargetFrameCount = generationFrameCount,
                 TargetFrameRate = targetFrameRate,
                 DiffusionSteps = diffusionSteps,
-                TextWeight = 1f,
                 EffectiveSeed = effectiveSeed,
+                Loop = isLoop,
                 ConstraintsJson = resolvedConstraintsJson,
                 ConstraintSamples = samples,
                 CreateTargetClip = CreateAnimatorTargetClip,
@@ -461,7 +462,7 @@ namespace KimodoBridge.Editor
         {
             UnityEngine.Object targetObject = previewPanel != null ? previewPanel.RequestTargetObject : null;
             if (targetObject == null ||
-                !EditorGenerateSessionRunner.TryGet(targetObject, out EditorGenerateSession handle) ||
+                !command_generation_runner.TryGet(targetObject, out command_generation_session handle) ||
                 handle == null)
             {
                 isGenerating = false;
@@ -471,14 +472,14 @@ namespace KimodoBridge.Editor
             isGenerating = handle.IsRunning;
             switch (handle.Status)
             {
-                case KimodoEditorRequestStatus.Running:
+                case command_status.Running:
                     lastStatus = string.IsNullOrWhiteSpace(handle.Message) ? "Generating and baking..." : handle.Message;
                     lastError = string.Empty;
                     break;
-                case KimodoEditorRequestStatus.Completed:
+                case command_status.Completed:
                     lastStatus = string.IsNullOrWhiteSpace(handle.Message) ? "Generation complete." : handle.Message;
                     lastError = string.Empty;
-                    if (handle.Payload is KimodoEditorGenerateResult generateResult && generateResult.GeneratedClip != null)
+                    if (handle.Payload is command_generate_result generateResult && generateResult.GeneratedClip != null)
                     {
                         seed = generateResult.Seed;
                         if (!ReferenceEquals(lastSuccessfulGeneratedClipForApply, generateResult.GeneratedClip))
@@ -489,12 +490,12 @@ namespace KimodoBridge.Editor
                         lastSuccessfulGeneratedClipForApply = generateResult.GeneratedClip;
                     }
                     break;
-                case KimodoEditorRequestStatus.Failed:
+                case command_status.Failed:
                     previewPanel?.OnGenerateFailedOrCanceled();
                     lastStatus = "Generation failed.";
                     lastError = handle.Error;
                     break;
-                case KimodoEditorRequestStatus.Canceled:
+                case command_status.Canceled:
                     previewPanel?.OnGenerateFailedOrCanceled();
                     lastStatus = string.IsNullOrWhiteSpace(handle.Message) ? "Generation canceled." : handle.Message;
                     lastError = string.Empty;

@@ -14,7 +14,6 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -26,13 +25,6 @@ from kimodo.frame_time import seconds_to_frame_count
 
 class GenerateCancelledError(Exception):
     pass
-
-
-def _resolve_cfg_text_weight(req: dict) -> float:
-    text_weight = float(req.get("text_weight", 1.0))
-    if not math.isfinite(text_weight) or not 0.0 <= text_weight <= 4.0:
-        raise ValueError("text_weight must be in [0, 4].")
-    return 2.0**text_weight
 
 
 def _default_bridge_log_path(root: str) -> str:
@@ -215,11 +207,23 @@ def _build_bridge_provision_plan(
     encoder_free_vram_gb: float | None = None,
 ) -> _BridgeProvisionPlan:
     root_path = Path(kimodo_root).resolve()
-    resolved_model = assets.resolve_main_model(requested_model)
-    models_root, using_external_models = assets.resolve_models_root(
-        root_path,
-        os.environ.get("KIMODO_MODELS_ROOT"),
-    )
+    requested_path = Path(str(requested_model or "")).expanduser()
+    if requested_path.is_file() and requested_path.name.lower() == "config.yaml":
+        requested_path = requested_path.parent
+    if requested_path.is_dir() and (requested_path / "config.yaml").is_file():
+        resolved_model = assets.ResolvedModel(
+            requested_name=str(requested_model),
+            local_name=requested_path.name,
+            modelscope_repo="",
+            huggingface_repo="",
+        )
+        models_root, using_external_models = requested_path.parent.resolve(), True
+    else:
+        resolved_model = assets.resolve_main_model(requested_model)
+        models_root, using_external_models = assets.resolve_models_root(
+            root_path,
+            os.environ.get("KIMODO_MODELS_ROOT"),
+        )
     if encoder_free_vram_gb is None:
         motion_required_gb = assets.motion_model_min_free_vram_gb(resolved_model.local_name)
         free_vram_gb = runtime_profile.free_vram_gb
@@ -516,48 +520,9 @@ def _load_constraints(constraints_json: str, model, horizon_frames: int | None =
     if any(isinstance(item, dict) and item.get("type") == "clip" for item in parsed):
         raise ValueError("Clip constraints are supported only by ARDY models.")
 
-    root_target = None
-    plain_constraints = []
-    for item in parsed:
-        if isinstance(item, dict) and item.get("type") == "root2d_target":
-            from core.ardy_backend import _parse_root_2d_target
-
-            root_target = _parse_root_2d_target(item)
-            continue
-        plain_constraints.append(item)
-
-    if root_target is not None:
-        from core.ardy_backend import _plan_root_2d_target
-
-        fps = float(model.fps)
-        target_horizon = (
-            max(1, int(horizon_frames))
-            if horizon_frames is not None
-            else max(1, seconds_to_frame_count(5.0, fps))
-        )
-        if root_target.arrival_frame is not None:
-            root_target = replace(
-                root_target,
-                arrival_frame=min(root_target.arrival_frame, target_horizon - 1),
-            )
-        planned_target = _plan_root_2d_target(
-            root_target,
-            (0.0, 0.0),
-            (0.0, 0.0),
-            -1,
-            fps,
-            target_horizon,
-            extend_prediction_to_horizon=True,
-        )
-        if planned_target is not None:
-            if "global_root_heading" in planned_target:
-                planned_target["global_root_heading"] = [
-                    [math.cos(float(angle)), math.sin(float(angle))]
-                    for angle in planned_target["global_root_heading"]
-                ]
-            plain_constraints.append(planned_target)
-
-    return load_constraints_lst(plain_constraints, model.skeleton)
+    if any(isinstance(item, dict) and item.get("type") == "root2d_target" for item in parsed):
+        raise ValueError("root2d_target was removed; use root2d frame_indices and positions.")
+    return load_constraints_lst(parsed, model.skeleton)
 
 
 def _restore_kimodo_output_origin(output: dict, transform, model) -> dict:
@@ -976,11 +941,63 @@ def _generation_segment_frames(num_frames: int, fps: float, max_duration_seconds
     return [base_frames + (1 if index < extra_frames else 0) for index in range(segment_count)]
 
 
+def _build_loop_body_pose_constraints(output: dict, model) -> list:
+    """Reuse seed frame zero at both boundaries while leaving root translation free."""
+    import torch
+
+    from kimodo.constraints import LoopBodyPoseConstraintSet
+
+    skeleton = getattr(model, "skeleton", None)
+    if skeleton is None:
+        raise ValueError("Loop generation requires a model skeleton.")
+    local_rotations = np.asarray(output.get("local_rot_mats"), dtype=np.float32)
+    root_positions = np.asarray(output.get("root_positions"), dtype=np.float32)
+    smooth_root_positions = np.asarray(output.get("smooth_root_pos"), dtype=np.float32)
+    if local_rotations.ndim != 5 or root_positions.ndim != 3 or smooth_root_positions.ndim != 3:
+        raise ValueError("Loop seed motion is missing local rotations or root positions.")
+    local_rotations = local_rotations[0]
+    root_positions = root_positions[0]
+    smooth_root_positions = smooth_root_positions[0]
+    frame_count = int(local_rotations.shape[0])
+    if frame_count < 1 or root_positions.shape != (frame_count, 3) or smooth_root_positions.shape != (frame_count, 3):
+        raise ValueError("Loop seed motion has an invalid frame layout.")
+    if not (np.isfinite(local_rotations).all() and np.isfinite(root_positions).all() and np.isfinite(smooth_root_positions).all()):
+        raise ValueError("Loop seed motion contains NaN or Infinity.")
+
+    device = getattr(skeleton, "device", None)
+    local_rotations_t = torch.as_tensor(local_rotations, dtype=torch.float32, device=device)
+    root_positions_t = torch.as_tensor(root_positions, dtype=torch.float32, device=device)
+    if int(local_rotations_t.shape[1]) != int(skeleton.nbjoints):
+        if int(local_rotations_t.shape[1]) == 77 and hasattr(skeleton, "from_SOMASkeleton77"):
+            local_rotations_t = skeleton.from_SOMASkeleton77(local_rotations_t)
+        else:
+            raise ValueError("Loop seed motion joint count does not match the model skeleton.")
+    global_rotations, posed_joints, _ = skeleton.fk(local_rotations_t, root_positions_t)
+    smooth_root_t = torch.as_tensor(smooth_root_positions, dtype=torch.float32, device=device)
+    local_positions = posed_joints.clone()
+    local_positions[..., 0] -= smooth_root_t[..., 0, None]
+    local_positions[..., 2] -= smooth_root_t[..., 2, None]
+    frame_indices = torch.tensor(
+        [0] if frame_count == 1 else [0, frame_count - 1],
+        device=device,
+        dtype=torch.long,
+    )
+    return [
+        LoopBodyPoseConstraintSet(
+            skeleton,
+            frame_indices,
+            local_positions[frame_indices],
+            global_rotations[frame_indices],
+        )
+    ]
+
+
 def _run_generate(
     req: dict,
     model,
     cancel_event: threading.Event | None = None,
     emit_progress: bool = True,
+    additional_constraints: list | None = None,
 ):
     from kimodo.tools import seed_everything
 
@@ -991,13 +1008,15 @@ def _run_generate(
     duration = float(req.get("duration", 5.0))
     seed = req.get("seed", None)
     diffusion_steps = int(req.get("diffusion_steps", 100))
-    cfg_text_weight = _resolve_cfg_text_weight(req)
+    cfg_text_weight = 2.0
     if seed is not None:
         seed_everything(int(seed))
 
     num_frames = max(1, seconds_to_frame_count(duration, model.fps))
     segment_frames = _generation_segment_frames(num_frames, model.fps)
     constraints = _load_constraints(req.get("constraints_json", ""), model, horizon_frames=num_frames)
+    if additional_constraints:
+        constraints.extend(additional_constraints)
     from kimodo.constraints import normalize_constraints_to_anchor
 
     constraint_origin = normalize_constraints_to_anchor(constraints)

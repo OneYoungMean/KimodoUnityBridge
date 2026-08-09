@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using KimodoUnityBridge.Command;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
@@ -379,22 +380,22 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            return EditorGenerateSessionRunner.Start(
+            return command_generation_runner.Start(
                 context.Track,
                 $"navmesh-track:{KimodoUnityObjectIdUtility.NameKey(context.Track)}",
-                KimodoEditorCommandKind.GenerateNavMeshTrackClips,
+                command_kind.GenerateNavMeshTrackClips,
                 async (handle, token) =>
                 {
                     for (int i = 0; i < playableClips.Count; i++)
                     {
                         KimodoPlayableClip playableClip = playableClips[i];
                         string prefix = $"[{i + 1}/{playableClips.Count}] {playableClip.name}";
-                        EditorGenerateSessionRunner.UpdateProgress(context.Track, handle.RequestId, KimodoBridgeCommandStage.InvokeBackend, $"Generating {prefix}...");
+                        command_generation_runner.UpdateProgress(context.Track, handle.RequestId, KimodoBridgeCommandStage.InvokeBackend, $"Generating {prefix}...");
 
                         await KimodoPlayableClipGenerationExecutionService.GenerateAndFinalizeAsync(
                             playableClip,
                             externalConstraint: null,
-                            (stage, message) => EditorGenerateSessionRunner.UpdateProgress(
+                            (stage, message) => command_generation_runner.UpdateProgress(
                                 context.Track,
                                 handle.RequestId,
                                 stage,
@@ -407,7 +408,7 @@ namespace KimodoBridge.Editor
                         FocusTimeline(context.Director, playableClips[playableClips.Count - 1]);
                     }
 
-                    return KimodoEditorNoopResult.Instance;
+                    return command_noop_result.Instance;
                 },
                 out _,
                 out error);

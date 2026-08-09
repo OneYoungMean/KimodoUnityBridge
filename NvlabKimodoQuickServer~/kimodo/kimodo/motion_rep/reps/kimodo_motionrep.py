@@ -281,6 +281,18 @@ class KimodoMotionRep(MotionRepBase):
             m_sliced = motion_mask[:, self.slice_dict["global_rot_data"]]
             m_sliced[masking] = True
 
+        if (fname := "local_joints_positions") in index_dict and index_dict[fname]:
+            indices_lst = _cat_indices(index_dict[fname])
+            indices_lst, local_joints_positions = get_unique_index_and_data(indices_lst, torch.cat(data_dict[fname]))
+            local_joints_positions = _match_obs_dtype(local_joints_positions)
+            f_sliced = observed_motion[:, self.slice_dict[fname]]
+            masking = torch.zeros(len(f_sliced) * self.nbjoints, 3, device=device, dtype=bool)
+            masking[indices_lst.T[0] * self.nbjoints + indices_lst.T[1]] = True
+            masking = masking.reshape(len(f_sliced), self.nbjoints * 3)
+            f_sliced[masking] = local_joints_positions.flatten()
+            m_sliced = motion_mask[:, self.slice_dict[fname]]
+            m_sliced[masking] = True
+
         if (fname := "global_joints_positions") in index_dict and index_dict[fname]:
             indices_lst = _cat_indices(index_dict[fname])
             indices_lst, global_joints_positions = get_unique_index_and_data(indices_lst, torch.cat(data_dict[fname]))

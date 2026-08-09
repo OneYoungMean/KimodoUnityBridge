@@ -1,28 +1,31 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-namespace KimodoBridge.Editor
+namespace KimodoUnityBridge.Command
 {
-    public interface IKimodoEditorCommandResult
+    public interface command_result
     {
     }
 
-    public sealed class KimodoEditorNoopResult : IKimodoEditorCommandResult
+    public sealed class command_noop_result : command_result
     {
-        public static readonly KimodoEditorNoopResult Instance = new KimodoEditorNoopResult();
+        public static readonly command_noop_result Instance = new command_noop_result();
 
-        private KimodoEditorNoopResult()
+        private command_noop_result()
         {
         }
     }
 
-    public sealed class KimodoEditorGenerateResult : IKimodoEditorCommandResult
+    public sealed class command_generate_result : command_result
     {
         public string ConstraintsPath;
         public string Prompt;
         public int Seed;
         public string MotionJsonCompact;
         public string AnalysisJson;
+        public byte[] MotionBytes;
+        public int StartFrame;
+        public int EndFrameExclusive;
         public AnimationClip GeneratedClip;
         public AnimationClip RawBoneClip;
         public string ArdyMotionCachePath;

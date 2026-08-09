@@ -2,6 +2,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using KimodoUnityBridge.Command;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
@@ -176,7 +177,6 @@ namespace KimodoBridge.Editor
                 DiffusionSteps = KimodoMotionModelProfiles.ClampDiffusionSteps(
                     resolvedModelName,
                     clip.diffusionSteps),
-                TextWeight = 1f,
                 EffectiveSeed = effectiveSeed,
                 ConstraintsJson = constraintsJson,
                 AnalysisOptionsJson = externalConstraint?.AnalysisOptionsJson ?? string.Empty,
@@ -204,17 +204,15 @@ namespace KimodoBridge.Editor
                     !Mathf.Approximately((float)timelineClip.timeScale, 1f),
                 TimelineDirectorSnapshot = outputDirector,
                 InitialArdyHistorySource = initialHistorySource,
-                ArdyHistoryCropSeconds = isArdy && clip.ardyAutoHistory ? 0.0 : (double?)null,
                 ArdyHistoryWeight = isArdy && !clip.ardyAutoHistory
                     ? Mathf.Clamp01(clip.ardyHistoryWeight)
                     : (double?)null,
-                ArdyMaxSpeed = isArdy && clip.ardyAutoHistory
+                ArdyMaxSpeed = isArdy
                     ? Mathf.Max(0.01f, clip.ardyTargetMaxSpeed)
                     : (double?)null,
-                ArdyMaxAcceleration = isArdy && clip.ardyAutoHistory
+                ArdyMaxAcceleration = isArdy
                     ? Mathf.Max(0.01f, clip.ardyTargetMaxAcceleration)
-                    : (double?)null,
-                ArdyHistoryTransitionWeight = isArdy && clip.ardyAutoHistory ? 0.5 : (double?)null
+                    : (double?)null
             };
         }
 
@@ -233,7 +231,7 @@ namespace KimodoBridge.Editor
         public static void FinalizeGeneration(
             KimodoPlayableClip clip,
             KimodoEditorGenerateRequest request,
-            KimodoEditorGenerateResult result)
+            command_generate_result result)
         {
             if (clip == null || request == null || result == null || result.GeneratedClip == null)
             {

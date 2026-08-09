@@ -78,11 +78,15 @@ TCP 协议补充：
 
 ARDY Generate 携带正数 `duration` 时采用固定长度语义：创建新的逻辑生成，可通过 clip constraint 初始化显式 History，后端按需执行多个 Horizon，返回精确长度的一份 KMB 后释放该逻辑时间线。ARDY Generate 缺省 `duration` 时采用流式语义：客户端发送 Session 相对的 `time_as_double`，QuickServer 保留该 Session 的 RNG、history 与时间线，后续 Generate 持续更新，直到 `session.close`。`duration: 0` 非法，不作为流式别名。
 
-在 ARDY 流式模式下，QuickServer 根据当前模型 FPS 转帧，只在加速器侧保留 Profile 的有效 history，并在 CPU 缓存时间线以支持 seek。Core Horizon40 的 token 粒度为 4 帧、单次交付 Horizon 为 40 帧、有效 history 上限为 160 帧；三者彼此独立。`ardy_playback_reserve_seconds` 默认 1 秒；`ardy_adaptive_playback_reserve` 默认开启，根据后端实测响应耗时调整实际储备。缺省 `prompt` 或 `constraints_json` 表示保持；`[]` 表示清空完整 constraint 快照。更新 prompt/constraint 时保留到 `time_as_double + Playback Reserve`，再重新生成并返回受影响的绝对 KMB 区间。
+在 ARDY 流式模式下，QuickServer 根据当前模型 FPS 转帧，只在加速器侧保留 Profile 的有效 history，并在 CPU 缓存时间线以支持 seek。Core Horizon40 的 token 粒度为 4 帧、单次交付 Horizon 为 40 帧、有效 history 上限为 160 帧；三者彼此独立。ARDY 仅保留 `ardy_history_weight`、`ardy_max_speed`、`ardy_max_acceleration`、`ardy_playback_reserve_seconds` 四个设置。未给有效 `ardy_history_weight` 时自动调整 playback reserve；给出有效值时关闭该自动调整。缺省 `prompt` 或 `constraints_json` 表示保持；`[]` 表示清空完整 constraint 快照。更新 prompt/constraint 时保留到 `time_as_double + Playback Reserve`，再重新生成并返回受影响的绝对 KMB 区间。
 
 `time_as_double` 减小视为 seek。普通响应从上次已交付尾部追加；seek 和重规划响应可能与旧帧重叠，客户端必须从 `start_frame` 替换时间线。
 
 History/Future KMB 输入使用 JSON `kmb_attachments` 清单描述连续 offset/length，随后发送拼接的 KMB1 数据；clip constraint 用 `format=kmb_attachment_v1` 和从 0 开始的 `attachment` 索引引用。KMB1 FlatBuffer schema 不变。`ardy_file_v1` 仍只用于显式调试。
+
+`root2d_target` 已移除。`root2d` 约束由有序的 `frame_indices`、`smooth_root_2d` 位置和可选 `global_root_heading` 组成；ARDY 会依序经过每一个点。若指定时间在当前速度/加速度限制下不可达，后端先放宽速度上限，再采用该定时三次路径所需的加速度。
+
+为 `analysis_option` 设置 `analysis_only=true` 并传入一个或多个 KMB ClipConstraint，可在不加载 motion model 或 text encoder 的情况下进行确定性分析。返回 `kmb_attachments_v1`：二进制 payload 保留原 KMB，manifest 记录各段字节/帧范围；`analysis` 返回 `0..1` 的 `quality_score`、显著 `keyframes`，以及带逐帧严重度的连续性/加速度/姿态 `issues`。
 
 ### ARDY clip constraint
 

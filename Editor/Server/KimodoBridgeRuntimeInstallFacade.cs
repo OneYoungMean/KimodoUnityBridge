@@ -27,6 +27,11 @@ namespace KimodoBridge.Editor
             return KimodoServerRuntimeUtil.ReinstallRuntimeRoot();
         }
 
+        internal static bool RefreshRuntimeRoot()
+        {
+            return KimodoServerRuntimeUtil.RefreshRuntimeRoot();
+        }
+
         internal static string ResolveRuntimeRootOrThrow()
         {
             string runtimeRoot = GetRuntimeRootPath();
