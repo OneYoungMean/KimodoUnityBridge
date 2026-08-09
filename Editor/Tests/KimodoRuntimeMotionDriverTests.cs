@@ -545,41 +545,6 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void RawMotionAppend_GrowsOneContinuousTimeline()
-        {
-            KimodoRawMotionData first = CreateMotion(4, 2, 20f);
-            KimodoRawMotionData second = CreateMotion(3, 2, 20f);
-
-            Assert.That(first.TryAppend(second, 4, out string error), Is.True, error);
-            Assert.That(first.FrameCount, Is.EqualTo(7));
-        }
-
-        [Test]
-        public void RawMotionAppend_ReportsMissingCommittedArdyRange()
-        {
-            KimodoRawMotionData timeline = CreateMotion(40, 2, 20f);
-            KimodoRawMotionData segment = CreateMotion(20, 2, 20f);
-
-            Assert.That(timeline.TryAppend(segment, 60, out string error), Is.False);
-            Assert.That(error, Does.Contain("starts at frame 60"));
-            Assert.That(error, Does.Contain("has 40 frames"));
-        }
-
-        [Test]
-        public void RawMotionAppend_CompactJsonDoesNotSerializeSpareContactCapacity()
-        {
-            KimodoRawMotionData first = CreateMotion(4, 2, 20f, withContacts: true);
-            KimodoRawMotionData second = CreateMotion(3, 2, 20f, withContacts: true);
-
-            Assert.That(first.TryAppend(second, 4, out string error), Is.True, error);
-            MotionJsonData json = JsonUtility.FromJson<MotionJsonData>(
-                KimodoRawMotionUtility.ToCompactJson(first));
-            Assert.That(
-                json.foot_contacts.Count,
-                Is.EqualTo(7 * KimodoFootContactTrackUtility.ChannelCount));
-        }
-
-        [Test]
         public void TimelineConnectedSelection_AcceptsGapsUnalignedDurationAndParameterDifferences()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
@@ -960,6 +925,31 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(target["global_root_heading"]?[0]?[0]?.Value<float>(), Is.EqualTo(0.8f).Within(1e-6f));
             Assert.That(target["global_root_heading"]?[0]?[1]?.Value<float>(), Is.EqualTo(-0.6f).Within(1e-6f));
             Assert.That(target["frame_indices"]?[0]?.Value<int>(), Is.EqualTo(80));
+        }
+
+        [Test]
+        public void TimelineConnectedSelection_AcceptsKimodoModel()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip first = CreateArdyTimelineClip(track, 0.0, 1.0, 100);
+                TimelineClip second = CreateArdyTimelineClip(track, 1.0, 1.0, 100);
+                ((KimodoPlayableClip)first.asset).bridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
+                ((KimodoPlayableClip)second.asset).bridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
+
+                Assert.That(
+                    KimodoPlayableClipGenerationExecutionService.TryValidateConnectedSelection(
+                        new[] { first, second },
+                        out string reason),
+                    Is.True,
+                    reason);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
         }
 
         [Test]

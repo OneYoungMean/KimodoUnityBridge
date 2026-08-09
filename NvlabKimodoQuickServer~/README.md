@@ -47,6 +47,7 @@ The launcher checks and completes setup automatically before starting the TCP su
 - `session.close` closes only an explicit Session. Closing `session:default` shuts down QuickServer. Legacy `quit` has the same server-wide effect.
 - `generate` uses `text_encoder_mode`; `highvram` and `force_cpu` are removed. The Force CPU UI sends `simulate_free_vram_gb=0`.
 - `generate` accepts optional `task_id`. If omitted, QuickServer assigns a stable task id before queueing.
+- Fixed-duration `generate` accepts `timeline_segments` for prompt boundaries. Kimodo and ARDY share this field, and the segment frame counts must sum exactly to `duration`.
 - Once a task id is assigned, every response for that task carries the same `task_id`.
 - A task can emit intermediate statuses such as `queued`, `loading`, `progress`, or `cancelling`, and always ends in `done`, `error`, or `cancelled`.
 - `cancel` accepts an optional `task_id`. If omitted, QuickServer cancels the first cancellable queued task and returns the resolved task id.
@@ -65,6 +66,8 @@ For streaming ARDY, QuickServer converts seconds with the selected model FPS, ke
 A decreasing `time_as_double` is a seek. Normal responses append from the previously delivered tail; seek and replan responses may overlap previously returned frames, so clients replace their timeline from `start_frame`.
 
 Optional KMB ClipConstraints use a JSON `kmb_attachments` manifest with contiguous offsets and lengths, followed by concatenated KMB1 blobs. Each constraint carries target `start_time` and positive `duration`; negative time is ARDY history, non-negative time is generated motion, and a range crossing zero is split internally. Clip constraints reference `format=kmb_attachment_v1` and a zero-based `attachment` index. The KMB1 FlatBuffer schema itself is unchanged.
+
+`kmb_attachment_v1` is the only ClipConstraint binary source. The former file-path protocol has been removed.
 
 `root2d_target` has been removed. A `root2d` constraint is an ordered list of `frame_indices`, `smooth_root_2d` positions, and optional `global_root_heading` entries. ARDY visits every point in order; if an explicit time is not reachable under its current limits, it first lifts the speed limit and then uses the acceleration required for that timed cubic path.
 

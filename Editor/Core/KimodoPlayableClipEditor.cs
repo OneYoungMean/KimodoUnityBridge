@@ -328,12 +328,11 @@ namespace KimodoBridge.Editor
                     lastError = error;
                 }
             }
-            if (isArdy &&
-                KimodoPlayableClipGenerationExecutionService.TryGetSelectedArdyClipCount(
+            if (KimodoPlayableClipGenerationExecutionService.TryGetSelectedCompatibleClipCount(
                     clip,
                     out int connectedClipCount))
             {
-                bool hasConnectedPlan = KimodoPlayableClipGenerationExecutionService.TryGetConnectedArdyClipCount(
+                bool hasConnectedPlan = KimodoPlayableClipGenerationExecutionService.TryGetConnectedClipCount(
                     clip,
                     out _,
                     out string connectedReason);
@@ -343,12 +342,12 @@ namespace KimodoBridge.Editor
                         new GUIContent(
                             connectedLabel,
                             hasConnectedPlan
-                                ? "Generate all compatible head-to-tail ARDY clips in one server request, then slice and bake them in Unity."
+                                ? "Generate all compatible clips in one server request, then slice and bake them in Unity."
                                 : connectedReason),
                         GUILayout.Height(28)))
                 {
                     serializedObject.ApplyModifiedProperties();
-                    bool accepted = KimodoPlayableClipGenerationExecutionService.TryStartGenerateConnectedArdy(
+                    bool accepted = KimodoPlayableClipGenerationExecutionService.TryStartGenerateConnected(
                         clip,
                         out _,
                         out string error);
@@ -356,7 +355,7 @@ namespace KimodoBridge.Editor
                     {
                         isGenerating = true;
                         lastError = string.Empty;
-                        lastStatus = "Queued connected ARDY generation...";
+                        lastStatus = "Queued connected Timeline generation...";
                     }
                     else
                     {

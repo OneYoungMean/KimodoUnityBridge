@@ -106,9 +106,6 @@ namespace KimodoBridge
         public bool autoBeginAnchor = true;
         public bool isGenerated;
         public string lastGeneratedPrompt;
-        [SerializeField, HideInInspector] public string ardyMotionCachePath;
-        [SerializeField, HideInInspector] public string ardyMotionRepFingerprint;
-        [SerializeField, HideInInspector] public List<int> ardyResolvedSeeds = new List<int>();
         [Header("Bake Options")]
         [Tooltip("Auto retarget baked animation according to timeline binding animator.")]
         public bool autoRetargetOnBinding = true;
@@ -181,9 +178,6 @@ namespace KimodoBridge
             frameCount = 0;
             jointCount = 0;
             fps = Mathf.RoundToInt(FIXED_FRAME_RATE);
-            ardyMotionCachePath = string.Empty;
-            ardyMotionRepFingerprint = string.Empty;
-            ardyResolvedSeeds.Clear();
         }
 
     }

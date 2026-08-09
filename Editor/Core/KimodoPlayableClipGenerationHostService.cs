@@ -275,10 +275,6 @@ namespace KimodoBridge.Editor
             {
                 clip.clip = result.GeneratedClip;
                 ApplyGeneratedMetadata(clip, result.Prompt, result.MotionJsonCompact);
-                clip.ardyMotionCachePath = result.ArdyMotionCachePath ?? string.Empty;
-                // Per-request KMB data is released after the final clip is materialized.
-                clip.ardyMotionRepFingerprint = result.ArdyMotionRepFingerprint ?? string.Empty;
-                clip.ardyResolvedSeeds = result.ArdyResolvedSeeds ?? new List<int>();
                 EditorUtility.SetDirty(clip);
                 EditorUtility.SetDirty(result.GeneratedClip);
                 result.ConstraintsPath = request.Constraints.IsEmpty ? "(none)" : "(inline-json)";

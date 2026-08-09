@@ -69,6 +69,7 @@ TCP 协议补充：
 - `session.close` 只关闭显式 Session；关闭 `session:default` 会关闭 QuickServer。旧 `quit` 保持相同的全局关闭效果。
 - `generate` 使用 `text_encoder_mode`，不再接受 `highvram` 或 `force_cpu`；Force CPU UI 会发送 `simulate_free_vram_gb=0`。
 - `generate` 的 `task_id` 现在是可选的；如果调用方不传，QuickServer 会在入队前自动补一个稳定任务标识。
+- 固定长度 `generate` 可用通用 `timeline_segments` 表达提示词边界；Kimodo 与 ARDY 共用该字段，所有分段换算后的帧数必须与 `duration` 完全一致。
 - 新的流式 ARDY Generate 不会取消正在执行的 Horizon；当前请求完成后再执行，并且同一 Session 的等待队列只保留最新流式更新。带正数 `duration` 的固定长度请求不会互相替换。
 - 不同 Session 使用相同 ARDY runtime、history/window、steps 和 CFG 时会机会式合并为一次 motion batch；容量从 `1` 开始，ARDY Session 数超过容量时按 `1/2/4/8` 扩容，低于容量一半时减半。默认上限为 `8`，可用 `KIMODO_ARDY_BATCH_SIZE=1-8` 调整。
 
@@ -83,6 +84,8 @@ ARDY Generate 携带正数 `duration` 时采用固定长度语义：创建新的
 `time_as_double` 减小视为 seek。普通响应从上次已交付尾部追加；seek 和重规划响应可能与旧帧重叠，客户端必须从 `start_frame` 替换时间线。
 
 KMB ClipConstraint 使用 JSON `kmb_attachments` 清单描述连续 offset/length，随后发送拼接的 KMB1 数据。每项使用目标 `start_time` 和正数 `duration`：负时间由 ARDY 作为历史，非负时间约束生成区间，跨零区间由后端内部拆分。KMB1 FlatBuffer schema 不变。
+
+ClipConstraint 二进制来源只接受 `format:"kmb_attachment_v1"`，旧的文件路径协议已移除。
 
 `root2d_target` 已移除。`root2d` 约束由有序的 `frame_indices`、`smooth_root_2d` 位置和可选 `global_root_heading` 组成；ARDY 会依序经过每一个点。若指定时间在当前速度/加速度限制下不可达，后端先放宽速度上限，再采用该定时三次路径所需的加速度。
 

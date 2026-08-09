@@ -14,10 +14,17 @@ from typing import Any, Callable
 import numpy as np
 
 from . import quickserver_assets as assets
-from kimodo.frame_time import seconds_to_frame_count, seconds_to_protocol_frame_index
+from core.protocol.kmb_motion import (
+    MAX_KMB_BYTES,
+    KmbClipMask,
+    KmbMotion,
+    parse_constraints,
+    parse_kmb_clip,
+)
+from core.protocol.timeline_segments import parse_timeline_segments
+from kimodo.frame_time import seconds_to_frame_count
 
 
-MAX_KMB_BYTES = 256 * 1024**2
 TARGET_VELOCITY_PREDICTION_SECONDS = 2.0
 TARGET_VELOCITY_UPDATE_INTERVAL = 4
 TARGET_VELOCITY_GOAL_FRAME_INTERVAL = 10
@@ -246,22 +253,6 @@ class ArdyBackendError(ValueError):
 
 
 @dataclass(frozen=True)
-class KmbMotion:
-    payload: bytes
-    model_name: str
-    fps: float
-    joint_names: tuple[str, ...]
-    joint_parents: tuple[int, ...]
-    root_positions: np.ndarray
-    local_rot_quats: np.ndarray
-    foot_contacts: np.ndarray | None
-
-    @property
-    def num_frames(self) -> int:
-        return int(self.root_positions.shape[0])
-
-
-@dataclass(frozen=True)
 class Root2DTarget:
     position: tuple[float, float]
     max_speed: float
@@ -270,13 +261,6 @@ class Root2DTarget:
     include_heading: bool
     heading: float | None = None
     arrival_frame: int | None = None
-
-
-@dataclass(frozen=True)
-class ArdyTimelineSegment:
-    prompt: str
-    start_frame: int
-    end_frame_exclusive: int
 
 
 @dataclass(frozen=True)
@@ -349,113 +333,6 @@ class ArdySettings:
         if self.history_weight is not None:
             fields["ardy_history_weight"] = self.history_weight
         return fields
-
-
-def parse_kmb1(payload: bytes) -> KmbMotion:
-    from core.protocol.generated import MotionPacket
-
-    if len(payload or b"") > MAX_KMB_BYTES:
-        raise ArdyBackendError(f"KMB1 payload exceeds the {MAX_KMB_BYTES}-byte limit.")
-    if not payload or not MotionPacket.MotionPacket.MotionPacketBufferHasIdentifier(payload, 0):
-        raise ArdyBackendError("Attachment is not a KMB1 MotionPacket.")
-    packet = MotionPacket.MotionPacket.GetRootAs(payload, 0)
-    version = int(packet.Version())
-    num_frames = int(packet.NumFrames())
-    num_joints = int(packet.NumJoints())
-    if version != 1 or num_frames <= 0 or num_joints <= 0:
-        raise ArdyBackendError(
-            f"Invalid KMB1 header: version={version}, frames={num_frames}, joints={num_joints}."
-        )
-
-    joint_names = tuple(
-        (packet.JointNames(i) or b"").decode("utf-8", errors="strict")
-        for i in range(packet.JointNamesLength())
-    )
-    joint_parents = tuple(int(packet.JointParents(i)) for i in range(packet.JointParentsLength()))
-    roots = np.asarray(packet.RootPositionsAsNumpy(), dtype=np.float32).copy()
-    quats = np.asarray(packet.LocalRotQuatsAsNumpy(), dtype=np.float32).copy()
-    contacts = None
-    if packet.FootContactsLength():
-        raw_contacts = np.asarray(packet.FootContactsAsNumpy(), dtype=np.uint8).copy()
-        if raw_contacts.size != num_frames * 4:
-            raise ArdyBackendError("KMB1 foot-contact length does not match its frame count.")
-        contacts = raw_contacts.reshape(num_frames, 4).astype(np.float32)
-    if len(joint_names) != num_joints or len(joint_parents) != num_joints:
-        raise ArdyBackendError("KMB1 joint metadata does not match num_joints.")
-    if roots.size != num_frames * 3 or quats.size != num_frames * num_joints * 4:
-        raise ArdyBackendError("KMB1 motion vector lengths do not match its header.")
-    if not np.isfinite(roots).all() or not np.isfinite(quats).all():
-        raise ArdyBackendError("KMB1 contains non-finite motion values.")
-    model_name = (packet.ModelName() or b"").decode("utf-8", errors="strict")
-    return KmbMotion(
-        payload=bytes(payload),
-        model_name=model_name,
-        fps=float(packet.Fps()),
-        joint_names=joint_names,
-        joint_parents=joint_parents,
-        root_positions=roots.reshape(num_frames, 3),
-        local_rot_quats=quats.reshape(num_frames, num_joints, 4),
-        foot_contacts=contacts,
-    )
-
-
-def _parse_constraints(value: Any) -> list[dict[str, Any]]:
-    if value is None or value == "":
-        return []
-    try:
-        parsed = json.loads(value) if isinstance(value, str) else value
-    except Exception as exc:
-        raise ArdyBackendError(f"Invalid constraints_json: {exc}") from exc
-    if isinstance(parsed, dict):
-        parsed = [parsed]
-    if not isinstance(parsed, list) or any(not isinstance(item, dict) for item in parsed):
-        raise ArdyBackendError("constraints_json must be a JSON array or object.")
-    return [dict(item) for item in parsed]
-
-
-def _allowed_file_roots(quickserver_root: str | Path) -> tuple[Path, ...]:
-    roots = [Path(quickserver_root).resolve() / "cache" / "ardy_files"]
-    roots.extend(
-        Path(value).expanduser().resolve()
-        for value in os.environ.get("KIMODO_ARDY_TEST_FILE_ROOTS", "").split(os.pathsep)
-        if value.strip()
-    )
-    return tuple(dict.fromkeys(roots))
-
-
-def _read_debug_file(path_value: Any, quickserver_root: str | Path) -> bytes:
-    if os.environ.get("KIMODO_ARDY_ALLOW_TEST_FILES", "").strip().lower() not in {"1", "true", "yes"}:
-        raise ArdyBackendError("ardy_file_v1 is available only when KIMODO_ARDY_ALLOW_TEST_FILES is enabled.")
-    path = Path(str(path_value or "")).expanduser().resolve(strict=True)
-    if not path.is_file() or not any(path.is_relative_to(root) for root in _allowed_file_roots(quickserver_root)):
-        raise ArdyBackendError(f"ardy_file_v1 path is outside the configured debug roots: {path}.")
-    return path.read_bytes()
-
-
-def _clip_payload(
-    item: dict[str, Any],
-    attachments: tuple[bytes, ...],
-    quickserver_root: str | Path,
-) -> bytes:
-    clip_format = str(item.get("format") or "")
-    if clip_format == "kmb_attachment_v1":
-        index = item.get("attachment")
-        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(attachments):
-            raise ArdyBackendError(f"Invalid KMB attachment index: {index!r}.")
-        return attachments[index]
-    if clip_format == "ardy_file_v1":
-        return _read_debug_file(item.get("path"), quickserver_root)
-    raise ArdyBackendError(f"Unsupported clip format: {clip_format!r}.")
-
-
-def _clip_slice(item: dict[str, Any], motion: KmbMotion) -> tuple[int, int]:
-    start = item.get("start_frame", 0)
-    end = item.get("end_frame_exclusive", motion.num_frames)
-    if isinstance(start, bool) or isinstance(end, bool) or not isinstance(start, int) or not isinstance(end, int):
-        raise ArdyBackendError("Clip slice bounds must be integers.")
-    if not 0 <= start < end <= motion.num_frames:
-        raise ArdyBackendError(f"Invalid KMB clip slice [{start}, {end}) for {motion.num_frames} frames.")
-    return start, end
 
 
 def _validate_kmb(motion: KmbMotion, model: Any, profile: Any) -> None:
@@ -917,56 +794,22 @@ def _transition_history_frames(
     return max(patch, min(maximum, aligned))
 
 
-def _future_clip_mask(item: dict[str, Any], joint_names: tuple[str, ...]) -> dict[str, Any]:
-    values = item.get("mask")
+def _future_clip_mask(values: KmbClipMask | None, joint_names: tuple[str, ...]) -> dict[str, Any]:
     joint_count = len(joint_names)
-    if not isinstance(values, dict):
+    if values is None:
         raise ArdyBackendError("Future KMB clip mask must be an object.")
-    root_position = values.get("root_position", [False, False, False])
-    if (
-        not isinstance(root_position, list)
-        or len(root_position) != 3
-        or any(not isinstance(value, bool) for value in root_position)
-    ):
-        raise ArdyBackendError("Future KMB clip mask root_position must contain three booleans.")
-    root_heading = values.get("root_heading", False)
-    root_rotation = values.get("root_rotation", False)
-    if not isinstance(root_heading, bool) or not isinstance(root_rotation, bool):
-        raise ArdyBackendError("Future KMB clip mask root_heading and root_rotation must be booleans.")
 
     by_name = {name.lower(): index for index, name in enumerate(joint_names)}
     joint_position = np.zeros((joint_count - 1, 3), dtype=bool)
     joint_rotation = np.zeros(joint_count, dtype=bool)
-    joint_rotation[0] = root_rotation
-    joints = values.get("joints", [])
-    if not isinstance(joints, list):
-        raise ArdyBackendError("Future KMB clip mask joints must be an array.")
-    for index, joint in enumerate(joints):
-        if not isinstance(joint, dict):
-            raise ArdyBackendError(f"Future KMB clip mask joints[{index}] must be an object.")
-        name = str(joint.get("joint_name") or "")
-        joint_index = by_name.get(name.lower())
-        if joint_index is None:
-            raise ArdyBackendError(f"Future KMB clip mask contains unknown joint '{name}'.")
-        if joint_index == 0:
-            raise ArdyBackendError("Future KMB clip mask root joint must use the root_* fields.")
-        position = joint.get("position", [False, False, False])
-        if (
-            not isinstance(position, list)
-            or len(position) != 3
-            or any(not isinstance(value, bool) for value in position)
-        ):
-            raise ArdyBackendError(
-                f"Future KMB clip mask joints[{index}].position must contain three booleans."
-            )
-        rotation = joint.get("rotation", False)
-        if not isinstance(rotation, bool):
-            raise ArdyBackendError(f"Future KMB clip mask joints[{index}].rotation must be a boolean.")
-        joint_position[joint_index - 1] = position
-        joint_rotation[joint_index] = rotation
+    joint_rotation[0] = values.root_rotation
+    for joint in values.joints:
+        joint_index = by_name[joint.joint_name.lower()]
+        joint_position[joint_index - 1] = joint.position
+        joint_rotation[joint_index] = joint.rotation
     return {
-        "root_position": root_position,
-        "root_heading": root_heading,
+        "root_position": list(values.root_position),
+        "root_heading": values.root_heading,
         "joint_position": joint_position,
         "joint_rotation": joint_rotation,
     }
@@ -985,47 +828,6 @@ def _append_outputs(left: dict[str, np.ndarray] | None, right: dict[str, Any]) -
 
 def _slice_outputs(outputs: dict[str, np.ndarray], start: int, end: int) -> dict[str, np.ndarray]:
     return {key: value[:, start:end].copy() for key, value in outputs.items() if value.ndim >= 2}
-
-
-def _parse_timeline_segments(
-    value: Any,
-    profile: Any,
-    total_frames: int,
-) -> tuple[ArdyTimelineSegment, ...]:
-    if value is None:
-        return ()
-    if total_frames <= 0:
-        raise ArdyBackendError("ardy_timeline_segments requires a fixed positive duration.")
-    if not isinstance(value, list) or not value:
-        raise ArdyBackendError("ardy_timeline_segments must be a non-empty array.")
-
-    segments: list[ArdyTimelineSegment] = []
-    cursor = 0
-    for index, item in enumerate(value):
-        if not isinstance(item, dict):
-            raise ArdyBackendError(f"ardy_timeline_segments[{index}] must be an object.")
-        prompt = str(item.get("prompt") or "").strip() or "idle"
-        try:
-            duration_seconds = float(item.get("duration"))
-        except (TypeError, ValueError) as exc:
-            raise ArdyBackendError(
-                f"ardy_timeline_segments[{index}].duration must be a finite positive number."
-            ) from exc
-        if not math.isfinite(duration_seconds) or duration_seconds <= 0.0:
-            raise ArdyBackendError(
-                f"ardy_timeline_segments[{index}].duration must be a finite positive number."
-            )
-        frame_count = seconds_to_frame_count(duration_seconds, profile.source_fps)
-        if frame_count <= 0:
-            raise ArdyBackendError(f"ardy_timeline_segments[{index}] resolves to zero frames.")
-        segments.append(ArdyTimelineSegment(prompt, cursor, cursor + frame_count))
-        cursor += frame_count
-
-    if cursor != total_frames:
-        raise ArdyBackendError(
-            f"ardy_timeline_segments resolves to {cursor} frames, but duration resolves to {total_frames}."
-        )
-    return tuple(segments)
 
 
 class ArdySession:
@@ -1071,10 +873,11 @@ class ArdySession:
                 duration_seconds,
                 profile.source_fps,
             )
-        self.timeline_segments = _parse_timeline_segments(
-            request.get("ardy_timeline_segments"),
-            profile,
+        self.timeline_segments = parse_timeline_segments(
+            request.get("timeline_segments"),
+            float(profile.source_fps),
             self._initial_duration_frames,
+            ArdyBackendError,
         )
         self.motion_cpu = None
         self.outputs: dict[str, np.ndarray] | None = None
@@ -1202,7 +1005,7 @@ class ArdySession:
         if apply_from > 0 and self.outputs is not None and "root_positions" in self.outputs:
             anchor = self.outputs["root_positions"][0, apply_from - 1]
             anchor_root_2d = (float(anchor[0]), float(anchor[2]))
-        for item in _parse_constraints(value):
+        for item in parse_constraints(value, ArdyBackendError):
             if item.get("type") == "root2d":
                 root_2d_targets.extend(_parse_root_2d_targets(item, self.settings, apply_from))
                 continue
@@ -1218,21 +1021,15 @@ class ArdySession:
                 plain.extend(_expand_dense_root_constraint(copied, apply_from - 1, anchor_root_2d))
                 continue
 
-            motion = parse_kmb1(_clip_payload(item, attachments, self.quickserver_root))
+            parsed_clip = parse_kmb_clip(
+                item,
+                attachments,
+                float(self.profile.source_fps),
+                ArdyBackendError,
+            )
+            motion = parsed_clip.motion
             _validate_kmb(motion, model, self.profile)
-            try:
-                start_time = float(item["start_time"])
-                duration = float(item["duration"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise ArdyBackendError("clip requires finite start_time and duration seconds.") from exc
-            if not math.isfinite(start_time) or not math.isfinite(duration) or duration <= 0.0:
-                raise ArdyBackendError("clip start_time/duration must be finite and duration must be positive.")
-            duration_frames = seconds_to_frame_count(duration, self.profile.source_fps)
-            if duration_frames != motion.num_frames:
-                raise ArdyBackendError(
-                    f"clip duration resolves to {duration_frames} frames but its KMB contains {motion.num_frames}."
-                )
-            target_offset = seconds_to_protocol_frame_index(start_time, self.profile.source_fps)
+            target_offset = parsed_clip.target_start_frame
             tensor = _motion_to_tensor(motion, model, 0, motion.num_frames)
             history_frames = min(motion.num_frames, max(0, -target_offset))
             if history_frames:
@@ -1247,7 +1044,7 @@ class ArdySession:
                     (
                         apply_from + max(0, target_offset),
                         tensor[:, history_frames:].detach().cpu(),
-                        _future_clip_mask(item, motion.joint_names),
+                        _future_clip_mask(parsed_clip.mask, motion.joint_names),
                     )
                 )
             continue
@@ -1354,8 +1151,8 @@ class ArdySession:
         apply_from: int,
         cancel_event: threading.Event,
     ) -> bool:
-        if "ardy_timeline_segments" in request:
-            raise ArdyBackendError("ardy_timeline_segments is only supported by fixed-duration generation.")
+        if "timeline_segments" in request:
+            raise ArdyBackendError("timeline_segments is only supported by fixed-duration generation.")
         changed = "prompt" in request or "constraints_json" in request or self._generation_parameters_changed(request)
         if not changed:
             return False
@@ -1901,8 +1698,6 @@ def execute_stream_generate(
     progress: Callable[[str], None] | None = None,
 ) -> tuple[ArdySession | None, dict[str, Any], bytes | None]:
     from core import kimodo_runtime
-    from core import animation_analysis
-
     fixed_length = "duration" in request
     analysis_option = request.get("analysis_option")
     if fixed_length:
@@ -1932,35 +1727,31 @@ def execute_stream_generate(
     try:
         started = time.perf_counter()
         metadata, output = session.generate(request, attachments, model, cancel_event)
-        payload = b""
-        analysis = None
         if output:
             output = kimodo_runtime._restore_kimodo_output_origin(
                 output,
                 session.constraint_origin,
                 model,
             )
-            payload = kimodo_runtime._build_generate_flatbuffer_payload(model, output, sample_index=0)
-            analysis = animation_analysis.build_generation_analysis(
-                {"analysis_option": analysis_option}, model, output)
         elapsed = time.perf_counter() - started
         session.record_response_duration(
             elapsed,
             int(metadata["end_frame_exclusive"]) - int(metadata["start_frame"]),
         )
-        response = {
-            "status": "done",
-            "output_format": "kmb_v1",
-            "byte_length": len(payload),
-            "motion_rep_fingerprint": profile.motion_rep_fingerprint,
-            "resolved_seed": session.resolved_seed,
-            "ardy_playback_reserve_seconds": session.effective_playback_reserve_frames / float(profile.source_fps),
-            "ardy_server_response_seconds": elapsed,
-            **metadata,
-        }
-        if analysis is not None:
-            response["analysis"] = analysis
-        return (None if fixed_length else session), response, payload or None
+        response, payload = kimodo_runtime._finalize_generation_result(
+            {"analysis_option": analysis_option},
+            model,
+            output,
+            output_format="kmb_v1",
+            metadata={
+                "motion_rep_fingerprint": profile.motion_rep_fingerprint,
+                "resolved_seed": session.resolved_seed,
+                "ardy_playback_reserve_seconds": session.effective_playback_reserve_frames / float(profile.source_fps),
+                "ardy_server_response_seconds": elapsed,
+                **metadata,
+            },
+        )
+        return (None if fixed_length else session), response, payload
     finally:
         if fixed_length:
             session.close()

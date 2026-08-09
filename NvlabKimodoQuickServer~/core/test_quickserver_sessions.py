@@ -16,6 +16,8 @@ import torch
 from core import ardy_backend
 from core import kimodo_runtime
 from core import quickserver_cli
+from core.protocol.kmb_motion import parse_clip_mask
+from core.protocol.timeline_segments import TimelineSegment, parse_timeline_segments
 from kimodo.frame_time import seconds_to_frame_count, seconds_to_protocol_frame_index
 from kimodo.model import kimodo_model
 
@@ -37,7 +39,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(values.tolist(), [10.0, 30.0])
 
     def test_normal_clip_mask_preserves_position_axes(self):
-        root_axes, heading, joint_axes, rotation_joints = kimodo_runtime._clip_constraint_mask(
+        mask = parse_clip_mask(
             {
                 "mask": {
                     "root_position": [True, False, False],
@@ -52,6 +54,10 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                     ],
                 }
             },
+            ["Hips", "Spine"],
+        )
+        root_axes, heading, joint_axes, rotation_joints = kimodo_runtime._clip_constraint_mask(
+            mask,
             SimpleNamespace(root_idx=0),
             ["Hips", "Spine"],
         )
@@ -63,9 +69,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
     def test_legacy_flat_clip_mask_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "must be an object"):
-            kimodo_runtime._clip_constraint_mask(
+            parse_clip_mask(
                 {"mask": [True, True, True, True, True, True, True]},
-                SimpleNamespace(root_idx=0),
                 ["Hips", "Spine"],
             )
 
@@ -96,6 +101,10 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(default["model"], "Kimodo-SOMA-RP-v1")
         self.assertEqual(default["text_encoder_model"], "high_performance")
         self.assertEqual(default["text_encoder_route"], "nf4")
+        self.assertEqual(default["source_fps"], 30.0)
+        self.assertEqual(default["max_diffusion_steps"], 1000)
+        self.assertFalse(default["supports_streaming"])
+        self.assertTrue(default["supports_timeline_segments"])
 
         ardy_result = quickserver_cli._build_model_configurations(
             "C:/runtime",
@@ -103,6 +112,9 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             runtime_profile,
         )
         self.assertEqual(ardy_result["default"]["model"], "ARDY-Core-RP-20FPS-Horizon40")
+        ardy_default = next(item for item in ardy_result["configs"] if item["default"])
+        self.assertEqual(ardy_default["source_fps"], 20.0)
+        self.assertTrue(ardy_default["supports_streaming"])
 
     def test_posix_pid_check_uses_signal_zero(self):
         with patch.object(quickserver_cli.os, "name", "posix"), patch.object(
@@ -171,6 +183,29 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(model.args[:2], (["walk.", "walk."], [165, 165]))
         self.assertTrue(model.kwargs["multi_prompt"])
         self.assertEqual(model.kwargs["num_transition_frames"], 5)
+
+    def test_kimodo_timeline_segments_preserve_prompt_boundaries(self):
+        class RecordingModel:
+            fps = 30.0
+
+            def __call__(self, *args, **kwargs):
+                self.args = args
+                return {"generated": True}
+
+        model = RecordingModel()
+        request = {
+            "duration": 12.0,
+            "prompt": "unused",
+            "timeline_segments": [
+                {"prompt": "walk", "duration": 2.0},
+                {"prompt": "turn", "duration": 10.0},
+            ],
+        }
+        with patch.object(kimodo_runtime, "_load_constraints", return_value=[]):
+            kimodo_runtime._run_generate(request, model, emit_progress=False)
+
+        self.assertEqual(model.args[0], ["walk.", "turn."])
+        self.assertEqual(model.args[1], [60, 300])
 
     def test_quickserver_generate_uses_shared_segmented_kimodo_runner(self):
         model = SimpleNamespace()
@@ -245,7 +280,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
     def test_ardy_clip_mask_accepts_object_and_rejects_legacy_array(self):
         names = ("Hips", "Spine", "LeftArm")
-        current = ardy_backend._future_clip_mask(
+        mask = parse_clip_mask(
             {
                 "mask": {
                     "root_position": [True, False, True],
@@ -261,15 +296,18 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 }
             },
             names,
+            ardy_backend.ArdyBackendError,
         )
+        current = ardy_backend._future_clip_mask(mask, names)
         self.assertEqual(current["root_position"], [True, False, True])
         self.assertTrue(current["root_heading"])
         self.assertEqual(current["joint_rotation"].tolist(), [True, True, False])
         self.assertEqual(current["joint_position"].tolist(), [[True, True, True], [False, False, False]])
         with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "must be an object"):
-            ardy_backend._future_clip_mask(
+            parse_clip_mask(
                 {"mask": [True, False, True, True, True, True, True, False, False, False]},
                 names,
+                ardy_backend.ArdyBackendError,
             )
 
     def test_kimodo_clip_constraints_receive_generate_attachments(self):
@@ -290,13 +328,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         model = SimpleNamespace()
         expected_response = {"status": "done"}
         with patch.object(kimodo_runtime, "_run_generate", return_value=({}, "walk.")) as run_generate, patch.object(
-            kimodo_runtime,
-            "_resolve_requested_output_format",
-            return_value="json_compact",
-        ), patch.object(kimodo_runtime, "_build_generate_response", return_value=expected_response), patch.object(
-            quickserver_cli.animation_analysis,
-            "build_generation_analysis",
-            return_value=None,
+            kimodo_runtime, "_finalize_generation_result", return_value=(expected_response, None)
         ):
             response, payload = quickserver_cli._execute_generate(
                 {"duration": 1.0},
@@ -662,7 +694,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         quats = np.zeros((2, 1, 4), dtype=np.float32)
         quats[..., 3] = 1.0
 
-        def parse(payload):
+        def parse(payload, _error_type=ValueError):
             return ardy_backend.KmbMotion(
                 payload=payload,
                 model_name="test",
@@ -681,8 +713,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 {"type": "clip", "format": "kmb_attachment_v1", "attachment": 1, "start_frame": 0, "end_frame_exclusive": 2},
             ]),
         }
-        with patch.object(ardy_backend, "parse_kmb1", side_effect=parse):
-            response, payload = quickserver_cli._execute_analysis_only(request, (b"first", b"second"), ".")
+        with patch.object(quickserver_cli, "parse_kmb1", side_effect=parse):
+            response, payload = quickserver_cli._execute_analysis_only(request, (b"first", b"second"))
 
         self.assertEqual(response["output_format"], "kmb_attachments_v1")
         self.assertEqual(payload, b"firstsecond")
@@ -784,7 +816,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         }
 
         with (
-            patch.object(ardy_backend, "parse_kmb1", return_value=motion),
+            patch("core.protocol.kmb_motion.parse_kmb1", return_value=motion),
             patch.object(ardy_backend, "_validate_kmb"),
             patch.object(ardy_backend, "_motion_to_tensor", return_value=encoded),
             patch("ardy.constraints.load_constraints_lst", return_value=[object()]),
@@ -830,7 +862,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         }
 
         with (
-            patch.object(ardy_backend, "parse_kmb1", return_value=motion),
+            patch("core.protocol.kmb_motion.parse_kmb1", return_value=motion),
             patch.object(ardy_backend, "_validate_kmb"),
             patch.object(ardy_backend, "_motion_to_tensor", return_value=encoded),
             patch("ardy.constraints.load_constraints_lst", return_value=[]),
@@ -1379,45 +1411,41 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(output["root_positions"].shape[1], 60)
 
     def test_timeline_segments_resolve_prompt_boundaries_from_fixed_duration(self):
-        profile = SimpleNamespace(source_fps=20.0, frames_per_token=4)
-
-        segments = ardy_backend._parse_timeline_segments(
+        segments = parse_timeline_segments(
             [
                 {"prompt": "walk", "duration": 1.0},
                 {"prompt": "turn left", "duration": 2.0},
             ],
-            profile,
+            20.0,
             60,
         )
 
         self.assertEqual(
             segments,
             (
-                ardy_backend.ArdyTimelineSegment("walk", 0, 20),
-                ardy_backend.ArdyTimelineSegment("turn left", 20, 60),
+                TimelineSegment("walk", 0, 20),
+                TimelineSegment("turn left", 20, 60),
             ),
         )
 
     def test_timeline_segments_allow_unaligned_boundary_and_reject_mismatched_duration(self):
-        profile = SimpleNamespace(source_fps=20.0, frames_per_token=4)
-
         with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "resolves to 20 frames"):
-            ardy_backend._parse_timeline_segments(
-                [{"prompt": "walk", "duration": 1.0}], profile, 40
+            parse_timeline_segments(
+                [{"prompt": "walk", "duration": 1.0}], 20.0, 40, ardy_backend.ArdyBackendError
             )
-        segments = ardy_backend._parse_timeline_segments(
+        segments = parse_timeline_segments(
             [
                 {"prompt": "walk", "duration": 0.1},
                 {"prompt": "turn", "duration": 1.9},
             ],
-            profile,
+            20.0,
             40,
         )
         self.assertEqual(
             segments,
             (
-                ardy_backend.ArdyTimelineSegment("walk", 0, 2),
-                ardy_backend.ArdyTimelineSegment("turn", 2, 40),
+                TimelineSegment("walk", 0, 2),
+                TimelineSegment("turn", 2, 40),
             ),
         )
 
@@ -1426,8 +1454,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         session.profile.frames_per_token = 4
         session.profile.horizon_frames = 40
         session.timeline_segments = (
-            ardy_backend.ArdyTimelineSegment("walk", 0, 101),
-            ardy_backend.ArdyTimelineSegment("turn", 101, 192),
+            TimelineSegment("walk", 0, 101),
+            TimelineSegment("turn", 101, 192),
         )
         activated = []
         session._activate_prompt = lambda _model, prompt, **_kwargs: activated.append(prompt)

@@ -243,19 +243,19 @@ namespace KimodoBridge
                 payload["models_root"] = request.models_root ?? string.Empty;
                 payload["force_hf_download"] = request.force_hf_download;
                 payload["owner_pid"] = request.owner_pid;
-                if (request.ardy_timeline_segments != null && request.ardy_timeline_segments.Count > 0)
+                if (request.timeline_segments != null && request.timeline_segments.Count > 0)
                 {
                     var timelineSegments = new JArray();
-                    for (int i = 0; i < request.ardy_timeline_segments.Count; i++)
+                    for (int i = 0; i < request.timeline_segments.Count; i++)
                     {
-                        KimodoArdyTimelineSegmentDto segment = request.ardy_timeline_segments[i];
+                        KimodoTimelineSegmentDto segment = request.timeline_segments[i];
                         if (segment == null)
                         {
-                            throw new InvalidOperationException("ARDY timeline segment is null.");
+                            throw new InvalidOperationException("Timeline segment is null.");
                         }
                         if (float.IsNaN(segment.duration) || float.IsInfinity(segment.duration) || segment.duration <= 0f)
                         {
-                            throw new InvalidOperationException("ARDY timeline segment duration must be finite and positive.");
+                            throw new InvalidOperationException("Timeline segment duration must be finite and positive.");
                         }
                         timelineSegments.Add(new JObject
                         {
@@ -263,7 +263,7 @@ namespace KimodoBridge
                             ["duration"] = segment.duration
                         });
                     }
-                    payload["ardy_timeline_segments"] = timelineSegments;
+                    payload["timeline_segments"] = timelineSegments;
                 }
             }
             if (request.prompt != null)

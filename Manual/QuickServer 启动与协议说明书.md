@@ -186,6 +186,7 @@ QuickServer 使用 newline-delimited JSON。客户端连接 `serverport` 记录�
 | `simulate_free_vram_gb` | 模拟当前剩余显存；传 `0` 等价于 Force CPU |
 | `prompt` | 生成提示词 |
 | `duration` | 正数表示固定长度生成；ARDY 缺省 `duration` 表示流式生成 |
+| `timeline_segments` | 固定长度生成的提示词分段；Kimodo 与 ARDY 共用，所有分段换算后的帧数必须恰好等于 `duration` |
 | `seed` | 随机种子 |
 | `diffusion_steps` | 扩散步数；ARDY 受模型 profile 上限限制 |
 | `constraints_json` | 内联 JSON 约束；对象或数组 |
@@ -194,6 +195,8 @@ QuickServer 使用 newline-delimited JSON。客户端连接 `serverport` 记录�
 | `output_format` | `json_compact`、`bvh` 或 `kmb_v1` |
 
 ARDY 只接受 `ardy_history_weight`、`ardy_max_speed`、`ardy_max_acceleration`、`ardy_playback_reserve_seconds`。不传有效 `ardy_history_weight` 时 reserve 自适应；传入有效值时关闭自适应。`root2d_target` 已移除，请用单个有序 `root2d` 的 `frame_indices`、`smooth_root_2d` 和可选 `global_root_heading` 表达所有途经点。
+
+ClipConstraint 二进制来源只接受 `format:"kmb_attachment_v1"`；旧的文件路径协议已移除。Timeline 内部仍按 Unity 的采样规则定位，Timeline 与 Python 之间的秒数换帧统一使用带容差的向上取整。
 
 ## 输出协议
 

@@ -402,16 +402,17 @@ namespace KimodoUnityBridge.Command
                 string requestedTextEncoder = arguments.Value<string>("text_encoder_model")?.Trim();
                 string modelName = ResolveModelName(requestedModel);
                 KimodoTextEncoderMode textEncoderMode = ResolveTextEncoderMode(requestedTextEncoder);
+                JObject modelConfiguration = null;
                 if (!string.IsNullOrWhiteSpace(requestedModel) || !string.IsNullOrWhiteSpace(requestedTextEncoder))
                 {
-                    EnsureRegisteredModel(modelName, textEncoderMode);
+                    modelConfiguration = EnsureRegisteredModel(modelName, textEncoderMode);
                 }
-                float frameRate = ResolveFrameRate(modelName);
+                float frameRate = ResolveFrameRate(modelName, modelConfiguration);
                 float duration = PositiveFloat(arguments, "duration_seconds", 5f);
                 string analysisOptionsJson = ParseAnalysisOptionsJson(arguments);
                 int frameCount = Math.Max(1, KimodoFrameTimeUtility.SecondsToFrameCount(duration, frameRate));
                 int seed = arguments.Value<int?>("seed") ?? (Guid.NewGuid().GetHashCode() & int.MaxValue);
-                int steps = ResolveDiffusionSteps(arguments, modelName);
+                int steps = ResolveDiffusionSteps(arguments, modelName, modelConfiguration);
                 string outputFolder = NormalizeOutputFolder(arguments.Value<string>("output_folder"));
                 string assetName = string.IsNullOrWhiteSpace(arguments.Value<string>("asset_name"))
                     ? $"{character.Name}_{DateTime.Now:yyyyMMdd_HHmmss_fff}"
@@ -1159,7 +1160,7 @@ namespace KimodoUnityBridge.Command
                 : modelName);
         }
 
-        private static void EnsureRegisteredModel(string modelName, KimodoTextEncoderMode textEncoderMode)
+        private static JObject EnsureRegisteredModel(string modelName, KimodoTextEncoderMode textEncoderMode)
         {
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             JObject response = KimodoBridgeService.Shared.ListModelConfigurationsAsync(
@@ -1168,18 +1169,19 @@ namespace KimodoUnityBridge.Command
                 settings.LocalModelsPath?.Trim() ?? string.Empty,
                 null,
                 CancellationToken.None).GetAwaiter().GetResult();
-            bool found = (response["configs"] as JArray)?.Values<JObject>().Any(config =>
+            JObject found = (response["configs"] as JArray)?.Values<JObject>().FirstOrDefault(config =>
                 string.Equals(config.Value<string>("model"), modelName, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(
                     config.Value<string>("text_encoder_model"),
                     KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode),
                     StringComparison.OrdinalIgnoreCase) &&
-                config.Value<bool?>("available") != false) == true;
-            if (!found)
+                config.Value<bool?>("available") != false);
+            if (found == null)
             {
                 throw new InvalidOperationException(
                     $"Model '{modelName}' with text_encoder_model '{KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode)}' is not listed by kimodo_help section models.");
             }
+            return found;
         }
 
         internal static KimodoTextEncoderMode ResolveTextEncoderMode(string textEncoderModel)
@@ -1203,19 +1205,37 @@ namespace KimodoUnityBridge.Command
                 $"text_encoder_model must be '{KimodoTextEncoderModeProtocol.HighPerformance}' or '{KimodoTextEncoderModeProtocol.HighPrecision}'.");
         }
 
-        private static float ResolveFrameRate(string modelName)
+        private static float ResolveFrameRate(string modelName, JObject configuration)
         {
-            return KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile)
+            double? configured = configuration?.Value<double?>("source_fps");
+            if (configured.HasValue && configured.Value > 0.0 && !double.IsNaN(configured.Value) && !double.IsInfinity(configured.Value))
+            {
+                return (float)configured.Value;
+            }
+            return KimodoMotionModelProfiles.TryGet(modelName, out KimodoMotionModelProfile profile)
                 ? profile.SourceFps
                 : KimodoPlayableClip.FIXED_FRAME_RATE;
         }
 
-        private static int ResolveDiffusionSteps(JObject arguments, string modelName)
+        private static int ResolveDiffusionSteps(JObject arguments, string modelName, JObject configuration)
         {
             int? supplied = arguments.Value<int?>("diffusion_steps");
-            if (KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile))
+            int? configuredMaximum = configuration?.Value<int?>("max_diffusion_steps");
+            int? configuredDefault = configuration?.Value<int?>("default_diffusion_steps");
+            if (configuredMaximum.HasValue && configuredMaximum.Value > 0)
             {
-                return supplied.HasValue ? Mathf.Clamp(supplied.Value, 0, profile.MaxDiffusionSteps) : 0;
+                bool isArdy = string.Equals(configuration.Value<string>("backend"), "ardy", StringComparison.OrdinalIgnoreCase);
+                return supplied.HasValue
+                    ? Mathf.Clamp(supplied.Value, isArdy ? 0 : 1, configuredMaximum.Value)
+                    : (isArdy ? 0 : Mathf.Clamp(configuredDefault ?? 100, 1, configuredMaximum.Value));
+            }
+            if (KimodoMotionModelProfiles.TryGet(modelName, out KimodoMotionModelProfile profile))
+            {
+                int minimum = profile.IsArdy ? 0 : 1;
+                int fallback = profile.IsArdy ? 0 : profile.DefaultDiffusionSteps;
+                return supplied.HasValue
+                    ? Mathf.Clamp(supplied.Value, minimum, profile.MaxDiffusionSteps)
+                    : fallback;
             }
             return supplied.HasValue ? Mathf.Clamp(supplied.Value, 1, 1000) : 100;
         }

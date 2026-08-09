@@ -15,7 +15,7 @@ namespace KimodoBridge
         [NonSerialized] public KimodoConstraintPayload constraints = new KimodoConstraintPayload();
         // Optional JSON object forwarded as the protocol-level analysis_option field.
         public string analysis_option_json;
-        [NonSerialized] public List<KimodoArdyTimelineSegmentDto> ardy_timeline_segments;
+        [NonSerialized] public List<KimodoTimelineSegmentDto> timeline_segments;
         // Generic KMB ClipConstraints for `analysis_option.analysis_only`.
         // They intentionally carry no ARDY mask so the server can analyze them
         // without loading a motion model or text encoder.
@@ -38,7 +38,7 @@ namespace KimodoBridge
     }
 
     [Serializable]
-    public sealed class KimodoArdyTimelineSegmentDto
+    public sealed class KimodoTimelineSegmentDto
     {
         public string prompt;
         public float duration;

@@ -281,15 +281,8 @@ namespace KimodoBridge.Editor
                 (stage, message) => request.Progress?.Invoke(stage, message),
                 request.Token);
             ValidateArdyResult(directResult, profile, request.EffectiveSeed);
-            request.GeneratedArdySeeds.Add(directResult.ResolvedSeed.Value);
-            request.GeneratedArdyFingerprint = directResult.MotionRepFingerprint;
-
             KimodoRawMotionData sourceMotion = directResult.MotionData;
             byte[] sourcePayload = KimodoRawMotionUtility.ToFlatBuffer(sourceMotion, profile.ModelName);
-            if (request.RuntimeTrimStartFrame <= 0)
-            {
-                request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(sourcePayload, "timeline-final");
-            }
             return new KimodoBridgeCommandResult
             {
                 MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(sourceMotion),
@@ -433,9 +426,6 @@ namespace KimodoBridge.Editor
                 EditorUtility.SetDirty(rawBoneClip);
             }
 
-            request.GeneratedArdyMotionCachePath = ArdyUnityMotionCache.Write(
-                runtimeResult.MotionBytes,
-                "timeline-final");
             KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][ArdyGuard] trimmed final-target leading guard: " +
                 $"targetAvatar='{samplingAvatar.name}', visibleFrames={runtimeResult.MotionData.FrameCount}.");
@@ -788,9 +778,6 @@ namespace KimodoBridge.Editor
                 EndFrameExclusive = endFrameExclusive,
                 GeneratedClip = generatedClip,
                 RawBoneClip = rawBoneClip,
-                ArdyMotionCachePath = request.GeneratedArdyMotionCachePath,
-                ArdyMotionRepFingerprint = request.GeneratedArdyFingerprint,
-                ArdyResolvedSeeds = new List<int>(request.GeneratedArdySeeds)
             };
         }
 

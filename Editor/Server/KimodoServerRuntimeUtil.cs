@@ -20,18 +20,7 @@ namespace KimodoBridge.Editor
         private const string RuntimeRepoArchiveUrl = "https://github.com/OneYoungMean/NvlabKimodoQuickServer/archive/refs/heads/main.zip";
         private const string ManualDownloadFileName = "下载说明_DOWNLOAD_REQUIRED.txt";
 
-        internal static readonly string[] SupportedModelNames =
-        {
-            "Kimodo-SOMA-RP-v1",
-            "Kimodo-G1-RP-v1",
-            "Kimodo-SMPLX-RP-v1",
-            "Kimodo-SOMA-SEED-v1",
-            "Kimodo-G1-SEED-v1",
-            KimodoMotionModelProfiles.ArdyCoreModelName,
-            KimodoMotionModelProfiles.ArdyCore8ModelName,
-            KimodoMotionModelProfiles.ArdyG1ModelName,
-            KimodoMotionModelProfiles.ArdyG18ModelName
-        };
+        internal static readonly string[] SupportedModelNames = KimodoMotionModelProfiles.AllModelNames;
 
         internal static string ResolveProjectRoot()
         {

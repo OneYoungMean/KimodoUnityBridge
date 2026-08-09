@@ -20,7 +20,9 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from core import quickserver_assets as assets
-from kimodo.frame_time import seconds_to_frame_count, seconds_to_protocol_frame_index
+from core.protocol.kmb_motion import KmbClipMask, parse_constraints, parse_kmb_clip
+from core.protocol.timeline_segments import parse_timeline_segments
+from kimodo.frame_time import seconds_to_frame_count
 
 
 class GenerateCancelledError(Exception):
@@ -494,63 +496,29 @@ def _parents_and_names(model, num_joints: int):
     return parents, names
 
 
-def _clip_constraint_mask(item: dict, skeleton, joint_names: list[str]) -> tuple[list[bool], bool, list[list[bool]], list[int]]:
-    """Return per-axis root/joint position masks plus heading and rotation joints."""
-    values = item.get("mask")
-    root_position = [False, False, False]
-    root_heading = False
+def _clip_constraint_mask(values: KmbClipMask, skeleton, joint_names: list[str]) -> tuple[list[bool], bool, list[list[bool]], list[int]]:
     position_axes = [[False, False, False] for _ in joint_names]
     rotation_joints: list[int] = []
     root_index = int(getattr(skeleton, "root_idx", 0))
     by_name = {str(name).lower(): index for index, name in enumerate(joint_names)}
-
-    if not isinstance(values, dict):
-        raise ValueError("Clip constraint mask must be an object.")
-
-    root_axes = values.get("root_position", [False, False, False])
-    if not isinstance(root_axes, list) or len(root_axes) != 3 or any(not isinstance(value, bool) for value in root_axes):
-        raise ValueError("Clip constraint mask root_position must contain three booleans.")
-    root_position = list(root_axes)
-    root_heading = values.get("root_heading", False)
-    root_rotation = values.get("root_rotation", False)
-    if not isinstance(root_heading, bool) or not isinstance(root_rotation, bool):
-        raise ValueError("Clip constraint mask root_heading and root_rotation must be booleans.")
-    if root_rotation:
+    if values.root_rotation:
         rotation_joints.append(root_index)
-
-    joints = values.get("joints", [])
-    if not isinstance(joints, list):
-        raise ValueError("Clip constraint mask joints must be an array.")
-    for index, joint in enumerate(joints):
-        if not isinstance(joint, dict):
-            raise ValueError(f"Clip constraint mask joints[{index}] must be an object.")
-        name = str(joint.get("joint_name") or "")
-        joint_index = by_name.get(name.lower())
-        if joint_index is None:
-            raise ValueError(f"Clip constraint mask contains unknown joint '{name}'.")
-        position = joint.get("position", [False, False, False])
-        if not isinstance(position, list) or len(position) != 3 or any(not isinstance(value, bool) for value in position):
-            raise ValueError(f"Clip constraint mask joints[{index}].position must contain three booleans.")
-        position_axes[joint_index] = list(position)
-        rotation = joint.get("rotation", False)
-        if not isinstance(rotation, bool):
-            raise ValueError(f"Clip constraint mask joints[{index}].rotation must be a boolean.")
-        if rotation:
+    for joint in values.joints:
+        joint_index = by_name[joint.joint_name.lower()]
+        position_axes[joint_index] = list(joint.position)
+        if joint.rotation:
             rotation_joints.append(joint_index)
-    return root_position, root_heading, position_axes, rotation_joints
+    return list(values.root_position), values.root_heading, position_axes, rotation_joints
 
 
 def _load_clip_constraint(item: dict, model, attachments: tuple[bytes, ...]):
     import torch
 
-    from core.ardy_backend import parse_kmb1
     from kimodo.constraints import ClipConstraintSet, _convert_constraint_local_rots_to_skeleton
     from kimodo.geometry import quaternion_to_matrix
 
-    attachment = item.get("attachment")
-    if isinstance(attachment, bool) or not isinstance(attachment, int) or not 0 <= attachment < len(attachments):
-        raise ValueError(f"Invalid ClipConstraint attachment index: {attachment!r}.")
-    motion = parse_kmb1(attachments[attachment])
+    parsed_clip = parse_kmb_clip(item, attachments, float(model.fps))
+    motion = parsed_clip.motion
     skeleton = model.skeleton
     motion_joint_count = len(motion.joint_names)
     expected_joint_count = int(skeleton.nbjoints)
@@ -575,19 +543,7 @@ def _load_clip_constraint(item: dict, model, attachments: tuple[bytes, ...]):
     if not math.isclose(float(motion.fps), float(model.fps), rel_tol=0.0, abs_tol=1e-5):
         raise ValueError(f"ClipConstraint FPS mismatch: expected {model.fps}, got {motion.fps}.")
 
-    try:
-        start_time = float(item["start_time"])
-        duration = float(item["duration"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError("ClipConstraint requires finite start_time and duration seconds.") from exc
-    if not math.isfinite(start_time) or not math.isfinite(duration) or duration <= 0.0:
-        raise ValueError("ClipConstraint start_time/duration must be finite and duration must be positive.")
-    duration_frames = seconds_to_frame_count(duration, model.fps)
-    if duration_frames != motion.num_frames:
-        raise ValueError(
-            f"ClipConstraint duration resolves to {duration_frames} frames but its KMB contains {motion.num_frames}."
-        )
-    target_start = seconds_to_protocol_frame_index(start_time, model.fps)
+    target_start = parsed_clip.target_start_frame
     source_start = 0
     source_end = motion.num_frames
 
@@ -605,9 +561,10 @@ def _load_clip_constraint(item: dict, model, attachments: tuple[bytes, ...]):
     local_rots = _convert_constraint_local_rots_to_skeleton(local_rots, skeleton)
     roots = torch.as_tensor(motion.root_positions[source_start:source_end], dtype=torch.float32, device=device)
     global_rots, positions, _ = skeleton.fk(local_rots, roots)
+    if parsed_clip.mask is None:
+        raise ValueError("Clip constraint mask must be an object.")
     root_position, root_heading, position_axes, rotation_joints = _clip_constraint_mask(
-        item, skeleton, list(skeleton.bone_order_names)
-    )
+        parsed_clip.mask, skeleton, list(skeleton.bone_order_names))
     frame_indices = target_start + torch.arange(source_end - source_start, device=device, dtype=torch.long)
     return ClipConstraintSet(
         skeleton,
@@ -640,15 +597,7 @@ def _load_constraints(
             "constraints_json must be inline JSON (array/object). File path input is no longer supported."
         )
 
-    try:
-        parsed = json.loads(text)
-    except Exception as ex:
-        raise ValueError(f"Invalid inline constraints_json payload: {ex}") from ex
-
-    if isinstance(parsed, dict):
-        parsed = [parsed]
-    if not isinstance(parsed, list):
-        raise ValueError("constraints_json inline payload must be JSON array/object.")
+    parsed = parse_constraints(text)
     if any(isinstance(item, dict) and item.get("type") == "root2d_target" for item in parsed):
         raise ValueError("root2d_target was removed; use root2d frame_indices and positions.")
     plain = [item for item in parsed if not (isinstance(item, dict) and item.get("type") == "clip")]
@@ -1032,19 +981,40 @@ def _build_generate_flatbuffer_payload(model: Any, output: dict, sample_index: i
     return bytes(builder.Output())
 
 
+def _finalize_generation_result(
+    request: dict[str, Any],
+    model: Any,
+    output: dict | None,
+    prompt: str = "",
+    *,
+    output_format: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], bytes | None]:
+    from core import animation_analysis
+
+    resolved_format = output_format or _resolve_requested_output_format(request)
+    analysis = animation_analysis.build_generation_analysis(request, model, output) if output else None
+    payload = None
+    if resolved_format == "kmb_v1":
+        payload = _build_generate_flatbuffer_payload(model, output, sample_index=0) if output else None
+        response = {
+            "status": "done",
+            "output_format": "kmb_v1",
+            "byte_length": len(payload or b""),
+        }
+    else:
+        if not output:
+            raise ValueError(f"{resolved_format} output requires generated motion.")
+        response = _build_generate_response(model, output, prompt, sample_index=0)
+    if metadata:
+        response.update(metadata)
+    if analysis is not None:
+        response["analysis"] = analysis
+    return response, payload
+
+
 def _write_json_line(file, payload: dict) -> None:
     file.write((json.dumps(payload) + "\n").encode("utf-8"))
-    file.flush()
-
-
-def _write_kmb_generate_response(file, payload: bytes) -> None:
-    header = {
-        "status": "done",
-        "output_format": "kmb_v1",
-        "byte_length": len(payload),
-    }
-    file.write((json.dumps(header) + "\n").encode("utf-8"))
-    file.write(payload)
     file.flush()
 
 
@@ -1084,8 +1054,12 @@ def _run_generate(
     from kimodo.tools import seed_everything
 
     prompt = str(req.get("prompt", "A person walks forward.")).strip()
-    if not prompt.endswith("."):
-        prompt += "."
+
+    def normalize_prompt(value: str) -> str:
+        value = value.strip()
+        return value if value.endswith(".") else value + "."
+
+    prompt = normalize_prompt(prompt)
 
     duration = float(req.get("duration", 5.0))
     seed = req.get("seed", None)
@@ -1095,7 +1069,17 @@ def _run_generate(
         seed_everything(int(seed))
 
     num_frames = max(1, seconds_to_frame_count(duration, model.fps))
-    segment_frames = _generation_segment_frames(num_frames, model.fps)
+    timeline_segments = parse_timeline_segments(req.get("timeline_segments"), model.fps, num_frames)
+    segment_frames: list[int] = []
+    prompts: list[str] = []
+    if timeline_segments:
+        for segment in timeline_segments:
+            pieces = _generation_segment_frames(segment.frame_count, model.fps)
+            segment_frames.extend(pieces)
+            prompts.extend([normalize_prompt(segment.prompt)] * len(pieces))
+    else:
+        segment_frames = _generation_segment_frames(num_frames, model.fps)
+        prompts = [prompt] * len(segment_frames)
     constraints = _load_constraints(
         req.get("constraints_json", ""),
         model,
@@ -1112,7 +1096,7 @@ def _run_generate(
         _out({"status": "progress", "message": f"Generating {len(segment_frames)} continuous segments..."})
 
     output = model(
-        [prompt] * len(segment_frames),
+        prompts,
         segment_frames,
         constraint_lst=constraints,
         num_denoising_steps=diffusion_steps,
@@ -1130,11 +1114,5 @@ def _run_generate(
     if cancel_event is not None and cancel_event.is_set():
         raise GenerateCancelledError("Generation canceled.")
     return output, prompt
-
-
-def _generate(req: dict, model, cancel_event: threading.Event | None = None):
-    output, prompt = _run_generate(req, model, cancel_event)
-
-    _out(_build_generate_response(model, output, prompt, sample_index=0))
 
 

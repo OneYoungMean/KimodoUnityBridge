@@ -114,7 +114,9 @@ Kimodo 的 Timeline 工具建立在动画片段（Animation Clip）的概念之�
 
 ## 组合多个片段
 
-单个片段有长度上限。要做更长、更连贯的表演，思路是把多个片段排在一起，用首尾约束让它们相接。
+要做更长、更连贯的表演，可以把多个片段排在一起，用首尾约束让它们相接；普通 Kimodo 的单片段超过 10 秒时，QuickServer 也会自动拆成连续生成窗口。
+
+多选同一轨道上连续、模型与文本编码器配置一致的片段后，Inspector 会显示 **Generate N Connected Clips & Bake**。它把各片段的提示词作为通用 `timeline_segments` 一次生成，再按 Timeline 边界切回各片段；Kimodo 与 ARDY 都支持这一流程。
 
 - **接力做长动画**：把后一段的 InOut Constraint 设为 Outside，它会对齐前一段的结尾姿势，两段之间不会出现跳变。逐段接力，长动画就成型了。
 - **做循环动画**：使用 Inside 模式，让动作首尾相接、转一圈回到起点。

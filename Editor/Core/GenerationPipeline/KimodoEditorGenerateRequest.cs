@@ -40,10 +40,6 @@ namespace KimodoBridge.Editor
         public double? ArdyHistoryWeight;
         public double? ArdyMaxSpeed;
         public double? ArdyMaxAcceleration;
-        public string GeneratedArdyMotionCachePath = string.Empty;
-        public List<string> GeneratedArdyWindowCachePaths = new List<string>();
-        public List<int> GeneratedArdySeeds = new List<int>();
-        public string GeneratedArdyFingerprint = string.Empty;
 
         public int EffectiveRuntimeFrameCount =>
             RuntimeFrameCount > 0 ? RuntimeFrameCount : TargetFrameCount;

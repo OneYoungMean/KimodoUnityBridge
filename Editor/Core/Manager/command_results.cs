@@ -1,5 +1,4 @@
 using UnityEngine;
-using System.Collections.Generic;
 
 namespace KimodoUnityBridge.Command
 {
@@ -28,8 +27,5 @@ namespace KimodoUnityBridge.Command
         public int EndFrameExclusive;
         public AnimationClip GeneratedClip;
         public AnimationClip RawBoneClip;
-        public string ArdyMotionCachePath;
-        public string ArdyMotionRepFingerprint;
-        public List<int> ArdyResolvedSeeds;
     }
 }

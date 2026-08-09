@@ -22,6 +22,13 @@ from . import kimodo_runtime as runtime_helpers
 from . import ardy_backend
 from . import animation_analysis
 from . import quickserver_assets as assets
+from core.protocol.kmb_motion import (
+    MAX_KMB_BYTES,
+    attachment_payload,
+    clip_slice,
+    parse_constraints,
+    parse_kmb1,
+)
 from kimodo.frame_time import seconds_to_frame_count
 from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 
@@ -57,7 +64,7 @@ def _build_protocol_help() -> dict[str, Any]:
                 "fields": [
                     "prompt", "model", "text_encoder_mode", "duration", "constraints_json",
                     "kmb_attachments", "attachment_byte_length", "analysis_option",
-                    "ardy_timeline_segments", "ardy_history_weight", "ardy_max_speed",
+                    "timeline_segments", "ardy_history_weight", "ardy_max_speed",
                     "ardy_max_acceleration", "ardy_playback_reserve_seconds",
                 ],
             },
@@ -86,9 +93,9 @@ def _build_model_configurations(
     int8_available = bool(getattr(runtime_profile, "int8_accelerator_available", False)) and detected_device != "cpu"
     fp16_available = bool(getattr(runtime_profile, "fp16_accelerator_available", False)) and detected_device != "cpu"
     default_model = str(default_config.get("model") or assets.DEFAULT_MODEL_NAME)
-    motion_profile = assets.resolve_motion_model_profile(default_model)
-    if motion_profile is not None:
-        default_model = motion_profile.model_name
+    default_spec = assets.resolve_model_spec(default_model)
+    if default_spec is not None:
+        default_model = default_spec.model_name
     else:
         model_path = Path(default_model).expanduser()
         if model_path.is_file() and model_path.name.lower() == "config.yaml":
@@ -100,9 +107,8 @@ def _build_model_configurations(
         )
     default_encoder = assets.normalize_text_encoder_mode(default_config.get("text_encoder_mode"))
     configs: list[dict[str, Any]] = []
-    model_entries = [(spec.local_name, "kimodo") for spec in assets.MAIN_MODELS]
-    model_entries.extend((profile.model_name, profile.backend) for profile in assets.MOTION_MODEL_PROFILES)
-    for model_name, backend in model_entries:
+    for spec in assets.ALL_MODEL_SPECS:
+        model_name = spec.model_name
         encoder_budget_gb = max(0.0, free_vram_gb - assets.motion_model_min_free_vram_gb(model_name))
         for text_encoder_mode in (
             assets.TEXT_ENCODER_MODE_HIGH_PERFORMANCE,
@@ -119,7 +125,17 @@ def _build_model_configurations(
             configs.append(
                 {
                     "model": model_name,
-                    "backend": backend,
+                    "backend": spec.backend,
+                    "source_fps": spec.source_fps,
+                    "joint_count": spec.joint_count,
+                    "max_diffusion_steps": spec.max_diffusion_steps,
+                    "default_diffusion_steps": spec.default_diffusion_steps,
+                    "horizon_frames": spec.horizon_frames,
+                    "frames_per_token": spec.frames_per_token,
+                    "max_context_frames": spec.max_context_frames,
+                    "motion_rep_fingerprint": spec.motion_rep_fingerprint,
+                    "supports_streaming": spec.supports_streaming,
+                    "supports_timeline_segments": spec.supports_timeline_segments,
                     "text_encoder_model": text_encoder_mode,
                     "runtime_device": decision.motion_device,
                     "text_encoder_route": decision.encoder_route,
@@ -896,24 +912,7 @@ def _execute_generate(
         cancel_event,
         **generate_kwargs,
     )
-    analysis = animation_analysis.build_generation_analysis(task_request, model, output)
-
-    output_format = runtime_helpers._resolve_requested_output_format(task_request)
-    if output_format == "kmb_v1":
-        payload = runtime_helpers._build_generate_flatbuffer_payload(model, output, sample_index=0)
-        response = {
-            "status": "done",
-            "output_format": "kmb_v1",
-            "byte_length": len(payload),
-        }
-        if analysis is not None:
-            response["analysis"] = analysis
-        return response, payload
-
-    response = runtime_helpers._build_generate_response(model, output, prompt, sample_index=0)
-    if analysis is not None:
-        response["analysis"] = analysis
-    return response, None
+    return runtime_helpers._finalize_generation_result(task_request, model, output, prompt)
 
 
 def _build_streaming_status_message(
@@ -1017,9 +1016,9 @@ def _read_kmb_attachments(file, request: dict[str, Any]) -> tuple[bytes, ...]:
     manifest = request.get("kmb_attachments") or []
     if total == 0 and not manifest:
         return ()
-    if total <= 0 or total > ardy_backend.MAX_KMB_BYTES:
+    if total <= 0 or total > MAX_KMB_BYTES:
         raise ardy_backend.ArdyBackendError(
-            f"attachment_byte_length must be in [1, {ardy_backend.MAX_KMB_BYTES}]."
+            f"attachment_byte_length must be in [1, {MAX_KMB_BYTES}]."
         )
     if not isinstance(manifest, list):
         raise ardy_backend.ArdyBackendError("kmb_attachments must be an array.")
@@ -1052,7 +1051,6 @@ def _is_analysis_only_request(request: dict[str, Any]) -> bool:
 def _execute_analysis_only(
     request: dict[str, Any],
     attachments: tuple[bytes, ...],
-    quickserver_root: str,
 ) -> tuple[dict[str, Any], bytes]:
     options = request.get("analysis_option")
     if not isinstance(options, dict) or options.get("analysis_only") is not True:
@@ -1061,12 +1059,12 @@ def _execute_analysis_only(
     clips: list[dict[str, Any]] = []
     manifest: list[dict[str, Any]] = []
     output = bytearray()
-    for item in ardy_backend._parse_constraints(request.get("constraints_json")):
+    for item in parse_constraints(request.get("constraints_json"), ardy_backend.ArdyBackendError):
         if item.get("type") != "clip":
             continue
-        payload = ardy_backend._clip_payload(item, attachments, quickserver_root)
-        motion = ardy_backend.parse_kmb1(payload)
-        start, end = ardy_backend._clip_slice(item, motion)
+        payload = attachment_payload(item, attachments, ardy_backend.ArdyBackendError)
+        motion = parse_kmb1(payload, ardy_backend.ArdyBackendError)
+        start, end = clip_slice(item, motion, ardy_backend.ArdyBackendError)
         offset = len(output)
         output.extend(payload)
         manifest.append(
@@ -1088,9 +1086,9 @@ def _execute_analysis_only(
 
     if not clips:
         raise ardy_backend.ArdyBackendError("analysis_only requires one or more KMB ClipConstraints.")
-    if len(output) > ardy_backend.MAX_KMB_BYTES:
+    if len(output) > MAX_KMB_BYTES:
         raise ardy_backend.ArdyBackendError(
-            f"analysis_only KMB output exceeds the {ardy_backend.MAX_KMB_BYTES}-byte limit."
+            f"analysis_only KMB output exceeds the {MAX_KMB_BYTES}-byte limit."
         )
     return (
         {
@@ -1640,7 +1638,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     response, binary_payload = _execute_analysis_only(
                         task["request"],
                         tuple(task.get("attachments") or ()),
-                        kimodo_root,
                     )
                 else:
                     profile = assets.resolve_motion_model_profile(task["runtime_config"]["model"])
