@@ -430,7 +430,6 @@ namespace KimodoBridge.Editor
                 GenerationFrames = KimodoInOutConstraintTools.ClampFrameCount(generationFrames),
                 AutoBeginAnchor = autoBeginAnchor,
                 DeferNormalization = deferNormalization,
-                IsLoop = false,
                 TimelineContext = context,
                 ManualSamples = KimodoInOutConstraintTools.BuildLocalManualSamples(
                     manualSamples,

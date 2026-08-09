@@ -20,39 +20,38 @@ Use the live tool schema and returned errors as the final authority. Send JSON o
 
 ## Mandatory One-Time Minimal Self-Check
 
-Run this exact workflow once before substantive work. It uses the configured default model; do not call `Kimodo_list_models` unless a model change is requested.
+Run this exact workflow once before substantive work. It uses the configured default model; query `kimodo_help({"section":"models"})` only when a model change is requested.
 
-1. `session_open_timeline({})`.
+1. `session_open({})`.
 2. `query_current_session({"type":"character","pattern":"*","long":true})`; select one returned item whose `avatar` is `valid_humanoid`, and save its `character_ref`.
 3. `kimodo_generate_animation_asset({"character_ref":"...","prompt":"stand still and breathe naturally","duration_seconds":1})`; save `request_id`.
 4. Repeatedly call `kimodo_get_generation({"request_id":"..."})` until `status` is `completed`, `failed`, or `canceled`.
 5. On `completed`, call `query_current_session({"type":"animation","character_ref":"...","pattern":"*","long":true})`; confirm the new item has `animation_id`, `global_start`, `global_end`, and `asset_path`.
 
-Do not close the Session while the request is running. Call `session_close_timeline({})` only after no generation remains running.
+Do not close the Session while the request is running. Call `session_close({})` only after no generation remains running.
 
 ## Tool Index
 
 | Tool | Purpose | Current Session required |
 | --- | --- | --- |
-| `kimodo_list_characters` | List valid Humanoid characters. | No |
-| `Kimodo_list_models` | List valid model/encoder combinations for an explicit model change. | No |
-| `kimodo_help` | Return backend capability text. | No |
-| `session_open_timeline` | Create a fresh current Session or load a named in-memory Session. | No |
-| `session_close_timeline` | Close and preserve the current Session. | Yes |
+| `kimodo_help` | Return the command manual, detailed parameters, or viable models. | No |
+| `session_open` | Create a fresh current Session or load a named in-memory Session. | No |
+| `session_close` | Close and preserve the current Session. | Yes |
 | `query_current_session` | List Session, character, or animation objects with ls-style selectors. | Yes |
 | `session_locate_animation` | Select a Timeline animation and evaluate its time. | Yes |
-| `session_sample_pose` | Evaluate one character pose at global Session time. | Yes |
 | `session_try_add` / `session_try_remove` | Add or remove a character track or clip. | Yes |
 | `kimodo_generate_animation_asset` | Start asynchronous text-to-animation generation. | Yes |
 | `kimodo_get_generation` / `kimodo_cancel_generation` | Poll or cancel generation. | Request id |
-| `kimodo_analyze_timeline_range` | Return stored and backend range analysis. | Yes |
-| `kimodo_bake_timeline_range` | Bake a global range to an AnimationClip; optionally retarget it. | Yes |
+| `kimodo_analyze_range` | Analyze a Session range and cache its `analysis_id`. | Yes |
+| `kimodo_bake_range` | Bake a Session range to an AnimationClip; optionally retarget it. | Yes |
+| `kimodo_render_pose_sheet` | Render character/time samples as a square contact sheet. | Yes |
+| `kimodo_render_analysis_sheet` | Render cached analysis keyframes as a square contact sheet. | Yes |
 
 ## Read APIs
 
-### `kimodo_list_characters`
+### Character discovery through `query_current_session`
 
-**Synopsis:** `kimodo_list_characters({ include_project_assets?, max_results? })`
+**Synopsis:** `query_current_session({"type":"character","scope":"session|scene|project|all","max_results":100})`
 
 | Parameter | Type | Required | Default | Multiple | Meaning and constraints |
 | --- | --- | :---: | --- | :---: | --- |
@@ -61,21 +60,15 @@ Do not close the Session while the request is running. Call `session_close_timel
 
 **Result:** `characters[]` and `count`. Each item includes `character_ref`, `name`, `source` (`scene` or `project`), `avatar`, `asset_path`, `scene_path`, and `active`. Use only `source: "scene"` `character_ref` values for generation.
 
-### `Kimodo_list_models`
+### `kimodo_help`
 
-**Synopsis:** `Kimodo_list_models({})`
+**Synopsis:** `kimodo_help({ command?, section? })`
 
 Call only if the user asks to change `model` or `text_encoder_model`.
 
-**Parameters:** none.
+Use `section: "commands"` (default) for the command index, `command` for one complete schema, or `section: "models"` for viable model configurations.
 
 **Result:** `configs[]` and `count`. Choose an item with `available: true`; pass its `model` and `text_encoder_model` unchanged to generation.
-
-### `kimodo_help`
-
-**Synopsis:** `kimodo_help({})`
-
-**Parameters:** none. **Result:** backend help/capability payload. Use it only for backend-specific options not defined in this Skill.
 
 ### `query_current_session`
 
@@ -107,9 +100,9 @@ This is the Maya `ls`-style query API. It lists only current-Session objects. `p
 
 ## Session Lifecycle APIs
 
-### `session_open_timeline`
+### `session_open`
 
-**Synopsis:** `session_open_timeline({ session_name? })`
+**Synopsis:** `session_open({ session_name? })`
 
 | Parameter | Type | Required | Default | Multiple | Meaning and constraints |
 | --- | --- | :---: | --- | :---: | --- |
@@ -119,9 +112,9 @@ This is the Maya `ls`-style query API. It lists only current-Session objects. `p
 
 **Result:** full Session object as described by `query_current_session` with `type: "session"`.
 
-### `session_close_timeline`
+### `session_close`
 
-**Synopsis:** `session_close_timeline({})`
+**Synopsis:** `session_close({})`
 
 **Parameters:** none.
 
@@ -153,17 +146,6 @@ Use these pairs wherever shown below. Each pair requires at least one value unle
 | `session_global` | number | No | selected animation `global_start` | No | Non-negative finite global Session time in seconds. |
 
 **Result:** `session_name`, `character`, full `animation`, `session_global`, `located: true`.
-
-### `session_sample_pose`
-
-**Synopsis:** `session_sample_pose({ character_ref|character_name, session_global })`
-
-| Parameter | Type | Required | Default | Multiple | Meaning and constraints |
-| --- | --- | :---: | --- | :---: | --- |
-| `character_ref` / `character_name` | string | At least one | — | No | Character selector. |
-| `session_global` | number | Yes | — | No | Non-negative finite global Session time in seconds. |
-
-**Result:** `pose_sample_id`, `session_name`, `character`, `session_global`, `root_position`, `root_rotation`, `body_position`, `body_rotation`, `muscles[]`, and `bones[]` (`bone`, world `position`, world `rotation`).
 
 ## Session Editing APIs
 
@@ -200,7 +182,7 @@ Use these pairs wherever shown below. Each pair requires at least one value unle
 
 ### `kimodo_generate_animation_asset`
 
-**Synopsis:** `kimodo_generate_animation_asset({ character_ref, prompt, duration_seconds?, model?, text_encoder_model?, seed?, diffusion_steps?, output_mode?, output_folder?, asset_name?, loop?, analysis_option?, pose_refs?, times?, constraint_types? })`
+**Synopsis:** `kimodo_generate_animation_asset({ character_ref, prompt, duration_seconds?, model?, text_encoder_model?, seed?, diffusion_steps?, output_mode?, output_folder?, asset_name?, analysis_option?, constraints? })`
 
 **Precondition:** a current Session exists. The `character_ref` must resolve to a scene Humanoid character. If it is not yet in the Session, it is appended before generation.
 
@@ -209,22 +191,17 @@ Use these pairs wherever shown below. Each pair requires at least one value unle
 | `character_ref` | string | Yes | — | No | Scene GameObject or Animator GlobalObjectId. Project asset paths are rejected. |
 | `prompt` | string | Yes | — | No | Non-empty motion prompt. |
 | `duration_seconds` | number | No | `5` | No | Positive finite seconds. |
-| `model` | string | No | Project Settings default | No | Registered model/configuration id, never a path. Use `Kimodo_list_models` before explicitly changing it. |
+| `model` | string | No | Project Settings default | No | Registered model/configuration id, never a path. Query `kimodo_help({"section":"models"})` before explicitly changing it. |
 | `text_encoder_model` | enum | No | Project Settings default | No | `high_performance` or `high_precision`. If it or `model` is supplied, their pair must be currently available. |
 | `seed` | integer | No | random non-negative integer | No | Reproducibility seed. |
 | `diffusion_steps` | integer | No | model default | No | Standard Kimodo: clamped to `1..1000`, default `100`; ARDY: clamped to the selected profile range, default `0`. |
 | `output_mode` | enum | No | `humanoid_muscle` | No | `humanoid_muscle`, `character_bone`, or `model_bone`. The first two require a valid target Humanoid Avatar. |
 | `output_folder` | string | No | `Assets/KimodoGeneratedClips` | No | Must be `Assets` or beneath it; no `.` or `..` segments. |
 | `asset_name` | string | No | timestamped character name | No | Asset base name without extension. |
-| `loop` | boolean | No | `false` | No | Kimodo models only. The server first generates a seed motion, then regenerates with its frame-0 body pose at frames `0` and `frame_count - 1`. The provisional motion is not saved; final Clip `loopTime` is enabled. Root translation remains unconstrained. |
 | `analysis_option` | object | No | omitted | No | Backend analysis object. Pass only fields supported by `kimodo_help`; `keyframes.enabled: true` requests screenshot keyframes when supported. |
-| `pose_refs` | string[] | No | omitted | Yes | Scene GameObject or Animator GlobalObjectIds used as pose constraints. |
-| `times` | number[] | Conditional | evenly distributed from first to final generated frame | Yes | Allowed only with `pose_refs`; exactly the same count; every value finite and in `[0, duration_seconds]`. |
-| `constraint_types` | enum[] | Conditional | `fullbody` for each pose | Yes | Allowed only with `pose_refs`; exactly the same count; each item is `fullbody` or `root2d`. |
+| `constraints` | object[] | No | omitted | Yes | Each item is `{at,type?,source:{character,time}}`. `at` is generated-animation time; `source.time` is Session time. Skeletons must match exactly or the target must be a strict superset; otherwise Bake Retarget first. |
 
-**Multi-value rules:** `pose_refs`, `times`, and `constraint_types` are index-aligned. Supplying `times` or `constraint_types` without `pose_refs` fails.
-
-**Immediate result:** `request_id`, `status: "running"`, `character`, `output_mode`, `model`, `text_encoder_model`, `seed`, `session_name`, `timeline_start_seconds`, and `timeline_duration_seconds`. The Timeline slot is reserved immediately; do not treat it as a completed asset.
+**Immediate result:** `request_id`, `status: "running"`, `character`, `output_mode`, `model`, `text_encoder_model`, `seed`, `session_name`, `start_seconds`, and `duration_seconds`.
 
 ### `kimodo_get_generation`
 
@@ -249,30 +226,30 @@ Use these pairs wherever shown below. Each pair requires at least one value unle
 
 ## Analysis and Bake APIs
 
-### `kimodo_analyze_timeline_range`
+### `kimodo_analyze_range`
 
-**Synopsis:** `kimodo_analyze_timeline_range({ character_ref|character_name, start_global, end_global, analysis_option? })`
+**Synopsis:** `kimodo_analyze_range({ character_ref|character_name, start, end, analysis_option? })`
 
 | Parameter | Type | Required | Default | Multiple | Meaning and constraints |
 | --- | --- | :---: | --- | :---: | --- |
 | `character_ref` / `character_name` | string | At least one | — | No | Current-Session character selector. |
-| `start_global` | number | Yes | — | No | Finite inclusive global time; range requires `0 <= start_global < end_global`. |
-| `end_global` | number | Yes | — | No | Finite exclusive global time. |
+| `start` | number | Yes | — | No | Finite inclusive Session time; range requires `0 <= start < end`. |
+| `end` | number | Yes | — | No | Finite exclusive Session time. |
 | `analysis_option` | object | No | `{}` | No | Backend analysis options. The API forces `analysis_only: true`. |
 
-**Result:** `session_name`, `character`, `start_global`, `end_global`, `analyses[]`, and `analysis`. Stored analyses are returned for every overlapping generated animation. Backend analysis runs only when overlapping clips retain KMB data; otherwise `analysis` is derived from stored generation results and may have no issues or keyframes.
+**Result:** `analysis_id`, `session_name`, `character`, `start`, `end`, `analyses[]`, and `analysis`. The result is cached below `Library/KimodoCache/Commands`.
 
-### `kimodo_bake_timeline_range`
+### `kimodo_bake_range`
 
-**Synopsis:** `kimodo_bake_timeline_range({ character_ref|character_name, start_global, end_global, retarget_character_ref?, asset_name?, output_folder? })`
+**Synopsis:** `kimodo_bake_range({ character_ref|character_name, start, end, retarget_character_ref?, asset_name?, output_folder? })`
 
 | Parameter | Type | Required | Default | Multiple | Meaning and constraints |
 | --- | --- | :---: | --- | :---: | --- |
 | `character_ref` / `character_name` | string | At least one | — | No | Source current-Session character selector. |
-| `start_global` | number | Yes | — | No | Finite inclusive global time; range requires `0 <= start_global < end_global`. |
-| `end_global` | number | Yes | — | No | Finite exclusive global time. |
+| `start` | number | Yes | — | No | Finite inclusive Session time; range requires `0 <= start < end`. |
+| `end` | number | Yes | — | No | Finite exclusive Session time. |
 | `retarget_character_ref` | string | No | source character | No | Target scene character reference or current-Session target name. If no track exists, TryAdd is attempted. The target must have a valid Humanoid Avatar. |
 | `asset_name` | string | No | timestamped source name | No | Output AnimationClip base name without extension. |
 | `output_folder` | string | No | `Assets/KimodoGeneratedClips` | No | Same `Assets`-only rule as generation. |
 
-**Result:** `baked: true`, `asset_ref`, `asset_path`, `character`, `source_character`, `start_global`, `end_global`, and full appended `animation`. Without retarget, output contains source bone curves. With retarget, output is a Humanoid muscle clip appended to the target track.
+**Result:** `baked: true`, `asset_ref`, `asset_path`, `character`, `source_character`, `start`, `end`, and full appended `animation`. Without retarget, output contains source bone curves. With retarget, output is a Humanoid muscle clip appended to the target track.

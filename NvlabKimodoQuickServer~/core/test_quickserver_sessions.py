@@ -16,11 +16,59 @@ import torch
 from core import ardy_backend
 from core import kimodo_runtime
 from core import quickserver_cli
-from kimodo.frame_time import seconds_to_frame_count
+from kimodo.frame_time import seconds_to_frame_count, seconds_to_protocol_frame_index
 from kimodo.model import kimodo_model
 
 
 class QuickServerProtocolV2Tests(unittest.TestCase):
+    def test_removed_loop_protocol_field_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "generate.loop protocol field has been removed"):
+            quickserver_cli._execute_generate({"loop": False}, SimpleNamespace(), threading.Event())
+
+    def test_constraint_duplicate_indices_keep_the_first_value(self):
+        from kimodo.motion_rep.conditioning import get_unique_index_and_data
+
+        indices, values = get_unique_index_and_data(
+            torch.tensor([[0], [0], [1]], dtype=torch.long),
+            torch.tensor([10.0, 20.0, 30.0]),
+        )
+
+        self.assertEqual(indices.tolist(), [[0], [1]])
+        self.assertEqual(values.tolist(), [10.0, 30.0])
+
+    def test_normal_clip_mask_preserves_position_axes(self):
+        root_axes, heading, joint_axes, rotation_joints = kimodo_runtime._clip_constraint_mask(
+            {
+                "mask": {
+                    "root_position": [True, False, False],
+                    "root_heading": True,
+                    "root_rotation": False,
+                    "joints": [
+                        {
+                            "joint_name": "Spine",
+                            "position": [False, True, False],
+                            "rotation": True,
+                        }
+                    ],
+                }
+            },
+            SimpleNamespace(root_idx=0),
+            ["Hips", "Spine"],
+        )
+
+        self.assertEqual(root_axes, [True, False, False])
+        self.assertTrue(heading)
+        self.assertEqual(joint_axes, [[False, False, False], [False, True, False]])
+        self.assertEqual(rotation_joints, [1])
+
+    def test_legacy_flat_clip_mask_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "must be an object"):
+            kimodo_runtime._clip_constraint_mask(
+                {"mask": [True, True, True, True, True, True, True]},
+                SimpleNamespace(root_idx=0),
+                ["Hips", "Spine"],
+            )
+
     def test_protocol_help_lists_model_configuration_command(self):
         commands = quickserver_cli._build_protocol_help()["commands"]
         self.assertIn("runtime.list_models", [item["cmd"] for item in commands])
@@ -84,6 +132,11 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             seconds_to_frame_count(float("nan"), 30.0)
 
+    def test_protocol_frame_index_uses_signed_ceiling(self):
+        self.assertEqual(seconds_to_protocol_frame_index(-0.051, 20.0), -1)
+        self.assertEqual(seconds_to_protocol_frame_index(-0.01, 20.0), 0)
+        self.assertEqual(seconds_to_protocol_frame_index(0.051, 20.0), 2)
+
     def test_kimodo_long_generation_segments_are_equal_and_never_exceed_ten_seconds(self):
         self.assertEqual(kimodo_runtime._generation_segment_frames(300, 30.0), [300])
         self.assertEqual(kimodo_runtime._generation_segment_frames(360, 30.0), [180, 180])
@@ -131,89 +184,6 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(response, expected_response)
         self.assertIsNone(payload)
         run_generate.assert_called_once_with({"duration": 11.0}, model, ANY, emit_progress=False)
-
-    def test_loop_generation_runs_twice_and_reuses_seed_pose_at_both_boundaries(self):
-        model = SimpleNamespace()
-        seed_output = {"seed": True}
-        final_output = {"final": True}
-        loop_constraints = ["loop-pose"]
-        expected_response = {"status": "done"}
-        messages = []
-        with patch.object(
-            kimodo_runtime,
-            "_run_generate",
-            side_effect=[(seed_output, "walk."), (final_output, "walk.")],
-        ) as run_generate, patch.object(
-            kimodo_runtime,
-            "_build_loop_body_pose_constraints",
-            return_value=loop_constraints,
-        ) as build_constraints, patch.object(
-            kimodo_runtime,
-            "_resolve_requested_output_format",
-            return_value="json_compact",
-        ), patch.object(kimodo_runtime, "_build_generate_response", return_value=expected_response):
-            response, payload = quickserver_cli._execute_generate(
-                {"duration": 2.0, "loop": True},
-                model,
-                threading.Event(),
-                messages.append,
-            )
-
-        self.assertEqual(response, expected_response)
-        self.assertIsNone(payload)
-        build_constraints.assert_called_once_with(seed_output, model)
-        self.assertEqual(run_generate.call_count, 2)
-        self.assertEqual(run_generate.call_args_list[0].kwargs, {"emit_progress": False})
-        self.assertEqual(
-            run_generate.call_args_list[1].kwargs,
-            {"emit_progress": False, "additional_constraints": loop_constraints},
-        )
-        self.assertEqual(messages, ["Generating loop seed motion...", "Generating loop-constrained motion..."])
-
-    def test_loop_boundary_constraint_reuses_seed_frame_zero_without_root_position_condition(self):
-        class Skeleton:
-            nbjoints = 2
-            root_idx = 0
-            device = torch.device("cpu")
-
-            def fk(self, local_rotations, root_positions):
-                posed = torch.zeros((len(root_positions), 2, 3), dtype=local_rotations.dtype)
-                posed[:, 0] = root_positions
-                posed[:, 1] = root_positions + torch.tensor([1.0, 0.0, 0.0])
-                return local_rotations, posed, None
-
-        identity = np.eye(3, dtype=np.float32)
-        output = {
-            "local_rot_mats": np.broadcast_to(identity, (1, 3, 2, 3, 3)).copy(),
-            "root_positions": np.asarray([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]]),
-            "smooth_root_pos": np.asarray([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]]),
-        }
-        constraint = kimodo_runtime._build_loop_body_pose_constraints(
-            output,
-            SimpleNamespace(skeleton=Skeleton()),
-        )[0]
-
-        self.assertTrue(torch.equal(constraint.frame_indices, torch.tensor([0, 2])))
-        self.assertTrue(torch.equal(constraint.local_joints_positions[0], constraint.local_joints_positions[1]))
-        self.assertTrue(torch.equal(constraint.global_joints_rots[0], constraint.global_joints_rots[1]))
-        self.assertTrue(torch.equal(constraint.joint_indices, torch.tensor([1])))
-
-    def test_loop_generation_stops_when_cancelled_between_passes(self):
-        cancel = threading.Event()
-        model = SimpleNamespace()
-
-        def seed_then_cancel(*_args, **_kwargs):
-            cancel.set()
-            return {"seed": True}, "walk."
-
-        with patch.object(kimodo_runtime, "_run_generate", side_effect=seed_then_cancel) as run_generate, patch.object(
-            kimodo_runtime,
-            "_build_loop_body_pose_constraints",
-        ) as build_constraints, self.assertRaises(kimodo_runtime.GenerateCancelledError):
-            quickserver_cli._execute_generate({"loop": True}, model, cancel)
-
-        run_generate.assert_called_once()
-        build_constraints.assert_not_called()
 
     def test_ardy_imports_from_the_bundled_runtime(self):
         import ardy
@@ -272,6 +242,72 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             kimodo_runtime._resolve_requested_output_format({"output_format": "removed_format"}),
             "removed_format",
         )
+
+    def test_ardy_clip_mask_accepts_object_and_rejects_legacy_array(self):
+        names = ("Hips", "Spine", "LeftArm")
+        current = ardy_backend._future_clip_mask(
+            {
+                "mask": {
+                    "root_position": [True, False, True],
+                    "root_heading": True,
+                    "root_rotation": True,
+                    "joints": [
+                        {
+                            "joint_name": "Spine",
+                            "position": [True, True, True],
+                            "rotation": True,
+                        }
+                    ],
+                }
+            },
+            names,
+        )
+        self.assertEqual(current["root_position"], [True, False, True])
+        self.assertTrue(current["root_heading"])
+        self.assertEqual(current["joint_rotation"].tolist(), [True, True, False])
+        self.assertEqual(current["joint_position"].tolist(), [[True, True, True], [False, False, False]])
+        with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "must be an object"):
+            ardy_backend._future_clip_mask(
+                {"mask": [True, False, True, True, True, True, True, False, False, False]},
+                names,
+            )
+
+    def test_kimodo_clip_constraints_receive_generate_attachments(self):
+        model = SimpleNamespace(skeleton=object())
+        payload = b"clip-kmb"
+        item = {"type": "clip", "attachment": 0}
+        with patch("kimodo.constraints.load_constraints_lst", return_value=[]), patch.object(
+            kimodo_runtime,
+            "_load_clip_constraint",
+            return_value="clip-constraint",
+        ) as load_clip:
+            constraints = kimodo_runtime._load_constraints(json.dumps([item]), model, attachments=(payload,))
+
+        self.assertEqual(constraints, ["clip-constraint"])
+        load_clip.assert_called_once_with(item, model, (payload,))
+
+    def test_normal_generate_passes_kmb_attachments_to_runtime(self):
+        model = SimpleNamespace()
+        expected_response = {"status": "done"}
+        with patch.object(kimodo_runtime, "_run_generate", return_value=({}, "walk.")) as run_generate, patch.object(
+            kimodo_runtime,
+            "_resolve_requested_output_format",
+            return_value="json_compact",
+        ), patch.object(kimodo_runtime, "_build_generate_response", return_value=expected_response), patch.object(
+            quickserver_cli.animation_analysis,
+            "build_generation_analysis",
+            return_value=None,
+        ):
+            response, payload = quickserver_cli._execute_generate(
+                {"duration": 1.0},
+                model,
+                threading.Event(),
+                attachments=(b"clip-kmb",),
+            )
+
+        self.assertEqual(response, expected_response)
+        self.assertIsNone(payload)
+        self.assertEqual(run_generate.call_args.kwargs, {"emit_progress": False, "attachments": (b"clip-kmb",)})
 
     def test_kimodo_root2d_keeps_explicit_points_and_heading_pairs(self):
         model = SimpleNamespace(fps=30.0, skeleton=object())
@@ -743,7 +779,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             "type": "clip",
             "format": "kmb_attachment_v1",
             "attachment": 0,
-            "is_history": True,
+            "start_time": -8.3,
+            "duration": 8.3,
         }
 
         with (
@@ -762,6 +799,50 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         root_2d, velocity_2d = session._root_state_at_boundary(0)
         np.testing.assert_allclose(root_2d, [1.65, 3.3], atol=1e-6)
         np.testing.assert_allclose(velocity_2d, [0.2, 0.4], atol=1e-5)
+
+    def test_cross_zero_clip_is_split_into_history_and_future(self):
+        session = self._fake_ardy_session()
+        session.quickserver_root = Path.cwd()
+        motion = ardy_backend.KmbMotion(
+            payload=b"kmb",
+            model_name="test",
+            fps=20.0,
+            joint_names=("root",),
+            joint_parents=(-1,),
+            root_positions=np.zeros((8, 3), dtype=np.float32),
+            local_rot_quats=np.zeros((8, 1, 4), dtype=np.float32),
+            foot_contacts=None,
+        )
+        encoded = torch.arange(8, dtype=torch.float32).reshape(1, 8, 1)
+        model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=object()))
+        item = {
+            "type": "clip",
+            "format": "kmb_attachment_v1",
+            "attachment": 0,
+            "start_time": -0.2,
+            "duration": 0.4,
+            "mask": {
+                "root_position": [True, False, False],
+                "root_heading": False,
+                "root_rotation": False,
+                "joints": [],
+            },
+        }
+
+        with (
+            patch.object(ardy_backend, "parse_kmb1", return_value=motion),
+            patch.object(ardy_backend, "_validate_kmb"),
+            patch.object(ardy_backend, "_motion_to_tensor", return_value=encoded),
+            patch("ardy.constraints.load_constraints_lst", return_value=[]),
+        ):
+            session._set_constraints([item], (b"kmb",), model, apply_from=0, initial=True)
+
+        self.assertTrue(torch.equal(session.initial_history_cpu, encoded[:, :4]))
+        self.assertEqual(len(session.future_clips), 1)
+        target_start, future, mask = session.future_clips[0]
+        self.assertEqual(target_start, 0)
+        self.assertTrue(torch.equal(future, encoded[:, 4:]))
+        self.assertEqual(mask["root_position"], [True, False, False])
 
     def test_truncate_rebuilds_history_from_initial_history_and_generated_prefix(self):
         session = self._fake_ardy_session()

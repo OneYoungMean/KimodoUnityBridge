@@ -24,6 +24,8 @@ namespace KimodoBridge.Editor
         private SerializedProperty inOutConstraintModeProp;
         private SerializedProperty enableInConstraint;
         private SerializedProperty enableOutConstraint;
+        private SerializedProperty enableClipConstraint;
+        private SerializedProperty clipConstraintAvatarMask;
         private SerializedProperty ardyAutoHistory;
         private SerializedProperty ardyHistoryWeight;
         private SerializedProperty ardyTargetMaxSpeed;
@@ -110,6 +112,8 @@ namespace KimodoBridge.Editor
             inOutConstraintModeProp = serializedObject.FindProperty("inOutConstraintMode");
             enableInConstraint = serializedObject.FindProperty("enableInConstraint");
             enableOutConstraint = serializedObject.FindProperty("enableOutConstraint");
+            enableClipConstraint = serializedObject.FindProperty("enableClipConstraint");
+            clipConstraintAvatarMask = serializedObject.FindProperty("clipConstraintAvatarMask");
             ardyAutoHistory = serializedObject.FindProperty("ardyAutoHistory");
             ardyHistoryWeight = serializedObject.FindProperty("ardyHistoryWeight");
             ardyTargetMaxSpeed = serializedObject.FindProperty("ardyTargetMaxSpeed");
@@ -241,6 +245,21 @@ namespace KimodoBridge.Editor
                         EditorGUILayout.PropertyField(enableOutConstraint, new GUIContent("Out"), GUILayout.Width(60f));
                         EditorGUIUtility.labelWidth = previousLabelWidth;
                     }
+                }
+            }
+            if (enableClipConstraint != null)
+            {
+                EditorGUILayout.Space(2f);
+                EditorGUILayout.PropertyField(
+                    enableClipConstraint,
+                    new GUIContent("Clip Constraint", "Use this clip's current animation as a per-frame masked pose condition while regenerating it."));
+                if (enableClipConstraint.boolValue && clipConstraintAvatarMask != null)
+                {
+                    EditorGUI.indentLevel++;
+                    EditorGUILayout.PropertyField(
+                        clipConstraintAvatarMask,
+                        new GUIContent("Avatar Mask", "Selected bones retain position and rotation. Hips also retains root position and orientation."));
+                    EditorGUI.indentLevel--;
                 }
             }
             if (showConstraint != null)

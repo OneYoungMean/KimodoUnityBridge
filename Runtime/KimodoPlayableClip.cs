@@ -27,6 +27,14 @@ namespace KimodoBridge
         Outside = 2
     }
 
+    public enum KimodoGenerationOutputMode
+    {
+        Auto = 0,
+        HumanoidMuscle = 1,
+        CharacterBone = 2,
+        ModelBone = 3
+    }
+
     [System.Serializable]
     public class KimodoCurveFilterOptions
     {
@@ -61,6 +69,18 @@ namespace KimodoBridge
         public int diffusionSteps = 100;
         public bool randomSeed = false;
         public int seed = 42;
+        [Header("Clip Constraint")]
+        [Tooltip("Sample this playable clip's current animation as a per-frame pose condition before regenerating it.")]
+        public bool enableClipConstraint;
+        [Tooltip("Bones preserved by Clip Constraint. Hips preserves root position and orientation.")]
+        public AvatarMask clipConstraintAvatarMask;
+        [Tooltip("Backend analysis options serialized as JSON and applied to this generation clip.")]
+        public string analysisOptionsJson = string.Empty;
+        [Tooltip("Optional generated AnimationClip asset name without extension.")]
+        public string generatedAssetName = string.Empty;
+        [Tooltip("Optional generated AnimationClip folder under Assets.")]
+        public string generatedOutputFolder = string.Empty;
+        public KimodoGenerationOutputMode generationOutputMode = KimodoGenerationOutputMode.Auto;
         [SerializeField, HideInInspector]
         private Avatar customRetargetAvatar;
         [Tooltip("Choose whether to disable InOutConstraint, use this clip's own start/end poses, or use neighboring clip boundary poses.")]

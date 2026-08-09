@@ -78,7 +78,7 @@ namespace KimodoBridge.Editor.Tests
         public void TimelineGeneratedClipName_IdentifiesModelFamily(string modelName, string expected)
         {
             Assert.That(
-                KimodoPlayableClipGenerationHostService.BuildTimelineTargetClipName(
+                KimodoTimelineGenerationOutputPlanner.BuildTargetClipName(
                     modelName,
                     new System.DateTime(2026, 7, 30, 12, 0, 0, 123)),
                 Is.EqualTo(expected));
@@ -210,6 +210,59 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(generation.ardy_history_weight, Is.EqualTo(0.25));
                 Assert.That(generation.ardy_max_speed, Is.EqualTo(1.25));
                 Assert.That(generation.ardy_max_acceleration, Is.EqualTo(1.5));
+            }
+            finally
+            {
+                Object.DestroyImmediate(directorRoot);
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void TimelineRequest_UsesGenerationClipAnalysisOptions()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            GameObject directorRoot = new GameObject("KimodoGenerationRequestOptionsTest");
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                timelineClip.duration = 2.0;
+                directorRoot.AddComponent<PlayableDirector>().playableAsset = timeline;
+                var clip = (KimodoPlayableClip)timelineClip.asset;
+                clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
+                clip.analysisOptionsJson = "{\"keyframes\":{\"enabled\":true}}";
+
+                KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    "walk",
+                    externalConstraint: null,
+                    default);
+                KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
+                    request,
+                    "walk",
+                    clip.bridgeModelName).GenerationRequest;
+
+                Assert.That(request.AnalysisOptionsJson, Is.EqualTo(clip.analysisOptionsJson));
+                Assert.That(generation.analysis_option_json, Is.EqualTo(clip.analysisOptionsJson));
+
+                clip.generationOutputMode = KimodoGenerationOutputMode.ModelBone;
+                Assert.That(
+                    KimodoTimelineGenerationOutputPlanner.Capture(
+                        clip,
+                        explicitRetargetAvatar: null,
+                        modelName: clip.bridgeModelName,
+                        bindingObject: null).SkipRetarget,
+                    Is.True);
+
+                clip.generationOutputMode = KimodoGenerationOutputMode.CharacterBone;
+                Assert.That(
+                    KimodoTimelineGenerationOutputPlanner.Capture(
+                        clip,
+                        explicitRetargetAvatar: null,
+                        modelName: clip.bridgeModelName,
+                        bindingObject: null).ExportMuscleClip,
+                    Is.False);
             }
             finally
             {

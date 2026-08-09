@@ -13,6 +13,57 @@ namespace KimodoBridge.Editor.Tests
     public sealed class KimodoTimelineSamplingSessionTests
     {
         [Test]
+        public void ClipConstraintTimelineTimes_OutsideBoundaryOverridesCurrentClipBoundary()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip previous = track.CreateClip<KimodoPlayableClip>();
+                previous.start = 0.0;
+                previous.duration = 1.0;
+                TimelineClip current = track.CreateClip<KimodoPlayableClip>();
+                current.start = 1.0;
+                current.duration = 2.0;
+                TimelineClip next = track.CreateClip<KimodoPlayableClip>();
+                next.start = 3.0;
+                next.duration = 1.0;
+                var context = new KimodoTimelineInOutConstraintContext
+                {
+                    SourceClip = current,
+                    Track = track,
+                    PreviousTimelineClip = previous,
+                    NextTimelineClip = next
+                };
+
+                double[] times = KimodoClipConstraintEncoder.BuildTimelineSampleTimes(
+                    context,
+                    frameCount: 5,
+                    frameRate: 20f,
+                    runtimeTrimStartFrame: 1,
+                    inOutMode: KimodoInOutConstraintMode.Outside,
+                    enableInConstraint: true,
+                    enableOutConstraint: true);
+                var boundaryRequest = new KimodoInOutConstraintRequest
+                {
+                    Mode = KimodoInOutConstraintMode.Outside,
+                    TimelineContext = context
+                };
+
+                Assert.That(times[0], Is.EqualTo(0.95).Within(1e-9));
+                Assert.That(times[1], Is.EqualTo(
+                    KimodoInOutConstraintTools.ResolveTimelineBoundaryTime(boundaryRequest, isBegin: true)).Within(1e-9));
+                Assert.That(times[2], Is.EqualTo(1.05).Within(1e-9));
+                Assert.That(times[4], Is.EqualTo(
+                    KimodoInOutConstraintTools.ResolveTimelineBoundaryTime(boundaryRequest, isBegin: false)).Within(1e-9));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void ConstraintDragMuscleDiagnostics_ReportsValuesAndLargestDifference()
         {
             float[] left = { 0f, 0.25f, -0.1f };

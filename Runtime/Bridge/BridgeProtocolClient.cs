@@ -176,22 +176,11 @@ namespace KimodoBridge
 
             string taskId = string.IsNullOrWhiteSpace(request.task_id) ? Guid.NewGuid().ToString("N") : request.task_id.Trim();
             request.task_id = taskId;
-            string constraintsJson = request.constraints_json;
             var attachments = new List<byte[]>();
-            if (request.ardy_history_kmb != null && request.ardy_history_kmb.Length > 0)
-            {
-                constraintsJson = KimodoArdyClipConstraintProtocol.Append(
-                    constraintsJson,
-                    KimodoArdyClipConstraintProtocol.SerializeHistory(request.ardy_history_kmb, attachments));
-            }
-            if (request.ardy_future_clips != null && request.ardy_future_clips.Count > 0)
-            {
-                string futureClips = KimodoArdyClipConstraintProtocol.SerializeFuture(
-                    request.model,
-                    request.ardy_future_clips,
-                    attachments);
-                constraintsJson = KimodoArdyClipConstraintProtocol.Append(constraintsJson, futureClips);
-            }
+            string baseConstraintsJson = request.constraints?.Serialize(request.model, attachments) ?? string.Empty;
+            var constraints = string.IsNullOrWhiteSpace(baseConstraintsJson)
+                ? new JArray()
+                : JArray.Parse(baseConstraintsJson);
             if (request.analysis_clip_constraints != null && request.analysis_clip_constraints.Count > 0)
             {
                 var clips = new JArray();
@@ -219,10 +208,11 @@ namespace KimodoBridge
                         ["end_frame_exclusive"] = clip.endFrameExclusive
                     });
                 }
-                constraintsJson = KimodoArdyClipConstraintProtocol.Append(
-                    constraintsJson,
-                    clips.ToString(Formatting.None));
+                foreach (JToken clip in clips) constraints.Add(clip.DeepClone());
             }
+            string constraintsJson = constraints.Count > 0
+                ? constraints.ToString(Formatting.None)
+                : baseConstraintsJson;
             var payload = new JObject
             {
                 ["cmd"] = "generate",
@@ -245,10 +235,6 @@ namespace KimodoBridge
                 }
                 payload["diffusion_steps"] = request.steps;
                 payload["seed"] = request.seed.HasValue ? request.seed.Value : null;
-                if (request.loop)
-                {
-                    payload["loop"] = true;
-                }
                 payload["transition_duration"] = request.transition_duration;
                 payload["model"] = string.IsNullOrWhiteSpace(request.model) ? null : request.model;
                 payload["text_encoder_mode"] = string.IsNullOrWhiteSpace(request.text_encoder_mode)

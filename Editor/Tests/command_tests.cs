@@ -12,7 +12,6 @@ namespace KimodoBridge.Editor.Tests
         [Test]
         public void CommandDefinitions_ExposeTheStableEntrypoints()
         {
-            Assert.That(command_kimodo.ListModelsCommand, Is.EqualTo("Kimodo_list_models"));
             Assert.That(command_kimodo.GetGenerationCommand, Is.EqualTo("kimodo_get_generation"));
             Assert.That(command_kimodo.CancelGenerationCommand, Is.EqualTo("kimodo_cancel_generation"));
             Assert.That(command_kimodo.DebugInstallServerCommand, Is.EqualTo("kimodo_debug_install_server"));
@@ -25,38 +24,35 @@ namespace KimodoBridge.Editor.Tests
 
             Assert.That(names, Is.EqualTo(new[]
             {
-                command_kimodo.ListCharactersCommand,
-                command_kimodo.ListModelsCommand,
                 command_kimodo.HelpCommand,
                 command_kimodo.DebugInstallServerCommand,
-                command_session.OpenTimelineCommand,
-                command_session.CloseTimelineCommand,
+                command_session.OpenCommand,
+                command_session.CloseCommand,
                 command_query.CurrentSessionCommand,
                 command_session.LocateAnimationCommand,
-                command_session.SamplePoseCommand,
                 command_session.TryAddCommand,
                 command_session.TryRemoveCommand,
-                command_kimodo.AnalyzeTimelineRangeCommand,
-                command_kimodo.BakeTimelineRangeCommand,
+                command_kimodo.AnalyzeRangeCommand,
+                command_kimodo.BakeRangeCommand,
                 command_kimodo.GenerateAnimationAssetCommand,
+                command_kimodo.RenderPoseSheetCommand,
+                command_kimodo.RenderAnalysisSheetCommand,
                 command_kimodo.GetGenerationCommand,
                 command_kimodo.CancelGenerationCommand
             }));
         }
 
         [Test]
-        public void ModelListAndHelpSchemas_UseTheServerAsTheSourceOfTruth()
+        public void HelpSchema_ProvidesCommandManualAndModelsSection()
         {
             JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
-            JObject modelList = definitions["tools"]
-                .Values<JObject>()
-                .Single(tool => tool.Value<string>("name") == command_kimodo.ListModelsCommand);
             JObject help = definitions["tools"]
                 .Values<JObject>()
                 .Single(tool => tool.Value<string>("name") == command_kimodo.HelpCommand);
 
-            Assert.That(modelList.Value<string>("description"), Does.Contain("QuickServer"));
-            Assert.That(help.Value<string>("description"), Does.Contain("protocol"));
+            Assert.That(help.Value<string>("description"), Does.Contain("manual"));
+            Assert.That(help["inputSchema"]["properties"]["section"]["enum"].Values<string>(),
+                Is.EqualTo(new[] { "commands", "models" }));
             Assert.That(definitions["tools"].Values<JObject>()
                 .Select(tool => tool.Value<string>("name")),
                 Does.Not.Contain("kimodo_list_text_encoder_models"));
@@ -81,17 +77,17 @@ namespace KimodoBridge.Editor.Tests
             JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
             JObject openTool = definitions["tools"]
                 .Values<JObject>()
-                .Single(tool => tool.Value<string>("name") == command_session.OpenTimelineCommand);
+                .Single(tool => tool.Value<string>("name") == command_session.OpenCommand);
             JObject closeTool = definitions["tools"]
                 .Values<JObject>()
-                .Single(tool => tool.Value<string>("name") == command_session.CloseTimelineCommand);
+                .Single(tool => tool.Value<string>("name") == command_session.CloseCommand);
             JObject properties = (JObject)openTool["inputSchema"]["properties"];
 
-            Assert.That(openTool.Value<string>("description"), Does.Contain("temporary TimelineAsset"));
+            Assert.That(openTool.Value<string>("description"), Does.Not.Contain("Timeline"));
             Assert.That(properties.Property("director_ref"), Is.Null);
             Assert.That(properties.Property("character_ref"), Is.Null);
             Assert.That(properties["session_name"].Value<string>("type"), Is.EqualTo("string"));
-            Assert.That(closeTool.Value<string>("description"), Does.Contain("preserve the Session"));
+            Assert.That(closeTool.Value<string>("description"), Does.Contain("preserving"));
             Assert.That(closeTool.Value<string>("description"), Does.Not.Contain("delete"));
         }
 
@@ -141,22 +137,35 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void GenerateCommands_ExposePoseConstraintArrays()
+        public void GenerateCommands_ExposeAtomicConstraintObjects()
         {
             JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
             JObject assetProperties = (JObject)definitions["tools"]
                 .Values<JObject>()
                 .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationAssetCommand)["inputSchema"]["properties"];
-            Assert.That(assetProperties["pose_refs"]["items"].Value<string>("type"), Is.EqualTo("string"));
-            Assert.That(assetProperties["times"]["items"].Value<string>("type"), Is.EqualTo("number"));
-            Assert.That(assetProperties["constraint_types"]["items"]["enum"].Values<string>(),
+            Assert.That(assetProperties["constraints"]["items"]["properties"]["source"]["required"].Values<string>(),
+                Is.EqualTo(new[] { "character", "time" }));
+            Assert.That(assetProperties["constraints"]["items"]["properties"]["type"]["enum"].Values<string>(),
                 Is.EqualTo(new[] { "fullbody", "root2d" }));
             Assert.That(assetProperties["analysis_option"].Value<string>("type"), Is.EqualTo("object"));
-            Assert.That(assetProperties["loop"].Value<string>("type"), Is.EqualTo("boolean"));
+            Assert.That(assetProperties.Property("loop"), Is.Null);
             Assert.That(assetProperties["model"].Value<string>("type"), Is.EqualTo("string"));
             Assert.That(assetProperties["text_encoder_model"]["enum"].Values<string>(),
                 Is.EqualTo(new[] { "high_performance", "high_precision" }));
             Assert.That(assetProperties.Property("timeline_session_id"), Is.Null);
+            Assert.That(definitions["tools"].Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationAssetCommand)
+                .Value<string>("description"), Does.Contain("KimodoPlayableClip"));
+        }
+
+        [TestCase(1, 1)]
+        [TestCase(4, 2)]
+        [TestCase(8, 3)]
+        [TestCase(9, 3)]
+        [TestCase(10, 4)]
+        public void ContactSheetGrid_UsesSmallestSquareThatFits(int count, int expected)
+        {
+            Assert.That(command_context.ResolveSquareGridSize(count), Is.EqualTo(expected));
         }
 
         [Test]
@@ -166,7 +175,7 @@ namespace KimodoBridge.Editor.Tests
             JObject query = definitions["tools"].Values<JObject>()
                 .Single(tool => tool.Value<string>("name") == command_query.CurrentSessionCommand);
             JObject bake = definitions["tools"].Values<JObject>()
-                .Single(tool => tool.Value<string>("name") == command_kimodo.BakeTimelineRangeCommand);
+                .Single(tool => tool.Value<string>("name") == command_kimodo.BakeRangeCommand);
 
             Assert.That(query["inputSchema"]["properties"]["operation"]["enum"].Values<string>(),
                 Does.Contain("animations"));
@@ -180,7 +189,7 @@ namespace KimodoBridge.Editor.Tests
                 Is.EqualTo("integer"));
             Assert.That(bake["inputSchema"]["properties"]["retarget_character_ref"].Value<string>("type"),
                 Is.EqualTo("string"));
-            Assert.That(bake["inputSchema"]["properties"].Property("timeline_session_id"), Is.Null);
+            Assert.That(((JObject)bake["inputSchema"]["properties"]).Property("timeline_session_id"), Is.Null);
         }
 
         [Test]

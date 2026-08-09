@@ -313,8 +313,11 @@ namespace KimodoBridge.Editor
             generation.time_as_double = 0.0;
             generation.seed = groupSeed;
             generation.steps = KimodoMotionModelProfiles.ResolveArdyProtocolSteps(firstRequest.DiffusionSteps, profile);
-            generation.constraints_json = ExplicitConstraints(firstRequest.ConstraintsJson);
-            generation.ardy_history_kmb = KimodoEditorGeneratePipeline.BuildInitialArdyHistoryPayload(firstRequest, profile);
+            generation.constraints.json = ExplicitConstraints(firstRequest.Constraints.json);
+            KimodoEditorGeneratePipeline.PrependArdyHistoryConstraint(
+                generation.constraints.clips,
+                KimodoEditorGeneratePipeline.BuildInitialArdyHistoryPayload(firstRequest, profile),
+                profile);
             generation.ardy_playback_reserve_seconds = 0.0;
             AddTimelineSegments(entries, profile, generation);
 
@@ -423,6 +426,27 @@ namespace KimodoBridge.Editor
                 }
             }
 
+            var allClipConstraints = new List<KimodoClipConstraint>();
+            for (int i = 0; i < entries.Count; i++)
+            {
+                float timeOffset = entries[i].StartFrame / profile.SourceFps;
+                foreach (KimodoClipConstraint constraint in entries[i].Request.Constraints.clips)
+                {
+                    if (constraint == null)
+                    {
+                        continue;
+                    }
+                    allClipConstraints.Add(new KimodoClipConstraint
+                    {
+                        motionBytes = constraint.motionBytes,
+                        startTime = constraint.startTime + timeOffset,
+                        duration = constraint.duration,
+                        mask = constraint.mask
+                    });
+                }
+            }
+            entries[0].Request.Constraints.clips = allClipConstraints;
+
             var allSamples = new List<KimodoMarkerSampleResult>();
             var sampleTimeOffsets = new List<double>();
             for (int i = 0; i < entries.Count; i++)
@@ -465,7 +489,7 @@ namespace KimodoBridge.Editor
             try
             {
                 int totalFrameCount = entries[entries.Count - 1].StartFrame + entries[entries.Count - 1].FrameCount;
-                firstRequest.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
+                firstRequest.Constraints.json = KimodoConstraintJsonExporter.ToConstraintsJson(
                     allSamples,
                     0.0,
                     totalFrameCount / profile.SourceFps,
@@ -542,9 +566,11 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            bool hasBegin = request.EnableBegin;
+            request.EnableBegin = false;
             if (!KimodoInOutConstraintTools.TrySampleBoundaryPair(
                     request,
-                    out KimodoMarkerSampleResult beginSample,
+                    out _,
                     out KimodoMarkerSampleResult endSample,
                     out _,
                     out error))
@@ -552,9 +578,15 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException($"Build connected clip constraints failed: {error}");
             }
 
-            if (beginSample != null)
+            if (hasBegin)
             {
-                entry.Request.ConstraintSamples.Add(beginSample);
+                entry.Request.Constraints.clips.Insert(0, KimodoTimelineClipConstraintBuilder.BuildBegin(
+                    clip,
+                    entry.TimelineClip,
+                    entry.Request.ModelName,
+                    entry.Request.TargetFrameRate,
+                    0f,
+                    entry.Request.Token));
             }
             if (endSample != null)
             {

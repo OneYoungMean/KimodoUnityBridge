@@ -56,7 +56,7 @@ def _build_protocol_help() -> dict[str, Any]:
                 "description": "Queue motion generation, or analyze KMB ClipConstraints when analysis_option.analysis_only is true. Choose model and text_encoder_mode from runtime.list_models for motion generation.",
                 "fields": [
                     "prompt", "model", "text_encoder_mode", "duration", "constraints_json",
-                    "kmb_attachments", "attachment_byte_length", "analysis_option", "loop",
+                    "kmb_attachments", "attachment_byte_length", "analysis_option",
                     "ardy_timeline_segments", "ardy_history_weight", "ardy_max_speed",
                     "ardy_max_acceleration", "ardy_playback_reserve_seconds",
                 ],
@@ -880,38 +880,22 @@ def _execute_generate(
     model: Any,
     cancel_event: threading.Event,
     progress=None,
+    attachments: tuple[bytes, ...] = (),
 ) -> tuple[dict[str, Any], bytes | None]:
     if cancel_event.is_set():
         raise runtime_helpers.GenerateCancelledError("Generation canceled.")
+    if "loop" in task_request:
+        raise ValueError("The generate.loop protocol field has been removed.")
 
-    if task_request.get("loop") is True:
-        if progress is not None:
-            progress("Generating loop seed motion...")
-        seed_output, _ = runtime_helpers._run_generate(
-            task_request,
-            model,
-            cancel_event,
-            emit_progress=False,
-        )
-        if cancel_event.is_set():
-            raise runtime_helpers.GenerateCancelledError("Generation canceled.")
-        loop_constraints = runtime_helpers._build_loop_body_pose_constraints(seed_output, model)
-        if progress is not None:
-            progress("Generating loop-constrained motion...")
-        output, prompt = runtime_helpers._run_generate(
-            task_request,
-            model,
-            cancel_event,
-            emit_progress=False,
-            additional_constraints=loop_constraints,
-        )
-    else:
-        output, prompt = runtime_helpers._run_generate(
-            task_request,
-            model,
-            cancel_event,
-            emit_progress=False,
-        )
+    generate_kwargs = {"emit_progress": False}
+    if attachments:
+        generate_kwargs["attachments"] = attachments
+    output, prompt = runtime_helpers._run_generate(
+        task_request,
+        model,
+        cancel_event,
+        **generate_kwargs,
+    )
     analysis = animation_analysis.build_generation_analysis(task_request, model, output)
 
     output_format = runtime_helpers._resolve_requested_output_format(task_request)
@@ -1538,9 +1522,13 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         def execute() -> tuple[dict[str, Any], bytes | None]:
             profile = runtime.get("motion_profile")
             if profile is None or profile.backend != "ardy":
-                return _execute_generate(task["request"], runtime["model"], task["cancel_event"], report_progress)
-            if task["request"].get("loop") is True:
-                raise ardy_backend.ArdyBackendError("loop=true is currently supported only by Kimodo models, not ARDY models.")
+                return _execute_generate(
+                    task["request"],
+                    runtime["model"],
+                    task["cancel_event"],
+                    report_progress,
+                    tuple(task.get("attachments") or ()),
+                )
             signature = str(runtime.get("runtime_signature") or "")
             existing = session.get("ardy_stream")
             existing_signature = str(session.get("ardy_stream_signature") or "")

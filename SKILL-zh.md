@@ -1,6 +1,6 @@
 ---
 name: kimodo-unity-animation-zh
-description: 在当前 Unity Editor 中操作 Kimodo 人形动画。用于 Timeline Session 的创建与查询、场景角色动画生成、姿态采样、角色或 Clip 编辑、生成分析，以及 Timeline 区间 Bake 或 Retarget。
+description: 在当前 Unity Editor 中操作 Kimodo 动画 Session、生成、约束、分析、Bake、Retarget 与分析截图。
 ---
 
 # Kimodo Unity Animation API 中文对照
@@ -22,37 +22,36 @@ English source: [SKILL.md](SKILL.md).
 
 在进行实质工作前，完整执行一次以下流程。它使用已配置的默认模型；除非需要切换模型，不要调用 `Kimodo_list_models`。
 
-1. `session_open_timeline({})`。
+1. `session_open({})`。
 2. `query_current_session({"type":"character","pattern":"*","long":true})`；从返回项中选择 `avatar` 为 `valid_humanoid` 的角色，保存 `character_ref`。
 3. `kimodo_generate_animation_asset({"character_ref":"...","prompt":"stand still and breathe naturally","duration_seconds":1})`；保存 `request_id`。
 4. 重复调用 `kimodo_get_generation({"request_id":"..."})`，直到 `status` 为 `completed`、`failed` 或 `canceled`。
 5. 若为 `completed`，调用 `query_current_session({"type":"animation","character_ref":"...","pattern":"*","long":true})`；确认新条目包含 `animation_id`、`global_start`、`global_end` 和 `asset_path`。
 
-请求运行时不要关闭 Session。只有没有运行中的生成任务时才调用 `session_close_timeline({})`。
+请求运行时不要关闭 Session。只有没有运行中的生成任务时才调用 `session_close({})`。
 
 ## 工具索引
 
 | 工具 | 用途 | 是否需要当前 Session |
 | --- | --- | --- |
-| `kimodo_list_characters` | 列出有效 Humanoid 角色。 | 否 |
-| `Kimodo_list_models` | 为显式切换模型列出合法模型/编码器组合。 | 否 |
-| `kimodo_help` | 返回后端能力文本。 | 否 |
-| `session_open_timeline` | 创建全新当前 Session，或加载有名称的内存 Session。 | 否 |
-| `session_close_timeline` | 关闭并保留当前 Session。 | 是 |
+| `kimodo_help` | 返回 Command 说明书、参数详情或可用模型。 | 否 |
+| `session_open` | 创建全新当前 Session，或加载有名称的内存 Session。 | 否 |
+| `session_close` | 关闭并保留当前 Session。 | 是 |
 | `query_current_session` | 通过 ls 风格选择器列出 Session、角色或动画对象。 | 是 |
 | `session_locate_animation` | 选中 Timeline 动画并 Evaluate 到指定时间。 | 是 |
-| `session_sample_pose` | 在全局 Session 时间采样角色姿态。 | 是 |
 | `session_try_add` / `session_try_remove` | 添加或移除角色 Track 或 Clip。 | 是 |
 | `kimodo_generate_animation_asset` | 启动异步文本到动画生成。 | 是 |
 | `kimodo_get_generation` / `kimodo_cancel_generation` | 轮询或取消生成。 | request id |
-| `kimodo_analyze_timeline_range` | 返回保存的分析和 Timeline 区间分析。 | 是 |
-| `kimodo_bake_timeline_range` | 把全局区间 Bake 为 AnimationClip；可选 Retarget。 | 是 |
+| `kimodo_analyze_range` | 分析 Session 区间并缓存 `analysis_id`。 | 是 |
+| `kimodo_bake_range` | 把 Session 区间 Bake 为 AnimationClip；可选 Retarget。 | 是 |
+| `kimodo_render_pose_sheet` | 把多个角色与时间组合渲染为方形拼图。 | 是 |
+| `kimodo_render_analysis_sheet` | 把缓存分析的关键帧渲染为方形拼图。 | 是 |
 
 ## 读取 API
 
-### `kimodo_list_characters`
+### `query_current_session` 的角色 Scope
 
-**签名：** `kimodo_list_characters({ include_project_assets?, max_results? })`
+**签名：** `query_current_session({"type":"character", "scope":"session|scene|project|all", "max_results":100})`
 
 | 参数 | 类型 | 必填 | 默认值 | 多值 | 作用与约束 |
 | --- | --- | :---: | --- | :---: | --- |
@@ -61,21 +60,15 @@ English source: [SKILL.md](SKILL.md).
 
 **返回：** `characters[]` 和 `count`。每项包含 `character_ref`、`name`、`source`（`scene` 或 `project`）、`avatar`、`asset_path`、`scene_path` 和 `active`。生成只能使用 `source: "scene"` 的 `character_ref`。
 
-### `Kimodo_list_models`
+### `kimodo_help`
 
-**签名：** `Kimodo_list_models({})`
+**签名：** `kimodo_help({ command?, section? })`
 
 只在用户要求改变 `model` 或 `text_encoder_model` 时调用。
 
-**参数：** 无。
+`section` 为 `commands`（默认）时返回 Command 目录；传 `command` 返回该 Command 的完整 Schema；`section: "models"` 返回当前可用模型组合。
 
 **返回：** `configs[]` 和 `count`。选择 `available: true` 的条目，并将其 `model` 与 `text_encoder_model` 原样传给生成工具。
-
-### `kimodo_help`
-
-**签名：** `kimodo_help({})`
-
-**参数：** 无。**返回：** 后端 help/能力 payload。仅在需要本 Skill 未定义的后端特定选项时使用。
 
 ### `query_current_session`
 
@@ -107,9 +100,9 @@ English source: [SKILL.md](SKILL.md).
 
 ## Session 生命周期 API
 
-### `session_open_timeline`
+### `session_open`
 
-**签名：** `session_open_timeline({ session_name? })`
+**签名：** `session_open({ session_name? })`
 
 | 参数 | 类型 | 必填 | 默认值 | 多值 | 作用与约束 |
 | --- | --- | :---: | --- | :---: | --- |
@@ -119,9 +112,9 @@ English source: [SKILL.md](SKILL.md).
 
 **返回：** 与 `query_current_session` 中 `type: "session"` 的完整 Session 对象相同。
 
-### `session_close_timeline`
+### `session_close`
 
-**签名：** `session_close_timeline({})`
+**签名：** `session_close({})`
 
 **参数：** 无。
 
@@ -153,17 +146,6 @@ English source: [SKILL.md](SKILL.md).
 | `session_global` | number | 否 | 所选动画的 `global_start` | 否 | 非负有限的全局 Session 秒数。 |
 
 **返回：** `session_name`、`character`、完整 `animation`、`session_global`、`located: true`。
-
-### `session_sample_pose`
-
-**签名：** `session_sample_pose({ character_ref|character_name, session_global })`
-
-| 参数 | 类型 | 必填 | 默认值 | 多值 | 作用与约束 |
-| --- | --- | :---: | --- | :---: | --- |
-| `character_ref` / `character_name` | string | 至少一个 | — | 否 | 角色选择器。 |
-| `session_global` | number | 是 | — | 否 | 非负有限的全局 Session 秒数。 |
-
-**返回：** `pose_sample_id`、`session_name`、`character`、`session_global`、`root_position`、`root_rotation`、`body_position`、`body_rotation`、`muscles[]` 和 `bones[]`（`bone`、世界 `position`、世界 `rotation`）。
 
 ## Session 编辑 API
 
@@ -200,7 +182,7 @@ English source: [SKILL.md](SKILL.md).
 
 ### `kimodo_generate_animation_asset`
 
-**签名：** `kimodo_generate_animation_asset({ character_ref, prompt, duration_seconds?, model?, text_encoder_model?, seed?, diffusion_steps?, output_mode?, output_folder?, asset_name?, loop?, analysis_option?, pose_refs?, times?, constraint_types? })`
+**签名：** `kimodo_generate_animation_asset({ character_ref, prompt, duration_seconds?, model?, text_encoder_model?, seed?, diffusion_steps?, output_mode?, output_folder?, asset_name?, analysis_option?, constraints? })`
 
 **前置条件：** 必须存在当前 Session。`character_ref` 必须解析到场景 Humanoid 角色；若该角色尚未在 Session 中，会先被追加。
 
@@ -216,15 +198,10 @@ English source: [SKILL.md](SKILL.md).
 | `output_mode` | enum | 否 | `humanoid_muscle` | 否 | `humanoid_muscle`、`character_bone` 或 `model_bone`。前两者需要有效目标 Humanoid Avatar。 |
 | `output_folder` | string | 否 | `Assets/KimodoGeneratedClips` | 否 | 必须是 `Assets` 或其子目录；不能含 `.` 或 `..` 目录段。 |
 | `asset_name` | string | 否 | 带时间戳的角色名 | 否 | 不带扩展名的资产基名。 |
-| `loop` | boolean | 否 | `false` | 否 | 仅标准 Kimodo 模型。服务端先生成种子动作，再用其第 0 帧身体姿态约束第 `0` 与 `frame_count - 1` 帧；种子动作不会保存，最终 Clip 会启用 `loopTime`。根位移不加约束。 |
 | `analysis_option` | object | 否 | 省略 | 否 | 后端分析对象。仅传 `kimodo_help` 支持的字段；支持时 `keyframes.enabled: true` 请求截图关键帧。 |
-| `pose_refs` | string[] | 否 | 省略 | 是 | 用作姿态约束的场景 GameObject 或 Animator GlobalObjectId。 |
-| `times` | number[] | 条件可选 | 从首帧到末帧均匀分布 | 是 | 只允许与 `pose_refs` 一起传；数量必须完全相等；每一项有限且在 `[0, duration_seconds]` 内。 |
-| `constraint_types` | enum[] | 条件可选 | 每个姿态均为 `fullbody` | 是 | 只允许与 `pose_refs` 一起传；数量必须完全相等；每项为 `fullbody` 或 `root2d`。 |
+| `constraints` | object[] | 否 | 省略 | 是 | 每项为 `{at,type?,source:{character,time}}`。`at` 是新动画时间，`source.time` 是源角色 Session 时间。骨架必须完全相同，或目标骨架是源骨架的严格父集；否则先 Bake Retarget。 |
 
-**多值规则：** `pose_refs`、`times` 和 `constraint_types` 按下标一一对应。没有 `pose_refs` 时传 `times` 或 `constraint_types` 会失败。
-
-**立即返回：** `request_id`、`status: "running"`、`character`、`output_mode`、`model`、`text_encoder_model`、`seed`、`session_name`、`timeline_start_seconds`、`timeline_duration_seconds`。Timeline 位置在此时仅被预留，不能认为资产已完成。
+**立即返回：** `request_id`、`status: "running"`、`character`、`output_mode`、`model`、`text_encoder_model`、`seed`、`session_name`、`start_seconds`、`duration_seconds`。
 
 ### `kimodo_get_generation`
 
@@ -249,30 +226,40 @@ English source: [SKILL.md](SKILL.md).
 
 ## 分析和 Bake API
 
-### `kimodo_analyze_timeline_range`
+### `kimodo_analyze_range`
 
-**签名：** `kimodo_analyze_timeline_range({ character_ref|character_name, start_global, end_global, analysis_option? })`
+**签名：** `kimodo_analyze_range({ character_ref|character_name, start, end, analysis_option? })`
 
 | 参数 | 类型 | 必填 | 默认值 | 多值 | 作用与约束 |
 | --- | --- | :---: | --- | :---: | --- |
 | `character_ref` / `character_name` | string | 至少一个 | — | 否 | 当前 Session 角色选择器。 |
-| `start_global` | number | 是 | — | 否 | 有限的包含式全局时间；范围必须满足 `0 <= start_global < end_global`。 |
-| `end_global` | number | 是 | — | 否 | 有限的排他式全局时间。 |
+| `start` | number | 是 | — | 否 | 有限的包含式 Session 时间；范围必须满足 `0 <= start < end`。 |
+| `end` | number | 是 | — | 否 | 有限的排他式 Session 时间。 |
 | `analysis_option` | object | 否 | `{}` | 否 | 后端分析选项。该 API 强制 `analysis_only: true`。 |
 
-**返回：** `session_name`、`character`、`start_global`、`end_global`、`analyses[]` 与 `analysis`。每个重叠的生成动画均返回已保存分析。只有重叠 Clip 保留 KMB 数据时才运行后端分析；否则 `analysis` 由已保存生成结果构成，可能没有 issues 或 keyframes。
+**返回：** `analysis_id`、`session_name`、`character`、`start`、`end`、`analyses[]` 与 `analysis`。结果缓存在 `Library/KimodoCache/Commands`。
 
-### `kimodo_bake_timeline_range`
+### `kimodo_bake_range`
 
-**签名：** `kimodo_bake_timeline_range({ character_ref|character_name, start_global, end_global, retarget_character_ref?, asset_name?, output_folder? })`
+**签名：** `kimodo_bake_range({ character_ref|character_name, start, end, retarget_character_ref?, asset_name?, output_folder? })`
 
 | 参数 | 类型 | 必填 | 默认值 | 多值 | 作用与约束 |
 | --- | --- | :---: | --- | :---: | --- |
 | `character_ref` / `character_name` | string | 至少一个 | — | 否 | 源当前 Session 角色选择器。 |
-| `start_global` | number | 是 | — | 否 | 有限的包含式全局时间；范围必须满足 `0 <= start_global < end_global`。 |
-| `end_global` | number | 是 | — | 否 | 有限的排他式全局时间。 |
+| `start` | number | 是 | — | 否 | 有限的包含式 Session 时间；范围必须满足 `0 <= start < end`。 |
+| `end` | number | 是 | — | 否 | 有限的排他式 Session 时间。 |
 | `retarget_character_ref` | string | 否 | 源角色 | 否 | 目标场景角色引用或当前 Session 目标角色名。没有 Track 时会尝试 TryAdd；目标必须有有效 Humanoid Avatar。 |
 | `asset_name` | string | 否 | 带时间戳的源角色名 | 否 | 不带扩展名的输出 AnimationClip 基名。 |
 | `output_folder` | string | 否 | `Assets/KimodoGeneratedClips` | 否 | 与生成相同的仅 `Assets` 路径规则。 |
 
-**返回：** `baked: true`、`asset_ref`、`asset_path`、`character`、`source_character`、`start_global`、`end_global` 和完整的已追加 `animation`。未 Retarget 时输出源角色骨骼曲线；指定 Retarget 时输出 Humanoid muscle clip，并追加到目标 Track。
+**返回：** `baked: true`、`asset_ref`、`asset_path`、`character`、`source_character`、`start`、`end` 和完整的已追加 `animation`。未 Retarget 时输出源角色骨骼曲线；指定 Retarget 时输出 Humanoid muscle clip，并追加到目标 Track。
+
+## 截图 API
+
+### `kimodo_render_pose_sheet`
+
+传入 `samples: [{character,time}]`、可选正方形 `resolution`（默认 `1024`）和 `scale`（默认 `1.0`，范围 `0.25..4.0`）。输出使用 `ceil(sqrt(n))` 的方形网格，每格保持相同方形尺寸，右上角编号为行列坐标。
+
+### `kimodo_render_analysis_sheet`
+
+传入 `analysis_id`、可选 `resolution` 和 `scale`，渲染该缓存分析的全部关键帧。两套 API 均返回 `image_path`、`grid`、`cell_size` 与 `frames[]` 映射。

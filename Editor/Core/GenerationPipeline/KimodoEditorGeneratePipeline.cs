@@ -30,10 +30,6 @@ namespace KimodoBridge.Editor
             }
 
             string modelName = string.IsNullOrWhiteSpace(request.ModelName) ? DefaultModelName : request.ModelName.Trim();
-            if (request.Loop && KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
-            {
-                throw new InvalidOperationException("Loop generation is currently supported only by Kimodo models, not ARDY models.");
-            }
             ThrowIfCanceled(request);
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating motion...");
 
@@ -275,7 +271,7 @@ namespace KimodoBridge.Editor
             commandRequest.GenerationRequest.steps = KimodoMotionModelProfiles.ResolveArdyProtocolSteps(
                 request.DiffusionSteps,
                 profile);
-            commandRequest.GenerationRequest.ardy_history_kmb = historyPayload;
+            PrependArdyHistoryConstraint(commandRequest.GenerationRequest.constraints.clips, historyPayload, profile);
             commandRequest.GenerationRequest.ardy_playback_reserve_seconds = 0.0;
 
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating complete ARDY KMB...");
@@ -656,6 +652,36 @@ namespace KimodoBridge.Editor
             return historyPayload;
         }
 
+        internal static void PrependArdyHistoryConstraint(
+            List<KimodoClipConstraint> constraints,
+            byte[] payload,
+            KimodoMotionModelProfile profile)
+        {
+            if (payload == null || payload.Length == 0)
+            {
+                return;
+            }
+            if (constraints == null)
+            {
+                throw new ArgumentNullException(nameof(constraints));
+            }
+            if (!KimodoRawMotionUtility.TryParseFlatBuffer(
+                    payload,
+                    out KimodoRawMotionData motion,
+                    out string error))
+            {
+                throw new InvalidOperationException($"ARDY history KMB is invalid: {error}");
+            }
+            float duration = motion.FrameCount / profile.SourceFps;
+            constraints.Insert(0, new KimodoClipConstraint
+            {
+                motionBytes = payload,
+                startTime = -duration,
+                duration = duration,
+                mask = null
+            });
+        }
+
         internal static void ValidateArdyResult(
             KimodoBridgeCommandResult result,
             KimodoMotionModelProfile profile,
@@ -698,8 +724,13 @@ namespace KimodoBridge.Editor
                 duration = request.EffectiveRuntimeDurationSeconds,
                 seed = request.EffectiveSeed,
                 steps = request.DiffusionSteps,
-                loop = request.Loop,
-                constraints_json = request.ConstraintsJson ?? string.Empty,
+                constraints = new KimodoConstraintPayload
+                {
+                    json = request.Constraints.json ?? string.Empty,
+                    clips = request.Constraints.clips != null
+                        ? new List<KimodoClipConstraint>(request.Constraints.clips)
+                        : new List<KimodoClipConstraint>()
+                },
                 analysis_option_json = request.AnalysisOptionsJson ?? string.Empty,
                 model = modelName,
                 text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(request.TextEncoderMode),
@@ -742,13 +773,6 @@ namespace KimodoBridge.Editor
             string analysisJson)
         {
             ThrowIfCanceled(request);
-            if (request.Loop && generatedClip != null)
-            {
-                AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(generatedClip);
-                settings.loopTime = true;
-                AnimationUtility.SetAnimationClipSettings(generatedClip, settings);
-                EditorUtility.SetDirty(generatedClip);
-            }
             request.Progress?.Invoke(KimodoBridgeCommandStage.Finalize, "Finalizing generated assets...");
             request.Progress?.Invoke(KimodoBridgeCommandStage.Completed, "Generation complete.");
 

@@ -82,29 +82,28 @@ ARDY Generate 携带正数 `duration` 时采用固定长度语义：创建新的
 
 `time_as_double` 减小视为 seek。普通响应从上次已交付尾部追加；seek 和重规划响应可能与旧帧重叠，客户端必须从 `start_frame` 替换时间线。
 
-History/Future KMB 输入使用 JSON `kmb_attachments` 清单描述连续 offset/length，随后发送拼接的 KMB1 数据；clip constraint 用 `format=kmb_attachment_v1` 和从 0 开始的 `attachment` 索引引用。KMB1 FlatBuffer schema 不变。`ardy_file_v1` 仍只用于显式调试。
+KMB ClipConstraint 使用 JSON `kmb_attachments` 清单描述连续 offset/length，随后发送拼接的 KMB1 数据。每项使用目标 `start_time` 和正数 `duration`：负时间由 ARDY 作为历史，非负时间约束生成区间，跨零区间由后端内部拆分。KMB1 FlatBuffer schema 不变。
 
 `root2d_target` 已移除。`root2d` 约束由有序的 `frame_indices`、`smooth_root_2d` 位置和可选 `global_root_heading` 组成；ARDY 会依序经过每一个点。若指定时间在当前速度/加速度限制下不可达，后端先放宽速度上限，再采用该定时三次路径所需的加速度。
 
 为 `analysis_option` 设置 `analysis_only=true` 并传入一个或多个 KMB ClipConstraint，可在不加载 motion model 或 text encoder 的情况下进行确定性分析。返回 `kmb_attachments_v1`：二进制 payload 保留原 KMB，manifest 记录各段字节/帧范围；`analysis` 返回 `0..1` 的 `quality_score`、显著 `keyframes`，以及带逐帧严重度的连续性/加速度/姿态 `issues`。
 
-### ARDY clip constraint
+### ClipConstraint
 
-clip 缺少 `is_history` 时按完整 history 处理，且 history 不能携带 mask。Future clip 示例：
+ClipConstraint 必须使用 `start_time` 与 `duration`。示例：
 
 ```json
 {
   "type": "clip",
   "format": "kmb_attachment_v1",
   "attachment": 0,
-  "start_frame": 0,
-  "end_frame_exclusive": 40,
-  "is_history": false,
-  "mask": [false, false, false, false, true, true, true]
+  "start_time": 0.0,
+  "duration": 2.0,
+  "mask": {"root_position":[false,false,false],"root_heading":false,"root_rotation":false,"joints":[]}
 }
 ```
 
-Future mask 必须是完整的一维 bool 数组，长度为 `4 + (joint_count - 1) * 3`，顺序严格为 `Root.x, Root.y, Root.z, RootHeading`，随后按 KMB/ARDY Profile 骨骼顺序排列每个非 Root 骨骼的 `x, y, z`。`RootHeading` 同时控制内部 cos/sin；`true` 表示约束，`false` 表示自由生成。多个 clip 从 future 第 0 帧开始写入，后出现的 clip 会覆盖同帧同通道，后者的 `false` 也会清除前者约束。
+Timeline 到 Python 的时间换算统一使用带容差的有符号 `ceil`，duration 帧数使用相同的 `ceil` 规则。对象式 mask 保留逐轴位置和旋转语义；同帧同通道冲突时先出现的约束优先。旧扁平 bool mask 与 `is_history` 协议不再支持。
 
 Python 会从 KMB 的 Root position 与 local quaternion 重建 ARDY 特征。扩散步数受 checkpoint 原生 10-step 时间轴限制，合法范围为 1–10。
 - 一旦任务标识确定，该任务后续所有响应都会带同一个 `task_id`。

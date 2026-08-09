@@ -32,6 +32,19 @@ namespace KimodoBridge.Editor.Tests
                 Is.EqualTo(expected));
         }
 
+        [TestCase(-0.051, 20.0, -1)]
+        [TestCase(-0.01, 20.0, 0)]
+        [TestCase(0.051, 20.0, 2)]
+        public void SecondsToProtocolFrameIndex_UsesSignedCeiling(
+            double seconds,
+            double frameRate,
+            int expected)
+        {
+            Assert.That(
+                KimodoFrameTimeUtility.SecondsToProtocolFrameIndex(seconds, frameRate),
+                Is.EqualTo(expected));
+        }
+
         [TestCase(1.0 / 30.0, 30.0, 1)]
         [TestCase(1.00001, 30.0, 30)]
         [TestCase(0.0, 30.0, 0)]
@@ -1151,7 +1164,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 playable.curveFilterOptions.positionError = 0.125f;
                 KimodoEditorGenerateOutputPlan snapshot =
-                    KimodoPlayableClipGenerationHostService.CaptureTimelineOutputPlan(
+                    KimodoTimelineGenerationOutputPlanner.Capture(
                         playable,
                         avatar,
                         KimodoPlayableClip.DefaultBridgeModelName,
@@ -1160,7 +1173,7 @@ namespace KimodoBridge.Editor.Tests
                 playable = null;
 
                 KimodoEditorGenerateOutputPlan resolved =
-                    KimodoPlayableClipGenerationHostService.ResolveTimelineOutputPlan(
+                    KimodoTimelineGenerationOutputPlanner.Resolve(
                         snapshot,
                         bindingObject: null,
                         generated,

@@ -26,7 +26,6 @@ namespace KimodoBridge.Editor
         public int GenerationFrames = 1;
         public bool AutoBeginAnchor;
         public bool DeferNormalization;
-        public bool IsLoop;
         public KimodoTimelineInOutConstraintContext TimelineContext;
         public List<KimodoMarkerSampleResult> ManualSamples = new List<KimodoMarkerSampleResult>();
     }
@@ -37,5 +36,6 @@ namespace KimodoBridge.Editor
         public string ConstraintsJson = string.Empty;
         public bool HasSyntheticAutoBeginConstraint;
         public bool DenseRootPath;
+        public KimodoMarkerSampleResult BeginBoundarySample;
     }
 }

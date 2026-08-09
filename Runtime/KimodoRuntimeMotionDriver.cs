@@ -947,9 +947,12 @@ namespace KimodoBridge
                     duration = isArdy ? (float?)null : ResolveGenerationDurationSeconds(),
                     seed = resolvedRequestSeed,
                     steps = Mathf.Clamp(diffusionSteps, 1, isArdy ? ardyProfile.MaxDiffusionSteps : 1000),
-                    constraints_json = sendConstraints
-                        ? (isArdy && string.IsNullOrWhiteSpace(constraintsJson) ? "[]" : constraintsJson)
-                        : null,
+                    constraints = new KimodoConstraintPayload
+                    {
+                        json = sendConstraints
+                            ? (isArdy && string.IsNullOrWhiteSpace(constraintsJson) ? "[]" : constraintsJson)
+                            : string.Empty
+                    },
                     transition_duration = 0f,
                     model = modelName,
                     text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode),

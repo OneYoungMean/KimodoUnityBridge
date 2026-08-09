@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using KimodoBridge;
 using KimodoBridge.Editor;
+using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
@@ -19,7 +20,8 @@ namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
-        private const int MaxRememberedTimelineSessions = 64;
+        private const string AutomaticTimelineSessionName = "__KimodoAuto__";
+        private const string TimelineDirectorNamePrefix = "Kimodo_CommandSession_";
         private const string GeneratedTimelineFolder = KimodoEditorClipWritebackService.GeneratedClipFolder + "/Timelines";
         private static readonly Dictionary<string, TimelineSessionRecord> TimelineSessions =
             new Dictionary<string, TimelineSessionRecord>(StringComparer.OrdinalIgnoreCase);
@@ -35,21 +37,26 @@ namespace KimodoUnityBridge.Command
                 string sessionName = arguments.Value<string>("session_name")?.Trim();
                 if (!string.IsNullOrWhiteSpace(sessionName) && TryGetTimelineSession(sessionName, out TimelineSessionRecord existing))
                 {
+                    CloseCurrentTimelineSessionBeforeOpening(existing);
+                    existing.AutoCloseWhenIdle = false;
                     currentTimelineSession = existing;
+                    ActivateTimelineSession(existing);
                     OpenTimelineWindow(existing.Director);
                     return Ok(DescribeSession(existing));
                 }
 
+                CloseCurrentTimelineSessionBeforeOpening(null);
                 TimelineSessionRecord record = CreateTimelineSession(
                     string.IsNullOrWhiteSpace(sessionName)
                         ? $"Session_{DateTime.Now:yyyyMMdd_HHmmss_fff}"
-                        : sessionName);
+                        : sessionName,
+                    isAutomatic: false);
                 lock (TimelineSessionsLock)
                 {
-                    PruneTimelineSessionsLocked();
                     TimelineSessions[record.Name] = record;
                 }
                 currentTimelineSession = record;
+                ActivateTimelineSession(record);
                 OpenTimelineWindow(record.Director);
                 return Ok(DescribeSession(record));
             });
@@ -77,6 +84,7 @@ namespace KimodoUnityBridge.Command
             }
 
             currentTimelineSession = null;
+            DeactivateTimelineSession(record);
             CloseTimelineWindow(record.TimelineAsset);
             EditorUtility.SetDirty(record.TimelineAsset);
             if (record.Director != null)
@@ -94,7 +102,53 @@ namespace KimodoUnityBridge.Command
             });
         }
 
-        private static TimelineSessionRecord CreateTimelineSession(string requestedName)
+        private static void CloseCurrentTimelineSessionBeforeOpening(TimelineSessionRecord next)
+        {
+            TimelineSessionRecord current = currentTimelineSession;
+            if (current == null || ReferenceEquals(current, next))
+            {
+                return;
+            }
+            if (HasRunningTimelineGeneration(current.Id))
+            {
+                throw new InvalidOperationException("Current Timeline Session still has a running generation. Cancel or wait for it before opening another Session.");
+            }
+
+            currentTimelineSession = null;
+            DeactivateTimelineSession(current);
+            CloseTimelineWindow(current.TimelineAsset);
+            EditorUtility.SetDirty(current.TimelineAsset);
+            EditorUtility.SetDirty(current.Director);
+            AssetDatabase.SaveAssets();
+        }
+
+        private static void ActivateTimelineSession(TimelineSessionRecord session)
+        {
+            foreach (PlayableDirector director in Resources.FindObjectsOfTypeAll<PlayableDirector>())
+            {
+                if (director == null || director == session.Director || director.gameObject == null ||
+                    !director.gameObject.scene.IsValid() ||
+                    !director.name.StartsWith(TimelineDirectorNamePrefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                director.Stop();
+                director.enabled = false;
+            }
+            session.Director.enabled = true;
+        }
+
+        private static void DeactivateTimelineSession(TimelineSessionRecord session)
+        {
+            if (session?.Director == null)
+            {
+                return;
+            }
+            session.Director.Stop();
+            session.Director.enabled = false;
+        }
+
+        private static TimelineSessionRecord CreateTimelineSession(string requestedName, bool isAutomatic)
         {
             string name = requestedName.Trim();
             if (name.Length == 0)
@@ -122,7 +176,7 @@ namespace KimodoUnityBridge.Command
             director.playableAsset = timelineAsset;
             director.time = 0.0;
 
-            var record = new TimelineSessionRecord(Guid.NewGuid(), name, director, timelineAsset, assetPath);
+            var record = new TimelineSessionRecord(Guid.NewGuid(), name, director, timelineAsset, assetPath, isAutomatic);
             foreach (Animator animator in FindSceneAnimators())
             {
                 AddCharacterTrack(record, animator.gameObject, animator, tryGenerateAvatar: true, out _);
@@ -231,7 +285,7 @@ namespace KimodoUnityBridge.Command
             return animation;
         }
 
-        private static TimelineReservation PrepareTimelineReservation(JObject arguments, ResolvedCharacter character, double duration)
+        private static TimelineGenerationTrace PrepareGenerationTrace(JObject arguments, ResolvedCharacter character, double duration)
         {
             if (arguments?["timeline_session_id"] != null)
             {
@@ -251,98 +305,150 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException($"Character '{target.Name}' requires a valid humanoid Avatar before generation.");
             }
-            return new TimelineReservation(session, target, target.NextStartSeconds, duration);
+            return new TimelineGenerationTrace(session, target, target.NextStartSeconds, duration);
         }
 
-        private static void CommitTimelineReservation(TimelineReservation reservation)
+        private static KimodoPlayableClip CreateGenerationPlayableClip(
+            TimelineGenerationTrace trace,
+            string prompt)
         {
-            if (reservation == null)
+            if (trace?.Session == null || trace.Character == null || trace.Character.Track == null)
             {
-                return;
+                throw new InvalidOperationException("Timeline generation target is incomplete.");
             }
-            lock (TimelineSessionsLock)
-            {
-                if (!TimelineSessions.ContainsKey(reservation.Session.Name) ||
-                    !ReferenceEquals(TimelineSessions[reservation.Session.Name], reservation.Session))
-                {
-                    throw new InvalidOperationException("Timeline Session was closed before generation could be started.");
-                }
-                reservation.Character.NextStartSeconds = reservation.StartSeconds + reservation.DurationSeconds;
-            }
-        }
 
-        private static async System.Threading.Tasks.Task<command_generate_result> ExecuteAssetGenerationAsync(
-            KimodoEditorGenerateRequest request,
-            UnityEngine.Object target,
-            command_generation_session session,
-            System.Threading.CancellationToken token,
-            TimelineReservation reservation)
-        {
-            command_generate_result result = await ExecuteAssetGenerationAsync(request, target, session, token);
-            if (reservation != null)
-            {
-                WriteGeneratedClipToTimeline(reservation, result);
-            }
-            return result;
-        }
-
-        private static void WriteGeneratedClipToTimeline(TimelineReservation reservation, command_generate_result result)
-        {
-            if (reservation?.Session == null || reservation.Character == null || result?.GeneratedClip == null)
-            {
-                throw new InvalidOperationException("Timeline Session writeback requires a generated AnimationClip.");
-            }
-            TimelineSessionRecord session = reservation.Session;
-            TimelineCharacterRecord character = reservation.Character;
-            TimelineAsset timelineAsset = session.TimelineAsset;
-            if (session.Director == null || character.Animator == null || character.Track == null ||
-                timelineAsset == null || character.Track.timelineAsset != timelineAsset ||
-                !BindingMatches(session.Director.GetGenericBinding(character.Track), character.Animator))
+            TimelineAsset timelineAsset = trace.Session.TimelineAsset;
+            if (timelineAsset == null || trace.Character.Track.timelineAsset != timelineAsset ||
+                trace.Session.Director == null || trace.Character.Animator == null ||
+                !BindingMatches(trace.Session.Director.GetGenericBinding(trace.Character.Track), trace.Character.Animator))
             {
                 throw new InvalidOperationException("Timeline Session target is no longer valid.");
             }
 
             Undo.RegisterCompleteObjectUndo(
-                new UnityEngine.Object[] { timelineAsset, character.Track, session.Director },
-                "Kimodo Command Save Generated Clip To Timeline");
-            TimelineClip timelineClip = character.Track.CreateClip<AnimationPlayableAsset>();
-            timelineClip.start = reservation.StartSeconds;
-            timelineClip.duration = reservation.DurationSeconds;
-            timelineClip.displayName = string.IsNullOrWhiteSpace(result.Prompt)
-                ? result.GeneratedClip.name
-                : result.Prompt;
-            ((AnimationPlayableAsset)timelineClip.asset).clip = result.GeneratedClip;
-            JObject analysis = ParseAnalysisObject(result.AnalysisJson);
-            reservation.TimelineClip = timelineClip;
-            reservation.Animation = new TimelineAnimationRecord(
+                new UnityEngine.Object[] { timelineAsset, trace.Character.Track, trace.Session.Director },
+                "Kimodo Add Generation Clip");
+            TimelineClip timelineClip = trace.Character.Track.CreateClip<KimodoPlayableClip>();
+            timelineClip.start = trace.StartSeconds;
+            timelineClip.duration = trace.DurationSeconds;
+            timelineClip.displayName = string.IsNullOrWhiteSpace(prompt) ? "Kimodo Generation" : prompt.Trim();
+
+            KimodoPlayableClip playableClip = timelineClip.asset as KimodoPlayableClip;
+            if (playableClip == null)
+            {
+                throw new InvalidOperationException("Timeline could not create a KimodoPlayableClip.");
+            }
+            playableClip.name = timelineClip.displayName;
+            trace.TimelineClip = timelineClip;
+            trace.PlayableClip = playableClip;
+            trace.Animation = new TimelineAnimationRecord(
                 Guid.NewGuid(),
                 timelineClip.displayName,
                 "generated",
-                result.GeneratedClip,
+                null,
                 timelineClip,
-                analysis,
-                result.MotionBytes,
-                result.StartFrame,
-                result.EndFrameExclusive);
-            character.Animations.Add(reservation.Animation);
+                null,
+                null,
+                0,
+                0);
+            trace.Character.Animations.Add(trace.Animation);
+            EditorUtility.SetDirty(playableClip);
+            EditorUtility.SetDirty(trace.Character.Track);
+            EditorUtility.SetDirty(timelineAsset);
+            return playableClip;
+        }
+
+        private static void WriteGenerationConstraintMarkers(
+            TimelineGenerationTrace trace,
+            IReadOnlyList<KimodoMarkerSampleResult> samples,
+            float frameRate)
+        {
+            if (trace?.Character?.Track == null || samples == null || samples.Count == 0)
+            {
+                return;
+            }
+
+            double lastSampleTime = Math.Max(0.0, trace.DurationSeconds - 1.0 / Math.Max(1f, frameRate));
+            for (int i = 0; i < samples.Count; i++)
+            {
+                KimodoMarkerSampleResult sample = samples[i];
+                if (sample == null)
+                {
+                    continue;
+                }
+
+                double localTime = Math.Max(0.0, Math.Min(lastSampleTime, sample.sampleTime));
+                KimodoConstraintMarkerBase marker;
+                switch ((sample.constraintType ?? string.Empty).Trim().ToLowerInvariant())
+                {
+                    case "root2d":
+                        marker = trace.Character.Track.CreateMarker<KimodoRoot2DConstraintMarker>(trace.StartSeconds + localTime);
+                        break;
+                    case "fullbody":
+                        marker = trace.Character.Track.CreateMarker<KimodoFullBodyConstraintMarker>(trace.StartSeconds + localTime);
+                        break;
+                    default:
+                        throw new InvalidOperationException($"Unsupported Timeline constraint type '{sample.constraintType}'.");
+                }
+
+                KimodoMarkerSampleResult markerSample = sample.Clone();
+                markerSample.sampleTime = trace.StartSeconds + localTime;
+                marker.SampleData = markerSample;
+                marker.useOverride = true;
+                marker.constraintEnabled = true;
+            }
+
+            EditorUtility.SetDirty(trace.Character.Track);
+        }
+
+        private static void ReserveGenerationTimelineRange(TimelineGenerationTrace trace)
+        {
+            if (trace == null)
+            {
+                return;
+            }
+
+            lock (TimelineSessionsLock)
+            {
+                if (!TimelineSessions.ContainsKey(trace.Session.Name) ||
+                    !ReferenceEquals(TimelineSessions[trace.Session.Name], trace.Session))
+                {
+                    throw new InvalidOperationException("Timeline Session was closed before generation could be started.");
+                }
+                trace.Character.NextStartSeconds = trace.StartSeconds + trace.DurationSeconds;
+            }
+        }
+
+        private static void FinalizePlayableClipTrace(TimelineGenerationTrace trace, command_generate_result result)
+        {
+            if (trace?.Session == null || trace.Character == null || trace.TimelineClip == null || trace.Animation == null)
+            {
+                throw new InvalidOperationException("Timeline generation trace is incomplete.");
+            }
+
+            TimelineAsset timelineAsset = trace.Session.TimelineAsset;
+            JObject analysis = ParseAnalysisObject(result.AnalysisJson);
+            trace.PlayableClip.clip = result.GeneratedClip;
+            trace.Animation.ApplyResult(result.GeneratedClip, analysis, result.MotionBytes, result.StartFrame, result.EndFrameExclusive);
 
             JArray keyframes = analysis?["keyframes"] as JArray ?? new JArray();
             if (keyframes.Count > 0)
             {
-                MarkerTrack analysisTrack = character.AnalysisTrack;
+                MarkerTrack analysisTrack = trace.Character.AnalysisTrack;
                 if (analysisTrack == null || analysisTrack.timelineAsset != timelineAsset)
                 {
-                    analysisTrack = timelineAsset.CreateTrack<MarkerTrack>(null, $"Kimodo Analysis - {character.Name}");
-                    character.AnalysisTrack = analysisTrack;
+                    analysisTrack = timelineAsset.CreateTrack<MarkerTrack>(null, $"Kimodo Analysis - {trace.Character.Name}");
+                    trace.Character.AnalysisTrack = analysisTrack;
                 }
-                WriteAnalysisMarkers(analysisTrack, reservation, keyframes);
-                reservation.AnalysisTrack = analysisTrack;
+                WriteAnalysisMarkers(analysisTrack, trace, keyframes);
+                trace.AnalysisTrack = analysisTrack;
                 EditorUtility.SetDirty(analysisTrack);
             }
 
-            EditorUtility.SetDirty(character.Track);
+            EditorUtility.SetDirty(trace.PlayableClip);
+            EditorUtility.SetDirty(trace.Character.Track);
             EditorUtility.SetDirty(timelineAsset);
-            EditorUtility.SetDirty(session.Director);
+            EditorUtility.SetDirty(trace.Session.Director);
             AssetDatabase.SaveAssets();
         }
 
@@ -358,13 +464,13 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static void WriteAnalysisMarkers(MarkerTrack track, TimelineReservation reservation, JArray keyframes)
+        private static void WriteAnalysisMarkers(MarkerTrack track, TimelineGenerationTrace trace, JArray keyframes)
         {
             foreach (JToken keyframe in keyframes)
             {
                 double localTime = keyframe.Value<double?>("time") ?? 0.0;
-                localTime = Math.Max(0.0, Math.Min(reservation.DurationSeconds, localTime));
-                KimodoAnalysisKeyframeMarker marker = track.CreateMarker<KimodoAnalysisKeyframeMarker>(reservation.StartSeconds + localTime);
+                localTime = Math.Max(0.0, Math.Min(trace.DurationSeconds, localTime));
+                KimodoAnalysisKeyframeMarker marker = track.CreateMarker<KimodoAnalysisKeyframeMarker>(trace.StartSeconds + localTime);
                 marker.frame = keyframe.Value<int?>("frame") ?? 0;
                 marker.saliency = keyframe.Value<float?>("saliency") ?? keyframe.Value<float?>("score") ?? 0f;
                 marker.reasons = string.Join(", ", (keyframe["reasons"] as JArray)?.Values<string>() ?? Enumerable.Empty<string>());
@@ -389,7 +495,7 @@ namespace KimodoUnityBridge.Command
         {
             if (currentTimelineSession == null)
             {
-                throw new InvalidOperationException("No current Timeline Session. Call session_open_timeline first.");
+                throw new InvalidOperationException("No current Session. Call session_open first.");
             }
             if (currentTimelineSession.Director == null || currentTimelineSession.TimelineAsset == null)
             {
@@ -424,9 +530,11 @@ namespace KimodoUnityBridge.Command
                 return null;
             }
             string reference = root != null ? GetObjectReference(root) : string.Empty;
-            TimelineCharacterRecord match = session.Characters.FirstOrDefault(character =>
-                (!string.IsNullOrWhiteSpace(reference) && character.CharacterRef == reference) ||
-                (!string.IsNullOrWhiteSpace(name) && string.Equals(character.Name, name, StringComparison.OrdinalIgnoreCase)));
+            TimelineCharacterRecord match = !string.IsNullOrWhiteSpace(reference)
+                ? session.Characters.FirstOrDefault(character => character.CharacterRef == reference)
+                : session.Characters.FirstOrDefault(character =>
+                    !string.IsNullOrWhiteSpace(name) &&
+                    string.Equals(character.Name, name, StringComparison.OrdinalIgnoreCase));
             return match;
         }
 
@@ -440,9 +548,11 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException("character_ref or character_name is required.");
             }
-            TimelineCharacterRecord match = session.Characters.FirstOrDefault(character =>
-                (!string.IsNullOrWhiteSpace(reference) && character.CharacterRef == reference) ||
-                (!string.IsNullOrWhiteSpace(name) && string.Equals(character.Name, name, StringComparison.OrdinalIgnoreCase)));
+            TimelineCharacterRecord match = !string.IsNullOrWhiteSpace(reference)
+                ? session.Characters.FirstOrDefault(character => character.CharacterRef == reference)
+                : session.Characters.FirstOrDefault(character =>
+                    !string.IsNullOrWhiteSpace(name) &&
+                    string.Equals(character.Name, name, StringComparison.OrdinalIgnoreCase));
             if (match == null)
             {
                 throw new InvalidOperationException("The character is not in the current Timeline Session.");
@@ -455,6 +565,55 @@ namespace KimodoUnityBridge.Command
             return Execute(argumentsJson, arguments =>
             {
                 RejectTimelineSessionId(arguments);
+                string requestedType = (arguments.Value<string>("type") ?? "session").Trim().ToLowerInvariant();
+                string scope = (arguments.Value<string>("scope") ?? "session").Trim().ToLowerInvariant();
+                if (requestedType == "character" && scope != "session")
+                {
+                    if (scope != "scene" && scope != "project" && scope != "all")
+                    {
+                        throw new InvalidOperationException("scope must be session, scene, project, or all.");
+                    }
+                    int maxResults = Mathf.Clamp(arguments.Value<int?>("max_results") ?? 100, 1, 1000);
+                    JObject listed = JObject.Parse(ListCharacters(new JObject
+                    {
+                        ["include_project_assets"] = scope == "project" || scope == "all",
+                        ["max_results"] = maxResults
+                    }.ToString(Formatting.None)));
+                    if (listed.Value<bool?>("ok") != true)
+                    {
+                        throw new InvalidOperationException(listed.Value<string>("error") ?? "Character query failed.");
+                    }
+                    JArray characters = listed["characters"] as JArray ?? new JArray();
+                    if (scope == "project")
+                    {
+                        characters = new JArray(characters.Where(item => item.Value<string>("source") != "scene"));
+                    }
+                    string pattern = string.IsNullOrWhiteSpace(arguments.Value<string>("pattern"))
+                        ? "*"
+                        : arguments.Value<string>("pattern").Trim();
+                    JArray selectors = arguments["objects"] as JArray;
+                    bool longResult = arguments.Value<bool?>("long") ?? true;
+                    List<JObject> matches = characters.Children<JObject>()
+                        .Where(item => MatchesLsSelectors(
+                            item.Value<string>("name"), item.Value<string>("character_ref"), pattern, selectors))
+                        .Select(item => longResult
+                            ? (JObject)item.DeepClone()
+                            : new JObject
+                            {
+                                ["name"] = item.Value<string>("name"),
+                                ["character_ref"] = item.Value<string>("character_ref")
+                            })
+                        .ToList();
+                    matches = ApplyLsLimits(matches, arguments);
+                    return Ok(new JObject
+                    {
+                        ["type"] = "character",
+                        ["scope"] = scope,
+                        ["pattern"] = pattern,
+                        ["count"] = matches.Count,
+                        ["objects"] = new JArray(matches)
+                    });
+                }
                 TimelineSessionRecord session = RequireCurrentTimelineSession();
                 if (arguments["operation"] == null)
                 {
@@ -652,27 +811,6 @@ namespace KimodoUnityBridge.Command
             });
         }
 
-        public static string SessionSamplePose(string argumentsJson)
-        {
-            return Execute(argumentsJson, arguments =>
-            {
-                TimelineSessionRecord session = RequireCurrentTimelineSession();
-                TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
-                double time = RequiredFiniteDouble(arguments, "session_global");
-                if (time < 0.0)
-                {
-                    throw new InvalidOperationException("session_global must be non-negative.");
-                }
-                session.Director.time = time;
-                session.Director.Evaluate();
-                JObject pose = CapturePose(character, time);
-                Guid sampleId = Guid.NewGuid();
-                session.PoseSamples[sampleId] = pose;
-                pose["pose_sample_id"] = sampleId.ToString("D");
-                return Ok(pose);
-            });
-        }
-
         public static string SessionTryAdd(string argumentsJson)
         {
             return Execute(argumentsJson, arguments =>
@@ -750,11 +888,11 @@ namespace KimodoUnityBridge.Command
                 RejectTimelineSessionId(arguments);
                 TimelineSessionRecord session = RequireCurrentTimelineSession();
                 TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
-                double start = RequiredFiniteDouble(arguments, "start_global");
-                double end = RequiredFiniteDouble(arguments, "end_global");
+                double start = RequiredFiniteDouble(arguments, "start");
+                double end = RequiredFiniteDouble(arguments, "end");
                 if (start < 0.0 || end <= start)
                 {
-                    throw new InvalidOperationException("The analysis range must satisfy 0 <= start_global < end_global.");
+                    throw new InvalidOperationException("The analysis range must satisfy 0 <= start < end.");
                 }
 
                 TimelineAnimationRecord[] overlapping = character.Animations
@@ -785,12 +923,14 @@ namespace KimodoUnityBridge.Command
                         ["clips"] = new JArray(analyses.Select(item => item["animation_id"]))
                     };
                 }
+                string analysisId = CacheAnalysisResult(session, character, start, end, analysis);
                 JObject result = new JObject
                 {
+                    ["analysis_id"] = analysisId,
                     ["session_name"] = session.Name,
                     ["character"] = character.Name,
-                    ["start_global"] = start,
-                    ["end_global"] = end,
+                    ["start"] = start,
+                    ["end"] = end,
                     ["analyses"] = analyses,
                     ["analysis"] = analysis
                 };
@@ -813,10 +953,16 @@ namespace KimodoUnityBridge.Command
                 {
                     continue;
                 }
-                int startFrame = Math.Max(0, Mathf.RoundToInt((float)(animation.TimelineClip.start * frameRate)));
+                int startFrame = Math.Max(0, animation.StartFrame);
                 int frameCount = animation.EndFrameExclusive > animation.StartFrame
                     ? animation.EndFrameExclusive - animation.StartFrame
                     : Math.Max(1, Mathf.CeilToInt((float)(animation.TimelineClip.duration * frameRate)));
+                if (KimodoRawMotionUtility.TryParseFlatBuffer(
+                        animation.KmbBytes, out KimodoRawMotionData motion, out _) && motion.FrameCount > 0)
+                {
+                    startFrame = Mathf.Clamp(startFrame, 0, motion.FrameCount - 1);
+                    frameCount = Mathf.Clamp(frameCount, 1, motion.FrameCount - startFrame);
+                }
                 constraints.Add(new KimodoKmbClipConstraint
                 {
                     motionBytes = animation.KmbBytes,
@@ -865,11 +1011,11 @@ namespace KimodoUnityBridge.Command
         {
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             TimelineCharacterRecord source = ResolveCurrentSessionCharacter(arguments);
-            double start = RequiredFiniteDouble(arguments, "start_global");
-            double end = RequiredFiniteDouble(arguments, "end_global");
+            double start = RequiredFiniteDouble(arguments, "start");
+            double end = RequiredFiniteDouble(arguments, "end");
             if (start < 0.0 || end <= start)
             {
-                throw new InvalidOperationException("The bake range must satisfy 0 <= start_global < end_global.");
+                throw new InvalidOperationException("The bake range must satisfy 0 <= start < end.");
             }
             TimelineCharacterRecord target = source;
             string targetReference = arguments.Value<string>("retarget_character_ref")?.Trim();
@@ -938,8 +1084,8 @@ namespace KimodoUnityBridge.Command
                     ["asset_path"] = AssetDatabase.GetAssetPath(output),
                     ["character"] = target.Name,
                     ["source_character"] = source.Name,
-                    ["start_global"] = start,
-                    ["end_global"] = end,
+                    ["start"] = start,
+                    ["end"] = end,
                     ["animation"] = DescribeAnimation(animation)
                 });
             }
@@ -1061,7 +1207,8 @@ namespace KimodoUnityBridge.Command
                 ["timeline_asset_path"] = session.TimelineAssetPath,
                 ["characters"] = new JArray(session.Characters.Select(DescribeCharacter)),
                 ["current_time"] = session.Director != null ? session.Director.time : 0.0,
-                ["current"] = ReferenceEquals(currentTimelineSession, session)
+                ["current"] = ReferenceEquals(currentTimelineSession, session),
+                ["automatic"] = session.IsAutomatic
             };
         }
 
@@ -1123,49 +1270,6 @@ namespace KimodoUnityBridge.Command
             };
         }
 
-        private static JObject CapturePose(TimelineCharacterRecord character, double time)
-        {
-            var pose = new HumanPose();
-            using (var handler = new HumanPoseHandler(character.Avatar, character.Animator.transform))
-            {
-                handler.GetHumanPose(ref pose);
-            }
-            var bones = new JArray();
-            foreach (HumanBodyBones bone in System.Enum.GetValues(typeof(HumanBodyBones)))
-            {
-                if (bone == HumanBodyBones.LastBone)
-                {
-                    continue;
-                }
-                Transform transform = character.Animator.GetBoneTransform(bone);
-                if (transform == null)
-                {
-                    continue;
-                }
-                bones.Add(new JObject
-                {
-                    ["bone"] = bone.ToString(),
-                    ["position"] = Vector3Json(transform.position),
-                    ["rotation"] = QuaternionJson(transform.rotation)
-                });
-            }
-            return new JObject
-            {
-                ["session_name"] = currentTimelineSession.Name,
-                ["character"] = character.Name,
-                ["session_global"] = time,
-                ["root_position"] = Vector3Json(character.Root.transform.position),
-                ["root_rotation"] = QuaternionJson(character.Root.transform.rotation),
-                ["body_position"] = Vector3Json(pose.bodyPosition),
-                ["body_rotation"] = QuaternionJson(pose.bodyRotation),
-                ["muscles"] = new JArray(pose.muscles ?? Array.Empty<float>()),
-                ["bones"] = bones
-            };
-        }
-
-        private static JObject Vector3Json(Vector3 value) => new JObject { ["x"] = value.x, ["y"] = value.y, ["z"] = value.z };
-        private static JObject QuaternionJson(Quaternion value) => new JObject { ["x"] = value.x, ["y"] = value.y, ["z"] = value.z, ["w"] = value.w };
-
         private static bool Overlaps(TimelineClip clip, double start, double end)
         {
             return clip != null && clip.end > start && clip.start < end;
@@ -1190,6 +1294,7 @@ namespace KimodoUnityBridge.Command
         {
             EditorUtility.SetDirty(session.TimelineAsset);
             AssetDatabase.SaveAssets();
+            session.Director.RebuildGraph();
             TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
         }
 
@@ -1249,32 +1354,83 @@ namespace KimodoUnityBridge.Command
             lock (JobsLock)
             {
                 return Jobs.Values.Any(record => record.Session.IsRunning &&
-                    record.TimelineReservation != null && record.TimelineReservation.Session.Id == timelineSessionId);
+                    record.TimelineGenerationTrace != null && record.TimelineGenerationTrace.Session.Id == timelineSessionId);
             }
         }
 
-        private static void PruneTimelineSessionsLocked()
+        private static void FinishAutomaticTimelineSession(
+            TimelineGenerationTrace trace,
+            Guid requestId)
         {
-            while (TimelineSessions.Count >= MaxRememberedTimelineSessions)
+            if (trace?.Session == null || !trace.Session.AutoCloseWhenIdle)
             {
-                TimelineSessionRecord oldest = TimelineSessions.Values.OrderBy(record => record.CreatedAtUtc).FirstOrDefault();
-                if (oldest == null)
+                return;
+            }
+
+            lock (JobsLock)
+            {
+                if (Jobs.Values.Any(record => record.Session.IsRunning &&
+                    record.Session.RequestId != requestId &&
+                    record.TimelineGenerationTrace != null &&
+                    ReferenceEquals(record.TimelineGenerationTrace.Session, trace.Session)))
                 {
                     return;
                 }
-                TimelineSessions.Remove(oldest.Name);
             }
+
+            if (ReferenceEquals(currentTimelineSession, trace.Session))
+            {
+                currentTimelineSession = null;
+            }
+            trace.Session.AutoCloseWhenIdle = false;
+            DeactivateTimelineSession(trace.Session);
+            CloseTimelineWindow(trace.Session.TimelineAsset);
+            EditorUtility.SetDirty(trace.Session.TimelineAsset);
+            if (trace.Session.Director != null)
+            {
+                EditorUtility.SetDirty(trace.Session.Director);
+            }
+            AssetDatabase.SaveAssets();
+        }
+
+        private static TimelineSessionRecord EnsureGenerationTimelineSession()
+        {
+            if (currentTimelineSession != null)
+            {
+                return RequireCurrentTimelineSession();
+            }
+
+            if (!TryGetTimelineSession(AutomaticTimelineSessionName, out TimelineSessionRecord automatic))
+            {
+                automatic = CreateTimelineSession(AutomaticTimelineSessionName, isAutomatic: true);
+                lock (TimelineSessionsLock)
+                {
+                    TimelineSessions[automatic.Name] = automatic;
+                }
+            }
+
+            currentTimelineSession = automatic;
+            automatic.AutoCloseWhenIdle = true;
+            ActivateTimelineSession(automatic);
+            return RequireCurrentTimelineSession();
         }
 
         private sealed class TimelineSessionRecord
         {
-            public TimelineSessionRecord(Guid id, string name, PlayableDirector director, TimelineAsset timelineAsset, string timelineAssetPath)
+            public TimelineSessionRecord(
+                Guid id,
+                string name,
+                PlayableDirector director,
+                TimelineAsset timelineAsset,
+                string timelineAssetPath,
+                bool isAutomatic)
             {
                 Id = id;
                 Name = name;
                 Director = director;
                 TimelineAsset = timelineAsset;
                 TimelineAssetPath = timelineAssetPath;
+                IsAutomatic = isAutomatic;
                 CreatedAtUtc = DateTime.UtcNow;
             }
 
@@ -1284,8 +1440,9 @@ namespace KimodoUnityBridge.Command
             public PlayableDirector Director { get; }
             public TimelineAsset TimelineAsset { get; }
             public string TimelineAssetPath { get; }
+            public bool IsAutomatic { get; }
+            public bool AutoCloseWhenIdle { get; set; }
             public List<TimelineCharacterRecord> Characters { get; } = new List<TimelineCharacterRecord>();
-            public Dictionary<Guid, JObject> PoseSamples { get; } = new Dictionary<Guid, JObject>();
         }
 
         internal sealed class TimelineCharacterRecord
@@ -1339,17 +1496,31 @@ namespace KimodoUnityBridge.Command
             public Guid Id { get; }
             public string Name { get; }
             public string Source { get; }
-            public AnimationClip Clip { get; }
+            public AnimationClip Clip { get; private set; }
             public TimelineClip TimelineClip { get; }
-            public JObject Analysis { get; }
-            public byte[] KmbBytes { get; }
-            public int StartFrame { get; }
-            public int EndFrameExclusive { get; }
+            public JObject Analysis { get; private set; }
+            public byte[] KmbBytes { get; private set; }
+            public int StartFrame { get; private set; }
+            public int EndFrameExclusive { get; private set; }
+
+            public void ApplyResult(
+                AnimationClip clip,
+                JObject analysis,
+                byte[] kmbBytes,
+                int startFrame,
+                int endFrameExclusive)
+            {
+                Clip = clip;
+                Analysis = analysis;
+                KmbBytes = kmbBytes;
+                StartFrame = startFrame;
+                EndFrameExclusive = endFrameExclusive;
+            }
         }
 
-        private sealed class TimelineReservation
+        private sealed class TimelineGenerationTrace
         {
-            public TimelineReservation(TimelineSessionRecord session, TimelineCharacterRecord character, double startSeconds, double durationSeconds)
+            public TimelineGenerationTrace(TimelineSessionRecord session, TimelineCharacterRecord character, double startSeconds, double durationSeconds)
             {
                 Session = session;
                 Character = character;
@@ -1362,6 +1533,7 @@ namespace KimodoUnityBridge.Command
             public double StartSeconds { get; }
             public double DurationSeconds { get; }
             public TimelineClip TimelineClip { get; set; }
+            public KimodoPlayableClip PlayableClip { get; set; }
             public TimelineAnimationRecord Animation { get; set; }
             public MarkerTrack AnalysisTrack { get; set; }
         }

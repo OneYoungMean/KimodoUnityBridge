@@ -12,7 +12,6 @@ using TimelineInject;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Playables;
-using UnityEngine.Timeline;
 
 namespace KimodoUnityBridge.Command
 {
@@ -21,20 +20,19 @@ namespace KimodoUnityBridge.Command
     /// </summary>
     internal static partial class command_context
     {
-        public const string ListCharactersCommand = "kimodo_list_characters";
-        public const string ListModelsCommand = "Kimodo_list_models";
         public const string HelpCommand = "kimodo_help";
         public const string DebugInstallServerCommand = "kimodo_debug_install_server";
         public const string GenerateAnimationAssetCommand = "kimodo_generate_animation_asset";
-        public const string SessionOpenTimelineCommand = "session_open_timeline";
-        public const string SessionCloseTimelineCommand = "session_close_timeline";
+        public const string SessionOpenCommand = "session_open";
+        public const string SessionCloseCommand = "session_close";
         public const string QueryCurrentSessionCommand = "query_current_session";
         public const string SessionLocateAnimationCommand = "session_locate_animation";
-        public const string SessionSamplePoseCommand = "session_sample_pose";
         public const string SessionTryAddCommand = "session_try_add";
         public const string SessionTryRemoveCommand = "session_try_remove";
-        public const string KimodoAnalyzeTimelineRangeCommand = "kimodo_analyze_timeline_range";
-        public const string KimodoBakeTimelineRangeCommand = "kimodo_bake_timeline_range";
+        public const string KimodoAnalyzeRangeCommand = "kimodo_analyze_range";
+        public const string KimodoBakeRangeCommand = "kimodo_bake_range";
+        public const string KimodoRenderPoseSheetCommand = "kimodo_render_pose_sheet";
+        public const string KimodoRenderAnalysisSheetCommand = "kimodo_render_analysis_sheet";
         public const string QueryGenerationCommand = "kimodo_get_generation";
         public const string QueryCancelGenerationCommand = "kimodo_cancel_generation";
 
@@ -48,27 +46,21 @@ namespace KimodoUnityBridge.Command
             {
                 ["tools"] = new JArray
                 {
-                    CommandDefinition(ListCharactersCommand,
-                        "List humanoid characters that can be used for Kimodo animation generation.",
-                        Properties(
-                            Optional("include_project_assets", "boolean", "Also scan prefab/model assets under Assets."),
-                            Optional("max_results", "integer", "Maximum returned characters; defaults to 100."))),
-                    CommandDefinition(ListModelsCommand,
-                        "List every model and text encoder configuration currently viable on the Kimodo QuickServer. Call this only when the user wants to switch away from the Project Settings defaults.",
-                        Properties()),
                     CommandDefinition(HelpCommand,
-                        "Return the Kimodo QuickServer built-in protocol reference.",
-                        Properties()),
+                        "Return the command manual, detailed parameter documentation for one command, or currently viable model configurations.",
+                        Properties(
+                            Optional("command", "string", "Command name whose full manual entry should be returned."),
+                            Enum("section", "commands", "models"))),
                     CommandDefinition(DebugInstallServerCommand,
                         "[debug-only] Incrementally install the QuickServer runtime from the package template, preserving models and the Python environment, then restart it.",
                         Properties(),
                         debugOnly: true),
-                    CommandDefinition(SessionOpenTimelineCommand,
-                        "Create a new current Session, or load an existing named Session. The Session creates its own Director and TimelineAsset, adds scene Animators, and opens Timeline preview.",
+                    CommandDefinition(SessionOpenCommand,
+                        "Create a new current animation editing Session, or load an existing named Session.",
                         Properties(
                             Optional("session_name", "string", "Existing Session name to load; omitted always creates a new Session."))),
-                    CommandDefinition(SessionCloseTimelineCommand,
-                        "Close the current Timeline editing environment, clear Timeline selection, and preserve the Session, Director, and TimelineAsset for a later named reopen.",
+                    CommandDefinition(SessionCloseCommand,
+                        "Close the current animation editing Session while preserving it for a later named reopen.",
                         Properties()),
                     CommandDefinition(QueryCurrentSessionCommand,
                         "Query the current Session using Maya ls-like object type, wildcard pattern, and result limits. The legacy operation selector remains accepted.",
@@ -80,6 +72,8 @@ namespace KimodoUnityBridge.Command
                             Optional("head", "integer", "Return only the first N matches."),
                             Optional("tail", "integer", "Return only the last N matches."),
                             Optional("show_type", "boolean", "Include the resolved object type in each returned item."),
+                            Enum("scope", "session", "scene", "project", "all"),
+                            Optional("max_results", "integer", "Maximum returned characters when querying scene or project scope; defaults to 100."),
                             Enum("operation", "session", "characters", "character", "animations", "animation", "analysis"),
                             Optional("character_ref", "string", "Scene character GlobalObjectId."),
                             Optional("character_name", "string", "Character name in the current Session."),
@@ -93,12 +87,6 @@ namespace KimodoUnityBridge.Command
                             Optional("animation_id", "string", "Animation id returned by query_current_session."),
                             Optional("animation_name", "string", "Animation name in the selected character."),
                             Optional("session_global", "number", "Global Session time; defaults to the animation start."))),
-                    CommandDefinition(SessionSamplePoseCommand,
-                        "Evaluate the current Timeline at a global Session time and return a reusable pose_sample_id plus humanoid pose data.",
-                        Properties(
-                            Required("session_global", "number", "Global Session time in seconds."),
-                            Optional("character_ref", "string", "Scene character GlobalObjectId."),
-                            Optional("character_name", "string", "Character name in the current Session."))),
                     CommandDefinition(SessionTryAddCommand,
                         "TryAdd a scene character or AnimationClip to the current Session. Clips are always appended at the end of the character track.",
                         Properties(
@@ -114,28 +102,28 @@ namespace KimodoUnityBridge.Command
                             Optional("character_name", "string", "Character name in the current Session."),
                             Optional("animation_id", "string", "Animation id returned by query_current_session."),
                             Optional("animation_name", "string", "Animation name in the selected character."))),
-                    CommandDefinition(KimodoAnalyzeTimelineRangeCommand,
-                        "Return stored generation keyframe analysis and range analysis for the current character Timeline range.",
+                    CommandDefinition(KimodoAnalyzeRangeCommand,
+                        "Analyze a character over a Session time range and cache the result under a stable analysis_id.",
                         Properties(
-                            Required("start_global", "number", "Inclusive global Session start."),
-                            Required("end_global", "number", "Exclusive global Session end."),
+                            Required("start", "number", "Inclusive Session start time."),
+                            Required("end", "number", "Exclusive Session end time."),
                             Optional("character_ref", "string", "Scene character GlobalObjectId."),
                             Optional("character_name", "string", "Character name in the current Session."),
                             Optional("analysis_option", "object", "Optional QuickServer analysis configuration; analysis_only is forced true."))),
-                    CommandDefinition(KimodoBakeTimelineRangeCommand,
-                        "Bake a Timeline global range into an AnimationClip and append it to a character track; optionally retarget it to another current Session character.",
+                    CommandDefinition(KimodoBakeRangeCommand,
+                        "Bake a Session time range into an AnimationClip and append it to a character; optionally retarget it to another current Session character.",
                         Properties(
-                            Required("start_global", "number", "Inclusive global Session start."),
-                            Required("end_global", "number", "Exclusive global Session end."),
+                            Required("start", "number", "Inclusive Session start time."),
+                            Required("end", "number", "Exclusive Session end time."),
                             Optional("character_ref", "string", "Source scene character GlobalObjectId."),
                             Optional("character_name", "string", "Source character name in the current Session."),
                             Optional("retarget_character_ref", "string", "Optional target character; its track is used and a valid humanoid Avatar is required."),
                             Optional("asset_name", "string", "Output AnimationClip name without extension."),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
                     CommandDefinition(GenerateAnimationAssetCommand,
-                        "Generate an AnimationClip asset for a humanoid character from a text prompt. A current Timeline Session is required; call session_open_timeline first.",
+                        "Append a configured KimodoPlayableClip to the character Timeline and generate its AnimationClip asset. Without a current Session, a retained __KimodoAuto__ Session is created and closed after generation.",
                         Properties(
-                            Required("character_ref", "string", "Scene character GlobalObjectId in the current Session."),
+                            Required("character_ref", "string", "Scene character GlobalObjectId; it is added to the current or automatic Session."),
                             Required("prompt", "string", "Motion prompt."),
                             Optional("duration_seconds", "number", "Duration in seconds; defaults to 5."),
                             Optional("model", "string", "Registered model name/configuration id; omitted uses the Project Settings default. Call Kimodo_list_models only when switching models."),
@@ -144,12 +132,21 @@ namespace KimodoUnityBridge.Command
                             Optional("diffusion_steps", "integer", "Diffusion steps; omitted uses the model default."),
                             Enum("output_mode", "humanoid_muscle", "character_bone", "model_bone"),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."),
-                             Optional("asset_name", "string", "Output asset name without extension."),
-                             Optional("loop", "boolean", "When true, the server generates a seed motion and regenerates it with the seed first pose constrained at both boundary frames. Root translation remains unconstrained."),
-                             Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
-                            OptionalArray("pose_refs", "string", "Scene humanoid GameObject or Animator GlobalObjectIds used as pose constraints."),
-                            OptionalArray("times", "number", "Pose times in seconds; omitted distributes poses from the first through the last generated frame."),
-                            OptionalEnumArray("constraint_types", "Constraint type per pose; omitted defaults every pose to fullbody.", "fullbody", "root2d"))),
+                            Optional("asset_name", "string", "Output asset name without extension."),
+                            Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
+                            OptionalConstraints("constraints", "Pose constraints. Each item contains at, type, and a source with character and Session time."))),
+                    CommandDefinition(KimodoRenderPoseSheetCommand,
+                        "Render explicitly selected character poses into a square contact sheet.",
+                        Properties(
+                            RequiredSamples("samples"),
+                            Optional("resolution", "integer", "Square output size in pixels; defaults to 1024."),
+                            Optional("scale", "number", "Camera framing scale; defaults to 1.0."))),
+                    CommandDefinition(KimodoRenderAnalysisSheetCommand,
+                        "Render the cached keyframes of an analysis into a square contact sheet.",
+                        Properties(
+                            Required("analysis_id", "string", "Stable id returned by kimodo_analyze_range."),
+                            Optional("resolution", "integer", "Square output size in pixels; defaults to 1024."),
+                            Optional("scale", "number", "Camera framing scale; defaults to 1.0."))),
                     CommandDefinition(QueryGenerationCommand,
                         "Get generation progress and the generated AnimationClip asset path.",
                         Properties(Required("request_id", "string", "Request id returned by a generate tool."))),
@@ -166,32 +163,30 @@ namespace KimodoUnityBridge.Command
         {
             switch (toolName?.Trim())
             {
-                case ListCharactersCommand:
-                    return ListCharacters(argumentsJson);
-                case ListModelsCommand:
-                    return ListModels(argumentsJson);
                 case HelpCommand:
-                    return GetServerHelp(argumentsJson);
+                    return GetCommandHelp(argumentsJson);
                 case DebugInstallServerCommand:
                     return DebugInstallServer(argumentsJson);
-                case SessionOpenTimelineCommand:
+                case SessionOpenCommand:
                     return SessionOpenTimeline(argumentsJson);
-                case SessionCloseTimelineCommand:
+                case SessionCloseCommand:
                     return SessionCloseTimeline(argumentsJson);
                 case QueryCurrentSessionCommand:
                     return QueryCurrentSession(argumentsJson);
                 case SessionLocateAnimationCommand:
                     return SessionLocateAnimation(argumentsJson);
-                case SessionSamplePoseCommand:
-                    return SessionSamplePose(argumentsJson);
                 case SessionTryAddCommand:
                     return SessionTryAdd(argumentsJson);
                 case SessionTryRemoveCommand:
                     return SessionTryRemove(argumentsJson);
-                case KimodoAnalyzeTimelineRangeCommand:
+                case KimodoAnalyzeRangeCommand:
                     return KimodoAnalyzeTimelineRange(argumentsJson);
-                case KimodoBakeTimelineRangeCommand:
+                case KimodoBakeRangeCommand:
                     return KimodoBakeTimelineRange(argumentsJson);
+                case KimodoRenderPoseSheetCommand:
+                    return RenderPoseSheet(argumentsJson);
+                case KimodoRenderAnalysisSheetCommand:
+                    return RenderAnalysisSheet(argumentsJson);
                 case GenerateAnimationAssetCommand:
                     return GenerateAnimationAsset(argumentsJson);
                 case QueryGenerationCommand:
@@ -289,6 +284,51 @@ namespace KimodoUnityBridge.Command
             });
         }
 
+        public static string GetCommandHelp(string argumentsJson = "{}")
+        {
+            return Execute(argumentsJson, arguments =>
+            {
+                string section = (arguments.Value<string>("section") ?? "commands").Trim().ToLowerInvariant();
+                string command = arguments.Value<string>("command")?.Trim();
+                if (!string.IsNullOrWhiteSpace(command))
+                {
+                    JObject definitions = JObject.Parse(GetCommandDefinitionsJson());
+                    JObject definition = definitions["tools"]?.Children<JObject>()
+                        .FirstOrDefault(item => string.Equals(item.Value<string>("name"), command, StringComparison.Ordinal));
+                    if (definition == null)
+                    {
+                        throw new InvalidOperationException($"Unknown Kimodo command '{command}'.");
+                    }
+                    return Ok(new JObject
+                    {
+                        ["manual"] = definition.DeepClone(),
+                        ["usage"] = $"{command}(<arguments matching inputSchema>)"
+                    });
+                }
+                if (section == "models")
+                {
+                    return ListModels("{}");
+                }
+                if (section != "commands")
+                {
+                    throw new InvalidOperationException("section must be commands or models.");
+                }
+
+                JObject all = JObject.Parse(GetCommandDefinitionsJson());
+                return Ok(new JObject
+                {
+                    ["manual"] = "Kimodo command reference",
+                    ["commands"] = new JArray(all["tools"].Children<JObject>().Select(item => new JObject
+                    {
+                        ["name"] = item.Value<string>("name"),
+                        ["description"] = item.Value<string>("description"),
+                        ["required"] = item["inputSchema"]?["required"]?.DeepClone() ?? new JArray(),
+                        ["debug_only"] = item.Value<bool?>("debug_only") ?? false
+                    }))
+                });
+            });
+        }
+
         public static string DebugInstallServer(string argumentsJson = "{}")
         {
             return Execute(argumentsJson, _ =>
@@ -343,33 +383,20 @@ namespace KimodoUnityBridge.Command
             });
         }
 
-        private static async Task<command_generate_result> ExecuteAssetGenerationAsync(
-            KimodoEditorGenerateRequest request,
-            UnityEngine.Object target,
-            command_generation_session session,
-            CancellationToken token)
-        {
-            request.Token = token;
-            request.Progress = (stage, message) => command_generation_runner.UpdateProgress(target, session.RequestId, stage, message);
-            try
-            {
-                return await KimodoEditorGeneratePipeline.ExecuteAsync(request);
-            }
-            catch
-            {
-                KimodoPlayableClipGenerationHostService.CleanupFailedGeneration(request);
-                throw;
-            }
-        }
-
         public static string GenerateAnimationAsset(string argumentsJson)
         {
             return Execute(argumentsJson, arguments =>
             {
                 EnsureCanGenerate();
-                RequireCurrentTimelineSession();
+                RejectTimelineSessionId(arguments);
                 string prompt = RequiredStringValue(arguments, "prompt");
+                TimelineSessionRecord session = EnsureGenerationTimelineSession();
                 ResolvedCharacter character = ResolveCharacter(RequiredStringValue(arguments, "character_ref"));
+                if (command_generation_runner.TryGet(character.Target, out command_generation_session activeGeneration) &&
+                    activeGeneration != null && activeGeneration.IsRunning)
+                {
+                    throw new InvalidOperationException($"A generation session is already running for '{character.Name}'.");
+                }
                 string outputMode = ParseOutputMode(arguments.Value<string>("output_mode"));
                 string requestedModel = arguments.Value<string>("model")?.Trim();
                 string requestedTextEncoder = arguments.Value<string>("text_encoder_model")?.Trim();
@@ -381,18 +408,15 @@ namespace KimodoUnityBridge.Command
                 }
                 float frameRate = ResolveFrameRate(modelName);
                 float duration = PositiveFloat(arguments, "duration_seconds", 5f);
-                TimelineReservation timelineReservation = PrepareTimelineReservation(arguments, character, duration);
                 string analysisOptionsJson = ParseAnalysisOptionsJson(arguments);
                 int frameCount = Math.Max(1, KimodoFrameTimeUtility.SecondsToFrameCount(duration, frameRate));
                 int seed = arguments.Value<int?>("seed") ?? (Guid.NewGuid().GetHashCode() & int.MaxValue);
                 int steps = ResolveDiffusionSteps(arguments, modelName);
-                bool loop = arguments.Value<bool?>("loop") ?? false;
                 string outputFolder = NormalizeOutputFolder(arguments.Value<string>("output_folder"));
                 string assetName = string.IsNullOrWhiteSpace(arguments.Value<string>("asset_name"))
                     ? $"{character.Name}_{DateTime.Now:yyyyMMdd_HHmmss_fff}"
                     : arguments.Value<string>("asset_name").Trim();
-                KimodoEditorClipWritebackService.EnsureFolderExists(outputFolder);
-                Avatar originAvatar = KimodoPlayableClipGenerationHostService.ResolveOriginRetargetAvatar(modelName);
+                Avatar originAvatar = KimodoTimelineGenerationOutputPlanner.ResolveOriginRetargetAvatar(modelName);
                 if (!KimodoRetargetCoreUtility.IsValidHumanoid(originAvatar))
                 {
                     throw new InvalidOperationException($"Model '{modelName}' does not provide a valid humanoid origin Avatar.");
@@ -405,46 +429,48 @@ namespace KimodoUnityBridge.Command
                     frameRate,
                     duration);
 
-                var request = new KimodoEditorGenerateRequest
-                {
-                    Prompt = prompt,
-                    ModelName = modelName,
-                    TextEncoderMode = textEncoderMode,
-                    TargetFrameCount = frameCount,
-                    TargetFrameRate = frameRate,
-                    DiffusionSteps = steps,
-                    EffectiveSeed = seed,
-                    Loop = loop,
-                    ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
-                        poseConstraints,
-                        0.0,
-                        duration,
-                        frameRate),
-                    AnalysisOptionsJson = analysisOptionsJson,
-                    ModelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim() ?? string.Empty,
-                    GenerationTimeoutSeconds = KimodoPlayableClipGenerationSettings.instance.GenerationTimeoutSeconds,
-                    CreateTargetClip = () => KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(assetName, outputFolder),
-                    OutputPlan = BuildOutputPlan(outputMode, originAvatar, character.Avatar),
-                    ResolveOutputPlan = (generatedClip, _) => BuildOutputPlan(outputMode, originAvatar, character.Avatar),
-                    Token = CancellationToken.None,
-                    ConstraintSamples = poseConstraints
-                };
-
                 if (outputMode != "model_bone" && !KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
                 {
                     throw new InvalidOperationException($"Character '{character.Name}' does not provide a valid target humanoid Avatar for output_mode '{outputMode}'.");
                 }
 
+                TimelineGenerationTrace trace = PrepareGenerationTrace(arguments, character, duration);
+                KimodoPlayableClip playableClip = CreateGenerationPlayableClip(trace, prompt);
+                playableClip.bridgeModelName = modelName;
+                playableClip.textEncoderMode = textEncoderMode;
+                playableClip.motionPrompt = prompt;
+                playableClip.generationFrames = frameCount;
+                playableClip.diffusionSteps = steps;
+                playableClip.randomSeed = false;
+                playableClip.seed = seed;
+                playableClip.analysisOptionsJson = analysisOptionsJson;
+                playableClip.generatedAssetName = assetName;
+                playableClip.generatedOutputFolder = outputFolder;
+                playableClip.generationOutputMode = ParseGenerationOutputMode(outputMode);
+                WriteGenerationConstraintMarkers(trace, poseConstraints, frameRate);
+                ReserveGenerationTimelineRange(trace);
+                SaveTimelineSession(session);
+
                 bool started = command_generation_runner.Start(
                     character.Target,
                     $"command-asset:{KimodoUnityObjectIdUtility.NameKey(character.Target)}",
                     command_kind.GenerateAnimationAsset,
-                    async (session, token) => await ExecuteAssetGenerationAsync(
-                        request,
-                        character.Target,
-                        session,
-                        token,
-                        timelineReservation),
+                    async (generationSession, token) =>
+                    {
+                        try
+                        {
+                            return await ExecutePlayableClipGenerationAsync(
+                                playableClip,
+                                trace,
+                                character.Target,
+                                generationSession,
+                                token);
+                        }
+                        finally
+                        {
+                            FinishAutomaticTimelineSession(trace, generationSession.RequestId);
+                        }
+                    },
                     out command_generation_session generation,
                     out string error);
                 if (!started)
@@ -452,8 +478,7 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException(error);
                 }
 
-                CommitTimelineReservation(timelineReservation);
-                Remember(character.Target, generation, timelineReservation);
+                Remember(character.Target, generation, trace);
                 var startedResponse = new JObject
                 {
                     ["character"] = character.Name,
@@ -462,38 +487,45 @@ namespace KimodoUnityBridge.Command
                     ["text_encoder_model"] = KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode),
                     ["seed"] = seed
                 };
-                if (timelineReservation != null)
+                if (trace != null)
                 {
-                    startedResponse["session_name"] = timelineReservation.Session.Name;
-                    startedResponse["timeline_start_seconds"] = timelineReservation.StartSeconds;
-                    startedResponse["timeline_duration_seconds"] = timelineReservation.DurationSeconds;
+                    startedResponse["session_name"] = trace.Session.Name;
+                    startedResponse["temporary_session"] = trace.Session.IsAutomatic;
+                    startedResponse["start_seconds"] = trace.StartSeconds;
+                    startedResponse["duration_seconds"] = trace.DurationSeconds;
+                    startedResponse["timeline_clip_asset_ref"] = GetObjectReference(trace.PlayableClip);
                 }
                 return Started(generation, startedResponse);
             });
         }
 
-        private static KimodoEditorGenerateOutputPlan BuildOutputPlan(string outputMode, Avatar originAvatar, Avatar targetAvatar)
+        private static async Task<command_generate_result> ExecutePlayableClipGenerationAsync(
+            KimodoPlayableClip playableClip,
+            TimelineGenerationTrace trace,
+            UnityEngine.Object target,
+            command_generation_session session,
+            CancellationToken token)
+        {
+            command_generate_result result = await KimodoPlayableClipGenerationExecutionService.GenerateAndFinalizeAsync(
+                playableClip,
+                externalConstraint: null,
+                (stage, message) => command_generation_runner.UpdateProgress(target, session.RequestId, stage, message),
+                token,
+                trace.TimelineClip);
+            FinalizePlayableClipTrace(trace, result);
+            return result;
+        }
+
+        private static KimodoGenerationOutputMode ParseGenerationOutputMode(string outputMode)
         {
             switch (outputMode)
             {
-                case "model_bone":
-                    return new KimodoEditorGenerateOutputPlan { SkipRetarget = true };
                 case "character_bone":
-                    return new KimodoEditorGenerateOutputPlan
-                    {
-                        OriginRetargetAvatar = originAvatar,
-                        TargetRetargetAvatar = targetAvatar,
-                        ExportMuscleClip = false,
-                        SkipRetarget = false
-                    };
+                    return KimodoGenerationOutputMode.CharacterBone;
+                case "model_bone":
+                    return KimodoGenerationOutputMode.ModelBone;
                 default:
-                    return new KimodoEditorGenerateOutputPlan
-                    {
-                        OriginRetargetAvatar = originAvatar,
-                        TargetRetargetAvatar = targetAvatar,
-                        ExportMuscleClip = true,
-                        SkipRetarget = false
-                    };
+                    return KimodoGenerationOutputMode.HumanoidMuscle;
             }
         }
 
@@ -534,37 +566,21 @@ namespace KimodoUnityBridge.Command
             float frameRate,
             double durationSeconds)
         {
-            JToken poseRefsToken = arguments?["pose_refs"];
-            JToken timesToken = arguments?["times"];
-            JToken typesToken = arguments?["constraint_types"];
-            if (poseRefsToken == null)
+            if (arguments?["constraints"] == null)
             {
-                if (timesToken != null || typesToken != null)
-                {
-                    throw new InvalidOperationException("pose_refs is required when times or constraint_types is supplied.");
-                }
                 return new List<KimodoMarkerSampleResult>();
             }
-            if (poseRefsToken is not JArray poseRefs)
+            if (arguments["constraints"] is not JArray constraints)
             {
-                throw new InvalidOperationException("pose_refs must be an array.");
+                throw new InvalidOperationException("constraints must be an array.");
             }
-
-            List<double> times = ParsePoseTimes(timesToken, poseRefs.Count);
-            times = ResolvePoseConstraintTimes(poseRefs.Count, frameCount, frameRate, times);
-            for (int i = 0; i < times.Count; i++)
-            {
-                if (times[i] < 0.0 || times[i] > durationSeconds)
-                {
-                    throw new InvalidOperationException($"times[{i}] must be between 0 and duration_seconds ({durationSeconds:0.###}).");
-                }
-            }
-            List<string> constraintTypes = ParsePoseConstraintTypes(typesToken, poseRefs.Count);
-            var samples = new List<KimodoMarkerSampleResult>(poseRefs.Count);
+            var samples = new List<KimodoMarkerSampleResult>(constraints.Count);
             SkeletonCache targetCache = null;
+            TimelineSessionRecord session = RequireCurrentTimelineSession();
+            double originalSessionTime = session.Director.time;
             try
             {
-                if (poseRefs.Count > 0 &&
+                if (constraints.Count > 0 &&
                     !KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
                         targetAvatar,
                         "KimodoCommandPoseConstraints",
@@ -574,48 +590,115 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException($"Build pose constraint target failed: {cacheError}");
                 }
 
-                for (int i = 0; i < poseRefs.Count; i++)
+                for (int i = 0; i < constraints.Count; i++)
                 {
-                    string poseReference = poseRefs[i]?.Type == JTokenType.String
-                        ? poseRefs[i].Value<string>()?.Trim()
-                        : null;
-                    if (string.IsNullOrWhiteSpace(poseReference))
+                    if (constraints[i] is not JObject constraint || constraint["source"] is not JObject source)
                     {
-                        throw new InvalidOperationException($"pose_refs[{i}] must be a non-empty GlobalObjectId string.");
+                        throw new InvalidOperationException($"constraints[{i}] must contain a source object.");
                     }
-
-                    ResolvedCharacter pose;
-                    try
+                    double at = RequiredFiniteDouble(constraint, "at");
+                    if (at < 0.0 || at > durationSeconds)
                     {
-                        pose = ResolveCharacter(poseReference);
+                        throw new InvalidOperationException($"constraints[{i}].at must be between 0 and duration_seconds ({durationSeconds:0.###}).");
                     }
-                    catch (Exception ex)
+                    double sourceTime = RequiredFiniteDouble(source, "time");
+                    if (sourceTime < 0.0)
                     {
-                        throw new InvalidOperationException($"Resolve pose_refs[{i}] failed: {ex.Message}");
+                        throw new InvalidOperationException($"constraints[{i}].source.time must be non-negative.");
                     }
-                    if (EditorUtility.IsPersistent(pose.Root) || !pose.Root.scene.IsValid())
+                    string characterReference = RequiredStringValue(source, "character");
+                    TimelineCharacterRecord sourceCharacter = ResolveSessionCharacterByReference(session, characterReference, addIfMissing: false);
+                    string constraintType = (constraint.Value<string>("type") ?? "fullbody").Trim().ToLowerInvariant();
+                    if (constraintType != "fullbody" && constraintType != "root2d")
                     {
-                        throw new InvalidOperationException($"pose_refs[{i}] must resolve to a scene GameObject or Animator.");
+                        throw new InvalidOperationException($"constraints[{i}].type must be fullbody or root2d.");
                     }
-                    if (!TrySamplePoseConstraint(
-                            pose,
+                    session.Director.time = sourceTime;
+                    session.Director.Evaluate();
+                    if (!TrySampleDirectSkeletonConstraint(
+                            sourceCharacter,
                             targetCache,
                             modelName,
-                            constraintTypes[i],
-                            times[i],
+                            constraintType,
+                            at,
                             out KimodoMarkerSampleResult sample,
                             out string error))
                     {
-                        throw new InvalidOperationException($"Sample pose_refs[{i}] failed: {error}");
+                        throw new InvalidOperationException($"Sample constraints[{i}] failed: {error}. Bake with retarget_character_ref first when skeletons are incompatible.");
                     }
                     samples.Add(sample);
                 }
             }
             finally
             {
+                session.Director.time = originalSessionTime;
+                session.Director.Evaluate();
                 targetCache?.Dispose();
             }
             return samples;
+        }
+
+        private static bool TrySampleDirectSkeletonConstraint(
+            TimelineCharacterRecord source,
+            SkeletonCache targetCache,
+            string modelName,
+            string constraintType,
+            double sampleTime,
+            out KimodoMarkerSampleResult sample,
+            out string error)
+        {
+            sample = null;
+            error = string.Empty;
+            if (source?.Root == null || !KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out error))
+            {
+                return false;
+            }
+
+            Transform[] allSourceTransforms = source.Root.GetComponentsInChildren<Transform>(true);
+            Transform[] rootCandidates = allSourceTransforms
+                .Where(transform => string.Equals(
+                    transform.name, targetCache.canonicalRootBoneName, StringComparison.Ordinal))
+                .ToArray();
+            Transform sourceSkeletonRoot = rootCandidates.Length == 1 ? rootCandidates[0] : null;
+            if (sourceSkeletonRoot == null)
+            {
+                error = $"incompatible_skeleton: source must contain one unambiguous '{targetCache.canonicalRootBoneName}' root bone";
+                return false;
+            }
+            Transform[] sourceTransforms = sourceSkeletonRoot.GetComponentsInChildren<Transform>(true);
+            var sourceNames = sourceTransforms.ToDictionary(transform => transform, transform => transform.name);
+            var sourceByPath = sourceTransforms.ToDictionary(
+                transform => KimodoRetargetAvatarUtility.CalculateTransformPath(
+                    transform, sourceSkeletonRoot, targetCache.canonicalRootBoneName, sourceNames),
+                transform => transform,
+                StringComparer.Ordinal);
+            var targetPaths = new HashSet<string>(targetCache.bonePaths, StringComparer.Ordinal);
+            string missing = sourceByPath.Keys.FirstOrDefault(path => !targetPaths.Contains(path));
+            if (missing != null)
+            {
+                error = $"incompatible_skeleton: target skeleton is missing source bone path '{missing}'";
+                return false;
+            }
+
+            KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(targetCache);
+            for (int i = 0; i < targetCache.bonePaths.Length; i++)
+            {
+                if (sourceByPath.TryGetValue(targetCache.bonePaths[i], out Transform sourceTransform) &&
+                    targetCache.boneTransforms[i] != null)
+                {
+                    targetCache.boneTransforms[i].localPosition = sourceTransform.localPosition;
+                    targetCache.boneTransforms[i].localRotation = sourceTransform.localRotation;
+                }
+            }
+            BoneSample targetSample = KimodoRetargetSamplingUtility.CaptureBoneSample(targetCache);
+            if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                    targetSample, targetCache, modelName, constraintType, sampleTime, out sample, out error))
+            {
+                return false;
+            }
+            sample.unityRootPos = source.Animator != null ? source.Animator.transform.position : source.Root.transform.position;
+            sample.unityRootRot = source.Animator != null ? source.Animator.transform.rotation : source.Root.transform.rotation;
+            return true;
         }
 
         internal static List<double> ResolvePoseConstraintTimes(
@@ -912,7 +995,7 @@ namespace KimodoUnityBridge.Command
         private static void Remember(
             UnityEngine.Object target,
             command_generation_session session,
-            TimelineReservation timelineReservation = null)
+            TimelineGenerationTrace timelineGenerationTrace = null)
         {
             lock (JobsLock)
             {
@@ -921,7 +1004,7 @@ namespace KimodoUnityBridge.Command
                     Guid oldest = Jobs.OrderBy(pair => pair.Value.Session.StartedAtUtc).First().Key;
                     Jobs.Remove(oldest);
                 }
-                Jobs[session.RequestId] = new JobRecord(target, session, timelineReservation);
+                Jobs[session.RequestId] = new JobRecord(target, session, timelineGenerationTrace);
             }
         }
 
@@ -982,12 +1065,12 @@ namespace KimodoUnityBridge.Command
                     }
                 }
             }
-            if (record.TimelineReservation != null)
+            if (record.TimelineGenerationTrace != null)
             {
-                TimelineReservation reservation = record.TimelineReservation;
+                TimelineGenerationTrace reservation = record.TimelineGenerationTrace;
                 result["session_name"] = reservation.Session.Name;
-                result["timeline_start_seconds"] = reservation.StartSeconds;
-                result["timeline_duration_seconds"] = reservation.DurationSeconds;
+                result["start_seconds"] = reservation.StartSeconds;
+                result["duration_seconds"] = reservation.DurationSeconds;
                 if (reservation.TimelineClip != null)
                 {
                     result["timeline_clip_asset_ref"] = GetObjectReference(reservation.TimelineClip.asset);
@@ -1068,7 +1151,7 @@ namespace KimodoUnityBridge.Command
                 string candidate = modelName.Trim();
                 if (candidate.IndexOfAny(new[] { '\\', '/', ':' }) >= 0)
                 {
-                    throw new InvalidOperationException("model must be a registered model name/configuration id from Kimodo_list_models, not a filesystem path.");
+                    throw new InvalidOperationException("model must be a registered model name/configuration id from kimodo_help section models, not a filesystem path.");
                 }
             }
             return KimodoPlayableClip.NormalizeBridgeModelName(string.IsNullOrWhiteSpace(modelName)
@@ -1095,7 +1178,7 @@ namespace KimodoUnityBridge.Command
             if (!found)
             {
                 throw new InvalidOperationException(
-                    $"Model '{modelName}' with text_encoder_model '{KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode)}' is not listed by Kimodo_list_models.");
+                    $"Model '{modelName}' with text_encoder_model '{KimodoTextEncoderModeProtocol.ToProtocolValue(textEncoderMode)}' is not listed by kimodo_help section models.");
             }
         }
 
@@ -1257,6 +1340,57 @@ namespace KimodoUnityBridge.Command
             }, false);
         }
 
+        private static PropertyDefinition OptionalConstraints(string name, string description)
+        {
+            return new PropertyDefinition(name, new JObject
+            {
+                ["type"] = "array",
+                ["description"] = description,
+                ["items"] = new JObject
+                {
+                    ["type"] = "object",
+                    ["additionalProperties"] = false,
+                    ["properties"] = new JObject
+                    {
+                        ["at"] = new JObject { ["type"] = "number", ["description"] = "Time in the generated animation." },
+                        ["type"] = new JObject { ["type"] = "string", ["enum"] = new JArray("fullbody", "root2d"), ["default"] = "fullbody" },
+                        ["source"] = new JObject
+                        {
+                            ["type"] = "object",
+                            ["additionalProperties"] = false,
+                            ["properties"] = new JObject
+                            {
+                                ["character"] = new JObject { ["type"] = "string" },
+                                ["time"] = new JObject { ["type"] = "number" }
+                            },
+                            ["required"] = new JArray("character", "time")
+                        }
+                    },
+                    ["required"] = new JArray("at", "source")
+                }
+            }, false);
+        }
+
+        private static PropertyDefinition RequiredSamples(string name)
+        {
+            return new PropertyDefinition(name, new JObject
+            {
+                ["type"] = "array",
+                ["minItems"] = 1,
+                ["items"] = new JObject
+                {
+                    ["type"] = "object",
+                    ["additionalProperties"] = false,
+                    ["properties"] = new JObject
+                    {
+                        ["character"] = new JObject { ["type"] = "string" },
+                        ["time"] = new JObject { ["type"] = "number" }
+                    },
+                    ["required"] = new JArray("character", "time")
+                }
+            }, true);
+        }
+
         private static PropertyDefinition Enum(string name, params string[] values)
         {
             return new PropertyDefinition(name, new JObject
@@ -1272,16 +1406,16 @@ namespace KimodoUnityBridge.Command
             public JobRecord(
                 UnityEngine.Object target,
                 command_generation_session session,
-                TimelineReservation timelineReservation)
+                TimelineGenerationTrace timelineGenerationTrace)
             {
                 Target = target;
                 Session = session;
-                TimelineReservation = timelineReservation;
+                TimelineGenerationTrace = timelineGenerationTrace;
             }
 
             public UnityEngine.Object Target { get; }
             public command_generation_session Session { get; }
-            public TimelineReservation TimelineReservation { get; }
+            public TimelineGenerationTrace TimelineGenerationTrace { get; }
         }
 
         private readonly struct ResolvedCharacter

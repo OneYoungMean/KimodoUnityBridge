@@ -14,7 +14,7 @@ from typing import Any, Callable
 import numpy as np
 
 from . import quickserver_assets as assets
-from kimodo.frame_time import seconds_to_frame_count
+from kimodo.frame_time import seconds_to_frame_count, seconds_to_protocol_frame_index
 
 
 MAX_KMB_BYTES = 256 * 1024**2
@@ -917,12 +917,59 @@ def _transition_history_frames(
     return max(patch, min(maximum, aligned))
 
 
-def _future_clip_mask(item: dict[str, Any], joint_count: int) -> list[bool]:
+def _future_clip_mask(item: dict[str, Any], joint_names: tuple[str, ...]) -> dict[str, Any]:
     values = item.get("mask")
-    expected = 4 + max(0, joint_count - 1) * 3
-    if not isinstance(values, list) or len(values) != expected or any(not isinstance(value, bool) for value in values):
-        raise ArdyBackendError(f"Future KMB clip mask must contain exactly {expected} booleans.")
-    return values
+    joint_count = len(joint_names)
+    if not isinstance(values, dict):
+        raise ArdyBackendError("Future KMB clip mask must be an object.")
+    root_position = values.get("root_position", [False, False, False])
+    if (
+        not isinstance(root_position, list)
+        or len(root_position) != 3
+        or any(not isinstance(value, bool) for value in root_position)
+    ):
+        raise ArdyBackendError("Future KMB clip mask root_position must contain three booleans.")
+    root_heading = values.get("root_heading", False)
+    root_rotation = values.get("root_rotation", False)
+    if not isinstance(root_heading, bool) or not isinstance(root_rotation, bool):
+        raise ArdyBackendError("Future KMB clip mask root_heading and root_rotation must be booleans.")
+
+    by_name = {name.lower(): index for index, name in enumerate(joint_names)}
+    joint_position = np.zeros((joint_count - 1, 3), dtype=bool)
+    joint_rotation = np.zeros(joint_count, dtype=bool)
+    joint_rotation[0] = root_rotation
+    joints = values.get("joints", [])
+    if not isinstance(joints, list):
+        raise ArdyBackendError("Future KMB clip mask joints must be an array.")
+    for index, joint in enumerate(joints):
+        if not isinstance(joint, dict):
+            raise ArdyBackendError(f"Future KMB clip mask joints[{index}] must be an object.")
+        name = str(joint.get("joint_name") or "")
+        joint_index = by_name.get(name.lower())
+        if joint_index is None:
+            raise ArdyBackendError(f"Future KMB clip mask contains unknown joint '{name}'.")
+        if joint_index == 0:
+            raise ArdyBackendError("Future KMB clip mask root joint must use the root_* fields.")
+        position = joint.get("position", [False, False, False])
+        if (
+            not isinstance(position, list)
+            or len(position) != 3
+            or any(not isinstance(value, bool) for value in position)
+        ):
+            raise ArdyBackendError(
+                f"Future KMB clip mask joints[{index}].position must contain three booleans."
+            )
+        rotation = joint.get("rotation", False)
+        if not isinstance(rotation, bool):
+            raise ArdyBackendError(f"Future KMB clip mask joints[{index}].rotation must be a boolean.")
+        joint_position[joint_index - 1] = position
+        joint_rotation[joint_index] = rotation
+    return {
+        "root_position": root_position,
+        "root_heading": root_heading,
+        "joint_position": joint_position,
+        "joint_rotation": joint_rotation,
+    }
 
 
 def _append_outputs(left: dict[str, np.ndarray] | None, right: dict[str, Any]) -> dict[str, np.ndarray]:
@@ -1038,7 +1085,7 @@ class ArdySession:
         self.constraints: list[Any] = []
         self.constraint_items: list[dict[str, Any]] = []
         self.root_2d_targets: list[Root2DTarget] = []
-        self.future_clips: list[tuple[int, Any, list[bool]]] = []
+        self.future_clips: list[tuple[int, Any, dict[str, Any]]] = []
         self._cpu_rng_state = torch.Generator(device="cpu").manual_seed(self.resolved_seed).get_state()
         self._cuda_rng_state = None
         if str(model.device).startswith("cuda"):
@@ -1150,7 +1197,7 @@ class ArdySession:
         root_2d_targets: list[Root2DTarget] = []
         history_tensors: list[Any] = []
         history_root_positions: list[np.ndarray] = []
-        future_clips: list[tuple[int, Any, list[bool]]] = []
+        future_clips: list[tuple[int, Any, dict[str, Any]]] = []
         anchor_root_2d = None
         if apply_from > 0 and self.outputs is not None and "root_positions" in self.outputs:
             anchor = self.outputs["root_positions"][0, apply_from - 1]
@@ -1173,22 +1220,37 @@ class ArdySession:
 
             motion = parse_kmb1(_clip_payload(item, attachments, self.quickserver_root))
             _validate_kmb(motion, model, self.profile)
-            start, end = _clip_slice(item, motion)
-            is_history = item.get("is_history", True)
-            if not isinstance(is_history, bool):
-                raise ArdyBackendError("clip is_history must be a boolean.")
-            tensor = _motion_to_tensor(motion, model, start, end)
-            if is_history:
-                if not initial:
-                    raise ArdyBackendError("Only the first Generate may provide explicit History KMB attachments.")
-                if "mask" in item:
-                    raise ArdyBackendError("History KMB attachments cannot specify a mask.")
-                history_tensors.append(tensor)
-                history_root_positions.append(np.asarray(motion.root_positions[start:end], dtype=np.float64))
-            else:
-                future_clips.append(
-                    (apply_from, tensor.detach().cpu(), _future_clip_mask(item, len(motion.joint_names)))
+            try:
+                start_time = float(item["start_time"])
+                duration = float(item["duration"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ArdyBackendError("clip requires finite start_time and duration seconds.") from exc
+            if not math.isfinite(start_time) or not math.isfinite(duration) or duration <= 0.0:
+                raise ArdyBackendError("clip start_time/duration must be finite and duration must be positive.")
+            duration_frames = seconds_to_frame_count(duration, self.profile.source_fps)
+            if duration_frames != motion.num_frames:
+                raise ArdyBackendError(
+                    f"clip duration resolves to {duration_frames} frames but its KMB contains {motion.num_frames}."
                 )
+            target_offset = seconds_to_protocol_frame_index(start_time, self.profile.source_fps)
+            tensor = _motion_to_tensor(motion, model, 0, motion.num_frames)
+            history_frames = min(motion.num_frames, max(0, -target_offset))
+            if history_frames:
+                if not initial:
+                    raise ArdyBackendError("Only the first Generate may provide negative-time ClipConstraints.")
+                history_tensors.append(tensor[:, :history_frames])
+                history_root_positions.append(
+                    np.asarray(motion.root_positions[:history_frames], dtype=np.float64)
+                )
+            if history_frames < motion.num_frames:
+                future_clips.append(
+                    (
+                        apply_from + max(0, target_offset),
+                        tensor[:, history_frames:].detach().cpu(),
+                        _future_clip_mask(item, motion.joint_names),
+                    )
+                )
+            continue
 
         if history_root_positions:
             roots = np.concatenate(history_root_positions, axis=0)
@@ -1377,17 +1439,52 @@ class ArdySession:
             root_slice = model.motion_rep.slice_dict["root_pos"]
             heading_slice = model.motion_rep.slice_dict["global_root_heading"]
             joint_slice = model.motion_rep.slice_dict["local_joints_positions"]
+            rotation_slice = model.motion_rep.slice_dict["global_rot_data"]
             for axis in range(3):
                 channel = root_slice.start + axis
-                if clip_mask[axis]:
-                    observed[:, destination, channel] = source[:, :, channel]
-                    mask[:, destination, channel] = 1
-            if clip_mask[3]:
-                observed[:, destination, heading_slice] = source[:, :, heading_slice]
-                mask[:, destination, heading_slice] = 1
-            joint_mask = source.new_tensor(clip_mask[4:]).reshape(1, 1, -1)
-            observed[:, destination, joint_slice] = source[:, :, joint_slice] * joint_mask
-            mask[:, destination, joint_slice] = joint_mask
+                if clip_mask["root_position"][axis]:
+                    available = ~mask[:, destination, channel].bool()
+                    observed[:, destination, channel] = torch.where(
+                        available,
+                        source[:, :, channel],
+                        observed[:, destination, channel],
+                    )
+                    mask[:, destination, channel] = torch.where(
+                        available,
+                        torch.ones_like(mask[:, destination, channel]),
+                        mask[:, destination, channel],
+                    )
+            if clip_mask["root_heading"]:
+                available = ~mask[:, destination, heading_slice].bool()
+                observed[:, destination, heading_slice] = torch.where(
+                    available,
+                    source[:, :, heading_slice],
+                    observed[:, destination, heading_slice],
+                )
+                mask[:, destination, heading_slice] = torch.where(
+                    available,
+                    torch.ones_like(mask[:, destination, heading_slice]),
+                    mask[:, destination, heading_slice],
+                )
+            joint_mask = source.new_tensor(clip_mask["joint_position"]).reshape(1, 1, -1)
+            available = ~mask[:, destination, joint_slice].bool()
+            requested = joint_mask.bool() & available
+            observed[:, destination, joint_slice] = torch.where(
+                requested,
+                source[:, :, joint_slice],
+                observed[:, destination, joint_slice],
+            )
+            mask[:, destination, joint_slice] = mask[:, destination, joint_slice].bool() | requested
+            rotation_mask = source.new_tensor(clip_mask["joint_rotation"]).reshape(1, 1, -1, 1)
+            rotation_mask = rotation_mask.expand(-1, -1, -1, 6).reshape(1, 1, -1)
+            available = ~mask[:, destination, rotation_slice].bool()
+            requested = rotation_mask.bool() & available
+            observed[:, destination, rotation_slice] = torch.where(
+                requested,
+                source[:, :, rotation_slice],
+                observed[:, destination, rotation_slice],
+            )
+            mask[:, destination, rotation_slice] = mask[:, destination, rotation_slice].bool() | requested
         return observed, mask
 
     def _next_root_target(self, frame: int) -> tuple[int, tuple[float, float]] | None:

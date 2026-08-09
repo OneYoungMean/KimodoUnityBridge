@@ -36,6 +36,19 @@ namespace TimelineInject
             double frame = Math.Floor(seconds * frameRate + tolerance);
             return frame >= int.MaxValue ? int.MaxValue : Math.Max(0, (int)frame);
         }
+
+        public static int SecondsToProtocolFrameIndex(double seconds, double frameRate)
+        {
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds) ||
+                double.IsNaN(frameRate) || double.IsInfinity(frameRate) || frameRate <= 0.0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(seconds));
+            }
+            double frame = Math.Ceiling(seconds * frameRate - FrameTolerance);
+            if (frame >= int.MaxValue) return int.MaxValue;
+            if (frame <= int.MinValue) return int.MinValue;
+            return (int)frame;
+        }
     }
 
     public static class KimodoConstraintRotationUtility

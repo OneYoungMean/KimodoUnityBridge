@@ -39,9 +39,10 @@ namespace KimodoBridge.Editor
 
             if (beginSample != null)
             {
-                // Clip constraints are only a sampling source. Downstream they are ordinary fullbody samples.
-                // Add begin before begin-time markers so beginTime - 1 frame wins same-frame normalization ties.
+                // Keep the boundary first so the previous Timeline frame wins same-frame conflicts.
+                // Generation hosts may promote this sample to a one-frame ClipConstraint.
                 built.CombinedSamples.Add(beginSample);
+                built.BeginBoundarySample = beginSample;
             }
 
             AppendSamples(request.ManualSamples, built.CombinedSamples);

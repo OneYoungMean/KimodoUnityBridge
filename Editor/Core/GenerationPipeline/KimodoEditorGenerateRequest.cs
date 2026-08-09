@@ -19,8 +19,7 @@ namespace KimodoBridge.Editor
         public int RuntimeTrimStartFrame;
         public int DiffusionSteps;
         public int EffectiveSeed;
-        public bool Loop;
-        public string ConstraintsJson;
+        public KimodoConstraintPayload Constraints = new KimodoConstraintPayload();
         public string AnalysisOptionsJson;
         public Func<AnimationClip> CreateTargetClip;
         public Func<AnimationClip, string, KimodoEditorGenerateOutputPlan> ResolveOutputPlan;

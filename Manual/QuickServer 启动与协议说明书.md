@@ -512,7 +512,7 @@ ARDY 请求带正数 `duration` 时，表示一次性固定长度生成；它不
 
 ## Example 11：History / Future KMB 附件
 
-History/Future Clip 约束使用 `kmb_attachments` 清单，JSON 行后紧跟拼接的 KMB 二进制数据。
+ClipConstraint 使用 `kmb_attachments` 清单，JSON 行后紧跟拼接的 KMB 二进制数据。目标时间使用 `start_time` 与正数 `duration`；负时间表示 ARDY 历史，跨零区间由后端内部拆分。
 
 请求头示例：
 
@@ -527,7 +527,7 @@ History/Future Clip 约束使用 `kmb_attachments` 清单，JSON 行后紧跟拼
     {"offset": 0, "length": 12345}
   ],
   "attachment_byte_length": 12345,
-  "constraints_json": "[{\"type\":\"clip\",\"format\":\"kmb_attachment_v1\",\"attachment\":0,\"start_frame\":0,\"end_frame_exclusive\":40,\"is_history\":true}]"
+  "constraints_json": "[{\"type\":\"clip\",\"format\":\"kmb_attachment_v1\",\"attachment\":0,\"start_time\":-8.0,\"duration\":8.0}]"
 }
 ```
 
@@ -537,7 +537,7 @@ History/Future Clip 约束使用 `kmb_attachments` 清单，JSON 行后紧跟拼
 2. 立即发送 `attachment_byte_length` 字节的 KMB 拼接数据。
 3. 按 `kmb_v1` 输出规则读取响应 JSON 和二进制结果。
 
-Future clip 可设置 `is_history:false`，并提供完整 bool `mask`。mask 顺序为 `Root.x, Root.y, Root.z, RootHeading`，然后按骨骼顺序排列每个非 Root 关节的 XYZ 通道。
+Timeline 到 Python 的时间换算使用带容差的有符号 `ceil`，duration 帧数使用同样的 `ceil` 规则。非负区间必须提供对象式 `mask`，包含逐轴根/关节位置、根朝向、根旋转和关节旋转。旧扁平 mask 与 `is_history` 不再支持。
 
 ## 常见误区
 

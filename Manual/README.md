@@ -27,7 +27,6 @@
 ### 生成工具
 
 - **[Timeline Tool](Timeline%20Tool%20说明书.md)** — 在时间轴上生成动画的基础玩法，包含长动画、循环、过渡的组合思路。
-- **[Animator Tool（暂不可用）](Animator%20Tool%20说明书.md)** — 2.0.1 保留实现但禁用了菜单入口，等待工作流复核后再开放。
 - **[Constraint Tool](Constraint%20Tool%20说明书.md)** — 用约束 Marker 精确控制某一帧的姿势、手脚位置和移动轨迹。
 
 ### 配置与运行时

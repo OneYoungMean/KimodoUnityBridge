@@ -53,7 +53,6 @@
 > | `1.Constraints.unity` | 约束 Marker 玩法 |
 > | `2.InOutConstraint.unity` | 首尾约束（长动画 / 循环 / 过渡） |
 > | `3.KeyFrame.unity` | 关键帧 |
-> | `4.AnimatorWindow.unity` | Animator Tool 历史演示（2.0.1 菜单入口暂未开放） |
 > | `5.RuntimeInfiniteDemo.unity` | Runtime Motion Driver 连续生成演示 |
 > | `6.RuntimeSingalPersonDemo.unity` | Runtime Motion Driver 单角色演示 |
 >

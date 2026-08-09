@@ -64,15 +64,15 @@ For streaming ARDY, QuickServer converts seconds with the selected model FPS, ke
 
 A decreasing `time_as_double` is a seek. Normal responses append from the previously delivered tail; seek and replan responses may overlap previously returned frames, so clients replace their timeline from `start_frame`.
 
-Optional History/Future KMB inputs use a JSON `kmb_attachments` manifest with contiguous offsets and lengths, followed by concatenated KMB1 blobs. Clip constraints reference `format=kmb_attachment_v1` and a zero-based `attachment` index. The KMB1 FlatBuffer schema itself is unchanged. `ardy_file_v1` remains debug-only behind `KIMODO_ARDY_ALLOW_TEST_FILES`.
+Optional KMB ClipConstraints use a JSON `kmb_attachments` manifest with contiguous offsets and lengths, followed by concatenated KMB1 blobs. Each constraint carries target `start_time` and positive `duration`; negative time is ARDY history, non-negative time is generated motion, and a range crossing zero is split internally. Clip constraints reference `format=kmb_attachment_v1` and a zero-based `attachment` index. The KMB1 FlatBuffer schema itself is unchanged.
 
 `root2d_target` has been removed. A `root2d` constraint is an ordered list of `frame_indices`, `smooth_root_2d` positions, and optional `global_root_heading` entries. ARDY visits every point in order; if an explicit time is not reachable under its current limits, it first lifts the speed limit and then uses the acceleration required for that timed cubic path.
 
 Set `analysis_option.analysis_only=true` with one or more KMB ClipConstraints to run deterministic analysis without loading a motion model or text encoder. The response format is `kmb_attachments_v1`: its binary payload contains the original KMB attachments and its manifest records their byte/frame ranges. `analysis` returns a `quality_score` in `0..1`, salient `keyframes`, and continuity/acceleration/pose `issues` with per-frame severity scores.
 
-### ARDY clip constraints
+### Clip constraints
 
-A clip without `is_history` is treated as complete History; History clips cannot carry a mask. A Future clip sets `is_history=false`. Its flat boolean mask has `4 + (joint_count - 1) * 3` entries ordered as `Root.x, Root.y, Root.z, RootHeading`, followed by non-Root joint XYZ channels in KMB/ARDY profile order.
+Clip constraints require `start_time`, `duration`, and an object mask for non-negative frames. Timeline-to-Python time conversion uses a tolerance-protected signed ceiling; durations use the same ceiling rule for frame counts. The mask carries per-axis root/joint positions plus root heading/root rotation and joint rotation flags.
 
 Python reconstructs ARDY features from KMB root positions and local quaternions. Diffusion steps remain in the checkpoint-native range 1–10.
 

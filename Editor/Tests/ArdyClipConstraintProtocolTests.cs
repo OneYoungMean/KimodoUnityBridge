@@ -3,28 +3,28 @@ using NUnit.Framework;
 
 namespace KimodoBridge.Editor.Tests
 {
-    public sealed class ArdyClipConstraintProtocolTests
+    public sealed class KimodoClipConstraintProtocolTests
     {
         [Test]
-        public void SerializeFuture_UsesFlatMaskInArdyJointOrder()
+        public void Serialize_UsesTargetTimeAndNamedMask()
         {
             byte[] kmb = CreateKmb(
                 KimodoMotionModelProfiles.ArdyCoreModelName,
                 27,
                 20f,
                 40);
-            KimodoArdyConstraintMask mask = KimodoArdyConstraintMask.UpperBody(
+            KimodoClipConstraintMask mask = KimodoClipConstraintMask.UpperBody(
                 KimodoMotionModelProfiles.ArdyCoreModelName);
             var attachments = new List<byte[]>();
-            string json = KimodoArdyClipConstraintProtocol.SerializeFuture(
+            string json = KimodoClipConstraintProtocol.Serialize(
                 KimodoMotionModelProfiles.ArdyCoreModelName,
-                new List<KimodoArdyClipConstraint>
+                new List<KimodoClipConstraint>
                 {
-                    new KimodoArdyClipConstraint
+                    new KimodoClipConstraint
                     {
                         motionBytes = kmb,
-                        startFrame = 2,
-                        endFrameExclusive = 10,
+                        startTime = 0.5f,
+                        duration = 2f,
                         mask = mask
                     }
                 },
@@ -33,27 +33,24 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(attachments, Has.Count.EqualTo(1));
             Assert.That(json, Does.Contain("\"format\":\"kmb_attachment_v1\""));
             Assert.That(json, Does.Contain("\"attachment\":0"));
-            Assert.That(json, Does.Contain("\"is_history\":false"));
-            Assert.That(json, Does.Contain("\"start_frame\":2"));
-            Assert.That(json, Does.Contain("\"end_frame_exclusive\":10"));
-            int maskStart = json.IndexOf("\"mask\":[", System.StringComparison.Ordinal) + 8;
-            int maskEnd = json.IndexOf(']', maskStart);
-            string[] flat = json.Substring(maskStart, maskEnd - maskStart).Split(',');
-            Assert.That(flat.Length, Is.EqualTo(4 + 26 * 3));
-            Assert.That(flat[4], Is.EqualTo("true")); // Spine.x
-            Assert.That(flat[4 + 18 * 3], Is.EqualTo("false")); // RightUpLeg.x
+            Assert.That(json, Does.Not.Contain("is_history"));
+            Assert.That(json, Does.Contain("\"start_time\":0.5"));
+            Assert.That(json, Does.Contain("\"duration\":2.0"));
+            Assert.That(json, Does.Contain("\"mask\":{\"root_position\":[false,false,false]"));
+            Assert.That(json, Does.Contain("\"joint_name\":\"Spine\""));
+            Assert.That(json, Does.Contain("\"joint_name\":\"RightUpLeg\""));
+            Assert.That(json, Does.Contain("\"rotation\":true"));
         }
 
         [Test]
-        public void MaskHelpers_RejectNonArdyModel()
+        public void MaskHelpers_SelectKnownGenericModel()
         {
-            Assert.That(
-                () => KimodoArdyConstraintMask.UpperBody("Kimodo-SOMA-RP-v1"),
-                Throws.InvalidOperationException.With.Message.Contains("not a registered ARDY rig"));
+            KimodoClipConstraintMask mask = KimodoClipConstraintMask.UpperBody("Kimodo-SOMA-RP-v1");
+            Assert.That(mask.joints, Is.Not.Empty);
         }
 
         [Test]
-        public void SerializeHistory_UsesCompleteKmbAttachment()
+        public void Serialize_NegativeTimeRepresentsHistoryWithoutHistoryType()
         {
             byte[] kmb = CreateKmb(
                 KimodoMotionModelProfiles.ArdyCoreModelName,
@@ -62,13 +59,26 @@ namespace KimodoBridge.Editor.Tests
                 160);
 
             var attachments = new List<byte[]>();
-            string json = KimodoArdyClipConstraintProtocol.SerializeHistory(kmb, attachments);
+            string json = KimodoClipConstraintProtocol.Serialize(
+                KimodoMotionModelProfiles.ArdyCoreModelName,
+                new List<KimodoClipConstraint>
+                {
+                    new KimodoClipConstraint
+                    {
+                        motionBytes = kmb,
+                        startTime = -8f,
+                        duration = 8f,
+                        mask = null
+                    }
+                },
+                attachments);
 
             Assert.That(attachments, Has.Count.EqualTo(1));
             Assert.That(json, Does.Contain("\"attachment\":0"));
-            Assert.That(json, Does.Contain("\"start_frame\":0"));
-            Assert.That(json, Does.Contain("\"end_frame_exclusive\":160"));
-            Assert.That(json, Does.Contain("\"is_history\":true"));
+            Assert.That(json, Does.Contain("\"start_time\":-8.0"));
+            Assert.That(json, Does.Contain("\"duration\":8.0"));
+            Assert.That(json, Does.Not.Contain("is_history"));
+            Assert.That(json, Does.Not.Contain("mask"));
         }
 
         private static byte[] CreateKmb(

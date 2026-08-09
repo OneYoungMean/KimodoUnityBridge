@@ -12,17 +12,14 @@ namespace KimodoBridge
         public double time_as_double;
         public int? seed;
         public int steps;
-        public bool loop;
-        public string constraints_json;
+        [NonSerialized] public KimodoConstraintPayload constraints = new KimodoConstraintPayload();
         // Optional JSON object forwarded as the protocol-level analysis_option field.
         public string analysis_option_json;
         [NonSerialized] public List<KimodoArdyTimelineSegmentDto> ardy_timeline_segments;
-        [NonSerialized] public List<KimodoArdyClipConstraint> ardy_future_clips;
         // Generic KMB ClipConstraints for `analysis_option.analysis_only`.
         // They intentionally carry no ARDY mask so the server can analyze them
         // without loading a motion model or text encoder.
         [NonSerialized] public List<KimodoKmbClipConstraint> analysis_clip_constraints;
-        [NonSerialized] public byte[] ardy_history_kmb;
         [NonSerialized] public bool ardy_session_update_only;
         // Optional desired transition overlap in seconds.
         public float transition_duration;
