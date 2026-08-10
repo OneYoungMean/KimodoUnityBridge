@@ -11,6 +11,7 @@
 
 - `README.md` is the concise human-facing repository entry. Keep it limited to the current overview, requirements, installation, one minimal start flow, AI entry link, and license.
 - `TOOLS.md` is the only AI operational documentation. Its English and Chinese sections must describe the same contract in the same order.
+- `DEVELOPMENT.md` is the developer-facing capability and CLI coverage matrix. Update it in the same commit whenever a package capability or command coverage changes.
 - Do not add separate human tutorials, feature tours, quick-start manuals, duplicated API references, troubleshooting catalogs, or integration-specific MCP/CLI/Cowork pages.
 - Keep command parameter details in `GetCommandDefinitionsJson()` and `kimodo_help`; document only stable meanings, workflow order, boundaries, and verification rules in `TOOLS.md`.
 - When public behavior changes, update both language sections of `TOOLS.md` in the same commit. Keep licenses and third-party attribution files intact.
@@ -19,7 +20,7 @@
 
 - The QuickServer version source is `NvlabKimodoQuickServer~/package.json`.
 - Every completed change set that adds, modifies, or deletes a tracked file under `NvlabKimodoQuickServer~` must increment the patch version exactly once before commit. This includes server code, launchers, configuration, tests, and documentation. Updating `package.json` for that required bump does not trigger another bump.
-- Manually update the QuickServer version and its current one-line capability summary in both language sections of `TOOLS.md` in the same change set. Do not defer or automate this edit.
+- Manually update the QuickServer version and its current one-line capability summary in both language sections of `TOOLS.md`, plus the current version line in `DEVELOPMENT.md`, in the same change set. Do not defer or automate this edit.
 - Multiple server files changed for one coherent commit receive one patch increment; a later server commit receives another.
 
 ## Architecture and verification

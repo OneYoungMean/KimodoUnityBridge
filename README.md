@@ -44,4 +44,5 @@ Install the package into the target project, then read the English section of [T
 
 - [Demo video](https://www.bilibili.com/video/BV1HG7361Env)
 - [FullDemo](https://github.com/OneYoungMean/KimodoUnityBridge_FullDemo)
+- [Development and CLI coverage](DEVELOPMENT.md)
 - [Apache License 2.0](LICENSE)
