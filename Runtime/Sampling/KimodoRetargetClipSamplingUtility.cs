@@ -24,6 +24,28 @@ namespace KimodoBridge
             out TSample sample,
             out string error);
 
+        private struct HumanoidHandIkSolveJob : IAnimationJob
+        {
+            public void ProcessRootMotion(AnimationStream stream)
+            {
+            }
+
+            public void ProcessAnimation(AnimationStream stream)
+            {
+                if (!stream.isHumanStream)
+                {
+                    return;
+                }
+
+                AnimationHumanStream human = stream.AsHuman();
+                human.SetGoalWeightPosition(AvatarIKGoal.LeftHand, 1f);
+                human.SetGoalWeightRotation(AvatarIKGoal.LeftHand, 1f);
+                human.SetGoalWeightPosition(AvatarIKGoal.RightHand, 1f);
+                human.SetGoalWeightRotation(AvatarIKGoal.RightHand, 1f);
+                human.SolveIK();
+            }
+        }
+
         internal sealed class ClipSamplingContext : IDisposable
         {
             private bool disposed;
@@ -240,7 +262,8 @@ namespace KimodoBridge
             ClipSamplingMode samplingMode,
             out ClipSamplingContext context,
             out string error,
-            bool applyMotionXToDelta = true)
+            bool applyMotionXToDelta = true,
+            bool solveHandIk = false)
         {
             context = null;
             error = string.Empty;
@@ -274,6 +297,16 @@ namespace KimodoBridge
                 Playable sourcePlayable = applyMotionXToDelta
                     ? AnimationOffsetPlayableAccess.CreateMotionXToDeltaAndConnect(graph, clipPlayable)
                     : clipPlayable;
+                if (solveHandIk)
+                {
+                    AnimationScriptPlayable handIkPlayable = AnimationScriptPlayable.Create(
+                        graph,
+                        new HumanoidHandIkSolveJob(),
+                        1);
+                    graph.Connect(sourcePlayable, 0, handIkPlayable, 0);
+                    handIkPlayable.SetInputWeight(0, 1f);
+                    sourcePlayable = handIkPlayable;
+                }
                 AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, rootName + "Output", cache.animator);
                 output.SetSourcePlayable(sourcePlayable);
 
@@ -668,7 +701,8 @@ namespace KimodoBridge
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                         out context,
                         out error,
-                        applyMotionXToDelta: true))
+                        applyMotionXToDelta: true,
+                        solveHandIk: true))
                 {
                     return false;
                 }

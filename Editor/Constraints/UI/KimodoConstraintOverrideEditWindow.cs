@@ -16,6 +16,7 @@ namespace KimodoBridge.Editor
         private bool timelineLockCaptured;
         private bool previousTimelineLockState;
         private bool sceneDragActive;
+        private bool pendingEndEffectorWriteback;
         private Vector2 scroll;
         private string lastError;
 
@@ -171,6 +172,7 @@ namespace KimodoBridge.Editor
             hasEditContext = false;
             editEntryId = string.Empty;
             sceneDragActive = false;
+            pendingEndEffectorWriteback = false;
         }
 
         private void OnSceneGUI(SceneView sceneView)
@@ -201,6 +203,30 @@ namespace KimodoBridge.Editor
 
             if (TryGetEditContext(out PoseCacheRenderContext context, out _))
             {
+                if (sceneDragActive &&
+                    KimodoConstraintPoseCache.HasEndEffectorTargetTransformChanges(context, editEntryId))
+                {
+                    if (KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
+                            context,
+                            editEntryId,
+                            marker.ConstraintType,
+                            out string previewError))
+                    {
+                        pendingEndEffectorWriteback = true;
+                        lastError = string.Empty;
+                    }
+                    else
+                    {
+                        lastError = string.IsNullOrWhiteSpace(previewError)
+                            ? "end-effector preview failed."
+                            : previewError;
+                    }
+
+                    KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
+                    Repaint();
+                    return;
+                }
+
                 if (!sceneDragActive &&
                     (Tools.current == Tool.Move || Tools.current == Tool.Transform) &&
                     KimodoConstraintPoseCache.IsNonRootPoseTransform(
@@ -211,7 +237,8 @@ namespace KimodoBridge.Editor
                     Tools.current = Tool.Rotate;
                 }
 
-                if (KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
+                if (pendingEndEffectorWriteback ||
+                    KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
                 {
                     if (sceneDragActive)
                     {
@@ -252,10 +279,12 @@ namespace KimodoBridge.Editor
                     else
                     {
                         KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
+                        RestoreEndEffectorTargetSelection(marker, context, editEntryId);
                         lastError = string.Empty;
                     }
 
                     KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
+                    pendingEndEffectorWriteback = false;
                 }
             }
 
@@ -288,7 +317,7 @@ namespace KimodoBridge.Editor
         private void DrawHeader()
         {
             EditorGUILayout.LabelField("Constraint Override Edit", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox("Edit the pose cache directly. Marker data updates immediately.", MessageType.Info);
+            EditorGUILayout.HelpBox("Edit the pose or the red IK target cube. Marker data updates immediately.", MessageType.Info);
             EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField("Marker", marker != null ? marker.name : "(null)");
             EditorGUILayout.LabelField("Override", marker.useOverride ? "Enabled" : "Disabled");
@@ -419,7 +448,8 @@ namespace KimodoBridge.Editor
         {
             if (marker == null ||
                 !TryGetEditContext(out PoseCacheRenderContext context, out _) ||
-                !KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
+                (!pendingEndEffectorWriteback &&
+                 !KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId)))
             {
                 return;
             }
@@ -457,6 +487,7 @@ namespace KimodoBridge.Editor
             }
 
             EditorUtility.SetDirty(marker);
+            pendingEndEffectorWriteback = false;
         }
 
         private void LockTimelineWindow()
@@ -517,16 +548,15 @@ namespace KimodoBridge.Editor
             string entryId)
         {
             if (marker is KimodoEndEffectorConstraintMarker &&
-                KimodoConstraintPoseCache.TryGetEndEffectorBone(
+                KimodoConstraintPoseCache.TryGetEndEffectorTarget(
                     context,
                     entryId,
-                    marker.ConstraintType,
-                    out Transform endEffectorBone) &&
-                endEffectorBone != null)
+                    out GameObject endEffectorTarget) &&
+                endEffectorTarget != null)
             {
-                Selection.activeGameObject = endEffectorBone.gameObject;
-                EditorGUIUtility.PingObject(endEffectorBone.gameObject);
-                Tools.current = Tool.Rotate;
+                Selection.activeGameObject = endEffectorTarget;
+                EditorGUIUtility.PingObject(endEffectorTarget);
+                Tools.current = Tool.Move;
                 SceneView.lastActiveSceneView?.FrameSelected();
                 return;
             }
@@ -540,6 +570,19 @@ namespace KimodoBridge.Editor
 
             Selection.activeGameObject = rootBone.gameObject;
             EditorGUIUtility.PingObject(rootBone.gameObject);
+        }
+
+        private static void RestoreEndEffectorTargetSelection(
+            KimodoConstraintMarkerBase marker,
+            PoseCacheRenderContext context,
+            string entryId)
+        {
+            if (marker is KimodoEndEffectorConstraintMarker &&
+                KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject target) &&
+                target != null)
+            {
+                Selection.activeGameObject = target;
+            }
         }
 
     }

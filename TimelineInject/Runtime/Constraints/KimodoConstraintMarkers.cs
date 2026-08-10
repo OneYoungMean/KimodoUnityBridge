@@ -47,6 +47,8 @@ namespace TimelineInject
         public Quaternion unityRootRot = Quaternion.identity;
         public bool hasEndEffectorTargetPosition;
         public Vector3 endEffectorTargetPositionRootLocal;
+        public bool hasEndEffectorTargetRotation;
+        public Quaternion endEffectorTargetRotationBodyRelative = Quaternion.identity;
         public List<string> jointNames = new List<string>();
         public List<Vector3> localAxisAngles = new List<Vector3>();
         public List<int> sampledJointIndices = new List<int>();
@@ -70,6 +72,8 @@ namespace TimelineInject
                 unityRootRot = unityRootRot,
                 hasEndEffectorTargetPosition = hasEndEffectorTargetPosition,
                 endEffectorTargetPositionRootLocal = endEffectorTargetPositionRootLocal,
+                hasEndEffectorTargetRotation = hasEndEffectorTargetRotation,
+                endEffectorTargetRotationBodyRelative = endEffectorTargetRotationBodyRelative,
                 jointNames = jointNames != null ? new List<string>(jointNames) : new List<string>(),
                 localAxisAngles = localAxisAngles != null ? new List<Vector3>(localAxisAngles) : new List<Vector3>(),
                 sampledJointIndices = sampledJointIndices != null ? new List<int>(sampledJointIndices) : new List<int>(),

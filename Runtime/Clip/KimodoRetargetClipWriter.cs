@@ -61,6 +61,20 @@ namespace KimodoBridge
             AnimationCurve rightFootQy = new AnimationCurve();
             AnimationCurve rightFootQz = new AnimationCurve();
             AnimationCurve rightFootQw = new AnimationCurve();
+            AnimationCurve leftHandTx = new AnimationCurve();
+            AnimationCurve leftHandTy = new AnimationCurve();
+            AnimationCurve leftHandTz = new AnimationCurve();
+            AnimationCurve leftHandQx = new AnimationCurve();
+            AnimationCurve leftHandQy = new AnimationCurve();
+            AnimationCurve leftHandQz = new AnimationCurve();
+            AnimationCurve leftHandQw = new AnimationCurve();
+            AnimationCurve rightHandTx = new AnimationCurve();
+            AnimationCurve rightHandTy = new AnimationCurve();
+            AnimationCurve rightHandTz = new AnimationCurve();
+            AnimationCurve rightHandQx = new AnimationCurve();
+            AnimationCurve rightHandQy = new AnimationCurve();
+            AnimationCurve rightHandQz = new AnimationCurve();
+            AnimationCurve rightHandQw = new AnimationCurve();
 
             var muscleCurves = new AnimationCurve[GeneratedMuscleIndices.Length];
             for (int i = 0; i < muscleCurves.Length; i++)
@@ -93,6 +107,10 @@ namespace KimodoBridge
                 AddQuaternionKey(time, sample.leftFootRotation, leftFootQx, leftFootQy, leftFootQz, leftFootQw);
                 AddVector3Key(time, sample.rightFootPosition, rightFootTx, rightFootTy, rightFootTz);
                 AddQuaternionKey(time, sample.rightFootRotation, rightFootQx, rightFootQy, rightFootQz, rightFootQw);
+                AddVector3Key(time, sample.leftHandPosition, leftHandTx, leftHandTy, leftHandTz);
+                AddQuaternionKey(time, sample.leftHandRotation, leftHandQx, leftHandQy, leftHandQz, leftHandQw);
+                AddVector3Key(time, sample.rightHandPosition, rightHandTx, rightHandTy, rightHandTz);
+                AddQuaternionKey(time, sample.rightHandRotation, rightHandQx, rightHandQy, rightHandQz, rightHandQw);
 
                 for (int muscle = 0; muscle < muscleCurves.Length; muscle++)
                 {
@@ -108,6 +126,10 @@ namespace KimodoBridge
             SetAnimatorQuaternionCurves(clip, "LeftFootQ", leftFootQx, leftFootQy, leftFootQz, leftFootQw);
             SetAnimatorVector3Curves(clip, "RightFootT", rightFootTx, rightFootTy, rightFootTz);
             SetAnimatorQuaternionCurves(clip, "RightFootQ", rightFootQx, rightFootQy, rightFootQz, rightFootQw);
+            SetAnimatorVector3Curves(clip, "LeftHandT", leftHandTx, leftHandTy, leftHandTz);
+            SetAnimatorQuaternionCurves(clip, "LeftHandQ", leftHandQx, leftHandQy, leftHandQz, leftHandQw);
+            SetAnimatorVector3Curves(clip, "RightHandT", rightHandTx, rightHandTy, rightHandTz);
+            SetAnimatorQuaternionCurves(clip, "RightHandQ", rightHandQx, rightHandQy, rightHandQz, rightHandQw);
 
             for (int muscle = 0; muscle < muscleCurves.Length; muscle++)
             {

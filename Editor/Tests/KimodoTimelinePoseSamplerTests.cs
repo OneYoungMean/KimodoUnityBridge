@@ -760,7 +760,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void EndConstraintTarget_IsPointOneMetersAndAlwaysReadOnly()
+        public void EndConstraintTarget_IsWorldSpaceCubeEditableOnlyDuringEdit()
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
@@ -809,15 +809,189 @@ namespace KimodoBridge.Editor.Tests
                     KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject target),
                     Is.True);
                 Assert.That(target, Is.Not.Null);
+                Assert.That(target.GetComponent<MeshFilter>()?.sharedMesh?.name, Is.EqualTo("Cube"));
                 Assert.That(target.transform.lossyScale.x, Is.EqualTo(0.1f).Within(1e-4f));
                 Assert.That(target.transform.lossyScale.y, Is.EqualTo(0.1f).Within(1e-4f));
                 Assert.That(target.transform.lossyScale.z, Is.EqualTo(0.1f).Within(1e-4f));
                 Assert.That((target.hideFlags & HideFlags.NotEditable) != 0, Is.True);
-                Assert.That(target.transform.parent, Is.Not.Null);
-                Assert.That(target.transform.localPosition, Is.EqualTo(Vector3.zero));
+                Assert.That(target.transform.parent, Is.Null);
 
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                Assert.That((target.hideFlags & HideFlags.NotEditable) != 0, Is.True);
+                Assert.That((target.hideFlags & HideFlags.NotEditable) == 0, Is.True);
+                Assert.That((target.hideFlags & HideFlags.HideInHierarchy) == 0, Is.True);
+            }
+            finally
+            {
+                KimodoConstraintPoseCache.DestroyAll();
+                source.Dispose();
+            }
+        }
+
+        [Test]
+        public void HumanoidIkGoalSpace_WorldConversionRoundTrips()
+        {
+            Vector3 bodyPosition = new Vector3(1.5f, 0.25f, -2f);
+            Quaternion bodyRotation = Quaternion.Euler(12f, 47f, -6f);
+            const float humanScale = 1.8f;
+            Vector3 worldPosition = new Vector3(3f, 1.2f, -0.7f);
+            Quaternion worldRotation = Quaternion.Euler(-15f, 81f, 22f);
+
+            KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
+                bodyPosition,
+                bodyRotation,
+                humanScale,
+                worldPosition,
+                worldRotation,
+                out Vector3 goalPosition,
+                out Quaternion goalRotation);
+            KimodoRetargetHumanoidIkUtility.BodyRelativeIkGoalToWorld(
+                bodyPosition,
+                bodyRotation,
+                humanScale,
+                goalPosition,
+                goalRotation,
+                out Vector3 roundTripPosition,
+                out Quaternion roundTripRotation);
+
+            Assert.That(Vector3.Distance(roundTripPosition, worldPosition), Is.LessThan(1e-5f));
+            Assert.That(Quaternion.Angle(roundTripRotation, worldRotation), Is.LessThan(1e-4f));
+        }
+
+        [TestCase(AvatarIKGoal.LeftHand)]
+        [TestCase(AvatarIKGoal.RightHand)]
+        [TestCase(AvatarIKGoal.LeftFoot)]
+        [TestCase(AvatarIKGoal.RightFoot)]
+        public void SingleMuscleSample_AppliesHumanoidIkGoalPositionAndRotation(AvatarIKGoal goal)
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    $"KimodoTimeline{goal}IkTest",
+                    out SkeletonCache cache,
+                    out error),
+                Is.True,
+                error);
+
+            try
+            {
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryCaptureMuscleSample(cache, out MuscleSample source, out error),
+                    Is.True,
+                    error);
+                Assert.That(TryGetIkGoal(source, goal, out Vector3 initialPosition, out Quaternion initialRotation), Is.True);
+
+                Vector3 desiredPosition = initialPosition + new Vector3(0.02f, 0.015f, -0.01f);
+                Quaternion desiredRotation = Quaternion.AngleAxis(5f, Vector3.up) * initialRotation;
+                Assert.That(TrySetIkGoal(source, goal, desiredPosition, desiredRotation), Is.True);
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                        source,
+                        KimodoPlayableClip.FIXED_FRAME_RATE,
+                        cache,
+                        out _,
+                        out MuscleSample solved,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(solved, Is.Not.Null);
+                Assert.That(TryGetIkGoal(solved, goal, out Vector3 solvedPosition, out Quaternion solvedRotation), Is.True);
+
+                Assert.That(
+                    Vector3.Distance(solvedPosition, desiredPosition),
+                    Is.LessThan(Vector3.Distance(initialPosition, desiredPosition)),
+                    $"{goal} position did not move toward the requested IK goal.");
+                Assert.That(
+                    Quaternion.Angle(solvedRotation, desiredRotation),
+                    Is.LessThan(Quaternion.Angle(initialRotation, desiredRotation)),
+                    $"{goal} rotation did not move toward the requested IK goal.");
+            }
+            finally
+            {
+                cache.Dispose();
+            }
+        }
+
+        [Test]
+        public void EndConstraintTarget_UpdatesHandThroughMuscleRetarget()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoEndConstraintHandIkTest",
+                    out SkeletonCache source,
+                    out error),
+                Is.True,
+                error);
+
+            var context = new PoseCacheRenderContext(
+                111,
+                KimodoUnityObjectIdUtility.IdHash(source.animator),
+                112,
+                KimodoPlayableClip.DefaultBridgeModelName,
+                KimodoConstraintRigType.Soma77,
+                avatar);
+            const string entryId = "end-target-hand-ik-test";
+            try
+            {
+                KimodoConstraintPoseCache.DestroyAll();
+                KimodoMarkerSampleResult sample = KimodoMarkerSamplingUtility.CreateDefaultMarkerSample(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    source.skeletonRoot,
+                    "left-hand");
+                Assert.That(
+                    KimodoConstraintPoseCache.RenderBatch(
+                        context,
+                        new[]
+                        {
+                            new PoseCacheRenderItem
+                            {
+                                EntryId = entryId,
+                                SampleData = sample,
+                                ConstraintType = "left-hand",
+                                Visible = true
+                            }
+                        },
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject target),
+                    Is.True);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryGetEndEffectorBone(
+                        context,
+                        entryId,
+                        "left-hand",
+                        out Transform hand),
+                    Is.True);
+
+                target.transform.position += new Vector3(0.04f, 0.06f, 0.03f);
+                float beforeDistance = Vector3.Distance(hand.position, target.transform.position);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
+                        context,
+                        entryId,
+                        "left-hand",
+                        out error),
+                    Is.True,
+                    error);
+                float afterDistance = Vector3.Distance(hand.position, target.transform.position);
+
+                Assert.That(afterDistance, Is.LessThan(beforeDistance));
             }
             finally
             {
@@ -1950,6 +2124,76 @@ namespace KimodoBridge.Editor.Tests
             finally
             {
                 source.Dispose();
+            }
+        }
+
+        private static bool TryGetIkGoal(
+            MuscleSample sample,
+            AvatarIKGoal goal,
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            if (sample == null)
+            {
+                return false;
+            }
+
+            switch (goal)
+            {
+                case AvatarIKGoal.LeftHand:
+                    position = sample.leftHandPosition;
+                    rotation = sample.leftHandRotation;
+                    return true;
+                case AvatarIKGoal.RightHand:
+                    position = sample.rightHandPosition;
+                    rotation = sample.rightHandRotation;
+                    return true;
+                case AvatarIKGoal.LeftFoot:
+                    position = sample.leftFootPosition;
+                    rotation = sample.leftFootRotation;
+                    return true;
+                case AvatarIKGoal.RightFoot:
+                    position = sample.rightFootPosition;
+                    rotation = sample.rightFootRotation;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TrySetIkGoal(
+            MuscleSample sample,
+            AvatarIKGoal goal,
+            Vector3 position,
+            Quaternion rotation)
+        {
+            if (sample == null)
+            {
+                return false;
+            }
+
+            switch (goal)
+            {
+                case AvatarIKGoal.LeftHand:
+                    sample.leftHandPosition = position;
+                    sample.leftHandRotation = rotation;
+                    return true;
+                case AvatarIKGoal.RightHand:
+                    sample.rightHandPosition = position;
+                    sample.rightHandRotation = rotation;
+                    return true;
+                case AvatarIKGoal.LeftFoot:
+                    sample.leftFootPosition = position;
+                    sample.leftFootRotation = rotation;
+                    return true;
+                case AvatarIKGoal.RightFoot:
+                    sample.rightFootPosition = position;
+                    sample.rightFootRotation = rotation;
+                    return true;
+                default:
+                    return false;
             }
         }
 

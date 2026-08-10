@@ -108,12 +108,44 @@ namespace KimodoBridge
                 worldGoalPosition += worldGoalRotation * new Vector3(axisLength, 0f, 0f);
             }
 
-            // HumanPose.bodyPosition is world-space divided by humanScale.
-            Quaternion inverseBodyRotation = Quaternion.Inverse(bodyRotation);
-            goalPosition = inverseBodyRotation * (worldGoalPosition - bodyPosition * humanScale);
-            goalRotation = inverseBodyRotation * worldGoalRotation;
-            goalPosition /= humanScale;
+            WorldToBodyRelativeIkGoal(
+                bodyPosition,
+                bodyRotation,
+                humanScale,
+                worldGoalPosition,
+                worldGoalRotation,
+                out goalPosition,
+                out goalRotation);
             return true;
+        }
+
+        internal static void WorldToBodyRelativeIkGoal(
+            Vector3 bodyPosition,
+            Quaternion bodyRotation,
+            float humanScale,
+            Vector3 worldGoalPosition,
+            Quaternion worldGoalRotation,
+            out Vector3 goalPosition,
+            out Quaternion goalRotation)
+        {
+            float scale = Mathf.Max(1e-6f, humanScale);
+            Quaternion inverseBodyRotation = Quaternion.Inverse(bodyRotation);
+            goalPosition = inverseBodyRotation * (worldGoalPosition - bodyPosition * scale) / scale;
+            goalRotation = inverseBodyRotation * worldGoalRotation;
+        }
+
+        internal static void BodyRelativeIkGoalToWorld(
+            Vector3 bodyPosition,
+            Quaternion bodyRotation,
+            float humanScale,
+            Vector3 goalPosition,
+            Quaternion goalRotation,
+            out Vector3 worldGoalPosition,
+            out Quaternion worldGoalRotation)
+        {
+            float scale = Mathf.Max(1e-6f, humanScale);
+            worldGoalPosition = bodyPosition * scale + bodyRotation * (goalPosition * scale);
+            worldGoalRotation = bodyRotation * goalRotation;
         }
 
         internal static Transform ResolveHumanBoneTransform(SkeletonCache cache, HumanBodyBones bone)
