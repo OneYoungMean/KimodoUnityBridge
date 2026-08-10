@@ -1075,19 +1075,28 @@ namespace KimodoUnityBridge.Command
             AnimationClip output = null;
             try
             {
-                for (int frame = 0; frame < frameCount; frame++)
+                RuntimeAnimatorController savedController = source.Animator.runtimeAnimatorController;
+                source.Animator.runtimeAnimatorController = null;
+                try
                 {
-                    double time = frame == frameCount - 1 ? end : start + (end - start) * frame / (frameCount - 1);
-                    session.Director.time = time;
-                    session.Director.Evaluate();
-                    poses.Add(CaptureMuscleSample(source));
-                    var frameData = new BakeBoneFrame(transforms.Length);
-                    for (int index = 0; index < transforms.Length; index++)
+                    for (int frame = 0; frame < frameCount; frame++)
                     {
-                        frameData.Positions[index] = transforms[index].localPosition;
-                        frameData.Rotations[index] = transforms[index].localRotation;
+                        double time = frame == frameCount - 1 ? end : start + (end - start) * frame / (frameCount - 1);
+                        session.Director.time = time;
+                        session.Director.Evaluate();
+                        poses.Add(CaptureMuscleSample(source));
+                        var frameData = new BakeBoneFrame(transforms.Length);
+                        for (int index = 0; index < transforms.Length; index++)
+                        {
+                            frameData.Positions[index] = transforms[index].localPosition;
+                            frameData.Rotations[index] = transforms[index].localRotation;
+                        }
+                        boneFrames.Add(frameData);
                     }
-                    boneFrames.Add(frameData);
+                }
+                finally
+                {
+                    source.Animator.runtimeAnimatorController = savedController;
                 }
 
                 if (removeRootMotion)

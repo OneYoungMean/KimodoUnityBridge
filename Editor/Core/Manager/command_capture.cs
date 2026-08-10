@@ -265,22 +265,31 @@ namespace KimodoUnityBridge.Command
 
         private static KimodoMarkerSampleResult SampleCapturePose(TimelineSessionRecord session, CaptureRequest request)
         {
-            session.Director.time = request.Time;
-            session.Director.Evaluate();
-            TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
-            var pose = new HumanPose();
-            using (var handler = new HumanPoseHandler(request.Character.Avatar, request.Character.Animator.transform))
+            RuntimeAnimatorController savedController = request.Character.Animator.runtimeAnimatorController;
+            try
             {
-                handler.GetHumanPose(ref pose);
+                request.Character.Animator.runtimeAnimatorController = null;
+                session.Director.time = request.Time;
+                session.Director.Evaluate();
+                TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+                var pose = new HumanPose();
+                using (var handler = new HumanPoseHandler(request.Character.Avatar, request.Character.Animator.transform))
+                {
+                    handler.GetHumanPose(ref pose);
+                }
+                KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
+                return new KimodoMarkerSampleResult
+                {
+                    sampleTime = request.Time,
+                    unityRootPos = request.Character.Animator.transform.position,
+                    unityRootRot = request.Character.Animator.transform.rotation,
+                    muscles = pose.muscles.ToList()
+                };
             }
-            KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
-            return new KimodoMarkerSampleResult
+            finally
             {
-                sampleTime = request.Time,
-                unityRootPos = request.Character.Animator.transform.position,
-                unityRootRot = request.Character.Animator.transform.rotation,
-                muscles = pose.muscles.ToList()
-            };
+                request.Character.Animator.runtimeAnimatorController = savedController;
+            }
         }
 
         private static GameObject CreatePosePreview(

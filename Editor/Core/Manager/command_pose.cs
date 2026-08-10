@@ -217,8 +217,10 @@ namespace KimodoUnityBridge.Command
                 throw new InvalidOperationException($"Character '{character.Name}' requires a valid humanoid Avatar for pose sampling.");
             }
             double originalTime = session.Director.time;
+            RuntimeAnimatorController savedController = character.Animator.runtimeAnimatorController;
             try
             {
+                character.Animator.runtimeAnimatorController = null;
                 session.Director.time = frame / SessionFrameRate;
                 session.Director.Evaluate();
                 TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
@@ -241,6 +243,7 @@ namespace KimodoUnityBridge.Command
             }
             finally
             {
+                character.Animator.runtimeAnimatorController = savedController;
                 session.Director.time = originalTime;
                 session.Director.Evaluate();
                 TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
