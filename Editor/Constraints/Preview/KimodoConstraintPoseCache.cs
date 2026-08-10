@@ -1734,6 +1734,15 @@ namespace KimodoBridge.Editor
                 out position,
                 out rotation);
 
+            if (IsHandBone(bone))
+            {
+                position = KimodoRetargetHumanoidIkUtility.IkGoalPositionToBoneWorldPosition(
+                    entry.TargetCache.avatar,
+                    bone,
+                    position,
+                    rotation);
+            }
+
             if (TryResolveTargetAvatarPoint(entry, bone, sample, out Vector3 storedPosition))
             {
                 position = storedPosition;
@@ -1774,11 +1783,21 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            Vector3 worldGoalPosition = entry.EndEffectorMarker.transform.position;
+            if (IsHandBone(bone))
+            {
+                worldGoalPosition = KimodoRetargetHumanoidIkUtility.BonePositionToIkGoalWorldPosition(
+                    entry.TargetCache.avatar,
+                    bone,
+                    worldGoalPosition,
+                    entry.EndEffectorMarker.transform.rotation);
+            }
+
             KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
                 sourceSample.pose.bodyPosition,
                 sourceSample.pose.bodyRotation,
                 entry.TargetCache.humanScale,
-                entry.EndEffectorMarker.transform.position,
+                worldGoalPosition,
                 entry.EndEffectorMarker.transform.rotation,
                 out Vector3 goalPosition,
                 out Quaternion goalRotation);
@@ -1795,6 +1814,11 @@ namespace KimodoBridge.Editor
                 out _,
                 out _,
                 out error);
+        }
+
+        private static bool IsHandBone(HumanBodyBones bone)
+        {
+            return bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand;
         }
 
         private static bool TryGetMuscleIkGoal(

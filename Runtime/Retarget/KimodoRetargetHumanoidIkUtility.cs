@@ -100,13 +100,11 @@ namespace KimodoBridge
             int humanId = (int)bone;
             Quaternion postRotation = AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(avatar, humanId);
             Quaternion worldGoalRotation = transform.rotation * postRotation;
-            Vector3 worldGoalPosition = transform.position;
-
-            if (avatarIKGoal == AvatarIKGoal.LeftFoot || avatarIKGoal == AvatarIKGoal.RightFoot)
-            {
-                float axisLength = AvatarRuntimeAccess.GetAvatarAxisLengthOrZero(avatar, humanId);
-                worldGoalPosition += worldGoalRotation * new Vector3(axisLength, 0f, 0f);
-            }
+            Vector3 worldGoalPosition = BonePositionToIkGoalWorldPosition(
+                avatar,
+                bone,
+                transform.position,
+                worldGoalRotation);
 
             WorldToBodyRelativeIkGoal(
                 bodyPosition,
@@ -117,6 +115,30 @@ namespace KimodoBridge
                 out goalPosition,
                 out goalRotation);
             return true;
+        }
+
+        internal static Vector3 BonePositionToIkGoalWorldPosition(
+            Avatar avatar,
+            HumanBodyBones bone,
+            Vector3 boneWorldPosition,
+            Quaternion goalWorldRotation)
+        {
+            float axisLength = avatar != null
+                ? AvatarRuntimeAccess.GetAvatarAxisLengthOrZero(avatar, (int)bone)
+                : 0f;
+            return boneWorldPosition + goalWorldRotation * new Vector3(axisLength, 0f, 0f);
+        }
+
+        internal static Vector3 IkGoalPositionToBoneWorldPosition(
+            Avatar avatar,
+            HumanBodyBones bone,
+            Vector3 goalWorldPosition,
+            Quaternion goalWorldRotation)
+        {
+            float axisLength = avatar != null
+                ? AvatarRuntimeAccess.GetAvatarAxisLengthOrZero(avatar, (int)bone)
+                : 0f;
+            return goalWorldPosition - goalWorldRotation * new Vector3(axisLength, 0f, 0f);
         }
 
         internal static void WorldToBodyRelativeIkGoal(

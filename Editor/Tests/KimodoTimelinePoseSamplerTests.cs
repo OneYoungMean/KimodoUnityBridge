@@ -919,6 +919,95 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void SelfRetarget_PreservesProfileHandWorldPose()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoSelfRetargetSource",
+                    out SkeletonCache source,
+                    out error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoSelfRetargetTarget",
+                    out SkeletonCache target,
+                    out error),
+                Is.True,
+                error);
+
+            try
+            {
+                var pose = new HumanPose();
+                source.poseHandler.GetHumanPose(ref pose);
+                int[] changedMuscles = { 0, 1, 2, 21, 22, 23, 37, 38, 39, 40, 41, 42 };
+                for (int i = 0; i < changedMuscles.Length; i++)
+                {
+                    int muscle = changedMuscles[i];
+                    if (muscle < pose.muscles.Length)
+                    {
+                        pose.muscles[muscle] = Mathf.Clamp(pose.muscles[muscle] + 0.3f, -1f, 1f);
+                    }
+                }
+                pose.bodyPosition += new Vector3(0.15f, 0.05f, -0.2f) / source.humanScale;
+                pose.bodyRotation = Quaternion.Euler(0f, 31f, 0f) * pose.bodyRotation;
+                source.poseHandler.SetHumanPose(ref pose);
+                source.poseHandler.GetHumanPose(ref pose);
+
+                MuscleSample input = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(source, pose);
+                HumanBodyBones[] handBones = { HumanBodyBones.LeftHand, HumanBodyBones.RightHand };
+                var sourcePositions = new Vector3[handBones.Length];
+                var sourceRotations = new Quaternion[handBones.Length];
+                for (int i = 0; i < handBones.Length; i++)
+                {
+                    Transform hand = source.animator.GetBoneTransform(handBones[i]);
+                    Assert.That(hand, Is.Not.Null);
+                    sourcePositions[i] = hand.position;
+                    sourceRotations[i] = hand.rotation;
+                }
+
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                        input,
+                        KimodoPlayableClip.FIXED_FRAME_RATE,
+                        target,
+                        out _,
+                        out _,
+                        out error),
+                    Is.True,
+                    error);
+
+                for (int i = 0; i < handBones.Length; i++)
+                {
+                    Transform hand = target.animator.GetBoneTransform(handBones[i]);
+                    Assert.That(hand, Is.Not.Null);
+                    Assert.That(
+                        Vector3.Distance(sourcePositions[i], hand.position),
+                        Is.LessThan(1e-4f),
+                        $"{handBones[i]} moved while retargeting the profile Avatar to itself.");
+                    Assert.That(
+                        Quaternion.Angle(sourceRotations[i], hand.rotation),
+                        Is.LessThan(0.1f),
+                        $"{handBones[i]} rotated while retargeting the profile Avatar to itself.");
+                }
+            }
+            finally
+            {
+                source.Dispose();
+                target.Dispose();
+            }
+        }
+
+        [Test]
         public void EndConstraintTarget_UpdatesHandThroughMuscleRetarget()
         {
             Assert.That(
@@ -978,6 +1067,23 @@ namespace KimodoBridge.Editor.Tests
                         "left-hand",
                         out Transform hand),
                     Is.True);
+
+                Assert.That(
+                    Vector3.Distance(hand.position, target.transform.position),
+                    Is.LessThan(1e-4f),
+                    "The editable hand target must remain at the wrist rather than the Humanoid axis endpoint.");
+                Assert.That(
+                    KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
+                        context,
+                        entryId,
+                        "left-hand",
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    Vector3.Distance(hand.position, target.transform.position),
+                    Is.LessThan(1e-4f),
+                    "Applying an unchanged hand target must preserve the wrist position.");
 
                 target.transform.position += new Vector3(0.04f, 0.06f, 0.03f);
                 float beforeDistance = Vector3.Distance(hand.position, target.transform.position);
