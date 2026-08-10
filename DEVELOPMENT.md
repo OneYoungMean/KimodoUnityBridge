@@ -44,8 +44,8 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。Runt
 | 生成进度与取消 | 按 `request_id` 查询终态或取消任务 | `kimodo_get_generation`, `kimodo_cancel_generation` | 完整 | accepted/running 不算完成 |
 | 多片段连接生成 | Timeline Inspector 可对同一轨道选中的多个 Clips 一次连接生成 | 无 | 未覆盖 | 没有多片段 command/schema |
 | Pose 采样与编辑 | 读取 Timeline Pose，创建/复制可写 Pose，更新 Root/Muscle/Foot IK | `pose_create`, `pose_get`, `pose_set`, `pose_copy` | 完整 | 可写 Pose 由 Session 管理 |
-| FullBody Constraint | 从 Pose 构造生成约束 | `kimodo_generate_animation.constraints` | 完整 | `frame` 是生成 Clip 内相对帧 |
-| Root2D Constraint | 从 Pose 或直接 Position/Heading 构造约束 | `kimodo_generate_animation.constraints` | 完整 | 直接值为 `[x,z]` 与二维 heading |
+| FullBody Constraint | 从 Pose 构造完整人体约束 | `kimodo_generate_animation.constraints` | 完整 | 包含全身关节以及根骨骼位置与朝向；`frame` 是生成 Clip 内相对帧 |
+| Root2D Constraint | 从 Pose 或直接 Position/Heading 构造根骨骼约束 | `kimodo_generate_animation.constraints` | 完整 | 只约束根骨骼地面平面位置与朝向；直接值为 `[x,z]` 与二维 heading |
 | Hand/Foot Constraint | 从 Pose 重定向出左右手脚末端约束 | `kimodo_generate_animation.constraints` | 部分 | CLI 没有独立世界坐标末端目标字段 |
 | Hand/Foot IK 场景编辑 | Constraint Editor 用红立方体调整末端目标并实时更新 Pose | 无 | 未覆盖 | 当前是 Editor 交互能力 |
 | 数学 Root2D 路径 | 生成 line、turn、s、circle 路径点 | `kimodo_build_root2d_path` | 完整 | 输出可直接转换为 Root2D constraints |
@@ -60,6 +60,22 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。Runt
 | Runtime 路线调用 | 按世界坐标目标或 waypoint 队列驱动 Runtime Motion Driver | `KimodoCliMotionRoutePlanner.Animate/AnimateRoute` | 部分 | 这是组件 API，不是 `command_dispatcher` command |
 | Runtime 发布安装 | 将运行时复制到 `StreamingAssets` | 无 | 未覆盖 | 当前入口为 Unity 菜单命令 |
 | Server Manager | 项目运行时路径、状态、模型、缓存和维护操作 | `kimodo_help(section:"models")`、调试安装 | 部分 | 其余维护能力保留在 Project Settings UI |
+
+## Constraint 数据结构
+
+本节先明确 `fullbody` 与 `root2d` 两个核心类型。每个生成约束至少包含生成 Clip 内的相对帧和类型：
+
+```json
+{
+  "frame": 0,
+  "type": "fullbody",
+  "pose": { "source": "<source>", "frame": 0 }
+}
+```
+
+- `fullbody` 从 Pose locator 读取完整人体姿态，约束全身关节位置，并同时包含根骨骼的位置与朝向。
+- `root2d` 只约束根骨骼在地面平面上的位置与朝向，不包含其他身体关节。它可以使用 `pose`，也可以使用 `position:[x,z]` 与 `heading:[x,z]`。
+- `fullbody` 已经包含根骨骼约束，同一帧不要再添加 `root2d`。
 
 ## 维护要求
 

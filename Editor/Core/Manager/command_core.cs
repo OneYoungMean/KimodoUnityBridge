@@ -53,7 +53,7 @@ namespace KimodoUnityBridge.Command
                         "Return the command manual, detailed parameter documentation for one command, or currently viable model configurations.",
                         Properties(
                             Optional("command", "string", "Command name whose full manual entry should be returned."),
-                            Enum("section", "commands", "models"))),
+                            Enum("section", "commands", "models", "constraints"))),
                     CommandDefinition(DebugInstallServerCommand,
                         "[debug-only] Incrementally install the QuickServer runtime from the package template, preserving models and the Python environment, then restart it.",
                         Properties(),
@@ -322,12 +322,17 @@ namespace KimodoUnityBridge.Command
                 {
                     return ListModels("{}");
                 }
+                if (section == "constraints")
+                {
+                    return Ok(BuildConstraintManual());
+                }
                 if (section != "commands")
                 {
-                    throw new InvalidOperationException("section must be commands or models.");
+                    throw new InvalidOperationException("section must be commands, models, or constraints.");
                 }
 
                 JObject all = JObject.Parse(GetCommandDefinitionsJson());
+                JObject constraintManual = BuildConstraintManual();
                 return Ok(new JObject
                 {
                     ["manual"] = "Kimodo command reference",
@@ -365,9 +370,51 @@ namespace KimodoUnityBridge.Command
                         ["description"] = item.Value<string>("description"),
                         ["required"] = item["inputSchema"]?["required"]?.DeepClone() ?? new JArray(),
                         ["debug_only"] = item.Value<bool?>("debug_only") ?? false
-                    }))
+                    })),
+                    ["constraints"] = constraintManual["constraints"].DeepClone(),
+                    ["constraint_rules"] = constraintManual["rules"].DeepClone()
                 });
             });
+        }
+
+        private static JObject BuildConstraintManual()
+        {
+            return new JObject
+            {
+                ["manual"] = "Kimodo generation constraint reference",
+                ["constraints"] = new JArray
+                {
+                    new JObject
+                    {
+                        ["type"] = "fullbody",
+                        ["description"] = "A complete body pose constraint from a pose locator. It constrains the full-body joints and also includes the root bone position and heading.",
+                        ["shape"] = new JObject
+                        {
+                            ["frame"] = "Relative frame in the generated clip.",
+                            ["type"] = "fullbody",
+                            ["pose"] = "{source,frame} pose locator"
+                        }
+                    },
+                    new JObject
+                    {
+                        ["type"] = "root2d",
+                        ["description"] = "A root-only constraint. It constrains the root bone position and heading on the ground plane, without constraining the rest of the body.",
+                        ["shape"] = new JObject
+                        {
+                            ["frame"] = "Relative frame in the generated clip.",
+                            ["type"] = "root2d",
+                            ["pose"] = "{source,frame} pose locator, or direct position + heading",
+                            ["position"] = "[x,z]",
+                            ["heading"] = "[x,z] forward direction"
+                        }
+                    }
+                },
+                ["rules"] = new JArray
+                {
+                    "A fullbody constraint already includes the root bone constraint; do not add root2d at the same frame.",
+                    "Use fullbody for a complete pose and root2d when only the root trajectory or heading should be constrained."
+                }
+            };
         }
 
         public static string DebugInstallServer(string argumentsJson = "{}")
@@ -1482,7 +1529,7 @@ namespace KimodoUnityBridge.Command
             return new PropertyDefinition(name, new JObject
             {
                 ["type"] = "array",
-                ["description"] = description,
+                ["description"] = description + " fullbody is a complete body pose plus root position/heading; root2d constrains only the root position/heading.",
                 ["items"] = new JObject
                 {
                     ["type"] = "object",
@@ -1493,11 +1540,13 @@ namespace KimodoUnityBridge.Command
                         ["type"] = new JObject
                         {
                             ["type"] = "string",
+                            ["description"] = "fullbody constrains the full body and root; root2d constrains only the root on the ground plane.",
                             ["enum"] = new JArray("fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot")
                         },
                         ["pose"] = new JObject
                         {
                             ["type"] = "object",
+                            ["description"] = "Pose locator for fullbody, or for root2d when deriving root position and heading from a pose.",
                             ["additionalProperties"] = false,
                             ["properties"] = new JObject
                             {
@@ -1506,8 +1555,8 @@ namespace KimodoUnityBridge.Command
                             },
                             ["required"] = new JArray("source", "frame")
                         },
-                        ["position"] = new JObject { ["type"] = "array", ["items"] = new JObject { ["type"] = "number" }, ["minItems"] = 2, ["maxItems"] = 2 },
-                        ["heading"] = new JObject { ["type"] = "array", ["items"] = new JObject { ["type"] = "number" }, ["minItems"] = 2, ["maxItems"] = 2 }
+                        ["position"] = new JObject { ["type"] = "array", ["description"] = "Direct root2d root position [x,z].", ["items"] = new JObject { ["type"] = "number" }, ["minItems"] = 2, ["maxItems"] = 2 },
+                        ["heading"] = new JObject { ["type"] = "array", ["description"] = "Direct root2d root heading [x,z].", ["items"] = new JObject { ["type"] = "number" }, ["minItems"] = 2, ["maxItems"] = 2 }
                     },
                     ["required"] = new JArray("frame", "type")
                 }

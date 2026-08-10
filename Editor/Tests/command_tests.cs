@@ -56,7 +56,7 @@ namespace KimodoBridge.Editor.Tests
 
             Assert.That(help.Value<string>("description"), Does.Contain("manual"));
             Assert.That(help["inputSchema"]["properties"]["section"]["enum"].Values<string>(),
-                Is.EqualTo(new[] { "commands", "models" }));
+                Is.EqualTo(new[] { "commands", "models", "constraints" }));
             Assert.That(definitions["tools"].Values<JObject>()
                 .Select(tool => tool.Value<string>("name")),
                 Does.Not.Contain("kimodo_list_text_encoder_models"));
@@ -80,6 +80,20 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(workflow[1]["arguments"].Value<string>("query"), Is.EqualTo("characters"));
             Assert.That(workflow[2]["arguments"].Value<int>("duration_frames"), Is.EqualTo(60));
             Assert.That(workflow[3].Value<string>("repeat_until"), Does.Contain("completed"));
+            Assert.That(response["constraints"].Values<JObject>().Select(item => item.Value<string>("type")),
+                Is.EqualTo(new[] { "fullbody", "root2d" }));
+            Assert.That(response["constraint_rules"].Values<string>().Single(), Does.Contain("root2d"));
+        }
+
+        [Test]
+        public void ConstraintHelp_DescribesFullBodyAndRoot2D()
+        {
+            JObject response = JObject.Parse(command_kimodo.Help("{\"section\":\"constraints\"}"));
+            Assert.That(response.Value<bool>("ok"), Is.True);
+            Assert.That(response["constraints"].Values<JObject>().Select(item => item.Value<string>("type")),
+                Is.EqualTo(new[] { "fullbody", "root2d" }));
+            Assert.That(response["constraints"][0].Value<string>("description"), Does.Contain("root bone"));
+            Assert.That(response["constraints"][1].Value<string>("description"), Does.Contain("root-only"));
         }
 
         [Test]
