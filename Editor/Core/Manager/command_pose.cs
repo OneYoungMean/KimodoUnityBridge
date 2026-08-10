@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using KimodoBridge;
+using KimodoBridge.Editor;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
@@ -23,6 +24,7 @@ namespace KimodoUnityBridge.Command
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             TimelineCharacterRecord character = ResolveSessionCharacterByReference(
                 session, RequiredStringValue(arguments, "character"), false);
+            RequireWritablePoseAvatar(character);
             JObject pose = arguments["pose"] as JObject ?? throw new InvalidOperationException("pose must be an object.");
             return Ok(new JObject { ["pose"] = StoreWritablePose(character, pose) });
         });
@@ -32,6 +34,7 @@ namespace KimodoUnityBridge.Command
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             TimelineCharacterRecord character = ResolveSessionCharacterByReference(
                 session, RequiredStringValue(arguments, "character"), false);
+            RequireWritablePoseAvatar(character);
             JObject result = ReadPose(RequirePoseLocator(arguments["pose"] as JObject));
             JObject data = result["data"] as JObject
                 ?? throw new InvalidOperationException("Source pose data is unavailable.");
@@ -43,6 +46,7 @@ namespace KimodoUnityBridge.Command
             PoseLocator locator = RequirePoseLocator(arguments["pose"] as JObject);
             TimelineCharacterRecord character = ResolvePoseCacheOwner(locator.Source)
                 ?? throw new InvalidOperationException("pose_set requires a writable <character>.Poses source.");
+            RequireWritablePoseAvatar(character);
             KimodoUntypedConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
                 ?? throw new InvalidOperationException("Writable pose was not found at the requested source/frame.");
             JObject update = arguments["data"] as JObject ?? arguments;
@@ -216,37 +220,63 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException($"Character '{character.Name}' requires a valid humanoid Avatar for pose sampling.");
             }
-            double originalTime = session.Director.time;
-            RuntimeAnimatorController savedController = character.Animator.runtimeAnimatorController;
+            TimelineClip sourceClip = character.Track.GetClips()
+                .FirstOrDefault(item => frame / SessionFrameRate >= item.start && frame / SessionFrameRate <= item.end)
+                ?? character.Track.GetClips().FirstOrDefault();
+            string contextError = string.Empty;
+            if (sourceClip == null || !KimodoInOutConstraintAdapter.TryResolveTimelineContext(
+                    sourceClip,
+                    out KimodoTimelineInOutConstraintContext context,
+                    out contextError))
+            {
+                throw new InvalidOperationException($"Character '{character.Name}' has no retargetable Timeline clip: {contextError}");
+            }
+
+            if (!KimodoTimelineSamplingSession.TryCreate(
+                    context,
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out KimodoTimelineSamplingSession sampler,
+                    out string samplerError))
+            {
+                throw new InvalidOperationException($"Timeline retarget sampler failed: {samplerError}");
+            }
+
             try
             {
-                character.Animator.runtimeAnimatorController = null;
-                session.Director.time = frame / SessionFrameRate;
-                session.Director.Evaluate();
-                TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
-                var pose = new HumanPose();
-                using (var handler = new HumanPoseHandler(character.Avatar, character.Animator.transform))
+                if (!sampler.TryCaptureMuscleSample(
+                        frame / SessionFrameRate,
+                        false,
+                        Vector3.zero,
+                        Quaternion.identity,
+                        out MuscleSample sampled,
+                        out string sampleError))
                 {
-                    handler.GetHumanPose(ref pose);
+                    throw new InvalidOperationException($"Timeline retarget pose sampling failed: {sampleError}");
                 }
-                KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
                 var sample = new KimodoMarkerSampleResult
                 {
                     sampleTime = frame / SessionFrameRate,
                     unityRootPos = character.Animator.transform.position,
                     unityRootRot = character.Animator.transform.rotation,
-                    muscles = pose.muscles.ToList()
+                    muscles = sampled.pose.muscles.ToList(),
+                    leftFootPosition = sampled.leftFootPosition,
+                    leftFootRotation = sampled.leftFootRotation,
+                    rightFootPosition = sampled.rightFootPosition,
+                    rightFootRotation = sampled.rightFootRotation
                 };
-                CaptureFoot(character.Animator, HumanBodyBones.LeftFoot, out sample.leftFootPosition, out sample.leftFootRotation);
-                CaptureFoot(character.Animator, HumanBodyBones.RightFoot, out sample.rightFootPosition, out sample.rightFootRotation);
                 return PoseSampleToJson(sample);
             }
             finally
             {
-                character.Animator.runtimeAnimatorController = savedController;
-                session.Director.time = originalTime;
-                session.Director.Evaluate();
-                TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+                sampler.Dispose();
+            }
+        }
+
+        private static void RequireWritablePoseAvatar(TimelineCharacterRecord character)
+        {
+            if (character == null || !KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
+            {
+                throw new InvalidOperationException("Pose commands require a valid humanoid character Avatar.");
             }
         }
 
