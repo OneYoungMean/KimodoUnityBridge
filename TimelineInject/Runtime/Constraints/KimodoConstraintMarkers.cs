@@ -50,6 +50,11 @@ namespace TimelineInject
         public List<string> jointNames = new List<string>();
         public List<Vector3> localAxisAngles = new List<Vector3>();
         public List<int> sampledJointIndices = new List<int>();
+        public List<float> muscles = new List<float>();
+        public Vector3 leftFootPosition;
+        public Quaternion leftFootRotation = Quaternion.identity;
+        public Vector3 rightFootPosition;
+        public Quaternion rightFootRotation = Quaternion.identity;
 
         public KimodoMarkerSampleResult Clone()
         {
@@ -67,7 +72,12 @@ namespace TimelineInject
                 endEffectorTargetPositionRootLocal = endEffectorTargetPositionRootLocal,
                 jointNames = jointNames != null ? new List<string>(jointNames) : new List<string>(),
                 localAxisAngles = localAxisAngles != null ? new List<Vector3>(localAxisAngles) : new List<Vector3>(),
-                sampledJointIndices = sampledJointIndices != null ? new List<int>(sampledJointIndices) : new List<int>()
+                sampledJointIndices = sampledJointIndices != null ? new List<int>(sampledJointIndices) : new List<int>(),
+                muscles = muscles != null ? new List<float>(muscles) : new List<float>(),
+                leftFootPosition = leftFootPosition,
+                leftFootRotation = leftFootRotation,
+                rightFootPosition = rightFootPosition,
+                rightFootRotation = rightFootRotation
             };
         }
     }

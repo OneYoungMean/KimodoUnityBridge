@@ -29,14 +29,17 @@ namespace KimodoBridge.Editor.Tests
                 command_session.OpenCommand,
                 command_session.CloseCommand,
                 command_query.CurrentSessionCommand,
-                command_session.LocateAnimationCommand,
                 command_session.TryAddCommand,
                 command_session.TryRemoveCommand,
-                command_kimodo.AnalyzeRangeCommand,
+                command_kimodo.AnalyzeCommand,
                 command_kimodo.BakeRangeCommand,
-                command_kimodo.GenerateAnimationAssetCommand,
-                command_kimodo.RenderPoseSheetCommand,
-                command_kimodo.RenderAnalysisSheetCommand,
+                command_kimodo.GenerateAnimationCommand,
+                command_kimodo.QueryPictureCommand,
+                "pose_create",
+                "pose_get",
+                "pose_set",
+                "pose_copy",
+                "kimodo_build_root2d_path",
                 command_kimodo.GetGenerationCommand,
                 command_kimodo.CancelGenerationCommand
             }));
@@ -142,11 +145,11 @@ namespace KimodoBridge.Editor.Tests
             JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
             JObject assetProperties = (JObject)definitions["tools"]
                 .Values<JObject>()
-                .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationAssetCommand)["inputSchema"]["properties"];
-            Assert.That(assetProperties["constraints"]["items"]["properties"]["source"]["required"].Values<string>(),
-                Is.EqualTo(new[] { "character", "time" }));
+                .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationCommand)["inputSchema"]["properties"];
+            Assert.That(assetProperties["constraints"]["items"]["required"].Values<string>(),
+                Is.EqualTo(new[] { "frame", "type" }));
             Assert.That(assetProperties["constraints"]["items"]["properties"]["type"]["enum"].Values<string>(),
-                Is.EqualTo(new[] { "fullbody", "root2d" }));
+                Is.EqualTo(new[] { "fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot" }));
             Assert.That(assetProperties["analysis_option"].Value<string>("type"), Is.EqualTo("object"));
             Assert.That(assetProperties.Property("loop"), Is.Null);
             Assert.That(assetProperties["model"].Value<string>("type"), Is.EqualTo("string"));
@@ -154,18 +157,8 @@ namespace KimodoBridge.Editor.Tests
                 Is.EqualTo(new[] { "high_performance", "high_precision" }));
             Assert.That(assetProperties.Property("timeline_session_id"), Is.Null);
             Assert.That(definitions["tools"].Values<JObject>()
-                .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationAssetCommand)
+                .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationCommand)
                 .Value<string>("description"), Does.Contain("KimodoPlayableClip"));
-        }
-
-        [TestCase(1, 1)]
-        [TestCase(4, 2)]
-        [TestCase(8, 3)]
-        [TestCase(9, 3)]
-        [TestCase(10, 4)]
-        public void ContactSheetGrid_UsesSmallestSquareThatFits(int count, int expected)
-        {
-            Assert.That(command_context.ResolveSquareGridSize(count), Is.EqualTo(expected));
         }
 
         [Test]
@@ -177,19 +170,39 @@ namespace KimodoBridge.Editor.Tests
             JObject bake = definitions["tools"].Values<JObject>()
                 .Single(tool => tool.Value<string>("name") == command_kimodo.BakeRangeCommand);
 
-            Assert.That(query["inputSchema"]["properties"]["operation"]["enum"].Values<string>(),
-                Does.Contain("animations"));
-            Assert.That(query["inputSchema"]["properties"]["type"]["enum"].Values<string>(),
-                Is.EqualTo(new[] { "session", "character", "animation" }));
-            Assert.That(query["inputSchema"]["properties"]["pattern"].Value<string>("type"),
+            JObject queryProperties = (JObject)query["inputSchema"]["properties"];
+            Assert.That(queryProperties.Properties().Select(property => property.Name),
+                Is.EqualTo(new[] { "query", "character", "animation" }));
+            Assert.That(queryProperties["query"]["enum"].Values<string>(), Is.EqualTo(new[]
+            {
+                "characters", "character_animations", "animation", "character_constraints", "animation_constraints",
+                "animation_transitions", "transition"
+            }));
+            Assert.That(bake["inputSchema"]["properties"]["retarget_character"].Value<string>("type"),
                 Is.EqualTo("string"));
-            Assert.That(query["inputSchema"]["properties"]["objects"]["items"].Value<string>("type"),
-                Is.EqualTo("string"));
-            Assert.That(query["inputSchema"]["properties"]["head"].Value<string>("type"),
-                Is.EqualTo("integer"));
-            Assert.That(bake["inputSchema"]["properties"]["retarget_character_ref"].Value<string>("type"),
-                Is.EqualTo("string"));
+            Assert.That(bake["inputSchema"]["properties"]["speed"].Value<string>("type"),
+                Is.EqualTo("number"));
             Assert.That(((JObject)bake["inputSchema"]["properties"]).Property("timeline_session_id"), Is.Null);
+        }
+
+        [Test]
+        public void AnalyzeAndPictureSchemas_ExposeTheUnifiedSources()
+        {
+            JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+            JObject analyze = definitions["tools"].Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == command_kimodo.AnalyzeCommand);
+            JObject picture = definitions["tools"].Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == command_kimodo.QueryPictureCommand);
+
+            Assert.That(analyze["inputSchema"]["required"].Values<string>(), Is.EqualTo(new[] { "character" }));
+            Assert.That(analyze["inputSchema"]["properties"]["animation"].Value<string>("type"), Is.EqualTo("string"));
+            Assert.That(analyze["inputSchema"]["properties"]["start_frame"].Value<string>("type"), Is.EqualTo("integer"));
+            Assert.That(definitions["tools"].Values<JObject>().Select(item => item.Value<string>("name")),
+                Does.Not.Contain("kimodo_analyze_range"));
+            Assert.That(picture["inputSchema"]["properties"]["poses"]["items"]["required"].Values<string>(),
+                Is.EqualTo(new[] { "source", "frame" }));
+            Assert.That(picture["inputSchema"]["properties"]["constraints"]["items"]["required"].Values<string>(),
+                Is.EqualTo(new[] { "frame", "type" }));
         }
 
         [Test]

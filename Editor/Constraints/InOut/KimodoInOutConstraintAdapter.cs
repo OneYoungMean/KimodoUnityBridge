@@ -193,7 +193,7 @@ namespace KimodoBridge.Editor
                 Director = director,
                 Animator = animator,
                 SourceAvatar = sourceAvatar,
-                ModelName = KimodoPlayableClip.NormalizeBridgeModelName(((KimodoPlayableClip)sourceClip.asset)?.bridgeModelName),
+                ModelName = KimodoPlayableClip.NormalizeBridgeModelName((sourceClip.asset as KimodoPlayableClip)?.bridgeModelName),
                 PreviousTimelineClip = previousTimelineClip,
                 NextTimelineClip = nextTimelineClip
             };

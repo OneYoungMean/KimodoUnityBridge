@@ -2,8 +2,11 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using KimodoBridge;
+using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
@@ -21,11 +24,123 @@ namespace KimodoUnityBridge.Command
             Directory.GetParent(Application.dataPath)?.FullName ?? Application.temporaryCachePath,
             "Library", "KimodoCache", "Commands");
 
+        public static string Capture(string argumentsJson)
+        {
+            return Execute(argumentsJson, arguments =>
+            {
+                TimelineSessionRecord session = RequireCurrentTimelineSession();
+                var requests = new List<CaptureRequest>();
+                int selected = (arguments["poses"] != null ? 1 : 0) +
+                    (arguments["analysis_id"] != null ? 1 : 0) +
+                    (arguments["constraints"] != null ? 1 : 0);
+                if (selected != 1)
+                {
+                    throw new InvalidOperationException("Provide exactly one of poses, analysis_id, or constraints.");
+                }
+                if (arguments["poses"] is JArray poses)
+                {
+                    foreach (JObject pose in poses.OfType<JObject>()) requests.Add(BuildCaptureRequest(RequirePoseLocator(pose), null));
+                    if (requests.Count != poses.Count) throw new InvalidOperationException("Every poses item must be a {source,frame} object.");
+                }
+                else if (arguments["analysis_id"] != null)
+                {
+                    string id = RequiredStringValue(arguments, "analysis_id");
+                    AnalysisCacheRecord cached = GetCachedAnalysis(id);
+                    string timelineGuid = AssetDatabase.AssetPathToGUID(session.TimelineAssetPath);
+                    bool sameTimeline = !string.IsNullOrWhiteSpace(cached.TimelineAssetGuid)
+                        ? string.Equals(cached.TimelineAssetGuid, timelineGuid, StringComparison.OrdinalIgnoreCase)
+                        : string.Equals(cached.SessionId, session.Id.ToString("D"), StringComparison.OrdinalIgnoreCase);
+                    if (!sameTimeline)
+                        throw new InvalidOperationException("analysis_source_expired: the analysis belongs to a different Session.");
+                    JArray analyzedPoses = cached.Poses ?? new JArray();
+                    foreach (JObject item in analyzedPoses.OfType<JObject>())
+                        requests.Add(BuildCaptureRequest(RequirePoseLocator(item["pose"] as JObject), item["analysis"] as JObject));
+                }
+                else if (arguments["constraints"] is JArray constraints)
+                {
+                    for (int i = 0; i < constraints.Count; i++)
+                    {
+                        if (constraints[i] is not JObject item)
+                        {
+                            throw new InvalidOperationException($"constraints[{i}] must be an object.");
+                        }
+                        int frame = RequiredNonNegativeFrame(item, "frame");
+                        string type = RequiredStringValue(item, "type").ToLowerInvariant();
+                        if (type != "fullbody" && type != "root2d" && type != "left_hand" &&
+                            type != "right_hand" && type != "left_foot" && type != "right_foot")
+                        {
+                            throw new InvalidOperationException($"constraints[{i}].type is not supported.");
+                        }
+                        JObject annotation = new JObject { ["constraint_type"] = type, ["frame"] = frame };
+                        if (item["pose"] is JObject pose)
+                        {
+                            requests.Add(BuildCaptureRequest(RequirePoseLocator(pose), annotation));
+                        }
+                        else if (type == "root2d")
+                        {
+                            string characterRef = arguments.Value<string>("character")?.Trim();
+                            TimelineCharacterRecord character = !string.IsNullOrWhiteSpace(characterRef)
+                                ? ResolveSessionCharacterByReference(session, characterRef, false)
+                                : session.Characters.Count == 1
+                                    ? session.Characters[0]
+                                    : throw new InvalidOperationException("character is required to picture a position-only root2d constraint when the Session has multiple characters.");
+                            Vector2 position = RequiredVector2(item, "position");
+                            Vector2 heading = RequiredVector2(item, "heading");
+                            if (heading.sqrMagnitude < 1e-8f) throw new InvalidOperationException($"constraints[{i}].heading must be non-zero.");
+                            var sample = new KimodoMarkerSampleResult
+                            {
+                                constraintType = type,
+                                kimodoRootPosition = new Vector3(position.x, 0f, position.y),
+                                rootHeading = heading.normalized,
+                                hasRootHeading = true
+                            };
+                            requests.Add(new CaptureRequest(character, session.Director.time, annotation, sample, frame, true));
+                        }
+                        else
+                        {
+                            throw new InvalidOperationException($"constraints[{i}].pose is required unless type is root2d with position and heading.");
+                        }
+                    }
+                }
+                if (requests.Count == 0) throw new InvalidOperationException("The selected capture source contains no poses.");
+                JObject result = RenderContactSheet(session, requests, arguments);
+                if (arguments["analysis_id"] != null) result["analysis_id"] = arguments.Value<string>("analysis_id");
+                return Ok(result);
+            });
+        }
+
+        private static CaptureRequest BuildCaptureRequest(PoseLocator locator, JObject annotation)
+        {
+            TimelineSessionRecord session = RequireCurrentTimelineSession();
+            TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
+                string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase));
+            if (character != null)
+                return new CaptureRequest(character, locator.Frame / SessionFrameRate, annotation, null, locator.Frame);
+            character = ResolvePoseCacheOwner(locator.Source);
+            if (character != null)
+            {
+                KimodoUntypedConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
+                    ?? throw new InvalidOperationException("Writable pose source does not contain a pose at the requested frame.");
+                return new CaptureRequest(character, session.Director.time, annotation, marker.SampleData.Clone(), locator.Frame);
+            }
+            TimelineCharacterRecord owner = session.Characters.FirstOrDefault(item => item.Track.GetMarkers()
+                .OfType<KimodoConstraintMarkerBase>().Any(marker => marker is not KimodoUntypedConstraintMarker &&
+                    string.Equals(marker.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
+                    Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame));
+            KimodoConstraintMarkerBase constraint = owner?.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
+                .FirstOrDefault(marker => marker is not KimodoUntypedConstraintMarker &&
+                    string.Equals(marker.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
+                    Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame)
+                ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
+            return new CaptureRequest(owner, session.Director.time, annotation, constraint.SampleData.Clone(), locator.Frame);
+        }
+
         private static string CacheAnalysisResult(
             TimelineSessionRecord session,
             TimelineCharacterRecord character,
             double start,
             double end,
+            JArray poses,
             JObject analysis)
         {
             string id = Guid.NewGuid().ToString("D");
@@ -33,12 +148,14 @@ namespace KimodoUnityBridge.Command
             {
                 Id = id,
                 SessionId = session.Id.ToString("D"),
+                TimelineAssetGuid = AssetDatabase.AssetPathToGUID(session.TimelineAssetPath),
                 SessionName = session.Name,
                 CharacterRef = character.CharacterRef,
                 CharacterName = character.Name,
                 Start = start,
                 End = end,
                 CreatedAtUtc = DateTime.UtcNow,
+                Poses = poses != null ? (JArray)poses.DeepClone() : new JArray(),
                 Analysis = analysis != null ? (JObject)analysis.DeepClone() : new JObject()
             };
             AnalysisCache[id] = record;
@@ -66,127 +183,57 @@ namespace KimodoUnityBridge.Command
             return id;
         }
 
-        public static string RenderPoseSheet(string argumentsJson)
-        {
-            return Execute(argumentsJson, arguments =>
-            {
-                TimelineSessionRecord session = RequireCurrentTimelineSession();
-                if (arguments["samples"] is not JArray samples || samples.Count == 0)
-                {
-                    throw new InvalidOperationException("samples must be a non-empty array.");
-                }
-                var requests = new List<CaptureRequest>(samples.Count);
-                for (int i = 0; i < samples.Count; i++)
-                {
-                    if (samples[i] is not JObject item)
-                    {
-                        throw new InvalidOperationException($"samples[{i}] must be an object.");
-                    }
-                    TimelineCharacterRecord character = ResolveSessionCharacterByReference(
-                        session, RequiredStringValue(item, "character"), addIfMissing: false);
-                    double time = RequiredFiniteDouble(item, "time");
-                    if (time < 0.0)
-                    {
-                        throw new InvalidOperationException($"samples[{i}].time must be non-negative.");
-                    }
-                    requests.Add(new CaptureRequest(character, time, null));
-                }
-                return Ok(RenderContactSheet(session, requests, arguments));
-            });
-        }
-
-        public static string RenderAnalysisSheet(string argumentsJson)
-        {
-            return Execute(argumentsJson, arguments =>
-            {
-                TimelineSessionRecord session = RequireCurrentTimelineSession();
-                string id = RequiredStringValue(arguments, "analysis_id");
-                AnalysisCacheRecord cached = GetCachedAnalysis(id);
-                if (!string.Equals(cached.SessionId, session.Id.ToString("D"), StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException("analysis_source_expired: the analysis belongs to a different Session.");
-                }
-                TimelineCharacterRecord character = ResolveSessionCharacterByReference(
-                    session, cached.CharacterRef, addIfMissing: false);
-                JArray keyframes = cached.Analysis?["keyframes"] as JArray ?? new JArray();
-                if (keyframes.Count == 0)
-                {
-                    throw new InvalidOperationException("The cached analysis contains no keyframes to render.");
-                }
-                var requests = new List<CaptureRequest>(keyframes.Count);
-                foreach (JToken token in keyframes)
-                {
-                    double reported = token.Value<double?>("session_time") ?? token.Value<double?>("time") ?? cached.Start;
-                    double time = reported >= cached.Start && reported <= cached.End
-                        ? reported
-                        : Math.Max(cached.Start, Math.Min(cached.End, cached.Start + reported));
-                    requests.Add(new CaptureRequest(character, time, token as JObject));
-                }
-                JObject result = RenderContactSheet(session, requests, arguments);
-                result["analysis_id"] = id;
-                return Ok(result);
-            });
-        }
-
-        internal static int ResolveSquareGridSize(int count)
-        {
-            if (count <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-            return Mathf.CeilToInt(Mathf.Sqrt(count));
-        }
-
         private static JObject RenderContactSheet(
             TimelineSessionRecord session,
             IReadOnlyList<CaptureRequest> requests,
             JObject arguments)
         {
-            int resolution = Mathf.Clamp(arguments.Value<int?>("resolution") ?? 1024, 128, 4096);
+            int resolution = Mathf.Clamp(arguments.Value<int?>("resolution") ?? 512, 128, 4096);
             float scale = arguments.Value<float?>("scale") ?? 1f;
             if (float.IsNaN(scale) || float.IsInfinity(scale) || scale < 0.25f || scale > 4f)
             {
                 throw new InvalidOperationException("scale must be between 0.25 and 4.0.");
             }
-            int grid = ResolveSquareGridSize(requests.Count);
-            int cellSize = resolution / grid;
-            int used = cellSize * grid;
-            int offset = (resolution - used) / 2;
+            int cellSize = resolution / 2;
             var sheet = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false);
             Color background = new Color(0.12f, 0.12f, 0.12f, 1f);
             Color[] clear = Enumerable.Repeat(background, resolution * resolution).ToArray();
             sheet.SetPixels(clear);
             double originalTime = session.Director.time;
             var metadata = new JArray();
+            var previews = new List<GameObject>(requests.Count);
             try
             {
                 for (int index = 0; index < requests.Count; index++)
                 {
                     CaptureRequest request = requests[index];
-                    session.Director.time = request.Time;
-                    session.Director.Evaluate();
-                    TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
-                    Texture2D image = CaptureCharacter(request.Character, cellSize, scale);
-                    int row = index / grid;
-                    int column = index % grid;
-                    int x = offset + column * cellSize;
-                    int y = resolution - offset - (row + 1) * cellSize;
-                    sheet.SetPixels(x, y, cellSize, cellSize, image.GetPixels());
-                    UnityEngine.Object.DestroyImmediate(image);
-                    string label = $"{row + 1}.{column + 1}";
-                    DrawGridLabel(sheet, x + cellSize - 8, y + cellSize - 8, label);
+                    KimodoMarkerSampleResult pose = request.PoseData?.Clone() ?? SampleCapturePose(session, request);
+                    previews.Add(CreatePosePreview(request.Character, pose, request.Root2DOnly));
+                    string label = (index + 1).ToString(CultureInfo.InvariantCulture);
                     var item = new JObject
                     {
                         ["label"] = label,
                         ["character"] = request.Character.Name,
-                        ["character_ref"] = request.Character.CharacterRef,
-                        ["time"] = request.Time
+                        ["frame"] = request.Frame >= 0
+                            ? request.Frame
+                            : Mathf.RoundToInt((float)(request.Time * SessionFrameRate))
                     };
                     if (request.AnalysisFrame != null)
                     {
                         item["analysis"] = request.AnalysisFrame.DeepClone();
                     }
                     metadata.Add(item);
+                }
+
+                Bounds bounds = CalculateBounds(previews);
+                Vector3[] directions = { Vector3.right, Vector3.up, Vector3.back, new Vector3(1f, 0.65f, -1f).normalized };
+                for (int index = 0; index < directions.Length; index++)
+                {
+                    Texture2D image = CapturePreviewView(previews, bounds, directions[index], cellSize, scale);
+                    int x = index % 2 * cellSize;
+                    int y = (1 - index / 2) * cellSize;
+                    sheet.SetPixels(x, y, cellSize, cellSize, image.GetPixels());
+                    UnityEngine.Object.DestroyImmediate(image);
                 }
                 sheet.Apply(false, false);
                 Directory.CreateDirectory(CommandCacheFolder);
@@ -196,7 +243,8 @@ namespace KimodoUnityBridge.Command
                 {
                     ["image_path"] = path.Replace('\\', '/'),
                     ["resolution"] = new JArray(resolution, resolution),
-                    ["grid"] = new JArray(grid, grid),
+                    ["views"] = new JArray("right", "top", "front", "3d"),
+                    ["grid"] = new JArray(2, 2),
                     ["cell_size"] = cellSize,
                     ["scale"] = scale,
                     ["frames"] = metadata
@@ -204,6 +252,10 @@ namespace KimodoUnityBridge.Command
             }
             finally
             {
+                foreach (GameObject preview in previews)
+                {
+                    if (preview != null) UnityEngine.Object.DestroyImmediate(preview);
+                }
                 session.Director.time = originalTime;
                 session.Director.Evaluate();
                 TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
@@ -211,90 +263,141 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static Texture2D CaptureCharacter(TimelineCharacterRecord character, int size, float scale)
+        private static KimodoMarkerSampleResult SampleCapturePose(TimelineSessionRecord session, CaptureRequest request)
+        {
+            session.Director.time = request.Time;
+            session.Director.Evaluate();
+            TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+            var pose = new HumanPose();
+            using (var handler = new HumanPoseHandler(request.Character.Avatar, request.Character.Animator.transform))
+            {
+                handler.GetHumanPose(ref pose);
+            }
+            KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
+            return new KimodoMarkerSampleResult
+            {
+                sampleTime = request.Time,
+                unityRootPos = request.Character.Animator.transform.position,
+                unityRootRot = request.Character.Animator.transform.rotation,
+                muscles = pose.muscles.ToList()
+            };
+        }
+
+        private static GameObject CreatePosePreview(
+            TimelineCharacterRecord character,
+            KimodoMarkerSampleResult sample,
+            bool root2DOnly)
         {
             const int captureLayer = 31;
-            Transform[] transforms = character.Root.GetComponentsInChildren<Transform>(true);
-            int[] originalLayers = transforms.Select(transform => transform.gameObject.layer).ToArray();
-            var targetRenderers = new HashSet<Renderer>(character.Root.GetComponentsInChildren<Renderer>(true));
-            SkinnedMeshRenderer[] skinnedRenderers = character.Root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-            bool[] originalUpdateWhenOffscreen = skinnedRenderers.Select(renderer => renderer.updateWhenOffscreen).ToArray();
-            bool[] originalForceMatrixRecalculation = skinnedRenderers.Select(renderer => renderer.forceMatrixRecalculationPerRender).ToArray();
-            Renderer[] conflictingRenderers = Resources.FindObjectsOfTypeAll<Renderer>()
-                .Where(renderer => renderer != null && !targetRenderers.Contains(renderer) &&
-                    renderer.gameObject.layer == captureLayer && renderer.gameObject.scene.IsValid())
-                .ToArray();
-            bool[] conflictingEnabled = conflictingRenderers.Select(renderer => renderer.enabled).ToArray();
-            GameObject cameraObject = null;
+            GameObject preview = UnityEngine.Object.Instantiate(character.Root);
+            preview.name = "Kimodo Pose Preview";
+            preview.hideFlags = HideFlags.HideAndDontSave;
+            foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
+            {
+                transform.gameObject.layer = captureLayer;
+            }
+            Animator animator = preview.GetComponentInChildren<Animator>(true)
+                ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
+            animator.runtimeAnimatorController = null;
+            Vector3 position = root2DOnly ? sample.kimodoRootPosition : sample.unityRootPos;
+            Quaternion rotation = root2DOnly && sample.hasRootHeading
+                ? Quaternion.LookRotation(new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y), Vector3.up)
+                : sample.unityRootRot;
+            if (!root2DOnly && sample.muscles != null && sample.muscles.Count == HumanTrait.MuscleCount)
+            {
+                var pose = new HumanPose { muscles = sample.muscles.ToArray() };
+                using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
+                {
+                    handler.GetHumanPose(ref pose);
+                    pose.muscles = sample.muscles.ToArray();
+                    handler.SetHumanPose(ref pose);
+                }
+            }
+            animator.transform.SetPositionAndRotation(position, rotation);
+            return preview;
+        }
+
+        private static Texture2D CapturePreviewView(
+            IReadOnlyList<GameObject> previews,
+            Bounds bounds,
+            Vector3 direction,
+            int size,
+            float scale)
+        {
+            const int captureLayer = 31;
+            GameObject cameraObject = new GameObject("Kimodo Pose Preview Camera") { hideFlags = HideFlags.HideAndDontSave };
             RenderTexture renderTexture = null;
             RenderTexture previous = RenderTexture.active;
             try
             {
-                foreach (Transform transform in transforms)
-                {
-                    transform.gameObject.layer = captureLayer;
-                }
-                foreach (Renderer renderer in conflictingRenderers)
-                {
-                    renderer.enabled = false;
-                }
-                foreach (SkinnedMeshRenderer renderer in skinnedRenderers)
-                {
-                    renderer.updateWhenOffscreen = true;
-                    renderer.forceMatrixRecalculationPerRender = true;
-                }
-
-                Bounds bounds = CalculateBounds(character.Root);
-                float radius = Mathf.Max(0.1f, bounds.extents.magnitude);
-                Vector3 direction = Quaternion.Euler(0f, 270f, 0f) * new Vector3(1f, 0.55f, -1f).normalized;
-                cameraObject = new GameObject("Kimodo Command Capture Camera")
-                {
-                    hideFlags = HideFlags.HideAndDontSave
-                };
                 Camera camera = cameraObject.AddComponent<Camera>();
                 camera.cullingMask = 1 << captureLayer;
-                camera.fieldOfView = 30f;
+                camera.orthographic = true;
+                camera.orthographicSize = Mathf.Max(0.25f, bounds.extents.magnitude * 1.15f / scale);
                 camera.nearClipPlane = 0.01f;
-                camera.farClipPlane = radius * 20f + 10f;
-                float distance = radius / Mathf.Tan(camera.fieldOfView * 0.5f * Mathf.Deg2Rad);
-                distance /= scale;
-                camera.transform.position = bounds.center + direction * distance;
-                camera.transform.LookAt(bounds.center);
+                camera.farClipPlane = Mathf.Max(10f, bounds.extents.magnitude * 6f);
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = new Color(0.18f, 0.18f, 0.18f, 1f);
+                camera.transform.position = bounds.center + direction * Mathf.Max(5f, bounds.extents.magnitude * 3f);
+                camera.transform.LookAt(bounds.center, direction == Vector3.up ? Vector3.forward : Vector3.up);
                 renderTexture = RenderTexture.GetTemporary(size, size, 24, RenderTextureFormat.ARGB32);
                 camera.targetTexture = renderTexture;
                 camera.Render();
                 RenderTexture.active = renderTexture;
                 var result = new Texture2D(size, size, TextureFormat.RGBA32, false);
                 result.ReadPixels(new Rect(0, 0, size, size), 0, 0);
-                result.Apply();
+                for (int index = 1; index < previews.Count; index++)
+                {
+                    Vector3 from = camera.WorldToScreenPoint(PreviewRootPosition(previews[index - 1]));
+                    Vector3 to = camera.WorldToScreenPoint(PreviewRootPosition(previews[index]));
+                    DrawLine(result, Mathf.RoundToInt(from.x), Mathf.RoundToInt(from.y), Mathf.RoundToInt(to.x), Mathf.RoundToInt(to.y), new Color(0.1f, 0.85f, 1f, 1f));
+                }
+                for (int index = 0; index < previews.Count; index++)
+                {
+                    Vector3 point = camera.WorldToScreenPoint(PreviewRootPosition(previews[index]));
+                    DrawGridLabel(result, Mathf.RoundToInt(point.x) + 12, Mathf.RoundToInt(point.y) - 4, (index + 1).ToString(CultureInfo.InvariantCulture));
+                }
+                result.Apply(false, false);
                 return result;
             }
             finally
             {
                 RenderTexture.active = previous;
-                if (renderTexture != null)
-                {
-                    RenderTexture.ReleaseTemporary(renderTexture);
-                }
-                if (cameraObject != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(cameraObject);
-                }
-                for (int i = 0; i < transforms.Length; i++)
-                {
-                    transforms[i].gameObject.layer = originalLayers[i];
-                }
-                for (int i = 0; i < conflictingRenderers.Length; i++)
-                {
-                    conflictingRenderers[i].enabled = conflictingEnabled[i];
-                }
-                for (int i = 0; i < skinnedRenderers.Length; i++)
-                {
-                    skinnedRenderers[i].updateWhenOffscreen = originalUpdateWhenOffscreen[i];
-                    skinnedRenderers[i].forceMatrixRecalculationPerRender = originalForceMatrixRecalculation[i];
-                }
+                if (renderTexture != null) RenderTexture.ReleaseTemporary(renderTexture);
+                UnityEngine.Object.DestroyImmediate(cameraObject);
+            }
+        }
+
+        private static Vector3 PreviewRootPosition(GameObject preview)
+        {
+            Animator animator = preview.GetComponentInChildren<Animator>(true);
+            return animator != null ? animator.transform.position : preview.transform.position;
+        }
+
+        private static Bounds CalculateBounds(IReadOnlyList<GameObject> roots)
+        {
+            Bounds bounds = CalculateBounds(roots[0]);
+            for (int index = 1; index < roots.Count; index++)
+            {
+                Renderer[] renderers = roots[index].GetComponentsInChildren<Renderer>(true);
+                if (renderers.Length == 0) bounds.Encapsulate(roots[index].transform.position);
+                foreach (Renderer renderer in renderers) bounds.Encapsulate(renderer.bounds);
+            }
+            return bounds;
+        }
+
+        private static void DrawLine(Texture2D texture, int x0, int y0, int x1, int y1, Color color)
+        {
+            int dx = Math.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+            int dy = -Math.Abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+            int error = dx + dy;
+            while (true)
+            {
+                FillRect(texture, x0 - 1, y0 - 1, 3, 3, color);
+                if (x0 == x1 && y0 == y1) break;
+                int twice = 2 * error;
+                if (twice >= dy) { error += dy; x0 += sx; }
+                if (twice <= dx) { error += dx; y0 += sy; }
             }
         }
 
@@ -376,21 +479,34 @@ namespace KimodoUnityBridge.Command
 
         private sealed class CaptureRequest
         {
-            public CaptureRequest(TimelineCharacterRecord character, double time, JObject analysisFrame)
+            public CaptureRequest(
+                TimelineCharacterRecord character,
+                double time,
+                JObject analysisFrame,
+                KimodoMarkerSampleResult poseData = null,
+                int frame = -1,
+                bool root2DOnly = false)
             {
                 Character = character;
                 Time = time;
                 AnalysisFrame = analysisFrame;
+                PoseData = poseData;
+                Frame = frame;
+                Root2DOnly = root2DOnly;
             }
             public TimelineCharacterRecord Character { get; }
             public double Time { get; }
             public JObject AnalysisFrame { get; }
+            public KimodoMarkerSampleResult PoseData { get; }
+            public int Frame { get; }
+            public bool Root2DOnly { get; }
         }
 
         private sealed class AnalysisCacheRecord
         {
             public string Id;
             public string SessionId;
+            public string TimelineAssetGuid;
             public string SessionName;
             public string CharacterRef;
             public string CharacterName;
@@ -398,21 +514,26 @@ namespace KimodoUnityBridge.Command
             public double End;
             public DateTime CreatedAtUtc;
             public JObject Analysis;
+            public JArray Poses;
 
             public JObject ToJson() => new JObject
             {
-                ["analysis_id"] = Id, ["session_id"] = SessionId, ["session_name"] = SessionName,
+                ["analysis_id"] = Id, ["session_id"] = SessionId, ["timeline_asset_guid"] = TimelineAssetGuid,
+                ["session_name"] = SessionName,
                 ["character_ref"] = CharacterRef, ["character"] = CharacterName,
                 ["start"] = Start, ["end"] = End, ["created_at_utc"] = CreatedAtUtc,
+                ["poses"] = Poses?.DeepClone() ?? new JArray(),
                 ["analysis"] = Analysis?.DeepClone() ?? new JObject()
             };
 
             public static AnalysisCacheRecord FromJson(JObject json) => new AnalysisCacheRecord
             {
                 Id = json.Value<string>("analysis_id"), SessionId = json.Value<string>("session_id"),
+                TimelineAssetGuid = json.Value<string>("timeline_asset_guid"),
                 SessionName = json.Value<string>("session_name"), CharacterRef = json.Value<string>("character_ref"),
                 CharacterName = json.Value<string>("character"), Start = json.Value<double>("start"),
                 End = json.Value<double>("end"), CreatedAtUtc = json.Value<DateTime>("created_at_utc"),
+                Poses = json["poses"] as JArray ?? json["analysis"]?["poses"] as JArray ?? new JArray(),
                 Analysis = json["analysis"] as JObject ?? new JObject()
             };
         }

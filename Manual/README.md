@@ -41,6 +41,8 @@
 - **[Kimodo Animation Skill](../SKILL.md)** — 平台无关的最小生成自检和精确 API 契约：当前 Timeline Session、查询、采样、TryAdd/TryRemove、分析、Bake/Retarget 与异步生成。
 - **[中文对照](../SKILL-zh.md)** — 与英文 Skill 逐项对应的中文 API 契约。
 - **[自动化使用入口](Command%20API%20说明书.md)** — Unity MCP、Unity CLI、Unity Cowork 如何读取并遵循该 Skill。
+- **[AI 工作流示例与 Constraint API 设计](AI%20工作流示例与%20Constraint%20API%20设计.md)** — 基础生成、截图、Bake、约束、Root2D、循环和过渡的 AI 示例，以及共享 keyframe/constraint 目标协议。
+- **[BlendTree 与 Timeline Transition 示例](BlendTree%20与%20Timeline%20Transition%20示例.md)** — 导入 BlendTree 候选，并由 AI 使用 Timeline API 显式构造过渡。
 
 ### 排查问题
 

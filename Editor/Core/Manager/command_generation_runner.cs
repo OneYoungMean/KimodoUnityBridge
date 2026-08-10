@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using KimodoBridge;
 using KimodoBridge.Editor;
 using UnityEditor;
-using UnityEditor.Compilation;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
@@ -46,10 +45,10 @@ namespace KimodoUnityBridge.Command
             new Dictionary<UnityEngine.Object, RunningSessionState>();
         private static readonly Dictionary<Guid, RunningSessionState> SessionsByRequest =
             new Dictionary<Guid, RunningSessionState>();
+        private static int reloadLockCount;
 
         static command_generation_runner()
         {
-            CompilationPipeline.compilationStarted += _ => CancelAll("Generation canceled: compilation started.");
             AssemblyReloadEvents.beforeAssemblyReload += () => CancelAll("Generation canceled: assembly reload.");
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
             EditorApplication.quitting += () => CancelAll("Generation canceled: editor quitting.");
@@ -95,6 +94,7 @@ namespace KimodoUnityBridge.Command
                 state = new RunningSessionState(target, targetKey, kind);
                 SessionsByTarget[target] = state;
                 SessionsByRequest[state.Session.RequestId] = state;
+                AcquireReloadLock();
                 session = state.Session;
             }
 
@@ -310,12 +310,17 @@ namespace KimodoUnityBridge.Command
             }
             finally
             {
+                command_context.PersistGenerationJobStatus(state.Session);
                 lock (Sync)
                 {
                     SessionsByRequest.Remove(state.Session.RequestId);
                 }
 
                 state.Dispose();
+                lock (Sync)
+                {
+                    ReleaseReloadLock();
+                }
             }
         }
 
@@ -329,6 +334,7 @@ namespace KimodoUnityBridge.Command
                 return;
             }
 
+            command_generation_session changed = null;
             lock (Sync)
             {
                 if (!SessionsByTarget.TryGetValue(target, out RunningSessionState state) ||
@@ -340,6 +346,29 @@ namespace KimodoUnityBridge.Command
                 }
 
                 mutate(state.Session);
+                changed = state.Session;
+            }
+            command_context.PersistGenerationJobStatus(changed);
+        }
+
+        private static void AcquireReloadLock()
+        {
+            if (reloadLockCount++ == 0)
+            {
+                EditorApplication.LockReloadAssemblies();
+            }
+        }
+
+        private static void ReleaseReloadLock()
+        {
+            if (reloadLockCount <= 0)
+            {
+                reloadLockCount = 0;
+                return;
+            }
+            if (--reloadLockCount == 0)
+            {
+                EditorApplication.UnlockReloadAssemblies();
             }
         }
 

@@ -6,7 +6,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using KimodoBridge;
 using KimodoBridge.Editor;
 using TimelineInject;
@@ -32,6 +31,7 @@ namespace KimodoUnityBridge.Command
         {
             return Execute(argumentsJson, arguments =>
             {
+                EnsureTimelineSessionsRestored();
                 RejectTimelineSessionId(arguments);
                 EnsureCanManageServer();
                 string sessionName = arguments.Value<string>("session_name")?.Trim();
@@ -41,6 +41,7 @@ namespace KimodoUnityBridge.Command
                     existing.AutoCloseWhenIdle = false;
                     currentTimelineSession = existing;
                     ActivateTimelineSession(existing);
+                    PersistTimelineSessionMetadata(existing);
                     OpenTimelineWindow(existing.Director);
                     return Ok(DescribeSession(existing));
                 }
@@ -57,6 +58,7 @@ namespace KimodoUnityBridge.Command
                 }
                 currentTimelineSession = record;
                 ActivateTimelineSession(record);
+                PersistTimelineSessionMetadata(record);
                 OpenTimelineWindow(record.Director);
                 return Ok(DescribeSession(record));
             });
@@ -85,6 +87,7 @@ namespace KimodoUnityBridge.Command
 
             currentTimelineSession = null;
             DeactivateTimelineSession(record);
+            PersistTimelineSessionMetadata(record);
             CloseTimelineWindow(record.TimelineAsset);
             EditorUtility.SetDirty(record.TimelineAsset);
             if (record.Director != null)
@@ -95,7 +98,6 @@ namespace KimodoUnityBridge.Command
             return Ok(new JObject
             {
                 ["session_name"] = record.Name,
-                ["timeline_asset_path"] = record.TimelineAssetPath,
                 ["session_saved"] = true,
                 ["session_retained"] = true,
                 ["closed"] = true
@@ -116,6 +118,7 @@ namespace KimodoUnityBridge.Command
 
             currentTimelineSession = null;
             DeactivateTimelineSession(current);
+            PersistTimelineSessionMetadata(current);
             CloseTimelineWindow(current.TimelineAsset);
             EditorUtility.SetDirty(current.TimelineAsset);
             EditorUtility.SetDirty(current.Director);
@@ -168,7 +171,14 @@ namespace KimodoUnityBridge.Command
             string assetPath = AssetDatabase.GenerateUniqueAssetPath(
                 $"{GeneratedTimelineFolder}/Kimodo_CommandSession_{safeName}_{DateTime.Now:yyyyMMdd_HHmmss_fff}.playable");
             TimelineAsset timelineAsset = ScriptableObject.CreateInstance<TimelineAsset>();
+            timelineAsset.editorSettings.frameRate = SessionFrameRate;
             AssetDatabase.CreateAsset(timelineAsset, assetPath);
+            var metadata = ScriptableObject.CreateInstance<KimodoCommandSessionMetadata>();
+            metadata.name = "Kimodo Session Metadata";
+            metadata.sessionId = Guid.NewGuid().ToString("D");
+            metadata.sessionName = name;
+            metadata.isAutomatic = isAutomatic;
+            AssetDatabase.AddObjectToAsset(metadata, timelineAsset);
 
             GameObject directorObject = new GameObject($"Kimodo_CommandSession_{safeName}");
             directorObject.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
@@ -176,12 +186,13 @@ namespace KimodoUnityBridge.Command
             director.playableAsset = timelineAsset;
             director.time = 0.0;
 
-            var record = new TimelineSessionRecord(Guid.NewGuid(), name, director, timelineAsset, assetPath, isAutomatic);
+            var record = new TimelineSessionRecord(Guid.Parse(metadata.sessionId), name, director, timelineAsset, assetPath, isAutomatic, metadata);
             foreach (Animator animator in FindSceneAnimators())
             {
-                AddCharacterTrack(record, animator.gameObject, animator, tryGenerateAvatar: true, out _);
+                AddCharacterTrack(record, animator.gameObject, animator, tryGenerateAvatar: true, out _, requireAvatar: true);
             }
 
+            PersistTimelineSessionMetadata(record);
             EditorUtility.SetDirty(timelineAsset);
             EditorUtility.SetDirty(director);
             AssetDatabase.SaveAssets();
@@ -196,6 +207,14 @@ namespace KimodoUnityBridge.Command
                 .GroupBy(animator => KimodoUnityObjectIdUtility.IdHash(animator))
                 .Select(group => group.First())
                 .ToArray();
+        }
+
+        private static string GetSceneHierarchyPath(GameObject gameObject)
+        {
+            return gameObject == null
+                ? string.Empty
+                : string.Join("/", gameObject.transform.GetComponentsInParent<Transform>(true)
+                    .Reverse().Select(item => item.name));
         }
 
         private static bool AddCharacterTrack(
@@ -235,33 +254,52 @@ namespace KimodoUnityBridge.Command
                 return false;
             }
 
-            AnimationTrack track = session.TimelineAsset.CreateTrack<AnimationTrack>(null, $"Kimodo - {root.name}");
+            string characterName = MakeUniqueCharacterName(session, root.name);
+            AnimationTrack track = session.TimelineAsset.CreateTrack<AnimationTrack>(null, characterName);
+            AnimationTrack poseCacheTrack = session.TimelineAsset.CreateTrack<AnimationTrack>(
+                track,
+                MakeUniqueSessionObjectName(session, $"{characterName}.Poses"));
             session.Director.SetGenericBinding(track, animator);
             var character = new TimelineCharacterRecord(
-                GetObjectReference(root), root, animator, avatar, track, avatarError);
+                GetObjectReference(root), root, animator, avatar, track, poseCacheTrack, avatarError);
             session.Characters.Add(character);
             FlattenAnimatorClips(session, character);
             EditorUtility.SetDirty(track);
+            EditorUtility.SetDirty(poseCacheTrack);
             EditorUtility.SetDirty(session.TimelineAsset);
             return true;
         }
 
+        private static string MakeUniqueCharacterName(TimelineSessionRecord session, string requestedName)
+        {
+            string baseName = KimodoRuntimeUtility.SanitizeName(requestedName, "Character");
+            string name = baseName;
+            for (int suffix = 1; session.Characters.Any(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)); suffix++)
+            {
+                name = $"{baseName}_{suffix}";
+            }
+            return name;
+        }
+
+        private static string MakeUniqueSessionObjectName(TimelineSessionRecord session, string requestedName)
+        {
+            var names = new HashSet<string>(
+                session.TimelineAsset.GetRootTracks()
+                    .SelectMany(root => new[] { root }.Concat(root.GetChildTracks()))
+                    .Select(track => track.name),
+                StringComparer.OrdinalIgnoreCase);
+            string name = requestedName;
+            for (int suffix = 1; names.Contains(name); suffix++)
+            {
+                name = $"{requestedName}_{suffix}";
+            }
+            return name;
+        }
+
         private static void FlattenAnimatorClips(TimelineSessionRecord session, TimelineCharacterRecord character)
         {
-            RuntimeAnimatorController controller = character.Animator != null
-                ? character.Animator.runtimeAnimatorController
-                : null;
-            AnimationClip[] clips = controller != null ? controller.animationClips : Array.Empty<AnimationClip>();
-            var seen = new HashSet<int>();
-            for (int i = 0; i < clips.Length; i++)
-            {
-                AnimationClip clip = clips[i];
-                if (clip == null || !seen.Add(KimodoUnityObjectIdUtility.IdHash(clip)))
-                {
-                    continue;
-                }
-                AppendAnimationClip(session, character, clip, "animator", null);
-            }
+            if (character.Animator?.runtimeAnimatorController is UnityEditor.Animations.AnimatorController)
+                ImportAnimator(session, character, character.Animator);
         }
 
         private static TimelineAnimationRecord AppendAnimationClip(
@@ -269,13 +307,16 @@ namespace KimodoUnityBridge.Command
             TimelineCharacterRecord character,
             AnimationClip clip,
             string source,
-            JObject analysis)
+            JObject analysis,
+            string requestedName = null)
         {
             double duration = Math.Max(0.0001, clip != null ? clip.length : 0.0001);
             TimelineClip timelineClip = character.Track.CreateClip<AnimationPlayableAsset>();
             timelineClip.start = character.NextStartSeconds;
             timelineClip.duration = duration;
-            timelineClip.displayName = clip != null ? clip.name : "Animation";
+            string animationName = MakeUniqueAnimationName(character,
+                string.IsNullOrWhiteSpace(requestedName) ? (clip != null ? clip.name : "Animation") : requestedName);
+            timelineClip.displayName = animationName;
             ((AnimationPlayableAsset)timelineClip.asset).clip = clip;
             var animation = new TimelineAnimationRecord(
                 Guid.NewGuid(), timelineClip.displayName, source, clip, timelineClip, analysis, null, 0, 0);
@@ -283,6 +324,17 @@ namespace KimodoUnityBridge.Command
             character.NextStartSeconds += duration;
             EditorUtility.SetDirty(character.Track);
             return animation;
+        }
+
+        private static string MakeUniqueAnimationName(TimelineCharacterRecord character, string requestedName)
+        {
+            string baseName = KimodoRuntimeUtility.SanitizeName(requestedName, "Animation");
+            string name = baseName;
+            for (int suffix = 1; character.Animations.Any(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)); suffix++)
+            {
+                name = $"{baseName}_{suffix}";
+            }
+            return name;
         }
 
         private static TimelineGenerationTrace PrepareGenerationTrace(JObject arguments, ResolvedCharacter character, double duration)
@@ -295,7 +347,7 @@ namespace KimodoUnityBridge.Command
             TimelineCharacterRecord target = ResolveSessionCharacter(session, character.Root, character.Name);
             if (target == null)
             {
-                if (!AddCharacterTrack(session, character.Root, character.Animator, true, out string addError))
+                if (!AddCharacterTrack(session, character.Root, character.Animator, true, out string addError, requireAvatar: true))
                 {
                     throw new InvalidOperationException($"Character is not in the current Session and could not be added: {addError}");
                 }
@@ -331,7 +383,9 @@ namespace KimodoUnityBridge.Command
             TimelineClip timelineClip = trace.Character.Track.CreateClip<KimodoPlayableClip>();
             timelineClip.start = trace.StartSeconds;
             timelineClip.duration = trace.DurationSeconds;
-            timelineClip.displayName = string.IsNullOrWhiteSpace(prompt) ? "Kimodo Generation" : prompt.Trim();
+            timelineClip.displayName = MakeUniqueAnimationName(
+                trace.Character,
+                string.IsNullOrWhiteSpace(prompt) ? "Kimodo Generation" : prompt.Trim());
 
             KimodoPlayableClip playableClip = timelineClip.asset as KimodoPlayableClip;
             if (playableClip == null)
@@ -387,6 +441,18 @@ namespace KimodoUnityBridge.Command
                     case "fullbody":
                         marker = trace.Character.Track.CreateMarker<KimodoFullBodyConstraintMarker>(trace.StartSeconds + localTime);
                         break;
+                    case "left_hand":
+                        marker = trace.Character.Track.CreateMarker<KimodoLeftHandConstraintMarker>(trace.StartSeconds + localTime);
+                        break;
+                    case "right_hand":
+                        marker = trace.Character.Track.CreateMarker<KimodoRightHandConstraintMarker>(trace.StartSeconds + localTime);
+                        break;
+                    case "left_foot":
+                        marker = trace.Character.Track.CreateMarker<KimodoLeftFootConstraintMarker>(trace.StartSeconds + localTime);
+                        break;
+                    case "right_foot":
+                        marker = trace.Character.Track.CreateMarker<KimodoRightFootConstraintMarker>(trace.StartSeconds + localTime);
+                        break;
                     default:
                         throw new InvalidOperationException($"Unsupported Timeline constraint type '{sample.constraintType}'.");
                 }
@@ -394,11 +460,41 @@ namespace KimodoUnityBridge.Command
                 KimodoMarkerSampleResult markerSample = sample.Clone();
                 markerSample.sampleTime = trace.StartSeconds + localTime;
                 marker.SampleData = markerSample;
+                marker.name = MakeUniqueConstraintPoseSource(trace.Session, $"{trace.Character.Name}.Constraint");
                 marker.useOverride = true;
                 marker.constraintEnabled = true;
             }
 
             EditorUtility.SetDirty(trace.Character.Track);
+        }
+
+        private static string MakeUniqueConstraintPoseSource(TimelineSessionRecord session, string requestedName)
+        {
+            var names = new HashSet<string>(session.Characters
+                .SelectMany(character => character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>())
+                .Select(marker => marker.name), StringComparer.OrdinalIgnoreCase);
+            string name = requestedName;
+            for (int suffix = 1; names.Contains(name); suffix++) name = $"{requestedName}_{suffix}";
+            return name;
+        }
+
+        private static void EnsureConstraintPoseSources(TimelineSessionRecord session)
+        {
+            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            bool changed = false;
+            foreach (TimelineCharacterRecord character in session.Characters)
+            foreach (KimodoConstraintMarkerBase marker in character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
+                .Where(item => item is not KimodoUntypedConstraintMarker))
+            {
+                string prefix = $"{character.Name}.Constraint";
+                if (!string.IsNullOrWhiteSpace(marker.name) &&
+                    marker.name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && used.Add(marker.name)) continue;
+                marker.name = MakeUniqueConstraintPoseSource(session, prefix);
+                used.Add(marker.name);
+                EditorUtility.SetDirty(marker);
+                changed = true;
+            }
+            if (changed) SaveTimelineSession(session);
         }
 
         private static void ReserveGenerationTimelineRange(TimelineGenerationTrace trace)
@@ -493,6 +589,7 @@ namespace KimodoUnityBridge.Command
 
         private static TimelineSessionRecord RequireCurrentTimelineSession()
         {
+            EnsureTimelineSessionsRestored();
             if (currentTimelineSession == null)
             {
                 throw new InvalidOperationException("No current Session. Call session_open first.");
@@ -514,6 +611,7 @@ namespace KimodoUnityBridge.Command
 
         private static bool TryGetTimelineSession(string name, out TimelineSessionRecord record)
         {
+            EnsureTimelineSessionsRestored();
             lock (TimelineSessionsLock)
             {
                 return TimelineSessions.TryGetValue(name, out record);
@@ -542,17 +640,9 @@ namespace KimodoUnityBridge.Command
         {
             RejectTimelineSessionId(arguments);
             TimelineSessionRecord session = RequireCurrentTimelineSession();
-            string reference = arguments.Value<string>("character_ref")?.Trim();
-            string name = arguments.Value<string>("character_name")?.Trim();
-            if (string.IsNullOrWhiteSpace(reference) && string.IsNullOrWhiteSpace(name))
-            {
-                throw new InvalidOperationException("character_ref or character_name is required.");
-            }
-            TimelineCharacterRecord match = !string.IsNullOrWhiteSpace(reference)
-                ? session.Characters.FirstOrDefault(character => character.CharacterRef == reference)
-                : session.Characters.FirstOrDefault(character =>
-                    !string.IsNullOrWhiteSpace(name) &&
-                    string.Equals(character.Name, name, StringComparison.OrdinalIgnoreCase));
+            string name = RequiredStringValue(arguments, "character");
+            TimelineCharacterRecord match = session.Characters.FirstOrDefault(character =>
+                string.Equals(character.Name, name, StringComparison.OrdinalIgnoreCase));
             if (match == null)
             {
                 throw new InvalidOperationException("The character is not in the current Timeline Session.");
@@ -565,249 +655,71 @@ namespace KimodoUnityBridge.Command
             return Execute(argumentsJson, arguments =>
             {
                 RejectTimelineSessionId(arguments);
-                string requestedType = (arguments.Value<string>("type") ?? "session").Trim().ToLowerInvariant();
-                string scope = (arguments.Value<string>("scope") ?? "session").Trim().ToLowerInvariant();
-                if (requestedType == "character" && scope != "session")
+                TimelineSessionRecord session = RequireCurrentTimelineSession();
+                string query = RequiredStringValue(arguments, "query").ToLowerInvariant();
+                if (query == "characters")
                 {
-                    if (scope != "scene" && scope != "project" && scope != "all")
-                    {
-                        throw new InvalidOperationException("scope must be session, scene, project, or all.");
-                    }
-                    int maxResults = Mathf.Clamp(arguments.Value<int?>("max_results") ?? 100, 1, 1000);
-                    JObject listed = JObject.Parse(ListCharacters(new JObject
-                    {
-                        ["include_project_assets"] = scope == "project" || scope == "all",
-                        ["max_results"] = maxResults
-                    }.ToString(Formatting.None)));
-                    if (listed.Value<bool?>("ok") != true)
-                    {
-                        throw new InvalidOperationException(listed.Value<string>("error") ?? "Character query failed.");
-                    }
-                    JArray characters = listed["characters"] as JArray ?? new JArray();
-                    if (scope == "project")
-                    {
-                        characters = new JArray(characters.Where(item => item.Value<string>("source") != "scene"));
-                    }
-                    string pattern = string.IsNullOrWhiteSpace(arguments.Value<string>("pattern"))
-                        ? "*"
-                        : arguments.Value<string>("pattern").Trim();
-                    JArray selectors = arguments["objects"] as JArray;
-                    bool longResult = arguments.Value<bool?>("long") ?? true;
-                    List<JObject> matches = characters.Children<JObject>()
-                        .Where(item => MatchesLsSelectors(
-                            item.Value<string>("name"), item.Value<string>("character_ref"), pattern, selectors))
-                        .Select(item => longResult
-                            ? (JObject)item.DeepClone()
-                            : new JObject
-                            {
-                                ["name"] = item.Value<string>("name"),
-                                ["character_ref"] = item.Value<string>("character_ref")
-                            })
-                        .ToList();
-                    matches = ApplyLsLimits(matches, arguments);
+                    return Ok(new JObject { ["characters"] = new JArray(session.Characters.Select(item => item.Name)) });
+                }
+                TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
+                if (query == "character_animations")
+                {
+                    return Ok(new JObject { ["character"] = character.Name, ["animations"] = new JArray(character.Animations.Select(DescribeAnimation)) });
+                }
+                if (query == "character_constraints")
+                {
+                    EnsureConstraintPoseSources(session);
                     return Ok(new JObject
                     {
-                        ["type"] = "character",
-                        ["scope"] = scope,
-                        ["pattern"] = pattern,
-                        ["count"] = matches.Count,
-                        ["objects"] = new JArray(matches)
+                        ["character"] = character.Name,
+                        ["constraints"] = new JArray(character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
+                            .Where(marker => marker is not KimodoUntypedConstraintMarker)
+                            .Select(marker => DescribeTimelineConstraint(marker, 0)))
                     });
                 }
-                TimelineSessionRecord session = RequireCurrentTimelineSession();
-                if (arguments["operation"] == null)
-                {
-                    return Ok(QueryCurrentSessionLs(session, arguments));
-                }
-
-                string operation = (arguments.Value<string>("operation") ?? "session").Trim().ToLowerInvariant();
-                TimelineCharacterRecord character = null;
-                if (operation == "character" || operation == "animations" || operation == "animation" || operation == "analysis")
-                {
-                    character = ResolveCurrentSessionCharacter(arguments);
-                }
-                JObject result = operation switch
-                {
-                    "session" => DescribeSession(session),
-                    "characters" => new JObject { ["characters"] = new JArray(session.Characters.Select(DescribeCharacter)) },
-                    "character" => DescribeCharacter(character),
-                    "animations" => new JObject { ["character"] = character.Name, ["animations"] = new JArray(character.Animations.Select(DescribeAnimation)) },
-                    "animation" => DescribeAnimation(ResolveAnimation(arguments, character)),
-                    "analysis" => DescribeAnalysis(character, arguments),
-                    _ => throw new InvalidOperationException("operation must be session, characters, character, animations, animation, or analysis.")
-                };
-                return Ok(result);
-            });
-        }
-
-        private static JObject QueryCurrentSessionLs(TimelineSessionRecord session, JObject arguments)
-        {
-            string type = (arguments.Value<string>("type") ?? "session").Trim().ToLowerInvariant();
-            if (type != "session" && type != "character" && type != "animation")
-            {
-                throw new InvalidOperationException("type must be session, character, or animation.");
-            }
-
-            string pattern = string.IsNullOrWhiteSpace(arguments.Value<string>("pattern"))
-                ? "*"
-                : arguments.Value<string>("pattern").Trim();
-            JArray objects = arguments["objects"] as JArray;
-            bool longResult = arguments.Value<bool?>("long") ?? true;
-            bool showType = arguments.Value<bool?>("show_type") ?? false;
-            List<JObject> matches = new List<JObject>();
-
-            if (type == "session")
-            {
-                if (MatchesLsSelectors(session.Name, session.Id.ToString("D"), pattern, objects))
-                {
-                    matches.Add(longResult
-                        ? DescribeSession(session)
-                        : new JObject { ["name"] = session.Name });
-                }
-            }
-            else if (type == "character")
-            {
-                foreach (TimelineCharacterRecord character in session.Characters)
-                {
-                    if (!MatchesLsSelectors(character.Name, character.CharacterRef, pattern, objects))
-                    {
-                        continue;
-                    }
-                    matches.Add(longResult
-                        ? DescribeCharacter(character)
-                        : new JObject
-                        {
-                            ["name"] = character.Name,
-                            ["character_ref"] = character.CharacterRef
-                        });
-                }
-            }
-            else
-            {
-                IEnumerable<TimelineCharacterRecord> characters = session.Characters;
-                string characterRef = arguments.Value<string>("character_ref")?.Trim();
-                string characterName = arguments.Value<string>("character_name")?.Trim();
-                if (!string.IsNullOrWhiteSpace(characterRef) || !string.IsNullOrWhiteSpace(characterName))
-                {
-                    characters = characters.Where(character =>
-                        (!string.IsNullOrWhiteSpace(characterRef) && character.CharacterRef == characterRef) ||
-                        (!string.IsNullOrWhiteSpace(characterName) && string.Equals(character.Name, characterName, StringComparison.OrdinalIgnoreCase)));
-                }
-
-                foreach (TimelineCharacterRecord character in characters)
-                {
-                    foreach (TimelineAnimationRecord animation in character.Animations)
-                    {
-                        string animationRef = animation.Id.ToString("D");
-                        if (!MatchesLsSelectors(animation.Name, animationRef, pattern, objects))
-                        {
-                            continue;
-                        }
-                        JObject item = longResult
-                            ? DescribeAnimation(animation)
-                            : new JObject
-                            {
-                                ["name"] = animation.Name,
-                                ["animation_id"] = animationRef
-                            };
-                        item["character"] = character.Name;
-                        matches.Add(item);
-                    }
-                }
-            }
-
-            matches = ApplyLsLimits(matches, arguments);
-            JArray resultObjects = new JArray(matches);
-            if (showType)
-            {
-                foreach (JObject item in resultObjects.Children<JObject>())
-                {
-                    item["type"] = type;
-                }
-            }
-
-            return new JObject
-            {
-                ["session_name"] = session.Name,
-                ["type"] = type,
-                ["pattern"] = pattern,
-                ["count"] = matches.Count,
-                ["objects"] = resultObjects
-            };
-        }
-
-        private static bool MatchesLsSelectors(string name, string reference, string pattern, JArray objects)
-        {
-            if (objects == null || objects.Count == 0)
-            {
-                return MatchesLsPattern(name, pattern) || MatchesLsPattern(reference, pattern);
-            }
-
-            return objects.Values<string>().Any(selector =>
-                MatchesLsPattern(name, selector) || MatchesLsPattern(reference, selector));
-        }
-
-        private static bool MatchesLsPattern(string value, string pattern)
-        {
-            if (string.IsNullOrEmpty(value) || string.IsNullOrEmpty(pattern))
-            {
-                return false;
-            }
-            string expression = "^" + Regex.Escape(pattern)
-                .Replace("\\*", ".*")
-                .Replace("\\?", ".") + "$";
-            return Regex.IsMatch(value, expression, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        }
-
-        private static List<JObject> ApplyLsLimits(List<JObject> matches, JObject arguments)
-        {
-            int? head = arguments.Value<int?>("head");
-            int? tail = arguments.Value<int?>("tail");
-            if (head.HasValue && head.Value < 0)
-            {
-                throw new InvalidOperationException("head must be non-negative.");
-            }
-            if (tail.HasValue && tail.Value < 0)
-            {
-                throw new InvalidOperationException("tail must be non-negative.");
-            }
-
-            List<JObject> limited = matches;
-            if (head.HasValue)
-            {
-                limited = limited.Take(head.Value).ToList();
-            }
-            if (tail.HasValue)
-            {
-                limited = limited.Skip(Math.Max(0, limited.Count - tail.Value)).ToList();
-            }
-            return limited;
-        }
-
-        public static string SessionLocateAnimation(string argumentsJson)
-        {
-            return Execute(argumentsJson, arguments =>
-            {
-                TimelineSessionRecord session = RequireCurrentTimelineSession();
-                TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
                 TimelineAnimationRecord animation = ResolveAnimation(arguments, character);
-                double time = arguments.Value<double?>("session_global") ?? animation.TimelineClip.start;
-                if (double.IsNaN(time) || double.IsInfinity(time) || time < 0.0)
+                if (query == "animation_transitions")
                 {
-                    throw new InvalidOperationException("session_global must be a non-negative finite number.");
+                    return Ok(new JObject
+                    {
+                        ["character"] = character.Name,
+                        ["animation"] = animation.Name,
+                        ["incoming"] = new JArray(character.Animations.Where(item =>
+                            string.Equals(item.ToAnimation, animation.Name, StringComparison.OrdinalIgnoreCase)).Select(DescribeTransition)),
+                        ["outgoing"] = new JArray(character.Animations.Where(item =>
+                            string.Equals(item.FromAnimation, animation.Name, StringComparison.OrdinalIgnoreCase)).Select(DescribeTransition))
+                    });
                 }
-                session.Director.time = time;
-                session.Director.Evaluate();
-                TimelineEditor.selectedClips = new[] { animation.TimelineClip };
-                TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
-                return Ok(new JObject
+                if (query == "transition")
                 {
-                    ["session_name"] = session.Name,
-                    ["character"] = character.Name,
-                    ["animation"] = DescribeAnimation(animation),
-                    ["session_global"] = time,
-                    ["located"] = true
-                });
+                    if (!string.Equals(animation.Source, "animator_transition", StringComparison.Ordinal))
+                        throw new InvalidOperationException($"Animation '{animation.Name}' is not an Animator transition.");
+                    return Ok(new JObject { ["character"] = character.Name, ["transition"] = DescribeTransition(animation) });
+                }
+                if (query == "animation")
+                {
+                    return Ok(new JObject { ["character"] = character.Name, ["animation"] = DescribeAnimation(animation) });
+                }
+                if (query == "animation_constraints")
+                {
+                    EnsureConstraintPoseSources(session);
+                    int startFrame = Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate));
+                    int endFrame = Mathf.RoundToInt((float)(animation.TimelineClip.end * SessionFrameRate));
+                    return Ok(new JObject
+                    {
+                        ["character"] = character.Name,
+                        ["animation"] = animation.Name,
+                        ["constraints"] = new JArray(character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
+                            .Where(marker => marker is not KimodoUntypedConstraintMarker)
+                            .Where(marker =>
+                            {
+                                int frame = Mathf.RoundToInt((float)(marker.time * SessionFrameRate));
+                                return frame >= startFrame && frame < endFrame;
+                            })
+                            .Select(marker => DescribeTimelineConstraint(marker, startFrame)))
+                    });
+                }
+                throw new InvalidOperationException("query must be characters, character_animations, animation, character_constraints, animation_constraints, animation_transitions, or transition.");
             });
         }
 
@@ -819,14 +731,21 @@ namespace KimodoUnityBridge.Command
                 string kind = (arguments.Value<string>("kind") ?? string.Empty).Trim().ToLowerInvariant();
                 if (kind == "character")
                 {
-                    string reference = RequiredStringValue(arguments, "character_ref");
-                    UnityEngine.Object resolved = ResolveObject(reference);
-                    GameObject root = resolved as GameObject ?? (resolved as Animator)?.gameObject;
-                    if (root == null || !root.scene.IsValid() || EditorUtility.IsPersistent(root))
+                    string requestedName = RequiredStringValue(arguments, "character");
+                    IEnumerable<Animator> candidates = FindSceneAnimators().Where(item =>
+                        session.Characters.All(character => character.Animator != item));
+                    bool isPath = requestedName.Contains("/");
+                    Animator[] matches = candidates.Where(item => isPath
+                        ? string.Equals(GetSceneHierarchyPath(item.gameObject), requestedName, StringComparison.OrdinalIgnoreCase)
+                        : string.Equals(item.gameObject.name, requestedName, StringComparison.OrdinalIgnoreCase)).ToArray();
+                    if (matches.Length != 1)
                     {
-                        throw new InvalidOperationException("character_ref must resolve to a scene character.");
+                        throw new InvalidOperationException(matches.Length == 0
+                            ? $"Scene character '{requestedName}' was not found."
+                            : $"Scene character name '{requestedName}' is ambiguous; rename it before adding.");
                     }
-                    Animator animator = root.GetComponentInChildren<Animator>(true);
+                    Animator animator = matches[0];
+                    GameObject root = animator.gameObject;
                     if (animator == null)
                     {
                         throw new InvalidOperationException("avatar_required: character has no Animator.");
@@ -845,13 +764,57 @@ namespace KimodoUnityBridge.Command
                 if (kind == "clip")
                 {
                     TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
-                    AnimationClip clip = ResolveAnimationClip(RequiredStringValue(arguments, "clip_ref"));
+                    AnimationClip clip = ResolveAnimationClip(RequiredStringValue(arguments, "clip"));
+                    bool retargeted = false;
+                    if (!clip.isHumanMotion)
+                    {
+                        clip = RetargetAddedClipToMuscle(character, clip);
+                        retargeted = true;
+                    }
                     TimelineAnimationRecord animation = AppendAnimationClip(session, character, clip, "added", null);
                     SaveTimelineSession(session);
-                    return Ok(new JObject { ["added"] = true, ["kind"] = kind, ["animation"] = DescribeAnimation(animation) });
+                    return Ok(new JObject
+                    {
+                        ["added"] = true,
+                        ["kind"] = kind,
+                        ["retargeted"] = retargeted,
+                        ["animation"] = DescribeAnimation(animation)
+                    });
                 }
-                throw new InvalidOperationException("kind must be character or clip.");
+                if (kind == "animator")
+                {
+                    TimelineCharacterRecord target = ResolveCurrentSessionCharacter(arguments);
+                    string requested = RequiredStringValue(arguments, "animator");
+                    bool isPath = requested.Contains("/");
+                    Animator[] matches = FindSceneAnimators().Where(item => isPath
+                        ? string.Equals(GetSceneHierarchyPath(item.gameObject), requested, StringComparison.OrdinalIgnoreCase)
+                        : string.Equals(item.gameObject.name, requested, StringComparison.OrdinalIgnoreCase)).ToArray();
+                    if (matches.Length != 1) throw new InvalidOperationException(matches.Length == 0
+                        ? $"Scene Animator '{requested}' was not found."
+                        : $"Scene Animator '{requested}' is ambiguous; use its hierarchy path.");
+                    return Ok(ImportAnimator(session, target, matches[0]));
+                }
+                throw new InvalidOperationException("kind must be character, clip, or animator.");
             });
+        }
+
+        private static AnimationClip RetargetAddedClipToMuscle(TimelineCharacterRecord character, AnimationClip source)
+        {
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
+            {
+                throw new InvalidOperationException($"Cannot retarget '{source.name}': character '{character.Name}' has no valid humanoid Avatar.");
+            }
+            string assetName = $"{source.name}_{character.Name}_Retarget";
+            AnimationClip output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
+                assetName, KimodoEditorClipWritebackService.GeneratedClipFolder);
+            if (KimodoRetargetToolsEditor.TryBakeMuscleClipToClip(source, character.Avatar, output, out string error))
+            {
+                AssetDatabase.SaveAssets();
+                return output;
+            }
+            string path = AssetDatabase.GetAssetPath(output);
+            if (!string.IsNullOrWhiteSpace(path)) AssetDatabase.DeleteAsset(path);
+            throw new InvalidOperationException($"Retarget non-muscle clip '{source.name}' failed: {error}");
         }
 
         public static string SessionTryRemove(string argumentsJson)
@@ -867,7 +830,7 @@ namespace KimodoUnityBridge.Command
                     character.Track.DeleteClip(animation.TimelineClip);
                     character.Animations.Remove(animation);
                     SaveTimelineSession(session);
-                    return Ok(new JObject { ["removed"] = true, ["kind"] = kind, ["animation_id"] = animation.Id.ToString("D") });
+                    return Ok(new JObject { ["removed"] = true, ["kind"] = kind, ["character"] = character.Name, ["animation"] = animation.Name });
                 }
                 if (kind == "character")
                 {
@@ -875,7 +838,7 @@ namespace KimodoUnityBridge.Command
                     session.TimelineAsset.DeleteTrack(character.Track);
                     session.Characters.Remove(character);
                     SaveTimelineSession(session);
-                    return Ok(new JObject { ["removed"] = true, ["kind"] = kind, ["character_ref"] = character.CharacterRef });
+                    return Ok(new JObject { ["removed"] = true, ["kind"] = kind, ["character"] = character.Name });
                 }
                 throw new InvalidOperationException("kind must be character or clip.");
             });
@@ -888,92 +851,118 @@ namespace KimodoUnityBridge.Command
                 RejectTimelineSessionId(arguments);
                 TimelineSessionRecord session = RequireCurrentTimelineSession();
                 TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
-                double start = RequiredFiniteDouble(arguments, "start");
-                double end = RequiredFiniteDouble(arguments, "end");
-                if (start < 0.0 || end <= start)
+                bool animationMode = arguments["animation"] != null;
+                bool rangeMode = arguments["start_frame"] != null || arguments["end_frame"] != null;
+                if (animationMode == rangeMode)
                 {
-                    throw new InvalidOperationException("The analysis range must satisfy 0 <= start < end.");
+                    throw new InvalidOperationException("Provide exactly one analysis source: animation, or start_frame with end_frame.");
                 }
-
-                TimelineAnimationRecord[] overlapping = character.Animations
-                    .Where(item => Overlaps(item.TimelineClip, start, end))
-                    .ToArray();
-                var analyses = new JArray();
-                foreach (TimelineAnimationRecord animation in overlapping)
+                int startFrame;
+                int endFrame;
+                TimelineAnimationRecord animation;
+                AnimationClip transientClip = null;
+                TimelineClip transientTimelineClip = null;
+                try
                 {
-                    if (animation.Analysis != null && animation.Analysis.HasValues)
+                    if (animationMode)
                     {
-                        analyses.Add(new JObject
-                        {
-                            ["animation_id"] = animation.Id.ToString("D"),
-                            ["global_start"] = animation.TimelineClip.start,
-                            ["analysis"] = animation.Analysis.DeepClone()
-                        });
+                        animation = ResolveAnimation(arguments, character);
+                        startFrame = Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate));
+                        endFrame = startFrame + Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)));
                     }
-                }
-                JObject analysis = BuildRangeAnalysisFromServer(arguments, session, overlapping);
-                if (analysis == null)
-                {
-                    analysis = new JObject
+                    else
                     {
-                        ["source"] = "session_generation_results",
-                        ["keyframes"] = new JArray(analyses.SelectMany(item =>
-                            (item["analysis"]?["keyframes"] as JArray ?? new JArray()).Select(frame => frame.DeepClone()))),
-                        ["issues"] = new JArray(),
-                        ["clips"] = new JArray(analyses.Select(item => item["animation_id"]))
+                        startFrame = RequiredNonNegativeFrame(arguments, "start_frame");
+                        endFrame = RequiredNonNegativeFrame(arguments, "end_frame");
+                        if (endFrame <= startFrame)
+                            throw new InvalidOperationException("The analysis range must satisfy 0 <= start_frame < end_frame.");
+                        animation = BakeTransientAnalysisRange(session, character, startFrame, endFrame, out transientClip, out transientTimelineClip);
+                    }
+
+                    JObject analysis = AnalyzeClipWithServer(arguments, session, animation);
+                    JArray poses = BuildAnalysisPoses(character, startFrame, endFrame, analysis);
+                    analysis.Remove("keyframes");
+                    string analysisId = CacheAnalysisResult(session, character, startFrame / SessionFrameRate, endFrame / SessionFrameRate, poses, analysis);
+                    var response = new JObject
+                    {
+                        ["analysis_id"] = analysisId,
+                        ["character"] = character.Name,
+                        ["poses"] = poses,
+                        ["analysis"] = analysis
                     };
+                    if (animationMode) response["animation"] = animation.Name;
+                    else
+                    {
+                        response["start_frame"] = startFrame;
+                        response["end_frame"] = endFrame;
+                    }
+                    return Ok(response);
                 }
-                string analysisId = CacheAnalysisResult(session, character, start, end, analysis);
-                JObject result = new JObject
+                finally
                 {
-                    ["analysis_id"] = analysisId,
-                    ["session_name"] = session.Name,
-                    ["character"] = character.Name,
-                    ["start"] = start,
-                    ["end"] = end,
-                    ["analyses"] = analyses,
-                    ["analysis"] = analysis
-                };
-                return Ok(result);
+                    if (transientTimelineClip != null) character.Track.DeleteClip(transientTimelineClip);
+                    if (transientClip != null) UnityEngine.Object.DestroyImmediate(transientClip);
+                    session.Director.Evaluate();
+                    TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+                }
             });
         }
 
-        private static JObject BuildRangeAnalysisFromServer(
+        private static JArray BuildAnalysisPoses(
+            TimelineCharacterRecord character,
+            int startFrame,
+            int endFrame,
+            JObject analysis)
+        {
+            var poses = new JArray();
+            foreach (JObject keyframe in (analysis?["keyframes"] as JArray ?? new JArray()).OfType<JObject>())
+            {
+                double reported = keyframe.Value<double?>("session_time") ?? keyframe.Value<double?>("time") ?? 0.0;
+                int reportedFrame = Mathf.RoundToInt((float)(reported * SessionFrameRate));
+                int frame = reportedFrame >= startFrame && reportedFrame < endFrame
+                    ? reportedFrame
+                    : Mathf.Clamp(startFrame + reportedFrame, startFrame, endFrame - 1);
+                JObject annotation = (JObject)keyframe.DeepClone();
+                annotation.Remove("time");
+                annotation.Remove("session_time");
+                annotation["frame"] = frame;
+                poses.Add(new JObject
+                {
+                    ["pose"] = new JObject { ["source"] = character.Name, ["frame"] = frame },
+                    ["analysis"] = annotation
+                });
+            }
+            return poses;
+        }
+
+        private static JObject AnalyzeClipWithServer(
             JObject arguments,
             TimelineSessionRecord session,
-            IEnumerable<TimelineAnimationRecord> animations)
+            TimelineAnimationRecord animation)
         {
             float frameRate = session.TimelineAsset.editorSettings.frameRate > 0.0
                 ? (float)session.TimelineAsset.editorSettings.frameRate
                 : KimodoPlayableClip.FIXED_FRAME_RATE;
-            var constraints = new List<KimodoKmbClipConstraint>();
-            foreach (TimelineAnimationRecord animation in animations)
+            byte[] motionBytes = animation.KmbBytes;
+            int startFrame = Math.Max(0, animation.StartFrame);
+            int frameCount = animation.EndFrameExclusive > animation.StartFrame
+                ? animation.EndFrameExclusive - animation.StartFrame
+                : Math.Max(1, Mathf.CeilToInt((float)(animation.TimelineClip.duration * frameRate)));
+            if (motionBytes == null || motionBytes.Length == 0)
             {
-                if (animation.KmbBytes == null || animation.KmbBytes.Length == 0)
-                {
-                    continue;
-                }
-                int startFrame = Math.Max(0, animation.StartFrame);
-                int frameCount = animation.EndFrameExclusive > animation.StartFrame
-                    ? animation.EndFrameExclusive - animation.StartFrame
-                    : Math.Max(1, Mathf.CeilToInt((float)(animation.TimelineClip.duration * frameRate)));
-                if (KimodoRawMotionUtility.TryParseFlatBuffer(
-                        animation.KmbBytes, out KimodoRawMotionData motion, out _) && motion.FrameCount > 0)
-                {
-                    startFrame = Mathf.Clamp(startFrame, 0, motion.FrameCount - 1);
-                    frameCount = Mathf.Clamp(frameCount, 1, motion.FrameCount - startFrame);
-                }
-                constraints.Add(new KimodoKmbClipConstraint
-                {
-                    motionBytes = animation.KmbBytes,
-                    startFrame = startFrame,
-                    endFrameExclusive = startFrame + frameCount
-                });
+                motionBytes = KimodoClipConstraintEncoder.EncodeTimeline(animation.TimelineClip, ResolveModelName(null), frameCount,
+                    frameRate, 0, KimodoInOutConstraintMode.None, false, false);
+                startFrame = 0;
             }
-            if (constraints.Count == 0)
+            if (KimodoRawMotionUtility.TryParseFlatBuffer(motionBytes, out KimodoRawMotionData motion, out _) && motion.FrameCount > 0)
             {
-                return null;
+                startFrame = Mathf.Clamp(startFrame, 0, motion.FrameCount - 1);
+                frameCount = Mathf.Clamp(frameCount, 1, motion.FrameCount - startFrame);
             }
+            var constraints = new List<KimodoKmbClipConstraint>
+            {
+                new KimodoKmbClipConstraint { motionBytes = motionBytes, startFrame = startFrame, endFrameExclusive = startFrame + frameCount }
+            };
 
             JObject options = arguments["analysis_option"] is JObject supplied
                 ? (JObject)supplied.DeepClone()
@@ -994,8 +983,47 @@ namespace KimodoUnityBridge.Command
                 System.Threading.CancellationToken.None).GetAwaiter().GetResult();
             JObject analysis = ParseAnalysisObject(result?.AnalysisJson);
             analysis["source"] = "quickserver_analysis_only";
-            analysis["attachment_count"] = constraints.Count;
             return analysis;
+        }
+
+        private static TimelineAnimationRecord BakeTransientAnalysisRange(
+            TimelineSessionRecord session,
+            TimelineCharacterRecord character,
+            int startFrame,
+            int endFrame,
+            out AnimationClip transientClip,
+            out TimelineClip transientTimelineClip)
+        {
+            int frameCount = endFrame - startFrame;
+            Transform[] transforms = character.Root.GetComponentsInChildren<Transform>(true);
+            string[] paths = transforms.Select(transform => AnimationUtility.CalculateTransformPath(transform, character.Root.transform)).ToArray();
+            var frames = new List<BakeBoneFrame>(frameCount);
+            double originalTime = session.Director.time;
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                session.Director.time = (startFrame + frame) / SessionFrameRate;
+                session.Director.Evaluate();
+                var sample = new BakeBoneFrame(transforms.Length);
+                for (int index = 0; index < transforms.Length; index++)
+                {
+                    sample.Positions[index] = transforms[index].localPosition;
+                    sample.Rotations[index] = transforms[index].localRotation;
+                }
+                frames.Add(sample);
+            }
+            session.Director.time = originalTime;
+            session.Director.Evaluate();
+
+            transientClip = new AnimationClip { name = "__KimodoAnalysisRange__", frameRate = (float)SessionFrameRate };
+            transientClip.hideFlags = HideFlags.HideAndDontSave;
+            WriteBoneBakeCurves(transientClip, transforms, paths, frames, (float)SessionFrameRate);
+            transientTimelineClip = character.Track.CreateClip<AnimationPlayableAsset>();
+            transientTimelineClip.start = character.NextStartSeconds;
+            transientTimelineClip.duration = frameCount / SessionFrameRate;
+            transientTimelineClip.displayName = transientClip.name;
+            ((AnimationPlayableAsset)transientTimelineClip.asset).clip = transientClip;
+            return new TimelineAnimationRecord(Guid.NewGuid(), transientClip.name, "temporary", transientClip,
+                transientTimelineClip, null, null, 0, frameCount);
         }
 
         public static string KimodoBakeTimelineRange(string argumentsJson)
@@ -1011,17 +1039,25 @@ namespace KimodoUnityBridge.Command
         {
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             TimelineCharacterRecord source = ResolveCurrentSessionCharacter(arguments);
-            double start = RequiredFiniteDouble(arguments, "start");
-            double end = RequiredFiniteDouble(arguments, "end");
-            if (start < 0.0 || end <= start)
+            int startFrame = RequiredNonNegativeFrame(arguments, "start_frame");
+            int endFrame = RequiredNonNegativeFrame(arguments, "end_frame");
+            bool removeRootMotion = arguments.Value<bool?>("remove_root_motion") ?? false;
+            double speed = arguments.Value<double?>("speed") ?? 1.0;
+            if (double.IsNaN(speed) || double.IsInfinity(speed) || speed <= 0.0)
             {
-                throw new InvalidOperationException("The bake range must satisfy 0 <= start < end.");
+                throw new InvalidOperationException("speed must be a positive finite number.");
             }
+            if (endFrame <= startFrame)
+            {
+                throw new InvalidOperationException("The bake range must satisfy 0 <= start_frame < end_frame.");
+            }
+            double start = startFrame / SessionFrameRate;
+            double end = endFrame / SessionFrameRate;
             TimelineCharacterRecord target = source;
-            string targetReference = arguments.Value<string>("retarget_character_ref")?.Trim();
+            string targetReference = arguments.Value<string>("retarget_character")?.Trim();
             if (!string.IsNullOrWhiteSpace(targetReference))
             {
-                target = ResolveSessionCharacterByReference(session, targetReference, addIfMissing: true);
+                target = ResolveSessionCharacterByReference(session, targetReference, addIfMissing: false);
                 if (!KimodoRetargetCoreUtility.IsValidHumanoid(target.Avatar))
                 {
                     throw new InvalidOperationException($"Retarget target '{target.Name}' requires a valid humanoid Avatar.");
@@ -1031,7 +1067,7 @@ namespace KimodoUnityBridge.Command
             float frameRate = session.TimelineAsset.editorSettings.frameRate > 0f
                 ? (float)session.TimelineAsset.editorSettings.frameRate
                 : KimodoPlayableClip.FIXED_FRAME_RATE;
-            int frameCount = Math.Max(2, Mathf.CeilToInt((float)((end - start) * frameRate)) + 1);
+            int frameCount = Math.Max(2, Mathf.CeilToInt((float)((end - start) / speed * frameRate)) + 1);
             var poses = new List<MuscleSample>(frameCount);
             var boneFrames = new List<BakeBoneFrame>(frameCount);
             Transform[] transforms = source.Root.GetComponentsInChildren<Transform>(true);
@@ -1054,7 +1090,12 @@ namespace KimodoUnityBridge.Command
                     boneFrames.Add(frameData);
                 }
 
-                string assetName = arguments.Value<string>("asset_name")?.Trim();
+                if (removeRootMotion)
+                {
+                    RemoveBakeRootMotion(poses, boneFrames);
+                }
+
+                string assetName = arguments.Value<string>("name")?.Trim();
                 if (string.IsNullOrWhiteSpace(assetName))
                 {
                     assetName = $"{source.Name}_Bake_{DateTime.Now:yyyyMMdd_HHmmss_fff}";
@@ -1080,12 +1121,12 @@ namespace KimodoUnityBridge.Command
                 return Ok(new JObject
                 {
                     ["baked"] = true,
-                    ["asset_ref"] = GetObjectReference(output),
-                    ["asset_path"] = AssetDatabase.GetAssetPath(output),
                     ["character"] = target.Name,
                     ["source_character"] = source.Name,
-                    ["start"] = start,
-                    ["end"] = end,
+                    ["start_frame"] = startFrame,
+                    ["end_frame"] = endFrame,
+                    ["speed"] = speed,
+                    ["remove_root_motion"] = removeRootMotion,
                     ["animation"] = DescribeAnimation(animation)
                 });
             }
@@ -1098,6 +1139,35 @@ namespace KimodoUnityBridge.Command
                     AssetDatabase.SaveAssets();
                 }
                 throw;
+            }
+        }
+
+        private static void RemoveBakeRootMotion(List<MuscleSample> poses, List<BakeBoneFrame> boneFrames)
+        {
+            if (poses.Count > 0)
+            {
+                Vector3 firstPosition = poses[0].pose.bodyPosition;
+                float firstYaw = poses[0].pose.bodyRotation.eulerAngles.y;
+                for (int i = 0; i < poses.Count; i++)
+                {
+                    HumanPose pose = poses[i].pose;
+                    pose.bodyPosition = new Vector3(firstPosition.x, pose.bodyPosition.y, firstPosition.z);
+                    Vector3 euler = pose.bodyRotation.eulerAngles;
+                    pose.bodyRotation = Quaternion.Euler(euler.x, firstYaw, euler.z);
+                    poses[i].pose = pose;
+                }
+            }
+            if (boneFrames.Count > 0 && boneFrames[0].Positions.Length > 0)
+            {
+                Vector3 firstPosition = boneFrames[0].Positions[0];
+                float firstYaw = boneFrames[0].Rotations[0].eulerAngles.y;
+                for (int i = 0; i < boneFrames.Count; i++)
+                {
+                    Vector3 position = boneFrames[i].Positions[0];
+                    boneFrames[i].Positions[0] = new Vector3(firstPosition.x, position.y, firstPosition.z);
+                    Vector3 euler = boneFrames[i].Rotations[0].eulerAngles;
+                    boneFrames[i].Rotations[0] = Quaternion.Euler(euler.x, firstYaw, euler.z);
+                }
             }
         }
 
@@ -1148,20 +1218,12 @@ namespace KimodoUnityBridge.Command
 
         private static TimelineAnimationRecord ResolveAnimation(JObject arguments, TimelineCharacterRecord character)
         {
-            string idText = arguments.Value<string>("animation_id")?.Trim();
-            string name = arguments.Value<string>("animation_name")?.Trim();
-            TimelineAnimationRecord animation = null;
-            if (!string.IsNullOrWhiteSpace(idText) && Guid.TryParse(idText, out Guid id))
-            {
-                animation = character.Animations.FirstOrDefault(item => item.Id == id);
-            }
-            if (animation == null && !string.IsNullOrWhiteSpace(name))
-            {
-                animation = character.Animations.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
-            }
+            string name = RequiredStringValue(arguments, "animation");
+            TimelineAnimationRecord animation = character.Animations.FirstOrDefault(item =>
+                string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
             if (animation == null)
             {
-                throw new InvalidOperationException("animation_id or animation_name must identify an animation in the current Session.");
+                throw new InvalidOperationException($"Animation '{name}' is not loaded for character '{character.Name}'.");
             }
             return animation;
         }
@@ -1201,12 +1263,11 @@ namespace KimodoUnityBridge.Command
         {
             return new JObject
             {
-                ["session_name"] = session.Name,
-                ["director_ref"] = GetObjectReference(session.Director),
-                ["timeline_asset_ref"] = GetObjectReference(session.TimelineAsset),
-                ["timeline_asset_path"] = session.TimelineAssetPath,
+                ["session"] = session.Name,
                 ["characters"] = new JArray(session.Characters.Select(DescribeCharacter)),
-                ["current_time"] = session.Director != null ? session.Director.time : 0.0,
+                ["current_frame"] = session.Director != null
+                    ? Mathf.RoundToInt((float)(session.Director.time * SessionFrameRate))
+                    : 0,
                 ["current"] = ReferenceEquals(currentTimelineSession, session),
                 ["automatic"] = session.IsAutomatic
             };
@@ -1216,58 +1277,53 @@ namespace KimodoUnityBridge.Command
         {
             return new JObject
             {
-                ["character_ref"] = character.CharacterRef,
                 ["name"] = character.Name,
-                ["animator_ref"] = GetObjectReference(character.Animator),
-                ["avatar_ref"] = GetObjectReference(character.Avatar),
-                ["avatar"] = KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar) ? "valid_humanoid" : "avatar_required",
-                ["avatar_error"] = character.AvatarError ?? string.Empty,
-                ["track_ref"] = GetObjectReference(character.Track),
-                ["animation_count"] = character.Animations.Count,
-                ["next_start_seconds"] = character.NextStartSeconds,
                 ["animations"] = new JArray(character.Animations.Select(DescribeAnimation))
             };
         }
 
         private static JObject DescribeAnimation(TimelineAnimationRecord animation)
         {
-            AnimationClip clip = animation.Clip;
             return new JObject
             {
-                ["animation_id"] = animation.Id.ToString("D"),
                 ["name"] = animation.Name,
                 ["source"] = animation.Source,
-                ["global_start"] = animation.TimelineClip != null ? animation.TimelineClip.start : 0.0,
-                ["global_end"] = animation.TimelineClip != null ? animation.TimelineClip.end : 0.0,
-                ["duration"] = animation.TimelineClip != null ? animation.TimelineClip.duration : 0.0,
-                ["clip_in"] = animation.TimelineClip != null ? animation.TimelineClip.clipIn : 0.0,
-                ["time_scale"] = animation.TimelineClip != null ? animation.TimelineClip.timeScale : 1.0,
-                ["asset_ref"] = GetObjectReference(clip),
-                ["asset_path"] = AssetDatabase.GetAssetPath(clip) ?? string.Empty,
-                ["frame_rate"] = clip != null ? clip.frameRate : 0.0,
-                ["frame_count"] = clip != null ? Mathf.CeilToInt(clip.length * Math.Max(1f, clip.frameRate)) : 0,
-                ["is_human_motion"] = clip != null && clip.isHumanMotion,
-                ["analysis"] = animation.Analysis?.DeepClone() ?? new JObject()
+                ["start_frame"] = animation.TimelineClip != null ? Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate)) : 0,
+                ["duration_frames"] = animation.TimelineClip != null ? Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)) : 0
             };
         }
 
-        private static JObject DescribeAnalysis(TimelineCharacterRecord character, JObject arguments)
+        private static JObject DescribeTransition(TimelineAnimationRecord animation)
         {
-            if (arguments.Value<string>("animation_id") != null || arguments.Value<string>("animation_name") != null)
+            JObject result = DescribeAnimation(animation);
+            result["from_animation"] = animation.FromAnimation;
+            result["to_animation"] = animation.ToAnimation;
+            return result;
+        }
+
+        private static JObject DescribeTimelineConstraint(KimodoConstraintMarkerBase marker, int relativeToFrame)
+        {
+            int globalFrame = Mathf.RoundToInt((float)(marker.time * SessionFrameRate));
+            var result = new JObject
             {
-                return new JObject
-                {
-                    ["animation"] = DescribeAnimation(ResolveAnimation(arguments, character)),
-                    ["analysis"] = ResolveAnimation(arguments, character).Analysis?.DeepClone() ?? new JObject()
-                };
-            }
-            return new JObject
-            {
-                ["character"] = character.Name,
-                ["animations"] = new JArray(character.Animations
-                    .Where(item => item.Analysis != null && item.Analysis.HasValues)
-                    .Select(item => DescribeAnimation(item)))
+                ["frame"] = globalFrame - relativeToFrame,
+                ["type"] = marker.ConstraintType
             };
+            if (relativeToFrame != 0)
+            {
+                result["global_frame"] = globalFrame;
+            }
+            if (marker.ConstraintType == "root2d" &&
+                (marker.SampleData.muscles == null || marker.SampleData.muscles.Count == 0))
+            {
+                result["position"] = new JArray(marker.SampleData.kimodoRootPosition.x, marker.SampleData.kimodoRootPosition.z);
+                result["heading"] = new JArray(marker.SampleData.rootHeading.x, marker.SampleData.rootHeading.y);
+            }
+            else
+            {
+                result["pose"] = PoseLocatorJson(marker.name, globalFrame);
+            }
+            return result;
         }
 
         private static bool Overlaps(TimelineClip clip, double start, double end)
@@ -1292,6 +1348,7 @@ namespace KimodoUnityBridge.Command
 
         private static void SaveTimelineSession(TimelineSessionRecord session)
         {
+            PersistTimelineSessionMetadata(session);
             EditorUtility.SetDirty(session.TimelineAsset);
             AssetDatabase.SaveAssets();
             session.Director.RebuildGraph();
@@ -1384,6 +1441,7 @@ namespace KimodoUnityBridge.Command
             }
             trace.Session.AutoCloseWhenIdle = false;
             DeactivateTimelineSession(trace.Session);
+            PersistTimelineSessionMetadata(trace.Session);
             CloseTimelineWindow(trace.Session.TimelineAsset);
             EditorUtility.SetDirty(trace.Session.TimelineAsset);
             if (trace.Session.Director != null)
@@ -1412,6 +1470,7 @@ namespace KimodoUnityBridge.Command
             currentTimelineSession = automatic;
             automatic.AutoCloseWhenIdle = true;
             ActivateTimelineSession(automatic);
+            PersistTimelineSessionMetadata(automatic);
             return RequireCurrentTimelineSession();
         }
 
@@ -1423,7 +1482,8 @@ namespace KimodoUnityBridge.Command
                 PlayableDirector director,
                 TimelineAsset timelineAsset,
                 string timelineAssetPath,
-                bool isAutomatic)
+                bool isAutomatic,
+                KimodoCommandSessionMetadata metadata)
             {
                 Id = id;
                 Name = name;
@@ -1431,6 +1491,7 @@ namespace KimodoUnityBridge.Command
                 TimelineAsset = timelineAsset;
                 TimelineAssetPath = timelineAssetPath;
                 IsAutomatic = isAutomatic;
+                Metadata = metadata;
                 CreatedAtUtc = DateTime.UtcNow;
             }
 
@@ -1441,19 +1502,28 @@ namespace KimodoUnityBridge.Command
             public TimelineAsset TimelineAsset { get; }
             public string TimelineAssetPath { get; }
             public bool IsAutomatic { get; }
+            public KimodoCommandSessionMetadata Metadata { get; }
             public bool AutoCloseWhenIdle { get; set; }
             public List<TimelineCharacterRecord> Characters { get; } = new List<TimelineCharacterRecord>();
         }
 
         internal sealed class TimelineCharacterRecord
         {
-            public TimelineCharacterRecord(string characterRef, GameObject root, Animator animator, Avatar avatar, AnimationTrack track, string avatarError)
+            public TimelineCharacterRecord(
+                string characterRef,
+                GameObject root,
+                Animator animator,
+                Avatar avatar,
+                AnimationTrack track,
+                AnimationTrack poseCacheTrack,
+                string avatarError)
             {
                 CharacterRef = characterRef;
                 Root = root;
                 Animator = animator;
                 Avatar = avatar;
                 Track = track;
+                PoseCacheTrack = poseCacheTrack;
                 AvatarError = avatarError ?? string.Empty;
             }
 
@@ -1462,11 +1532,13 @@ namespace KimodoUnityBridge.Command
             public Animator Animator { get; }
             public Avatar Avatar { get; set; }
             public AnimationTrack Track { get; }
+            public AnimationTrack PoseCacheTrack { get; }
             public string AvatarError { get; set; }
             public MarkerTrack AnalysisTrack { get; set; }
             public double NextStartSeconds { get; set; }
             public List<TimelineAnimationRecord> Animations { get; } = new List<TimelineAnimationRecord>();
-            public string Name => Root != null ? Root.name : string.Empty;
+            public List<AnimatorImportRecord> AnimatorImports { get; } = new List<AnimatorImportRecord>();
+            public string Name => Track != null ? Track.name : (Root != null ? Root.name : string.Empty);
         }
 
         internal sealed class TimelineAnimationRecord
@@ -1483,7 +1555,7 @@ namespace KimodoUnityBridge.Command
                 int endFrameExclusive)
             {
                 Id = id;
-                Name = name ?? string.Empty;
+                fallbackName = name ?? string.Empty;
                 Source = source ?? string.Empty;
                 Clip = clip;
                 TimelineClip = timelineClip;
@@ -1494,7 +1566,8 @@ namespace KimodoUnityBridge.Command
             }
 
             public Guid Id { get; }
-            public string Name { get; }
+            private readonly string fallbackName;
+            public string Name => TimelineClip != null ? TimelineClip.displayName : fallbackName;
             public string Source { get; }
             public AnimationClip Clip { get; private set; }
             public TimelineClip TimelineClip { get; }
@@ -1502,6 +1575,10 @@ namespace KimodoUnityBridge.Command
             public byte[] KmbBytes { get; private set; }
             public int StartFrame { get; private set; }
             public int EndFrameExclusive { get; private set; }
+            public string AnimatorImportName { get; set; } = string.Empty;
+            public string ImportKey { get; set; } = string.Empty;
+            public string FromAnimation { get; set; } = string.Empty;
+            public string ToAnimation { get; set; } = string.Empty;
 
             public void ApplyResult(
                 AnimationClip clip,
@@ -1516,6 +1593,17 @@ namespace KimodoUnityBridge.Command
                 StartFrame = startFrame;
                 EndFrameExclusive = endFrameExclusive;
             }
+        }
+
+        internal sealed class AnimatorImportRecord
+        {
+            public AnimatorImportRecord(string sourceAnimatorRef, string name)
+            {
+                SourceAnimatorRef = sourceAnimatorRef ?? string.Empty;
+                Name = name ?? string.Empty;
+            }
+            public string SourceAnimatorRef { get; }
+            public string Name { get; }
         }
 
         private sealed class TimelineGenerationTrace
