@@ -1,0 +1,57 @@
+name: sync-to-quickserver
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout KimodoUnityBridge
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace QuickServer repository contents
+        env:
+          GH_SYNC_TOKEN: ${{ secrets.GH_SYNC_TOKEN }}
+          SOURCE_DIR: NvlabKimodoQuickServer~
+          TARGET_REPOSITORY: OneYoungMean/NvlabKimodoQuickServer
+        run: |
+          set -euo pipefail
+
+          if [ -z "$GH_SYNC_TOKEN" ]; then
+            echo "Missing required GitHub Actions secret: GH_SYNC_TOKEN" >&2
+            exit 1
+          fi
+
+          test -d "$GITHUB_WORKSPACE/$SOURCE_DIR"
+          target_dir="$(mktemp -d)"
+          trap 'rm -rf "$target_dir"' EXIT
+
+          git clone --branch main --single-branch \
+            "https://x-access-token:${GH_SYNC_TOKEN}@github.com/${TARGET_REPOSITORY}.git" \
+            "$target_dir/repository"
+
+          find "$target_dir/repository" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+          cp -a "$GITHUB_WORKSPACE/$SOURCE_DIR/." "$target_dir/repository/"
+
+          cd "$target_dir/repository"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "QuickServer is already up to date."
+            exit 0
+          fi
+
+          git commit -m "chore: sync QuickServer from KimodoUnityBridge"
+          git push origin HEAD:main
