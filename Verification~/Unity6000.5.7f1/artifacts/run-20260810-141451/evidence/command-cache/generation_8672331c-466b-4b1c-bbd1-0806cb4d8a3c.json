@@ -1,0 +1,14 @@
+{
+  "request_id": "8672331c-466b-4b1c-bbd1-0806cb4d8a3c",
+  "status": "completed",
+  "stage": "Completed",
+  "message": "Generation complete.",
+  "error": "",
+  "started_at_utc": "2026-08-10T06:17:35.2317887Z",
+  "seed": 650507,
+  "prompt": "stand still and breathe naturally",
+  "session_name": "Session_20260810_141734_387",
+  "start_frame": 0,
+  "duration_frames": 60,
+  "animation": "Unity65_SingleClip"
+}
