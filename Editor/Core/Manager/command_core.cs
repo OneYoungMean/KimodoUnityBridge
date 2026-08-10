@@ -331,6 +331,34 @@ namespace KimodoUnityBridge.Command
                 return Ok(new JObject
                 {
                     ["manual"] = "Kimodo command reference",
+                    ["workflow"] = new JArray
+                    {
+                        new JObject { ["command"] = SessionOpenCommand, ["arguments"] = new JObject() },
+                        new JObject
+                        {
+                            ["command"] = QueryCurrentSessionCommand,
+                            ["arguments"] = new JObject { ["query"] = "characters" },
+                            ["save"] = "one returned character name"
+                        },
+                        new JObject
+                        {
+                            ["command"] = GenerateAnimationCommand,
+                            ["arguments"] = new JObject
+                            {
+                                ["character"] = "<character>",
+                                ["prompt"] = "stand still and breathe naturally",
+                                ["duration_frames"] = 60
+                            },
+                            ["save"] = "request_id"
+                        },
+                        new JObject
+                        {
+                            ["command"] = QueryGenerationCommand,
+                            ["arguments"] = new JObject { ["request_id"] = "<request_id>" },
+                            ["repeat_until"] = "status is completed, failed, or canceled"
+                        },
+                        new JObject { ["command"] = SessionCloseCommand, ["arguments"] = new JObject() }
+                    },
                     ["commands"] = new JArray(all["tools"].Children<JObject>().Select(item => new JObject
                     {
                         ["name"] = item.Value<string>("name"),
