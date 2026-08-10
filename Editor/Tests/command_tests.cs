@@ -3,6 +3,7 @@ using NUnit.Framework;
 using System;
 using System.Linq;
 using KimodoUnityBridge.Command;
+using UnityEditor;
 using UnityEngine;
 
 namespace KimodoBridge.Editor.Tests
@@ -59,6 +60,40 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(definitions["tools"].Values<JObject>()
                 .Select(tool => tool.Value<string>("name")),
                 Does.Not.Contain("kimodo_list_text_encoder_models"));
+        }
+
+        [Test]
+        public void HelpInvocation_ProvidesRunnableAnimationWorkflow()
+        {
+            JObject response = JObject.Parse(command_dispatcher.Invoke(command_kimodo.HelpCommand));
+            Assert.That(response.Value<bool>("ok"), Is.True);
+
+            JArray workflow = (JArray)response["workflow"];
+            Assert.That(workflow.Values<string>("command"), Is.EqualTo(new[]
+            {
+                command_session.OpenCommand,
+                command_query.CurrentSessionCommand,
+                command_kimodo.GenerateAnimationCommand,
+                command_kimodo.GetGenerationCommand,
+                command_session.CloseCommand
+            }));
+            Assert.That(workflow[1]["arguments"].Value<string>("query"), Is.EqualTo("characters"));
+            Assert.That(workflow[2]["arguments"].Value<int>("duration_frames"), Is.EqualTo(60));
+            Assert.That(workflow[3].Value<string>("repeat_until"), Does.Contain("completed"));
+        }
+
+        [Test]
+        public void WritablePoseMarker_HasAUnityScriptAsset()
+        {
+            var marker = ScriptableObject.CreateInstance<KimodoUntypedConstraintMarker>();
+            try
+            {
+                Assert.That(MonoScript.FromScriptableObject(marker), Is.Not.Null);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(marker);
+            }
         }
 
         [Test]
