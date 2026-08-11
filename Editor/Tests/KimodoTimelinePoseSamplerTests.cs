@@ -1073,10 +1073,17 @@ namespace KimodoBridge.Editor.Tests
                         out Transform hand),
                     Is.True);
 
+                Quaternion handGoalRotation = hand.rotation *
+                    AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(avatar, (int)HumanBodyBones.LeftHand);
+                Vector3 handGoalPosition = KimodoRetargetHumanoidIkUtility.BonePositionToIkGoalWorldPosition(
+                    avatar,
+                    HumanBodyBones.LeftHand,
+                    hand.position,
+                    handGoalRotation);
                 Assert.That(
-                    Vector3.Distance(hand.position, target.transform.position),
+                    Vector3.Distance(handGoalPosition, target.transform.position),
                     Is.LessThan(1e-4f),
-                    "The editable hand target must remain at the wrist rather than the Humanoid axis endpoint.");
+                    "The editable hand target must use the same Humanoid IK goal as HandT/Q.");
                 Assert.That(
                     KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
                         context,
@@ -1085,13 +1092,20 @@ namespace KimodoBridge.Editor.Tests
                         out error),
                     Is.True,
                     error);
+                handGoalRotation = hand.rotation *
+                    AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(avatar, (int)HumanBodyBones.LeftHand);
+                handGoalPosition = KimodoRetargetHumanoidIkUtility.BonePositionToIkGoalWorldPosition(
+                    avatar,
+                    HumanBodyBones.LeftHand,
+                    hand.position,
+                    handGoalRotation);
                 Assert.That(
-                    Vector3.Distance(hand.position, target.transform.position),
+                    Vector3.Distance(handGoalPosition, target.transform.position),
                     Is.LessThan(1e-4f),
-                    "Applying an unchanged hand target must preserve the wrist position.");
+                    "Applying an unchanged hand goal must preserve HandT/Q.");
 
                 target.transform.position += new Vector3(0.04f, 0.06f, 0.03f);
-                float beforeDistance = Vector3.Distance(hand.position, target.transform.position);
+                float beforeDistance = Vector3.Distance(handGoalPosition, target.transform.position);
                 Assert.That(
                     KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
                         context,
@@ -1100,7 +1114,14 @@ namespace KimodoBridge.Editor.Tests
                         out error),
                     Is.True,
                     error);
-                float afterDistance = Vector3.Distance(hand.position, target.transform.position);
+                handGoalRotation = hand.rotation *
+                    AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(avatar, (int)HumanBodyBones.LeftHand);
+                handGoalPosition = KimodoRetargetHumanoidIkUtility.BonePositionToIkGoalWorldPosition(
+                    avatar,
+                    HumanBodyBones.LeftHand,
+                    hand.position,
+                    handGoalRotation);
+                float afterDistance = Vector3.Distance(handGoalPosition, target.transform.position);
 
                 Assert.That(afterDistance, Is.LessThan(beforeDistance));
             }
@@ -1711,6 +1732,29 @@ namespace KimodoBridge.Editor.Tests
                     KimodoConstraintMarkerEditorUtility.TryGetClipRangeForMarker(marker, out TimelineClip resolvedClip),
                     Is.True);
                 Assert.That(resolvedClip, Is.SameAs(next));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void ConstraintMarkerAtRoundedClipEnd_IsCollectedByEndingClip()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                timeline.editorSettings.frameRate = 30.0;
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip clip = track.CreateClip<KimodoPlayableClip>();
+                clip.start = 0.0;
+                clip.duration = 149.0 / 30.0;
+                KimodoFullBodyConstraintMarker marker = track.CreateMarker<KimodoFullBodyConstraintMarker>(4.9667);
+
+                Assert.That(
+                    KimodoTimelineConstraintMarkerSampler.CollectMarkersForClip(track, clip),
+                    Does.Contain(marker));
             }
             finally
             {

@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using KimodoUnityBridge.Command;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -667,6 +670,18 @@ namespace KimodoBridge.Editor
             }
 
             string prompt = clip.motionPrompt ?? string.Empty;
+            if (clip.enableClipConstraint &&
+                !KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _))
+            {
+                return await GenerateClipConstraintBakedAsync(
+                    clip,
+                    prompt,
+                    externalConstraint,
+                    progress,
+                    token,
+                    timelineClipOverride);
+            }
+
             KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
                 clip,
                 prompt,
@@ -687,6 +702,238 @@ namespace KimodoBridge.Editor
                 KimodoPlayableClipGenerationHostService.CleanupFailedGeneration(request);
                 throw;
             }
+        }
+
+        private static async Task<command_generate_result> GenerateClipConstraintBakedAsync(
+            KimodoPlayableClip clip,
+            string prompt,
+            KimodoExternalConstraintRequest externalConstraint,
+            Action<KimodoBridgeCommandStage, string> progress,
+            CancellationToken token,
+            TimelineClip timelineClipOverride)
+        {
+            KimodoEditorGenerateRequest baselineRequest = null;
+            KimodoEditorGenerateRequest constraintRequest = null;
+            KimodoEditorGenerateRequest finalRequest = null;
+            string modelName = KimodoPlayableClip.NormalizeBridgeModelName(clip.bridgeModelName);
+            try
+            {
+                baselineRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    prompt,
+                    externalConstraint,
+                    token,
+                    timelineClipOverride: timelineClipOverride,
+                    enableClipConstraintOverride: false);
+                baselineRequest.Progress = progress;
+                string bakeAnalysisOptionsJson = baselineRequest.AnalysisOptionsJson;
+                baselineRequest.AnalysisOptionsJson = string.Empty;
+
+                progress?.Invoke(KimodoBridgeCommandStage.Constraint, "ClipConstraint bake: generating baseline motion...");
+                KimodoBridgeCommandResult baseline = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
+                    baselineRequest,
+                    prompt,
+                    modelName);
+
+                // Build the ClipConstraint payload, but do not send a second
+                // generation request. Its KMB is the motion that gets merged
+                // into the first generation result under the AvatarMask.
+                constraintRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    prompt,
+                    externalConstraint,
+                    token,
+                    effectiveSeedOverride: baselineRequest.EffectiveSeed,
+                    timelineClipOverride: timelineClipOverride,
+                    enableClipConstraintOverride: true);
+
+                KimodoClipConstraint clipConstraint = null;
+                // BuildRequest may prepend a one-frame synthetic begin constraint.
+                // The user-authored ClipConstraint is appended after it, so search
+                // backwards to avoid accidentally merging with that boundary mask.
+                for (int index = constraintRequest.Constraints.clips.Count - 1; index >= 0; index--)
+                {
+                    KimodoClipConstraint candidate = constraintRequest.Constraints.clips[index];
+                    if (candidate?.mask != null)
+                    {
+                        clipConstraint = candidate;
+                        break;
+                    }
+                }
+                if (clipConstraint == null)
+                {
+                    throw new InvalidOperationException("ClipConstraint bake could not find the generated clip mask.");
+                }
+                if (!KimodoRawMotionUtility.TryParseFlatBuffer(
+                        clipConstraint.motionBytes,
+                        out KimodoRawMotionData constrainedMotion,
+                        out string constrainedMotionError))
+                {
+                    throw new InvalidOperationException(
+                        $"ClipConstraint bake could not parse its motion: {constrainedMotionError}");
+                }
+
+                KimodoRawMotionData alignedConstraint = KimodoClipConstraintBakeUtility.AlignConstraintMotion(
+                    baseline.MotionData,
+                    constrainedMotion,
+                    baselineRequest.RuntimeTrimStartFrame);
+                KimodoRawMotionData merged;
+                if (!KimodoClipConstraintBakeUtility.TryMergeHumanoidFootIkMotion(
+                        baseline.MotionData,
+                        alignedConstraint,
+                        clipConstraint.mask,
+                        modelName,
+                        out merged,
+                        out string footMergeError))
+                {
+                    if (!string.IsNullOrWhiteSpace(footMergeError))
+                    {
+                        throw new InvalidOperationException(footMergeError);
+                    }
+                    merged = KimodoClipConstraintBakeUtility.MergeMaskedMotion(
+                        baseline.MotionData,
+                        alignedConstraint,
+                        clipConstraint.mask);
+                }
+
+                progress?.Invoke(KimodoBridgeCommandStage.Constraint, "ClipConstraint bake: applying mask and analyzing keyframes...");
+                JObject analysis = await AnalyzeMergedMotionAsync(
+                    baselineRequest,
+                    modelName,
+                    merged,
+                    bakeAnalysisOptionsJson,
+                    progress,
+                    token);
+                List<int> keyframes = ExtractAnalysisKeyframes(
+                    analysis,
+                    merged.FrameCount,
+                    merged.FrameRate);
+                string fullBodyJson = KimodoClipConstraintBakeUtility.BuildFullBodyConstraintsJson(
+                    merged,
+                    modelName,
+                    keyframes,
+                    baselineRequest.RuntimeTrimStartFrame > 0
+                        ? baselineRequest.RuntimeTrimStartFrame / (double)baselineRequest.TargetFrameRate
+                        : 0.0,
+                    baselineRequest.EffectiveRuntimeDurationSeconds);
+
+                finalRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    prompt,
+                    externalConstraint,
+                    token,
+                    effectiveSeedOverride: baselineRequest.EffectiveSeed,
+                    timelineClipOverride: timelineClipOverride,
+                    enableClipConstraintOverride: false);
+                finalRequest.Progress = progress;
+                finalRequest.Constraints.json = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
+                    baselineRequest.Constraints.json,
+                    fullBodyJson);
+                finalRequest.Constraints.clips.Clear();
+
+                progress?.Invoke(KimodoBridgeCommandStage.Constraint, $"ClipConstraint bake: regenerating with {keyframes.Count} FullBody keyframes...");
+                KimodoBridgeCommandResult finalRuntime = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
+                    finalRequest,
+                    prompt,
+                    modelName);
+                command_generate_result result = KimodoEditorGeneratePipeline.BakeRuntimeResult(
+                    finalRequest,
+                    prompt,
+                    modelName,
+                    finalRuntime);
+                token.ThrowIfCancellationRequested();
+                KimodoPlayableClipGenerationHostService.FinalizeGeneration(clip, finalRequest, result);
+                return result;
+            }
+            catch
+            {
+                KimodoPlayableClipGenerationHostService.CleanupFailedGeneration(
+                    finalRequest ?? baselineRequest);
+                throw;
+            }
+        }
+
+        private static async Task<JObject> AnalyzeMergedMotionAsync(
+            KimodoEditorGenerateRequest request,
+            string modelName,
+            KimodoRawMotionData motion,
+            string analysisOptionsJson,
+            Action<KimodoBridgeCommandStage, string> progress,
+            CancellationToken token)
+        {
+            JObject options = string.IsNullOrWhiteSpace(analysisOptionsJson)
+                ? new JObject()
+                : JObject.Parse(analysisOptionsJson);
+            options["analysis_only"] = true;
+            JObject keyframeOptions = options["keyframes"] as JObject ?? new JObject();
+            keyframeOptions["enabled"] = true;
+            options["keyframes"] = keyframeOptions;
+
+            var analysisRequest = new KimodoGenerationRequestDto
+            {
+                prompt = string.Empty,
+                model = modelName,
+                text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(request.TextEncoderMode),
+                models_root = request.ModelsRoot ?? string.Empty,
+                output_format = "kmb_attachments_v1",
+                analysis_option_json = options.ToString(Formatting.None),
+                owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id,
+                analysis_clip_constraints = new List<KimodoKmbClipConstraint>
+                {
+                    new KimodoKmbClipConstraint
+                    {
+                        motionBytes = KimodoRawMotionUtility.ToFlatBuffer(motion, modelName),
+                        startFrame = 0,
+                        endFrameExclusive = motion.FrameCount
+                    }
+                }
+            };
+            KimodoBridgeGenerationResult analysisResult = await KimodoBridgeService.Shared.GenerateAsync(
+                analysisRequest,
+                message => progress?.Invoke(KimodoBridgeCommandStage.Constraint, message),
+                token);
+            if (string.IsNullOrWhiteSpace(analysisResult?.AnalysisJson))
+            {
+                throw new InvalidOperationException("ClipConstraint bake analysis returned no keyframe data.");
+            }
+            return JObject.Parse(analysisResult.AnalysisJson);
+        }
+
+        private static List<int> ExtractAnalysisKeyframes(
+            JObject analysis,
+            int frameCount,
+            float frameRate)
+        {
+            var frames = new List<int>();
+            JArray keyframes = analysis?["keyframes"] as JArray;
+            if (keyframes != null)
+            {
+                foreach (JObject keyframe in keyframes.OfType<JObject>())
+                {
+                    int frame;
+                    int? explicitFrame = keyframe.Value<int?>("frame");
+                    if (explicitFrame.HasValue)
+                    {
+                        frame = explicitFrame.Value;
+                    }
+                    else
+                    {
+                        double time = keyframe.Value<double?>("time") ?? 0.0;
+                        frame = KimodoFrameTimeUtility.SecondsToFrameIndex(time, frameRate);
+                    }
+                    frame = Mathf.Clamp(frame, 0, Mathf.Max(0, frameCount - 1));
+                    if (!frames.Contains(frame))
+                    {
+                        frames.Add(frame);
+                    }
+                }
+            }
+
+            int lastFrame = Mathf.Max(0, frameCount - 1);
+            if (!frames.Contains(0)) frames.Add(0);
+            if (!frames.Contains(lastFrame)) frames.Add(lastFrame);
+            frames.Sort();
+            return frames;
         }
     }
 }

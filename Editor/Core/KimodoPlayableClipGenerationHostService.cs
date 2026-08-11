@@ -25,7 +25,8 @@ namespace KimodoBridge.Editor
             bool disableTimelineInOut = false,
             bool deferConstraintNormalization = false,
             bool enableAutoBeginAnchor = true,
-            TimelineClip timelineClipOverride = null)
+            TimelineClip timelineClipOverride = null,
+            bool? enableClipConstraintOverride = null)
         {
             if (clip == null)
             {
@@ -191,6 +192,7 @@ namespace KimodoBridge.Editor
                 runtimeTrimStartFrame,
                 !disableTimelineInOut &&
                     (externalConstraint?.Enabled != true || externalConstraint.IncludeTimelineConstraints),
+                enableClipConstraintOverride,
                 token);
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             return new KimodoEditorGenerateRequest
@@ -255,7 +257,7 @@ namespace KimodoBridge.Editor
                 !disableTimelineInOut &&
                 (externalConstraint?.Enabled != true || externalConstraint.IncludeTimelineConstraints) &&
                 clip.inOutConstraintMode == KimodoInOutConstraintMode.Outside &&
-                (clip.enableInConstraint || clip.enableOutConstraint);
+                clip.enableInConstraint;
         }
 
         public static void FinalizeGeneration(

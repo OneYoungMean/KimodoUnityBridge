@@ -608,7 +608,7 @@ def _load_constraints(
         raise ValueError("root2d_target was removed; use root2d frame_indices and positions.")
     plain = [item for item in parsed if not (isinstance(item, dict) and item.get("type") == "clip")]
     clips = [item for item in parsed if isinstance(item, dict) and item.get("type") == "clip"]
-    constraints = load_constraints_lst(plain, model.skeleton)
+    constraints = load_constraints_lst(plain, model.skeleton, device=getattr(model, "device", None))
     constraints.extend(_load_clip_constraint(item, model, attachments) for item in clips)
     return constraints
 

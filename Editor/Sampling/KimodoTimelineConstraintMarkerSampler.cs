@@ -1455,6 +1455,13 @@ namespace KimodoBridge.Editor
     {
         private const double SeamTimeEpsilon = 1e-9;
 
+        private static bool IsSameTimelineFrame(TrackAsset track, double leftTime, double rightTime)
+        {
+            double frameRate = track?.timelineAsset?.editorSettings.frameRate ?? KimodoPlayableClip.FIXED_FRAME_RATE;
+            return KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(leftTime, frameRate) ==
+                KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(rightTime, frameRate);
+        }
+
         internal static bool IsMarkerInClipRange(
             TrackAsset track,
             TimelineClip clipRange,
@@ -1475,22 +1482,14 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            if (Math.Abs(markerTime - clipRange.end) > SeamTimeEpsilon)
+            if (!IsSameTimelineFrame(track, markerTime, clipRange.end))
             {
                 return false;
             }
 
-            foreach (TimelineClip nextClip in track.GetClips())
-            {
-                if (!ReferenceEquals(nextClip, clipRange) &&
-                    nextClip?.asset is KimodoPlayableClip &&
-                    Math.Abs(nextClip.start - clipRange.end) <= SeamTimeEpsilon)
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            // A marker on the last displayed frame at the clip end still belongs
+            // to the ending clip; an adjacent clip may also resolve the same seam.
+            return true;
         }
 
         internal static TimelineClip FindOwningClip(TrackAsset track, double markerTime)

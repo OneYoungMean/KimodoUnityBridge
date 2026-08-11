@@ -123,7 +123,7 @@ namespace KimodoBridge
             Vector3 boneWorldPosition,
             Quaternion goalWorldRotation)
         {
-            float axisLength = avatar != null
+            float axisLength = avatar != null && UsesAxisEndpoint(bone)
                 ? AvatarRuntimeAccess.GetAvatarAxisLengthOrZero(avatar, (int)bone)
                 : 0f;
             return boneWorldPosition + goalWorldRotation * new Vector3(axisLength, 0f, 0f);
@@ -135,10 +135,15 @@ namespace KimodoBridge
             Vector3 goalWorldPosition,
             Quaternion goalWorldRotation)
         {
-            float axisLength = avatar != null
+            float axisLength = avatar != null && UsesAxisEndpoint(bone)
                 ? AvatarRuntimeAccess.GetAvatarAxisLengthOrZero(avatar, (int)bone)
                 : 0f;
             return goalWorldPosition - goalWorldRotation * new Vector3(axisLength, 0f, 0f);
+        }
+
+        private static bool UsesAxisEndpoint(HumanBodyBones bone)
+        {
+            return bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot;
         }
 
         internal static void WorldToBodyRelativeIkGoal(

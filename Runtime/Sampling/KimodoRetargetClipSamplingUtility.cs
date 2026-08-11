@@ -165,7 +165,6 @@ namespace KimodoBridge
             {
                 return;
             }
-
             Transform[] all = root.GetComponentsInChildren<Transform>(true);
             for (int i = 0; i < all.Length; i++)
             {
@@ -294,9 +293,13 @@ namespace KimodoBridge
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
                 clipPlayable.SetApplyFootIK(RetargetSamplingDefaultFootIk);
                 clipPlayable.SetApplyPlayableIK(RetargetSamplingDefaultPlayableIk);
-                Playable sourcePlayable = applyMotionXToDelta
-                    ? AnimationOffsetPlayableAccess.CreateMotionXToDeltaAndConnect(graph, clipPlayable)
-                    : clipPlayable;
+                Playable sourcePlayable = clipPlayable;
+                if (applyMotionXToDelta)
+                {
+                    sourcePlayable = AnimationOffsetPlayableAccess.CreateMotionXToDeltaAndConnect(
+                        graph,
+                        sourcePlayable);
+                }
                 if (solveHandIk)
                 {
                     AnimationScriptPlayable handIkPlayable = AnimationScriptPlayable.Create(

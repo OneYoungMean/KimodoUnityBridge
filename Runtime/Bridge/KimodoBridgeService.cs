@@ -484,6 +484,7 @@ namespace KimodoBridge
                         ReportProgress(progress, "QuickServer version mismatch; closing the old server.");
                         await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
                         currentRuntimeRoot = context.RuntimeRoot;
+
                     }
                 }
 
@@ -523,17 +524,17 @@ namespace KimodoBridge
                 await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
                 currentHost = host;
                 currentPort = port;
-                ExistingServerProbeResult probe = await ProbeExistingServerAsync(
+                ExistingServerProbeResult probeAfterStart = await ProbeExistingServerAsync(
                     context.RuntimeRoot,
                     host,
                     port,
                     token).ConfigureAwait(false);
-                if (probe == ExistingServerProbeResult.VersionMismatch)
+                if (probeAfterStart == ExistingServerProbeResult.VersionMismatch)
                 {
                     await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
                     throw new InvalidOperationException("QuickServer started with an unexpected version.");
                 }
-                if (probe != ExistingServerProbeResult.Compatible)
+                if (probeAfterStart != ExistingServerProbeResult.Compatible)
                 {
                     throw new InvalidOperationException("QuickServer started but failed its health probe.");
                 }

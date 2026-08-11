@@ -369,7 +369,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
     def test_kimodo_root2d_keeps_explicit_points_and_heading_pairs(self):
         model = SimpleNamespace(fps=30.0, skeleton=object())
-        with patch("kimodo.constraints.load_constraints_lst", side_effect=lambda items, _skeleton: items):
+        with patch("kimodo.constraints.load_constraints_lst", side_effect=lambda items, _skeleton, **_kwargs: items):
             constraints = kimodo_runtime._load_constraints(
                 '[{"type":"root2d","frame_indices":[0,149],"smooth_root_2d":[[0.0,0.0],[100.0,0.0]],"global_root_heading":[[0.0,1.0],[1.0,0.0]]}]',
                 model,

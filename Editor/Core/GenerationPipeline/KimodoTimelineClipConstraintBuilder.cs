@@ -16,6 +16,7 @@ namespace KimodoBridge.Editor
             float frameRate,
             int runtimeTrimStartFrame,
             bool includeTimelineInConstraint,
+            bool? enableClipConstraintOverride,
             CancellationToken token)
         {
             var result = new List<KimodoClipConstraint>();
@@ -33,7 +34,7 @@ namespace KimodoBridge.Editor
                     runtimeTrimStartFrame / frameRate,
                     token));
             }
-            if (!playableClip.enableClipConstraint) return result;
+            if (!(enableClipConstraintOverride ?? playableClip.enableClipConstraint)) return result;
             if (playableClip.clipConstraintAvatarMask == null)
             {
                 throw new InvalidOperationException("Clip Constraint is enabled but Avatar Mask is not assigned.");

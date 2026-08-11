@@ -1734,15 +1734,6 @@ namespace KimodoBridge.Editor
                 out position,
                 out rotation);
 
-            if (IsHandBone(bone))
-            {
-                position = KimodoRetargetHumanoidIkUtility.IkGoalPositionToBoneWorldPosition(
-                    entry.TargetCache.avatar,
-                    bone,
-                    position,
-                    rotation);
-            }
-
             if (TryResolveTargetAvatarPoint(entry, bone, sample, out Vector3 storedPosition))
             {
                 position = storedPosition;
@@ -1783,21 +1774,11 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            Vector3 worldGoalPosition = entry.EndEffectorMarker.transform.position;
-            if (IsHandBone(bone))
-            {
-                worldGoalPosition = KimodoRetargetHumanoidIkUtility.BonePositionToIkGoalWorldPosition(
-                    entry.TargetCache.avatar,
-                    bone,
-                    worldGoalPosition,
-                    entry.EndEffectorMarker.transform.rotation);
-            }
-
             KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
                 sourceSample.pose.bodyPosition,
                 sourceSample.pose.bodyRotation,
                 entry.TargetCache.humanScale,
-                worldGoalPosition,
+                entry.EndEffectorMarker.transform.position,
                 entry.EndEffectorMarker.transform.rotation,
                 out Vector3 goalPosition,
                 out Quaternion goalRotation);
@@ -1816,9 +1797,12 @@ namespace KimodoBridge.Editor
                 out error);
         }
 
-        private static bool IsHandBone(HumanBodyBones bone)
+        private static bool IsHumanoidIkGoalBone(HumanBodyBones bone)
         {
-            return bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand;
+            return bone == HumanBodyBones.LeftHand ||
+                bone == HumanBodyBones.RightHand ||
+                bone == HumanBodyBones.LeftFoot ||
+                bone == HumanBodyBones.RightFoot;
         }
 
         private static bool TryGetMuscleIkGoal(
@@ -1898,6 +1882,14 @@ namespace KimodoBridge.Editor
             out Vector3 position)
         {
             position = Vector3.zero;
+            // Hand/foot markers use the Humanoid T/Q goal directly. A stored
+            // end-effector point may use older bone-space semantics and cause
+            // a one-frame jump when the Scene view drag starts.
+            if (IsHumanoidIkGoalBone(bone))
+            {
+                return false;
+            }
+
             if (sample == null ||
                 !sample.hasEndEffectorTargetPosition ||
                 !KimodoConstraintSpaceConverter.TryMapHumanBonePoint(
