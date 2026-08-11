@@ -111,6 +111,22 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void PoseRootYaw_UpdatePreservesTiltAndChangesOnlyWorldYaw()
+        {
+            Quaternion original = Quaternion.Euler(20f, 35f, -10f);
+            float originalTilt = Vector3.Angle(original * Vector3.up, Vector3.up);
+
+            Quaternion updated = command_context.ApplyPoseRootYaw(original, -70f);
+
+            Assert.That(
+                Mathf.Abs(Mathf.DeltaAngle(command_context.ResolvePoseRootYaw(updated), -70f)),
+                Is.LessThan(1e-4f));
+            Assert.That(
+                Vector3.Angle(updated * Vector3.up, Vector3.up),
+                Is.EqualTo(originalTilt).Within(1e-4f));
+        }
+
+        [Test]
         public void DebugInstallServer_IsExplicitlyMarkedAndTakesNoArguments()
         {
             JObject definition = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson())["tools"]

@@ -322,7 +322,11 @@ namespace KimodoUnityBridge.Command
             }
             return new JObject
             {
-                ["root"] = new JObject { ["position"] = Vector3Json(sample.kimodoRootPosition), ["rotation"] = QuaternionJson(rootRotation) },
+                ["root"] = new JObject
+                {
+                    ["position"] = Vector3Json(sample.kimodoRootPosition),
+                    ["rotation_y"] = ResolvePoseRootYaw(rootRotation)
+                },
                 ["muscles"] = muscles,
                 ["foot_ik"] = new JObject
                 {
@@ -336,11 +340,18 @@ namespace KimodoUnityBridge.Command
         {
             JObject root = data["root"] as JObject;
             if (root?["position"] != null) sample.kimodoRootPosition = RequiredVector3(root, "position");
-            if (root?["rotation"] != null)
+            if (root?["rotation_y"] != null)
             {
-                Quaternion rotation = RequiredQuaternion(root, "rotation");
+                JToken rotationYToken = root["rotation_y"];
+                if (rotationYToken.Type != JTokenType.Integer && rotationYToken.Type != JTokenType.Float)
+                    throw new InvalidOperationException("rotation_y must be a number in degrees.");
+                float rotationY = rotationYToken.Value<float>();
+                if (float.IsNaN(rotationY) || float.IsInfinity(rotationY))
+                    throw new InvalidOperationException("rotation_y must be finite.");
                 sample.localAxisAngles ??= new List<Vector3>();
                 if (sample.localAxisAngles.Count == 0) sample.localAxisAngles.Add(Vector3.zero);
+                Quaternion currentRotation = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0]);
+                Quaternion rotation = ApplyPoseRootYaw(currentRotation, rotationY);
                 sample.localAxisAngles[0] = KimodoRuntimeUtility.QuaternionToAxisAngleVector(rotation);
                 Vector3 forward = rotation * Vector3.forward;
                 Vector2 heading = new Vector2(forward.x, forward.z);
@@ -362,6 +373,18 @@ namespace KimodoUnityBridge.Command
                 ApplyFoot(foot["left"] as JObject, ref sample.leftFootPosition, ref sample.leftFootRotation);
                 ApplyFoot(foot["right"] as JObject, ref sample.rightFootPosition, ref sample.rightFootRotation);
             }
+        }
+
+        internal static float ResolvePoseRootYaw(Quaternion rotation)
+        {
+            Vector3 forward = rotation * Vector3.forward;
+            return Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+        }
+
+        internal static Quaternion ApplyPoseRootYaw(Quaternion rotation, float rotationY)
+        {
+            float delta = Mathf.DeltaAngle(ResolvePoseRootYaw(rotation), rotationY);
+            return Quaternion.AngleAxis(delta, Vector3.up) * rotation;
         }
 
         private static void CaptureFoot(Animator animator, HumanBodyBones bone, out Vector3 position, out Quaternion rotation)
