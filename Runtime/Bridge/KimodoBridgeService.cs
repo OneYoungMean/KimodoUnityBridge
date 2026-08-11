@@ -466,12 +466,12 @@ namespace KimodoBridge
 
                 if (TryReadRuntimeEndpoint(context.RuntimeRoot, out string host, out int port))
                 {
-                    ExistingServerProbeResult probe = await ProbeExistingServerAsync(
+                    ExistingServerProbeResult probe1 = await ProbeExistingServerAsync(
                         context.RuntimeRoot,
                         host,
                         port,
                         token).ConfigureAwait(false);
-                    if (probe == ExistingServerProbeResult.Compatible)
+                    if (probe1 == ExistingServerProbeResult.Compatible)
                     {
                         await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
                         StartLogPumpsIfNeeded();
@@ -479,7 +479,7 @@ namespace KimodoBridge
                         ReportProgress(progress, $"Bridge attached to {host}:{port}.");
                         return;
                     }
-                    if (probe == ExistingServerProbeResult.VersionMismatch)
+                    if (probe1 == ExistingServerProbeResult.VersionMismatch)
                     {
                         ReportProgress(progress, "QuickServer version mismatch; closing the old server.");
                         await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
