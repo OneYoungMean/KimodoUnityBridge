@@ -1074,8 +1074,8 @@ namespace KimodoBridge.Editor.Tests
         [Test]
         public void FootIk_RequiresAnExplicitTargetBeforeSolvingTheLeg()
         {
-            Assert.That(KimodoRuntimeMotionPlayer.ShouldSolveFootIk(false, null), Is.False);
-            Assert.That(KimodoRuntimeMotionPlayer.ShouldSolveFootIk(true, null), Is.False);
+            Assert.That(KimodoRuntimeHumanoidRetargeter.ShouldSolveFootIk(false, null), Is.False);
+            Assert.That(KimodoRuntimeHumanoidRetargeter.ShouldSolveFootIk(true, null), Is.False);
         }
 
         [Test]
@@ -1137,7 +1137,7 @@ namespace KimodoBridge.Editor.Tests
 
                 Vector3 previousPole = Vector3.zero;
                 bool poleInitialized = false;
-                KimodoRuntimeMotionPlayer.SolveTwoBoneLeg(
+                KimodoRuntimeHumanoidRetargeter.SolveTwoBoneLeg(
                     targetHips,
                     targetUpper,
                     targetKnee,
@@ -1156,7 +1156,7 @@ namespace KimodoBridge.Editor.Tests
                 sourceFoot.position = Vector3.zero;
                 targetKnee.position = new Vector3(-0.2f, 0.5f, 0f);
                 targetFoot.position = Vector3.zero;
-                KimodoRuntimeMotionPlayer.SolveTwoBoneLeg(
+                KimodoRuntimeHumanoidRetargeter.SolveTwoBoneLeg(
                     targetHips,
                     targetUpper,
                     targetKnee,
