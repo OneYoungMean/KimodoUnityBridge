@@ -447,6 +447,11 @@ namespace KimodoBridge
                     return;
                 }
 
+                if (isDefaultSession)
+                {
+                    await StopLogPumpsAsync(token).ConfigureAwait(false);
+                }
+
                 if (TryReadRuntimeEndpoint(context.RuntimeRoot, out string host, out int port))
                 {
                     try

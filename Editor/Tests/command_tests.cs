@@ -1,8 +1,10 @@
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using KimodoUnityBridge.Command;
+using TimelineInject;
 using UnityEditor;
 using UnityEngine;
 
@@ -124,6 +126,41 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(
                 Vector3.Angle(updated * Vector3.up, Vector3.up),
                 Is.EqualTo(originalTilt).Within(1e-4f));
+        }
+
+        [Test]
+        public void PoseConstraintFkConversion_PreservesProtocolRootOnly()
+        {
+            var source = new KimodoMarkerSampleResult
+            {
+                kimodoRootPosition = new Vector3(2f, 0.95f, 3f),
+                rootHeading = new Vector2(0.6f, 0.8f),
+                hasRootHeading = true,
+                localAxisAngles = new List<Vector3> { new Vector3(0f, 0.7f, 0f) },
+                unityRootPos = new Vector3(20f, 21f, 22f),
+                unityRootRot = Quaternion.Euler(10f, 20f, 30f)
+            };
+            var originalUnityRootPosition = new Vector3(4f, 5f, 6f);
+            var originalUnityRootRotation = Quaternion.Euler(1f, 2f, 3f);
+            var destination = new KimodoMarkerSampleResult
+            {
+                kimodoRootPosition = Vector3.zero,
+                rootHeading = Vector2.right,
+                hasRootHeading = false,
+                localAxisAngles = new List<Vector3> { Vector3.zero, new Vector3(0.1f, 0.2f, 0.3f) },
+                unityRootPos = originalUnityRootPosition,
+                unityRootRot = originalUnityRootRotation
+            };
+
+            command_context.PreservePoseConstraintRoot(source, destination);
+
+            Assert.That(destination.kimodoRootPosition, Is.EqualTo(source.kimodoRootPosition));
+            Assert.That(destination.rootHeading, Is.EqualTo(source.rootHeading));
+            Assert.That(destination.hasRootHeading, Is.True);
+            Assert.That(destination.localAxisAngles[0], Is.EqualTo(source.localAxisAngles[0]));
+            Assert.That(destination.localAxisAngles[1], Is.EqualTo(new Vector3(0.1f, 0.2f, 0.3f)));
+            Assert.That(destination.unityRootPos, Is.EqualTo(originalUnityRootPosition));
+            Assert.That(destination.unityRootRot, Is.EqualTo(originalUnityRootRotation));
         }
 
         [Test]

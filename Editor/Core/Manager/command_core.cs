@@ -719,13 +719,6 @@ namespace KimodoUnityBridge.Command
                         JObject poseResult = ReadPose(RequirePoseLocator(pose));
                         ApplyPoseJson(cachedSample, poseResult["data"] as JObject
                             ?? throw new InvalidOperationException($"constraints[{i}].pose data is unavailable."));
-                        if (constraintType == "root2d")
-                        {
-                            cachedSample.kimodoRootPosition = cachedSample.unityRootPos;
-                            Vector3 forward = cachedSample.unityRootRot * Vector3.forward;
-                            cachedSample.rootHeading = new Vector2(forward.x, forward.z).normalized;
-                            cachedSample.hasRootHeading = true;
-                        }
                     }
                     else if (constraintType == "root2d")
                     {
@@ -756,8 +749,7 @@ namespace KimodoUnityBridge.Command
                         {
                             throw new InvalidOperationException($"Convert constraints[{i}] failed: {convertError}");
                         }
-                        converted.unityRootPos = cachedSample.unityRootPos;
-                        converted.unityRootRot = cachedSample.unityRootRot;
+                        PreservePoseConstraintRoot(cachedSample, converted);
                         converted.muscles = new List<float>(cachedSample.muscles);
                         cachedSample = converted;
                     }
@@ -772,6 +764,27 @@ namespace KimodoUnityBridge.Command
                 targetCache?.Dispose();
             }
             return samples;
+        }
+
+        internal static void PreservePoseConstraintRoot(
+            KimodoMarkerSampleResult source,
+            KimodoMarkerSampleResult destination)
+        {
+            destination.kimodoRootPosition = source.kimodoRootPosition;
+            destination.rootHeading = source.rootHeading;
+            destination.hasRootHeading = source.hasRootHeading;
+            if (source.localAxisAngles != null && source.localAxisAngles.Count > 0)
+            {
+                destination.localAxisAngles ??= new List<Vector3>();
+                if (destination.localAxisAngles.Count == 0)
+                {
+                    destination.localAxisAngles.Add(source.localAxisAngles[0]);
+                }
+                else
+                {
+                    destination.localAxisAngles[0] = source.localAxisAngles[0];
+                }
+            }
         }
 
         private static bool TrySampleDirectSkeletonConstraint(
