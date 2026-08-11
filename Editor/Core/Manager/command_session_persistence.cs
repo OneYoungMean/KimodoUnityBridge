@@ -11,7 +11,7 @@ using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
-namespace KimodoUnityBridge.Command
+namespace CharacterAnimationCli.Unity.Command
 {
     internal sealed class KimodoCommandSessionMetadata : ScriptableObject
     {

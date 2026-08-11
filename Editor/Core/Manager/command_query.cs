@@ -1,4 +1,4 @@
-namespace KimodoUnityBridge.Command
+namespace CharacterAnimationCli.Unity.Command
 {
     /// <summary>
     /// Read-only queries over the current Kimodo editing environment.

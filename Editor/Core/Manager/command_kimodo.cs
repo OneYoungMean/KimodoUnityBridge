@@ -1,4 +1,4 @@
-namespace KimodoUnityBridge.Command
+namespace CharacterAnimationCli.Unity.Command
 {
     /// <summary>
     /// Kimodo generation, model, analysis, bake, and job commands.

@@ -1,10 +1,10 @@
-# Kimodo Unity Motion Tools — AI contract / AI 工具契约
+# Character Animation CLI Unity — AI contract / AI 工具契约
 
 This is machine-facing operational context, not a human tutorial. The English section is authoritative; the Chinese section is a debug mirror with the same structure.
 
 Current versions / 当前版本：
 
-- Unity package: `2.0.20` / Unity 包：`2.0.20`
+- Unity package: `0.1.0` / Unity 包：`0.1.0`
 - QuickServer: `2.1.0` — project-local Kimodo and ARDY generation runtime. / QuickServer：`2.1.0`——项目级 Kimodo 与 ARDY 生成运行时。
 
 ## English
@@ -20,7 +20,7 @@ Use Kimodo only when an existing Unity project needs humanoid animation generati
 3. Preserve the existing `Packages/manifest.json` and add only this dependency when absent:
 
    ```json
-   "com.unity.kimodo_unity_motion_tools": "https://github.com/OneYoungMean/KimodoUnityBridge.git"
+   "com.nvlab.character-animation-cli-unity": "file:C:/nvlab/Character_Animation_CLI_Unity"
    ```
 
    Use a user-supplied Git/Gitee URL or local `file:` path when requested.
@@ -31,8 +31,8 @@ Use Kimodo only when an existing Unity project needs humanoid animation generati
 Resolve the installed package root from an embedded package, the manifest's `file:` target, or `Library/PackageCache`. The public framework-neutral C# entry point is:
 
 ```csharp
-KimodoUnityBridge.Command.command_dispatcher.GetCommandDefinitionsJson();
-KimodoUnityBridge.Command.command_dispatcher.Invoke(commandName, argumentsJson);
+CharacterAnimationCli.Unity.Command.command_dispatcher.GetCommandDefinitionsJson();
+CharacterAnimationCli.Unity.Command.command_dispatcher.Invoke(commandName, argumentsJson);
 ```
 
 Always start with:
@@ -122,7 +122,7 @@ For backend maintenance only, `NvlabKimodoQuickServer~/core` is the source of se
 3. 保留现有 `Packages/manifest.json`，缺少时只增加以下依赖：
 
    ```json
-   "com.unity.kimodo_unity_motion_tools": "https://github.com/OneYoungMean/KimodoUnityBridge.git"
+   "com.nvlab.character-animation-cli-unity": "file:C:/nvlab/Character_Animation_CLI_Unity"
    ```
 
    用户明确指定时改用其 Git/Gitee 地址或本地 `file:` 路径。
@@ -133,8 +133,8 @@ For backend maintenance only, `NvlabKimodoQuickServer~/core` is the source of se
 依次从 embedded package、manifest 的 `file:` 目标或 `Library/PackageCache` 解析安装后的包根目录。公开且框架无关的 C# 入口是：
 
 ```csharp
-KimodoUnityBridge.Command.command_dispatcher.GetCommandDefinitionsJson();
-KimodoUnityBridge.Command.command_dispatcher.Invoke(commandName, argumentsJson);
+CharacterAnimationCli.Unity.Command.command_dispatcher.GetCommandDefinitionsJson();
+CharacterAnimationCli.Unity.Command.command_dispatcher.Invoke(commandName, argumentsJson);
 ```
 
 始终从以下调用开始：

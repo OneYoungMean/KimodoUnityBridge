@@ -8,7 +8,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
-namespace KimodoUnityBridge.Command
+namespace CharacterAnimationCli.Unity.Command
 {
     internal enum command_status
     {

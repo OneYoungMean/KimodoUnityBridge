@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace KimodoUnityBridge.Command
+namespace CharacterAnimationCli.Unity.Command
 {
     public interface command_result
     {

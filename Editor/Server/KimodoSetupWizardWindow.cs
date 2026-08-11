@@ -517,7 +517,7 @@ namespace KimodoBridge.Editor
                 request.Timeout = 3000;
                 request.ReadWriteTimeout = 3000;
                 request.AllowAutoRedirect = true;
-                request.UserAgent = "KimodoUnityBridge";
+                request.UserAgent = "CharacterAnimationCliUnity";
                 using HttpWebResponse response = (HttpWebResponse)request.GetResponse();
                 int code = (int)response.StatusCode;
                 return code >= 200 && code < 400;
@@ -543,7 +543,7 @@ namespace KimodoBridge.Editor
                 request.Timeout = 3000;
                 request.ReadWriteTimeout = 3000;
                 request.AllowAutoRedirect = true;
-                request.UserAgent = "KimodoUnityBridge";
+                request.UserAgent = "CharacterAnimationCliUnity";
                 using HttpWebResponse response = (HttpWebResponse)request.GetResponse();
                 int code = (int)response.StatusCode;
                 return code >= 200 && code < 400;

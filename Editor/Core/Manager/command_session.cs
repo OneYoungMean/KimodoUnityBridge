@@ -1,4 +1,4 @@
-namespace KimodoUnityBridge.Command
+namespace CharacterAnimationCli.Unity.Command
 {
     /// <summary>
     /// Timeline Session lifecycle and editing commands.

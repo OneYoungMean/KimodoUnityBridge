@@ -14,7 +14,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Playables;
 
-namespace KimodoUnityBridge.Command
+namespace CharacterAnimationCli.Unity.Command
 {
     /// <summary>
     /// Shared implementation behind the framework-neutral Kimodo command entry points.

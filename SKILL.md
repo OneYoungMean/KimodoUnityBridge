@@ -10,7 +10,7 @@ Chinese counterpart: [SKILL-zh.md](SKILL-zh.md).
 Use this package's public Editor entry point:
 
 ```csharp
-using KimodoUnityBridge.Command;
+using CharacterAnimationCli.Unity.Command;
 
 string schema = command_dispatcher.GetCommandDefinitionsJson();
 string result = command_dispatcher.Invoke(commandName, argumentsJson);

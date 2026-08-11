@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using KimodoUnityBridge.Command;
+using CharacterAnimationCli.Unity.Command;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using TimelineInject;

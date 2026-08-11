@@ -1,4 +1,4 @@
-namespace KimodoUnityBridge.Command
+namespace CharacterAnimationCli.Unity.Command
 {
     public enum command_kind
     {

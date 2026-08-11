@@ -3,7 +3,7 @@ using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using KimodoUnityBridge.Command;
+using CharacterAnimationCli.Unity.Command;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -46,6 +46,11 @@ namespace KimodoBridge.Editor.Tests
                 command_kimodo.GetGenerationCommand,
                 command_kimodo.CancelGenerationCommand
             }));
+            Assert.That(
+                JToken.DeepEquals(
+                    JObject.Parse(KimodoUnityBridge.Command.command_dispatcher.GetCommandDefinitionsJson()),
+                    definitions),
+                Is.True);
         }
 
         [Test]

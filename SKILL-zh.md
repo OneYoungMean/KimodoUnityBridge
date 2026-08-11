@@ -10,7 +10,7 @@ description: 在当前 Unity Editor 中发现并执行 Kimodo 人形动画命令
 使用包内公开 Editor 入口：
 
 ```csharp
-using KimodoUnityBridge.Command;
+using CharacterAnimationCli.Unity.Command;
 
 string schema = command_dispatcher.GetCommandDefinitionsJson();
 string result = command_dispatcher.Invoke(commandName, argumentsJson);

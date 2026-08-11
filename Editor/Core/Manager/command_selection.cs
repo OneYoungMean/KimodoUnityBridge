@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine.Timeline;
 
-namespace KimodoUnityBridge.Command
+namespace CharacterAnimationCli.Unity.Command
 {
     public readonly struct command_selected_clip
     {

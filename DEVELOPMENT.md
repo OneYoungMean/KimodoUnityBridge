@@ -2,7 +2,7 @@
 
 本文记录当前 package 能力与 CLI 覆盖范围，供功能开发和 API 补齐时核对。
 
-当前版本：Unity package `2.0.20`，QuickServer `2.1.0`。
+当前版本：Unity package `0.1.0`，QuickServer `2.1.0`。
 
 ## 覆盖口径
 
