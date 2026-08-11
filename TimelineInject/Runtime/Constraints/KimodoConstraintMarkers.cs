@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CharacterAnimationCli.Unity;
 using UnityEngine;
 
 namespace TimelineInject
@@ -37,6 +38,7 @@ namespace TimelineInject
     [Serializable]
     public sealed class KimodoMarkerSampleResult
     {
+        public CharacterPose characterPose;
         public string constraintType = string.Empty;
         public double sampleTime;
         public KimodoConstraintRigType rigType = KimodoConstraintRigType.Soma77;
@@ -62,6 +64,7 @@ namespace TimelineInject
         {
             return new KimodoMarkerSampleResult
             {
+                characterPose = characterPose?.Clone(),
                 constraintType = constraintType ?? string.Empty,
                 sampleTime = sampleTime,
                 rigType = rigType,

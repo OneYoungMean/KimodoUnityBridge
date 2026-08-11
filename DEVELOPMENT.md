@@ -43,10 +43,10 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。Runt
 | 单段动画生成 | 创建 `KimodoPlayableClip`、生成、写入资产并加入 Session | `kimodo_generate_animation` | 完整 | 支持模型、seed、steps、输出模式、约束和 analysis option |
 | 生成进度、范围锁与取消 | 按 `request_id` 查询终态或取消任务；同角色 Track 的重叠采样/删除立即返回 `generation_range_locked` | `kimodo_get_generation`, `kimodo_cancel_generation` | 完整 | accepted/running 不算完成；不阻塞 Unity 主线程 |
 | 多片段连接生成 | Timeline Inspector 可对同一轨道选中的多个 Clips 一次连接生成 | 无 | 未覆盖 | 没有多片段 command/schema |
-| Pose 采样与编辑 | 通过 Constraint Retarget 管线读取 Timeline Pose，使用规范 Profile Root 创建/复制/更新 Root、Muscle、Foot IK | `pose_create`, `pose_get`, `pose_set`, `pose_copy` | 完整 | 可写 Pose 由 Session 管理；不使用旧 Unity Scene Root 语义 |
-| FullBody Constraint | 从 Pose 构造完整人体约束 | `kimodo_generate_animation.constraints` | 完整 | 包含全身关节以及根骨骼位置与朝向；`frame` 是生成 Clip 内相对帧 |
+| Pose 采样与编辑 | 原生读取 MuscleClip 同义的 49 Muscle + Root/Hand/Foot TQ，并支持局部 Patch | `pose_create`, `pose_get`, `pose_set`, `pose_copy` | 完整 | 可写 Pose 由 Session 管理；四元数为 `[x,y,z,w]`，位移单位米，Muscle 不 Clamp |
+| FullBody Constraint | 从统一 Pose 构造完整人体约束 | `kimodo_generate_animation.constraints` | 完整 | 包含 49 Muscle 与 Root/Hand/Foot TQ；`frame` 是生成 Clip 内相对帧 |
 | Root2D Constraint | 从 Pose 或直接 Position/Heading 构造根骨骼约束 | `kimodo_generate_animation.constraints` | 完整 | 只约束根骨骼地面平面位置与朝向；直接值为 `[x,z]` 与二维 heading |
-| Hand/Foot Constraint | 从 Pose 重定向出左右手脚末端约束 | `kimodo_generate_animation.constraints` | 部分 | CLI 没有独立世界坐标末端目标字段 |
+| Hand/Foot Constraint | 从统一 Pose 的完整 Hand/Foot TQ 重定向出左右手脚末端约束 | `kimodo_generate_animation.constraints` | 完整 | 独立类型复用 Pose locator 的对应末端 TQ |
 | Hand/Foot IK 场景编辑 | Constraint Editor 用红立方体调整末端目标并实时更新 Pose | 无 | 未覆盖 | 当前是 Editor 交互能力 |
 | 数学 Root2D 路径 | 生成 line、turn、s、circle 路径点 | `kimodo_build_root2d_path` | 完整 | 输出可直接转换为 Root2D constraints |
 | Spline 与 NavMesh 路径创作 | Scene 编辑、Spline 采样、NavMesh 路点与脚步约束 | 无 | 未覆盖 | 当前由 Editor UI 和 Editor service 实现 |

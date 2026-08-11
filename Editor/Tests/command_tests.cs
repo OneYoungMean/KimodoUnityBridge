@@ -65,6 +65,22 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void PoseSchemas_ExposeCanonical49MuscleAndTqShape()
+        {
+            JArray tools = (JArray)JObject.Parse(command_dispatcher.GetCommandDefinitionsJson())["tools"];
+            JObject create = tools.Values<JObject>().Single(tool => tool.Value<string>("name") == "pose_create");
+            JObject set = tools.Values<JObject>().Single(tool => tool.Value<string>("name") == "pose_set");
+            JToken pose = create["inputSchema"]["properties"]["pose"];
+
+            Assert.That(pose["properties"]["muscles"].Value<int>("minItems"), Is.EqualTo(49));
+            Assert.That(pose["properties"]["muscles"].Value<int>("maxItems"), Is.EqualTo(49));
+            Assert.That(pose["properties"]["root"]["required"].Values<string>(), Is.EqualTo(new[] { "t", "q" }));
+            Assert.That(pose["properties"]["hands"]["required"].Values<string>(), Is.EqualTo(new[] { "left", "right" }));
+            Assert.That(set["inputSchema"]["required"].Values<string>(), Does.Contain("data"));
+            Assert.That(set["inputSchema"]["properties"]["data"].Value<int>("minProperties"), Is.EqualTo(1));
+        }
+
+        [Test]
         public void HelpInvocation_ProvidesRunnableAnimationWorkflow()
         {
             JObject response = JObject.Parse(command_dispatcher.Invoke(command_kimodo.HelpCommand));
@@ -84,7 +100,7 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(workflow[3].Value<string>("repeat_until"), Does.Contain("completed"));
             Assert.That(response["constraints"].Values<JObject>().Select(item => item.Value<string>("type")),
                 Is.EqualTo(new[] { "fullbody", "root2d" }));
-            Assert.That(response["constraint_rules"].Values<string>().Single(), Does.Contain("root2d"));
+            Assert.That(response["constraint_rules"].Values<string>().Any(rule => rule.Contains("root2d")), Is.True);
         }
 
         [Test]
@@ -110,57 +126,6 @@ namespace KimodoBridge.Editor.Tests
                 Is.EqualTo(new[] { "fullbody", "root2d" }));
             Assert.That(response["constraints"][0].Value<string>("description"), Does.Contain("root bone"));
             Assert.That(response["constraints"][1].Value<string>("description"), Does.Contain("root-only"));
-        }
-
-        [Test]
-        public void PoseRootYaw_UpdatePreservesTiltAndChangesOnlyWorldYaw()
-        {
-            Quaternion original = Quaternion.Euler(20f, 35f, -10f);
-            float originalTilt = Vector3.Angle(original * Vector3.up, Vector3.up);
-
-            Quaternion updated = command_context.ApplyPoseRootYaw(original, -70f);
-
-            Assert.That(
-                Mathf.Abs(Mathf.DeltaAngle(command_context.ResolvePoseRootYaw(updated), -70f)),
-                Is.LessThan(1e-4f));
-            Assert.That(
-                Vector3.Angle(updated * Vector3.up, Vector3.up),
-                Is.EqualTo(originalTilt).Within(1e-4f));
-        }
-
-        [Test]
-        public void PoseConstraintFkConversion_PreservesProtocolRootOnly()
-        {
-            var source = new KimodoMarkerSampleResult
-            {
-                kimodoRootPosition = new Vector3(2f, 0.95f, 3f),
-                rootHeading = new Vector2(0.6f, 0.8f),
-                hasRootHeading = true,
-                localAxisAngles = new List<Vector3> { new Vector3(0f, 0.7f, 0f) },
-                unityRootPos = new Vector3(20f, 21f, 22f),
-                unityRootRot = Quaternion.Euler(10f, 20f, 30f)
-            };
-            var originalUnityRootPosition = new Vector3(4f, 5f, 6f);
-            var originalUnityRootRotation = Quaternion.Euler(1f, 2f, 3f);
-            var destination = new KimodoMarkerSampleResult
-            {
-                kimodoRootPosition = Vector3.zero,
-                rootHeading = Vector2.right,
-                hasRootHeading = false,
-                localAxisAngles = new List<Vector3> { Vector3.zero, new Vector3(0.1f, 0.2f, 0.3f) },
-                unityRootPos = originalUnityRootPosition,
-                unityRootRot = originalUnityRootRotation
-            };
-
-            command_context.PreservePoseConstraintRoot(source, destination);
-
-            Assert.That(destination.kimodoRootPosition, Is.EqualTo(source.kimodoRootPosition));
-            Assert.That(destination.rootHeading, Is.EqualTo(source.rootHeading));
-            Assert.That(destination.hasRootHeading, Is.True);
-            Assert.That(destination.localAxisAngles[0], Is.EqualTo(source.localAxisAngles[0]));
-            Assert.That(destination.localAxisAngles[1], Is.EqualTo(new Vector3(0.1f, 0.2f, 0.3f)));
-            Assert.That(destination.unityRootPos, Is.EqualTo(originalUnityRootPosition));
-            Assert.That(destination.unityRootRot, Is.EqualTo(originalUnityRootRotation));
         }
 
         [Test]

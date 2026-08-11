@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using CharacterAnimationCli.Unity;
 using KimodoBridge;
 using KimodoBridge.Editor;
 using TimelineInject;
@@ -128,23 +129,23 @@ namespace KimodoUnityBridge.Command
                             Optional("resolution", "integer", "Square output size in pixels; defaults to 512."),
                             Optional("scale", "number", "Camera framing scale; defaults to 1.0."))),
                     CommandDefinition(PoseCreateCommand,
-                        "Create a writable pose for a character.",
+                        "Create a writable canonical 49-Muscle + Root/Hand/Foot TQ pose for a character.",
                         Properties(
                             Required("character", "string", "Target character name."),
-                            Required("pose", "object", "Pose data containing the canonical profile root, muscles, and optional foot_ik."))),
+                            RequiredCharacterPose("pose", partial: false))),
                     CommandDefinition(PoseGetCommand,
-                        "Read a pose from any returned {source,frame} locator. Sampling a character Timeline frame locked by generation returns generation_range_locked.",
-                        Properties(Required("pose", "object", "{source,frame} pose locator at fixed 60 FPS."))),
+                        "Read a canonical 49-Muscle + Root/Hand/Foot TQ pose from any returned {source,frame} locator. Sampling a character Timeline frame locked by generation returns generation_range_locked.",
+                        Properties(RequiredPoseLocator("pose"))),
                     CommandDefinition(PoseSetCommand,
-                        "Update a writable pose.",
+                        "Patch one or more channels of a writable canonical pose.",
                         Properties(
-                            Required("pose", "object", "Writable {source,frame} pose locator."),
-                            Optional("data", "object", "Partial pose data to update."))),
+                            RequiredPoseLocator("pose"),
+                            RequiredCharacterPose("data", partial: true))),
                     CommandDefinition(PoseCopyCommand,
                         "Copy any pose into a writable pose for the target character.",
                         Properties(
                             Required("character", "string", "Target character name."),
-                            Required("pose", "object", "Source {source,frame} pose locator."))),
+                            RequiredPoseLocator("pose"))),
                     CommandDefinition(BuildRoot2DPathCommand,
                         "Build dependency-free Root2D path points at fixed 60 FPS.",
                         Properties(
@@ -714,11 +715,24 @@ namespace KimodoUnityBridge.Command
                     }
                     double at = relativeFrame / SessionFrameRate;
                     var cachedSample = new KimodoMarkerSampleResult { constraintType = constraintType };
+                    CharacterPose characterPose = null;
                     if (constraint["pose"] is JObject pose)
                     {
-                        JObject poseResult = ReadPose(RequirePoseLocator(pose));
-                        ApplyPoseJson(cachedSample, poseResult["data"] as JObject
+                        PoseLocator locator = RequirePoseLocator(pose);
+                        JObject poseResult = ReadPose(locator);
+                        characterPose = CharacterPoseJson.Parse(poseResult["data"] as JObject
                             ?? throw new InvalidOperationException($"constraints[{i}].pose data is unavailable."));
+                        cachedSample.characterPose = characterPose.Clone();
+                        if (constraintType == "root2d")
+                        {
+                            Transform avatarRoot = ResolvePoseCharacter(locator).Animator.transform;
+                            Vector3 position = avatarRoot.TransformPoint(characterPose.root.t);
+                            Vector3 forward = (avatarRoot.rotation * characterPose.root.q) * Vector3.forward;
+                            Vector2 heading = new Vector2(forward.x, forward.z);
+                            cachedSample.kimodoRootPosition = position;
+                            cachedSample.rootHeading = heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.right;
+                            cachedSample.hasRootHeading = true;
+                        }
                     }
                     else if (constraintType == "root2d")
                     {
@@ -736,21 +750,31 @@ namespace KimodoUnityBridge.Command
                     {
                         throw new InvalidOperationException($"constraints[{i}].pose is required unless type is root2d with position and heading.");
                     }
-                    if (cachedSample.muscles != null && cachedSample.muscles.Count == HumanTrait.MuscleCount &&
-                        constraintType != "root2d")
+                    if (characterPose != null && constraintType != "root2d")
                     {
-                        var humanPose = new HumanPose { muscles = cachedSample.muscles.ToArray() };
-                        KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(targetCache);
-                        targetCache.poseHandler.SetHumanPose(ref humanPose);
-                        BoneSample boneSample = KimodoRetargetSamplingUtility.CaptureBoneSample(targetCache);
+                        MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToMuscleSample(characterPose);
+                        if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                                sourceSample,
+                                frameRate,
+                                targetCache,
+                                out BoneSample boneSample,
+                                out MuscleSample targetMuscleSample,
+                                out string retargetError))
+                        {
+                            throw new InvalidOperationException($"Retarget constraints[{i}] failed: {retargetError}");
+                        }
                         if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
                                 boneSample, targetCache, modelName, constraintType, at,
                                 out KimodoMarkerSampleResult converted, out string convertError))
                         {
                             throw new InvalidOperationException($"Convert constraints[{i}] failed: {convertError}");
                         }
-                        PreservePoseConstraintRoot(cachedSample, converted);
-                        converted.muscles = new List<float>(cachedSample.muscles);
+                        converted.characterPose = characterPose.Clone();
+                        converted.muscles = new List<float>(targetMuscleSample.pose.muscles);
+                        converted.leftFootPosition = targetMuscleSample.leftFootPosition;
+                        converted.leftFootRotation = targetMuscleSample.leftFootRotation;
+                        converted.rightFootPosition = targetMuscleSample.rightFootPosition;
+                        converted.rightFootRotation = targetMuscleSample.rightFootRotation;
                         cachedSample = converted;
                     }
                     cachedSample.sampleTime = at;
@@ -764,27 +788,6 @@ namespace KimodoUnityBridge.Command
                 targetCache?.Dispose();
             }
             return samples;
-        }
-
-        internal static void PreservePoseConstraintRoot(
-            KimodoMarkerSampleResult source,
-            KimodoMarkerSampleResult destination)
-        {
-            destination.kimodoRootPosition = source.kimodoRootPosition;
-            destination.rootHeading = source.rootHeading;
-            destination.hasRootHeading = source.hasRootHeading;
-            if (source.localAxisAngles != null && source.localAxisAngles.Count > 0)
-            {
-                destination.localAxisAngles ??= new List<Vector3>();
-                if (destination.localAxisAngles.Count == 0)
-                {
-                    destination.localAxisAngles.Add(source.localAxisAngles[0]);
-                }
-                else
-                {
-                    destination.localAxisAngles[0] = source.localAxisAngles[0];
-                }
-            }
         }
 
         private static bool TrySampleDirectSkeletonConstraint(
@@ -1615,6 +1618,119 @@ namespace KimodoUnityBridge.Command
                     ["required"] = new JArray("source", "frame")
                 }
             }, false);
+        }
+
+        private static PropertyDefinition RequiredPoseLocator(string name)
+        {
+            return new PropertyDefinition(name, new JObject
+            {
+                ["type"] = "object",
+                ["description"] = "Pose locator at fixed 60 FPS.",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["source"] = new JObject { ["type"] = "string" },
+                    ["frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 }
+                },
+                ["required"] = new JArray("source", "frame")
+            }, true);
+        }
+
+        private static PropertyDefinition RequiredCharacterPose(string name, bool partial)
+        {
+            return new PropertyDefinition(name, CharacterPoseSchema(partial), true);
+        }
+
+        private static JObject CharacterPoseSchema(bool partial)
+        {
+            JObject schema = new JObject
+            {
+                ["type"] = "object",
+                ["description"] = partial
+                    ? "Partial canonical pose patch. Only supplied channels change."
+                    : "Canonical pose: 49 body muscles in Unity index order 0-14,21-54; T is meters and Q is [x,y,z,w].",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["muscles"] = new JObject
+                    {
+                        ["type"] = "array",
+                        ["items"] = new JObject { ["type"] = "number" },
+                        ["minItems"] = CharacterPose.MuscleCount,
+                        ["maxItems"] = CharacterPose.MuscleCount
+                    },
+                    ["root"] = PoseTransformSchema(partial),
+                    ["hands"] = PoseSidesSchema(partial),
+                    ["feet"] = PoseSidesSchema(partial)
+                }
+            };
+            if (partial)
+            {
+                schema["minProperties"] = 1;
+            }
+            else
+            {
+                schema["required"] = new JArray("muscles", "root", "hands", "feet");
+            }
+            return schema;
+        }
+
+        private static JObject PoseSidesSchema(bool partial)
+        {
+            JObject schema = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["left"] = PoseTransformSchema(partial),
+                    ["right"] = PoseTransformSchema(partial)
+                }
+            };
+            if (partial)
+            {
+                schema["minProperties"] = 1;
+            }
+            else
+            {
+                schema["required"] = new JArray("left", "right");
+            }
+            return schema;
+        }
+
+        private static JObject PoseTransformSchema(bool partial)
+        {
+            JObject schema = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["t"] = new JObject
+                    {
+                        ["type"] = "array",
+                        ["items"] = new JObject { ["type"] = "number" },
+                        ["minItems"] = 3,
+                        ["maxItems"] = 3
+                    },
+                    ["q"] = new JObject
+                    {
+                        ["type"] = "array",
+                        ["items"] = new JObject { ["type"] = "number" },
+                        ["minItems"] = 4,
+                        ["maxItems"] = 4
+                    }
+                }
+            };
+            if (partial)
+            {
+                schema["minProperties"] = 1;
+            }
+            else
+            {
+                schema["required"] = new JArray("t", "q");
+            }
+            return schema;
         }
 
         private static PropertyDefinition RequiredSamples(string name)

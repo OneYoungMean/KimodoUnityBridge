@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using CharacterAnimationCli.Unity;
 using KimodoBridge;
 using TimelineInject;
 using UnityEditor;
@@ -210,7 +211,7 @@ namespace KimodoUnityBridge.Command
                 for (int index = 0; index < requests.Count; index++)
                 {
                     CaptureRequest request = requests[index];
-                    KimodoMarkerSampleResult pose = request.PoseData?.Clone() ?? SampleCapturePose(session, request);
+                    KimodoMarkerSampleResult pose = request.PoseData?.Clone() ?? SampleCapturePose(request);
                     previews.Add(CreatePosePreview(request.Character, pose, request.Root2DOnly));
                     string label = (index + 1).ToString(CultureInfo.InvariantCulture);
                     var item = new JObject
@@ -266,33 +267,14 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static KimodoMarkerSampleResult SampleCapturePose(TimelineSessionRecord session, CaptureRequest request)
+        private static KimodoMarkerSampleResult SampleCapturePose(CaptureRequest request)
         {
-            RuntimeAnimatorController savedController = request.Character.Animator.runtimeAnimatorController;
-            try
-            {
-                request.Character.Animator.runtimeAnimatorController = null;
-                session.Director.time = request.Time;
-                session.Director.Evaluate();
-                TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
-                var pose = new HumanPose();
-                using (var handler = new HumanPoseHandler(request.Character.Avatar, request.Character.Animator.transform))
-                {
-                    handler.GetHumanPose(ref pose);
-                }
-                KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
-                return new KimodoMarkerSampleResult
-                {
-                    sampleTime = request.Time,
-                    unityRootPos = request.Character.Animator.transform.position,
-                    unityRootRot = request.Character.Animator.transform.rotation,
-                    muscles = pose.muscles.ToList()
-                };
-            }
-            finally
-            {
-                request.Character.Animator.runtimeAnimatorController = savedController;
-            }
+            CharacterPose pose = CaptureCharacterPose(
+                request.Character,
+                Mathf.RoundToInt((float)(request.Time * SessionFrameRate)));
+            var sample = new KimodoMarkerSampleResult { sampleTime = request.Time };
+            SetCanonicalPose(sample, pose, request.Character);
+            return sample;
         }
 
         private static GameObject CreatePosePreview(
@@ -315,7 +297,15 @@ namespace KimodoUnityBridge.Command
             Quaternion rotation = root2DOnly && sample.hasRootHeading
                 ? Quaternion.LookRotation(new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y), Vector3.up)
                 : sample.unityRootRot;
-            if (!root2DOnly && sample.muscles != null && sample.muscles.Count == HumanTrait.MuscleCount)
+            if (!root2DOnly && sample.characterPose != null && sample.characterPose.TryValidate(out _))
+            {
+                HumanPose pose = CharacterPoseMuscleAdapter.ToMuscleSample(sample.characterPose).pose;
+                using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
+                {
+                    handler.SetHumanPose(ref pose);
+                }
+            }
+            else if (!root2DOnly && sample.muscles != null && sample.muscles.Count == HumanTrait.MuscleCount)
             {
                 var pose = new HumanPose { muscles = sample.muscles.ToArray() };
                 using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))

@@ -3,6 +3,7 @@ using CharacterAnimationCli.Unity;
 using KimodoBridge;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
+using TimelineInject;
 using UnityEngine;
 
 namespace CharacterAnimationCli.Unity.Editor.Tests
@@ -119,6 +120,26 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             Assert.That(patched.root.t, Is.EqualTo(new Vector3(1f, 2f, 3f)));
             Assert.That(patched.hands.right.t, Is.EqualTo(new Vector3(4f, 5f, 6f)));
             Assert.That(pose.hands.right.t, Is.EqualTo(Vector3.zero));
+        }
+
+        [Test]
+        public void ApplyPatch_RejectsUnknownLegacyFields()
+        {
+            Assert.Throws<InvalidOperationException>(() => CharacterPoseJson.ApplyPatch(
+                new CharacterPose(),
+                JObject.Parse("{\"root\":{\"rotation_y\":30}}")));
+        }
+
+        [Test]
+        public void MarkerClone_PreservesCanonicalPoseWithoutSharingIt()
+        {
+            var sample = new KimodoMarkerSampleResult { characterPose = new CharacterPose() };
+
+            KimodoMarkerSampleResult clone = sample.Clone();
+            clone.characterPose.muscles[0] = 0.75f;
+
+            Assert.That(sample.characterPose.muscles[0], Is.Zero);
+            Assert.That(clone.characterPose.muscles[0], Is.EqualTo(0.75f));
         }
 
         private static void AssertTransform(CharacterPoseTransform actual, Vector3 expectedT, Quaternion expectedQ)

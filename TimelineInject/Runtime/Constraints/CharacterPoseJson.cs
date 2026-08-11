@@ -37,6 +37,7 @@ namespace CharacterAnimationCli.Unity
         public static CharacterPose Parse(JObject json)
         {
             RequireObject(json, "pose");
+            RequireOnlyProperties(json, "pose", "muscles", "root", "hands", "feet");
             RequireToken(json, "muscles");
             RequireToken(json, "root");
             RequireToken(json, "hands");
@@ -45,6 +46,8 @@ namespace CharacterAnimationCli.Unity
             JObject root = json["root"] as JObject;
             JObject hands = json["hands"] as JObject;
             JObject feet = json["feet"] as JObject;
+            RequireOnlyProperties(hands, "hands", "left", "right");
+            RequireOnlyProperties(feet, "feet", "left", "right");
             RequireTransform(root, "root");
             RequireTransform(hands?["left"] as JObject, "hands.left");
             RequireTransform(hands?["right"] as JObject, "hands.right");
@@ -60,7 +63,16 @@ namespace CharacterAnimationCli.Unity
             {
                 throw new ArgumentNullException(nameof(current));
             }
+            if (!current.TryValidate(out string currentError))
+            {
+                throw new InvalidOperationException(currentError);
+            }
             RequireObject(patch, "pose patch");
+            RequireOnlyProperties(patch, "pose patch", "muscles", "root", "hands", "feet");
+            if (patch.Count == 0)
+            {
+                throw new InvalidOperationException("pose patch must contain at least one field.");
+            }
 
             CharacterPose result = current.Clone();
             if (patch["muscles"] != null)
@@ -75,6 +87,11 @@ namespace CharacterAnimationCli.Unity
             {
                 JObject hands = patch["hands"] as JObject
                     ?? throw new InvalidOperationException("hands must be an object.");
+                RequireOnlyProperties(hands, "hands", "left", "right");
+                if (hands.Count == 0)
+                {
+                    throw new InvalidOperationException("hands patch must contain left or right.");
+                }
                 if (hands["left"] != null)
                 {
                     result.hands.left = PatchTransform(result.hands.left, hands["left"] as JObject, "hands.left");
@@ -88,6 +105,11 @@ namespace CharacterAnimationCli.Unity
             {
                 JObject feet = patch["feet"] as JObject
                     ?? throw new InvalidOperationException("feet must be an object.");
+                RequireOnlyProperties(feet, "feet", "left", "right");
+                if (feet.Count == 0)
+                {
+                    throw new InvalidOperationException("feet patch must contain left or right.");
+                }
                 if (feet["left"] != null)
                 {
                     result.feet.left = PatchTransform(result.feet.left, feet["left"] as JObject, "feet.left");
@@ -122,6 +144,11 @@ namespace CharacterAnimationCli.Unity
             if (patch == null)
             {
                 throw new InvalidOperationException($"{name} must be an object.");
+            }
+            RequireOnlyProperties(patch, name, "t", "q");
+            if (patch.Count == 0)
+            {
+                throw new InvalidOperationException($"{name} patch must contain t or q.");
             }
 
             var result = current != null ? current.Clone() : new CharacterPoseTransform();
@@ -206,6 +233,7 @@ namespace CharacterAnimationCli.Unity
         private static void RequireTransform(JObject value, string name)
         {
             RequireObject(value, name);
+            RequireOnlyProperties(value, name, "t", "q");
             RequireToken(value, "t", name);
             RequireToken(value, "q", name);
         }
@@ -223,6 +251,18 @@ namespace CharacterAnimationCli.Unity
             if (value?[key] == null)
             {
                 throw new InvalidOperationException($"{parent}.{key} is required.");
+            }
+        }
+
+        private static void RequireOnlyProperties(JObject value, string name, params string[] allowed)
+        {
+            RequireObject(value, name);
+            foreach (JProperty property in value.Properties())
+            {
+                if (Array.IndexOf(allowed, property.Name) < 0)
+                {
+                    throw new InvalidOperationException($"{name}.{property.Name} is not supported.");
+                }
             }
         }
     }

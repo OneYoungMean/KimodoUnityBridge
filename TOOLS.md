@@ -70,7 +70,7 @@ Before each non-trivial call, request that command's current help. Verify the fi
 
 ### 6. Pose and constraint semantics
 
-A pose locator is `{"source":"<source>","frame":<integer>}`. A character source samples a read-only Timeline pose. A `<character>.Poses` source is writable. Use `pose_copy` before modifying a read-only pose, then use `pose_get`/`pose_set`. Pose `root.position` is the world position of the sampled Profile Skeleton pelvis (`kimodoRootPosition`), and `root.rotation_y` is its world yaw in degrees. The internal skeleton rotations remain axis-angle data. Do not infer coordinate spaces or manufacture profile-skeleton values; preserve data returned by the pose commands.
+A pose locator is `{"source":"<source>","frame":<integer>}`. A character source samples a read-only Timeline pose. A `<character>.Poses` source is writable. Use `pose_copy` before modifying a read-only pose, then use `pose_get`/`pose_set`. Pose data is one nested object containing `muscles` (49 values in Unity Muscle index order `0-14,21-54`) plus `root`, `hands.left/right`, and `feet.left/right`; every transform is `{t:[x,y,z],q:[x,y,z,w]}` with translation in meters. These channels have the same semantics as MuscleClip RootTQ, HandTQ, and FootTQ. `pose_set` is a partial patch and does not clamp finite Muscle values. Root2D converts RootTQ through the Avatar on the pose's owning track.
 
 Inline generation constraints are anonymous values with `frame` and `type`. The two core types are:
 
@@ -171,7 +171,7 @@ session_close {}
 
 ### 6. Pose 与 Constraint 语义
 
-Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 Timeline 上的只读采样 Pose；`<角色>.Poses` 来源可写。修改只读 Pose 前先调用 `pose_copy`，之后使用 `pose_get`/`pose_set`。Pose 的 `root.position` 是采样后 Profile Skeleton 盆骨的世界位置（`kimodoRootPosition`），`root.rotation_y` 是其世界 Yaw 角（度）；骨架内部旋转仍使用轴角数据。不得猜测坐标空间或伪造 Profile Skeleton 数值；应保留 Pose 命令返回的数据。
+Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 Timeline 上的只读采样 Pose；`<角色>.Poses` 来源可写。修改只读 Pose 前先调用 `pose_copy`，之后使用 `pose_get`/`pose_set`。Pose 数据是一个嵌套对象：`muscles`（49 个值，Unity Muscle 索引顺序为 `0-14,21-54`），以及 `root`、`hands.left/right`、`feet.left/right`；每个变换均为 `{t:[x,y,z],q:[x,y,z,w]}`，位移单位为米。这些通道分别与 MuscleClip 的 RootTQ、HandTQ、FootTQ 语义一致。`pose_set` 是局部 Patch，不会 Clamp 有限的 Muscle 值。Root2D 通过该 Pose 所在轨道的 Avatar 转换 RootTQ。
 
 生成内联 Constraint 是包含 `frame` 和 `type` 的匿名值。本节先明确两个核心类型：
 

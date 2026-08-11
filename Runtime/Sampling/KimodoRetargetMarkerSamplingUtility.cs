@@ -114,6 +114,7 @@ namespace KimodoBridge
             }
 
             result.muscles = new List<float>(muscleSample.pose.muscles);
+            result.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(muscleSample);
             result.leftFootPosition = muscleSample.leftFootPosition;
             result.leftFootRotation = muscleSample.leftFootRotation;
             result.rightFootPosition = muscleSample.rightFootPosition;
