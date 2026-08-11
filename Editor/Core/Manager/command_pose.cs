@@ -35,10 +35,9 @@ namespace KimodoUnityBridge.Command
             TimelineCharacterRecord character = ResolveSessionCharacterByReference(
                 session, RequiredStringValue(arguments, "character"), false);
             RequireWritablePoseAvatar(character);
-            JObject result = ReadPose(RequirePoseLocator(arguments["pose"] as JObject), PoseCopyCommand);
-            JObject data = result["data"] as JObject
-                ?? throw new InvalidOperationException("Source pose data is unavailable.");
-            return Ok(new JObject { ["pose"] = StoreWritablePose(character, data) });
+            KimodoMarkerSampleResult sourceSample = ReadPoseSample(
+                RequirePoseLocator(arguments["pose"] as JObject), PoseCopyCommand);
+            return Ok(new JObject { ["pose"] = StoreWritablePose(character, sourceSample) });
         });
 
         public static string PoseSet(string argumentsJson) => Execute(argumentsJson, arguments =>
@@ -178,45 +177,68 @@ namespace KimodoUnityBridge.Command
 
         private static JObject ReadPose(PoseLocator locator, string command = GenerateAnimationCommand)
         {
+            KimodoMarkerSampleResult sample = ReadPoseSample(locator, command);
+            TimelineSessionRecord session = RequireCurrentTimelineSession();
+            TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
+                string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase));
+            if (character != null)
+            {
+                return new JObject
+                {
+                    ["pose"] = PoseLocatorJson(character.Name, locator.Frame),
+                    ["data"] = PoseSampleToJson(sample)
+                };
+            }
+            character = ResolvePoseCacheOwner(locator.Source);
+            if (character != null)
+            {
+                return new JObject
+                {
+                    ["pose"] = PoseLocatorJson(character.PoseCacheTrack.name, locator.Frame),
+                    ["data"] = PoseSampleToJson(sample)
+                };
+            }
+            return new JObject
+            {
+                ["pose"] = PoseLocatorJson(locator.Source, locator.Frame),
+                ["data"] = PoseSampleToJson(sample)
+            };
+        }
+
+        private static KimodoMarkerSampleResult ReadPoseSample(
+            PoseLocator locator,
+            string command = GenerateAnimationCommand)
+        {
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
                 string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase));
             if (character != null)
             {
                 ThrowIfGenerationRangeLocked(session, character, locator.Frame, locator.Frame + 1, command);
-                JObject data = CaptureCharacterPose(session, character, locator.Frame);
-                return new JObject
-                {
-                    ["pose"] = PoseLocatorJson(character.Name, locator.Frame),
-                    ["data"] = data
-                };
+                return CaptureCharacterPoseSample(session, character, locator.Frame).Clone();
             }
+
             character = ResolvePoseCacheOwner(locator.Source);
             if (character != null)
             {
                 KimodoUntypedConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
                     ?? throw new InvalidOperationException("Writable pose source does not contain a pose at the requested frame.");
-                return new JObject
-                {
-                    ["pose"] = PoseLocatorJson(character.PoseCacheTrack.name, locator.Frame),
-                    ["data"] = PoseSampleToJson(marker.SampleData)
-                };
+                return marker.SampleData?.Clone() ?? new KimodoMarkerSampleResult();
             }
-            TimelineSessionRecord current = RequireCurrentTimelineSession();
-            KimodoConstraintMarkerBase constraint = current.Characters
+
+            KimodoConstraintMarkerBase constraint = session.Characters
                 .SelectMany(item => item.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>())
                 .FirstOrDefault(item => item is not KimodoUntypedConstraintMarker &&
                     string.Equals(item.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
                     Mathf.RoundToInt((float)(item.time * SessionFrameRate)) == locator.Frame)
                 ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
-            return new JObject
-            {
-                ["pose"] = PoseLocatorJson(constraint.name, locator.Frame),
-                ["data"] = PoseSampleToJson(constraint.SampleData)
-            };
+            return constraint.SampleData?.Clone() ?? new KimodoMarkerSampleResult();
         }
 
-        private static JObject CaptureCharacterPose(TimelineSessionRecord session, TimelineCharacterRecord character, int frame)
+        private static KimodoMarkerSampleResult CaptureCharacterPoseSample(
+            TimelineSessionRecord session,
+            TimelineCharacterRecord character,
+            int frame)
         {
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
             {
@@ -247,7 +269,7 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException($"Timeline retarget pose sampling failed: {sampleError}");
             }
-            return PoseSampleToJson(sample);
+            return sample;
         }
 
         private static void RequireWritablePoseAvatar(TimelineCharacterRecord character)
@@ -266,6 +288,23 @@ namespace KimodoUnityBridge.Command
             marker.useOverride = true;
             marker.constraintEnabled = true;
             ApplyPoseJson(marker.SampleData, data);
+            marker.SampleData.sampleTime = frame / SessionFrameRate;
+            EditorUtility.SetDirty(marker);
+            EditorUtility.SetDirty(character.PoseCacheTrack);
+            SaveTimelineSession(RequireCurrentTimelineSession());
+            return PoseLocatorJson(character.PoseCacheTrack.name, frame);
+        }
+
+        private static JObject StoreWritablePose(
+            TimelineCharacterRecord character,
+            KimodoMarkerSampleResult sourceSample)
+        {
+            int frame = AllocatePoseFrame(character.PoseCacheTrack);
+            KimodoUntypedConstraintMarker marker = character.PoseCacheTrack.CreateMarker<KimodoUntypedConstraintMarker>(frame / SessionFrameRate);
+            marker.name = $"Pose_{frame}";
+            marker.useOverride = true;
+            marker.constraintEnabled = true;
+            marker.SampleData = sourceSample?.Clone() ?? new KimodoMarkerSampleResult();
             marker.SampleData.sampleTime = frame / SessionFrameRate;
             EditorUtility.SetDirty(marker);
             EditorUtility.SetDirty(character.PoseCacheTrack);

@@ -695,6 +695,11 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException($"Build pose constraint target failed: {cacheError}");
                 }
 
+                // Fullbody FK sampling mutates the shared cache pose. Capture the
+                // profile root height once so later root2d constraints do not
+                // inherit the previous fullbody pose's transient hips height.
+                float targetRootHeight = ResolveTargetRootHeight(targetCache, modelName);
+
                 for (int i = 0; i < constraints.Count; i++)
                 {
                     if (constraints[i] is not JObject constraint)
@@ -717,9 +722,8 @@ namespace KimodoUnityBridge.Command
                     var cachedSample = new KimodoMarkerSampleResult { constraintType = constraintType };
                     if (constraint["pose"] is JObject pose)
                     {
-                        JObject poseResult = ReadPose(RequirePoseLocator(pose));
-                        ApplyPoseJson(cachedSample, poseResult["data"] as JObject
-                            ?? throw new InvalidOperationException($"constraints[{i}].pose data is unavailable."));
+                        cachedSample = ReadPoseSample(RequirePoseLocator(pose)).Clone();
+                        cachedSample.constraintType = constraintType;
                     }
                     else if (constraintType == "root2d")
                     {
@@ -727,7 +731,10 @@ namespace KimodoUnityBridge.Command
                         float rightwardPos = RequiredFiniteScalar(constraint, "rightwardPos");
                         float rotateY = RequiredFiniteScalar(constraint, "rotateY");
                         float radians = rotateY * Mathf.Deg2Rad;
-                        cachedSample.kimodoRootPosition = new Vector3(rightwardPos, 0f, forwardPos);
+                        cachedSample.kimodoRootPosition = new Vector3(
+                            rightwardPos,
+                            targetRootHeight,
+                            forwardPos);
                         cachedSample.rootHeading = new Vector2(Mathf.Sin(radians), Mathf.Cos(radians));
                         cachedSample.hasRootHeading = true;
                     }
@@ -784,6 +791,21 @@ namespace KimodoUnityBridge.Command
                     destination.localAxisAngles[0] = source.localAxisAngles[0];
                 }
             }
+        }
+
+        internal static float ResolveTargetRootHeight(SkeletonCache targetCache, string modelName)
+        {
+            if (targetCache != null &&
+                KimodoRetargetAvatarUtility.TryGetProfileRootJointTransform(
+                    targetCache.uniqueNameMap,
+                    modelName,
+                    out Transform profileRootJoint) &&
+                profileRootJoint != null)
+            {
+                return profileRootJoint.position.y;
+            }
+
+            return 0f;
         }
 
         private static bool TrySampleDirectSkeletonConstraint(

@@ -159,7 +159,10 @@ namespace KimodoBridge.Editor
                 {
                     constraintType = Root2DConstraintType,
                     sampleTime = timelineClip.start + (durationSeconds * t),
-                    kimodoRootPosition = new Vector3(worldPosition.x, 0f, worldPosition.z) * rootPositionScale,
+                    kimodoRootPosition = new Vector3(
+                        worldPosition.x * rootPositionScale,
+                        pathOrigin.y,
+                        worldPosition.z * rootPositionScale),
                     unityRootPos = worldPosition,
                     unityRootRot = Quaternion.LookRotation(worldForward, Vector3.up),
                     hasRootHeading = clip.SplineIncludeHeading,
@@ -487,7 +490,6 @@ namespace KimodoBridge.Editor
                     director.time = startTime + ((endTime - startTime) * t);
                     director.Evaluate();
                     Vector3 root = animator.rootPosition;
-                    root.y = 0f;
                     points.Add(root);
                 }
                 return true;
@@ -527,7 +529,7 @@ namespace KimodoBridge.Editor
                     context.Director.time = context.SourceClip.start;
                     context.Director.Evaluate();
                     position = context.Animator.rootPosition;
-                    position.y = 0f;
+                    position.y = ResolveProfileRootHeight(context, position.y);
                     rotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(context.Animator.rootRotation);
                     return true;
                 }
@@ -547,9 +549,38 @@ namespace KimodoBridge.Editor
                 context.Animator,
                 out position,
                 out rotation);
-            position.y = 0f;
+            position.y = ResolveProfileRootHeight(context, position.y);
             rotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(rotation);
             return true;
+        }
+
+        private static float ResolveProfileRootHeight(
+            KimodoTimelineInOutConstraintContext context,
+            float fallback)
+        {
+            if (context?.Animator == null)
+            {
+                return fallback;
+            }
+
+            string rootName = KimodoRigProfileDatabase.GetProfileRootJointNameForModel(context.ModelName);
+            Transform profileRoot = KimodoRetargetAvatarUtility.FindTransformByName(
+                context.Animator.transform,
+                rootName);
+            if (profileRoot != null)
+            {
+                return profileRoot.position.y;
+            }
+
+            try
+            {
+                Transform hips = context.Animator.GetBoneTransform(HumanBodyBones.Hips);
+                return hips != null ? hips.position.y : fallback;
+            }
+            catch (InvalidOperationException)
+            {
+                return fallback;
+            }
         }
 
         private static void RestoreDirectorTime(PlayableDirector director, double time)

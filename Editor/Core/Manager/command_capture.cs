@@ -91,7 +91,10 @@ namespace KimodoUnityBridge.Command
                             var sample = new KimodoMarkerSampleResult
                             {
                                 constraintType = type,
-                                kimodoRootPosition = new Vector3(rightwardPos, 0f, forwardPos),
+                                kimodoRootPosition = new Vector3(
+                                    rightwardPos,
+                                    ResolveCharacterRootHeight(character),
+                                    forwardPos),
                                 rootHeading = new Vector2(Mathf.Sin(radians), Mathf.Cos(radians)),
                                 hasRootHeading = true
                             };
@@ -108,6 +111,24 @@ namespace KimodoUnityBridge.Command
                 if (arguments["analysis_id"] != null) result["analysis_id"] = arguments.Value<string>("analysis_id");
                 return Ok(result);
             });
+        }
+
+        private static float ResolveCharacterRootHeight(TimelineCharacterRecord character)
+        {
+            if (character?.Animator == null || !KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
+            {
+                return 0f;
+            }
+
+            try
+            {
+                Transform hips = character.Animator.GetBoneTransform(HumanBodyBones.Hips);
+                return hips != null ? hips.position.y : 0f;
+            }
+            catch (InvalidOperationException)
+            {
+                return 0f;
+            }
         }
 
         private static CaptureRequest BuildCaptureRequest(PoseLocator locator, JObject annotation)
