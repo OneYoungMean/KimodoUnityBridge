@@ -70,7 +70,7 @@ namespace KimodoBridge.Editor
             if (!KimodoRetargetToolsEditor.BakeIntoClip(
                     request.TargetClip,
                     motionJson,
-                    KimodoPlayableClip.ResolveBakeSkeletonTypeFromModelName(modelName),
+                    KimodoMotionModelProfiles.ResolveBakeSkeletonType(modelName),
                     modelName,
                     null,
                     out string bakeError))
@@ -87,7 +87,7 @@ namespace KimodoBridge.Editor
             if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
                 // ponytail: keep native ARDY keys; Unity samples them at the output rate.
-                request.TargetClip.frameRate = KimodoPlayableClip.FIXED_FRAME_RATE;
+                request.TargetClip.frameRate = KimodoMotionModelProfiles.DefaultFrameRate;
             }
             ThrowIfCanceled(request);
             KimodoEditorGenerateOutputPlan outputPlan = ResolveOutputPlan(request, modelName);
@@ -416,7 +416,7 @@ namespace KimodoBridge.Editor
                 if (!KimodoRetargetToolsEditor.BakeIntoClip(
                         rawBoneClip,
                         runtimeResult.MotionJsonCompact,
-                        KimodoPlayableClip.ResolveBakeSkeletonTypeFromModelName(modelName),
+                        KimodoMotionModelProfiles.ResolveBakeSkeletonType(modelName),
                         modelName,
                         null,
                         out string rawTrimError))

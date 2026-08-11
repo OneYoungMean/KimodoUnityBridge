@@ -715,7 +715,7 @@ namespace KimodoBridge.Editor
             KimodoEditorGenerateRequest baselineRequest = null;
             KimodoEditorGenerateRequest constraintRequest = null;
             KimodoEditorGenerateRequest finalRequest = null;
-            string modelName = KimodoPlayableClip.NormalizeBridgeModelName(clip.bridgeModelName);
+            string modelName = KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
             try
             {
                 baselineRequest = KimodoPlayableClipGenerationHostService.BuildRequest(

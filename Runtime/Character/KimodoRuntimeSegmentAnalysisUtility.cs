@@ -175,7 +175,7 @@ namespace KimodoBridge
         {
             return motion != null && motion.FrameRate > 1e-6f
                 ? motion.FrameRate
-                : KimodoPlayableClip.FIXED_FRAME_RATE;
+                : KimodoMotionModelProfiles.DefaultFrameRate;
         }
     }
 }

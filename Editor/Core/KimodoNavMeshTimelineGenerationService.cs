@@ -342,7 +342,7 @@ namespace KimodoBridge.Editor
 
                 if (timelineClip.asset is KimodoPlayableClip playableClip)
                 {
-                    playableClip.bridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
+                    playableClip.bridgeModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
                     playableClip.motionPrompt = KimodoPlayableClipGenerationSettings.instance.ResolvePrompt(prompt);
                     playableClip.inOutConstraintMode = groupIndex == 0
                         ? KimodoInOutConstraintMode.None
@@ -532,7 +532,7 @@ namespace KimodoBridge.Editor
             markerSample = null;
             error = string.Empty;
 
-            string resolvedModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
+            string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
             if (!TryResolveProfileFootOffset(resolvedModelName, isLeftFoot, out Vector3 footOffsetFromRoot, out int jointCount, out error))
             {
                 return false;

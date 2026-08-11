@@ -953,7 +953,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             float frameRate = session.TimelineAsset.editorSettings.frameRate > 0.0
                 ? (float)session.TimelineAsset.editorSettings.frameRate
-                : KimodoPlayableClip.FIXED_FRAME_RATE;
+                : KimodoMotionModelProfiles.DefaultFrameRate;
             byte[] motionBytes = animation.KmbBytes;
             int startFrame = Math.Max(0, animation.StartFrame);
             int frameCount = animation.EndFrameExclusive > animation.StartFrame
@@ -1078,7 +1078,7 @@ namespace CharacterAnimationCli.Unity.Command
 
             float frameRate = session.TimelineAsset.editorSettings.frameRate > 0f
                 ? (float)session.TimelineAsset.editorSettings.frameRate
-                : KimodoPlayableClip.FIXED_FRAME_RATE;
+                : KimodoMotionModelProfiles.DefaultFrameRate;
             int frameCount = Math.Max(2, Mathf.CeilToInt((float)((end - start) / speed * frameRate)) + 1);
             var poses = new List<MuscleSample>(frameCount);
             var boneFrames = new List<BakeBoneFrame>(frameCount);

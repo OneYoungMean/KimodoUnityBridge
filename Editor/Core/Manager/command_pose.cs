@@ -238,7 +238,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
 
             double sampleTime = frame / SessionFrameRate;
-            string modelName = KimodoPlayableClip.NormalizeBridgeModelName(context.ModelName);
+            string modelName = KimodoMotionModelProfiles.NormalizeName(context.ModelName);
             if (!KimodoTimelineSamplingSession.TryCreate(
                     context,
                     modelName,

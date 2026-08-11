@@ -103,7 +103,7 @@ namespace KimodoBridge
             }
 
             internal ClipSamplingContext Context => context;
-            internal float FrameRate => context != null ? context.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+            internal float FrameRate => context != null ? context.frameRate : KimodoMotionModelProfiles.DefaultFrameRate;
 
             internal static bool TryCreate(
                 AnimationClip clip,
@@ -251,7 +251,7 @@ namespace KimodoBridge
         {
             return clip != null && clip.frameRate > 0f
                 ? clip.frameRate
-                : KimodoPlayableClip.FIXED_FRAME_RATE;
+                : KimodoMotionModelProfiles.DefaultFrameRate;
         }
 
         internal static bool TryBuildClipSamplingContext(
@@ -536,7 +536,7 @@ namespace KimodoBridge
                     return false;
                 }
             }
-            int frameRate = Mathf.RoundToInt(sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE);
+            int frameRate = Mathf.RoundToInt(sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoMotionModelProfiles.DefaultFrameRate);
             float duration = Mathf.Max(0f, sourceClip.length);
             int frameCount = ResolveInclusiveSampleCount(duration, frameRate);
             if (!TryCollectMuscleSamplesFromClip(
@@ -881,7 +881,7 @@ namespace KimodoBridge
 
             clip = new AnimationClip
             {
-                frameRate = frameRate > 0f ? frameRate : KimodoPlayableClip.FIXED_FRAME_RATE,
+                frameRate = frameRate > 0f ? frameRate : KimodoMotionModelProfiles.DefaultFrameRate,
                 hideFlags = HideFlags.HideAndDontSave,
                 name = clipName
             };

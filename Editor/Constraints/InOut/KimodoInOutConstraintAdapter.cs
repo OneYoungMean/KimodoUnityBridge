@@ -16,7 +16,7 @@ namespace KimodoBridge.Editor
         public PlayableDirector Director;
         public Animator Animator;
         public Avatar SourceAvatar;
-        public string ModelName = KimodoPlayableClip.DefaultBridgeModelName;
+        public string ModelName = KimodoMotionModelProfiles.DefaultModelName;
         public TimelineClip PreviousTimelineClip;
         public TimelineClip NextTimelineClip;
     }
@@ -193,7 +193,7 @@ namespace KimodoBridge.Editor
                 Director = director,
                 Animator = animator,
                 SourceAvatar = sourceAvatar,
-                ModelName = KimodoPlayableClip.NormalizeBridgeModelName((sourceClip.asset as KimodoPlayableClip)?.bridgeModelName),
+                ModelName = KimodoMotionModelProfiles.NormalizeName((sourceClip.asset as KimodoPlayableClip)?.bridgeModelName),
                 PreviousTimelineClip = previousTimelineClip,
                 NextTimelineClip = nextTimelineClip
             };

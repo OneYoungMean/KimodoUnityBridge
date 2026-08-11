@@ -37,7 +37,7 @@ namespace KimodoBridge.Editor
             GameObject bindingObject)
         {
             if (clip == null) throw new InvalidOperationException("Playable clip is null.");
-            string resolvedModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
+            string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
             Avatar originRetargetAvatar = ResolveOriginRetargetAvatar(resolvedModelName);
             Avatar targetRetargetAvatar = ResolveTargetRetargetAvatar(
                 clip, explicitRetargetAvatar, bindingObject, out bool hasBindingAvatar);
@@ -75,7 +75,7 @@ namespace KimodoBridge.Editor
             string modelName)
         {
             if (snapshot == null) throw new InvalidOperationException("Timeline output plan snapshot is null.");
-            string resolvedModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
+            string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
             bool canSkipRetarget = bindingObject != null &&
                 KimodoEditorClipUtility.CanApplyClipDirectlyToProfileSkeleton(
                     generatedClip, bindingObject, resolvedModelName, out _);

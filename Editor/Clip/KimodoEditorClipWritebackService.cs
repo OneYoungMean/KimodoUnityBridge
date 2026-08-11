@@ -207,7 +207,7 @@ namespace KimodoBridge.Editor
                     {
                         name = safeCacheName,
                         legacy = false,
-                        frameRate = frameRate > 0f ? frameRate : KimodoPlayableClip.FIXED_FRAME_RATE
+                        frameRate = frameRate > 0f ? frameRate : KimodoMotionModelProfiles.DefaultFrameRate
                     };
 
                     AssetDatabase.CreateAsset(cachedClip, cachePath);
@@ -312,7 +312,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            float frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+            float frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoMotionModelProfiles.DefaultFrameRate;
             if (!TryGetOrCreateNamedClipCache(cacheName, frameRate, out cachedClip, out error))
             {
                 return false;

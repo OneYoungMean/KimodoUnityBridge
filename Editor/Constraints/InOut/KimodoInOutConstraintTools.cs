@@ -164,29 +164,29 @@ namespace KimodoBridge.Editor
 
         internal static int ClampFrameCount(int generationFrames)
         {
-            return Mathf.Max(KimodoPlayableClip.MIN_FRAMES, generationFrames);
+            return Mathf.Max(KimodoMotionModelProfiles.MinGenerationFrames, generationFrames);
         }
 
         internal static int DurationSecondsToFrameCount(float durationSeconds)
         {
-            float minDurationSeconds = FrameCountToDurationSeconds(KimodoPlayableClip.MIN_FRAMES);
-            float maxDurationSeconds = FrameCountToDurationSeconds(KimodoPlayableClip.MAX_FRAMES);
+            float minDurationSeconds = FrameCountToDurationSeconds(KimodoMotionModelProfiles.MinGenerationFrames);
+            float maxDurationSeconds = FrameCountToDurationSeconds(KimodoMotionModelProfiles.MaxGenerationFrames);
             return Mathf.Clamp(
                 KimodoFrameTimeUtility.SecondsToFrameCount(
                     Mathf.Clamp(durationSeconds, minDurationSeconds, maxDurationSeconds),
-                    KimodoPlayableClip.FIXED_FRAME_RATE),
-                KimodoPlayableClip.MIN_FRAMES,
-                KimodoPlayableClip.MAX_FRAMES);
+                    KimodoMotionModelProfiles.DefaultFrameRate),
+                KimodoMotionModelProfiles.MinGenerationFrames,
+                KimodoMotionModelProfiles.MaxGenerationFrames);
         }
 
         internal static float FrameCountToDurationSeconds(int frameCount)
         {
-            return Mathf.Max(0, frameCount) / KimodoPlayableClip.FIXED_FRAME_RATE;
+            return Mathf.Max(0, frameCount) / KimodoMotionModelProfiles.DefaultFrameRate;
         }
 
         internal static double ResolveConstraintClipDurationSeconds(
             int frameCount,
-            float frameRate = KimodoPlayableClip.FIXED_FRAME_RATE)
+            float frameRate = KimodoMotionModelProfiles.DefaultFrameRate)
         {
             int safeFrameCount = Mathf.Max(1, frameCount);
             return safeFrameCount / Mathf.Max(1f, frameRate);
@@ -194,7 +194,7 @@ namespace KimodoBridge.Editor
 
         internal static double ResolveConstraintEndSampleTimeSeconds(
             int frameCount,
-            float frameRate = KimodoPlayableClip.FIXED_FRAME_RATE)
+            float frameRate = KimodoMotionModelProfiles.DefaultFrameRate)
         {
             int safeFrameCount = Mathf.Max(1, frameCount);
             return Math.Max(0.0, (safeFrameCount - 1) / Mathf.Max(1f, frameRate));
@@ -304,7 +304,7 @@ namespace KimodoBridge.Editor
                     sourceAvatar,
                     null,
                     null,
-                    KimodoPlayableClip.NormalizeBridgeModelName(modelName),
+                    KimodoMotionModelProfiles.NormalizeName(modelName),
                     forceRefresh: false,
                     out KimodoMarkerSampleResult sampledPose,
                     out error))

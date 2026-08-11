@@ -12,7 +12,7 @@ namespace KimodoBridge.Editor
         internal static bool IsArdy(string modelName)
         {
             return KimodoMotionModelProfiles.TryGetArdy(
-                KimodoPlayableClip.NormalizeBridgeModelName(modelName),
+                KimodoMotionModelProfiles.NormalizeName(modelName),
                 out _);
         }
 
@@ -21,7 +21,7 @@ namespace KimodoBridge.Editor
             SerializedProperty diffusionSteps,
             SerializedProperty textEncoderMode = null)
         {
-            string current = KimodoPlayableClip.NormalizeBridgeModelName(modelName.stringValue);
+            string current = KimodoMotionModelProfiles.NormalizeName(modelName.stringValue);
             bool isArdy = IsArdy(current);
             bool previousShowMixedValue = EditorGUI.showMixedValue;
             EditorGUI.showMixedValue = modelName.hasMultipleDifferentValues;
@@ -36,7 +36,7 @@ namespace KimodoBridge.Editor
             {
                 current = selectedArdy
                     ? KimodoMotionModelProfiles.ArdyCoreModelName
-                    : KimodoPlayableClip.DefaultBridgeModelName;
+                    : KimodoMotionModelProfiles.DefaultModelName;
                 modelName.stringValue = current;
                 diffusionSteps.intValue = selectedArdy ? 10 : 100;
 
@@ -173,7 +173,7 @@ namespace KimodoBridge.Editor
             EditorGUI.BeginChangeCheck();
             int value;
             if (KimodoMotionModelProfiles.TryGetArdy(
-                    KimodoPlayableClip.NormalizeBridgeModelName(modelName.stringValue),
+                    KimodoMotionModelProfiles.NormalizeName(modelName.stringValue),
                     out KimodoMotionModelProfile profile))
             {
                 value = EditorGUILayout.IntSlider(

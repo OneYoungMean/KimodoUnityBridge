@@ -43,7 +43,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            frameRate = cachedClip.frameRate > 0f ? cachedClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+            frameRate = cachedClip.frameRate > 0f ? cachedClip.frameRate : KimodoMotionModelProfiles.DefaultFrameRate;
             return true;
         }
 

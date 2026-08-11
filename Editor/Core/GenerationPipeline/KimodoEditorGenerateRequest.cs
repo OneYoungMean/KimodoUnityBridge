@@ -14,7 +14,7 @@ namespace KimodoBridge.Editor
         public string ModelName;
         public KimodoTextEncoderMode TextEncoderMode;
         public int TargetFrameCount;
-        public float TargetFrameRate = KimodoPlayableClip.FIXED_FRAME_RATE;
+        public float TargetFrameRate = KimodoMotionModelProfiles.DefaultFrameRate;
         public int RuntimeFrameCount;
         public int RuntimeTrimStartFrame;
         public int DiffusionSteps;

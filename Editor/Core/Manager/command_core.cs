@@ -1301,7 +1301,7 @@ namespace CharacterAnimationCli.Unity.Command
                     throw new InvalidOperationException("model must be a registered model name/configuration id from kimodo_help section models, not a filesystem path.");
                 }
             }
-            return KimodoPlayableClip.NormalizeBridgeModelName(string.IsNullOrWhiteSpace(modelName)
+            return KimodoMotionModelProfiles.NormalizeName(string.IsNullOrWhiteSpace(modelName)
                 ? KimodoPlayableClipGenerationSettings.instance.DefaultBridgeModelName
                 : modelName);
         }
@@ -1416,7 +1416,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
             return KimodoMotionModelProfiles.TryGet(modelName, out KimodoMotionModelProfile profile)
                 ? profile.SourceFps
-                : KimodoPlayableClip.FIXED_FRAME_RATE;
+                : KimodoMotionModelProfiles.DefaultFrameRate;
         }
 
         private static int ResolveDiffusionSteps(JObject arguments, string modelName, JObject configuration)

@@ -148,7 +148,7 @@ namespace KimodoBridge.Editor
             InitializeSerializedBindings();
             serializedObject.UpdateIfRequiredOrScript();
             motionPrompt.stringValue = prompt ?? string.Empty;
-            generationFrames.intValue = Mathf.Clamp(generationFramesValue, KimodoPlayableClip.MIN_FRAMES, KimodoPlayableClip.MAX_FRAMES);
+            generationFrames.intValue = Mathf.Clamp(generationFramesValue, KimodoMotionModelProfiles.MinGenerationFrames, KimodoMotionModelProfiles.MaxGenerationFrames);
             diffusionSteps.intValue = Mathf.Clamp(diffusionStepsValue, 0, 1000);
             randomProp.boolValue = randomSeedEnabled;
             seed.intValue = seedValue;
@@ -620,7 +620,7 @@ namespace KimodoBridge.Editor
             KimodoTextEncoderMode encoderMode = clip != null
                 ? clip.textEncoderMode
                 : KimodoTextEncoderMode.HighPerformance;
-            string modelName = clip == null ? KimodoPlayableClip.DefaultBridgeModelName : KimodoPlayableClip.NormalizeBridgeModelName(clip.bridgeModelName);
+            string modelName = clip == null ? KimodoMotionModelProfiles.DefaultModelName : KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
             string modelsRootOverride = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim();
             if (!KimodoBridgeServerTool.TryGetModelMissingSetupMinutes(runtimeRoot, encoderMode, modelName, modelsRootOverride, out int minutes))
             {

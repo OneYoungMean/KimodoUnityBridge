@@ -33,7 +33,7 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("Playable clip is null.");
             }
 
-            string resolvedModelName = KimodoPlayableClip.NormalizeBridgeModelName(clip.bridgeModelName);
+            string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(
                 resolvedModelName,
                 out KimodoMotionModelProfile ardyProfile);
@@ -44,7 +44,7 @@ namespace KimodoBridge.Editor
             }
             float targetFrameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(resolvedModelName);
             int targetFrameCount = Mathf.Max(
-                KimodoPlayableClip.MIN_FRAMES,
+                KimodoMotionModelProfiles.MinGenerationFrames,
                 KimodoFrameTimeUtility.SecondsToFrameCount(timelineClip.duration, targetFrameRate));
             bool useOutsideGuardFrame = ShouldUseOutsideGuardFrame(
                 clip,
@@ -378,7 +378,7 @@ namespace KimodoBridge.Editor
             clip.isGenerated = true;
             clip.frameCount = obj.Value<int?>("num_frames") ?? 0;
             clip.jointCount = obj.Value<int?>("num_joints") ?? 0;
-            clip.fps = Mathf.RoundToInt(obj.Value<float?>("fps") ?? KimodoPlayableClip.FIXED_FRAME_RATE);
+            clip.fps = Mathf.RoundToInt(obj.Value<float?>("fps") ?? KimodoMotionModelProfiles.DefaultFrameRate);
         }
 
         private static void HandleGeneratedClipWritebackCompleted(KimodoPlayableClip playableClip)

@@ -912,7 +912,7 @@ namespace KimodoBridge.Editor
             }
 
             double frameRate = clip.GetParentTrack()?.timelineAsset?.editorSettings.frameRate ??
-                KimodoPlayableClip.FIXED_FRAME_RATE;
+                KimodoMotionModelProfiles.DefaultFrameRate;
             int timeFrame = KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(time, frameRate);
             int startFrame = KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(clip.start, frameRate);
             int endFrame = KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(clip.end, frameRate);

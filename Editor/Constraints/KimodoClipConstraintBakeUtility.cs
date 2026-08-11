@@ -348,7 +348,7 @@ namespace KimodoBridge.Editor
             if (!KimodoRetargetToolsEditor.BakeIntoClip(
                     clip,
                     KimodoRawMotionUtility.ToCompactJson(motion),
-                    KimodoPlayableClip.ResolveBakeSkeletonTypeFromModelName(modelName),
+                    KimodoMotionModelProfiles.ResolveBakeSkeletonType(modelName),
                     modelName,
                     null,
                     out error))

@@ -440,7 +440,7 @@ namespace KimodoBridge.Editor
             double timelineTime,
             double trackEndTime,
             int cacheTimeFrames,
-            float frameRate = KimodoPlayableClip.FIXED_FRAME_RATE)
+            float frameRate = KimodoMotionModelProfiles.DefaultFrameRate)
         {
             float fps = Mathf.Max(1f, frameRate);
             int bucketFrames = Mathf.Max(1, cacheTimeFrames);
@@ -470,7 +470,7 @@ namespace KimodoBridge.Editor
             TimelineAsset timelineAsset = context?.Director?.playableAsset as TimelineAsset ??
                 context?.Track?.timelineAsset ??
                 context?.SourceClip?.GetParentTrack()?.timelineAsset;
-            double frameRate = timelineAsset?.editorSettings.frameRate ?? KimodoPlayableClip.FIXED_FRAME_RATE;
+            double frameRate = timelineAsset?.editorSettings.frameRate ?? KimodoMotionModelProfiles.DefaultFrameRate;
             return (float)Math.Max(1.0, frameRate);
         }
 
@@ -916,7 +916,7 @@ namespace KimodoBridge.Editor
         internal static double ResolveSamplingEndTime(
             KimodoTimelineInOutConstraintContext context,
             double timelineTime,
-            float frameRate = KimodoPlayableClip.FIXED_FRAME_RATE)
+            float frameRate = KimodoMotionModelProfiles.DefaultFrameRate)
         {
             double endTime = context?.SourceClip != null ? context.SourceClip.end : 0.0;
             if (context?.Track != null)
@@ -1457,7 +1457,7 @@ namespace KimodoBridge.Editor
 
         private static bool IsSameTimelineFrame(TrackAsset track, double leftTime, double rightTime)
         {
-            double frameRate = track?.timelineAsset?.editorSettings.frameRate ?? KimodoPlayableClip.FIXED_FRAME_RATE;
+            double frameRate = track?.timelineAsset?.editorSettings.frameRate ?? KimodoMotionModelProfiles.DefaultFrameRate;
             return KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(leftTime, frameRate) ==
                 KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(rightTime, frameRate);
         }

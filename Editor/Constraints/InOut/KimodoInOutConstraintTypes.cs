@@ -20,7 +20,7 @@ namespace KimodoBridge.Editor
         public bool EnableBegin;
         public bool EnableEnd;
         public Avatar SourceAvatar;
-        public string ModelName = KimodoPlayableClip.DefaultBridgeModelName;
+        public string ModelName = KimodoMotionModelProfiles.DefaultModelName;
         public float SourceHumanScale = 1f;
         public float KimodoHumanScale = 1f;
         public int GenerationFrames = 1;

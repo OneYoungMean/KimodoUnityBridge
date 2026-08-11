@@ -492,7 +492,7 @@ namespace KimodoBridge
             promptDraft = string.IsNullOrWhiteSpace(defaultPrompt) ? IdlePrompt : defaultPrompt.Trim();
             if (!KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
-                ApplyGenerationDurationSeconds(generationFrames / KimodoPlayableClip.FIXED_FRAME_RATE);
+                ApplyGenerationDurationSeconds(generationFrames / KimodoMotionModelProfiles.DefaultFrameRate);
             }
             else
             {
@@ -1214,7 +1214,7 @@ namespace KimodoBridge
                 activeConstraints,
                 0.0,
                 ResolveGenerationDurationSeconds(),
-                isArdy ? profile.SourceFps : KimodoPlayableClip.FIXED_FRAME_RATE);
+                isArdy ? profile.SourceFps : KimodoMotionModelProfiles.DefaultFrameRate);
             return futureConstraints;
         }
 
@@ -1305,7 +1305,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            string currentModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
+            string currentModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
             string currentModelsRoot = (modelsRoot ?? string.Empty).Trim();
             bool targetChanged = generationSession.AppliedTargetSignature != ComputeTargetSignature();
             bool runtimeSignatureChanged =
@@ -1337,7 +1337,7 @@ namespace KimodoBridge
         {
             generationSession.AppliedTargetSignature = ComputeTargetSignature();
             generationSession.AppliedModelsRoot = (modelsRoot ?? string.Empty).Trim();
-            generationSession.AppliedModelName = KimodoPlayableClip.NormalizeBridgeModelName(modelName);
+            generationSession.AppliedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
             generationSession.AppliedTextEncoderMode = textEncoderMode;
             generationSession.AppliedForceCpu = forceCpu;
             generationSession.AppliedRandomSeed = randomSeed;
@@ -1784,7 +1784,7 @@ namespace KimodoBridge
                 return (profile.MaxContextFrames - profile.HorizonFrames) / profile.SourceFps;
             }
 
-            float frameDuration = generationFrames / KimodoPlayableClip.FIXED_FRAME_RATE;
+            float frameDuration = generationFrames / KimodoMotionModelProfiles.DefaultFrameRate;
             return Mathf.Clamp(
                 Mathf.Max(segmentIntervalSeconds, frameDuration),
                 MinGenerationDurationSeconds,
@@ -1797,7 +1797,7 @@ namespace KimodoBridge
             segmentIntervalSeconds = clamped;
             generationFrames = Mathf.Max(
                 1,
-                KimodoFrameTimeUtility.SecondsToFrameCount(clamped, KimodoPlayableClip.FIXED_FRAME_RATE));
+                KimodoFrameTimeUtility.SecondsToFrameCount(clamped, KimodoMotionModelProfiles.DefaultFrameRate));
         }
 
         private bool ValidateConfiguration(out string error)

@@ -63,7 +63,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            float fps = data.fps > 0 ? data.fps : KimodoPlayableClip.FIXED_FRAME_RATE;
+            float fps = data.fps > 0 ? data.fps : KimodoMotionModelProfiles.DefaultFrameRate;
             int positionFrames = data.positions != null ? data.positions.Count : 0;
             int frameHint = data.num_frames > 0 ? data.num_frames : positionFrames;
             int frameCount = positionFrames > 0
@@ -161,7 +161,7 @@ namespace KimodoBridge.Editor
                 targetClip.legacy = false;
                 targetClip.frameRate = muscleFrameRate > 0f
                     ? muscleFrameRate
-                    : (sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE);
+                    : (sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoMotionModelProfiles.DefaultFrameRate);
 
                 EditorUtility.SetDirty(targetClip);
                 return true;
@@ -674,7 +674,7 @@ namespace KimodoBridge.Editor
                 var recorder = new GameObjectRecorder(samplerRoot);
                 recorder.BindComponentsOfType<Transform>(samplerRoot, true);
 
-                float effectiveFps = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+                float effectiveFps = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoMotionModelProfiles.DefaultFrameRate;
                 int frameCount = ComputeSampleFrameCount(sourceClip, effectiveFps);
                 float dt = 1f / Mathf.Max(1f, effectiveFps);
                 for (int f = 0; f < frameCount; f++)
@@ -906,7 +906,7 @@ namespace KimodoBridge.Editor
             frameRate = 0f;
             error = string.Empty;
             cacheName = KimodoRetargetEditorCacheUtility.BuildNamedCacheName(sourceClip, cacheType, targetAvatar);
-            frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+            frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoMotionModelProfiles.DefaultFrameRate;
             if (!KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips)
             {
                 return true;
@@ -1176,7 +1176,7 @@ namespace KimodoBridge.Editor
                 return 2;
             }
 
-            float effectiveFps = fps > 0f ? fps : KimodoPlayableClip.FIXED_FRAME_RATE;
+            float effectiveFps = fps > 0f ? fps : KimodoMotionModelProfiles.DefaultFrameRate;
             float duration = Mathf.Max(clip.length, 1f / effectiveFps);
             return Mathf.Max(
                 2,

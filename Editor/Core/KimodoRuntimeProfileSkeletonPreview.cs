@@ -71,7 +71,7 @@ namespace KimodoBridge.Editor
         private static void UpdateDriver(int id, KimodoRuntimeMotionDriver driver)
         {
             Transform sourceRoot = driver.DebugProfileSkeletonRoot;
-            string modelName = KimodoPlayableClip.NormalizeBridgeModelName(driver.DebugModelName);
+            string modelName = KimodoMotionModelProfiles.NormalizeName(driver.DebugModelName);
             if (sourceRoot == null)
             {
                 DestroyEntry(id);

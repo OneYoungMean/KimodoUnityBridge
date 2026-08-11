@@ -18,6 +18,20 @@ namespace KimodoBridge.Editor.Tests
             public List<float> foot_contacts;
         }
 
+        [Test]
+        public void MotionModelProfiles_OwnSharedGenerationSemantics()
+        {
+            Assert.That(KimodoMotionModelProfiles.NormalizeName("  "), Is.EqualTo(KimodoMotionModelProfiles.DefaultModelName));
+            Assert.That(KimodoMotionModelProfiles.NormalizeName(" model "), Is.EqualTo("model"));
+            Assert.That(KimodoMotionModelProfiles.ResolveGenerationFrameRate("ardy-g1"), Is.EqualTo(25f));
+            Assert.That(KimodoMotionModelProfiles.ResolveBakeSkeletonType("Kimodo-SMPLX-RP-v1"), Is.EqualTo(KimodoBakeSkeletonType.SMPLX));
+            Assert.That(KimodoMotionModelProfiles.TryGetArdy("ardy-core", out KimodoMotionModelProfile profile), Is.True);
+            Assert.That(profile.ModelName, Is.EqualTo(KimodoMotionModelProfiles.ArdyCoreModelName));
+
+            Assert.That(KimodoPlayableClip.FIXED_FRAME_RATE, Is.EqualTo(KimodoMotionModelProfiles.DefaultFrameRate));
+            Assert.That(KimodoPlayableClip.NormalizeBridgeModelName(null), Is.EqualTo(KimodoMotionModelProfiles.DefaultModelName));
+        }
+
         [TestCase(4.5666666, 30.0, 137)]
         [TestCase(5.0, 30.0, 150)]
         [TestCase(1.00001, 30.0, 31)]

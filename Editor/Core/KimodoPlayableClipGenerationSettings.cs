@@ -22,7 +22,7 @@ namespace KimodoBridge.Editor
         [SerializeField] private int timelineConstraintCacheTimeFrames = DefaultTimelineConstraintCacheTimeFrames;
         [SerializeField] private string localModelsPath = string.Empty;
         [SerializeField] private string defaultPrompt = DefaultPromptFallback;
-        [SerializeField] private string defaultBridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
+        [SerializeField] private string defaultBridgeModelName = KimodoMotionModelProfiles.DefaultModelName;
         [FormerlySerializedAs("defaultBridgeVramMode")]
         [SerializeField] private KimodoTextEncoderMode defaultTextEncoderMode = KimodoTextEncoderMode.HighPerformance;
         [SerializeField] private float generationTimeoutSeconds = DefaultGenerationTimeoutSeconds;
@@ -77,8 +77,8 @@ namespace KimodoBridge.Editor
 
         internal string DefaultBridgeModelName
         {
-            get => KimodoPlayableClip.NormalizeBridgeModelName(defaultBridgeModelName);
-            set => defaultBridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(value);
+            get => KimodoMotionModelProfiles.NormalizeName(defaultBridgeModelName);
+            set => defaultBridgeModelName = KimodoMotionModelProfiles.NormalizeName(value);
         }
 
         internal KimodoTextEncoderMode DefaultTextEncoderMode
@@ -177,7 +177,7 @@ namespace KimodoBridge.Editor
                 MaxTimelineConstraintCacheTimeFrames);
             localModelsPath = localModelsPath ?? string.Empty;
             defaultPrompt = DefaultPrompt;
-            defaultBridgeModelName = KimodoPlayableClip.NormalizeBridgeModelName(defaultBridgeModelName);
+            defaultBridgeModelName = KimodoMotionModelProfiles.NormalizeName(defaultBridgeModelName);
             generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);
             keepCpuForceExperimental = effectiveKeepCpuForce;
             quickServerPath = quickServerPath?.Trim() ?? string.Empty;

@@ -29,7 +29,7 @@ namespace KimodoBridge
         {
             FrameCount = frameCount;
             JointCount = jointCount;
-            FrameRate = frameRate > 0f ? frameRate : KimodoPlayableClip.FIXED_FRAME_RATE;
+            FrameRate = frameRate > 0f ? frameRate : KimodoMotionModelProfiles.DefaultFrameRate;
             this.jointNames = jointNames ?? Array.Empty<string>();
             this.jointParents = jointParents ?? Array.Empty<int>();
             this.rootPositions = rootPositions ?? Array.Empty<Vector3>();
@@ -214,7 +214,7 @@ namespace KimodoBridge
             motion = new KimodoRawMotionData(
                 frameCount,
                 jointCount,
-                data.fps > 0 ? data.fps : KimodoPlayableClip.FIXED_FRAME_RATE,
+                data.fps > 0 ? data.fps : KimodoMotionModelProfiles.DefaultFrameRate,
                 data.joint_names,
                 data.joint_parents,
                 rootPositions,
@@ -274,7 +274,7 @@ namespace KimodoBridge
             {
                 num_frames = frameCount,
                 num_joints = jointCount,
-                fps = Mathf.RoundToInt(motion.FrameRate > 0f ? motion.FrameRate : KimodoPlayableClip.FIXED_FRAME_RATE),
+                fps = Mathf.RoundToInt(motion.FrameRate > 0f ? motion.FrameRate : KimodoMotionModelProfiles.DefaultFrameRate),
                 joint_names = (string[])motion.jointNames.Clone(),
                 joint_parents = (int[])motion.jointParents.Clone(),
                 joints = joints,
@@ -662,7 +662,7 @@ namespace KimodoBridge
             motion = new KimodoRawMotionData(
                 frameCount,
                 jointCount,
-                packet.Fps > 0f ? packet.Fps : KimodoPlayableClip.FIXED_FRAME_RATE,
+                packet.Fps > 0f ? packet.Fps : KimodoMotionModelProfiles.DefaultFrameRate,
                 jointNames,
                 jointParents,
                 rootPositions,
