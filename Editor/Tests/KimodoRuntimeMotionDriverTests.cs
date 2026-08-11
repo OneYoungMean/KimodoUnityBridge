@@ -242,6 +242,23 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [Test]
+        public void RuntimeConstraintSampler_RejectsUseBeforeDriverInitialization()
+        {
+            Assert.That(
+                KimodoRuntimeConstraintSampler.TryCreateEndEffector(
+                    null,
+                    KimodoMotionModelProfiles.DefaultModelName,
+                    KimodoRuntimeConstraints.LeftHandType,
+                    "LeftHand",
+                    Vector3.zero,
+                    1f,
+                    out _,
+                    out string error),
+                Is.False);
+            Assert.That(error, Does.Contain("before the driver is initialized"));
+        }
+
         [TestCase(0.5f, 1.25f, 1.5f, 1.1547005f)]
         [TestCase(5f, 1.25f, 1.5f, 4.8333335f)]
         public void Root2DTargetDuration_UsesAccelerationAndCruiseLimits(

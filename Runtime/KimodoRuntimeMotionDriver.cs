@@ -917,11 +917,13 @@ namespace KimodoBridge
             float z,
             float durationSeconds)
         {
-            if (!TryCreateShiftedConstraintSample(
+            if (!KimodoRuntimeConstraintSampler.TryCreateEndEffector(
+                    motionPlayer,
+                    modelName,
                     constraintType,
                     jointName,
                     new Vector3(x, y, z),
-                    durationSeconds,
+                    ClampConstraintTime(durationSeconds),
                     out KimodoMarkerSampleResult sample,
                     out string error))
             {
@@ -941,11 +943,15 @@ namespace KimodoBridge
             float durationSeconds,
             Vector2? worldHeading)
         {
-            if (!TryCreateRoot2DWorldConstraintSample(
-                    worldX,
-                    worldZ,
-                    durationSeconds,
+            if (!KimodoRuntimeConstraintSampler.TryCreateRoot2D(
+                    motionPlayer,
+                    modelName,
+                    new Vector2(worldX, worldZ),
                     worldHeading,
+                    GetCurrentPositionInternal(),
+                    ResolveModelToWorldRotation(),
+                    ResolveTargetHumanScale(),
+                    ClampConstraintTime(durationSeconds),
                     out KimodoMarkerSampleResult sample,
                     out string error))
             {
@@ -1022,113 +1028,6 @@ namespace KimodoBridge
         private float ClampConstraintTime(float durationSeconds)
         {
             return Mathf.Clamp(durationSeconds, 0f, ResolveGenerationDurationSeconds());
-        }
-
-        private bool TryCreateShiftedConstraintSample(
-            string constraintType,
-            string jointName,
-            Vector3 targetWorldPosition,
-            float durationSeconds,
-            out KimodoMarkerSampleResult sample,
-            out string error)
-        {
-            sample = null;
-            if (!TryCaptureCurrentPoseConstraint(constraintType, durationSeconds, out sample, out error))
-            {
-                return false;
-            }
-
-            Transform constraintRoot = motionPlayer.ConstraintSkeletonRoot;
-            Transform targetJoint = KimodoRetargetAvatarUtility.FindTransformByName(constraintRoot, jointName);
-            if (targetJoint == null)
-            {
-                error = $"Cannot find joint '{jointName}' under constraint skeleton root.";
-                sample = null;
-                return false;
-            }
-
-            Vector3 offset = targetWorldPosition - targetJoint.position;
-            sample.kimodoRootPosition += offset;
-            sample.unityRootPos += offset;
-            sample.constraintType = constraintType;
-            return true;
-        }
-
-        private bool TryCreateRoot2DWorldConstraintSample(
-            float worldX,
-            float worldZ,
-            float durationSeconds,
-            Vector2? worldHeading,
-            out KimodoMarkerSampleResult sample,
-            out string error)
-        {
-            if (!TryCaptureCurrentPoseConstraint(KimodoRuntimeConstraints.Root2DType, durationSeconds, out sample, out error))
-            {
-                return false;
-            }
-
-            Vector3 currentWorldPosition = GetCurrentPositionInternal();
-            Quaternion modelToWorldRotation = ResolveModelToWorldRotation();
-            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
-            Vector3 constraintModelOrigin = isArdy
-                ? Vector3.zero
-                : motionPlayer.NextSegmentRootOrigin;
-            Vector2 modelTarget = KimodoRoot2DPlanner.ToModelTarget(
-                sample.kimodoRootPosition,
-                constraintModelOrigin,
-                currentWorldPosition,
-                modelToWorldRotation,
-                new Vector3(worldX, currentWorldPosition.y, worldZ),
-                motionPlayer.SourceHumanScale,
-                ResolveTargetHumanScale());
-            sample.kimodoRootPosition = new Vector3(
-                modelTarget.x,
-                sample.kimodoRootPosition.y,
-                modelTarget.y);
-            sample.unityRootPos = new Vector3(worldX, sample.unityRootPos.y, worldZ);
-            sample.constraintType = KimodoRuntimeConstraints.Root2DType;
-            sample.localAxisAngles = new List<Vector3>();
-            sample.sampledJointIndices = new List<int>();
-            sample.hasRootHeading = false;
-            if (worldHeading.HasValue)
-            {
-                sample.hasRootHeading = true;
-                sample.rootHeading = KimodoRoot2DPlanner.ToModelHeading(modelToWorldRotation, worldHeading.Value);
-            }
-
-            return true;
-        }
-
-        private bool TryCaptureCurrentPoseConstraint(
-            string constraintType,
-            float durationSeconds,
-            out KimodoMarkerSampleResult sample,
-            out string error)
-        {
-            if (motionPlayer == null)
-            {
-                sample = null;
-                error = "Cannot stage a runtime constraint before the driver is initialized.";
-                return false;
-            }
-
-            if (!motionPlayer.EnsureConstraintSkeletonReady(modelName, out error))
-            {
-                sample = null;
-                return false;
-            }
-
-            return KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
-                null,
-                motionPlayer.ConstraintSkeletonRoot,
-                modelName,
-                ClampConstraintTime(durationSeconds),
-                constraintType,
-                null,
-                null,
-                null,
-                out sample,
-                out error);
         }
 
         private Quaternion ResolveModelToWorldRotation()
