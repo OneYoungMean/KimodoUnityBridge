@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using TimelineInject;
 using UnityEngine;
 
@@ -84,7 +86,7 @@ namespace KimodoBridge
                 endEffector = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(targetCache, endEffectorBone);
             }
 
-            return KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
+            if (!KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
                 targetCache.animator,
                 targetCache.skeletonRoot,
                 resolvedModelName,
@@ -95,7 +97,28 @@ namespace KimodoBridge
                 jointTransforms,
                 out result,
                 out error,
-                endEffector);
+                endEffector))
+            {
+                return false;
+            }
+
+            if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(targetCache, out MuscleSample muscleSample, out error))
+            {
+                result = null;
+                return false;
+            }
+
+            result.muscles = new List<float>(muscleSample.pose.muscles);
+            result.leftFootPosition = muscleSample.leftFootPosition;
+            result.leftFootRotation = muscleSample.leftFootRotation;
+            result.rightFootPosition = muscleSample.rightFootPosition;
+            result.rightFootRotation = muscleSample.rightFootRotation;
+            return true;
         }
     }
 }

@@ -69,7 +69,7 @@ Before each non-trivial call, request that command's current help. Verify the fi
 
 ### 6. Pose and constraint semantics
 
-A pose locator is `{"source":"<source>","frame":<integer>}`. A character source samples a read-only Timeline pose. A `<character>.Poses` source is writable. Use `pose_copy` before modifying a read-only pose, then use `pose_get`/`pose_set`. Do not infer coordinate spaces or manufacture profile-skeleton values; preserve data returned by the pose commands.
+A pose locator is `{"source":"<source>","frame":<integer>}`. A character source samples a read-only Timeline pose. A `<character>.Poses` source is writable. Use `pose_copy` before modifying a read-only pose, then use `pose_get`/`pose_set`. Pose `root.position` and `root.rotation` are the canonical profile-root pose (`kimodoRootPosition` and profile root joint rotation), not the legacy Unity scene-root fields. Do not infer coordinate spaces or manufacture profile-skeleton values; preserve data returned by the pose commands.
 
 Inline generation constraints are anonymous values with `frame` and `type`. The two core types are:
 
@@ -169,7 +169,7 @@ session_close {}
 
 ### 6. Pose 与 Constraint 语义
 
-Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 Timeline 上的只读采样 Pose；`<角色>.Poses` 来源可写。修改只读 Pose 前先调用 `pose_copy`，之后使用 `pose_get`/`pose_set`。不得猜测坐标空间或伪造 Profile Skeleton 数值；应保留 Pose 命令返回的数据。
+Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 Timeline 上的只读采样 Pose；`<角色>.Poses` 来源可写。修改只读 Pose 前先调用 `pose_copy`，之后使用 `pose_get`/`pose_set`。Pose 的 `root.position` 和 `root.rotation` 表示规范 Profile Root Pose（`kimodoRootPosition` 与 Profile 根关节旋转），不是旧的 Unity Scene Root 字段。不得猜测坐标空间或伪造 Profile Skeleton 数值；应保留 Pose 命令返回的数据。
 
 生成内联 Constraint 是包含 `frame` 和 `type` 的匿名值。本节先明确两个核心类型：
 

@@ -311,6 +311,9 @@ namespace KimodoUnityBridge.Command
 
         private static JObject PoseSampleToJson(KimodoMarkerSampleResult sample)
         {
+            Quaternion rootRotation = sample.localAxisAngles != null && sample.localAxisAngles.Count > 0
+                ? KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0])
+                : Quaternion.identity;
             var muscles = new JObject();
             for (int i = 0; i < HumanTrait.MuscleCount; i++)
             {
@@ -318,7 +321,7 @@ namespace KimodoUnityBridge.Command
             }
             return new JObject
             {
-                ["root"] = new JObject { ["position"] = Vector3Json(sample.unityRootPos), ["rotation"] = QuaternionJson(sample.unityRootRot) },
+                ["root"] = new JObject { ["position"] = Vector3Json(sample.kimodoRootPosition), ["rotation"] = QuaternionJson(rootRotation) },
                 ["muscles"] = muscles,
                 ["foot_ik"] = new JObject
                 {
@@ -331,8 +334,18 @@ namespace KimodoUnityBridge.Command
         private static void ApplyPoseJson(KimodoMarkerSampleResult sample, JObject data)
         {
             JObject root = data["root"] as JObject;
-            if (root?["position"] != null) sample.unityRootPos = RequiredVector3(root, "position");
-            if (root?["rotation"] != null) sample.unityRootRot = RequiredQuaternion(root, "rotation");
+            if (root?["position"] != null) sample.kimodoRootPosition = RequiredVector3(root, "position");
+            if (root?["rotation"] != null)
+            {
+                Quaternion rotation = RequiredQuaternion(root, "rotation");
+                sample.localAxisAngles ??= new List<Vector3>();
+                if (sample.localAxisAngles.Count == 0) sample.localAxisAngles.Add(Vector3.zero);
+                sample.localAxisAngles[0] = KimodoRuntimeUtility.QuaternionToAxisAngleVector(rotation);
+                Vector3 forward = rotation * Vector3.forward;
+                Vector2 heading = new Vector2(forward.x, forward.z);
+                sample.rootHeading = heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.right;
+                sample.hasRootHeading = true;
+            }
             if (data["muscles"] is JObject muscles)
             {
                 if (sample.muscles == null || sample.muscles.Count != HumanTrait.MuscleCount)

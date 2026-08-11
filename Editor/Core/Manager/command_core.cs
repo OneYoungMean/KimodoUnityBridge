@@ -131,7 +131,7 @@ namespace KimodoUnityBridge.Command
                         "Create a writable pose for a character.",
                         Properties(
                             Required("character", "string", "Target character name."),
-                            Required("pose", "object", "Pose data containing root, muscles, and optional foot_ik."))),
+                            Required("pose", "object", "Pose data containing the canonical profile root, muscles, and optional foot_ik."))),
                     CommandDefinition(PoseGetCommand,
                         "Read a pose from any returned {source,frame} locator.",
                         Properties(Required("pose", "object", "{source,frame} pose locator at fixed 60 FPS."))),
