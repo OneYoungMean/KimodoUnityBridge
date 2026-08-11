@@ -55,90 +55,22 @@ namespace KimodoBridge.Editor
             double runtimeSampleOffsetSeconds = useOutsideGuardFrame ? 1.0 / targetFrameRate : 0.0;
             float runtimeLengthSeconds = runtimeFrameCount / targetFrameRate;
 
-            string constraintsJson;
-            bool hasSyntheticAutoBeginConstraint = false;
-            bool denseRootPath = false;
-            var constraintSamples = new List<KimodoMarkerSampleResult>();
-            if (externalConstraint != null && externalConstraint.Enabled)
-            {
-                if (externalConstraint.IncludeTimelineConstraints)
-                {
-                    KimodoInOutConstraintResult constraintResult = ConstraintProvider.BuildConstraintDataOrThrow(
-                        clip,
-                        runtimeFrameCount,
-                        disableTimelineInOut,
-                        deferConstraintNormalization,
-                        enableAutoBeginAnchor,
-                        runtimeSampleOffsetSeconds,
-                        timelineClip);
-                    if (constraintResult.BeginBoundarySample != null)
-                    {
-                        constraintResult.CombinedSamples.Remove(constraintResult.BeginBoundarySample);
-                    }
-                    constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
-                        constraintResult.CombinedSamples,
-                        0.0,
-                        runtimeLengthSeconds,
-                        targetFrameRate,
-                        constraintResult.DenseRootPath);
-                    KimodoInOutConstraintComposer.AppendSamples(constraintResult.CombinedSamples, constraintSamples);
-                    hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
-                    denseRootPath = constraintResult.DenseRootPath;
-                }
-                else
-                {
-                    constraintsJson = externalConstraint.ConstraintsJson ?? string.Empty;
-                }
-                int externalSampleStart = constraintSamples.Count;
-                KimodoInOutConstraintComposer.AppendSamples(externalConstraint.ConstraintSamples, constraintSamples);
-                for (int i = externalSampleStart; i < constraintSamples.Count; i++)
-                {
-                    constraintSamples[i].sampleTime += runtimeSampleOffsetSeconds;
-                }
-                if (hasSyntheticAutoBeginConstraint &&
-                    constraintSamples.Count > 0 &&
-                    KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
-                        constraintSamples,
-                        1.0,
-                        constraintSamples[0]))
-                {
-                    constraintSamples.RemoveAt(0);
-                    hasSyntheticAutoBeginConstraint = false;
-                }
-                if (constraintSamples.Count > 0)
-                {
-                    constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
-                        constraintSamples,
-                        0.0,
-                        runtimeLengthSeconds,
-                        targetFrameRate,
-                        denseRootPath);
-                }
-            }
-            else
-            {
-                KimodoInOutConstraintResult constraintResult = ConstraintProvider.BuildConstraintDataOrThrow(
+            KimodoInOutConstraintResult constraintResult =
+                ConstraintProvider.BuildGenerationConstraintsOrThrow(
                     clip,
+                    externalConstraint,
                     runtimeFrameCount,
+                    runtimeLengthSeconds,
+                    targetFrameRate,
                     disableTimelineInOut,
                     deferConstraintNormalization,
                     enableAutoBeginAnchor,
                     runtimeSampleOffsetSeconds,
                     timelineClip);
-                if (constraintResult.BeginBoundarySample != null)
-                {
-                    constraintResult.CombinedSamples.Remove(constraintResult.BeginBoundarySample);
-                }
-                constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
-                    constraintResult.CombinedSamples,
-                    0.0,
-                    runtimeLengthSeconds,
-                    targetFrameRate,
-                    constraintResult.DenseRootPath);
-                KimodoInOutConstraintComposer.AppendSamples(constraintResult.CombinedSamples, constraintSamples);
-                hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
-                denseRootPath = constraintResult.DenseRootPath;
-            }
+            string constraintsJson = constraintResult.ConstraintsJson;
+            List<KimodoMarkerSampleResult> constraintSamples = constraintResult.CombinedSamples;
+            bool hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
+            bool denseRootPath = constraintResult.DenseRootPath;
 
             ArdyEditorHistorySource initialHistorySource = null;
             if (isArdy)
@@ -150,15 +82,6 @@ namespace KimodoBridge.Editor
                         ardyProfile,
                         timelineClip,
                         out initialHistorySource);
-                }
-                if (constraintSamples.Count > 0)
-                {
-                    constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
-                        constraintSamples,
-                        0.0,
-                        runtimeLengthSeconds,
-                        ardyProfile.SourceFps,
-                        denseRootPath);
                 }
             }
             int effectiveSeed = effectiveSeedOverride ?? ResolveEffectiveSeed(clip);

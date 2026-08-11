@@ -579,6 +579,62 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void GenerationConstraintProvider_ComposesExternalSamplesOnce()
+        {
+            KimodoPlayableClip clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            try
+            {
+                var external = new KimodoExternalConstraintRequest
+                {
+                    Enabled = true,
+                    IncludeTimelineConstraints = false,
+                    ConstraintsJson = "{\"raw\":true}"
+                };
+                var provider = new KimodoEditorConstraintProvider();
+                KimodoInOutConstraintResult raw = provider.BuildGenerationConstraintsOrThrow(
+                    clip,
+                    external,
+                    runtimeFrameCount: 30,
+                    runtimeLengthSeconds: 1f,
+                    frameRate: 30f,
+                    disableTimelineInOut: true,
+                    deferNormalization: false,
+                    enableAutoBeginAnchor: false,
+                    sampleTimeOffsetSeconds: 0.25,
+                    timelineClip: null);
+                Assert.That(raw.ConstraintsJson, Is.EqualTo(external.ConstraintsJson));
+
+                var sample = new KimodoMarkerSampleResult
+                {
+                    constraintType = "root2d",
+                    sampleTime = 0.5,
+                    kimodoRootPosition = new Vector3(1f, 0f, 2f)
+                };
+                external.ConstraintSamples.Add(sample);
+                KimodoInOutConstraintResult composed = provider.BuildGenerationConstraintsOrThrow(
+                    clip,
+                    external,
+                    runtimeFrameCount: 30,
+                    runtimeLengthSeconds: 1f,
+                    frameRate: 30f,
+                    disableTimelineInOut: true,
+                    deferNormalization: false,
+                    enableAutoBeginAnchor: false,
+                    sampleTimeOffsetSeconds: 0.25,
+                    timelineClip: null);
+
+                Assert.That(composed.CombinedSamples, Has.Count.EqualTo(1));
+                Assert.That(composed.CombinedSamples[0], Is.Not.SameAs(sample));
+                Assert.That(composed.CombinedSamples[0].sampleTime, Is.EqualTo(0.75));
+                Assert.That(composed.ConstraintsJson, Does.Contain("root2d"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+            }
+        }
+
+        [Test]
         public void RuntimeGenerationSession_ResetAndDisposeOwnsArdyLifecycle()
         {
             var session = new KimodoRuntimeGenerationSession();

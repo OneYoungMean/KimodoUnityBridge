@@ -10,6 +10,79 @@ namespace KimodoBridge.Editor
 {
     internal sealed class KimodoEditorConstraintProvider
     {
+        public KimodoInOutConstraintResult BuildGenerationConstraintsOrThrow(
+            KimodoPlayableClip clip,
+            KimodoExternalConstraintRequest externalConstraint,
+            int runtimeFrameCount,
+            float runtimeLengthSeconds,
+            float frameRate,
+            bool disableTimelineInOut,
+            bool deferNormalization,
+            bool enableAutoBeginAnchor,
+            double sampleTimeOffsetSeconds,
+            TimelineClip timelineClip)
+        {
+            bool includeTimeline = externalConstraint?.Enabled != true ||
+                externalConstraint.IncludeTimelineConstraints;
+            KimodoInOutConstraintResult result;
+            if (includeTimeline)
+            {
+                result = BuildConstraintDataOrThrow(
+                    clip,
+                    runtimeFrameCount,
+                    disableTimelineInOut,
+                    deferNormalization,
+                    enableAutoBeginAnchor,
+                    sampleTimeOffsetSeconds,
+                    timelineClip);
+                if (result.BeginBoundarySample != null)
+                {
+                    result.CombinedSamples.Remove(result.BeginBoundarySample);
+                }
+            }
+            else
+            {
+                result = new KimodoInOutConstraintResult
+                {
+                    ConstraintsJson = externalConstraint.ConstraintsJson ?? string.Empty
+                };
+            }
+
+            if (externalConstraint?.Enabled == true)
+            {
+                int externalSampleStart = result.CombinedSamples.Count;
+                KimodoInOutConstraintComposer.AppendSamples(
+                    externalConstraint.ConstraintSamples,
+                    result.CombinedSamples);
+                for (int i = externalSampleStart; i < result.CombinedSamples.Count; i++)
+                {
+                    result.CombinedSamples[i].sampleTime += sampleTimeOffsetSeconds;
+                }
+
+                if (result.HasSyntheticAutoBeginConstraint &&
+                    result.CombinedSamples.Count > 0 &&
+                    KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
+                        result.CombinedSamples,
+                        1.0,
+                        result.CombinedSamples[0]))
+                {
+                    result.CombinedSamples.RemoveAt(0);
+                    result.HasSyntheticAutoBeginConstraint = false;
+                }
+            }
+
+            if (includeTimeline || result.CombinedSamples.Count > 0)
+            {
+                result.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
+                    result.CombinedSamples,
+                    0.0,
+                    runtimeLengthSeconds,
+                    frameRate,
+                    result.DenseRootPath);
+            }
+            return result;
+        }
+
         public KimodoInOutConstraintResult BuildConstraintDataOrThrow(
             KimodoPlayableClip clip,
             int? generationFramesOverride = null,
