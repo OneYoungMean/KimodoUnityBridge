@@ -7,7 +7,6 @@ namespace KimodoBridge
     internal sealed class KimodoRuntimeMotionPlayer
     {
         private readonly Queue<KimodoRuntimeGeneratedSegment> queuedSegments = new Queue<KimodoRuntimeGeneratedSegment>();
-        private readonly object queueGate = new object();
 
         private KimodoRawMotionPlaybackBinding sourceBinding;
         private SkeletonCache sourceCache;
@@ -54,27 +53,15 @@ namespace KimodoBridge
                 float total = currentSegment != null
                     ? Mathf.Max(0f, currentSegment.EffectiveLastFrameTimeSeconds - timeSeconds)
                     : 0f;
-                lock (queueGate)
+                foreach (KimodoRuntimeGeneratedSegment segment in queuedSegments)
                 {
-                    foreach (KimodoRuntimeGeneratedSegment segment in queuedSegments)
-                    {
-                        total += Mathf.Max(0f, segment?.EffectiveLastFrameTimeSeconds ?? 0f);
-                    }
+                    total += Mathf.Max(0f, segment?.EffectiveLastFrameTimeSeconds ?? 0f);
                 }
                 return total;
             }
         }
 
-        public int QueuedSegmentCount
-        {
-            get
-            {
-                lock (queueGate)
-                {
-                    return queuedSegments.Count;
-                }
-            }
-        }
+        public int QueuedSegmentCount => queuedSegments.Count;
 
         public void Enqueue(KimodoRuntimeGeneratedSegment segment, bool verboseLogging)
         {
@@ -83,13 +70,10 @@ namespace KimodoBridge
                 return;
             }
 
-            lock (queueGate)
+            queuedSegments.Enqueue(segment);
+            if (verboseLogging)
             {
-                queuedSegments.Enqueue(segment);
-                if (verboseLogging)
-                {
-                    Debug.Log($"[KimodoRuntimeMotionDriver] Enqueue segment {segment.Index}. queueCount={queuedSegments.Count}");
-                }
+                Debug.Log($"[KimodoRuntimeMotionDriver] Enqueue segment {segment.Index}. queueCount={queuedSegments.Count}");
             }
         }
 
@@ -156,10 +140,7 @@ namespace KimodoBridge
 
         public void ClearQueue()
         {
-            lock (queueGate)
-            {
-                queuedSegments.Clear();
-            }
+            queuedSegments.Clear();
         }
 
         public void ResetCompletionState()
@@ -326,7 +307,7 @@ namespace KimodoBridge
 
             currentSegment = segment;
             bool isArdy = segment.UseRawRootPosition && ardyBuffer != null && ReferenceEquals(segment, ardySegment);
-            currentSegment.WorldAccumulatedOffset = ResolveNextWorldOffset(segment.FirstRootPosition);
+            currentSegment.WorldAccumulatedOffset = lastCompletedWorldOffset;
             currentSegmentRootBaseline = segment.FirstRootPosition;
             retargeter.ResetAnchors();
             timeSeconds = isArdy ? ardyBuffer.StartFrame / ardyBuffer.FrameRate : 0f;
@@ -388,17 +369,14 @@ namespace KimodoBridge
 
         private bool TryDequeue(out KimodoRuntimeGeneratedSegment segment)
         {
-            lock (queueGate)
+            if (queuedSegments.Count == 0)
             {
-                if (queuedSegments.Count == 0)
-                {
-                    segment = null;
-                    return false;
-                }
-
-                segment = queuedSegments.Dequeue();
-                return true;
+                segment = null;
+                return false;
             }
+
+            segment = queuedSegments.Dequeue();
+            return true;
         }
 
         private KimodoRuntimeGeneratedSegment MarkCurrentSegmentCompleted()
@@ -446,11 +424,6 @@ namespace KimodoBridge
             sourceCache?.Dispose();
             sourceCache = null;
             sourceCacheModelName = null;
-        }
-
-        private Vector3 ResolveNextWorldOffset(Vector3 nextSegmentFirstRootPosition)
-        {
-            return lastCompletedWorldOffset;
         }
 
         private bool TryCreateDirectRetargetBinding(

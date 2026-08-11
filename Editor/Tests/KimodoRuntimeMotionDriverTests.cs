@@ -561,6 +561,24 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void RuntimeMotionPlayer_QueueOwnsBufferedDuration()
+        {
+            var player = new KimodoRuntimeMotionPlayer();
+            player.Enqueue(
+                new KimodoRuntimeGeneratedSegment { EffectiveLastFrameTimeSeconds = 2f },
+                verboseLogging: false);
+            player.Enqueue(
+                new KimodoRuntimeGeneratedSegment { EffectiveLastFrameTimeSeconds = 3.5f },
+                verboseLogging: false);
+
+            Assert.That(player.QueuedSegmentCount, Is.EqualTo(2));
+            Assert.That(player.BufferedDurationSeconds, Is.EqualTo(5.5f));
+
+            player.ClearQueue();
+            Assert.That(player.QueuedSegmentCount, Is.Zero);
+        }
+
+        [Test]
         public void RuntimeGenerationSession_ResetAndDisposeOwnsArdyLifecycle()
         {
             var session = new KimodoRuntimeGenerationSession();

@@ -1,0 +1,17 @@
+        private readonly object queueGate = new object();
+
+        public int QueuedSegmentCount
+        {
+            get
+            {
+                lock (queueGate)
+                {
+                    return queuedSegments.Count;
+                }
+            }
+        }
+
+        private Vector3 ResolveNextWorldOffset(Vector3 nextSegmentFirstRootPosition)
+        {
+            return lastCompletedWorldOffset;
+        }
