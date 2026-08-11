@@ -950,6 +950,7 @@ namespace KimodoBridge.Editor
     {
         private readonly KimodoTimelineInOutConstraintContext context;
         private readonly SkeletonCache sourceSamplingCache;
+        private readonly string[] sourceBonePaths;
         private readonly Transform[] sourceBoneTransforms;
         private readonly float sourceHumanScale;
         private readonly double originalTime;
@@ -960,6 +961,7 @@ namespace KimodoBridge.Editor
         private KimodoTimelineSamplingSession(
             KimodoTimelineInOutConstraintContext context,
             SkeletonCache sourceSamplingCache,
+            string[] sourceBonePaths,
             Transform[] sourceBoneTransforms,
             float sourceHumanScale,
             SkeletonCache targetCache,
@@ -968,6 +970,7 @@ namespace KimodoBridge.Editor
         {
             this.context = context;
             this.sourceSamplingCache = sourceSamplingCache;
+            this.sourceBonePaths = sourceBonePaths;
             this.sourceBoneTransforms = sourceBoneTransforms;
             this.sourceHumanScale = sourceHumanScale;
             TargetCache = targetCache;
@@ -1015,6 +1018,7 @@ namespace KimodoBridge.Editor
             }
 
             SkeletonCache sourceSamplingCache = null;
+            string[] sourceBonePaths = null;
             Transform[] sourceBoneTransforms = null;
             double originalTime = context.Director.time;
             DirectorWrapMode originalWrapMode = context.Director.extrapolationMode;
@@ -1033,6 +1037,7 @@ namespace KimodoBridge.Editor
                 if (!TryBuildSourceBoneTransforms(
                         context.Animator.transform,
                         sourceSamplingCache,
+                        out sourceBonePaths,
                         out sourceBoneTransforms,
                         out error))
                 {
@@ -1045,6 +1050,7 @@ namespace KimodoBridge.Editor
                 sampler = new KimodoTimelineSamplingSession(
                     context,
                     sourceSamplingCache,
+                    sourceBonePaths,
                     sourceBoneTransforms,
                     sourceHumanScale,
                     targetCache,
@@ -1156,6 +1162,7 @@ namespace KimodoBridge.Editor
                     if (!TryCaptureSourceBoneSample(
                             context.Animator.transform,
                             sourceSamplingCache,
+                            sourceBonePaths,
                             sourceBoneTransforms,
                             out poseSamples[i],
                             out error))
@@ -1280,9 +1287,11 @@ namespace KimodoBridge.Editor
         private static bool TryBuildSourceBoneTransforms(
             Transform sourceRoot,
             SkeletonCache sourceSamplingCache,
+            out string[] sourceBonePaths,
             out Transform[] sourceBoneTransforms,
             out string error)
         {
+            sourceBonePaths = null;
             sourceBoneTransforms = null;
             error = string.Empty;
             if (sourceRoot == null || !KimodoRetargetAvatarUtility.ValidateRetargetCache(sourceSamplingCache, out error))
@@ -1290,40 +1299,78 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            sourceBoneTransforms = KimodoRetargetAvatarUtility.BuildBoneTransforms(
-                sourceRoot,
-                sourceSamplingCache.bonePaths,
-                sourceSamplingCache.canonicalRootBoneName);
-            for (int i = 0; i < sourceBoneTransforms.Length; i++)
+            var paths = new List<string> { sourceSamplingCache.canonicalRootBoneName };
+            var transforms = new List<Transform> { sourceRoot };
+            var seenPaths = new HashSet<string>(StringComparer.Ordinal)
             {
-                if (sourceBoneTransforms[i] != null)
+                sourceSamplingCache.canonicalRootBoneName
+            };
+
+            HumanBone[] humanBones = sourceSamplingCache.avatar.humanDescription.human;
+            for (int i = 0; i < humanBones.Length; i++)
+            {
+                HumanBone humanBone = humanBones[i];
+                if (!Enum.TryParse(humanBone.humanName, out HumanBodyBones humanBodyBone) ||
+                    humanBodyBone == HumanBodyBones.LastBone)
                 {
                     continue;
                 }
 
-                string path = sourceSamplingCache.bonePaths[i];
-                int separator = path.LastIndexOf('/');
-                string boneName = separator >= 0 ? path.Substring(separator + 1) : path;
+                if (!sourceSamplingCache.humanBoneTransforms.TryGetValue(
+                        humanBodyBone,
+                        out Transform cachedHumanBone) || cachedHumanBone == null)
+                {
+                    error = $"Source Avatar human bone '{humanBone.humanName}' ('{humanBone.boneName}') is unavailable in the skeleton cache.";
+                    sourceBonePaths = null;
+                    return false;
+                }
+
+                string path = null;
+                foreach (KeyValuePair<string, Transform> cachedPath in sourceSamplingCache.bonePathMap)
+                {
+                    if (cachedPath.Value == cachedHumanBone)
+                    {
+                        path = cachedPath.Key;
+                        break;
+                    }
+                }
+                if (string.IsNullOrEmpty(path))
+                {
+                    error = $"Source Avatar human bone '{humanBone.humanName}' ('{humanBone.boneName}') has no cached transform path.";
+                    sourceBonePaths = null;
+                    return false;
+                }
+
                 if (!KimodoRetargetAvatarUtility.TryFindUniqueTransformByName(
                         sourceRoot,
-                        boneName,
-                        out sourceBoneTransforms[i],
+                        humanBone.boneName,
+                        out Transform sourceBone,
                         out bool ambiguous))
                 {
                     error = ambiguous
-                        ? $"Source bone '{boneName}' is ambiguous under '{sourceRoot.name}'."
-                        : $"Source bone '{path}' is missing under '{sourceRoot.name}'.";
+                        ? $"Source human bone '{humanBone.humanName}' ('{humanBone.boneName}') is ambiguous under '{sourceRoot.name}'."
+                        : $"Source human bone '{humanBone.humanName}' ('{humanBone.boneName}') is missing under '{sourceRoot.name}'.";
+                    sourceBonePaths = null;
                     sourceBoneTransforms = null;
                     return false;
                 }
+
+                if (seenPaths.Add(path))
+                {
+                    paths.Add(path);
+                    transforms.Add(sourceBone);
+                }
             }
 
+            sourceBonePaths = paths.ToArray();
+            sourceBoneTransforms = transforms.ToArray();
             return true;
         }
 
         private static bool TryCaptureSourceBoneSample(
             Transform sourceRoot,
             SkeletonCache sourceSamplingCache,
+            string[] sourceBonePaths,
             Transform[] sourceBoneTransforms,
             out BoneSample sample,
             out string error)
@@ -1331,9 +1378,10 @@ namespace KimodoBridge.Editor
             sample = null;
             error = string.Empty;
             if (sourceRoot == null ||
-                sourceSamplingCache?.boneTransforms == null ||
+                sourceSamplingCache == null ||
+                sourceBonePaths == null ||
                 sourceBoneTransforms == null ||
-                sourceBoneTransforms.Length != sourceSamplingCache.boneTransforms.Length)
+                sourceBonePaths.Length != sourceBoneTransforms.Length)
             {
                 error = "Source bone sampling map is invalid.";
                 return false;
@@ -1342,7 +1390,7 @@ namespace KimodoBridge.Editor
             int count = sourceBoneTransforms.Length;
             sample = new BoneSample
             {
-                boneNames = sourceSamplingCache.bonePaths,
+                boneNames = sourceBonePaths,
                 localPositions = new Vector3[count],
                 localRotations = new Quaternion[count]
             };
@@ -1356,7 +1404,7 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                bool isRoot = sourceSamplingCache.boneTransforms[i] == sourceSamplingCache.skeletonRoot;
+                bool isRoot = i == 0;
                 sample.localPositions[i] = isRoot ? sourceRoot.position : sourceBone.localPosition;
                 sample.localRotations[i] = isRoot ? sourceRoot.rotation : sourceBone.localRotation;
             }
