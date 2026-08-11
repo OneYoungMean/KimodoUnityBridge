@@ -46,17 +46,27 @@ def load_bridge_model(
 
     if modelname is None:
         modelname = DEFAULT_MODEL
-    if modelname not in AVAILABLE_MODELS:
-        if default_family is not None:
-            modelname = resolve_model_name(modelname, default_family)
-        else:
-            raise ValueError(
-                f"""The model is not recognized.
-            Please choose between: {AVAILABLE_MODELS}"""
-            )
-
-    resolved_modelname = modelname
-    model_path = _resolve_bridge_model_dir(models_root, modelname)
+    requested_path = Path(str(modelname)).expanduser()
+    if requested_path.is_file() and requested_path.name.lower() == "config.yaml":
+        requested_path = requested_path.parent
+    if not requested_path.is_dir() or not (requested_path / "config.yaml").is_file():
+        candidate_path = Path(models_root).resolve() / str(modelname)
+        if candidate_path.is_dir() and (candidate_path / "config.yaml").is_file():
+            requested_path = candidate_path
+    if requested_path.is_dir() and (requested_path / "config.yaml").is_file():
+        resolved_modelname = requested_path.name
+        model_path = requested_path.resolve()
+    else:
+        if modelname not in AVAILABLE_MODELS:
+            if default_family is not None:
+                modelname = resolve_model_name(modelname, default_family)
+            else:
+                raise ValueError(
+                    f"""The model is not recognized.
+                Please choose between: {AVAILABLE_MODELS}"""
+                )
+        resolved_modelname = modelname
+        model_path = _resolve_bridge_model_dir(models_root, modelname)
     model_config_path = model_path / "config.yaml"
     if not model_config_path.exists():
         raise FileNotFoundError(f"The model checkpoint folder exists but config.yaml is missing: {model_config_path}")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import gc
 import json
 import os
@@ -19,7 +20,15 @@ from typing import Any
 
 from . import kimodo_runtime as runtime_helpers
 from . import ardy_backend
+from . import animation_analysis
 from . import quickserver_assets as assets
+from core.protocol.kmb_motion import (
+    MAX_KMB_BYTES,
+    attachment_payload,
+    clip_slice,
+    parse_constraints,
+    parse_kmb1,
+)
 from kimodo.frame_time import seconds_to_frame_count
 from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 
@@ -27,6 +36,123 @@ from .quickserver_setup import ProjectPaths, SetupLogger, discover_project_paths
 SUPERVISOR_LOG_FILE_NAME = "bridge_server.log"
 DEFAULT_TASK_ID_PREFIX = "task"
 DEFAULT_RUNTIME_IDLE_UNLOAD_SEC = 900
+
+
+def _build_protocol_help() -> dict[str, Any]:
+    return {
+        "protocol": "kimodo-quickserver-tcp",
+        "commands": [
+            {
+                "cmd": "help",
+                "description": "Return this built-in protocol reference without loading a model.",
+            },
+            {
+                "cmd": "runtime.list_models",
+                "description": "List every supported model and text encoder configuration for this server and device.",
+            },
+            {
+                "cmd": "session.open",
+                "description": "Open an isolated TCP generation session.",
+            },
+            {
+                "cmd": "session.close",
+                "description": "Close the current TCP generation session.",
+            },
+            {
+                "cmd": "generate",
+                "description": "Queue motion generation, or analyze KMB ClipConstraints when analysis_option.analysis_only is true. Choose model and text_encoder_mode from runtime.list_models for motion generation.",
+                "fields": [
+                    "prompt", "model", "text_encoder_mode", "duration", "constraints_json",
+                    "kmb_attachments", "attachment_byte_length", "analysis_option",
+                    "timeline_segments", "ardy_history_weight", "ardy_max_speed",
+                    "ardy_max_acceleration", "ardy_playback_reserve_seconds",
+                ],
+            },
+            {
+                "cmd": "cancel",
+                "description": "Cancel a queued or running generation by task_id.",
+            },
+            {
+                "cmd": "quit",
+                "description": "Stop the QuickServer process.",
+            },
+        ],
+    }
+
+
+def _build_model_configurations(
+    kimodo_root: str,
+    default_config: dict[str, Any],
+    runtime_profile: Any,
+) -> dict[str, Any]:
+    models_root, _ = assets.resolve_models_root(kimodo_root, default_config.get("models_root"))
+    free_vram_gb = max(0.0, float(getattr(runtime_profile, "free_vram_gb", 0.0) or 0.0))
+    detected_device = str(getattr(runtime_profile, "runtime_device", "cpu") or "cpu")
+    detected_device = detected_device if free_vram_gb >= assets.MOTION_MODEL_MIN_FREE_GB else "cpu"
+    nf4_available = bool(getattr(runtime_profile, "nf4_available", False)) and detected_device != "cpu"
+    int8_available = bool(getattr(runtime_profile, "int8_accelerator_available", False)) and detected_device != "cpu"
+    fp16_available = bool(getattr(runtime_profile, "fp16_accelerator_available", False)) and detected_device != "cpu"
+    default_model = str(default_config.get("model") or assets.DEFAULT_MODEL_NAME)
+    default_spec = assets.resolve_model_spec(default_model)
+    if default_spec is not None:
+        default_model = default_spec.model_name
+    else:
+        model_path = Path(default_model).expanduser()
+        if model_path.is_file() and model_path.name.lower() == "config.yaml":
+            model_path = model_path.parent
+        default_model = (
+            str(model_path.resolve())
+            if model_path.is_dir() and (model_path / "config.yaml").is_file()
+            else assets.resolve_main_model(default_model).local_name
+        )
+    default_encoder = assets.normalize_text_encoder_mode(default_config.get("text_encoder_mode"))
+    configs: list[dict[str, Any]] = []
+    for spec in assets.ALL_MODEL_SPECS:
+        model_name = spec.model_name
+        encoder_budget_gb = max(0.0, free_vram_gb - assets.motion_model_min_free_vram_gb(model_name))
+        for text_encoder_mode in (
+            assets.TEXT_ENCODER_MODE_HIGH_PERFORMANCE,
+            assets.TEXT_ENCODER_MODE_HIGH_PRECISION,
+        ):
+            decision = assets.resolve_text_encoder_runtime(
+                text_encoder_mode,
+                detected_device,
+                encoder_budget_gb,
+                nf4_available=nf4_available,
+                int8_accelerator_available=int8_available,
+                fp16_accelerator_available=fp16_available,
+            )
+            configs.append(
+                {
+                    "model": model_name,
+                    "backend": spec.backend,
+                    "source_fps": spec.source_fps,
+                    "joint_count": spec.joint_count,
+                    "max_diffusion_steps": spec.max_diffusion_steps,
+                    "default_diffusion_steps": spec.default_diffusion_steps,
+                    "horizon_frames": spec.horizon_frames,
+                    "frames_per_token": spec.frames_per_token,
+                    "max_context_frames": spec.max_context_frames,
+                    "motion_rep_fingerprint": spec.motion_rep_fingerprint,
+                    "supports_streaming": spec.supports_streaming,
+                    "supports_timeline_segments": spec.supports_timeline_segments,
+                    "text_encoder_model": text_encoder_mode,
+                    "runtime_device": decision.motion_device,
+                    "text_encoder_route": decision.encoder_route,
+                    "text_encoder_device": decision.encoder_device,
+                    "available": True,
+                    "default": model_name == default_model and text_encoder_mode == default_encoder,
+                }
+            )
+    return {
+        "status": "done",
+        "models_root": str(models_root),
+        "configs": configs,
+        "default": {
+            "model": default_model,
+            "text_encoder_model": default_encoder,
+        },
+    }
 
 
 def _publish_cancelled_task_to_client(task: dict[str, Any], message: str) -> None:
@@ -148,7 +274,17 @@ def _pid_is_running(pid: int) -> bool:
             return int(code.value) == 259
         finally:
             ctypes.windll.kernel32.CloseHandle(handle)
-    return Path(f"/proc/{pid}").exists()
+    try:
+        # Signal 0 performs a portable POSIX existence/permission check without
+        # sending a signal. macOS has no /proc filesystem.
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as exc:
+        return exc.errno == errno.EPERM
+    return True
 
 
 def _bool_value(value: Any, default: bool = False) -> bool:
@@ -246,6 +382,15 @@ def _write_serverport(path: Path, host: str, port: int, state_name: str) -> None
     )
 
 
+def _read_quickserver_version(root_dir: str) -> str:
+    try:
+        package_path = Path(root_dir).resolve() / "package.json"
+        version = str(json.loads(package_path.read_text(encoding="utf-8")).get("version") or "").strip()
+        return version or "unknown"
+    except Exception:
+        return "unknown"
+
+
 def _build_signature(config: dict[str, Any]) -> str:
     return "|".join(
         [
@@ -278,6 +423,35 @@ def _build_task_worker_key(config: dict[str, Any], session_id: str) -> str:
 
 def _build_text_encoder_signature(config: dict[str, Any]) -> str:
     return f"text_encoder_mode={config['text_encoder_mode']}"
+
+
+def _build_text_encoder_execution_key(config: dict[str, Any]) -> tuple[str, str]:
+    profile = assets.resolve_motion_model_profile(config["model"])
+    backend = str(getattr(profile, "backend", "kimodo") or "kimodo")
+    return _build_text_encoder_signature(config), backend
+
+
+class _TextEncoderExecutionGate:
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._active_key: tuple[str, str] | None = None
+        self._active_count = 0
+
+    def acquire(self, key: tuple[str, str]) -> None:
+        with self._condition:
+            while self._active_count > 0 and self._active_key != key:
+                self._condition.wait()
+            self._active_key = key
+            self._active_count += 1
+
+    def release(self, key: tuple[str, str]) -> None:
+        with self._condition:
+            if self._active_count <= 0 or self._active_key != key:
+                raise RuntimeError("TextEncoder execution gate was released by a non-owner.")
+            self._active_count -= 1
+            if self._active_count == 0:
+                self._active_key = None
+                self._condition.notify_all()
 
 
 def _normalize_runtime_config(req: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
@@ -334,7 +508,7 @@ def _unload_runtime_model(state: dict[str, Any], logger: SetupLogger) -> None:
 
 def _clear_shared_text_encoder_state(state: dict[str, Any]) -> Any:
     encoder = state.get("shared_text_encoder")
-    runtimes = [state["active_runtime"]] + [
+    runtimes = [state["active_runtime"]] + list((state.get("ardy_runtimes") or {}).values()) + [
         session.get("ardy_runtime") or {} for session in state["sessions"].values()
     ] + list(state["retired_runtimes"])
     for runtime in runtimes:
@@ -370,7 +544,9 @@ def _replace_text_encoder(
     decision: assets.TextEncoderRuntimeDecision,
     kimodo_root: str,
     logger: SetupLogger,
+    cancel_event: threading.Event | None = None,
 ) -> None:
+    assets.raise_if_download_cancelled(cancel_event)
     from kimodo.model.load_model import _select_text_encoder_conf
     from kimodo.model.loading import DEFAULT_TEXT_ENCODER_URL, get_env_var, instantiate_from_dict
 
@@ -406,7 +582,9 @@ def _replace_text_encoder(
             recovery_flag_dir,
             download_counter,
             force_site=force_site,
+            cancel_event=cancel_event,
         )
+    assets.raise_if_download_cancelled(cancel_event)
     old_encoder = getattr(model, "text_encoder", None)
     new_encoder = instantiate_from_dict(
         _select_text_encoder_conf(
@@ -447,6 +625,7 @@ def _refresh_encoder_route_after_motion_load(
     runtime_profile: Any,
     kimodo_root: str,
     logger: SetupLogger,
+    cancel_event: threading.Event | None = None,
 ) -> assets.TextEncoderRuntimeDecision:
     if runtime_profile.runtime_device == "cpu" or config["simulate_free_vram_gb"] is not None:
         return current
@@ -462,7 +641,7 @@ def _refresh_encoder_route_after_motion_load(
     if config.get("_force_text_encoder_cpu"):
         updated = assets.force_text_encoder_cpu(updated)
     if (updated.encoder_route, updated.encoder_device) != _text_encoder_placement(getattr(model, "text_encoder", None)):
-        _replace_text_encoder(model, config, updated, kimodo_root, logger)
+        _replace_text_encoder(model, config, updated, kimodo_root, logger, cancel_event)
     return updated
 
 
@@ -471,13 +650,14 @@ def _fallback_runtime_text_encoder_to_cpu(
     config: dict[str, Any],
     kimodo_root: str,
     logger: SetupLogger,
+    cancel_event: threading.Event | None = None,
 ) -> bool:
     decision = runtime.get("text_encoder_decision")
     if decision is None or decision.encoder_device == "cpu":
         return False
     fallback = assets.force_text_encoder_cpu(decision)
     logger.log("[WARN] Text encoder accelerator OOM; retrying once with the encoder on CPU.")
-    _replace_text_encoder(runtime["model"], config, fallback, kimodo_root, logger)
+    _replace_text_encoder(runtime["model"], config, fallback, kimodo_root, logger, cancel_event)
     runtime["text_encoder_decision"] = fallback
     _release_accelerator_cache()
     return True
@@ -489,7 +669,9 @@ def _ensure_runtime(
     logger: SetupLogger,
     text_encoder: Any = None,
     text_encoder_decision: assets.TextEncoderRuntimeDecision | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
+    assets.raise_if_download_cancelled(cancel_event)
     signature = _build_signature(config)
     existing_signature = str(state.get("runtime_signature") or "")
     same_runtime = existing_signature == signature and state.get("model") is not None
@@ -542,16 +724,7 @@ def _ensure_runtime(
         int8_accelerator_available=runtime_profile.int8_accelerator_available,
         fp16_accelerator_available=runtime_profile.fp16_accelerator_available,
     )
-    if text_encoder is not None and text_encoder_decision is not None:
-        runtime_decision = assets.TextEncoderRuntimeDecision(
-            mode=text_encoder_decision.mode,
-            motion_device=runtime_profile.runtime_device,
-            encoder_route=text_encoder_decision.encoder_route,
-            encoder_device=text_encoder_decision.encoder_device,
-            reason="shared_server_encoder",
-            effective_free_vram_gb=encoder_free_vram_gb,
-        )
-    elif config.get("_force_text_encoder_cpu"):
+    if config.get("_force_text_encoder_cpu"):
         runtime_decision = assets.force_text_encoder_cpu(runtime_decision)
         os.environ["KIMODO_TEXT_ENCODER_FORCE_CPU"] = "1"
     else:
@@ -577,7 +750,7 @@ def _ensure_runtime(
     )
 
     if same_runtime:
-        _replace_text_encoder(state["model"], config, runtime_decision, kimodo_root, logger)
+        _replace_text_encoder(state["model"], config, runtime_decision, kimodo_root, logger, cancel_event)
         state["text_encoder_decision"] = runtime_decision
         logger.log("[INFO] Text encoder ready; reusing current motion runtime.")
         return {
@@ -623,6 +796,7 @@ def _ensure_runtime(
                 recovery_flag_dir,
                 download_counter,
                 force_site=force_download_site,
+                cancel_event=cancel_event,
             )
         logger.log(
             f"[INFO] ARDY reusing Kimodo text encoder: route={encoder_route} "
@@ -636,6 +810,8 @@ def _ensure_runtime(
             kimodo_root,
             runtime_decision.motion_device,
             text_encoder=text_encoder,
+            cancel_event=cancel_event,
+            logger=logger,
         )
         runtime_decision = _refresh_encoder_route_after_motion_load(
             model,
@@ -644,6 +820,7 @@ def _ensure_runtime(
             runtime_profile,
             kimodo_root,
             logger,
+            cancel_event,
         )
         state["model"] = model
         state["fps"] = int(motion_profile.source_fps)
@@ -669,9 +846,10 @@ def _ensure_runtime(
     plan = runtime_helpers._provision_bridge_assets(
         kimodo_root,
         config["model"],
-            runtime_profile=runtime_profile,
-            force_download_site=force_download_site,
-            encoder_free_vram_gb=encoder_free_vram_gb,
+        runtime_profile=runtime_profile,
+        force_download_site=force_download_site,
+        encoder_free_vram_gb=encoder_free_vram_gb,
+        cancel_event=cancel_event,
         )
 
     from core.bridge_load_model import load_bridge_model
@@ -690,6 +868,7 @@ def _ensure_runtime(
         runtime_profile,
         kimodo_root,
         logger,
+        cancel_event,
     )
 
     state["model"] = model
@@ -716,27 +895,24 @@ def _execute_generate(
     task_request: dict[str, Any],
     model: Any,
     cancel_event: threading.Event,
+    progress=None,
+    attachments: tuple[bytes, ...] = (),
 ) -> tuple[dict[str, Any], bytes | None]:
     if cancel_event.is_set():
         raise runtime_helpers.GenerateCancelledError("Generation canceled.")
+    if "loop" in task_request:
+        raise ValueError("The generate.loop protocol field has been removed.")
 
+    generate_kwargs = {"emit_progress": False}
+    if attachments:
+        generate_kwargs["attachments"] = attachments
     output, prompt = runtime_helpers._run_generate(
         task_request,
         model,
         cancel_event,
-        emit_progress=False,
+        **generate_kwargs,
     )
-
-    output_format = runtime_helpers._resolve_requested_output_format(task_request)
-    if output_format == "kmb_v1":
-        payload = runtime_helpers._build_generate_flatbuffer_payload(model, output, sample_index=0)
-        return {
-            "status": "done",
-            "output_format": "kmb_v1",
-            "byte_length": len(payload),
-        }, payload
-
-    return runtime_helpers._build_generate_response(model, output, prompt, sample_index=0), None
+    return runtime_helpers._finalize_generation_result(task_request, model, output, prompt)
 
 
 def _build_streaming_status_message(
@@ -747,18 +923,16 @@ def _build_streaming_status_message(
 ) -> tuple[str, str]:
     normalized = str(server_state or "").strip().lower()
     detail = str(task_message or "").strip()
+    if queue_index > 0:
+        return "queued", f"Task '{task_id}' waiting in queue. queue_index={queue_index}"
     if normalized == "loading_runtime":
         if detail and not detail.startswith("Task '"):
             return "loading", detail
         return "loading", "Preparing motion runtime..."
     if normalized == "generating":
-        if queue_index > 0:
-            return "queued", f"Task '{task_id}' waiting in queue. queue_index={queue_index}"
         if detail and not detail.startswith("Task '"):
             return "progress", detail
         return "progress", "Generating motion..."
-    if queue_index > 0:
-        return "queued", f"Task '{task_id}' waiting in queue. queue_index={queue_index}"
     return "progress", f"Task '{task_id}' is still running..."
 
 
@@ -842,9 +1016,9 @@ def _read_kmb_attachments(file, request: dict[str, Any]) -> tuple[bytes, ...]:
     manifest = request.get("kmb_attachments") or []
     if total == 0 and not manifest:
         return ()
-    if total <= 0 or total > ardy_backend.MAX_KMB_BYTES:
+    if total <= 0 or total > MAX_KMB_BYTES:
         raise ardy_backend.ArdyBackendError(
-            f"attachment_byte_length must be in [1, {ardy_backend.MAX_KMB_BYTES}]."
+            f"attachment_byte_length must be in [1, {MAX_KMB_BYTES}]."
         )
     if not isinstance(manifest, list):
         raise ardy_backend.ArdyBackendError("kmb_attachments must be an array.")
@@ -867,6 +1041,65 @@ def _read_kmb_attachments(file, request: dict[str, Any]) -> tuple[bytes, ...]:
     if expected_offset != total:
         raise ardy_backend.ArdyBackendError("KMB attachment manifest does not cover the binary request payload.")
     return tuple(result)
+
+
+def _is_analysis_only_request(request: dict[str, Any]) -> bool:
+    options = request.get("analysis_option")
+    return isinstance(options, dict) and options.get("analysis_only") is True
+
+
+def _execute_analysis_only(
+    request: dict[str, Any],
+    attachments: tuple[bytes, ...],
+) -> tuple[dict[str, Any], bytes]:
+    options = request.get("analysis_option")
+    if not isinstance(options, dict) or options.get("analysis_only") is not True:
+        raise ardy_backend.ArdyBackendError("analysis_option.analysis_only must be true.")
+
+    clips: list[dict[str, Any]] = []
+    manifest: list[dict[str, Any]] = []
+    output = bytearray()
+    for item in parse_constraints(request.get("constraints_json"), ardy_backend.ArdyBackendError):
+        if item.get("type") != "clip":
+            continue
+        payload = attachment_payload(item, attachments, ardy_backend.ArdyBackendError)
+        motion = parse_kmb1(payload, ardy_backend.ArdyBackendError)
+        start, end = clip_slice(item, motion, ardy_backend.ArdyBackendError)
+        offset = len(output)
+        output.extend(payload)
+        manifest.append(
+            {
+                "index": len(manifest),
+                "offset": offset,
+                "byte_length": len(payload),
+                "start_frame": start,
+                "end_frame_exclusive": end,
+            }
+        )
+        clips.append(
+            {
+                "root_positions": motion.root_positions[start:end],
+                "local_rot_quats": motion.local_rot_quats[start:end],
+                "fps": motion.fps,
+            }
+        )
+
+    if not clips:
+        raise ardy_backend.ArdyBackendError("analysis_only requires one or more KMB ClipConstraints.")
+    if len(output) > MAX_KMB_BYTES:
+        raise ardy_backend.ArdyBackendError(
+            f"analysis_only KMB output exceeds the {MAX_KMB_BYTES}-byte limit."
+        )
+    return (
+        {
+            "status": "done",
+            "output_format": "kmb_attachments_v1",
+            "byte_length": len(output),
+            "kmb_attachments": manifest,
+            "analysis": animation_analysis.build_clip_constraint_analysis(clips, options),
+        },
+        bytes(output),
+    )
 
 
 def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger) -> int:
@@ -892,7 +1125,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     server.listen(16)
     host, port = server.getsockname()
     _write_serverport(serverport_path, host, int(port), "boot")
+    logger.log(f"[INFO] Kimodo QuickServer version: {_read_quickserver_version(kimodo_root)}")
     logger.log(f"[INFO] quickserver_cli listening on {host}:{port}")
+    logger.log(f"[INFO] ARDY cross-Session batch size: {ardy_backend.ARDY_BATCH_SIZE}")
 
     default_config = {
         "model": str(args.model or assets.DEFAULT_MODEL_NAME).strip() or assets.DEFAULT_MODEL_NAME,
@@ -913,6 +1148,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             "ardy_runtime": {},
             "ardy_stream": None,
             "ardy_stream_signature": "",
+            "ardy_registered": False,
             "ready": False,
             "closed": False,
         }
@@ -922,6 +1158,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "owner_pid": max(0, int(args.watchpid or 0)),
         "last_activity": time.time(),
         "active_runtime": {},
+        "ardy_runtimes": {},
         "shared_text_encoder": None,
         "shared_text_encoder_signature": "",
         "shared_text_encoder_decision": None,
@@ -934,6 +1171,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "tasks": {},
         "retired_runtimes": deque(),
         "active_task_id": "",
+        "active_worker_count": 0,
+        "ardy_session_count": 0,
         "active_command_count": 0,
         "server_state": "boot",
         "task_counter": count(1),
@@ -943,6 +1182,13 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     state_lock = threading.Lock()
     queue_changed = threading.Condition(state_lock)
     runtime_gate = threading.Lock()
+    non_ardy_generation_gate = threading.Lock()
+    # ponytail: mixed backends/modes serialize while the server owns one shared TextEncoder slot.
+    # Replace this gate with keyed resident encoders only if mixed-mode parallelism becomes necessary.
+    text_encoder_execution_gate = _TextEncoderExecutionGate()
+    publish_lock = threading.Lock()
+    task_context = threading.local()
+    ardy_backend.set_inference_session_count(0)
 
     def capture_task_runtime_progress(message: str) -> None:
         text = str(message or "").strip()
@@ -961,7 +1207,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             )
         ):
             return
-        task = state["tasks"].get(str(state.get("active_task_id") or ""))
+        task = state["tasks"].get(str(getattr(task_context, "task_id", "") or ""))
         if task is not None:
             task["status_message"] = text
 
@@ -973,12 +1219,20 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             stream.close()
         session["ardy_stream"] = None
         session["ardy_stream_signature"] = ""
-        runtime = session.get("ardy_runtime")
-        if runtime is not None and runtime.get("model") is not None:
-            state["retired_runtimes"].append(runtime)
         session["ardy_runtime"] = {}
+        if session.get("ardy_registered"):
+            session["ardy_registered"] = False
+            state["ardy_session_count"] = max(0, int(state["ardy_session_count"]) - 1)
+            ardy_backend.set_inference_session_count(state["ardy_session_count"])
         state["sessions"].pop(session["session_id"], None)
         state["model_workers"].pop(f"ardy_session={session['session_id']}", None)
+
+    def register_ardy_session_locked(session: dict[str, Any]) -> None:
+        if session.get("ardy_registered"):
+            return
+        session["ardy_registered"] = True
+        state["ardy_session_count"] = int(state["ardy_session_count"]) + 1
+        ardy_backend.set_inference_session_count(state["ardy_session_count"])
 
     def bind_shared_text_encoder(runtime: dict[str, Any], encoder_signature: str) -> None:
         model = runtime.get("model")
@@ -988,7 +1242,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         decision = runtime.get("text_encoder_decision")
         models_root = str((runtime.get("runtime_config") or {}).get("models_root") or "")
         with state_lock:
-            runtimes = [state["active_runtime"]] + [
+            runtimes = [state["active_runtime"]] + list(state["ardy_runtimes"].values()) + [
                 session.get("ardy_runtime") or {} for session in state["sessions"].values()
             ]
             state["shared_text_encoder"] = encoder
@@ -1014,8 +1268,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             state["last_activity"] = time.time()
 
     def publish_state(state_name: str) -> None:
-        state["server_state"] = state_name
-        _write_serverport(serverport_path, host, int(port), state_name)
+        with publish_lock:
+            state["server_state"] = state_name
+            _write_serverport(serverport_path, host, int(port), state_name)
 
     def begin_command() -> None:
         with state_lock:
@@ -1044,6 +1299,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         if session["ready"]:
             return
         active = session.get("active")
+        if active is not None and str(active.get("state") or "") in ("running", "cancelling"):
+            return
         if state["shutdown"] or session["closed"]:
             if active is None or not active["cancel_event"].is_set():
                 return
@@ -1147,8 +1404,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 owner_pid = int(state.get("owner_pid") or 0)
                 idle_seconds = time.time() - float(state.get("last_activity") or 0.0)
                 runtime_loaded = state["active_runtime"].get("model") is not None or any(
-                    (session.get("ardy_runtime") or {}).get("model") is not None
-                    for session in state["sessions"].values()
+                    runtime.get("model") is not None for runtime in state["ardy_runtimes"].values()
                 )
                 work_in_flight = any(
                     session["queue"]
@@ -1172,9 +1428,10 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             session["queue"] or session.get("active") is not None
                             for session in state["sessions"].values()
                         ) and int(state.get("active_command_count") or 0) == 0:
-                            runtimes = [state["active_runtime"]] + [
-                                session.get("ardy_runtime") or {} for session in state["sessions"].values()
-                            ]
+                            runtimes = [state["active_runtime"]] + list(state["ardy_runtimes"].values())
+                            state["ardy_runtimes"] = {}
+                            for session in state["sessions"].values():
+                                session["ardy_runtime"] = {}
                             state["shared_text_encoder"] = None
                             state["shared_text_encoder_signature"] = ""
                             state["shared_text_encoder_decision"] = None
@@ -1186,7 +1443,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     for runtime in runtimes:
                         _unload_runtime_model(runtime, logger)
 
-    def get_runtime(session: dict[str, Any], runtime_config: dict[str, Any]) -> dict[str, Any]:
+    def get_runtime(
+        session: dict[str, Any],
+        runtime_config: dict[str, Any],
+        cancel_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
         with runtime_gate:
             shared_encoder = state.get("shared_text_encoder")
             shared_signature = str(state.get("shared_text_encoder_signature") or "")
@@ -1202,7 +1463,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             encoder_signature = _build_text_encoder_signature(runtime_config)
             profile = assets.resolve_motion_model_profile(runtime_config["model"])
             is_ardy = profile is not None and profile.backend == "ardy"
-            runtime = session["ardy_runtime"] if is_ardy else state["active_runtime"]
+            if is_ardy:
+                runtime = state["ardy_runtimes"].setdefault(signature, {})
+                session["ardy_runtime"] = runtime
+            else:
+                runtime = state["active_runtime"]
             if shared_encoder is not None and shared_signature != encoder_signature:
                 logger.log(
                     "[INFO] Shared text encoder mode changed; releasing the previous encoder: "
@@ -1212,9 +1477,18 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 shared_encoder = None
                 shared_decision = None
             if runtime.get("model") is not None and runtime.get("runtime_signature") == signature:
-                if shared_encoder is not None:
+                expected_decision = runtime.get("text_encoder_decision")
+                if (
+                    shared_encoder is not None
+                    and expected_decision is not None
+                    and _text_encoder_placement(shared_encoder) == (
+                        expected_decision.encoder_route,
+                        expected_decision.encoder_device,
+                    )
+                ):
                     runtime["model"].text_encoder = shared_encoder
                 if getattr(runtime["model"], "text_encoder", None) is not None:
+                    runtime["model"]._kimodo_runtime_signature = signature
                     state["active_model_worker_key"] = _build_task_worker_key(
                         runtime_config, session["session_id"]
                     )
@@ -1226,7 +1500,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 logger,
                 text_encoder=shared_encoder,
                 text_encoder_decision=shared_decision,
+                cancel_event=cancel_event,
             )
+            runtime["model"]._kimodo_runtime_signature = signature
             bind_shared_text_encoder(runtime, encoder_signature)
             state["active_model_worker_key"] = _build_task_worker_key(
                 runtime_config, session["session_id"]
@@ -1244,7 +1520,13 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         def execute() -> tuple[dict[str, Any], bytes | None]:
             profile = runtime.get("motion_profile")
             if profile is None or profile.backend != "ardy":
-                return _execute_generate(task["request"], runtime["model"], task["cancel_event"])
+                return _execute_generate(
+                    task["request"],
+                    runtime["model"],
+                    task["cancel_event"],
+                    report_progress,
+                    tuple(task.get("attachments") or ()),
+                )
             signature = str(runtime.get("runtime_signature") or "")
             existing = session.get("ardy_stream")
             existing_signature = str(session.get("ardy_stream_signature") or "")
@@ -1278,6 +1560,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 task["runtime_config"],
                 kimodo_root,
                 logger,
+                task["cancel_event"],
             ):
                 raise
             bind_shared_text_encoder(
@@ -1316,23 +1599,57 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                         continue
                     task = session["queue"].popleft()
                     session["active"] = task
+                if str(task.get("state") or "") in ("running", "cancelling"):
+                    continue
+                task["state"] = "running"
                 task_id = task["task_id"]
                 state["active_task_id"] = task_id
+                state["active_worker_count"] = int(state.get("active_worker_count") or 0) + 1
                 publish_state("generating")
 
+            task_context.task_id = task_id
             try:
-                publish_state("loading_runtime")
-                task["status_message"] = "Preparing motion runtime..."
-                if task["cancel_event"].is_set():
-                    raise runtime_helpers.GenerateCancelledError("Generation canceled.")
-                runtime = get_runtime(session, task["runtime_config"])
-                if task["cancel_event"].is_set():
-                    raise runtime_helpers.GenerateCancelledError("Generation canceled.")
-                task["status_message"] = "Generating motion..."
-                publish_state("generating")
-                response, binary_payload = run_one_shot(task, runtime, session)
-                response = _attach_runtime_metadata(response, runtime.get("text_encoder_decision"))
+                def execute_task() -> tuple[dict[str, Any], bytes | None]:
+                    encoder_key = _build_text_encoder_execution_key(task["runtime_config"])
+                    text_encoder_execution_gate.acquire(encoder_key)
+                    try:
+                        publish_state("loading_runtime")
+                        task["status_message"] = "Preparing motion runtime..."
+                        if task["cancel_event"].is_set():
+                            raise runtime_helpers.GenerateCancelledError("Generation canceled.")
+                        try:
+                            runtime = get_runtime(session, task["runtime_config"], task["cancel_event"])
+                        except assets.DownloadCancelledError as exc:
+                            raise runtime_helpers.GenerateCancelledError(str(exc)) from exc
+                        if task["cancel_event"].is_set():
+                            raise runtime_helpers.GenerateCancelledError("Generation canceled.")
+                        task["status_message"] = "Generating motion..."
+                        publish_state("generating")
+                        task_response, task_binary = run_one_shot(task, runtime, session)
+                        return _attach_runtime_metadata(
+                            task_response,
+                            runtime.get("text_encoder_decision"),
+                        ), task_binary
+                    finally:
+                        text_encoder_execution_gate.release(encoder_key)
+
+                if _is_analysis_only_request(task["request"]):
+                    task["status_message"] = "Analyzing KMB ClipConstraints..."
+                    response, binary_payload = _execute_analysis_only(
+                        task["request"],
+                        tuple(task.get("attachments") or ()),
+                    )
+                else:
+                    profile = assets.resolve_motion_model_profile(task["runtime_config"]["model"])
+                    if profile is not None and profile.backend == "ardy":
+                        response, binary_payload = execute_task()
+                    else:
+                        with non_ardy_generation_gate:
+                            response, binary_payload = execute_task()
             except runtime_helpers.GenerateCancelledError as exc:
+                response = {"status": "cancelled", "message": str(exc)}
+                binary_payload = None
+            except assets.DownloadCancelledError as exc:
                 response = {"status": "cancelled", "message": str(exc)}
                 binary_payload = None
             except ardy_backend.ArdyBackendError as exc:
@@ -1357,18 +1674,25 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     }
                 binary_payload = None
                 logger.log(f"[ERROR] Generate task {task_id} failed: {exc}")
+            finally:
+                task_context.task_id = ""
             with queue_changed:
                 if task["cancel_event"].is_set():
                     response = {"status": "cancelled", "message": "Generation canceled."}
                     binary_payload = None
                 finish_task_locked(session, task, response, binary_payload)
                 state["last_activity"] = time.time()
-                publish_state("idle")
+                state["active_worker_count"] = max(0, int(state.get("active_worker_count") or 0) - 1)
+                publish_state("generating" if state["active_worker_count"] else "idle")
                 queue_changed.notify_all()
 
     threading.Thread(target=lifecycle_monitor_loop, daemon=True).start()
-    worker_thread = threading.Thread(target=worker_loop, daemon=True)
-    worker_thread.start()
+    worker_threads = [
+        threading.Thread(target=worker_loop, name=f"KimodoGenerate-{index + 1}", daemon=True)
+        for index in range(ardy_backend.ARDY_BATCH_SIZE)
+    ]
+    for worker_thread in worker_threads:
+        worker_thread.start()
 
     def resolve_request_task_id(request: dict[str, Any]) -> str:
         raw_task_id = str(request.get("task_id") or request.get("id") or "").strip()
@@ -1536,7 +1860,13 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                         if session is None:
                             raise ValueError("The TCP Session is closed.")
 
-                        if cmd == "session.open":
+                        if cmd == "help":
+                            reply({"status": "done", **_build_protocol_help()})
+                        elif cmd == "runtime.list_models":
+                            runtime_profile = runtime_helpers._runtime_self_check(None)
+                            list_config = _normalize_runtime_config(request, session["default_config"])
+                            reply(_build_model_configurations(kimodo_root, list_config, runtime_profile))
+                        elif cmd == "session.open":
                             if bound_session_id != default_session_id:
                                 reply({"status": "done", "session_id": bound_session_id})
                                 continue
@@ -1585,10 +1915,12 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     continue
                                 active_config = _normalize_runtime_config(request, session["default_config"])
                                 session["default_config"] = dict(active_config)
+                                if is_ardy_request:
+                                    register_ardy_session_locked(session)
                                 owner_pid = int(request.get("owner_pid") or 0)
                                 if owner_pid > 0:
                                     state["owner_pid"] = owner_pid
-                                if is_ardy_request:
+                                if is_ardy_request and "duration" not in request:
                                     while session["queue"]:
                                         superseded = session["queue"].popleft()
                                         finish_task_locked(
@@ -1679,16 +2011,18 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 raise
             threading.Thread(target=client_worker, args=(conn, addr), daemon=True).start()
     finally:
-        worker_thread.join()
+        for worker_thread in worker_threads:
+            worker_thread.join()
         with state_lock:
             for session in state["sessions"].values():
                 stream = session.get("ardy_stream")
                 if stream is not None:
                     stream.close()
                 session["ardy_stream"] = None
-            runtimes = [state["active_runtime"]] + [
-                session.get("ardy_runtime") or {} for session in state["sessions"].values()
-            ] + list(state["retired_runtimes"])
+            runtimes = [state["active_runtime"]] + list(state["ardy_runtimes"].values()) + list(
+                state["retired_runtimes"]
+            )
+            state["ardy_runtimes"] = {}
             state["retired_runtimes"].clear()
             state["shared_text_encoder"] = None
             state["shared_text_encoder_signature"] = ""

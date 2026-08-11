@@ -3,6 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT_DIR="${SCRIPT_DIR}"
+LOG_DIR="${ROOT_DIR}/log"
+LAUNCHER_LOG="${LOG_DIR}/launcher.log"
+mkdir -p "${LOG_DIR}"
+exec > >(tee -a "${LAUNCHER_LOG}") 2>&1
+printf '[INFO] Kimodo QuickServer launcher started at %s (pid=%s)\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$$"
 SOURCE_ROOT="${ROOT_DIR}/kimodo"
 if [[ ! -f "${SOURCE_ROOT}/pyproject.toml" ]]; then
   SOURCE_ROOT="${ROOT_DIR}"
@@ -23,7 +28,7 @@ UV_SELECTED_MS=""
 LOCK_HELD=0
 BOOTSTRAP_WAIT_LOGGED=0
 BOOTSTRAP_HOLD_SEC="${KIMODO_BOOTSTRAP_HOLD_SEC:-}"
-BOOTSTRAP_WAIT_LOG="${ROOT_DIR}/log/bootstrap_wait.log"
+BOOTSTRAP_WAIT_LOG="${LOG_DIR}/bootstrap_wait.log"
 
 cleanup_lock() {
   if [[ "${LOCK_HELD}" == "1" && -f "${BOOTSTRAP_LOCK}" ]]; then
@@ -142,7 +147,7 @@ install_uv_locally() {
     fi
     unzip -oq "${tmp_dir}/${artifact}" -d "${tmp_dir}" >/dev/null
   else
-    tar -xzf "${tmp_dir}/${artifact}" -C "${tmp_dir}"
+    tar -xzf "${tmp_dir}/${artifact}" --strip-components=1 -C "${tmp_dir}"
   fi
   if [[ -f "${tmp_dir}/uv" ]]; then
     cp -f "${tmp_dir}/uv" "${uv_dir}/uv"
@@ -156,9 +161,14 @@ install_uv_locally() {
     cp -f "${tmp_dir}/uvw" "${uv_dir}/uvw"
     chmod +x "${uv_dir}/uvw"
   fi
+  if [[ ! -x "${uv_dir}/uv" ]] || ! "${uv_dir}/uv" --version >/dev/null 2>&1; then
+    echo "[ERROR] Downloaded uv archive did not produce a working executable: ${uv_dir}/uv"
+    rm -f "${uv_dir}/uv" "${uv_dir}/uvx" "${uv_dir}/uvw"
+    return 1
+  fi
   trap - RETURN
   rm -rf "${tmp_dir}"
-  echo "[INFO] Download uv complete."
+  echo "[INFO] Download and install uv complete."
 }
 
 resolve_uv_artifact() {
@@ -249,7 +259,13 @@ prompt_install_missing_tools() {
   local missing=("$@")
   local answer=""
   echo "[ERROR] Missing required command-line tool(s): ${missing[*]}"
-  read -r -p "Would you like Kimodo QuickServer to try installing them now? [Y/N] " answer
+  if [[ -n "${KIMODO_AUTO_INSTALL_UV:-}" ]]; then
+    echo "[INFO] KIMODO_AUTO_INSTALL_UV is set; installing missing tools without prompting."
+    answer="yes"
+  elif ! read -r -p "Would you like Kimodo QuickServer to try installing them now? [Y/N] " answer; then
+    echo "[ERROR] Cannot read an install response. Set KIMODO_AUTO_INSTALL_UV=1 for non-interactive startup."
+    return 1
+  fi
   case "${answer}" in
     Y|y|Yes|YES|yes)
       for tool in "${missing[@]}"; do
@@ -312,7 +328,7 @@ fi
 
 if [[ "${#MISSING_TOOLS[@]}" -gt 0 ]]; then
   prompt_install_missing_tools "${MISSING_TOOLS[@]}" || exit 1
-  UV_BIN="$(resolve_uv_bin)"
+  UV_BIN="${ROOT_DIR}/program/exe/uv/uv"
 fi
 
 if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
@@ -355,7 +371,10 @@ fi
 if [[ -n "${EXPLICIT_VENV}" ]]; then
   VENV_PYTHON="$(resolve_python_from_venv "${EXPLICIT_VENV}")"
 else
-  VENV_PYTHON="${SOURCE_ROOT}/.venv/bin/python"
+  VENV_PYTHON="${ROOT_DIR}/.venv/bin/python"
+  if [[ ! -x "${VENV_PYTHON}" && -x "${SOURCE_ROOT}/.venv/bin/python" ]]; then
+    VENV_PYTHON="${SOURCE_ROOT}/.venv/bin/python"
+  fi
 fi
 
 if [[ ! -x "${VENV_PYTHON}" ]]; then

@@ -3,6 +3,7 @@
 """Kimodo model: denoiser, text encoder, diffusion sampling, and post-processing."""
 
 import logging
+import os
 from functools import partial
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -23,6 +24,11 @@ from .cfg import ClassifierFreeGuidedModel
 from .diffusion import DDIMSampler, Diffusion
 
 log = logging.getLogger(__name__)
+
+
+def _kimodo_static_graph_enabled() -> bool:
+    value = os.environ.get("KIMODO_STATIC_GRAPH", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 class Kimodo(nn.Module):
@@ -56,6 +62,8 @@ class Kimodo(nn.Module):
         self.text_encoder = text_encoder
 
         self.device = device
+        self._compiled_denoising_step = None
+        self._compiled_denoising_step_failed = False
         # for classifier-free guidance
 
         self.to(device)
@@ -122,6 +130,77 @@ class Kimodo(nn.Module):
         # sampler computes next step noisy motion
         x_tm1 = self.sampler(use_timesteps, motion, pred_clean, t)
         return x_tm1
+
+    def _denoising_step_static(
+        self,
+        motion: torch.Tensor,
+        pad_mask: torch.Tensor,
+        text_feat: torch.Tensor,
+        text_pad_mask: torch.Tensor,
+        t: torch.Tensor,
+        map_tensor: torch.Tensor,
+        first_heading_angle: Optional[torch.Tensor],
+        motion_mask: torch.Tensor,
+        observed_motion: torch.Tensor,
+        cfg_weight: Union[float, Tuple[float, float]],
+        guide_masks: Optional[Dict] = None,
+        cfg_type: Optional[str] = None,
+    ) -> torch.Tensor:
+        t_map = map_tensor[t]
+        pred_clean = self.denoiser(
+            cfg_weight,
+            motion,
+            pad_mask,
+            text_feat,
+            text_pad_mask,
+            t_map,
+            first_heading_angle,
+            motion_mask,
+            observed_motion,
+            cfg_type=cfg_type,
+        )
+        eps = (
+            self.diffusion.sqrt_recip_alphas_cumprod[t, None, None] * motion - pred_clean
+        ) / self.diffusion.sqrt_recipm1_alphas_cumprod[t, None, None]
+        alpha_bar_prev = self.diffusion.alphas_cumprod_prev[t, None, None]
+        return pred_clean * torch.sqrt(alpha_bar_prev) + torch.sqrt(1 - alpha_bar_prev) * eps
+
+    def _resolve_denoising_step(self):
+        if self._compiled_denoising_step_failed or not _kimodo_static_graph_enabled():
+            return self.denoising_step
+        if self._compiled_denoising_step is not None:
+            return self._compiled_denoising_step
+
+        compile_fn = getattr(torch, "compile", None)
+        if compile_fn is None:
+            self._compiled_denoising_step_failed = True
+            log.warning("KIMODO_STATIC_GRAPH=1 ignored because torch.compile is unavailable.")
+            return self.denoising_step
+
+        mode = os.environ.get("KIMODO_STATIC_GRAPH_MODE", "reduce-overhead").strip() or "reduce-overhead"
+        try:
+            self._compiled_denoising_step = compile_fn(
+                self._denoising_step_static,
+                dynamic=False,
+                mode=mode,
+            )
+        except Exception as exc:
+            self._compiled_denoising_step_failed = True
+            log.warning(
+                "KIMODO_STATIC_GRAPH=1 failed to initialize; falling back to eager.",
+                exc_info=exc,
+            )
+            return self.denoising_step
+        log.info("KIMODO_STATIC_GRAPH=1 enabled for Kimodo denoising_step with mode=%s.", mode)
+        return self._compiled_denoising_step
+
+    def _disable_compiled_denoising_step(self, exc: Exception) -> None:
+        self._compiled_denoising_step = None
+        self._compiled_denoising_step_failed = True
+        log.warning(
+            "KIMODO_STATIC_GRAPH=1 failed during denoising; falling back to eager.",
+            exc_info=exc,
+        )
 
     def _multiprompt(
         self,
@@ -598,11 +677,12 @@ class Kimodo(nn.Module):
         """
 
         device = self.device
+        model_dtype = next(self.denoiser.parameters()).dtype
         if text_feat is None:
             assert text_pad_mask is None
             log.info("Encoding text...")
             text_feat, text_length = self.text_encoder(texts)
-            text_feat = text_feat.to(device)
+            text_feat = text_feat.to(device=device, dtype=model_dtype)
 
             # handle empty string (set to zero)
             empty_text_mask = [len(text.strip()) == 0 for text in texts]
@@ -613,6 +693,10 @@ class Kimodo(nn.Module):
             tensor_text_length = torch.tensor(text_length, device=device)
             tensor_text_length[empty_text_mask] = 0
             text_pad_mask = torch.arange(maxlen, device=device).expand(batch_size, maxlen) < tensor_text_length[:, None]
+        else:
+            text_feat = text_feat.to(device=device, dtype=model_dtype)
+            if text_pad_mask is not None:
+                text_pad_mask = text_pad_mask.to(device=device)
 
         if motion_mask is not None:
             if motion_mask.dtype == torch.bool:
@@ -628,23 +712,62 @@ class Kimodo(nn.Module):
             [num_denoising_steps], device=self.device
         )  # this and t need to be tensor for onnx export
         # init diffusion with correct num steps before looping
-        use_timesteps = self.diffusion.space_timesteps(num_denoising_steps[0])[0]
+        use_timesteps, map_tensor = self.diffusion.space_timesteps(num_denoising_steps[0])
         self.diffusion.calc_diffusion_vars(use_timesteps)
+        denoising_step = self._resolve_denoising_step()
+        using_compiled = denoising_step is self._compiled_denoising_step
         for i in progress_bar(indices):
             t = torch.tensor([i] * cur_mot.size(0), device=self.device)
             with torch.inference_mode():
-                cur_mot = self.denoising_step(
-                    cur_mot,
-                    pad_mask,
-                    text_feat,
-                    text_pad_mask,
-                    t,
-                    first_heading_angle,
-                    motion_mask,
-                    observed_motion,
-                    num_denoising_steps,
-                    cfg_weight,
-                    guide_masks=guide_masks,
-                    cfg_type=cfg_type,
-                )
+                try:
+                    if using_compiled:
+                        cur_mot = denoising_step(
+                            cur_mot,
+                            pad_mask,
+                            text_feat,
+                            text_pad_mask,
+                            t,
+                            map_tensor,
+                            first_heading_angle,
+                            motion_mask,
+                            observed_motion,
+                            cfg_weight,
+                            guide_masks=guide_masks,
+                            cfg_type=cfg_type,
+                        ).clone()
+                    else:
+                        cur_mot = denoising_step(
+                            cur_mot,
+                            pad_mask,
+                            text_feat,
+                            text_pad_mask,
+                            t,
+                            first_heading_angle,
+                            motion_mask,
+                            observed_motion,
+                            num_denoising_steps,
+                            cfg_weight,
+                            guide_masks=guide_masks,
+                            cfg_type=cfg_type,
+                        )
+                except Exception as exc:
+                    if not using_compiled:
+                        raise
+                    self._disable_compiled_denoising_step(exc)
+                    denoising_step = self.denoising_step
+                    using_compiled = False
+                    cur_mot = denoising_step(
+                        cur_mot,
+                        pad_mask,
+                        text_feat,
+                        text_pad_mask,
+                        t,
+                        first_heading_angle,
+                        motion_mask,
+                        observed_motion,
+                        num_denoising_steps,
+                        cfg_weight,
+                        guide_masks=guide_masks,
+                        cfg_type=cfg_type,
+                    )
         return cur_mot
