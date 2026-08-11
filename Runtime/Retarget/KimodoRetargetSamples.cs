@@ -1,0 +1,147 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace KimodoBridge
+{
+    public sealed class BoneSample
+    {
+        public string[] boneNames;
+        public Vector3[] localPositions;
+        public Quaternion[] localRotations;
+
+        public bool IsValid =>
+            boneNames != null &&
+            localPositions != null &&
+            localRotations != null &&
+            boneNames.Length == localPositions.Length &&
+            boneNames.Length == localRotations.Length;
+    }
+
+    public sealed class MuscleSample
+    {
+        public HumanPose pose;
+        public Vector3 leftFootPosition;
+        public Quaternion leftFootRotation;
+        public Vector3 rightFootPosition;
+        public Quaternion rightFootRotation;
+        public Vector3 leftHandPosition;
+        public Quaternion leftHandRotation;
+        public Vector3 rightHandPosition;
+        public Quaternion rightHandRotation;
+    }
+
+    public sealed class KimodoSkeletonInstance : IDisposable
+    {
+        private readonly SkeletonCache cache;
+
+        internal KimodoSkeletonInstance(SkeletonCache cache)
+        {
+            this.cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        }
+
+        public SkeletonCache Cache => cache;
+        public Avatar Avatar => cache.avatar;
+        public Animator Animator => cache.animator;
+        public Transform Root => cache.skeletonRoot;
+        public float HumanScale => cache.humanScale;
+        public bool IsReady => cache.IsReady;
+
+        public void ResetToBindPose()
+        {
+            KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(cache);
+        }
+
+        public BoneSample CaptureBoneSample()
+        {
+            return KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
+        }
+
+        public bool TryApplyBoneSample(BoneSample sample, out string error)
+        {
+            return KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(sample, cache, out error);
+        }
+
+        public bool TryCaptureMuscleSample(out MuscleSample sample, out string error)
+        {
+            return KimodoRetargetSamplingUtility.TryCaptureMuscleSample(cache, out sample, out error);
+        }
+
+        public bool TryGetHumanBone(HumanBodyBones bone, out Transform transform)
+        {
+            transform = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(cache, bone);
+            return transform != null;
+        }
+
+        public void Dispose()
+        {
+            cache.Dispose();
+        }
+    }
+
+    public sealed class SkeletonCache : IDisposable
+    {
+        public Avatar avatar;
+        public GameObject root;
+        public Transform skeletonRoot;
+        public Vector3 rootLocalPosition;
+        public Quaternion rootLocalRotation;
+        public Vector3 rootLocalScale;
+        public string canonicalRootBoneName;
+        public Animator animator;
+        public HumanPoseHandler poseHandler;
+        public float humanScale;
+        public string[] bonePaths;
+        public Transform[] boneTransforms;
+        public Dictionary<string, Transform> bonePathMap;
+        public Dictionary<string, Transform> uniqueNameMap;
+        public HashSet<string> ambiguousNames;
+        public Dictionary<HumanBodyBones, Transform> humanBoneTransforms;
+        public Vector3[] bindLocalPositions;
+        public Quaternion[] bindLocalRotations;
+        public int boneCount;
+        private bool disposed;
+
+        public bool IsReady =>
+            !disposed &&
+            root != null &&
+            skeletonRoot != null &&
+            animator != null &&
+            poseHandler != null &&
+            bonePaths != null &&
+            boneTransforms != null &&
+            bonePaths.Length == boneTransforms.Length;
+
+        public void Dispose()
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            disposed = true;
+            poseHandler?.Dispose();
+            if (root != null)
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+
+            avatar = null;
+            root = null;
+            skeletonRoot = null;
+            canonicalRootBoneName = null;
+            animator = null;
+            poseHandler = null;
+            humanScale = 0f;
+            bonePaths = null;
+            boneTransforms = null;
+            bonePathMap = null;
+            uniqueNameMap = null;
+            ambiguousNames = null;
+            humanBoneTransforms = null;
+            bindLocalPositions = null;
+            bindLocalRotations = null;
+            boneCount = 0;
+        }
+    }
+}

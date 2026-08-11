@@ -1,0 +1,40 @@
+name: sync-to-gitee
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Push branches and tags to Gitee
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "Missing required GitHub Actions secret: GITEE_TOKEN" >&2
+            exit 1
+          fi
+
+          git remote add gitee "https://OneYoungMean:${GITEE_TOKEN}@gitee.com/OneYoungMean/KimodoUnityBridge.git"
+          trap 'git remote remove gitee' EXIT
+
+          git push --prune gitee '+refs/remotes/origin/*:refs/heads/*'
+          git push --force --tags gitee

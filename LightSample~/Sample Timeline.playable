@@ -1,0 +1,1390 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-8641869329428809558
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e514424836ddf8b4e91fb29a04051381, type: 3}
+  m_Name: AnimationPlayableAsset of Kimodo_Playable_20260616_073937_072
+  m_EditorClassIdentifier: 
+  m_Clip: {fileID: 7400000, guid: 9f6de71304fe39b4d9e19d1b307476f6, type: 2}
+  m_Position: {x: 0, y: 0, z: 0}
+  m_EulerAngles: {x: 0, y: 0, z: 0}
+  m_UseTrackMatchFields: 1
+  m_MatchTargetFields: 63
+  m_RemoveStartOffset: 1
+  m_ApplyFootIK: 1
+  m_Loop: 0
+  m_Version: 1
+  m_Rotation: {x: 0, y: 0, z: 0, w: 1}
+  bridgeModelName: Kimodo-SOMA-RP-v1
+  bridgeVramMode: 0
+  motionPrompt: a woman walk and say hello
+  generationFrames: 150
+  diffusionSteps: 100
+  randomSeed: 0
+  seed: 42
+  customRetargetAvatar: {fileID: 0}
+  inOutConstraintMode: 0
+  showConstraint: 1
+  autoBeginAnchor: 1
+  isGenerated: 1
+  lastGeneratedPrompt: a woman walk and say hello
+  autoRetargetOnBinding: 1
+  curveFilterOptions:
+    enabled: 1
+    positionError: 0.25
+    rotationError: 0.25
+    floatError: 0.25
+    ensureQuaternionContinuity: 1
+  frameCount: 150
+  jointCount: 77
+  fps: 30
+--- !u!114 &-6068690408087539731
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d21dcc2386d650c4597f3633c75a1f98, type: 3}
+  m_Name: Animation Track
+  m_EditorClassIdentifier: 
+  m_Version: 3
+  m_AnimClip: {fileID: 0}
+  m_Locked: 0
+  m_Muted: 0
+  m_CustomPlayableFullTypename: 
+  m_Curves: {fileID: 0}
+  m_Parent: {fileID: 11400000}
+  m_Children: []
+  m_Clips:
+  - m_Version: 1
+    m_Start: 10
+    m_ClipIn: 0
+    m_Asset: {fileID: 2253715214722791136}
+    m_Duration: 5
+    m_TimeScale: 1
+    m_ParentTrack: {fileID: -6068690408087539731}
+    m_EaseInDuration: 0
+    m_EaseOutDuration: 0
+    m_BlendInDuration: -1
+    m_BlendOutDuration: -1
+    m_MixInCurve:
+      serializedVersion: 2
+      m_Curve: []
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_MixOutCurve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_BlendInCurveMode: 0
+    m_BlendOutCurveMode: 0
+    m_ExposedParameterNames: []
+    m_AnimationCurves: {fileID: 0}
+    m_Recordable: 0
+    m_PostExtrapolationMode: 1
+    m_PreExtrapolationMode: 1
+    m_PostExtrapolationTime: Infinity
+    m_PreExtrapolationTime: 0
+    m_DisplayName: fighting with hit and kick
+  - m_Version: 1
+    m_Start: 5
+    m_ClipIn: 0
+    m_Asset: {fileID: 6909668270722765361}
+    m_Duration: 5
+    m_TimeScale: 1
+    m_ParentTrack: {fileID: -6068690408087539731}
+    m_EaseInDuration: 0
+    m_EaseOutDuration: 0
+    m_BlendInDuration: -1
+    m_BlendOutDuration: -1
+    m_MixInCurve:
+      serializedVersion: 2
+      m_Curve: []
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_MixOutCurve:
+      serializedVersion: 2
+      m_Curve: []
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_BlendInCurveMode: 0
+    m_BlendOutCurveMode: 0
+    m_ExposedParameterNames: []
+    m_AnimationCurves: {fileID: 0}
+    m_Recordable: 0
+    m_PostExtrapolationMode: 1
+    m_PreExtrapolationMode: 1
+    m_PostExtrapolationTime: 0
+    m_PreExtrapolationTime: 0
+    m_DisplayName: go back
+  - m_Version: 1
+    m_Start: 0
+    m_ClipIn: 0
+    m_Asset: {fileID: -8641869329428809558}
+    m_Duration: 5
+    m_TimeScale: 1
+    m_ParentTrack: {fileID: -6068690408087539731}
+    m_EaseInDuration: 0
+    m_EaseOutDuration: 0
+    m_BlendInDuration: -1
+    m_BlendOutDuration: -1
+    m_MixInCurve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_MixOutCurve:
+      serializedVersion: 2
+      m_Curve: []
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_BlendInCurveMode: 0
+    m_BlendOutCurveMode: 0
+    m_ExposedParameterNames: []
+    m_AnimationCurves: {fileID: 0}
+    m_Recordable: 0
+    m_PostExtrapolationMode: 1
+    m_PreExtrapolationMode: 1
+    m_PostExtrapolationTime: 0
+    m_PreExtrapolationTime: 0
+    m_DisplayName: walk and say hello
+  m_Markers:
+    m_Objects:
+    - {fileID: 9174522732930057522}
+  m_InfiniteClipPreExtrapolation: 0
+  m_InfiniteClipPostExtrapolation: 0
+  m_InfiniteClipOffsetPosition: {x: 0, y: 0, z: 0}
+  m_InfiniteClipOffsetEulerAngles: {x: 0, y: 0, z: 0}
+  m_InfiniteClipTimeOffset: 0
+  m_InfiniteClipRemoveOffset: 0
+  m_InfiniteClipApplyFootIK: 1
+  mInfiniteClipLoop: 0
+  m_MatchTargetFields: 63
+  m_Position: {x: 0, y: 0, z: 0}
+  m_EulerAngles: {x: 0, y: 0, z: 0}
+  m_AvatarMask: {fileID: 0}
+  m_ApplyAvatarMask: 1
+  m_TrackOffset: 0
+  m_InfiniteClip: {fileID: 0}
+  m_OpenClipOffsetRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_Rotation: {x: 0, y: 0, z: 0, w: 1}
+  m_ApplyOffsets: 0
+--- !u!114 &-4989116534850549312
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 016fed14ec49f66418cf65fea1f325ab, type: 3}
+  m_Name: Kimodo Full Body Constraint Marker
+  m_EditorClassIdentifier: 
+  m_Time: 10
+  useOverride: 1
+  sampleData:
+    constraintType: fullbody
+    sampleTime: 10
+    rigType: 0
+    hasRootHeading: 0
+    kimodoRootPosition: {x: -1.61, y: 0.73, z: 4.8191338}
+    rootHeading: {x: 0.022062173, y: 0.99975663}
+    unityRootPos: {x: 0.19517808, y: 0.01108658, z: 4.8558354}
+    unityRootRot: {x: -0, y: -0.067776375, z: -0, w: 0.9977006}
+    jointNames:
+    - Hips
+    - Spine1
+    - Spine2
+    - Chest
+    - Neck1
+    - Neck2
+    - Head
+    - HeadEnd
+    - Jaw
+    - LeftEye
+    - RightEye
+    - LeftShoulder
+    - LeftArm
+    - LeftForeArm
+    - LeftHand
+    - LeftHandThumb1
+    - LeftHandThumb2
+    - LeftHandThumb3
+    - LeftHandThumbEnd
+    - LeftHandIndex1
+    - LeftHandIndex2
+    - LeftHandIndex3
+    - LeftHandIndex4
+    - LeftHandIndexEnd
+    - LeftHandMiddle1
+    - LeftHandMiddle2
+    - LeftHandMiddle3
+    - LeftHandMiddle4
+    - LeftHandMiddleEnd
+    - LeftHandRing1
+    - LeftHandRing2
+    - LeftHandRing3
+    - LeftHandRing4
+    - LeftHandRingEnd
+    - LeftHandPinky1
+    - LeftHandPinky2
+    - LeftHandPinky3
+    - LeftHandPinky4
+    - LeftHandPinkyEnd
+    - RightShoulder
+    - RightArm
+    - RightForeArm
+    - RightHand
+    - RightHandThumb1
+    - RightHandThumb2
+    - RightHandThumb3
+    - RightHandThumbEnd
+    - RightHandIndex1
+    - RightHandIndex2
+    - RightHandIndex3
+    - RightHandIndex4
+    - RightHandIndexEnd
+    - RightHandMiddle1
+    - RightHandMiddle2
+    - RightHandMiddle3
+    - RightHandMiddle4
+    - RightHandMiddleEnd
+    - RightHandRing1
+    - RightHandRing2
+    - RightHandRing3
+    - RightHandRing4
+    - RightHandRingEnd
+    - RightHandPinky1
+    - RightHandPinky2
+    - RightHandPinky3
+    - RightHandPinky4
+    - RightHandPinkyEnd
+    - LeftLeg
+    - LeftShin
+    - LeftFoot
+    - LeftToeBase
+    - LeftToeEnd
+    - RightLeg
+    - RightShin
+    - RightFoot
+    - RightToeBase
+    - RightToeEnd
+    localAxisAngles:
+    - {x: -0.21556547, y: 0.0010483789, z: -0.19174944}
+    - {x: 0.062674545, y: 0.0028874413, z: 0.0025253398}
+    - {x: -0.06619338, y: -0.009087186, z: 0.0095415395}
+    - {x: 0.25086853, y: 0.050578374, z: 0.10202009}
+    - {x: 0.18288352, y: -0.12172863, z: 0.20222579}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.30964822, y: 0.046499416, z: -0.0026819364}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.0009531878, y: -0.0019567322, z: -0.00017608033}
+    - {x: -0.18464416, y: 0.0654922, z: -0.000000008969152}
+    - {x: -0.1855958, y: -0.069415905, z: 0.00000005714464}
+    - {x: -0.051472865, y: 0.10246064, z: 0.14405306}
+    - {x: 0.28754613, y: 0.06560695, z: 1.2073052}
+    - {x: -0.11027633, y: 0.48827684, z: 0.027838368}
+    - {x: -0.11276719, y: -0.009672837, z: -0.21783152}
+    - {x: 0.031959873, y: -0.16579488, z: 0.10001853}
+    - {x: 0.0501101, y: -0.011893027, z: 0.28503895}
+    - {x: 0.0002556674, y: -0.1464558, z: -0.031549376}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.050989293, y: -0.044403292, z: 0.031265948}
+    - {x: -0.08696829, y: -0.020914523, z: 0.17139564}
+    - {x: -0.08892036, y: -0.013061406, z: 0.36571854}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.00081091805, y: -0.03852678, z: 0.025957052}
+    - {x: -0.17368205, y: -0.10823529, z: 0.37586302}
+    - {x: -0.15675868, y: -0.031871203, z: 0.24163334}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.01442648, y: -0.029286703, z: 0.0052966946}
+    - {x: -0.17276227, y: -0.19695634, z: 0.26434988}
+    - {x: -0.16139646, y: -0.009084905, z: 0.5940627}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.008885173, y: -0.013571224, z: 0.060000364}
+    - {x: -0.16759077, y: -0.33270824, z: 0.32388204}
+    - {x: -0.15315342, y: -0.043124728, z: 0.11211943}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.016874336, y: -0.18144311, z: 0.047457125}
+    - {x: 0.27272326, y: -0.28066105, z: -1.3618473}
+    - {x: -0.06913595, y: -0.42417058, z: -0.024095822}
+    - {x: -0.091760054, y: -0.019005995, z: 0.091894425}
+    - {x: -0.06779981, y: 0.09924855, z: -0.04181971}
+    - {x: 0.05114039, y: 0.016563877, z: -0.2839325}
+    - {x: 0.00059753435, y: 0.21189879, z: 0.045591645}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.056132723, y: 0.03493089, z: -0.02827242}
+    - {x: -0.08766287, y: 0.025166776, z: -0.07750415}
+    - {x: -0.08906879, y: 0.02049609, z: -0.1927196}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.0028481416, y: 0.03268326, z: -0.026203705}
+    - {x: -0.16906813, y: 0.116574995, z: -0.26783693}
+    - {x: -0.15863597, y: 0.031965505, z: -0.24535073}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.011053876, y: 0.025373528, z: -0.0090196505}
+    - {x: -0.18632798, y: 0.18874292, z: -0.3820017}
+    - {x: -0.15990244, y: 0.027347306, z: -0.32724378}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.0021607813, y: -0.007433712, z: -0.059972696}
+    - {x: -0.19295126, y: 0.3264422, z: -0.46567774}
+    - {x: -0.15562253, y: 0.04214898, z: -0.14371876}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.1836155, y: 0.048025057, z: 0.26011196}
+    - {x: 0.03588134, y: -0.06810837, z: -0.0051380657}
+    - {x: 0.0013421422, y: -0.052154385, z: 0.009720289}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.10505605, y: -0.02835799, z: 0.25201145}
+    - {x: 0.4359792, y: -0.04440237, z: 0.03342346}
+    - {x: -0.32293218, y: 0.049005218, z: -0.08684066}
+    - {x: 0.0049795127, y: -0.000000015089874, z: -0.000000028000171}
+    - {x: 0, y: 0, z: 0}
+    sampledJointIndices: 000000000100000002000000030000000400000005000000060000000700000008000000090000000a0000000b0000000c0000000d0000000e0000000f000000100000001100000012000000130000001400000015000000160000001700000018000000190000001a0000001b0000001c0000001d0000001e0000001f000000200000002100000022000000230000002400000025000000260000002700000028000000290000002a0000002b0000002c0000002d0000002e0000002f000000300000003100000032000000330000003400000035000000360000003700000038000000390000003a0000003b0000003c0000003d0000003e0000003f000000400000004100000042000000430000004400000045000000460000004700000048000000490000004a0000004b0000004c000000
+--- !u!114 &-2978791039862248477
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 016fed14ec49f66418cf65fea1f325ab, type: 3}
+  m_Name: Kimodo Full Body Constraint Marker
+  m_EditorClassIdentifier: 
+  m_Time: 10
+  useOverride: 1
+  sampleData:
+    constraintType: fullbody
+    sampleTime: 10
+    rigType: 0
+    hasRootHeading: 0
+    kimodoRootPosition: {x: -1.61, y: 0.73, z: 4.8191338}
+    rootHeading: {x: 0.03141726, y: 0.99950635}
+    unityRootPos: {x: 0.19238934, y: 0.0108044045, z: 4.858332}
+    unityRootRot: {x: -0, y: -0.06197834, z: -0, w: 0.9980776}
+    jointNames:
+    - Hips
+    - Spine1
+    - Spine2
+    - Chest
+    - Neck1
+    - Neck2
+    - Head
+    - HeadEnd
+    - Jaw
+    - LeftEye
+    - RightEye
+    - LeftShoulder
+    - LeftArm
+    - LeftForeArm
+    - LeftHand
+    - LeftHandThumb1
+    - LeftHandThumb2
+    - LeftHandThumb3
+    - LeftHandThumbEnd
+    - LeftHandIndex1
+    - LeftHandIndex2
+    - LeftHandIndex3
+    - LeftHandIndex4
+    - LeftHandIndexEnd
+    - LeftHandMiddle1
+    - LeftHandMiddle2
+    - LeftHandMiddle3
+    - LeftHandMiddle4
+    - LeftHandMiddleEnd
+    - LeftHandRing1
+    - LeftHandRing2
+    - LeftHandRing3
+    - LeftHandRing4
+    - LeftHandRingEnd
+    - LeftHandPinky1
+    - LeftHandPinky2
+    - LeftHandPinky3
+    - LeftHandPinky4
+    - LeftHandPinkyEnd
+    - RightShoulder
+    - RightArm
+    - RightForeArm
+    - RightHand
+    - RightHandThumb1
+    - RightHandThumb2
+    - RightHandThumb3
+    - RightHandThumbEnd
+    - RightHandIndex1
+    - RightHandIndex2
+    - RightHandIndex3
+    - RightHandIndex4
+    - RightHandIndexEnd
+    - RightHandMiddle1
+    - RightHandMiddle2
+    - RightHandMiddle3
+    - RightHandMiddle4
+    - RightHandMiddleEnd
+    - RightHandRing1
+    - RightHandRing2
+    - RightHandRing3
+    - RightHandRing4
+    - RightHandRingEnd
+    - RightHandPinky1
+    - RightHandPinky2
+    - RightHandPinky3
+    - RightHandPinky4
+    - RightHandPinkyEnd
+    - LeftLeg
+    - LeftShin
+    - LeftFoot
+    - LeftToeBase
+    - LeftToeEnd
+    - RightLeg
+    - RightShin
+    - RightFoot
+    - RightToeBase
+    - RightToeEnd
+    localAxisAngles:
+    - {x: -0.21504077, y: 0.010491498, z: -0.19068646}
+    - {x: 0.062025886, y: 0.0028405876, z: 0.0040588602}
+    - {x: -0.06644945, y: -0.008238257, z: 0.0097790565}
+    - {x: 0.25122112, y: 0.051078763, z: 0.10162682}
+    - {x: 0.18715723, y: -0.12027924, z: 0.20166853}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.31022766, y: 0.04143753, z: -0.005809856}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.0010685477, y: -0.0017676023, z: -0.0001591326}
+    - {x: -0.1841875, y: 0.06565847, z: 0.0000000013948119}
+    - {x: -0.18511717, y: -0.0691625, z: 0.0000000014504098}
+    - {x: -0.05070169, y: 0.101971, z: 0.14189494}
+    - {x: 0.28670028, y: 0.06516531, z: 1.2116293}
+    - {x: -0.11141369, y: 0.48594716, z: 0.027013406}
+    - {x: -0.11191954, y: -0.0112478575, z: -0.21780683}
+    - {x: 0.03195981, y: -0.16579483, z: 0.100018606}
+    - {x: 0.050110225, y: -0.011893038, z: 0.28503975}
+    - {x: 0.0002556385, y: -0.14645575, z: -0.03154954}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.05099133, y: -0.044405043, z: 0.03126774}
+    - {x: -0.08696851, y: -0.020914508, z: 0.17139554}
+    - {x: -0.0889203, y: -0.013061354, z: 0.36571854}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.0008106945, y: -0.038522445, z: 0.025954308}
+    - {x: -0.17368232, y: -0.10823548, z: 0.37586343}
+    - {x: -0.1567588, y: -0.031871326, z: 0.24163328}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.014429521, y: -0.029293157, z: 0.0052977465}
+    - {x: -0.17276242, y: -0.19695643, z: 0.26435065}
+    - {x: -0.16139655, y: -0.0090850415, z: 0.59406304}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.008885619, y: -0.013572157, z: 0.060004063}
+    - {x: -0.16759072, y: -0.33270812, z: 0.32388222}
+    - {x: -0.1531534, y: -0.04312482, z: 0.112119384}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.01628652, y: -0.17775895, z: 0.045803722}
+    - {x: 0.2728217, y: -0.2819241, z: -1.3644457}
+    - {x: -0.067065604, y: -0.43461433, z: -0.024183288}
+    - {x: -0.089576356, y: -0.025319682, z: 0.091708265}
+    - {x: -0.06779947, y: 0.099249, z: -0.041819215}
+    - {x: 0.051140353, y: 0.01656377, z: -0.2839325}
+    - {x: 0.00059737545, y: 0.2118998, z: 0.04559205}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.056132417, y: 0.03493063, z: -0.028273355}
+    - {x: -0.087664805, y: 0.025167273, z: -0.07750591}
+    - {x: -0.08906943, y: 0.020496301, z: -0.19272044}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.0028476187, y: 0.032678574, z: -0.026200216}
+    - {x: -0.16906819, y: 0.11657497, z: -0.26783696}
+    - {x: -0.15863606, y: 0.031965677, z: -0.24535064}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.011053851, y: 0.025373466, z: -0.009019845}
+    - {x: -0.1863279, y: 0.18874282, z: -0.38200176}
+    - {x: -0.15990224, y: 0.027347283, z: -0.32724386}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.0021606616, y: -0.0074336375, z: -0.05997271}
+    - {x: -0.19295108, y: 0.3264421, z: -0.46567646}
+    - {x: -0.15562265, y: 0.042148978, z: -0.14371863}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.18558751, y: 0.049628217, z: 0.26390395}
+    - {x: 0.034209415, y: -0.07336087, z: -0.0057002753}
+    - {x: -0.0022598405, y: -0.0578638, z: 0.006443361}
+    - {x: 0.00069053395, y: 0.000000002656878, z: -0.0000000064923245}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.10601563, y: -0.028326185, z: 0.25681025}
+    - {x: 0.43447894, y: -0.049538296, z: 0.032341637}
+    - {x: -0.32423514, y: 0.045035455, z: -0.08862716}
+    - {x: 0.001691456, y: -0.000000004245077, z: -0.0000000055897886}
+    - {x: 0, y: 0, z: 0}
+    sampledJointIndices: 000000000100000002000000030000000400000005000000060000000700000008000000090000000a0000000b0000000c0000000d0000000e0000000f000000100000001100000012000000130000001400000015000000160000001700000018000000190000001a0000001b0000001c0000001d0000001e0000001f000000200000002100000022000000230000002400000025000000260000002700000028000000290000002a0000002b0000002c0000002d0000002e0000002f000000300000003100000032000000330000003400000035000000360000003700000038000000390000003a0000003b0000003c0000003d0000003e0000003f000000400000004100000042000000430000004400000045000000460000004700000048000000490000004a0000004b0000004c000000
+--- !u!114 &-1652892189940544237
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 016fed14ec49f66418cf65fea1f325ab, type: 3}
+  m_Name: Kimodo Full Body Constraint Marker
+  m_EditorClassIdentifier: 
+  m_Time: 13.5667
+  useOverride: 1
+  sampleData:
+    constraintType: fullbody
+    sampleTime: 13.5667
+    rigType: 0
+    hasRootHeading: 0
+    kimodoRootPosition: {x: 0.18701974, y: 0.96657264, z: 0.3613899}
+    rootHeading: {x: 0.9977566, y: -0.06694617}
+    unityRootPos: {x: 0.23393081, y: 0.13356198, z: 0.24010248}
+    unityRootRot: {x: -0, y: 0.4179252, z: -0, w: 0.9084815}
+    jointNames:
+    - Hips
+    - Spine1
+    - Spine2
+    - Chest
+    - Neck1
+    - Neck2
+    - Head
+    - HeadEnd
+    - Jaw
+    - LeftEye
+    - RightEye
+    - LeftShoulder
+    - LeftArm
+    - LeftForeArm
+    - LeftHand
+    - LeftHandThumb1
+    - LeftHandThumb2
+    - LeftHandThumb3
+    - LeftHandThumbEnd
+    - LeftHandIndex1
+    - LeftHandIndex2
+    - LeftHandIndex3
+    - LeftHandIndex4
+    - LeftHandIndexEnd
+    - LeftHandMiddle1
+    - LeftHandMiddle2
+    - LeftHandMiddle3
+    - LeftHandMiddle4
+    - LeftHandMiddleEnd
+    - LeftHandRing1
+    - LeftHandRing2
+    - LeftHandRing3
+    - LeftHandRing4
+    - LeftHandRingEnd
+    - LeftHandPinky1
+    - LeftHandPinky2
+    - LeftHandPinky3
+    - LeftHandPinky4
+    - LeftHandPinkyEnd
+    - RightShoulder
+    - RightArm
+    - RightForeArm
+    - RightHand
+    - RightHandThumb1
+    - RightHandThumb2
+    - RightHandThumb3
+    - RightHandThumbEnd
+    - RightHandIndex1
+    - RightHandIndex2
+    - RightHandIndex3
+    - RightHandIndex4
+    - RightHandIndexEnd
+    - RightHandMiddle1
+    - RightHandMiddle2
+    - RightHandMiddle3
+    - RightHandMiddle4
+    - RightHandMiddleEnd
+    - RightHandRing1
+    - RightHandRing2
+    - RightHandRing3
+    - RightHandRing4
+    - RightHandRingEnd
+    - RightHandPinky1
+    - RightHandPinky2
+    - RightHandPinky3
+    - RightHandPinky4
+    - RightHandPinkyEnd
+    - LeftLeg
+    - LeftShin
+    - LeftFoot
+    - LeftToeBase
+    - LeftToeEnd
+    - RightLeg
+    - RightShin
+    - RightFoot
+    - RightToeBase
+    - RightToeEnd
+    localAxisAngles:
+    - {x: -1.1269903, y: 1.1787968, z: -0.23512684}
+    - {x: 0.15159637, y: -0.06424445, z: 0.034676377}
+    - {x: -0.0020508296, y: -0.07901969, z: 0.016019544}
+    - {x: 0.45966157, y: -0.017189186, z: 0.08670048}
+    - {x: 0.7382677, y: -0.17794462, z: 0.24925877}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.116460115, y: 0.14563404, z: 0.069052085}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.00412712, y: -0.0010382552, z: -0.000093391325}
+    - {x: -0.18825814, y: 0.06583897, z: 0.000000107004766}
+    - {x: -0.18828847, y: -0.06840464, z: 0.000000059928674}
+    - {x: -0.07086205, y: -0.09575762, z: 0.19831614}
+    - {x: 0.3079069, y: -0.24867411, z: 0.7598133}
+    - {x: 0.043078925, y: 2.2150395, z: -0.027488193}
+    - {x: 0.051234882, y: 0.11427716, z: -0.12441516}
+    - {x: 0.031959794, y: -0.16579492, z: 0.10001849}
+    - {x: 0.050110515, y: -0.011893416, z: 0.28503883}
+    - {x: 0.00025562992, y: -0.14645581, z: -0.03154931}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.0509892, y: -0.04440351, z: 0.03126577}
+    - {x: -0.086968504, y: -0.020914607, z: 0.17139554}
+    - {x: -0.08892017, y: -0.013061216, z: 0.3657186}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.0008108101, y: -0.038522556, z: 0.025954133}
+    - {x: -0.17368223, y: -0.10823519, z: 0.37586358}
+    - {x: -0.15675895, y: -0.031871356, z: 0.24163318}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.014429733, y: -0.029293092, z: 0.0052975207}
+    - {x: -0.17276253, y: -0.19695647, z: 0.26435056}
+    - {x: -0.16139673, y: -0.009084941, z: 0.59406346}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.008885065, y: -0.013570999, z: 0.06000044}
+    - {x: -0.16759066, y: -0.33270836, z: 0.323882}
+    - {x: -0.15315256, y: -0.043124303, z: 0.11211864}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.023062145, y: -0.2334297, z: 0.06485944}
+    - {x: 0.06644778, y: -0.82685345, z: -0.96830803}
+    - {x: 0.18052702, y: -1.9664291, z: 0.061106108}
+    - {x: 0.16664797, y: -0.021328323, z: 0.38525996}
+    - {x: -0.06780041, y: 0.099250235, z: -0.04181959}
+    - {x: 0.051139932, y: 0.016563714, z: -0.2839315}
+    - {x: 0.00059752096, y: 0.21189877, z: 0.045591757}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.05613292, y: 0.034930393, z: -0.028272659}
+    - {x: -0.087663025, y: 0.02516661, z: -0.077504024}
+    - {x: -0.089069806, y: 0.0204964, z: -0.19272202}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.0028481823, y: 0.03268313, z: -0.026203867}
+    - {x: -0.16906808, y: 0.116575025, z: -0.267837}
+    - {x: -0.158636, y: 0.03196546, z: -0.24535069}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.011053945, y: 0.025373453, z: -0.0090197725}
+    - {x: -0.18632795, y: 0.18874267, z: -0.3820018}
+    - {x: -0.15990208, y: 0.027347382, z: -0.32724333}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.0021607112, y: -0.00743428, z: -0.059976384}
+    - {x: -0.19295146, y: 0.32644242, z: -0.46567747}
+    - {x: -0.15562272, y: 0.042149037, z: -0.14371853}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.8809628, y: -0.24321745, z: -0.472889}
+    - {x: 0.43910825, y: -0.18763062, z: 0.0037330019}
+    - {x: 0.30323854, y: -0.09359749, z: 0.30780602}
+    - {x: -0.03976486, y: 0.000000039893237, z: 0.00000009144389}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.22592661, y: -0.018388271, z: 0.9026192}
+    - {x: 0.6169999, y: -0.5101148, z: -0.023299973}
+    - {x: -0.19304475, y: -0.25840172, z: -0.11688136}
+    - {x: 0.015034024, y: -0.000000021569349, z: 0.00000006263493}
+    - {x: 0, y: 0, z: 0}
+    sampledJointIndices: 000000000100000002000000030000000400000005000000060000000700000008000000090000000a0000000b0000000c0000000d0000000e0000000f000000100000001100000012000000130000001400000015000000160000001700000018000000190000001a0000001b0000001c0000001d0000001e0000001f000000200000002100000022000000230000002400000025000000260000002700000028000000290000002a0000002b0000002c0000002d0000002e0000002f000000300000003100000032000000330000003400000035000000360000003700000038000000390000003a0000003b0000003c0000003d0000003e0000003f000000400000004100000042000000430000004400000045000000460000004700000048000000490000004a0000004b0000004c000000
+--- !u!114 &-680057698342804994
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e514424836ddf8b4e91fb29a04051381, type: 3}
+  m_Name: AnimationPlayableAsset of Kimodo_Playable_20260616_074841_437
+  m_EditorClassIdentifier: 
+  m_Clip: {fileID: 7400000, guid: 1cc04c070b65c4c4ca2a00cf2af6fff0, type: 2}
+  m_Position: {x: 0.20952302, y: 0.011766662, z: 5.291002}
+  m_EulerAngles: {x: 0, y: -7.107, z: 0}
+  m_UseTrackMatchFields: 1
+  m_MatchTargetFields: 63
+  m_RemoveStartOffset: 1
+  m_ApplyFootIK: 1
+  m_Loop: 0
+  m_Version: 1
+  m_Rotation: {x: 0, y: 0, z: 0, w: 1}
+  bridgeModelName: Kimodo-SOMA-RP-v1
+  bridgeVramMode: 0
+  motionPrompt: Walk back, look to the right, and turn around into a martial arts
+    stance
+  generationFrames: 150
+  diffusionSteps: 100
+  randomSeed: 0
+  seed: 42
+  customRetargetAvatar: {fileID: 0}
+  inOutConstraintMode: 2
+  showConstraint: 1
+  autoBeginAnchor: 1
+  isGenerated: 1
+  lastGeneratedPrompt: Walk back, look to the right, and turn around into a martial
+    arts stance
+  autoRetargetOnBinding: 1
+  curveFilterOptions:
+    enabled: 1
+    positionError: 0.25
+    rotationError: 0.25
+    floatError: 0.25
+    ensureQuaternionContinuity: 1
+  frameCount: 150
+  jointCount: 77
+  fps: 30
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bfda56da833e2384a9677cd3c976a436, type: 3}
+  m_Name: Sample Timeline
+  m_EditorClassIdentifier: 
+  m_Version: 0
+  m_Tracks:
+  - {fileID: -6068690408087539731}
+  - {fileID: 1987439704483195700}
+  m_FixedDuration: 0
+  m_EditorSettings:
+    m_Framerate: 60
+    m_ScenePreview: 1
+  m_DurationMode: 0
+  m_MarkerTrack: {fileID: 0}
+--- !u!114 &669009606190727444
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e514424836ddf8b4e91fb29a04051381, type: 3}
+  m_Name: AnimationPlayableAsset of Kimodo_Playable_20260616_074833_336
+  m_EditorClassIdentifier: 
+  m_Clip: {fileID: 7400000, guid: c5c18073cdf333a479133eb6fa046bf6, type: 2}
+  m_Position: {x: 0, y: 0, z: 0}
+  m_EulerAngles: {x: 0, y: 0, z: 0}
+  m_UseTrackMatchFields: 1
+  m_MatchTargetFields: 63
+  m_RemoveStartOffset: 1
+  m_ApplyFootIK: 1
+  m_Loop: 0
+  m_Version: 1
+  m_Rotation: {x: 0, y: 0, z: 0, w: 1}
+  bridgeModelName: Kimodo-SOMA-RP-v1
+  bridgeVramMode: 0
+  motionPrompt: punch hit and  kick
+  generationFrames: 150
+  diffusionSteps: 100
+  randomSeed: 0
+  seed: 286964838
+  customRetargetAvatar: {fileID: 0}
+  inOutConstraintMode: 0
+  showConstraint: 1
+  autoBeginAnchor: 1
+  isGenerated: 1
+  lastGeneratedPrompt: punch hit and  kick
+  autoRetargetOnBinding: 1
+  curveFilterOptions:
+    enabled: 1
+    positionError: 0.25
+    rotationError: 0.25
+    floatError: 0.25
+    ensureQuaternionContinuity: 1
+  frameCount: 150
+  jointCount: 77
+  fps: 30
+--- !u!114 &1987439704483195700
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d21dcc2386d650c4597f3633c75a1f98, type: 3}
+  m_Name: Animation Track (1)
+  m_EditorClassIdentifier: 
+  m_Version: 3
+  m_AnimClip: {fileID: 0}
+  m_Locked: 0
+  m_Muted: 0
+  m_CustomPlayableFullTypename: 
+  m_Curves: {fileID: 0}
+  m_Parent: {fileID: 11400000}
+  m_Children: []
+  m_Clips:
+  - m_Version: 1
+    m_Start: 10
+    m_ClipIn: 0
+    m_Asset: {fileID: 669009606190727444}
+    m_Duration: 5
+    m_TimeScale: 1
+    m_ParentTrack: {fileID: 1987439704483195700}
+    m_EaseInDuration: 0
+    m_EaseOutDuration: 0
+    m_BlendInDuration: -1
+    m_BlendOutDuration: -1
+    m_MixInCurve:
+      serializedVersion: 2
+      m_Curve: []
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_MixOutCurve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_BlendInCurveMode: 0
+    m_BlendOutCurveMode: 0
+    m_ExposedParameterNames: []
+    m_AnimationCurves: {fileID: 0}
+    m_Recordable: 0
+    m_PostExtrapolationMode: 1
+    m_PreExtrapolationMode: 1
+    m_PostExtrapolationTime: Infinity
+    m_PreExtrapolationTime: 0
+    m_DisplayName: fighting with hit and kick
+  - m_Version: 1
+    m_Start: 5
+    m_ClipIn: 0
+    m_Asset: {fileID: -680057698342804994}
+    m_Duration: 5
+    m_TimeScale: 1
+    m_ParentTrack: {fileID: 1987439704483195700}
+    m_EaseInDuration: 0
+    m_EaseOutDuration: 0
+    m_BlendInDuration: -1
+    m_BlendOutDuration: -1
+    m_MixInCurve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_MixOutCurve:
+      serializedVersion: 2
+      m_Curve: []
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_BlendInCurveMode: 0
+    m_BlendOutCurveMode: 0
+    m_ExposedParameterNames: []
+    m_AnimationCurves: {fileID: 0}
+    m_Recordable: 0
+    m_PostExtrapolationMode: 1
+    m_PreExtrapolationMode: 1
+    m_PostExtrapolationTime: 0
+    m_PreExtrapolationTime: 0
+    m_DisplayName: go back and almost tripped
+  - m_Version: 1
+    m_Start: 0
+    m_ClipIn: 0
+    m_Asset: {fileID: 7053432913267128639}
+    m_Duration: 5
+    m_TimeScale: 1
+    m_ParentTrack: {fileID: 1987439704483195700}
+    m_EaseInDuration: 0
+    m_EaseOutDuration: 0
+    m_BlendInDuration: -1
+    m_BlendOutDuration: -1
+    m_MixInCurve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_MixOutCurve:
+      serializedVersion: 2
+      m_Curve: []
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    m_BlendInCurveMode: 0
+    m_BlendOutCurveMode: 0
+    m_ExposedParameterNames: []
+    m_AnimationCurves: {fileID: 0}
+    m_Recordable: 0
+    m_PostExtrapolationMode: 1
+    m_PreExtrapolationMode: 1
+    m_PostExtrapolationTime: 0
+    m_PreExtrapolationTime: 0
+    m_DisplayName: walk and say hello
+  m_Markers:
+    m_Objects:
+    - {fileID: -1652892189940544237}
+  m_InfiniteClipPreExtrapolation: 0
+  m_InfiniteClipPostExtrapolation: 0
+  m_InfiniteClipOffsetPosition: {x: 0, y: 0, z: 0}
+  m_InfiniteClipOffsetEulerAngles: {x: 0, y: 0, z: 0}
+  m_InfiniteClipTimeOffset: 0
+  m_InfiniteClipRemoveOffset: 0
+  m_InfiniteClipApplyFootIK: 1
+  mInfiniteClipLoop: 0
+  m_MatchTargetFields: 63
+  m_Position: {x: 0, y: 0, z: 0}
+  m_EulerAngles: {x: 0, y: 0, z: 0}
+  m_AvatarMask: {fileID: 0}
+  m_ApplyAvatarMask: 1
+  m_TrackOffset: 0
+  m_InfiniteClip: {fileID: 0}
+  m_OpenClipOffsetRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_Rotation: {x: 0, y: 0, z: 0, w: 1}
+  m_ApplyOffsets: 0
+--- !u!114 &2253715214722791136
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e514424836ddf8b4e91fb29a04051381, type: 3}
+  m_Name: AnimationPlayableAsset of Kimodo_Playable_20260616_074813_125
+  m_EditorClassIdentifier: 
+  m_Clip: {fileID: 7400000, guid: 6a0c1694da7426345a2741cda6686956, type: 2}
+  m_Position: {x: 0, y: 0, z: 0}
+  m_EulerAngles: {x: 0, y: 0, z: 0}
+  m_UseTrackMatchFields: 1
+  m_MatchTargetFields: 63
+  m_RemoveStartOffset: 1
+  m_ApplyFootIK: 1
+  m_Loop: 0
+  m_Version: 1
+  m_Rotation: {x: 0, y: 0, z: 0, w: 1}
+  bridgeModelName: Kimodo-SOMA-RP-v1
+  bridgeVramMode: 0
+  motionPrompt: punch hit and  kick
+  generationFrames: 150
+  diffusionSteps: 100
+  randomSeed: 0
+  seed: 286964838
+  customRetargetAvatar: {fileID: 0}
+  inOutConstraintMode: 0
+  showConstraint: 1
+  autoBeginAnchor: 1
+  isGenerated: 1
+  lastGeneratedPrompt: punch hit and  kick
+  autoRetargetOnBinding: 1
+  curveFilterOptions:
+    enabled: 1
+    positionError: 0.25
+    rotationError: 0.25
+    floatError: 0.25
+    ensureQuaternionContinuity: 1
+  frameCount: 150
+  jointCount: 77
+  fps: 30
+--- !u!114 &6909668270722765361
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e514424836ddf8b4e91fb29a04051381, type: 3}
+  m_Name: AnimationPlayableAsset of Kimodo_Playable_20260616_074450_713
+  m_EditorClassIdentifier: 
+  m_Clip: {fileID: 7400000, guid: 30456c84a4f14fd47a565eee297c628c, type: 2}
+  m_Position: {x: 0.20952302, y: 0.0117669245, z: 5.2910013}
+  m_EulerAngles: {x: 0, y: -7.107, z: 0}
+  m_UseTrackMatchFields: 1
+  m_MatchTargetFields: 63
+  m_RemoveStartOffset: 1
+  m_ApplyFootIK: 1
+  m_Loop: 0
+  m_Version: 1
+  m_Rotation: {x: 0, y: 0, z: 0, w: 1}
+  bridgeModelName: Kimodo-SOMA-RP-v1
+  bridgeVramMode: 0
+  motionPrompt: Walk back, look to the right, and turn around into a martial arts
+    stance
+  generationFrames: 150
+  diffusionSteps: 100
+  randomSeed: 0
+  seed: 42
+  customRetargetAvatar: {fileID: 0}
+  inOutConstraintMode: 2
+  showConstraint: 1
+  autoBeginAnchor: 1
+  isGenerated: 1
+  lastGeneratedPrompt: Walk back, look to the right, and turn around into a martial
+    arts stance
+  autoRetargetOnBinding: 1
+  curveFilterOptions:
+    enabled: 1
+    positionError: 0.25
+    rotationError: 0.25
+    floatError: 0.25
+    ensureQuaternionContinuity: 1
+  frameCount: 150
+  jointCount: 77
+  fps: 30
+--- !u!114 &7053432913267128639
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e514424836ddf8b4e91fb29a04051381, type: 3}
+  m_Name: AnimationPlayableAsset of Kimodo_Playable_20260616_073942_479
+  m_EditorClassIdentifier: 
+  m_Clip: {fileID: 7400000, guid: 8719c3cb36c89f6408628db5c37041f3, type: 2}
+  m_Position: {x: 0, y: 0, z: 0}
+  m_EulerAngles: {x: 0, y: 0, z: 0}
+  m_UseTrackMatchFields: 1
+  m_MatchTargetFields: 63
+  m_RemoveStartOffset: 1
+  m_ApplyFootIK: 1
+  m_Loop: 0
+  m_Version: 1
+  m_Rotation: {x: 0, y: 0, z: 0, w: 1}
+  bridgeModelName: Kimodo-SOMA-RP-v1
+  bridgeVramMode: 0
+  motionPrompt: a woman walk and say hello
+  generationFrames: 150
+  diffusionSteps: 100
+  randomSeed: 0
+  seed: 42
+  customRetargetAvatar: {fileID: 0}
+  inOutConstraintMode: 0
+  showConstraint: 1
+  autoBeginAnchor: 1
+  isGenerated: 1
+  lastGeneratedPrompt: a woman walk and say hello
+  autoRetargetOnBinding: 1
+  curveFilterOptions:
+    enabled: 1
+    positionError: 0.25
+    rotationError: 0.25
+    floatError: 0.25
+    ensureQuaternionContinuity: 1
+  frameCount: 150
+  jointCount: 77
+  fps: 30
+--- !u!114 &9174522732930057522
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 016fed14ec49f66418cf65fea1f325ab, type: 3}
+  m_Name: Kimodo Full Body Constraint Marker
+  m_EditorClassIdentifier: 
+  m_Time: 13.5667
+  useOverride: 1
+  sampleData:
+    constraintType: fullbody
+    sampleTime: 13.5667
+    rigType: 0
+    hasRootHeading: 0
+    kimodoRootPosition: {x: 0.18701974, y: 0.96657264, z: 0.3613899}
+    rootHeading: {x: 0.9977566, y: -0.06694617}
+    unityRootPos: {x: 0.23393081, y: 0.13356198, z: 0.24010248}
+    unityRootRot: {x: -0, y: 0.4179252, z: -0, w: 0.9084815}
+    jointNames:
+    - Hips
+    - Spine1
+    - Spine2
+    - Chest
+    - Neck1
+    - Neck2
+    - Head
+    - HeadEnd
+    - Jaw
+    - LeftEye
+    - RightEye
+    - LeftShoulder
+    - LeftArm
+    - LeftForeArm
+    - LeftHand
+    - LeftHandThumb1
+    - LeftHandThumb2
+    - LeftHandThumb3
+    - LeftHandThumbEnd
+    - LeftHandIndex1
+    - LeftHandIndex2
+    - LeftHandIndex3
+    - LeftHandIndex4
+    - LeftHandIndexEnd
+    - LeftHandMiddle1
+    - LeftHandMiddle2
+    - LeftHandMiddle3
+    - LeftHandMiddle4
+    - LeftHandMiddleEnd
+    - LeftHandRing1
+    - LeftHandRing2
+    - LeftHandRing3
+    - LeftHandRing4
+    - LeftHandRingEnd
+    - LeftHandPinky1
+    - LeftHandPinky2
+    - LeftHandPinky3
+    - LeftHandPinky4
+    - LeftHandPinkyEnd
+    - RightShoulder
+    - RightArm
+    - RightForeArm
+    - RightHand
+    - RightHandThumb1
+    - RightHandThumb2
+    - RightHandThumb3
+    - RightHandThumbEnd
+    - RightHandIndex1
+    - RightHandIndex2
+    - RightHandIndex3
+    - RightHandIndex4
+    - RightHandIndexEnd
+    - RightHandMiddle1
+    - RightHandMiddle2
+    - RightHandMiddle3
+    - RightHandMiddle4
+    - RightHandMiddleEnd
+    - RightHandRing1
+    - RightHandRing2
+    - RightHandRing3
+    - RightHandRing4
+    - RightHandRingEnd
+    - RightHandPinky1
+    - RightHandPinky2
+    - RightHandPinky3
+    - RightHandPinky4
+    - RightHandPinkyEnd
+    - LeftLeg
+    - LeftShin
+    - LeftFoot
+    - LeftToeBase
+    - LeftToeEnd
+    - RightLeg
+    - RightShin
+    - RightFoot
+    - RightToeBase
+    - RightToeEnd
+    localAxisAngles:
+    - {x: -1.1269903, y: 1.1787968, z: -0.23512684}
+    - {x: 0.15159637, y: -0.06424445, z: 0.034676377}
+    - {x: -0.0020508296, y: -0.07901969, z: 0.016019544}
+    - {x: 0.45966157, y: -0.017189186, z: 0.08670048}
+    - {x: 0.7382677, y: -0.17794462, z: 0.24925877}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.116460115, y: 0.14563404, z: 0.069052085}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.00412712, y: -0.0010382552, z: -0.000093391325}
+    - {x: -0.18825814, y: 0.06583897, z: 0.000000107004766}
+    - {x: -0.18828847, y: -0.06840464, z: 0.000000059928674}
+    - {x: -0.07086205, y: -0.09575762, z: 0.19831614}
+    - {x: 0.3079069, y: -0.24867411, z: 0.7598133}
+    - {x: 0.043078925, y: 2.2150395, z: -0.027488193}
+    - {x: 0.051234882, y: 0.11427716, z: -0.12441516}
+    - {x: 0.031959794, y: -0.16579492, z: 0.10001849}
+    - {x: 0.050110515, y: -0.011893416, z: 0.28503883}
+    - {x: 0.00025562992, y: -0.14645581, z: -0.03154931}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.0509892, y: -0.04440351, z: 0.03126577}
+    - {x: -0.086968504, y: -0.020914607, z: 0.17139554}
+    - {x: -0.08892017, y: -0.013061216, z: 0.3657186}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.0008108101, y: -0.038522556, z: 0.025954133}
+    - {x: -0.17368223, y: -0.10823519, z: 0.37586358}
+    - {x: -0.15675895, y: -0.031871356, z: 0.24163318}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.014429733, y: -0.029293092, z: 0.0052975207}
+    - {x: -0.17276253, y: -0.19695647, z: 0.26435056}
+    - {x: -0.16139673, y: -0.009084941, z: 0.59406346}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.008885065, y: -0.013570999, z: 0.06000044}
+    - {x: -0.16759066, y: -0.33270836, z: 0.323882}
+    - {x: -0.15315256, y: -0.043124303, z: 0.11211864}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.023062145, y: -0.2334297, z: 0.06485944}
+    - {x: 0.06644778, y: -0.82685345, z: -0.96830803}
+    - {x: 0.18052702, y: -1.9664291, z: 0.061106108}
+    - {x: 0.16664797, y: -0.021328323, z: 0.38525996}
+    - {x: -0.06780041, y: 0.099250235, z: -0.04181959}
+    - {x: 0.051139932, y: 0.016563714, z: -0.2839315}
+    - {x: 0.00059752096, y: 0.21189877, z: 0.045591757}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.05613292, y: 0.034930393, z: -0.028272659}
+    - {x: -0.087663025, y: 0.02516661, z: -0.077504024}
+    - {x: -0.089069806, y: 0.0204964, z: -0.19272202}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.0028481823, y: 0.03268313, z: -0.026203867}
+    - {x: -0.16906808, y: 0.116575025, z: -0.267837}
+    - {x: -0.158636, y: 0.03196546, z: -0.24535069}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.011053945, y: 0.025373453, z: -0.0090197725}
+    - {x: -0.18632795, y: 0.18874267, z: -0.3820018}
+    - {x: -0.15990208, y: 0.027347382, z: -0.32724333}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.0021607112, y: -0.00743428, z: -0.059976384}
+    - {x: -0.19295146, y: 0.32644242, z: -0.46567747}
+    - {x: -0.15562272, y: 0.042149037, z: -0.14371853}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0, y: 0, z: 0}
+    - {x: -0.8809628, y: -0.24321745, z: -0.472889}
+    - {x: 0.43910825, y: -0.18763062, z: 0.0037330019}
+    - {x: 0.30323854, y: -0.09359749, z: 0.30780602}
+    - {x: -0.03976486, y: 0.000000039893237, z: 0.00000009144389}
+    - {x: 0, y: 0, z: 0}
+    - {x: 0.22592661, y: -0.018388271, z: 0.9026192}
+    - {x: 0.6169999, y: -0.5101148, z: -0.023299973}
+    - {x: -0.19304475, y: -0.25840172, z: -0.11688136}
+    - {x: 0.015034024, y: -0.000000021569349, z: 0.00000006263493}
+    - {x: 0, y: 0, z: 0}
+    sampledJointIndices: 000000000100000002000000030000000400000005000000060000000700000008000000090000000a0000000b0000000c0000000d0000000e0000000f000000100000001100000012000000130000001400000015000000160000001700000018000000190000001a0000001b0000001c0000001d0000001e0000001f000000200000002100000022000000230000002400000025000000260000002700000028000000290000002a0000002b0000002c0000002d0000002e0000002f000000300000003100000032000000330000003400000035000000360000003700000038000000390000003a0000003b0000003c0000003d0000003e0000003f000000400000004100000042000000430000004400000045000000460000004700000048000000490000004a0000004b0000004c000000

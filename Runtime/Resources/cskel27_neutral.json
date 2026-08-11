@@ -1,0 +1,308 @@
+{
+  "schema_version": 1,
+  "source": "kimodo/assets/skeletons",
+  "skeleton_name": "cskel27",
+  "joint_count": 27,
+  "units": "meter",
+  "space": "world",
+  "root_index": 0,
+  "joints": [
+    {
+      "index": 0,
+      "name": "Hips",
+      "parent_index": -1,
+      "parent_name": "",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "index": 1,
+      "name": "Spine",
+      "parent_index": 0,
+      "parent_name": "Hips",
+      "position": [
+        0.0,
+        0.070989,
+        -0.047326
+      ]
+    },
+    {
+      "index": 2,
+      "name": "Spine1",
+      "parent_index": 1,
+      "parent_name": "Spine",
+      "position": [
+        0.0,
+        0.164203,
+        -0.063762
+      ]
+    },
+    {
+      "index": 3,
+      "name": "Spine2",
+      "parent_index": 2,
+      "parent_name": "Spine1",
+      "position": [
+        0.0,
+        0.258495,
+        -0.072012
+      ]
+    },
+    {
+      "index": 4,
+      "name": "Spine3",
+      "parent_index": 3,
+      "parent_name": "Spine2",
+      "position": [
+        0.0,
+        0.353148,
+        -0.072012
+      ]
+    },
+    {
+      "index": 5,
+      "name": "Neck",
+      "parent_index": 4,
+      "parent_name": "Spine3",
+      "position": [
+        0.0,
+        0.60161,
+        -0.036518
+      ]
+    },
+    {
+      "index": 6,
+      "name": "Head",
+      "parent_index": 5,
+      "parent_name": "Neck",
+      "position": [
+        0.0,
+        0.729779,
+        -0.013918
+      ]
+    },
+    {
+      "index": 7,
+      "name": "RightShoulder",
+      "parent_index": 4,
+      "parent_name": "Spine3",
+      "position": [
+        -0.031995,
+        0.52592,
+        -0.018687
+      ]
+    },
+    {
+      "index": 8,
+      "name": "RightArm",
+      "parent_index": 7,
+      "parent_name": "RightShoulder",
+      "position": [
+        -0.190903,
+        0.52592,
+        -0.018687
+      ]
+    },
+    {
+      "index": 9,
+      "name": "RightForeArm",
+      "parent_index": 8,
+      "parent_name": "RightArm",
+      "position": [
+        -0.486339,
+        0.525919,
+        -0.018687
+      ]
+    },
+    {
+      "index": 10,
+      "name": "RightHand",
+      "parent_index": 9,
+      "parent_name": "RightForeArm",
+      "position": [
+        -0.718991,
+        0.525919,
+        -0.018687
+      ]
+    },
+    {
+      "index": 11,
+      "name": "RightHandEnd",
+      "parent_index": 10,
+      "parent_name": "RightHand",
+      "position": [
+        -0.788602,
+        0.525919,
+        -0.018687
+      ]
+    },
+    {
+      "index": 12,
+      "name": "RightHandThumb1",
+      "parent_index": 10,
+      "parent_name": "RightHand",
+      "position": [
+        -0.746835,
+        0.507356,
+        0.02772
+      ]
+    },
+    {
+      "index": 13,
+      "name": "LeftShoulder",
+      "parent_index": 4,
+      "parent_name": "Spine3",
+      "position": [
+        0.031995,
+        0.52592,
+        -0.018687
+      ]
+    },
+    {
+      "index": 14,
+      "name": "LeftArm",
+      "parent_index": 13,
+      "parent_name": "LeftShoulder",
+      "position": [
+        0.190903,
+        0.52592,
+        -0.018687
+      ]
+    },
+    {
+      "index": 15,
+      "name": "LeftForeArm",
+      "parent_index": 14,
+      "parent_name": "LeftArm",
+      "position": [
+        0.486339,
+        0.52592,
+        -0.018687
+      ]
+    },
+    {
+      "index": 16,
+      "name": "LeftHand",
+      "parent_index": 15,
+      "parent_name": "LeftForeArm",
+      "position": [
+        0.718991,
+        0.52592,
+        -0.018687
+      ]
+    },
+    {
+      "index": 17,
+      "name": "LeftHandEnd",
+      "parent_index": 16,
+      "parent_name": "LeftHand",
+      "position": [
+        0.788602,
+        0.52592,
+        -0.018687
+      ]
+    },
+    {
+      "index": 18,
+      "name": "LeftHandThumb1",
+      "parent_index": 16,
+      "parent_name": "LeftHand",
+      "position": [
+        0.746835,
+        0.507357,
+        0.02772
+      ]
+    },
+    {
+      "index": 19,
+      "name": "RightUpLeg",
+      "parent_index": 0,
+      "parent_name": "Hips",
+      "position": [
+        -0.094918,
+        -0.027729,
+        0.0
+      ]
+    },
+    {
+      "index": 20,
+      "name": "RightLeg",
+      "parent_index": 19,
+      "parent_name": "RightUpLeg",
+      "position": [
+        -0.094918,
+        -0.439847,
+        0.0
+      ]
+    },
+    {
+      "index": 21,
+      "name": "RightFoot",
+      "parent_index": 20,
+      "parent_name": "RightLeg",
+      "position": [
+        -0.094918,
+        -0.895938,
+        0.0
+      ]
+    },
+    {
+      "index": 22,
+      "name": "RightToeBase",
+      "parent_index": 21,
+      "parent_name": "RightFoot",
+      "position": [
+        -0.094918,
+        -0.954413,
+        0.160658
+      ]
+    },
+    {
+      "index": 23,
+      "name": "LeftUpLeg",
+      "parent_index": 0,
+      "parent_name": "Hips",
+      "position": [
+        0.094918,
+        -0.027729,
+        0.0
+      ]
+    },
+    {
+      "index": 24,
+      "name": "LeftLeg",
+      "parent_index": 23,
+      "parent_name": "LeftUpLeg",
+      "position": [
+        0.094918,
+        -0.439847,
+        0.0
+      ]
+    },
+    {
+      "index": 25,
+      "name": "LeftFoot",
+      "parent_index": 24,
+      "parent_name": "LeftLeg",
+      "position": [
+        0.094918,
+        -0.895938,
+        0.0
+      ]
+    },
+    {
+      "index": 26,
+      "name": "LeftToeBase",
+      "parent_index": 25,
+      "parent_name": "LeftFoot",
+      "position": [
+        0.094918,
+        -0.954413,
+        0.160658
+      ]
+    }
+  ]
+}
