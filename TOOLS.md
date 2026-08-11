@@ -50,6 +50,7 @@ The returned schema is authoritative. Use only returned command names and parame
 - Session time is fixed at 60 FPS. Public ranges use `[start_frame,end_frame)`; generation constraint frames are relative to the generated clip.
 - Preserve every returned character/animation safe name, pose locator, `analysis_id`, and `request_id` exactly.
 - Generation is asynchronous. Poll `kimodo_get_generation` until `status` is `completed`, `failed`, or `canceled`; acceptance or `running` is not completion.
+- While generation is running, commands that sample or remove an overlapping range on the same character track fail immediately with `code: generation_range_locked`. Non-overlapping tracks/ranges continue normally; wait for the returned `request_id` to finish or cancel it before retrying.
 - Asset generation and server maintenance run in Unity Edit Mode and must wait while Unity is compiling or importing.
 - A current Session is the preferred workspace. `kimodo_generate_animation` can create and retain an automatic Session when none is open.
 - Use only models returned by `kimodo_help` with `section:"models"`.
@@ -150,6 +151,7 @@ command_dispatcher.Invoke("kimodo_help", "{\"section\":\"models\"}");
 - Session 时间固定为 60 FPS。公开区间使用 `[start_frame,end_frame)`；生成约束帧是生成 Clip 内的相对帧。
 - 原样保存所有返回的角色/动画安全名称、Pose locator、`analysis_id` 和 `request_id`。
 - 生成是异步任务。反复调用 `kimodo_get_generation`，直到 `status` 为 `completed`、`failed` 或 `canceled`；accepted 或 `running` 不代表完成。
+- 生成运行期间，若命令要采样或删除同一角色 Track 上与生成区间重叠的范围，会立即返回 `code: generation_range_locked`。不重叠的 Track/区间仍可正常执行；应等待返回的 `request_id` 结束，或取消后重试。
 - 动画资产生成与服务器维护只在 Unity Edit Mode 执行；Unity 编译或导入期间必须等待。
 - 优先在当前 Session 中工作。没有 Session 时，`kimodo_generate_animation` 可以创建并保留自动 Session。
 - 模型只能使用 `kimodo_help` 的 `section:"models"` 返回项。

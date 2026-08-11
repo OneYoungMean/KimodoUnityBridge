@@ -17,7 +17,7 @@ namespace KimodoUnityBridge.Command
         private const double SessionFrameRate = 60.0;
 
         public static string PoseGet(string argumentsJson) => Execute(argumentsJson, arguments =>
-            Ok(ReadPose(RequirePoseLocator(arguments["pose"] as JObject))));
+            Ok(ReadPose(RequirePoseLocator(arguments["pose"] as JObject), PoseGetCommand)));
 
         public static string PoseCreate(string argumentsJson) => Execute(argumentsJson, arguments =>
         {
@@ -35,7 +35,7 @@ namespace KimodoUnityBridge.Command
             TimelineCharacterRecord character = ResolveSessionCharacterByReference(
                 session, RequiredStringValue(arguments, "character"), false);
             RequireWritablePoseAvatar(character);
-            JObject result = ReadPose(RequirePoseLocator(arguments["pose"] as JObject));
+            JObject result = ReadPose(RequirePoseLocator(arguments["pose"] as JObject), PoseCopyCommand);
             JObject data = result["data"] as JObject
                 ?? throw new InvalidOperationException("Source pose data is unavailable.");
             return Ok(new JObject { ["pose"] = StoreWritablePose(character, data) });
@@ -175,13 +175,14 @@ namespace KimodoUnityBridge.Command
             heading = (2f * oneMinus * (q1 - q0) + 2f * u * (q2 - q1)).normalized;
         }
 
-        private static JObject ReadPose(PoseLocator locator)
+        private static JObject ReadPose(PoseLocator locator, string command = GenerateAnimationCommand)
         {
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
                 string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase));
             if (character != null)
             {
+                ThrowIfGenerationRangeLocked(session, character, locator.Frame, locator.Frame + 1, command);
                 JObject data = CaptureCharacterPose(session, character, locator.Frame);
                 return new JObject
                 {

@@ -827,6 +827,9 @@ namespace KimodoUnityBridge.Command
                 {
                     TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
                     TimelineAnimationRecord animation = ResolveAnimation(arguments, character);
+                    int startFrame = Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate));
+                    int endFrame = startFrame + Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)));
+                    ThrowIfGenerationRangeLocked(session, character, startFrame, endFrame, SessionTryRemoveCommand);
                     character.Track.DeleteClip(animation.TimelineClip);
                     character.Animations.Remove(animation);
                     SaveTimelineSession(session);
@@ -835,6 +838,7 @@ namespace KimodoUnityBridge.Command
                 if (kind == "character")
                 {
                     TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
+                    ThrowIfGenerationRangeLocked(session, character, 0, int.MaxValue, SessionTryRemoveCommand);
                     session.TimelineAsset.DeleteTrack(character.Track);
                     session.Characters.Remove(character);
                     SaveTimelineSession(session);
@@ -859,23 +863,28 @@ namespace KimodoUnityBridge.Command
                 }
                 int startFrame;
                 int endFrame;
-                TimelineAnimationRecord animation;
+                TimelineAnimationRecord animation = null;
+                if (animationMode)
+                {
+                    animation = ResolveAnimation(arguments, character);
+                    startFrame = Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate));
+                    endFrame = startFrame + Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)));
+                }
+                else
+                {
+                    startFrame = RequiredNonNegativeFrame(arguments, "start_frame");
+                    endFrame = RequiredNonNegativeFrame(arguments, "end_frame");
+                    if (endFrame <= startFrame)
+                        throw new InvalidOperationException("The analysis range must satisfy 0 <= start_frame < end_frame.");
+                }
+
+                ThrowIfGenerationRangeLocked(session, character, startFrame, endFrame, KimodoAnalyzeCommand);
                 AnimationClip transientClip = null;
                 TimelineClip transientTimelineClip = null;
                 try
                 {
-                    if (animationMode)
+                    if (!animationMode)
                     {
-                        animation = ResolveAnimation(arguments, character);
-                        startFrame = Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate));
-                        endFrame = startFrame + Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)));
-                    }
-                    else
-                    {
-                        startFrame = RequiredNonNegativeFrame(arguments, "start_frame");
-                        endFrame = RequiredNonNegativeFrame(arguments, "end_frame");
-                        if (endFrame <= startFrame)
-                            throw new InvalidOperationException("The analysis range must satisfy 0 <= start_frame < end_frame.");
                         animation = BakeTransientAnalysisRange(session, character, startFrame, endFrame, out transientClip, out transientTimelineClip);
                     }
 
@@ -1051,6 +1060,7 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException("The bake range must satisfy 0 <= start_frame < end_frame.");
             }
+            ThrowIfGenerationRangeLocked(session, source, startFrame, endFrame, KimodoBakeRangeCommand);
             double start = startFrame / SessionFrameRate;
             double end = endFrame / SessionFrameRate;
             TimelineCharacterRecord target = source;
@@ -1421,6 +1431,51 @@ namespace KimodoUnityBridge.Command
             {
                 return Jobs.Values.Any(record => record.Session.IsRunning &&
                     record.TimelineGenerationTrace != null && record.TimelineGenerationTrace.Session.Id == timelineSessionId);
+            }
+        }
+
+        internal static bool GenerationRangesOverlap(int firstStart, int firstEnd, int secondStart, int secondEnd) =>
+            firstStart < secondEnd && secondStart < firstEnd;
+
+        private static void ThrowIfGenerationRangeLocked(
+            TimelineSessionRecord session,
+            TimelineCharacterRecord character,
+            int startFrame,
+            int endFrame,
+            string command)
+        {
+            if (session == null || character?.Track == null || endFrame <= startFrame)
+            {
+                return;
+            }
+
+            lock (JobsLock)
+            {
+                foreach (JobRecord record in Jobs.Values)
+                {
+                    TimelineGenerationTrace trace = record.TimelineGenerationTrace;
+                    if (!record.Session.IsRunning || trace == null ||
+                        !ReferenceEquals(trace.Session, session) ||
+                        !ReferenceEquals(trace.Character?.Track, character.Track))
+                    {
+                        continue;
+                    }
+
+                    int lockedStart = Mathf.RoundToInt((float)(trace.StartSeconds * SessionFrameRate));
+                    int lockedEnd = lockedStart + Math.Max(1, Mathf.RoundToInt((float)(trace.DurationSeconds * SessionFrameRate)));
+                    if (GenerationRangesOverlap(startFrame, endFrame, lockedStart, lockedEnd))
+                    {
+                        throw new GenerationRangeLockedException(
+                            command,
+                            record.Session.RequestId,
+                            character.Name,
+                            character.Track.name,
+                            lockedStart,
+                            lockedEnd,
+                            startFrame,
+                            endFrame);
+                    }
+                }
             }
         }
 

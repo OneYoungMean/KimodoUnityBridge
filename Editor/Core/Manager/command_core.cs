@@ -85,7 +85,7 @@ namespace KimodoUnityBridge.Command
                             Required("character", "string", "Safe character name in the current Session."),
                             Optional("animation", "string", "Safe animation name for kind=clip."))),
                     CommandDefinition(KimodoAnalyzeCommand,
-                        "Analyze one named animation or a Session frame range and cache the result under a stable analysis_id.",
+                        "Analyze one named animation or a Session frame range and cache the result under a stable analysis_id. Overlap with a running generation on the same character track returns generation_range_locked.",
                         Properties(
                             Required("character", "string", "Safe character name in the current Session."),
                             Optional("animation", "string", "Safe animation name; mutually exclusive with start_frame/end_frame."),
@@ -93,7 +93,7 @@ namespace KimodoUnityBridge.Command
                             Optional("end_frame", "integer", "Exclusive Session frame at 60 FPS; requires start_frame."),
                             Optional("analysis_option", "object", "Optional QuickServer analysis configuration; analysis_only is forced true."))),
                     CommandDefinition(KimodoBakeRangeCommand,
-                        "Bake a Session time range into an AnimationClip and append it to a character; optionally retarget it to another current Session character.",
+                        "Bake a Session time range into an AnimationClip and append it to a character; optionally retarget it to another current Session character. Overlap with a running generation on the source track returns generation_range_locked.",
                         Properties(
                             Required("start_frame", "integer", "Inclusive Session frame at 60 FPS."),
                             Required("end_frame", "integer", "Exclusive Session frame at 60 FPS."),
@@ -133,7 +133,7 @@ namespace KimodoUnityBridge.Command
                             Required("character", "string", "Target character name."),
                             Required("pose", "object", "Pose data containing the canonical profile root, muscles, and optional foot_ik."))),
                     CommandDefinition(PoseGetCommand,
-                        "Read a pose from any returned {source,frame} locator.",
+                        "Read a pose from any returned {source,frame} locator. Sampling a character Timeline frame locked by generation returns generation_range_locked.",
                         Properties(Required("pose", "object", "{source,frame} pose locator at fixed 60 FPS."))),
                     CommandDefinition(PoseSetCommand,
                         "Update a writable pose.",
@@ -1207,6 +1207,10 @@ namespace KimodoUnityBridge.Command
             }
             catch (Exception ex)
             {
+                if (ex is GenerationRangeLockedException locked)
+                {
+                    return Error(locked);
+                }
                 return Error(ex.Message);
             }
         }
@@ -1230,6 +1234,23 @@ namespace KimodoUnityBridge.Command
             {
                 ["ok"] = false,
                 ["error"] = message ?? string.Empty
+            }.ToString(Formatting.None);
+        }
+
+        private static string Error(GenerationRangeLockedException error)
+        {
+            return new JObject
+            {
+                ["ok"] = false,
+                ["code"] = "generation_range_locked",
+                ["error"] = error.Message,
+                ["command"] = error.Command,
+                ["request_id"] = error.RequestId.ToString("D"),
+                ["character"] = error.Character,
+                ["track"] = error.Track,
+                ["locked_range"] = new JArray(error.LockedStartFrame, error.LockedEndFrame),
+                ["requested_range"] = new JArray(error.RequestedStartFrame, error.RequestedEndFrame),
+                ["action"] = $"Wait for generation completion or cancel request {error.RequestId:D}."
             }.ToString(Formatting.None);
         }
 
@@ -1637,6 +1658,39 @@ namespace KimodoUnityBridge.Command
             public UnityEngine.Object Target { get; }
             public command_generation_session Session { get; }
             public TimelineGenerationTrace TimelineGenerationTrace { get; }
+        }
+
+        private sealed class GenerationRangeLockedException : InvalidOperationException
+        {
+            public GenerationRangeLockedException(
+                string command,
+                Guid requestId,
+                string character,
+                string track,
+                int lockedStartFrame,
+                int lockedEndFrame,
+                int requestedStartFrame,
+                int requestedEndFrame)
+                : base($"{command} cannot access [{requestedStartFrame},{requestedEndFrame}) on '{track}' while generation {requestId:D} locks [{lockedStartFrame},{lockedEndFrame}).")
+            {
+                Command = command;
+                RequestId = requestId;
+                Character = character;
+                Track = track;
+                LockedStartFrame = lockedStartFrame;
+                LockedEndFrame = lockedEndFrame;
+                RequestedStartFrame = requestedStartFrame;
+                RequestedEndFrame = requestedEndFrame;
+            }
+
+            public string Command { get; }
+            public Guid RequestId { get; }
+            public string Character { get; }
+            public string Track { get; }
+            public int LockedStartFrame { get; }
+            public int LockedEndFrame { get; }
+            public int RequestedStartFrame { get; }
+            public int RequestedEndFrame { get; }
         }
 
         private readonly struct ResolvedCharacter

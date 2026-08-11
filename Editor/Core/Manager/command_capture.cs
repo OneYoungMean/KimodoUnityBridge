@@ -115,7 +115,10 @@ namespace KimodoUnityBridge.Command
             TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
                 string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase));
             if (character != null)
+            {
+                ThrowIfGenerationRangeLocked(session, character, locator.Frame, locator.Frame + 1, QueryPictureCommand);
                 return new CaptureRequest(character, locator.Frame / SessionFrameRate, annotation, null, locator.Frame);
+            }
             character = ResolvePoseCacheOwner(locator.Source);
             if (character != null)
             {

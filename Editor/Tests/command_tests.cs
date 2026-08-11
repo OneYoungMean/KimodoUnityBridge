@@ -179,6 +179,19 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(response.Value<string>("error"), Does.Contain("Unknown"));
         }
 
+        [TestCase(10, 20, 15, 25, true)]
+        [TestCase(10, 20, 20, 25, false)]
+        [TestCase(20, 25, 10, 20, false)]
+        public void GenerationRangesOverlap_UsesHalfOpenRanges(
+            int firstStart,
+            int firstEnd,
+            int secondStart,
+            int secondEnd,
+            bool expected)
+        {
+            Assert.That(command_context.GenerationRangesOverlap(firstStart, firstEnd, secondStart, secondEnd), Is.EqualTo(expected));
+        }
+
         [Test]
         public void GetGeneration_UnknownRequest_ReturnsStructuredError()
         {
