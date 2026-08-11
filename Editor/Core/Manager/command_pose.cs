@@ -111,8 +111,9 @@ namespace KimodoUnityBridge.Command
                 points.Add(new JObject
                 {
                     ["frame"] = frame,
-                    ["position"] = new JArray(position.x, position.y),
-                    ["heading"] = new JArray(heading.x, heading.y)
+                    ["forwardPos"] = position.y,
+                    ["rightwardPos"] = position.x,
+                    ["rotateY"] = Mathf.Atan2(heading.x, heading.y) * Mathf.Rad2Deg
                 });
             }
             return Ok(new JObject
@@ -324,8 +325,9 @@ namespace KimodoUnityBridge.Command
             {
                 ["root"] = new JObject
                 {
-                    ["position"] = Vector3Json(sample.kimodoRootPosition),
-                    ["rotation_y"] = ResolvePoseRootYaw(rootRotation)
+                    ["forwardPos"] = sample.kimodoRootPosition.z,
+                    ["rightwardPos"] = sample.kimodoRootPosition.x,
+                    ["rotateY"] = ResolvePoseRootYaw(rootRotation)
                 },
                 ["muscles"] = muscles,
                 ["foot_ik"] = new JObject
@@ -339,15 +341,25 @@ namespace KimodoUnityBridge.Command
         private static void ApplyPoseJson(KimodoMarkerSampleResult sample, JObject data)
         {
             JObject root = data["root"] as JObject;
-            if (root?["position"] != null) sample.kimodoRootPosition = RequiredVector3(root, "position");
-            if (root?["rotation_y"] != null)
+            if (root == null)
             {
-                JToken rotationYToken = root["rotation_y"];
-                if (rotationYToken.Type != JTokenType.Integer && rotationYToken.Type != JTokenType.Float)
-                    throw new InvalidOperationException("rotation_y must be a number in degrees.");
-                float rotationY = rotationYToken.Value<float>();
-                if (float.IsNaN(rotationY) || float.IsInfinity(rotationY))
-                    throw new InvalidOperationException("rotation_y must be finite.");
+                return;
+            }
+            if (root["position"] != null || root["rotation_y"] != null)
+            {
+                throw new InvalidOperationException("root.position/root.rotation_y were removed; use root.forwardPos, root.rightwardPos, and root.rotateY.");
+            }
+            if (root["forwardPos"] != null)
+            {
+                sample.kimodoRootPosition.z = RequiredFiniteScalar(root, "forwardPos");
+            }
+            if (root["rightwardPos"] != null)
+            {
+                sample.kimodoRootPosition.x = RequiredFiniteScalar(root, "rightwardPos");
+            }
+            if (root["rotateY"] != null)
+            {
+                float rotationY = RequiredFiniteScalar(root, "rotateY");
                 sample.localAxisAngles ??= new List<Vector3>();
                 if (sample.localAxisAngles.Count == 0) sample.localAxisAngles.Add(Vector3.zero);
                 Quaternion currentRotation = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0]);
@@ -355,7 +367,7 @@ namespace KimodoUnityBridge.Command
                 sample.localAxisAngles[0] = KimodoRuntimeUtility.QuaternionToAxisAngleVector(rotation);
                 Vector3 forward = rotation * Vector3.forward;
                 Vector2 heading = new Vector2(forward.x, forward.z);
-                sample.rootHeading = heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.right;
+                sample.rootHeading = heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.up;
                 sample.hasRootHeading = true;
             }
             if (data["muscles"] is JObject muscles)
@@ -400,11 +412,15 @@ namespace KimodoUnityBridge.Command
             if (value?["rotation"] != null) rotation = RequiredQuaternion(value, "rotation");
         }
 
-        private static Vector2 RequiredVector2(JObject value, string name)
+        private static float RequiredFiniteScalar(JObject value, string name)
         {
-            JArray array = value?[name] as JArray;
-            if (array == null || array.Count != 2) throw new InvalidOperationException($"{name} must be [x,z].");
-            return new Vector2(array[0].Value<float>(), array[1].Value<float>());
+            JToken token = value?[name];
+            if (token == null || (token.Type != JTokenType.Integer && token.Type != JTokenType.Float))
+                throw new InvalidOperationException($"{name} must be a number.");
+            float result = token.Value<float>();
+            if (float.IsNaN(result) || float.IsInfinity(result))
+                throw new InvalidOperationException($"{name} must be finite.");
+            return result;
         }
 
         private static Vector3 RequiredVector3(JObject value, string name)

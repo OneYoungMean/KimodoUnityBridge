@@ -99,6 +99,35 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void Root2DProtocol_UsesSemanticForwardRightYawFields()
+        {
+            JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+            JObject generate = definitions["tools"]
+                .Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationCommand);
+            JObject itemProperties = (JObject)generate["inputSchema"]["properties"]["constraints"]["items"]["properties"];
+
+            Assert.That(itemProperties.Property("forwardPos"), Is.Not.Null);
+            Assert.That(itemProperties.Property("rightwardPos"), Is.Not.Null);
+            Assert.That(itemProperties.Property("rotateY"), Is.Not.Null);
+            Assert.That(itemProperties.Property("position"), Is.Null);
+            Assert.That(itemProperties.Property("heading"), Is.Null);
+
+            JObject path = JObject.Parse(command_context.BuildRoot2DPath(
+                "{\"shape\":\"line\",\"duration_frames\":60}"));
+            JArray points = (JArray)path["points"];
+            JObject point = (JObject)points[points.Count - 1];
+            Assert.That(point.Property("forwardPos"), Is.Not.Null);
+            Assert.That(point.Property("rightwardPos"), Is.Not.Null);
+            Assert.That(point.Property("rotateY"), Is.Not.Null);
+            Assert.That(point.Property("position"), Is.Null);
+            Assert.That(point.Property("heading"), Is.Null);
+            Assert.That(point.Value<float>("forwardPos"), Is.EqualTo(0f).Within(1e-5f));
+            Assert.That(point.Value<float>("rightwardPos"), Is.EqualTo(path.Value<float>("distance")).Within(1e-5f));
+            Assert.That(point.Value<float>("rotateY"), Is.EqualTo(90f).Within(1e-5f));
+        }
+
+        [Test]
         public void WritablePoseMarker_HasAUnityScriptAsset()
         {
             var marker = ScriptableObject.CreateInstance<KimodoUntypedConstraintMarker>();

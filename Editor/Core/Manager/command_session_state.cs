@@ -1335,8 +1335,11 @@ namespace KimodoUnityBridge.Command
             if (marker.ConstraintType == "root2d" &&
                 (marker.SampleData.muscles == null || marker.SampleData.muscles.Count == 0))
             {
-                result["position"] = new JArray(marker.SampleData.kimodoRootPosition.x, marker.SampleData.kimodoRootPosition.z);
-                result["heading"] = new JArray(marker.SampleData.rootHeading.x, marker.SampleData.rootHeading.y);
+                result["forwardPos"] = marker.SampleData.kimodoRootPosition.z;
+                result["rightwardPos"] = marker.SampleData.kimodoRootPosition.x;
+                result["rotateY"] = marker.SampleData.hasRootHeading
+                    ? Mathf.Atan2(marker.SampleData.rootHeading.x, marker.SampleData.rootHeading.y) * Mathf.Rad2Deg
+                    : 0f;
             }
             else
             {

@@ -70,12 +70,12 @@ Before each non-trivial call, request that command's current help. Verify the fi
 
 ### 6. Pose and constraint semantics
 
-A pose locator is `{"source":"<source>","frame":<integer>}`. A character source samples a read-only Timeline pose. A `<character>.Poses` source is writable. Use `pose_copy` before modifying a read-only pose, then use `pose_get`/`pose_set`. Pose `root.position` is the world position of the sampled Profile Skeleton pelvis (`kimodoRootPosition`), and `root.rotation_y` is its world yaw in degrees. The internal skeleton rotations remain axis-angle data. Do not infer coordinate spaces or manufacture profile-skeleton values; preserve data returned by the pose commands.
+A pose locator is `{"source":"<source>","frame":<integer>}`. A character source samples a read-only Timeline pose. A `<character>.Poses` source is writable. Use `pose_copy` before modifying a read-only pose, then use `pose_get`/`pose_set`. Pose `root.forwardPos` is signed ground-plane distance along canonical forward (+Z), `root.rightwardPos` is signed ground-plane distance along canonical right (+X), and `root.rotateY` is absolute world yaw in degrees around Unity Y. The internal skeleton rotations remain axis-angle data. Do not infer coordinate spaces or manufacture profile-skeleton values; preserve data returned by the pose commands.
 
 Inline generation constraints are anonymous values with `frame` and `type`. The two core types are:
 
-- `fullbody`: reads a pose locator as a complete body pose. It constrains the full-body joints and also includes the root bone position and heading.
-- `root2d`: constrains only the root bone position and heading on the ground plane. It does not constrain the rest of the body. It may use a pose locator or direct `position` and `heading`.
+- `fullbody`: reads a pose locator as a complete body pose. It constrains the full-body joints and also includes the root `forwardPos`, `rightwardPos`, and `rotateY`.
+- `root2d`: constrains only the root bone `forwardPos`, `rightwardPos`, and `rotateY` on the ground plane. It does not constrain the rest of the body. It may use a pose locator or direct `forwardPos`, `rightwardPos`, and `rotateY`.
 
 The current schema also exposes hand/foot types, but this section only defines the two core types above. A `fullbody` constraint already includes the root constraint; do not add `root2d` at the same frame. Use the exact current schema and start with few, non-conflicting constraints.
 
@@ -171,12 +171,12 @@ session_close {}
 
 ### 6. Pose 与 Constraint 语义
 
-Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 Timeline 上的只读采样 Pose；`<角色>.Poses` 来源可写。修改只读 Pose 前先调用 `pose_copy`，之后使用 `pose_get`/`pose_set`。Pose 的 `root.position` 是采样后 Profile Skeleton 盆骨的世界位置（`kimodoRootPosition`），`root.rotation_y` 是其世界 Yaw 角（度）；骨架内部旋转仍使用轴角数据。不得猜测坐标空间或伪造 Profile Skeleton 数值；应保留 Pose 命令返回的数据。
+Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 Timeline 上的只读采样 Pose；`<角色>.Poses` 来源可写。修改只读 Pose 前先调用 `pose_copy`，之后使用 `pose_get`/`pose_set`。Pose 的 `root.forwardPos` 是沿角色标准前方（+Z）的有符号地面距离，`root.rightwardPos` 是沿角色标准右方（+X）的有符号地面距离，`root.rotateY` 是绕 Unity Y 轴的绝对世界 Yaw 角（度）；骨架内部旋转仍使用轴角数据。不得猜测坐标空间或伪造 Profile Skeleton 数值；应保留 Pose 命令返回的数据。
 
 生成内联 Constraint 是包含 `frame` 和 `type` 的匿名值。本节先明确两个核心类型：
 
-- `fullbody`：从 Pose locator 读取完整人体姿态，约束全身关节位置，并同时包含根骨骼的位置与朝向。
-- `root2d`：只约束根骨骼在地面平面上的位置与朝向，不约束其他身体关节。可以使用 Pose locator，也可以直接提供 `position` 和 `heading`。
+- `fullbody`：从 Pose locator 读取完整人体姿态，约束全身关节位置，并同时包含根骨骼的 `forwardPos`、`rightwardPos` 与 `rotateY`。
+- `root2d`：只约束根骨骼在地面平面上的 `forwardPos`、`rightwardPos` 与 `rotateY`，不约束其他身体关节。可以使用 Pose locator，也可以直接提供这三个字段。
 
 当前 schema 还保留手脚类型，但本节暂只定义上面两个核心类型。`fullbody` 已经包含根骨骼约束，同一帧不要再添加 `root2d`。严格使用当前 schema，并从少量、不冲突的约束开始。
 
