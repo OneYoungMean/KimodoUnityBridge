@@ -382,6 +382,22 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void RuntimeDriverPublicApi_DoesNotKeepPromptAliases()
+        {
+            var methodNames = new HashSet<string>(
+                typeof(KimodoRuntimeMotionDriver)
+                    .GetMethods(System.Reflection.BindingFlags.Instance |
+                                System.Reflection.BindingFlags.Public |
+                                System.Reflection.BindingFlags.DeclaredOnly)
+                    .Select(method => method.Name));
+
+            Assert.That(methodNames, Does.Contain("SetAnimationPrompt"));
+            Assert.That(methodNames, Does.Contain("GetCurrentPrompt"));
+            Assert.That(methodNames, Does.Not.Contain("SetPrompt"));
+            Assert.That(methodNames, Does.Not.Contain("GetAnimationPrompt"));
+        }
+
+        [Test]
         public void ConstraintRefresh_DoesNotCancelAnActiveGenerate()
         {
             Assert.That(KimodoRuntimeMotionDriver.ShouldCancelActiveGenerationForRefresh(isArdy: true), Is.False);

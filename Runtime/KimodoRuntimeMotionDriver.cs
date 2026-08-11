@@ -23,7 +23,6 @@ namespace KimodoBridge
         [FormerlySerializedAs("highVram")]
         [SerializeField] private KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPerformance;
         [SerializeField] private bool forceCpu;
-        [SerializeField][Min(1f)] private float startupTimeoutMinutes = 30f;
 
         [Header("Generation")]
         [SerializeField] private string defaultPrompt = IdlePrompt;
@@ -189,19 +188,9 @@ namespace KimodoBridge
             motionPlayer?.ApplyLateRetargetCorrection(driveFootIkTargets);
         }
 
-        public void SetPrompt(string prompt)
-        {
-            SetPromptInternal(prompt);
-        }
-
         public void SetAnimationPrompt(string prompt)
         {
             SetPromptInternal(prompt);
-        }
-
-        public string GetAnimationPrompt(out bool isIdle)
-        {
-            return GetCurrentPromptInternal(out isIdle);
         }
 
         public string GetCurrentPrompt(out bool isIdle)
