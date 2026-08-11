@@ -232,44 +232,20 @@ namespace KimodoUnityBridge.Command
                 throw new InvalidOperationException($"Character '{character.Name}' has no retargetable Timeline clip: {contextError}");
             }
 
-            if (!KimodoTimelineSamplingSession.TryCreate(
+            double sampleTime = frame / SessionFrameRate;
+            string modelName = KimodoPlayableClip.NormalizeBridgeModelName(context.ModelName);
+            if (!KimodoTimelineConstraintClipCache.TrySampleMarker(
                     context,
-                    KimodoPlayableClip.DefaultBridgeModelName,
-                    out KimodoTimelineSamplingSession sampler,
-                    out string samplerError))
+                    sampleTime,
+                    sampleTime,
+                    "fullbody",
+                    modelName,
+                    out KimodoMarkerSampleResult sample,
+                    out string sampleError))
             {
-                throw new InvalidOperationException($"Timeline retarget sampler failed: {samplerError}");
+                throw new InvalidOperationException($"Timeline retarget pose sampling failed: {sampleError}");
             }
-
-            try
-            {
-                if (!sampler.TryCaptureMuscleSample(
-                        frame / SessionFrameRate,
-                        false,
-                        Vector3.zero,
-                        Quaternion.identity,
-                        out MuscleSample sampled,
-                        out string sampleError))
-                {
-                    throw new InvalidOperationException($"Timeline retarget pose sampling failed: {sampleError}");
-                }
-                var sample = new KimodoMarkerSampleResult
-                {
-                    sampleTime = frame / SessionFrameRate,
-                    unityRootPos = character.Animator.transform.position,
-                    unityRootRot = character.Animator.transform.rotation,
-                    muscles = sampled.pose.muscles.ToList(),
-                    leftFootPosition = sampled.leftFootPosition,
-                    leftFootRotation = sampled.leftFootRotation,
-                    rightFootPosition = sampled.rightFootPosition,
-                    rightFootRotation = sampled.rightFootRotation
-                };
-                return PoseSampleToJson(sample);
-            }
-            finally
-            {
-                sampler.Dispose();
-            }
+            return PoseSampleToJson(sample);
         }
 
         private static void RequireWritablePoseAvatar(TimelineCharacterRecord character)
