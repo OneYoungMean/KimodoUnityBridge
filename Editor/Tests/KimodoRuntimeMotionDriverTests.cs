@@ -398,13 +398,6 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ConstraintRefresh_DoesNotCancelAnActiveGenerate()
-        {
-            Assert.That(KimodoRuntimeMotionDriver.ShouldCancelActiveGenerationForRefresh(isArdy: true), Is.False);
-            Assert.That(KimodoRuntimeMotionDriver.ShouldCancelActiveGenerationForRefresh(isArdy: false), Is.False);
-        }
-
-        [Test]
         public void RuntimeConstraints_StagesOwnedSamplesAndCommitsOnePerType()
         {
             var buffer = new KimodoRuntimeConstraints();
@@ -541,6 +534,30 @@ namespace KimodoBridge.Editor.Tests
                     includeOverlap: false,
                     duration: 5f),
                 Is.Empty);
+        }
+
+        [Test]
+        public void ArdyRequestCompletion_ClearsOnlySentFields()
+        {
+            var session = new KimodoRuntimeGenerationSession();
+            try
+            {
+                session.ResetArdy(1f);
+                session.CompleteArdyRequest(
+                    sentPrompt: true,
+                    sentConstraints: false,
+                    sentSettings: true,
+                    stale: false);
+
+                Assert.That(session.ArdyStarted, Is.True);
+                Assert.That(session.ArdyPromptDirty, Is.False);
+                Assert.That(session.ArdyConstraintsDirty, Is.True);
+                Assert.That(session.ArdySettingsDirty, Is.False);
+            }
+            finally
+            {
+                session.Dispose();
+            }
         }
 
         [Test]
