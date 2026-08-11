@@ -472,36 +472,33 @@ namespace KimodoBridge.Editor.Tests
         [Test]
         public void RuntimeGenerationSession_ResetAndDisposeOwnsArdyLifecycle()
         {
-            var session = new KimodoRuntimeGenerationSession
-            {
-                LifetimeCts = new System.Threading.CancellationTokenSource(),
-                ActiveGenerationCts = new System.Threading.CancellationTokenSource(),
-                Running = true,
-                GenerationInFlight = true,
-                ArdySessionStarted = true,
-                ArdyPromptDirty = false,
-                ArdyConstraintsDirty = false,
-                ArdySettingsDirty = false,
-                ArdyRefreshPending = true
-            };
+            var session = new KimodoRuntimeGenerationSession();
             try
             {
+                Assert.That(session.TryBeginStart(), Is.True);
+                session.Start(_ => System.Threading.Tasks.Task.CompletedTask);
+                session.EndStart();
+                Assert.That(
+                    session.TryBeginGeneration(
+                        System.Threading.CancellationToken.None,
+                        out System.Threading.CancellationTokenSource generationCts,
+                        out _,
+                        out _),
+                    Is.True);
+                System.Threading.CancellationToken lifetimeToken = session.LifetimeToken;
+                System.Threading.CancellationToken generationToken = generationCts.Token;
                 session.ResetArdy(0f);
 
-                Assert.That(session.ArdySessionStarted, Is.False);
+                Assert.That(session.ArdyStarted, Is.False);
                 Assert.That(session.ArdyPromptDirty, Is.True);
                 Assert.That(session.ArdyConstraintsDirty, Is.True);
                 Assert.That(session.ArdySettingsDirty, Is.True);
                 Assert.That(session.ArdyRefreshPending, Is.False);
-                Assert.That(session.ArdyEffectivePlaybackReserveSeconds, Is.EqualTo(0.2f));
+                Assert.That(session.ArdyPlaybackReserveSeconds, Is.EqualTo(0.2f));
 
-                var lifetimeCts = session.LifetimeCts;
-                var generationCts = session.ActiveGenerationCts;
-                session.Dispose();
-                Assert.That(lifetimeCts.IsCancellationRequested, Is.True);
-                Assert.That(generationCts.IsCancellationRequested, Is.True);
-                Assert.That(session.LifetimeCts, Is.Null);
-                Assert.That(session.ActiveGenerationCts, Is.Null);
+                session.StopAsync().GetAwaiter().GetResult();
+                Assert.That(lifetimeToken.IsCancellationRequested, Is.True);
+                Assert.That(generationToken.IsCancellationRequested, Is.True);
                 Assert.That(session.Running, Is.False);
                 Assert.That(session.GenerationInFlight, Is.False);
             }
