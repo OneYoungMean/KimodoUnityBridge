@@ -110,20 +110,20 @@ def transform_constraints_to_origin(constraints_lst: list, transform) -> None:
 def normalize_constraints_to_anchor(constraints_lst: list):
     """Move Kimodo or ARDY constraints into one planar anchor space.
 
-    The earliest constrained frame wins. At that frame the priority is fullbody,
-    end/foot, then root2d; input order breaks ties. Y is intentionally preserved.
+    The earliest constrained frame wins. At that frame the priority is root2d,
+    end/foot, fullbody, then clip; input order breaks ties. Y is intentionally preserved.
     Returns the planar ``(x, z)`` translation and yaw needed to restore output.
     """
     candidates = []
     priority = {
-        "fullbody": 3,
-        "end-effector": 2,
-        "left-hand": 2,
-        "right-hand": 2,
-        "left-foot": 2,
-        "right-foot": 2,
-        "root2d": 1,
-        "clip": 3,
+        "root2d": 4,
+        "end-effector": 3,
+        "left-hand": 3,
+        "right-hand": 3,
+        "left-foot": 3,
+        "right-foot": 3,
+        "fullbody": 2,
+        "clip": 1,
     }
     for order, constraint in enumerate(constraints_lst or []):
         if len(constraint.frame_indices) == 0:
