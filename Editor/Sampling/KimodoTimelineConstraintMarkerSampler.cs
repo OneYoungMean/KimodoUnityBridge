@@ -1651,6 +1651,9 @@ namespace KimodoBridge.Editor
             }
 
             samples.AddRange(resolvedSamples);
+            KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(
+                samples,
+                KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context));
             return true;
         }
 

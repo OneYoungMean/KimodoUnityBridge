@@ -47,7 +47,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。Runt
 | FullBody Constraint | 从统一 Pose 构造完整人体约束 | `kimodo_generate_animation.constraints` | 完整 | 包含 49 Muscle 与 Root/Hand/Foot TQ；`frame` 是生成 Clip 内相对帧 |
 | Root2D Constraint | 从 Pose 或直接 Position/Heading 构造根骨骼约束 | `kimodo_generate_animation.constraints` | 完整 | 只约束根骨骼地面平面位置与朝向；直接值为 `[x,z]` 与二维 heading |
 | Hand/Foot Constraint | 从统一 Pose 的完整 Hand/Foot TQ 重定向出左右手脚末端约束 | `kimodo_generate_animation.constraints` | 完整 | 独立类型复用 Pose locator 的对应末端 TQ |
-| Hand/Foot IK 场景编辑 | Constraint Editor 用红立方体调整末端目标并实时更新 Pose | 无 | 未覆盖 | 当前是 Editor 交互能力 |
+| FullBody 与 Hand/Foot IK 场景编辑 | Constraint Editor 用红立方体拖拽 FullBody 盆骨、左右手脚或独立末端目标，并实时写回统一 Pose | 无 | 未覆盖 | 当前是 Editor 交互能力；其余非根骨骼保持旋转编辑 |
 | 数学 Root2D 路径 | 生成 line、turn、s、circle 路径点 | `kimodo_build_root2d_path` | 完整 | 输出可直接转换为 Root2D constraints |
 | Spline 与 NavMesh 路径创作 | Scene 编辑、Spline 采样、NavMesh 路点与脚步约束 | 无 | 未覆盖 | 当前由 Editor UI 和 Editor service 实现 |
 | 动画分析 | 分析命名动画或半开 Session 帧区间并缓存 `analysis_id` | `kimodo_analyze` | 完整 | 支持 `analysis_option` |
@@ -75,7 +75,8 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。Runt
 
 - `fullbody` 从 Pose locator 读取完整人体姿态，约束全身关节位置，并同时包含根骨骼的位置与朝向。
 - `root2d` 只约束根骨骼在地面平面上的位置与朝向，不包含其他身体关节。它可以使用 `pose`，也可以使用 `position:[x,z]` 与 `heading:[x,z]`。
-- `fullbody` 已经包含根骨骼约束，同一帧不要再添加 `root2d`。
+- `left_hand`、`right_hand`、`left_foot`、`right_foot` 从 Pose locator 读取对应完整 HandTQ 或 FootTQ。
+- 同一帧中 `fullbody` 提供基础 Pose，`root2d` 覆盖 RootTQ，手脚约束覆盖对应末端 TQ；除 ClipConstraint 外不使用通用 Mask/Weight。
 
 ## 维护要求
 

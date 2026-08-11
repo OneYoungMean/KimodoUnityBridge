@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CharacterAnimationCli.Unity;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -57,6 +58,7 @@ namespace KimodoBridge.Editor
         public SkeletonCache ProfileCache;
         public List<Material> GeneratedMaterials;
         public GameObject EndEffectorMarker;
+        public Dictionary<HumanBodyBones, GameObject> FullBodyTargets;
         public KimodoMarkerSampleResult BaseSample;
         public bool PickingEnabled;
         public bool HasRenderSignature;
@@ -115,6 +117,31 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            if (sample.characterPose != null)
+            {
+                if (!sample.characterPose.TryValidate(out error))
+                {
+                    return false;
+                }
+                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                        CharacterPoseMuscleAdapter.ToMuscleSample(sample.characterPose),
+                        frameRate,
+                        targetCache,
+                        out BoneSample canonicalTargetSample,
+                        out _,
+                        out error) ||
+                    !KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                        canonicalTargetSample,
+                        targetCache,
+                        out error))
+                {
+                    return false;
+                }
+
+                ApplyRoot2DHeadingToPreviewRoot(sample, targetCache.skeletonRoot);
+                return true;
+            }
+
             KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(profileCache);
             if (!KimodoRetargetAvatarUtility.TryApplyMarkerSampleToTransformMap(
                     sample,
@@ -161,6 +188,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            previewRoot.position = sample.kimodoRootPosition;
             Vector3 forward = new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y);
             if (forward.sqrMagnitude > 1e-8f)
             {
@@ -235,6 +263,14 @@ namespace KimodoBridge.Editor
         private const float HighlightAlpha = 1.0f;
         private static readonly Color NonConstraintColor = new Color(1f, 1f, 1f, NonConstraintAlpha);
         private static readonly Color HighlightColor = new Color(1f, 0f, 0f, HighlightAlpha);
+        private static readonly HumanBodyBones[] FullBodyTargetBones =
+        {
+            HumanBodyBones.Hips,
+            HumanBodyBones.LeftHand,
+            HumanBodyBones.RightHand,
+            HumanBodyBones.LeftFoot,
+            HumanBodyBones.RightFoot
+        };
 
         static KimodoConstraintPoseCache()
         {
@@ -448,7 +484,7 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            return false;
+            return HasFullBodyTargetTransformChanges(entry);
         }
 
         internal static void ClearTransformChanges(PoseCacheRenderContext context, string entryId = null)
@@ -474,6 +510,7 @@ namespace KimodoBridge.Editor
             {
                 entry.EndEffectorMarker.transform.hasChanged = false;
             }
+            ClearFullBodyTargetTransformChanges(entry);
         }
 
         internal static bool HasEndEffectorTargetTransformChanges(
@@ -482,8 +519,8 @@ namespace KimodoBridge.Editor
         {
             return TryGetSession(context, out ConstraintPosePreviewSession session) &&
                 TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) &&
-                entry?.EndEffectorMarker != null &&
-                entry.EndEffectorMarker.transform.hasChanged;
+                ((entry?.EndEffectorMarker != null && entry.EndEffectorMarker.transform.hasChanged) ||
+                 HasFullBodyTargetTransformChanges(entry));
         }
 
         internal static bool TryPreviewEndEffectorTargetPose(
@@ -504,11 +541,10 @@ namespace KimodoBridge.Editor
             entry.TargetCache.root.SetActive(true);
             try
             {
-                if (!TryApplyEndEffectorTargetToRig(
-                        entry,
-                        context.ModelName,
-                        constraintType,
-                        out error))
+                bool applied = string.Equals(constraintType, "fullbody", StringComparison.OrdinalIgnoreCase)
+                    ? TryApplyFullBodyTargetsToRig(entry, context.ModelName, out error)
+                    : TryApplyEndEffectorTargetToRig(entry, context.ModelName, constraintType, out error);
+                if (!applied)
                 {
                     return false;
                 }
@@ -645,6 +681,20 @@ namespace KimodoBridge.Editor
 
             target = entry.EndEffectorMarker;
             return true;
+        }
+
+        internal static bool TryGetFullBodyTarget(
+            PoseCacheRenderContext context,
+            string entryId,
+            HumanBodyBones bone,
+            out GameObject target)
+        {
+            target = null;
+            return TryGetSession(context, out ConstraintPosePreviewSession session) &&
+                TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) &&
+                entry?.FullBodyTargets != null &&
+                entry.FullBodyTargets.TryGetValue(bone, out target) &&
+                target != null;
         }
 
         internal static bool TryUpdateEndEffectorTarget(
@@ -1208,6 +1258,7 @@ namespace KimodoBridge.Editor
                 UnityEngine.Object.DestroyImmediate(entry.EndEffectorMarker);
                 entry.EndEffectorMarker = null;
             }
+            DestroyFullBodyTargets(entry);
 
             SkeletonCache targetCache = entry.TargetCache;
             entry.TargetCache = null;
@@ -1253,6 +1304,17 @@ namespace KimodoBridge.Editor
                 entry.EndEffectorMarker.SetActive(visible);
                 changed = true;
             }
+            if (entry.FullBodyTargets != null)
+            {
+                foreach (GameObject target in entry.FullBodyTargets.Values)
+                {
+                    if (target != null && target.activeSelf != visible)
+                    {
+                        target.SetActive(visible);
+                        changed = true;
+                    }
+                }
+            }
             return changed;
         }
 
@@ -1294,23 +1356,40 @@ namespace KimodoBridge.Editor
 
         private static void SetEndEffectorMarkerSelectable(ConstraintPosePreviewEntry entry, bool selectable)
         {
-            if (entry?.EndEffectorMarker == null)
+            if (entry == null)
             {
                 return;
             }
 
-            entry.EndEffectorMarker.hideFlags = selectable
+            SetIkTargetSelectable(entry.EndEffectorMarker, selectable);
+            if (entry.FullBodyTargets != null)
+            {
+                foreach (GameObject target in entry.FullBodyTargets.Values)
+                {
+                    SetIkTargetSelectable(target, selectable);
+                }
+            }
+        }
+
+        private static void SetIkTargetSelectable(GameObject target, bool selectable)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            target.hideFlags = selectable
                 ? HideFlags.DontSave
                 : HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
             try
             {
                 if (selectable)
                 {
-                    SceneVisibilityManager.instance.EnablePicking(entry.EndEffectorMarker, false);
+                    SceneVisibilityManager.instance.EnablePicking(target, false);
                 }
                 else
                 {
-                    SceneVisibilityManager.instance.DisablePicking(entry.EndEffectorMarker, false);
+                    SceneVisibilityManager.instance.DisablePicking(target, false);
                 }
             }
             catch
@@ -1433,6 +1512,7 @@ namespace KimodoBridge.Editor
                 KimodoMarkerSampleResult sample = item?.SampleData;
                 if (sample != null)
                 {
+                    AddHash(ref hash, sample.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty);
                     AddHash(ref hash, sample.constraintType);
                     AddHash(ref hash, sample.sampleTime.GetHashCode());
                     AddHash(ref hash, (int)sample.rigType);
@@ -1589,6 +1669,7 @@ namespace KimodoBridge.Editor
 
                 sample.unityRootPos = entry.TargetCache.skeletonRoot.position;
                 sample.unityRootRot = entry.TargetCache.skeletonRoot.rotation;
+                sample.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(targetSample);
                 CaptureEndEffectorTargetPose(entry, markerType, sample);
                 return true;
             }
@@ -1603,6 +1684,18 @@ namespace KimodoBridge.Editor
             string constraintType,
             KimodoMarkerSampleResult sample)
         {
+            if (string.Equals(constraintType, "fullbody", StringComparison.OrdinalIgnoreCase))
+            {
+                if (entry?.EndEffectorMarker != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(entry.EndEffectorMarker);
+                    entry.EndEffectorMarker = null;
+                }
+                UpdateFullBodyTargets(entry, sample);
+                return;
+            }
+
+            DestroyFullBodyTargets(entry);
             HumanBodyBones bone = ResolveEndEffectorBone(constraintType);
             if (!KimodoConstraintSpaceConverter.TryResolveHumanBonePair(
                     entry?.ProfileCache,
@@ -1621,23 +1714,7 @@ namespace KimodoBridge.Editor
 
             if (entry.EndEffectorMarker == null)
             {
-                entry.EndEffectorMarker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                entry.EndEffectorMarker.name = "__KimodoEndConstraintTarget";
-                entry.EndEffectorMarker.hideFlags = HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
-                Collider collider = entry.EndEffectorMarker.GetComponent<Collider>();
-                if (collider != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(collider);
-                }
-
-                Renderer renderer = entry.EndEffectorMarker.GetComponent<Renderer>();
-                Material material = CreateEndEffectorMaterial();
-                if (renderer != null && material != null)
-                {
-                    renderer.sharedMaterial = material;
-                    entry.GeneratedMaterials ??= new List<Material>();
-                    entry.GeneratedMaterials.Add(material);
-                }
+                entry.EndEffectorMarker = CreateIkTarget(entry, "__KimodoEndConstraintTarget");
             }
 
             Transform marker = entry.EndEffectorMarker.transform;
@@ -1654,6 +1731,70 @@ namespace KimodoBridge.Editor
             marker.localScale = Vector3.one * 0.1f;
             SetEndEffectorMarkerSelectable(entry, entry.PickingEnabled);
             entry.EndEffectorMarker.SetActive(true);
+        }
+
+        private static void UpdateFullBodyTargets(
+            ConstraintPosePreviewEntry entry,
+            KimodoMarkerSampleResult sample)
+        {
+            if (entry?.TargetCache == null)
+            {
+                DestroyFullBodyTargets(entry);
+                return;
+            }
+
+            entry.FullBodyTargets ??= new Dictionary<HumanBodyBones, GameObject>();
+            for (int i = 0; i < FullBodyTargetBones.Length; i++)
+            {
+                HumanBodyBones bone = FullBodyTargetBones[i];
+                Transform bodyPart = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(entry.TargetCache, bone);
+                if (bodyPart == null)
+                {
+                    continue;
+                }
+
+                if (!entry.FullBodyTargets.TryGetValue(bone, out GameObject target) || target == null)
+                {
+                    target = CreateIkTarget(entry, $"__KimodoFullBodyTarget_{bone}");
+                    entry.FullBodyTargets[bone] = target;
+                }
+
+                if (bone != HumanBodyBones.Hips &&
+                    TryResolveWorldIkGoal(entry, bone, sample, out Vector3 position, out Quaternion rotation))
+                {
+                    target.transform.SetPositionAndRotation(position, rotation);
+                }
+                else
+                {
+                    target.transform.SetPositionAndRotation(bodyPart.position, bodyPart.rotation);
+                }
+                target.transform.SetParent(null, true);
+                target.transform.localScale = Vector3.one * 0.1f;
+                SetIkTargetSelectable(target, entry.PickingEnabled);
+                target.SetActive(true);
+            }
+        }
+
+        private static GameObject CreateIkTarget(ConstraintPosePreviewEntry entry, string name)
+        {
+            GameObject target = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            target.name = name;
+            target.hideFlags = HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
+            Collider collider = target.GetComponent<Collider>();
+            if (collider != null)
+            {
+                UnityEngine.Object.DestroyImmediate(collider);
+            }
+
+            Renderer renderer = target.GetComponent<Renderer>();
+            Material material = CreateEndEffectorMaterial();
+            if (renderer != null && material != null)
+            {
+                renderer.sharedMaterial = material;
+                entry.GeneratedMaterials ??= new List<Material>();
+                entry.GeneratedMaterials.Add(material);
+            }
+            return target;
         }
 
         private static void CaptureEndEffectorTargetPose(
@@ -1791,6 +1932,82 @@ namespace KimodoBridge.Editor
             return KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                 sourceSample,
                 KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
+                entry.TargetCache,
+                out _,
+                out _,
+                out error);
+        }
+
+        private static bool TryApplyFullBodyTargetsToRig(
+            ConstraintPosePreviewEntry entry,
+            string modelName,
+            out string error)
+        {
+            error = string.Empty;
+            if (entry?.FullBodyTargets == null ||
+                entry.BaseSample == null ||
+                entry.TargetCache == null ||
+                entry.ProfileCache == null)
+            {
+                error = "full-body IK targets are unavailable.";
+                return false;
+            }
+
+            float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
+            if (!KimodoConstraintSpaceConverter.TryApplyToTargetAvatar(
+                    entry.BaseSample,
+                    modelName,
+                    frameRate,
+                    entry.ProfileCache,
+                    entry.TargetCache,
+                    out error))
+            {
+                return false;
+            }
+
+            if (entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject pelvisTarget) &&
+                pelvisTarget != null)
+            {
+                Transform hips = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
+                    entry.TargetCache,
+                    HumanBodyBones.Hips);
+                hips?.SetPositionAndRotation(pelvisTarget.transform.position, pelvisTarget.transform.rotation);
+            }
+
+            if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                    entry.TargetCache,
+                    out MuscleSample sourceSample,
+                    out error))
+            {
+                return false;
+            }
+
+            for (int i = 1; i < FullBodyTargetBones.Length; i++)
+            {
+                HumanBodyBones bone = FullBodyTargetBones[i];
+                if (!entry.FullBodyTargets.TryGetValue(bone, out GameObject target) || target == null)
+                {
+                    continue;
+                }
+
+                KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
+                    sourceSample.pose.bodyPosition,
+                    sourceSample.pose.bodyRotation,
+                    entry.TargetCache.humanScale,
+                    target.transform.position,
+                    target.transform.rotation,
+                    out Vector3 goalPosition,
+                    out Quaternion goalRotation);
+                if (!TrySetMuscleIkGoal(sourceSample, bone, goalPosition, goalRotation))
+                {
+                    error = $"unsupported humanoid IK goal '{bone}'.";
+                    return false;
+                }
+            }
+
+            return KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                sourceSample,
+                frameRate,
                 entry.TargetCache,
                 out _,
                 out _,
@@ -1952,7 +2169,71 @@ namespace KimodoBridge.Editor
             Transform marker = entry?.EndEffectorMarker != null
                 ? entry.EndEffectorMarker.transform
                 : null;
-            return marker != null && (transform == marker || transform.IsChildOf(marker));
+            if (marker != null && (transform == marker || transform.IsChildOf(marker)))
+            {
+                return true;
+            }
+
+            if (entry?.FullBodyTargets != null)
+            {
+                foreach (GameObject target in entry.FullBodyTargets.Values)
+                {
+                    if (target != null &&
+                        (transform == target.transform || transform.IsChildOf(target.transform)))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static bool HasFullBodyTargetTransformChanges(ConstraintPosePreviewEntry entry)
+        {
+            if (entry?.FullBodyTargets == null)
+            {
+                return false;
+            }
+            foreach (GameObject target in entry.FullBodyTargets.Values)
+            {
+                if (target != null && target.transform.hasChanged)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static void ClearFullBodyTargetTransformChanges(ConstraintPosePreviewEntry entry)
+        {
+            if (entry?.FullBodyTargets == null)
+            {
+                return;
+            }
+            foreach (GameObject target in entry.FullBodyTargets.Values)
+            {
+                if (target != null)
+                {
+                    target.transform.hasChanged = false;
+                }
+            }
+        }
+
+        private static void DestroyFullBodyTargets(ConstraintPosePreviewEntry entry)
+        {
+            if (entry?.FullBodyTargets == null)
+            {
+                return;
+            }
+            foreach (GameObject target in entry.FullBodyTargets.Values)
+            {
+                if (target != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(target);
+                }
+            }
+            entry.FullBodyTargets.Clear();
+            entry.FullBodyTargets = null;
         }
 
         private static Material CreateEndEffectorMaterial()

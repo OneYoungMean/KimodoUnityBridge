@@ -102,19 +102,19 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
             if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(targetCache, out MuscleSample muscleSample, out error))
             {
                 result = null;
                 return false;
             }
 
-            result.muscles = new List<float>(muscleSample.pose.muscles);
             result.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(muscleSample);
+            if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            result.muscles = new List<float>(muscleSample.pose.muscles);
             result.leftFootPosition = muscleSample.leftFootPosition;
             result.leftFootRotation = muscleSample.leftFootRotation;
             result.rightFootPosition = muscleSample.rightFootPosition;

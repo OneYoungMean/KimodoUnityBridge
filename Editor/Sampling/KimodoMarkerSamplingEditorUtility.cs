@@ -90,6 +90,7 @@ namespace KimodoBridge.Editor
 
             return string.Equals(left.constraintType ?? string.Empty, right.constraintType ?? string.Empty, System.StringComparison.Ordinal) &&
                 System.Math.Abs(left.sampleTime - right.sampleTime) <= 1e-9 &&
+                string.Equals(CharacterPoseSignature(left), CharacterPoseSignature(right), System.StringComparison.Ordinal) &&
                 left.rigType == right.rigType &&
                 left.hasRootHeading == right.hasRootHeading &&
                 Approximately(left.kimodoRootPosition, right.kimodoRootPosition) &&
@@ -103,6 +104,11 @@ namespace KimodoBridge.Editor
                 StringListsEqual(left.jointNames, right.jointNames) &&
                 Vector3ListsEqual(left.localAxisAngles, right.localAxisAngles) &&
                 IntListsEqual(left.sampledJointIndices, right.sampledJointIndices);
+        }
+
+        private static string CharacterPoseSignature(KimodoMarkerSampleResult sample)
+        {
+            return sample?.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty;
         }
 
         private static bool StringListsEqual(System.Collections.Generic.IReadOnlyList<string> left, System.Collections.Generic.IReadOnlyList<string> right)

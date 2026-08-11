@@ -412,7 +412,7 @@ namespace KimodoUnityBridge.Command
                 },
                 ["rules"] = new JArray
                 {
-                    "A fullbody constraint already includes the root bone constraint; do not add root2d at the same frame.",
+                    "At the same frame, fullbody supplies the base pose, root2d overrides RootTQ, and hand/foot constraints override their matching HandTQ or FootTQ.",
                     "Use fullbody for a complete pose and root2d when only the root trajectory or heading should be constrained."
                 }
             };
@@ -787,6 +787,7 @@ namespace KimodoUnityBridge.Command
                 session.Director.Evaluate();
                 targetCache?.Dispose();
             }
+            KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(samples, SessionFrameRate);
             return samples;
         }
 
@@ -1583,7 +1584,7 @@ namespace KimodoUnityBridge.Command
                         ["pose"] = new JObject
                         {
                             ["type"] = "object",
-                            ["description"] = "Pose locator for fullbody, or for root2d when deriving root position and heading from a pose.",
+                            ["description"] = "Pose locator for fullbody, hand/foot, or root2d when deriving root position and heading from a pose.",
                             ["additionalProperties"] = false,
                             ["properties"] = new JObject
                             {

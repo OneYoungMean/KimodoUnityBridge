@@ -151,6 +151,93 @@ namespace KimodoBridge
             };
         }
 
+        internal static void ComposeCharacterPosesAtSameFrame(
+            IReadOnlyList<KimodoMarkerSampleResult> samples,
+            double frameRate)
+        {
+            if (samples == null || samples.Count < 2 || frameRate <= 0.0)
+            {
+                return;
+            }
+
+            var frames = new Dictionary<int, List<KimodoMarkerSampleResult>>();
+            for (int i = 0; i < samples.Count; i++)
+            {
+                KimodoMarkerSampleResult sample = samples[i];
+                if (sample?.characterPose == null || !sample.characterPose.TryValidate(out _))
+                {
+                    continue;
+                }
+
+                int frame = KimodoFrameTimeUtility.SecondsToFrameIndex(sample.sampleTime, frameRate);
+                if (!frames.TryGetValue(frame, out List<KimodoMarkerSampleResult> group))
+                {
+                    group = new List<KimodoMarkerSampleResult>();
+                    frames.Add(frame, group);
+                }
+                group.Add(sample);
+            }
+
+            foreach (List<KimodoMarkerSampleResult> group in frames.Values)
+            {
+                ComposeCharacterPoseGroup(group);
+            }
+        }
+
+        private static void ComposeCharacterPoseGroup(List<KimodoMarkerSampleResult> samples)
+        {
+            if (samples == null || samples.Count < 2)
+            {
+                return;
+            }
+
+            CharacterAnimationCli.Unity.CharacterPose composed = null;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (string.Equals(samples[i].constraintType, "fullbody", StringComparison.OrdinalIgnoreCase))
+                {
+                    composed = samples[i].characterPose.Clone();
+                }
+            }
+            composed ??= samples[0].characterPose.Clone();
+
+            for (int i = 0; i < samples.Count; i++)
+            {
+                CharacterAnimationCli.Unity.CharacterPose source = samples[i].characterPose;
+                switch ((samples[i].constraintType ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
+                {
+                    case "root2d":
+                        CopyTransform(source.root, composed.root);
+                        break;
+                    case "left-hand":
+                        CopyTransform(source.hands.left, composed.hands.left);
+                        break;
+                    case "right-hand":
+                        CopyTransform(source.hands.right, composed.hands.right);
+                        break;
+                    case "left-foot":
+                        CopyTransform(source.feet.left, composed.feet.left);
+                        break;
+                    case "right-foot":
+                        CopyTransform(source.feet.right, composed.feet.right);
+                        break;
+                }
+            }
+
+            for (int i = 0; i < samples.Count; i++)
+            {
+                samples[i].characterPose = composed.Clone();
+            }
+        }
+
+        private static void CopyTransform(
+            CharacterAnimationCli.Unity.CharacterPoseTransform source,
+            CharacterAnimationCli.Unity.CharacterPoseTransform destination)
+        {
+            destination.t = source.t;
+            destination.q = source.q;
+        }
+
         public static List<string> BuildHighlightJointsForConstraint(
             string constraintType,
             List<string> jointNames,

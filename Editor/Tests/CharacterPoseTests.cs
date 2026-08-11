@@ -142,6 +142,34 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             Assert.That(clone.characterPose.muscles[0], Is.EqualTo(0.75f));
         }
 
+        [Test]
+        public void SameFrameComposition_UsesFullBodyThenRootAndEndEffectors()
+        {
+            var fullBody = new CharacterPose();
+            fullBody.muscles[0] = 0.5f;
+            var root = new CharacterPose();
+            root.root.t = new Vector3(1f, 2f, 3f);
+            var leftHand = new CharacterPose();
+            leftHand.hands.left.t = new Vector3(4f, 5f, 6f);
+            var rightFoot = new CharacterPose();
+            rightFoot.feet.right.t = new Vector3(7f, 8f, 9f);
+            var samples = new[]
+            {
+                new KimodoMarkerSampleResult { constraintType = "left_hand", sampleTime = 1.0, characterPose = leftHand },
+                new KimodoMarkerSampleResult { constraintType = "fullbody", sampleTime = 1.0, characterPose = fullBody },
+                new KimodoMarkerSampleResult { constraintType = "root2d", sampleTime = 1.0, characterPose = root },
+                new KimodoMarkerSampleResult { constraintType = "right-foot", sampleTime = 1.0, characterPose = rightFoot }
+            };
+
+            KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(samples, 60.0);
+
+            Assert.That(samples[0].characterPose.muscles[0], Is.EqualTo(0.5f));
+            Assert.That(samples[0].characterPose.root.t, Is.EqualTo(root.root.t));
+            Assert.That(samples[0].characterPose.hands.left.t, Is.EqualTo(leftHand.hands.left.t));
+            Assert.That(samples[0].characterPose.feet.right.t, Is.EqualTo(rightFoot.feet.right.t));
+            Assert.That(samples[1].characterPose.root.t, Is.EqualTo(root.root.t));
+        }
+
         private static void AssertTransform(CharacterPoseTransform actual, Vector3 expectedT, Quaternion expectedQ)
         {
             Assert.That(Vector3.Distance(actual.t, expectedT), Is.LessThan(1e-6f));

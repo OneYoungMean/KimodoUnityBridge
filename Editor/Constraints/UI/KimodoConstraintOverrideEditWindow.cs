@@ -373,7 +373,7 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.HelpBox(
-                "Pose writes back when a Scene drag ends. Non-root bones support rotation only.",
+                "Pose writes back when a Scene drag ends. FullBody pelvis and limb targets support Move/Transform; other non-root bones support rotation only.",
                 MessageType.None);
         }
 
@@ -547,6 +547,21 @@ namespace KimodoBridge.Editor
             PoseCacheRenderContext context,
             string entryId)
         {
+            if (marker is KimodoFullBodyConstraintMarker &&
+                KimodoConstraintPoseCache.TryGetFullBodyTarget(
+                    context,
+                    entryId,
+                    HumanBodyBones.Hips,
+                    out GameObject pelvisTarget) &&
+                pelvisTarget != null)
+            {
+                Selection.activeGameObject = pelvisTarget;
+                EditorGUIUtility.PingObject(pelvisTarget);
+                Tools.current = Tool.Move;
+                SceneView.lastActiveSceneView?.FrameSelected();
+                return;
+            }
+
             if (marker is KimodoEndEffectorConstraintMarker &&
                 KimodoConstraintPoseCache.TryGetEndEffectorTarget(
                     context,

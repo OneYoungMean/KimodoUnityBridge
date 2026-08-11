@@ -833,6 +833,135 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void FullBodyConstraint_CreatesPelvisAndLimbIkTargetsAndWritesCanonicalPose()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoFullBodyTargetsTest",
+                    out SkeletonCache source,
+                    out error),
+                Is.True,
+                error);
+
+            var context = new PoseCacheRenderContext(
+                103,
+                KimodoUnityObjectIdUtility.IdHash(source.animator),
+                104,
+                KimodoPlayableClip.DefaultBridgeModelName,
+                KimodoConstraintRigType.Soma77,
+                avatar);
+            const string entryId = "fullbody-targets-test";
+            try
+            {
+                KimodoConstraintPoseCache.DestroyAll();
+                KimodoMarkerSampleResult sample = KimodoMarkerSamplingUtility.CreateDefaultMarkerSample(
+                    KimodoPlayableClip.DefaultBridgeModelName,
+                    source.skeletonRoot,
+                    "fullbody");
+                Assert.That(
+                    KimodoConstraintPoseCache.RenderBatch(
+                        context,
+                        new[]
+                        {
+                            new PoseCacheRenderItem
+                            {
+                                EntryId = entryId,
+                                SampleData = sample,
+                                ConstraintType = "fullbody",
+                                Visible = true
+                            }
+                        },
+                        out error),
+                    Is.True,
+                    error);
+
+                HumanBodyBones[] bones =
+                {
+                    HumanBodyBones.Hips,
+                    HumanBodyBones.LeftHand,
+                    HumanBodyBones.RightHand,
+                    HumanBodyBones.LeftFoot,
+                    HumanBodyBones.RightFoot
+                };
+                for (int i = 0; i < bones.Length; i++)
+                {
+                    Assert.That(
+                        KimodoConstraintPoseCache.TryGetFullBodyTarget(
+                            context,
+                            entryId,
+                            bones[i],
+                            out GameObject target),
+                        Is.True,
+                        $"Missing FullBody target for {bones[i]}.");
+                    Assert.That(target.GetComponent<MeshFilter>()?.sharedMesh?.name, Is.EqualTo("Cube"));
+                }
+
+                Assert.That(
+                    KimodoConstraintPoseCache.TryBuildSampleFromContext(
+                        context,
+                        entryId,
+                        "fullbody",
+                        0.0,
+                        out KimodoMarkerSampleResult initial,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryGetFullBodyTarget(
+                        context,
+                        entryId,
+                        HumanBodyBones.LeftHand,
+                        out GameObject leftHandTarget),
+                    Is.True);
+                leftHandTarget.transform.position += new Vector3(0.02f, 0.03f, 0.01f);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryGetFullBodyTarget(
+                        context,
+                        entryId,
+                        HumanBodyBones.Hips,
+                        out GameObject pelvisTarget),
+                    Is.True);
+                pelvisTarget.transform.position += new Vector3(0.04f, 0.02f, -0.03f);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
+                        context,
+                        entryId,
+                        "fullbody",
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoConstraintPoseCache.TryBuildSampleFromContext(
+                        context,
+                        entryId,
+                        "fullbody",
+                        0.0,
+                        out KimodoMarkerSampleResult edited,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(edited.characterPose, Is.Not.Null);
+                Assert.That(edited.characterPose.TryValidate(out error), Is.True, error);
+                Assert.That(
+                    Vector3.Distance(initial.characterPose.root.t, edited.characterPose.root.t),
+                    Is.GreaterThan(1e-4f));
+            }
+            finally
+            {
+                KimodoConstraintPoseCache.DestroyAll();
+                source.Dispose();
+            }
+        }
+
+        [Test]
         public void HumanoidIkGoalSpace_WorldConversionRoundTrips()
         {
             Vector3 bodyPosition = new Vector3(1.5f, 0.25f, -2f);
@@ -1929,6 +2058,8 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
                 Assert.That(result.hasEndEffectorTargetPosition, Is.True);
+                Assert.That(result.characterPose, Is.Not.Null);
+                Assert.That(result.characterPose.TryValidate(out error), Is.True, error);
             }
             finally
             {
@@ -1965,6 +2096,7 @@ namespace KimodoBridge.Editor.Tests
         {
             var sample = new TimelineInject.KimodoMarkerSampleResult
             {
+                characterPose = new CharacterAnimationCli.Unity.CharacterPose(),
                 constraintType = "fullbody",
                 sampleTime = 1.0,
                 kimodoRootPosition = new Vector3(1f, 2f, 3f),
@@ -1983,7 +2115,7 @@ namespace KimodoBridge.Editor.Tests
 
             int first = KimodoConstraintPoseCache.ComputeRenderSignature(item, "model");
             int same = KimodoConstraintPoseCache.ComputeRenderSignature(item, "model");
-            sample.localAxisAngles[0] = new Vector3(0f, 0.3f, 0f);
+            sample.characterPose.muscles[0] = 0.3f;
             int changed = KimodoConstraintPoseCache.ComputeRenderSignature(item, "model");
 
             Assert.That(same, Is.EqualTo(first));

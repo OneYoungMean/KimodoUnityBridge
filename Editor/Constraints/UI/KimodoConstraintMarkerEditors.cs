@@ -845,6 +845,7 @@ namespace KimodoBridge.Editor
 
         private struct PoseRenderSignatureSnapshot
         {
+            public string CharacterPoseJson;
             public string ConstraintType;
             public double SampleTime;
             public int ClipId;
@@ -1883,6 +1884,7 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult source = sample ?? marker?.SampleData;
             return new PoseRenderSignatureSnapshot
             {
+                CharacterPoseJson = source?.characterPose != null ? JsonUtility.ToJson(source.characterPose) : string.Empty,
                 ConstraintType = marker != null ? marker.ConstraintType ?? string.Empty : string.Empty,
                 SampleTime = source != null ? source.sampleTime : 0.0,
                 ClipId = context.ClipId,
@@ -1911,7 +1913,8 @@ namespace KimodoBridge.Editor
             PoseRenderSignatureSnapshot snapshot)
         {
             KimodoMarkerSampleResult sample = marker != null ? marker.SampleData : null;
-            return string.Equals(snapshot.ConstraintType ?? string.Empty, marker != null ? marker.ConstraintType ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
+            return string.Equals(snapshot.CharacterPoseJson ?? string.Empty, sample?.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty, StringComparison.Ordinal) &&
+                string.Equals(snapshot.ConstraintType ?? string.Empty, marker != null ? marker.ConstraintType ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
                 Math.Abs(snapshot.SampleTime - (sample != null ? sample.sampleTime : 0.0)) <= 1e-9 &&
                 snapshot.ClipId == context.ClipId &&
                 snapshot.AnimatorId == context.AnimatorId &&
@@ -1940,6 +1943,7 @@ namespace KimodoBridge.Editor
             }
 
             return string.Join("|",
+                sample.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty,
                 sample.constraintType ?? string.Empty,
                 FormatDouble(sample.sampleTime),
                 sample.rigType.ToString(),

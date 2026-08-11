@@ -76,8 +76,9 @@ Inline generation constraints are anonymous values with `frame` and `type`. The 
 
 - `fullbody`: reads a pose locator as a complete body pose. It constrains the full-body joints and also includes the root bone position and heading.
 - `root2d`: constrains only the root bone position and heading on the ground plane. It does not constrain the rest of the body. It may use a pose locator or direct `position` and `heading`.
+- `left_hand`, `right_hand`, `left_foot`, `right_foot`: read the matching complete HandTQ or FootTQ from a pose locator.
 
-The current schema also exposes hand/foot types, but this section only defines the two core types above. A `fullbody` constraint already includes the root constraint; do not add `root2d` at the same frame. Use the exact current schema and start with few, non-conflicting constraints.
+At the same frame, `fullbody` supplies the base pose, `root2d` overrides RootTQ, and hand/foot constraints override their matching HandTQ or FootTQ. No general mask or weight is applied outside ClipConstraint. Use the exact current schema and start with few constraints.
 
 Minimal pose-edit flow:
 
@@ -177,8 +178,9 @@ Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 T
 
 - `fullbody`：从 Pose locator 读取完整人体姿态，约束全身关节位置，并同时包含根骨骼的位置与朝向。
 - `root2d`：只约束根骨骼在地面平面上的位置与朝向，不约束其他身体关节。可以使用 Pose locator，也可以直接提供 `position` 和 `heading`。
+- `left_hand`、`right_hand`、`left_foot`、`right_foot`：从 Pose locator 读取对应的完整 HandTQ 或 FootTQ。
 
-当前 schema 还保留手脚类型，但本节暂只定义上面两个核心类型。`fullbody` 已经包含根骨骼约束，同一帧不要再添加 `root2d`。严格使用当前 schema，并从少量、不冲突的约束开始。
+同一帧中，`fullbody` 提供基础 Pose，`root2d` 覆盖 RootTQ，手脚约束覆盖对应的 HandTQ 或 FootTQ。除 ClipConstraint 外不应用通用 Mask 或 Weight。严格使用当前 schema，并从少量约束开始。
 
 最小 Pose 编辑流程：
 
