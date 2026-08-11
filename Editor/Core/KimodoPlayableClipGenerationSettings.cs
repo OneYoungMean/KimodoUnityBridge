@@ -33,6 +33,7 @@ namespace KimodoBridge.Editor
         [SerializeField] private bool enableSplineExperimental;
         [SerializeField] private bool setupWizardCompleted;
         [SerializeField] private string quickServerPath = string.Empty;
+        [SerializeField] private bool autoSyncQuickServer = true;
         [SerializeField, HideInInspector] private bool advancedCurveFilterFoldout = true;
 
         internal int MaxGeneratedClips
@@ -158,6 +159,12 @@ namespace KimodoBridge.Editor
         {
             get => quickServerPath?.Trim() ?? string.Empty;
             set => quickServerPath = value?.Trim() ?? string.Empty;
+        }
+
+        internal bool AutoSyncQuickServer
+        {
+            get => autoSyncQuickServer;
+            set => autoSyncQuickServer = value;
         }
 
         internal void SaveSettings()

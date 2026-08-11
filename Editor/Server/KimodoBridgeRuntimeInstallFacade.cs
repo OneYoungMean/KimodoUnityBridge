@@ -32,6 +32,16 @@ namespace KimodoBridge.Editor
             return KimodoServerRuntimeUtil.RefreshRuntimeRoot();
         }
 
+        internal static bool IsRuntimeSyncRequired(string runtimeRoot)
+        {
+            return KimodoServerRuntimeUtil.IsRuntimeSyncRequired(runtimeRoot);
+        }
+
+        internal static bool TrySyncRuntimeRootIfNeeded(string runtimeRoot, out string message)
+        {
+            return KimodoServerRuntimeUtil.TrySyncRuntimeRootIfNeeded(runtimeRoot, out message);
+        }
+
         internal static string ResolveRuntimeRootOrThrow()
         {
             string runtimeRoot = GetRuntimeRootPath();

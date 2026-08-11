@@ -1260,8 +1260,7 @@ namespace KimodoBridge.Editor
                 EditorUtility.SetDirty(TimelineEditor.inspectedAsset);
             }
 
-            TimelineEditor.Refresh(RefreshReason.ContentsModified);
-            SceneView.RepaintAll();
+            KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsModified);
         }
 
         public static void DrawSampleTimeField(SerializedObject so, IMarker marker)
@@ -1866,8 +1865,7 @@ namespace KimodoBridge.Editor
                 EditorUtility.SetDirty(inspectedAsset);
             }
 
-            TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
-            SceneView.RepaintAll();
+            KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsAddedOrRemoved);
             Undo.CollapseUndoOperations(undoGroup);
             return true;
         }

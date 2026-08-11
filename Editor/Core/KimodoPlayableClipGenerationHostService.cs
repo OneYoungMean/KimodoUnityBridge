@@ -330,10 +330,7 @@ namespace KimodoBridge.Editor
 
             if (TimelineEditor.inspectedAsset != null)
             {
-                TimelineEditor.Refresh(
-                    RefreshReason.ContentsModified |
-                    RefreshReason.SceneNeedsUpdate |
-                    RefreshReason.WindowNeedsRedraw);
+                KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsModified);
             }
             return true;
         }

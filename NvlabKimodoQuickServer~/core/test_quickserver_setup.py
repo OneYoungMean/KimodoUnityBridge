@@ -8,6 +8,17 @@ from core import quickserver_setup
 
 
 class QuickServerSetupTests(unittest.TestCase):
+    def test_default_venv_is_at_runtime_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "kimodo"
+            source.mkdir()
+            (source / "pyproject.toml").write_text("[project]\nname='test'\nversion='0'\n", encoding="utf-8")
+
+            paths = quickserver_setup.discover_project_paths(root)
+
+            self.assertEqual(paths.venv_dir, root / ".venv")
+
     def test_macos_arm64_uses_checked_in_motion_correction_wheel(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

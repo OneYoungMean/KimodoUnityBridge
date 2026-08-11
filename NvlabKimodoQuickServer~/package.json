@@ -1,6 +1,6 @@
 {
   "name": "com.nvlab.kimodo.quickserver",
   "displayName": "Kimodo QuickServer",
-  "version": "2.0.4",
+  "version": "2.1.0",
   "description": "Shared motion generation server for Kimodo and ARDY Unity clients"
 }

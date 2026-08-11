@@ -903,7 +903,7 @@ namespace KimodoUnityBridge.Command
                     if (transientTimelineClip != null) character.Track.DeleteClip(transientTimelineClip);
                     if (transientClip != null) UnityEngine.Object.DestroyImmediate(transientClip);
                     session.Director.Evaluate();
-                    TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+                    KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsModified);
                 }
             });
         }
@@ -1361,7 +1361,7 @@ namespace KimodoUnityBridge.Command
             EditorUtility.SetDirty(session.TimelineAsset);
             AssetDatabase.SaveAssets();
             session.Director.RebuildGraph();
-            TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+            KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsAddedOrRemoved);
         }
 
         private static void OpenTimelineWindow(PlayableDirector director)

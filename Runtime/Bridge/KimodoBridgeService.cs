@@ -341,9 +341,20 @@ namespace KimodoBridge
             await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                Volatile.Write(ref stopRequested, 1);
-                Interlocked.Increment(ref sessionVersion);
+                await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
+            }
+            finally
+            {
+                lifecycleGate.Release();
+            }
+        }
 
+        private async Task StopCurrentRuntimeCoreAsync(CancellationToken token)
+        {
+            Volatile.Write(ref stopRequested, 1);
+            Interlocked.Increment(ref sessionVersion);
+            try
+            {
                 bool hasEndpoint = TryResolveCurrentEndpoint(out string host, out int port);
                 int serverProcessId = -1;
                 if (isDefaultSession && !hasEndpoint)
@@ -404,7 +415,6 @@ namespace KimodoBridge
             finally
             {
                 Volatile.Write(ref stopRequested, 0);
-                lifecycleGate.Release();
             }
         }
 
@@ -413,13 +423,29 @@ namespace KimodoBridge
             await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
             try
             {
+                ResolvedRuntimeContext context = ResolveRuntimeContext();
+                currentRuntimeRoot = context.RuntimeRoot;
+
+#if UNITY_EDITOR
+                if (isDefaultSession && IsEditorRuntimeSyncRequired(context.RuntimeRoot))
+                {
+                    ReportProgress(progress, "Synchronizing QuickServer runtime...");
+                    await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
+                    if (!TrySyncEditorRuntimeRoot(context.RuntimeRoot, out string syncMessage))
+                    {
+                        throw new InvalidOperationException(syncMessage);
+                    }
+
+                    context = ResolveRuntimeContext();
+                    currentRuntimeRoot = context.RuntimeRoot;
+                    ReportProgress(progress, syncMessage);
+                }
+#endif
+
                 if (IsConnected && currentPort > 0 && (isDefaultSession || explicitSessionOpened))
                 {
                     return;
                 }
-
-                ResolvedRuntimeContext context = ResolveRuntimeContext();
-                currentRuntimeRoot = context.RuntimeRoot;
 
                 if (TryReadRuntimeEndpoint(context.RuntimeRoot, out string host, out int port))
                 {
@@ -1028,6 +1054,43 @@ namespace KimodoBridge
             }
 
             throw new InvalidOperationException("Editor runtime root resolve returned an empty path.");
+        }
+
+        private static bool IsEditorRuntimeSyncRequired(string runtimeRoot)
+        {
+            const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
+            const string methodName = "IsRuntimeSyncRequired";
+
+            Type facadeType = ResolveEditorRuntimeFacadeTypeOrThrow();
+            MethodInfo syncMethod = facadeType.GetMethod(
+                methodName,
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            if (syncMethod == null)
+            {
+                throw new MissingMethodException(typeName, methodName);
+            }
+
+            return syncMethod.Invoke(null, new object[] { runtimeRoot }) is bool required && required;
+        }
+
+        private static bool TrySyncEditorRuntimeRoot(string runtimeRoot, out string message)
+        {
+            const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
+            const string methodName = "TrySyncRuntimeRootIfNeeded";
+            object[] arguments = { runtimeRoot, null };
+
+            Type facadeType = ResolveEditorRuntimeFacadeTypeOrThrow();
+            MethodInfo syncMethod = facadeType.GetMethod(
+                methodName,
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            if (syncMethod == null)
+            {
+                throw new MissingMethodException(typeName, methodName);
+            }
+
+            bool result = syncMethod.Invoke(null, arguments) is bool ok && ok;
+            message = arguments[1] as string ?? string.Empty;
+            return result;
         }
 
         private static bool ResolveEditorKimodoStaticGraphEnabled()

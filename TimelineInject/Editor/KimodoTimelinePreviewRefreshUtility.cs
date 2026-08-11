@@ -39,6 +39,13 @@ namespace TimelineInject
             TimelineEditor.Refresh(RefreshReason.ContentsModified | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
         }
 
+        public static void RefreshEditorWorkflow(RefreshReason reason)
+        {
+            EditorApplication.QueuePlayerLoopUpdate();
+            TimelineEditor.Refresh(reason | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+            SceneView.RepaintAll();
+        }
+
         public static GameObject InstantiateForAnimatorPreview(Object original)
         {
             return EditorUtility.InstantiateForAnimatorPreview(original) as GameObject;

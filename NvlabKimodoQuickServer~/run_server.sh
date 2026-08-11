@@ -371,7 +371,10 @@ fi
 if [[ -n "${EXPLICIT_VENV}" ]]; then
   VENV_PYTHON="$(resolve_python_from_venv "${EXPLICIT_VENV}")"
 else
-  VENV_PYTHON="${SOURCE_ROOT}/.venv/bin/python"
+  VENV_PYTHON="${ROOT_DIR}/.venv/bin/python"
+  if [[ ! -x "${VENV_PYTHON}" && -x "${SOURCE_ROOT}/.venv/bin/python" ]]; then
+    VENV_PYTHON="${SOURCE_ROOT}/.venv/bin/python"
+  fi
 fi
 
 if [[ ! -x "${VENV_PYTHON}" ]]; then

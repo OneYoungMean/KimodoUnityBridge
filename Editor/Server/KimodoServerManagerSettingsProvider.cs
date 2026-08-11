@@ -143,6 +143,19 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.LabelField("Server Version", KimodoServerRuntimeUtil.ReadQuickServerVersion(runtimeRoot));
+
+            EditorGUI.BeginChangeCheck();
+            bool autoSync = EditorGUILayout.Toggle(
+                new GUIContent(
+                    "Auto Sync Server",
+                    "When the packaged QuickServer is newer, synchronize it when the bridge starts. " +
+                    "Major sync removes all runtime contents; minor sync keeps models; patch sync keeps models and root .venv."),
+                settings.AutoSyncQuickServer);
+            if (EditorGUI.EndChangeCheck())
+            {
+                settings.AutoSyncQuickServer = autoSync;
+                settings.SaveSettings();
+            }
         }
 
         private void DrawStatusMessages()

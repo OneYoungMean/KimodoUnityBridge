@@ -1105,8 +1105,7 @@ namespace KimodoBridge.Editor
                 EditorUtility.SetDirty(context.Director);
             }
 
-            TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
-            KimodoTimelinePreviewRefreshUtility.RefreshIfPreviewing();
+            KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsAddedOrRemoved);
         }
 
         private static void FocusTimeline(PlayableDirector director, UnityEngine.Object selectionTarget)
@@ -1127,7 +1126,7 @@ namespace KimodoBridge.Editor
             {
                 if (director != null && TimelineEditor.inspectedDirector == director)
                 {
-                    TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+                    KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsAddedOrRemoved);
                 }
             };
         }

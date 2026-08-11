@@ -171,6 +171,10 @@ if defined EXPLICIT_VENV (
     exit /b 0
   )
 )
+if exist "%ROOT_DIR%\.venv\Scripts\python.exe" (
+  set "VENV_PYTHON=%ROOT_DIR%\.venv\Scripts\python.exe"
+  exit /b 0
+)
 if exist "%SOURCE_ROOT%\.venv\Scripts\python.exe" (
   set "VENV_PYTHON=%SOURCE_ROOT%\.venv\Scripts\python.exe"
 )

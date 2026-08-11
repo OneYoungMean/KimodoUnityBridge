@@ -35,7 +35,7 @@ class ProjectPaths:
 
     @property
     def venv_dir(self) -> Path:
-        return self.source_root / ".venv"
+        return self.root_dir / ".venv"
 
     @property
     def venv_python(self) -> Path:

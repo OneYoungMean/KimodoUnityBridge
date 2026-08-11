@@ -322,6 +322,7 @@ namespace KimodoBridge.Editor
                     isGenerating = true;
                     lastError = string.Empty;
                     lastStatus = string.IsNullOrWhiteSpace(error) ? "Queued generation..." : error;
+                    KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsModified);
                 }
                 else
                 {
@@ -356,6 +357,7 @@ namespace KimodoBridge.Editor
                         isGenerating = true;
                         lastError = string.Empty;
                         lastStatus = "Queued connected Timeline generation...";
+                        KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsModified);
                     }
                     else
                     {

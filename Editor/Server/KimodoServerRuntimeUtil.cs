@@ -109,6 +109,84 @@ namespace KimodoBridge.Editor
             return TryBootstrapRuntimeRootFromPackage(ResolveProjectRoot(), GetRuntimeRootPath());
         }
 
+        internal static bool IsRuntimeSyncRequired(string runtimeRoot)
+        {
+            if (!KimodoPlayableClipGenerationSettings.instance.AutoSyncQuickServer)
+            {
+                return false;
+            }
+
+            if (!TryGetSyncVersions(runtimeRoot, out Version packagedVersion, out Version runtimeVersion))
+            {
+                return false;
+            }
+
+            return packagedVersion.CompareTo(runtimeVersion) > 0;
+        }
+
+        internal static bool TrySyncRuntimeRootIfNeeded(string runtimeRoot, out string message)
+        {
+            message = string.Empty;
+            if (!KimodoPlayableClipGenerationSettings.instance.AutoSyncQuickServer)
+            {
+                message = "QuickServer auto sync is disabled.";
+                return true;
+            }
+
+            if (!TryGetSyncVersions(runtimeRoot, out Version packagedVersion, out Version runtimeVersion))
+            {
+                message = "QuickServer sync skipped because either the packaged or installed version is unavailable.";
+                return true;
+            }
+
+            if (packagedVersion.CompareTo(runtimeVersion) <= 0)
+            {
+                message = $"QuickServer {runtimeVersion} is current (packaged: {packagedVersion}).";
+                return true;
+            }
+
+            string templateRoot = ResolvePackagedRuntimeRoot(ResolveProjectRoot());
+            if (!Directory.Exists(templateRoot))
+            {
+                message = "QuickServer sync failed because the packaged runtime template is unavailable.";
+                return false;
+            }
+
+            string resolvedRuntimeRoot = Path.GetFullPath(runtimeRoot ?? string.Empty);
+            if (string.Equals(resolvedRuntimeRoot, Path.GetFullPath(templateRoot), StringComparison.OrdinalIgnoreCase))
+            {
+                message = "QuickServer sync refused because the configured runtime is the packaged template itself.";
+                return false;
+            }
+
+            bool keepModels = packagedVersion.Major == runtimeVersion.Major;
+            bool keepVenv = keepModels && packagedVersion.Minor == runtimeVersion.Minor;
+            if (keepVenv)
+            {
+                MigrateLegacyVenvToRoot(resolvedRuntimeRoot);
+            }
+
+            ClearRuntimeRootPreserving(resolvedRuntimeRoot, keepModels, keepVenv);
+            Directory.CreateDirectory(resolvedRuntimeRoot);
+            CopyDirectoryRecursive(
+                templateRoot,
+                resolvedRuntimeRoot,
+                skipTopLevelDirectoryName: keepModels ? "models" : null);
+
+            string syncedVersion = ReadQuickServerVersion(resolvedRuntimeRoot);
+            if (!string.Equals(syncedVersion, packagedVersion.ToString(3), StringComparison.OrdinalIgnoreCase))
+            {
+                message = $"QuickServer sync completed with an unexpected installed version: {syncedVersion}.";
+                return false;
+            }
+
+            string preserved = keepVenv
+                ? "models and root .venv"
+                : (keepModels ? "models" : "nothing");
+            message = $"Synchronized QuickServer {runtimeVersion} -> {packagedVersion}; preserved {preserved}.";
+            return true;
+        }
+
         internal static bool TryBootstrapRuntimeRootFromPackage(string projectRoot, string runtimeRoot)
         {
             string packageResolvedPath = string.Empty;
@@ -125,14 +203,7 @@ namespace KimodoBridge.Editor
                 // ignore
             }
 
-            string candidate1 = string.IsNullOrWhiteSpace(packageResolvedPath)
-                ? string.Empty
-                : Path.GetFullPath(Path.Combine(packageResolvedPath, "NvlabKimodoQuickServer~"));
-            string candidate2 = Path.GetFullPath(Path.Combine(projectRoot, "Library", "PackageCache", "com.unity.kimodo_unity_motion_tools", "NvlabKimodoQuickServer~"));
-            string candidate3 = Path.GetFullPath(Path.Combine(projectRoot, "..", "..", "KimodoUnityBridge", "NvlabKimodoQuickServer~"));
-            string templateRoot = Directory.Exists(candidate1)
-                ? candidate1
-                : (Directory.Exists(candidate2) ? candidate2 : candidate3);
+            string templateRoot = ResolvePackagedRuntimeRoot(projectRoot, packageResolvedPath);
             if (!Directory.Exists(templateRoot))
             {
                 // The package template is unavailable (e.g. the "NvlabKimodoQuickServer~" folder
@@ -307,6 +378,11 @@ namespace KimodoBridge.Editor
 
         private static void ClearRuntimeRootExceptModels(string runtimeRoot)
         {
+            ClearRuntimeRootPreserving(runtimeRoot, keepModels: true, keepVenv: false);
+        }
+
+        private static void ClearRuntimeRootPreserving(string runtimeRoot, bool keepModels, bool keepVenv)
+        {
             if (!Directory.Exists(runtimeRoot))
             {
                 return;
@@ -320,13 +396,94 @@ namespace KimodoBridge.Editor
             foreach (string dir in Directory.GetDirectories(runtimeRoot))
             {
                 string dirName = Path.GetFileName(dir);
-                if (string.Equals(dirName, "models", StringComparison.OrdinalIgnoreCase))
+                if ((keepModels && string.Equals(dirName, "models", StringComparison.OrdinalIgnoreCase)) ||
+                    (keepVenv && string.Equals(dirName, ".venv", StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
 
                 Directory.Delete(dir, recursive: true);
             }
+        }
+
+        private static string ResolvePackagedRuntimeRoot(string projectRoot, string packageResolvedPath = null)
+        {
+            string resolvedPackagePath = packageResolvedPath ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(resolvedPackagePath))
+            {
+                try
+                {
+                    PackageInfo info = PackageInfo.FindForAssembly(typeof(KimodoServerRuntimeUtil).Assembly);
+                    resolvedPackagePath = info?.resolvedPath ?? string.Empty;
+                }
+                catch
+                {
+                    resolvedPackagePath = string.Empty;
+                }
+            }
+
+            string candidate1 = string.IsNullOrWhiteSpace(resolvedPackagePath)
+                ? string.Empty
+                : Path.GetFullPath(Path.Combine(resolvedPackagePath, "NvlabKimodoQuickServer~"));
+            string candidate2 = Path.GetFullPath(Path.Combine(projectRoot, "Library", "PackageCache", "com.unity.kimodo_unity_motion_tools", "NvlabKimodoQuickServer~"));
+            string candidate3 = Path.GetFullPath(Path.Combine(projectRoot, "..", "..", "KimodoUnityBridge", "NvlabKimodoQuickServer~"));
+            return Directory.Exists(candidate1)
+                ? candidate1
+                : (Directory.Exists(candidate2) ? candidate2 : candidate3);
+        }
+
+        private static bool TryGetSyncVersions(string runtimeRoot, out Version packagedVersion, out Version runtimeVersion)
+        {
+            packagedVersion = null;
+            runtimeVersion = null;
+            string templateRoot = ResolvePackagedRuntimeRoot(ResolveProjectRoot());
+            if (!Directory.Exists(templateRoot))
+            {
+                return false;
+            }
+
+            if (!TryParseRuntimeVersion(ReadQuickServerVersion(templateRoot), out packagedVersion) ||
+                !TryParseRuntimeVersion(ReadQuickServerVersion(runtimeRoot), out runtimeVersion))
+            {
+                packagedVersion = null;
+                runtimeVersion = null;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryParseRuntimeVersion(string text, out Version version)
+        {
+            version = null;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            Match match = Regex.Match(text.Trim(), @"^(\d+)\.(\d+)\.(\d+)");
+            if (!match.Success ||
+                !int.TryParse(match.Groups[1].Value, out int major) ||
+                !int.TryParse(match.Groups[2].Value, out int minor) ||
+                !int.TryParse(match.Groups[3].Value, out int patch))
+            {
+                return false;
+            }
+
+            version = new Version(major, minor, patch);
+            return true;
+        }
+
+        private static void MigrateLegacyVenvToRoot(string runtimeRoot)
+        {
+            string target = Path.Combine(runtimeRoot, ".venv");
+            string legacy = Path.Combine(runtimeRoot, "kimodo", ".venv");
+            if (Directory.Exists(target) || !Directory.Exists(legacy))
+            {
+                return;
+            }
+
+            Directory.Move(legacy, target);
         }
 
         internal static void CopyDirectoryRecursive(string sourceDir, string destinationDir, string skipTopLevelDirectoryName = null)

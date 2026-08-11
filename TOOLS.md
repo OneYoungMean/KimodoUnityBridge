@@ -5,7 +5,7 @@ This is machine-facing operational context, not a human tutorial. The English se
 Current versions / 当前版本：
 
 - Unity package: `2.0.20` / Unity 包：`2.0.20`
-- QuickServer: `2.0.4` — project-local Kimodo and ARDY generation runtime. / QuickServer：`2.0.4`——项目级 Kimodo 与 ARDY 生成运行时。
+- QuickServer: `2.1.0` — project-local Kimodo and ARDY generation runtime. / QuickServer：`2.1.0`——项目级 Kimodo 与 ARDY 生成运行时。
 
 ## English
 
@@ -101,7 +101,7 @@ kimodo_get_generation -> poll to terminal state
 
 Normal generation prepares and starts the project-local runtime as needed. `kimodo_debug_install_server` is debug-only incremental repair/setup; inspect its current help before use. Do not expose it as a global installer.
 
-The default runtime root is the Unity project's `NvlabKimodoQuickServer~`. Relevant logs are `log/setup.log` and `log/bridge_server.log`. On failure, capture the command JSON/result, Unity version, `Editor.log`, runtime logs, Session state, and whether the failure occurred during package resolution, setup, model provisioning, generation, bake, or playback.
+The default runtime root is the Unity project's `NvlabKimodoQuickServer~`, with its Python environment at root `.venv`. When Auto Sync Server is enabled and the installed runtime is older than the packaged version, major sync clears everything, minor sync keeps `models`, and patch sync keeps `models` plus root `.venv`. Relevant logs are `log/setup.log` and `log/bridge_server.log`. On failure, capture the command JSON/result, Unity version, `Editor.log`, runtime logs, Session state, and whether the failure occurred during package resolution, setup, model provisioning, generation, bake, or playback.
 
 ### 9. Backend developer seam
 
@@ -201,7 +201,7 @@ kimodo_get_generation -> 轮询到终态
 
 普通生成会按需准备并启动项目级运行时。`kimodo_debug_install_server` 仅用于调试式增量修复/安装，使用前先读取当前 help；不得把它暴露成全局安装器。
 
-默认运行根目录是 Unity 项目下的 `NvlabKimodoQuickServer~`。相关日志为 `log/setup.log` 和 `log/bridge_server.log`。失败时保存命令 JSON/返回、Unity 版本、`Editor.log`、运行时日志、Session 状态，并标明问题发生在包解析、setup、模型准备、生成、Bake 还是播放阶段。
+默认运行根目录是 Unity 项目下的 `NvlabKimodoQuickServer~`，Python 环境位于该根目录的 `.venv`。启用 Auto Sync Server 后，运行时版本低于包内版本时会按 major/minor/patch 层级同步：major 清空全部内容，minor 保留 `models`，patch 保留 `models` 和根目录 `.venv`。相关日志为 `log/setup.log` 和 `log/bridge_server.log`。失败时保存命令 JSON/返回、Unity 版本、`Editor.log`、运行时日志、Session 状态，并标明问题发生在包解析、setup、模型准备、生成、Bake 还是播放阶段。
 
 ### 9. 后端开发边界
 
