@@ -867,9 +867,16 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static Task StartServerConnectionAsync(Action<string> progress)
+        private static async Task StartServerConnectionAsync(Action<string> progress)
         {
-            return KimodoBridgeService.Shared.WarmupAsync(progress, CancellationToken.None);
+            await KimodoBridgeService.Shared.WarmupAsync(progress, CancellationToken.None);
+
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            progress?.Invoke($"Preparing default model '{settings.DefaultBridgeModelName}'...");
+            await KimodoBridgeService.Shared.GenerateAsync(
+                KimodoSetupWizardWindow.CreateDefaultModelWarmupRequest(settings),
+                progress,
+                CancellationToken.None);
         }
 
         private static string SummarizeForUi(string message, int maxLength = 320)

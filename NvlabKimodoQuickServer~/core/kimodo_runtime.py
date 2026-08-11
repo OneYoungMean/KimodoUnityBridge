@@ -504,7 +504,13 @@ def _clip_constraint_mask(values: KmbClipMask, skeleton, joint_names: list[str])
     if values.root_rotation:
         rotation_joints.append(root_index)
     for joint in values.joints:
-        joint_index = by_name[joint.joint_name.lower()]
+        # Clip masks may use the 77-joint SOMA rig while the active Kimodo
+        # model uses the 30-joint subset.  The protocol parser has already
+        # validated the source rig; joints absent from the target rig are
+        # intentionally not representable and must be projected away.
+        joint_index = by_name.get(joint.joint_name.lower())
+        if joint_index is None:
+            continue
         position_axes[joint_index] = list(joint.position)
         if joint.rotation:
             rotation_joints.append(joint_index)

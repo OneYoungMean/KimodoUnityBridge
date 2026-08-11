@@ -67,6 +67,30 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(joint_axes, [[False, False, False], [False, True, False]])
         self.assertEqual(rotation_joints, [1])
 
+    def test_clip_mask_projects_unavailable_soma_joints(self):
+        mask = parse_clip_mask(
+            {
+                "mask": {
+                    "joints": [
+                        {"joint_name": "HeadEnd", "position": [True, True, True], "rotation": True},
+                        {"joint_name": "LeftFoot", "position": [False, True, False], "rotation": True},
+                    ],
+                }
+            },
+            ["Hips", "HeadEnd", "LeftFoot"],
+        )
+
+        root_axes, heading, joint_axes, rotation_joints = kimodo_runtime._clip_constraint_mask(
+            mask,
+            SimpleNamespace(root_idx=0),
+            ["Hips", "LeftFoot"],
+        )
+
+        self.assertEqual(root_axes, [False, False, False])
+        self.assertFalse(heading)
+        self.assertEqual(joint_axes, [[False, False, False], [False, True, False]])
+        self.assertEqual(rotation_joints, [1])
+
     def test_legacy_flat_clip_mask_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "must be an object"):
             parse_clip_mask(
@@ -75,9 +99,11 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             )
 
     def test_protocol_help_lists_model_configuration_command(self):
-        commands = quickserver_cli._build_protocol_help()["commands"]
+        help_payload = quickserver_cli._build_protocol_help()
+        commands = help_payload["commands"]
         self.assertIn("runtime.list_models", [item["cmd"] for item in commands])
         self.assertIn("help", [item["cmd"] for item in commands])
+        self.assertEqual(help_payload["server_version"], "unknown")
 
     def test_model_configurations_are_flattened_by_model_and_encoder(self):
         runtime_profile = SimpleNamespace(

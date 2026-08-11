@@ -38,9 +38,10 @@ DEFAULT_TASK_ID_PREFIX = "task"
 DEFAULT_RUNTIME_IDLE_UNLOAD_SEC = 900
 
 
-def _build_protocol_help() -> dict[str, Any]:
+def _build_protocol_help(kimodo_root: str = "") -> dict[str, Any]:
     return {
         "protocol": "kimodo-quickserver-tcp",
+        "server_version": _read_quickserver_version(kimodo_root) if kimodo_root else "unknown",
         "commands": [
             {
                 "cmd": "help",
@@ -1861,7 +1862,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             raise ValueError("The TCP Session is closed.")
 
                         if cmd == "help":
-                            reply({"status": "done", **_build_protocol_help()})
+                            reply({"status": "done", **_build_protocol_help(kimodo_root)})
                         elif cmd == "runtime.list_models":
                             runtime_profile = runtime_helpers._runtime_self_check(None)
                             list_config = _normalize_runtime_config(request, session["default_config"])

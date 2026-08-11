@@ -57,6 +57,13 @@ namespace KimodoBridge
             public bool? EnableKimodoStaticGraph;
         }
 
+        private enum ExistingServerProbeResult
+        {
+            NotResponding,
+            Compatible,
+            VersionMismatch
+        }
+
         private static readonly object RegistryLock = new object();
         private static readonly HashSet<KimodoBridgeService> Registry = new HashSet<KimodoBridgeService>();
         private static readonly Lazy<BridgeProcessManager> GlobalProcessManager =
@@ -355,7 +362,17 @@ namespace KimodoBridge
             Interlocked.Increment(ref sessionVersion);
             try
             {
-                bool hasEndpoint = TryResolveCurrentEndpoint(out string host, out int port);
+                bool hasEndpoint = false;
+                string host = DefaultHost;
+                int port = -1;
+                if (isDefaultSession && !string.IsNullOrWhiteSpace(currentRuntimeRoot))
+                {
+                    hasEndpoint = TryReadRuntimeEndpoint(currentRuntimeRoot, out host, out port);
+                }
+                if (!hasEndpoint)
+                {
+                    hasEndpoint = TryResolveCurrentEndpoint(out host, out port);
+                }
                 int serverProcessId = -1;
                 if (isDefaultSession && !hasEndpoint)
                 {
@@ -442,11 +459,6 @@ namespace KimodoBridge
                 }
 #endif
 
-                if (IsConnected && currentPort > 0 && (isDefaultSession || explicitSessionOpened))
-                {
-                    return;
-                }
-
                 if (isDefaultSession)
                 {
                     await StopLogPumpsAsync(token).ConfigureAwait(false);
@@ -454,23 +466,30 @@ namespace KimodoBridge
 
                 if (TryReadRuntimeEndpoint(context.RuntimeRoot, out string host, out int port))
                 {
-                    try
+                    ExistingServerProbeResult probe = await ProbeExistingServerAsync(
+                        context.RuntimeRoot,
+                        host,
+                        port,
+                        token).ConfigureAwait(false);
+                    if (probe == ExistingServerProbeResult.Compatible)
                     {
-                        await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
-                        currentHost = host;
-                        currentPort = port;
                         await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
                         StartLogPumpsIfNeeded();
                         StartRuntimeLogPumpsIfNeeded();
                         ReportProgress(progress, $"Bridge attached to {host}:{port}.");
                         return;
                     }
-                    catch
+                    if (probe == ExistingServerProbeResult.VersionMismatch)
                     {
-                        await protocolClient.DetachAsync().ConfigureAwait(false);
-                        currentHost = DefaultHost;
-                        currentPort = -1;
+                        ReportProgress(progress, "QuickServer version mismatch; closing the old server.");
+                        await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
+                        currentRuntimeRoot = context.RuntimeRoot;
                     }
+                }
+
+                if (IsConnected && currentPort > 0 && (isDefaultSession || explicitSessionOpened))
+                {
+                    return;
                 }
 
                 if (!processManager.IsRunning)
@@ -504,6 +523,20 @@ namespace KimodoBridge
                 await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
                 currentHost = host;
                 currentPort = port;
+                ExistingServerProbeResult probe = await ProbeExistingServerAsync(
+                    context.RuntimeRoot,
+                    host,
+                    port,
+                    token).ConfigureAwait(false);
+                if (probe == ExistingServerProbeResult.VersionMismatch)
+                {
+                    await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
+                    throw new InvalidOperationException("QuickServer started with an unexpected version.");
+                }
+                if (probe != ExistingServerProbeResult.Compatible)
+                {
+                    throw new InvalidOperationException("QuickServer started but failed its health probe.");
+                }
                 await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
                 StartRuntimeLogPumpsIfNeeded();
                 ReportProgress(progress, $"Bridge attached to {host}:{port}.");
@@ -526,6 +559,46 @@ namespace KimodoBridge
                 throw new InvalidOperationException("QuickServer did not return an explicit Session id.");
             }
             explicitSessionOpened = true;
+        }
+
+        private async Task<ExistingServerProbeResult> ProbeExistingServerAsync(
+            string runtimeRoot,
+            string host,
+            int port,
+            CancellationToken token)
+        {
+            try
+            {
+                BridgeProtocolResponse response = await protocolClient.GetHelpAsync(host, port, token).ConfigureAwait(false);
+                JObject header = RequireDoneResponse(response, "QuickServer health probe returned no response.", "QuickServer health probe failed.");
+                currentHost = host;
+                currentPort = port;
+
+                string expectedVersion = ReadRuntimePackageVersion(runtimeRoot);
+                string runningVersion = header.Value<string>("server_version") ?? string.Empty;
+                EmitDebugLog(
+                    $"[KimodoBridge] QuickServer probe: endpoint={host}:{port}, " +
+                    $"runningVersion='{runningVersion}', expectedVersion='{expectedVersion}'.");
+                if (!string.Equals(expectedVersion, "unknown", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(runningVersion, expectedVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    return ExistingServerProbeResult.VersionMismatch;
+                }
+
+                return ExistingServerProbeResult.Compatible;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                EmitDebugLog($"[KimodoBridge] QuickServer probe failed at {host}:{port}: {exception.Message}");
+                await protocolClient.DetachAsync().ConfigureAwait(false);
+                currentHost = DefaultHost;
+                currentPort = -1;
+                return ExistingServerProbeResult.NotResponding;
+            }
         }
 
         private async Task<BridgeProtocolResponse> AwaitGenerateCompletionAsync(
@@ -596,6 +669,20 @@ namespace KimodoBridge
         private bool TryReadRuntimeEndpoint(string runtimeRoot, out string host, out int port)
         {
             return BridgeEndpointResolver.TryReadServerEndpoint(runtimeRoot, DefaultHost, out host, out port, out _);
+        }
+
+        private static string ReadRuntimePackageVersion(string runtimeRoot)
+        {
+            try
+            {
+                string packagePath = Path.Combine(runtimeRoot ?? string.Empty, "package.json");
+                string version = JObject.Parse(File.ReadAllText(packagePath)).Value<string>("version");
+                return string.IsNullOrWhiteSpace(version) ? "unknown" : version.Trim();
+            }
+            catch
+            {
+                return "unknown";
+            }
         }
 
         private static bool IsLoopbackHost(string host)
