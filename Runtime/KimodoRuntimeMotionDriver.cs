@@ -149,6 +149,8 @@ namespace KimodoBridge
                 out KimodoRuntimeGeneratedSegment completedSegment,
                 out string playbackError);
 
+            MaybeQueueNextGeneration(generationSession.LifetimeToken);
+
             if (!string.IsNullOrWhiteSpace(playbackError))
             {
                 UpdateStatus($"Playback failed: {playbackError}");
@@ -462,8 +464,9 @@ namespace KimodoBridge
                 ResetArdySessionState();
                 CaptureAppliedRuntimeSettings();
 
-                generationSession.Start(RunSchedulerLoopAsync);
+                generationSession.Start();
                 UpdateStatus("Generator active.");
+                _ = GenerateNextSegmentAsync(generationSession.LifetimeToken);
             }
             catch (Exception ex)
             {
@@ -479,14 +482,7 @@ namespace KimodoBridge
 
         private async Task StopRuntimeAsync()
         {
-            try
-            {
-                await generationSession.StopAsync();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[KimodoRuntimeMotionDriver] Scheduler stop observed exception: {ex.Message}", this);
-            }
+            generationSession.Stop();
 
             constraints.Clear();
             motionPlayer.Stop();
@@ -498,29 +494,6 @@ namespace KimodoBridge
                 await bridgeService.StopAsync(CancellationToken.None);
             }
             UpdateStatus("Stopped.");
-        }
-
-        private async Task RunSchedulerLoopAsync(CancellationToken token)
-        {
-            try
-            {
-                await GenerateNextSegmentAsync(token);
-
-                while (!token.IsCancellationRequested)
-                {
-                    MaybeQueueNextGeneration(token);
-                    await Task.Delay(100, token);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex, this);
-                UpdateStatus($"Scheduler failed: {ex.Message}");
-                generationSession.Fail();
-            }
         }
 
         private void MaybeQueueNextGeneration(CancellationToken token)

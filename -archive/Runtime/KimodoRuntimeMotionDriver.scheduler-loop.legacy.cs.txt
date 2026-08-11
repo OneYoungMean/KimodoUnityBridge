@@ -1,0 +1,22 @@
+        private async Task RunSchedulerLoopAsync(CancellationToken token)
+        {
+            try
+            {
+                await GenerateNextSegmentAsync(token);
+
+                while (!token.IsCancellationRequested)
+                {
+                    MaybeQueueNextGeneration(token);
+                    await Task.Delay(100, token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex, this);
+                UpdateStatus($"Scheduler failed: {ex.Message}");
+                generationSession.Fail();
+            }
+        }

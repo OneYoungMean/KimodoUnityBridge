@@ -550,7 +550,7 @@ namespace KimodoBridge.Editor.Tests
             try
             {
                 Assert.That(session.TryBeginStart(), Is.True);
-                session.Start(_ => System.Threading.Tasks.Task.CompletedTask);
+                session.Start();
                 session.EndStart();
                 Assert.That(
                     session.TryBeginGeneration(
@@ -570,7 +570,7 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(session.ArdyRefreshPending, Is.False);
                 Assert.That(session.ArdyPlaybackReserveSeconds, Is.EqualTo(0.2f));
 
-                session.StopAsync().GetAwaiter().GetResult();
+                session.Stop();
                 Assert.That(lifetimeToken.IsCancellationRequested, Is.True);
                 Assert.That(generationToken.IsCancellationRequested, Is.True);
                 Assert.That(session.Running, Is.False);

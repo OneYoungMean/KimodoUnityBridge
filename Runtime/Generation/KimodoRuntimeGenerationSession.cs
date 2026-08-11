@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using System.Threading.Tasks;
 using UnityEngine;
 
 namespace KimodoBridge
@@ -38,7 +37,6 @@ namespace KimodoBridge
     {
         private CancellationTokenSource lifetimeCts;
         private CancellationTokenSource activeGenerationCts;
-        private Task schedulerTask;
         private KimodoRuntimeSessionSignature appliedSignature;
         private bool hasAppliedSignature;
 
@@ -76,7 +74,7 @@ namespace KimodoBridge
 
         internal void EndStart() => StartRequested = false;
 
-        internal void Start(Func<CancellationToken, Task> scheduler)
+        internal void Start()
         {
             CancelAndDispose(ref lifetimeCts);
             lifetimeCts = new CancellationTokenSource();
@@ -86,39 +84,22 @@ namespace KimodoBridge
             GenerationBlocked = false;
             LastWaitStatusSegment = -1;
             Running = true;
-            schedulerTask = scheduler(lifetimeCts.Token);
         }
 
-        internal async Task StopAsync()
+        internal void Stop()
         {
             Running = false;
             CancellationTokenSource lifetime = lifetimeCts;
             CancellationTokenSource generation = activeGenerationCts;
-            Task scheduler = schedulerTask;
             lifetimeCts = null;
             activeGenerationCts = null;
-            schedulerTask = null;
             TryCancel(lifetime);
             TryCancel(generation);
-
-            try
-            {
-                if (scheduler != null)
-                {
-                    await scheduler;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            finally
-            {
-                lifetime?.Dispose();
-                generation?.Dispose();
-                GenerationInFlight = false;
-                GenerationBlocked = false;
-                LastWaitStatusSegment = -1;
-            }
+            lifetime?.Dispose();
+            generation?.Dispose();
+            GenerationInFlight = false;
+            GenerationBlocked = false;
+            LastWaitStatusSegment = -1;
         }
 
         internal void BeginMotionReset()
@@ -163,8 +144,6 @@ namespace KimodoBridge
         }
 
         internal void CancelGeneration() => TryCancel(activeGenerationCts);
-
-        internal void Fail() => Running = false;
 
         internal void AdvanceSegment(int completedSegment) => SegmentIndex = completedSegment + 1;
 
@@ -281,7 +260,6 @@ namespace KimodoBridge
             activeGenerationCts?.Dispose();
             lifetimeCts = null;
             activeGenerationCts = null;
-            schedulerTask = null;
         }
 
         private static void TryCancel(CancellationTokenSource source)
