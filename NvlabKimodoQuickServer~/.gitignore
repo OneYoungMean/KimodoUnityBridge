@@ -1,5 +1,4 @@
 # Shared local runtime environment (do not commit)
-/.venv/
 /Env/
 /Env~/
 /test_runs/

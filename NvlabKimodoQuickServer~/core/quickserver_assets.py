@@ -3,10 +3,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
-import multiprocessing
 import os
 from pathlib import Path
-from queue import Empty
 import shutil
 import urllib.error
 import urllib.request
@@ -46,44 +44,16 @@ LEGACY_GGUF_ENV_VARS = (
 )
 
 
-class DownloadCancelledError(RuntimeError):
-    pass
-
-
-def raise_if_download_cancelled(cancel_event: threading.Event | None) -> None:
-    if cancel_event is not None and cancel_event.is_set():
-        raise DownloadCancelledError("Download canceled.")
-
-
 class LoggerLike(Protocol):
     def log(self, message: str) -> None: ...
 
 
 @dataclass(frozen=True)
-class ModelSpec:
-    model_name: str
+class MainModelSpec:
+    local_name: str
     modelscope_repo: str
     huggingface_repo: str
-    backend: str = "kimodo"
-    source_fps: float = 30.0
-    horizon_frames: int = 0
-    frames_per_token: int = 1
-    max_context_frames: int = 0
-    rig_profile: str = "somaskel77"
-    joint_count: int = 77
-    max_diffusion_steps: int = 1000
-    default_diffusion_steps: int = 100
-    cfg_text_weight: float = 2.0
-    cfg_constraint_weight: float = 2.0
-    motion_rep_fingerprint: str = ""
-    postprocess: bool = True
-    supports_streaming: bool = False
-    supports_timeline_segments: bool = True
     aliases: tuple[str, ...] = ()
-
-    @property
-    def local_name(self) -> str:
-        return self.model_name
 
 
 @dataclass(frozen=True)
@@ -128,6 +98,24 @@ class TextEncoderRuntimeDecision:
         return self.effective_free_vram_gb
 
 
+@dataclass(frozen=True)
+class MotionModelProfile:
+    model_name: str
+    modelscope_repo: str
+    backend: str
+    source_fps: float
+    horizon_frames: int
+    frames_per_token: int
+    max_context_frames: int
+    rig_profile: str
+    max_diffusion_steps: int
+    cfg_text_weight: float
+    cfg_constraint_weight: float
+    motion_rep_fingerprint: str
+    postprocess: bool
+    aliases: tuple[str, ...] = ()
+
+
 class DownloadSite(str, Enum):
     MODELSCOPE = "modelscope"
     HUGGINGFACE = "huggingface"
@@ -157,11 +145,7 @@ def resolve_text_encoder_runtime(
     has_accelerator = device != "cpu"
     motion_device = device if has_accelerator else "cpu"
 
-    # Apple Silicon/MPS cannot reliably load the dynamic INT8 bundles produced
-    # on x86 CPUs (for example, AMD/FBGEMM). Always use the portable FP16
-    # encoder route on Metal; it may still run on CPU when the memory budget or
-    # kernel probe does not allow MPS execution.
-    if resolved_mode == TEXT_ENCODER_MODE_HIGH_PRECISION or device == "mps":
+    if resolved_mode == TEXT_ENCODER_MODE_HIGH_PRECISION:
         use_accelerator = (
             has_accelerator
             and fp16_accelerator_available
@@ -216,13 +200,10 @@ def force_text_encoder_cpu(
     return TextEncoderRuntimeDecision(
         mode=decision.mode,
         motion_device=decision.motion_device,
-        # NF4 has no CPU layout, so preserve the existing NF4 -> INT8 fallback.
-        # MPS deliberately selects FP16; keep that route instead of switching
-        # back to an x86-generated INT8 bundle.
         encoder_route=(
-            ENCODER_ROUTE_INT8
-            if decision.encoder_route == ENCODER_ROUTE_NF4
-            else decision.encoder_route
+            ENCODER_ROUTE_FP16
+            if decision.mode == TEXT_ENCODER_MODE_HIGH_PRECISION
+            else ENCODER_ROUTE_INT8
         ),
         encoder_device="cpu",
         reason=reason,
@@ -271,58 +252,52 @@ PURGED_RUNTIME_ENV_VARS: tuple[str, ...] = (
 )
 
 
-MAIN_MODELS: tuple[ModelSpec, ...] = (
-    ModelSpec(
-        model_name="Kimodo-SOMA-RP-v1",
+MAIN_MODELS: tuple[MainModelSpec, ...] = (
+    MainModelSpec(
+        local_name="Kimodo-SOMA-RP-v1",
         modelscope_repo="nv-community/Kimodo-SOMA-RP-v1.1",
         huggingface_repo="nvidia/Kimodo-SOMA-RP-v1.1",
         aliases=("soma", "soma-rp", "kimodo-soma-rp"),
     ),
-    ModelSpec(
-        model_name="Kimodo-SOMA-RP-v1.1",
+    MainModelSpec(
+        local_name="Kimodo-SOMA-RP-v1.1",
         modelscope_repo="nv-community/Kimodo-SOMA-RP-v1.1",
         huggingface_repo="nvidia/Kimodo-SOMA-RP-v1.1",
     ),
-    ModelSpec(
-        model_name="Kimodo-SMPLX-RP-v1",
+    MainModelSpec(
+        local_name="Kimodo-SMPLX-RP-v1",
         modelscope_repo="nv-community/Kimodo-SMPLX-RP-v1",
         huggingface_repo="nvidia/Kimodo-SMPLX-RP-v1",
-        rig_profile="smplx22",
-        joint_count=22,
         aliases=("smplx", "smplx-rp", "kimodo-smplx-rp"),
     ),
-    ModelSpec(
-        model_name="Kimodo-G1-RP-v1",
+    MainModelSpec(
+        local_name="Kimodo-G1-RP-v1",
         modelscope_repo="nv-community/Kimodo-G1-RP-v1",
         huggingface_repo="nvidia/Kimodo-G1-RP-v1",
-        rig_profile="g1skel34",
-        joint_count=34,
         aliases=("g1", "g1-rp", "kimodo-g1-rp"),
     ),
-    ModelSpec(
-        model_name="Kimodo-SOMA-SEED-v1",
+    MainModelSpec(
+        local_name="Kimodo-SOMA-SEED-v1",
         modelscope_repo="nv-community/Kimodo-SOMA-SEED-v1",
         huggingface_repo="nvidia/Kimodo-SOMA-SEED-v1",
         aliases=("soma-seed", "kimodo-soma-seed"),
     ),
-    ModelSpec(
-        model_name="Kimodo-SOMA-SEED-v1.1",
+    MainModelSpec(
+        local_name="Kimodo-SOMA-SEED-v1.1",
         modelscope_repo="nv-community/Kimodo-SOMA-SEED-v1.1",
         huggingface_repo="nvidia/Kimodo-SOMA-SEED-v1.1",
     ),
-    ModelSpec(
-        model_name="Kimodo-G1-SEED-v1",
+    MainModelSpec(
+        local_name="Kimodo-G1-SEED-v1",
         modelscope_repo="nv-community/Kimodo-G1-SEED-v1",
         huggingface_repo="nvidia/Kimodo-G1-SEED-v1",
-        rig_profile="g1skel34",
-        joint_count=34,
         aliases=("g1-seed", "kimodo-g1-seed"),
     ),
 )
 
 
-def _build_main_model_registry() -> dict[str, ModelSpec]:
-    registry: dict[str, ModelSpec] = {}
+def _build_main_model_registry() -> dict[str, MainModelSpec]:
+    registry: dict[str, MainModelSpec] = {}
     for spec in MAIN_MODELS:
         for key in (spec.local_name, *spec.aliases):
             registry[str(key).lower()] = spec
@@ -331,100 +306,80 @@ def _build_main_model_registry() -> dict[str, ModelSpec]:
 
 MAIN_MODEL_REGISTRY = _build_main_model_registry()
 
-ARDY_CORE_PROFILE = ModelSpec(
+ARDY_CORE_PROFILE = MotionModelProfile(
     model_name="ARDY-Core-RP-20FPS-Horizon40",
     modelscope_repo="nv-community/ARDY-Core-RP-20FPS-Horizon40",
-    huggingface_repo="nvidia/ARDY-Core-RP-20FPS-Horizon40",
     backend="ardy",
     source_fps=20.0,
     horizon_frames=40,
     frames_per_token=4,
     max_context_frames=200,
     rig_profile="cskel27",
-    joint_count=27,
     max_diffusion_steps=10,
-    default_diffusion_steps=10,
     cfg_text_weight=2.0,
     cfg_constraint_weight=2.0,
     motion_rep_fingerprint="ardy-core-rp-20fps-h40:nfpt4:motionrep-v1",
     postprocess=True,
-    supports_streaming=True,
     aliases=("ardy-core", "ardy-core40"),
 )
-ARDY_CORE8_PROFILE = ModelSpec(
+ARDY_CORE8_PROFILE = MotionModelProfile(
     model_name="ARDY-Core-RP-20FPS-Horizon8",
     modelscope_repo="nv-community/ARDY-Core-RP-20FPS-Horizon8",
-    huggingface_repo="nvidia/ARDY-Core-RP-20FPS-Horizon8",
     backend="ardy",
     source_fps=20.0,
     horizon_frames=8,
     frames_per_token=4,
     max_context_frames=200,
     rig_profile="cskel27",
-    joint_count=27,
     max_diffusion_steps=10,
-    default_diffusion_steps=10,
     cfg_text_weight=2.0,
     cfg_constraint_weight=2.0,
     motion_rep_fingerprint="ardy-core-rp-20fps-h8:nfpt4:motionrep-v1",
     postprocess=True,
-    supports_streaming=True,
     aliases=("ardy-core8",),
 )
-ARDY_G1_PROFILE = ModelSpec(
+ARDY_G1_PROFILE = MotionModelProfile(
     model_name="ARDY-G1-RP-25FPS-Horizon52",
     modelscope_repo="nv-community/ARDY-G1-RP-25FPS-Horizon52",
-    huggingface_repo="nvidia/ARDY-G1-RP-25FPS-Horizon52",
     backend="ardy",
     source_fps=25.0,
     horizon_frames=52,
     frames_per_token=4,
     max_context_frames=248,
     rig_profile="g1skel34",
-    joint_count=34,
     max_diffusion_steps=10,
-    default_diffusion_steps=10,
     cfg_text_weight=2.0,
     cfg_constraint_weight=2.0,
     motion_rep_fingerprint="ardy-g1-rp-25fps-h52:nfpt4:motionrep-v1",
     postprocess=False,
-    supports_streaming=True,
     aliases=("ardy-g1", "ardy-g152"),
 )
-ARDY_G18_PROFILE = ModelSpec(
+ARDY_G18_PROFILE = MotionModelProfile(
     model_name="ARDY-G1-RP-25FPS-Horizon8",
     modelscope_repo="nv-community/ARDY-G1-RP-25FPS-Horizon8",
-    huggingface_repo="nvidia/ARDY-G1-RP-25FPS-Horizon8",
     backend="ardy",
     source_fps=25.0,
     horizon_frames=8,
     frames_per_token=4,
     max_context_frames=248,
     rig_profile="g1skel34",
-    joint_count=34,
     max_diffusion_steps=10,
-    default_diffusion_steps=10,
     cfg_text_weight=2.0,
     cfg_constraint_weight=2.0,
     motion_rep_fingerprint="ardy-g1-rp-25fps-h8:nfpt4:motionrep-v1",
     postprocess=False,
-    supports_streaming=True,
     aliases=("ardy-g18",),
 )
-MOTION_MODEL_PROFILES: tuple[ModelSpec, ...] = (
+MOTION_MODEL_PROFILES: tuple[MotionModelProfile, ...] = (
     ARDY_CORE_PROFILE,
     ARDY_CORE8_PROFILE,
     ARDY_G1_PROFILE,
     ARDY_G18_PROFILE,
 )
-ALL_MODEL_SPECS = MAIN_MODELS + MOTION_MODEL_PROFILES
-MODEL_SPEC_REGISTRY = {
-    key.lower(): profile
-    for profile in ALL_MODEL_SPECS
-    for key in (profile.model_name, *profile.aliases)
-}
 MOTION_MODEL_PROFILE_REGISTRY = {
-    key: profile for key, profile in MODEL_SPEC_REGISTRY.items() if profile.backend == "ardy"
+    key.lower(): profile
+    for profile in MOTION_MODEL_PROFILES
+    for key in (profile.model_name, *profile.aliases)
 }
 
 INT8_ASSET = AssetSpec(
@@ -523,11 +478,7 @@ def resolve_main_model(requested_name: str | None) -> ResolvedModel:
     raise ValueError(f"Unsupported model alias: {raw_name}")
 
 
-def resolve_model_spec(requested_name: str | None) -> ModelSpec | None:
-    return MODEL_SPEC_REGISTRY.get(str(requested_name or "").strip().lower())
-
-
-def resolve_motion_model_profile(requested_name: str | None) -> ModelSpec | None:
+def resolve_motion_model_profile(requested_name: str | None) -> MotionModelProfile | None:
     return MOTION_MODEL_PROFILE_REGISTRY.get(str(requested_name or "").strip().lower())
 
 
@@ -932,16 +883,11 @@ def _suppress_huggingface_progress():
         enable_progress_bars()
 
 
-def _make_logged_progress_callback(
-    logger: LoggerLike,
-    label: str,
-    cancel_event: threading.Event | None = None,
-):
+def _make_logged_progress_callback(logger: LoggerLike, label: str):
     log_lock = threading.Lock()
 
     class _LoggedProgressCallback:
         def __init__(self, filename: str, file_size: int):
-            raise_if_download_cancelled(cancel_event)
             self.filename = str(filename)
             self.file_size = max(0, int(file_size or 0))
             self.downloaded = 0
@@ -974,7 +920,6 @@ def _make_logged_progress_callback(
             self._log(f"[DOWNLOAD] {label}: {self.filename} {self._status_text()}")
 
         def update(self, size: int):
-            raise_if_download_cancelled(cancel_event)
             self.downloaded += int(size)
             self._maybe_log(final=False)
 
@@ -993,13 +938,7 @@ def _make_logged_progress_callback(
     return _LoggedProgressCallback
 
 
-def download_via_modelscope(
-    asset: AssetSpec,
-    target_dir: Path,
-    logger: LoggerLike,
-    cancel_event: threading.Event | None = None,
-) -> None:
-    raise_if_download_cancelled(cancel_event)
+def download_via_modelscope(asset: AssetSpec, target_dir: Path, logger: LoggerLike) -> None:
     repo_id = _download_site_repo_id(asset, DownloadSite.MODELSCOPE)
     if not repo_id:
         raise RuntimeError(f"Missing ModelScope repo id for {asset.label}.")
@@ -1007,75 +946,32 @@ def download_via_modelscope(
     from modelscope import snapshot_download as ms_snapshot_download
 
     try:
-        progress_callbacks = [_make_logged_progress_callback(logger, asset.label, cancel_event)]
+        progress_callbacks = [_make_logged_progress_callback(logger, asset.label)]
         with _suppress_modelscope_tqdm():
             ms_snapshot_download(
                 model_id=repo_id,
                 local_dir=str(target_dir),
                 progress_callbacks=progress_callbacks,
             )
-        raise_if_download_cancelled(cancel_event)
-    except DownloadCancelledError:
-        raise
     except Exception as exc:
         raise RuntimeError(f"Failed to download {asset.label} via ModelScope: {exc}") from exc
 
 
-def _download_huggingface_worker(repo_id: str, target_dir: str, errors) -> None:
-    try:
-        from huggingface_hub import snapshot_download as hf_snapshot_download
-
-        with _suppress_huggingface_progress():
-            hf_snapshot_download(repo_id=repo_id, local_dir=target_dir)
-    except BaseException as exc:
-        errors.put(f"{type(exc).__name__}: {exc}")
-
-
-def download_via_huggingface(
-    asset: AssetSpec,
-    target_dir: Path,
-    cancel_event: threading.Event | None = None,
-) -> None:
-    raise_if_download_cancelled(cancel_event)
+def download_via_huggingface(asset: AssetSpec, target_dir: Path) -> None:
     repo_id = _download_site_repo_id(asset, DownloadSite.HUGGINGFACE)
     if not repo_id:
         raise RuntimeError(f"Missing Hugging Face repo id for {asset.label}.")
 
-    if cancel_event is None:
-        from huggingface_hub import snapshot_download as hf_snapshot_download
+    from huggingface_hub import snapshot_download as hf_snapshot_download
 
-        try:
-            with _suppress_huggingface_progress():
-                hf_snapshot_download(repo_id=repo_id, local_dir=str(target_dir))
-        except Exception as exc:
-            raise RuntimeError(f"Failed to download {asset.label} via HuggingFace: {exc}") from exc
-        return
-
-    context = multiprocessing.get_context("spawn")
-    errors = context.Queue()
-    process = context.Process(target=_download_huggingface_worker, args=(repo_id, str(target_dir), errors))
     try:
-        process.start()
-        while process.is_alive():
-            if cancel_event.wait(0.1):
-                process.terminate()
-                process.join(timeout=5)
-                raise DownloadCancelledError("Download canceled.")
-        process.join()
-        try:
-            error = errors.get(timeout=1.0)
-        except Empty:
-            error = ""
-        if error or process.exitcode:
-            error = error or f"exit code {process.exitcode}"
-            raise RuntimeError(f"Failed to download {asset.label} via HuggingFace: {error}")
-        raise_if_download_cancelled(cancel_event)
-    finally:
-        if process.is_alive():
-            process.terminate()
-            process.join(timeout=5)
-        errors.close()
-        errors.join_thread()
+        with _suppress_huggingface_progress():
+            hf_snapshot_download(
+                repo_id=repo_id,
+                local_dir=str(target_dir),
+            )
+    except Exception as exc:
+        raise RuntimeError(f"Failed to download {asset.label} via HuggingFace: {exc}") from exc
 
 
 def ensure_asset_present(
@@ -1087,9 +983,7 @@ def ensure_asset_present(
     *,
     force_site: DownloadSite | None = None,
     allow_download: bool = True,
-    cancel_event: threading.Event | None = None,
 ) -> None:
-    raise_if_download_cancelled(cancel_event)
     if asset_is_ready(asset, target_dir):
         logger.log(f"[OK] {asset.label} already present: {target_dir}")
         return
@@ -1117,18 +1011,16 @@ def ensure_asset_present(
             f"repo={selected_repo_id}"
         )
         if selected_site == DownloadSite.HUGGINGFACE:
-            download_via_huggingface(asset, target_dir, cancel_event)
+            download_via_huggingface(asset, target_dir)
         else:
-            download_via_modelscope(asset, target_dir, logger, cancel_event)
+            download_via_modelscope(asset, target_dir, logger)
     else:
         logger.log(
             f"[INFO] {asset.label}: probing download sites before transfer "
             f"(timeout={DOWNLOAD_PROBE_TIMEOUT_SECONDS:.1f}s)"
         )
         huggingface_result = probe_download_site(asset, DownloadSite.HUGGINGFACE, DOWNLOAD_PROBE_TIMEOUT_SECONDS)
-        raise_if_download_cancelled(cancel_event)
         modelscope_result = probe_download_site(asset, DownloadSite.MODELSCOPE, DOWNLOAD_PROBE_TIMEOUT_SECONDS)
-        raise_if_download_cancelled(cancel_event)
         logger.log(f"[PROBE] {asset.label}: {_probe_summary(huggingface_result)}")
         logger.log(f"[PROBE] {asset.label}: {_probe_summary(modelscope_result)}")
         try:
@@ -1143,11 +1035,10 @@ def ensure_asset_present(
             f"repo={selected_repo_id or '<missing>'}"
         )
         if selected_site == DownloadSite.HUGGINGFACE:
-            download_via_huggingface(asset, target_dir, cancel_event)
+            download_via_huggingface(asset, target_dir)
         else:
-            download_via_modelscope(asset, target_dir, logger, cancel_event)
+            download_via_modelscope(asset, target_dir, logger)
 
-    raise_if_download_cancelled(cancel_event)
     if not asset_is_ready(asset, target_dir):
         raise RuntimeError(f"Downloaded asset is incomplete: {target_dir}")
 

@@ -13,222 +13,12 @@ from typing import Any, Callable
 
 import numpy as np
 
-from . import quickserver_assets as assets
-from core.protocol.kmb_motion import (
-    MAX_KMB_BYTES,
-    KmbClipMask,
-    KmbMotion,
-    parse_constraints,
-    parse_kmb_clip,
-)
-from core.protocol.timeline_segments import parse_timeline_segments
 from kimodo.frame_time import seconds_to_frame_count
 
 
+MAX_KMB_BYTES = 256 * 1024**2
 TARGET_VELOCITY_PREDICTION_SECONDS = 2.0
-TARGET_VELOCITY_UPDATE_INTERVAL = 4
 TARGET_VELOCITY_GOAL_FRAME_INTERVAL = 10
-TARGET_HEADING_TURN_FRAMES = 40
-TARGET_ARRIVAL_RELEASE_DISTANCE = 0.15
-
-
-def _resolve_ardy_batch_size() -> int:
-    try:
-        return max(1, min(8, int(os.environ.get("KIMODO_ARDY_BATCH_SIZE", "8"))))
-    except (TypeError, ValueError):
-        return 8
-
-
-ARDY_BATCH_SIZE = _resolve_ardy_batch_size()
-_TEXT_ENCODER_LOCK = threading.Lock()
-
-
-@dataclass
-class _ArdyBatchRequest:
-    model: Any
-    kwargs: dict[str, Any]
-    key: tuple[Any, ...]
-    event: threading.Event
-    trace_id: str = ""
-    result: Any = None
-    error: BaseException | None = None
-
-
-class _ArdyInferenceBatcher:
-    def __init__(self, max_batch_size: int = ARDY_BATCH_SIZE, wait_seconds: float = 0.005):
-        self.max_batch_size = max(1, int(max_batch_size))
-        self.current_batch_size = 1
-        self.wait_seconds = max(0.0, float(wait_seconds))
-        self._condition = threading.Condition()
-        self._pending: list[_ArdyBatchRequest] = []
-        self._thread = threading.Thread(target=self._loop, name="KimodoArdyBatch", daemon=True)
-        self._thread.start()
-
-    def set_session_count(self, session_count: int) -> int:
-        count = max(0, int(session_count))
-        with self._condition:
-            while self.current_batch_size < self.max_batch_size and count > self.current_batch_size:
-                self.current_batch_size = min(self.max_batch_size, self.current_batch_size * 2)
-            while self.current_batch_size > 1 and count < self.current_batch_size / 2:
-                self.current_batch_size = max(1, self.current_batch_size // 2)
-            self._condition.notify_all()
-            return self.current_batch_size
-
-    @staticmethod
-    def _batch_key(model: Any, kwargs: dict[str, Any]) -> tuple[Any, ...] | None:
-        import torch
-
-        runtime_signature = str(getattr(model, "_kimodo_runtime_signature", "") or "")
-        denoiser = getattr(model, "denoiser", None)
-        denoiser_type = type(denoiser)
-        if not runtime_signature or "trt" in denoiser_type.__module__.lower() or "trt" in denoiser_type.__name__.lower():
-            return None
-
-        text_feat = kwargs.get("text_feat")
-        text_pad_mask = kwargs.get("text_pad_mask")
-        initial_noise = kwargs.get("initial_noise")
-        if not all(isinstance(value, torch.Tensor) and value.shape[0] == 1 for value in (
-            text_feat,
-            text_pad_mask,
-            initial_noise,
-        )):
-            return None
-
-        history = kwargs.get("init_history_sequence")
-        if history is not None and (not isinstance(history, torch.Tensor) or history.shape[0] != 1):
-            return None
-
-        cfg_weight = kwargs.get("cfg_weight")
-        if isinstance(cfg_weight, list):
-            cfg_weight = tuple(cfg_weight)
-        motion_dim = int(getattr(getattr(model, "motion_rep", None), "motion_rep_dim", 0) or 0)
-        return (
-            runtime_signature,
-            str(getattr(model, "device", "")),
-            int(kwargs.get("num_frames") or 0),
-            int(kwargs.get("num_denoising_steps") or 0),
-            cfg_weight,
-            None if history is None else (tuple(history.shape[1:]), str(history.dtype)),
-            tuple(text_feat.shape[2:]),
-            str(text_feat.dtype),
-            tuple(initial_noise.shape[1:]),
-            str(initial_noise.dtype),
-            motion_dim,
-        )
-
-    def run(self, model: Any, kwargs: dict[str, Any], trace_id: str = "") -> Any:
-        key = self._batch_key(model, kwargs)
-        if key is None:
-            return model.autoregressive_step(**kwargs)
-
-        request = _ArdyBatchRequest(model, kwargs, key, threading.Event(), str(trace_id or ""))
-        with self._condition:
-            self._pending.append(request)
-            self._condition.notify_all()
-        request.event.wait()
-        if request.error is not None:
-            raise request.error
-        return request.result
-
-    def _loop(self) -> None:
-        while True:
-            with self._condition:
-                while not self._pending:
-                    self._condition.wait()
-                first = self._pending.pop(0)
-                batch = [first]
-                deadline = time.monotonic() + self.wait_seconds
-                while len(batch) < self.current_batch_size:
-                    match_index = next(
-                        (index for index, item in enumerate(self._pending) if item.key == first.key),
-                        None,
-                    )
-                    if match_index is not None:
-                        batch.append(self._pending.pop(match_index))
-                        continue
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0.0:
-                        break
-                    self._condition.wait(remaining)
-            self._execute(batch)
-
-    @staticmethod
-    def _merge(batch: list[_ArdyBatchRequest]) -> dict[str, Any]:
-        import torch
-        import torch.nn.functional as functional
-
-        merged = dict(batch[0].kwargs)
-        merged["texts"] = [text for item in batch for text in (item.kwargs.get("texts") or [])]
-        for name in ("init_history_sequence", "initial_noise"):
-            values = [item.kwargs.get(name) for item in batch]
-            merged[name] = None if values[0] is None else torch.cat(values, dim=0)
-
-        text_features = [item.kwargs["text_feat"] for item in batch]
-        text_masks = [item.kwargs["text_pad_mask"] for item in batch]
-        max_text_length = max(int(value.shape[1]) for value in text_features)
-        merged["text_feat"] = torch.cat(
-            [functional.pad(value, (0, 0, 0, max_text_length - int(value.shape[1]))) for value in text_features],
-            dim=0,
-        )
-        merged["text_pad_mask"] = torch.cat(
-            [functional.pad(value, (0, max_text_length - int(value.shape[1])), value=False) for value in text_masks],
-            dim=0,
-        )
-
-        for name in ("observed_motion", "motion_mask"):
-            values = [item.kwargs.get(name) for item in batch]
-            template = next((value for value in values if value is not None), None)
-            merged[name] = None if template is None else torch.cat(
-                [torch.zeros_like(template) if value is None else value for value in values],
-                dim=0,
-            )
-        return merged
-
-    @classmethod
-    def _execute(cls, batch: list[_ArdyBatchRequest]) -> None:
-        try:
-            trace_ids = [request.trace_id for request in batch if request.trace_id]
-            if trace_ids:
-                print(
-                    "[ARDY_BATCH] "
-                    + json.dumps(
-                        {"size": len(batch), "sessions": trace_ids},
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    ),
-                    flush=True,
-                )
-            merged = cls._merge(batch)
-            output = batch[0].model.autoregressive_step(**merged)
-            if int(output.shape[0]) != len(batch):
-                raise RuntimeError(
-                    f"ARDY batch returned {int(output.shape[0])} rows for {len(batch)} requests."
-                )
-            for index, request in enumerate(batch):
-                request.result = output[index : index + 1]
-        except Exception as batch_error:
-            if len(batch) == 1:
-                batch[0].error = batch_error
-            else:
-                print(
-                    f"[WARN] ARDY batch size {len(batch)} failed; retrying each Session separately: {batch_error}",
-                    flush=True,
-                )
-                for request in batch:
-                    try:
-                        request.result = request.model.autoregressive_step(**request.kwargs)
-                    except Exception as item_error:
-                        request.error = item_error
-        finally:
-            for request in batch:
-                request.event.set()
-
-
-_ARDY_INFERENCE_BATCHER = _ArdyInferenceBatcher()
-
-
-def set_inference_session_count(session_count: int) -> int:
-    return _ARDY_INFERENCE_BATCHER.set_session_count(session_count)
 
 
 def _install_bundled_ardy_path() -> Path:
@@ -253,14 +43,36 @@ class ArdyBackendError(ValueError):
 
 
 @dataclass(frozen=True)
+class KmbMotion:
+    payload: bytes
+    model_name: str
+    fps: float
+    joint_names: tuple[str, ...]
+    joint_parents: tuple[int, ...]
+    root_positions: np.ndarray
+    local_rot_quats: np.ndarray
+    foot_contacts: np.ndarray | None
+
+    @property
+    def num_frames(self) -> int:
+        return int(self.root_positions.shape[0])
+
+
+@dataclass(frozen=True)
 class Root2DTarget:
     position: tuple[float, float]
     max_speed: float
     max_acceleration: float
     arrival_threshold: float
     include_heading: bool
-    heading: float | None = None
     arrival_frame: int | None = None
+
+
+@dataclass(frozen=True)
+class ArdyTimelineSegment:
+    prompt: str
+    start_frame: int
+    end_frame_exclusive: int
 
 
 @dataclass(frozen=True)
@@ -270,7 +82,6 @@ class ArdySettings:
     playback_reserve_frames: int
     adaptive_playback_reserve: bool
     auto_history: bool = False
-    history_weight: float | None = None
     max_speed: float = 1.25
     max_acceleration: float = 1.5
     history_transition_weight: float = 0.5
@@ -287,21 +98,23 @@ class ArdySettings:
                 raise ArdyBackendError(f"{name} must be a finite non-negative number of seconds.")
             return max(minimum, seconds_to_frame_count(value, fps))
 
-        raw_history_weight = request.get("ardy_history_weight")
-        history_weight = None
-        if raw_history_weight is not None:
-            history_weight = float(raw_history_weight)
-            if not math.isfinite(history_weight) or not 0.0 <= history_weight <= 1.0:
-                raise ArdyBackendError("ardy_history_weight must be a finite number in [0, 1].")
-            max_tokens = max(1, crop_max // patch)
-            history_tokens = 1 + math.floor(history_weight * (max_tokens - 1) + 0.5)
-            history = history_tokens * patch
-            auto_history = False
-        else:
-            auto_history = True
+        raw_history = request.get("ardy_history_crop_seconds")
+        auto_history = raw_history is None
+        if raw_history is None:
             history = crop_max
+        else:
+            history_seconds = float(raw_history)
+            if not math.isfinite(history_seconds) or history_seconds < 0.0:
+                raise ArdyBackendError(
+                    "ardy_history_crop_seconds must be a finite non-negative number of seconds."
+                )
+            auto_history = history_seconds <= 0.0
+            history = seconds_to_frames("ardy_history_crop_seconds", crop_max / fps, minimum=patch)
+            if auto_history:
+                history = crop_max
         history = min(crop_max, history // patch * patch)
-        future = crop_max
+        future = seconds_to_frames("ardy_future_crop_seconds", crop_max / fps)
+        future = min(crop_max, future // patch * patch)
         playback_reserve = seconds_to_frames("ardy_playback_reserve_seconds", 1.0)
         if playback_reserve > 0:
             minimum_reserve = max(1, seconds_to_frame_count(0.2, fps))
@@ -309,30 +122,142 @@ class ArdySettings:
             playback_reserve = int(math.ceil(playback_reserve / patch) * patch)
         max_speed = float(request.get("ardy_max_speed", 1.25))
         max_acceleration = float(request.get("ardy_max_acceleration", 1.5))
+        transition_weight = float(request.get("ardy_history_transition_weight", 0.5))
         if not math.isfinite(max_speed) or max_speed <= 0.0:
             raise ArdyBackendError("ardy_max_speed must be a finite positive number.")
         if not math.isfinite(max_acceleration) or max_acceleration <= 0.0:
             raise ArdyBackendError("ardy_max_acceleration must be a finite positive number.")
+        if not math.isfinite(transition_weight):
+            raise ArdyBackendError("ardy_history_transition_weight must be finite.")
+        transition_weight = min(1.0, max(0.0, transition_weight))
         return cls(
             history_crop_frames=history,
             future_crop_frames=future,
             playback_reserve_frames=playback_reserve,
-            adaptive_playback_reserve=history_weight is None,
+            adaptive_playback_reserve=bool(request.get("ardy_adaptive_playback_reserve", True)),
             auto_history=auto_history,
-            history_weight=history_weight,
             max_speed=max_speed,
             max_acceleration=max_acceleration,
+            history_transition_weight=transition_weight,
         )
 
     def request_fields(self, fps: float) -> dict[str, Any]:
-        fields = {
+        return {
+            "ardy_history_crop_seconds": 0.0 if self.auto_history else self.history_crop_frames / fps,
+            "ardy_future_crop_seconds": self.future_crop_frames / fps,
             "ardy_playback_reserve_seconds": self.playback_reserve_frames / fps,
+            "ardy_adaptive_playback_reserve": self.adaptive_playback_reserve,
             "ardy_max_speed": self.max_speed,
             "ardy_max_acceleration": self.max_acceleration,
+            "ardy_history_transition_weight": self.history_transition_weight,
         }
-        if self.history_weight is not None:
-            fields["ardy_history_weight"] = self.history_weight
-        return fields
+
+
+def parse_kmb1(payload: bytes) -> KmbMotion:
+    from core.protocol.generated import MotionPacket
+
+    if len(payload or b"") > MAX_KMB_BYTES:
+        raise ArdyBackendError(f"KMB1 payload exceeds the {MAX_KMB_BYTES}-byte limit.")
+    if not payload or not MotionPacket.MotionPacket.MotionPacketBufferHasIdentifier(payload, 0):
+        raise ArdyBackendError("Attachment is not a KMB1 MotionPacket.")
+    packet = MotionPacket.MotionPacket.GetRootAs(payload, 0)
+    version = int(packet.Version())
+    num_frames = int(packet.NumFrames())
+    num_joints = int(packet.NumJoints())
+    if version != 1 or num_frames <= 0 or num_joints <= 0:
+        raise ArdyBackendError(
+            f"Invalid KMB1 header: version={version}, frames={num_frames}, joints={num_joints}."
+        )
+
+    joint_names = tuple(
+        (packet.JointNames(i) or b"").decode("utf-8", errors="strict")
+        for i in range(packet.JointNamesLength())
+    )
+    joint_parents = tuple(int(packet.JointParents(i)) for i in range(packet.JointParentsLength()))
+    roots = np.asarray(packet.RootPositionsAsNumpy(), dtype=np.float32).copy()
+    quats = np.asarray(packet.LocalRotQuatsAsNumpy(), dtype=np.float32).copy()
+    contacts = None
+    if packet.FootContactsLength():
+        raw_contacts = np.asarray(packet.FootContactsAsNumpy(), dtype=np.uint8).copy()
+        if raw_contacts.size != num_frames * 4:
+            raise ArdyBackendError("KMB1 foot-contact length does not match its frame count.")
+        contacts = raw_contacts.reshape(num_frames, 4).astype(np.float32)
+    if len(joint_names) != num_joints or len(joint_parents) != num_joints:
+        raise ArdyBackendError("KMB1 joint metadata does not match num_joints.")
+    if roots.size != num_frames * 3 or quats.size != num_frames * num_joints * 4:
+        raise ArdyBackendError("KMB1 motion vector lengths do not match its header.")
+    if not np.isfinite(roots).all() or not np.isfinite(quats).all():
+        raise ArdyBackendError("KMB1 contains non-finite motion values.")
+    model_name = (packet.ModelName() or b"").decode("utf-8", errors="strict")
+    return KmbMotion(
+        payload=bytes(payload),
+        model_name=model_name,
+        fps=float(packet.Fps()),
+        joint_names=joint_names,
+        joint_parents=joint_parents,
+        root_positions=roots.reshape(num_frames, 3),
+        local_rot_quats=quats.reshape(num_frames, num_joints, 4),
+        foot_contacts=contacts,
+    )
+
+
+def _parse_constraints(value: Any) -> list[dict[str, Any]]:
+    if value is None or value == "":
+        return []
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else value
+    except Exception as exc:
+        raise ArdyBackendError(f"Invalid constraints_json: {exc}") from exc
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+    if not isinstance(parsed, list) or any(not isinstance(item, dict) for item in parsed):
+        raise ArdyBackendError("constraints_json must be a JSON array or object.")
+    return [dict(item) for item in parsed]
+
+
+def _allowed_file_roots(quickserver_root: str | Path) -> tuple[Path, ...]:
+    roots = [Path(quickserver_root).resolve() / "cache" / "ardy_files"]
+    roots.extend(
+        Path(value).expanduser().resolve()
+        for value in os.environ.get("KIMODO_ARDY_TEST_FILE_ROOTS", "").split(os.pathsep)
+        if value.strip()
+    )
+    return tuple(dict.fromkeys(roots))
+
+
+def _read_debug_file(path_value: Any, quickserver_root: str | Path) -> bytes:
+    if os.environ.get("KIMODO_ARDY_ALLOW_TEST_FILES", "").strip().lower() not in {"1", "true", "yes"}:
+        raise ArdyBackendError("ardy_file_v1 is available only when KIMODO_ARDY_ALLOW_TEST_FILES is enabled.")
+    path = Path(str(path_value or "")).expanduser().resolve(strict=True)
+    if not path.is_file() or not any(path.is_relative_to(root) for root in _allowed_file_roots(quickserver_root)):
+        raise ArdyBackendError(f"ardy_file_v1 path is outside the configured debug roots: {path}.")
+    return path.read_bytes()
+
+
+def _clip_payload(
+    item: dict[str, Any],
+    attachments: tuple[bytes, ...],
+    quickserver_root: str | Path,
+) -> bytes:
+    clip_format = str(item.get("format") or "")
+    if clip_format == "kmb_attachment_v1":
+        index = item.get("attachment")
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(attachments):
+            raise ArdyBackendError(f"Invalid KMB attachment index: {index!r}.")
+        return attachments[index]
+    if clip_format == "ardy_file_v1":
+        return _read_debug_file(item.get("path"), quickserver_root)
+    raise ArdyBackendError(f"Unsupported clip format: {clip_format!r}.")
+
+
+def _clip_slice(item: dict[str, Any], motion: KmbMotion) -> tuple[int, int]:
+    start = item.get("start_frame", 0)
+    end = item.get("end_frame_exclusive", motion.num_frames)
+    if isinstance(start, bool) or isinstance(end, bool) or not isinstance(start, int) or not isinstance(end, int):
+        raise ArdyBackendError("Clip slice bounds must be integers.")
+    if not 0 <= start < end <= motion.num_frames:
+        raise ArdyBackendError(f"Invalid KMB clip slice [{start}, {end}) for {motion.num_frames} frames.")
+    return start, end
 
 
 def _validate_kmb(motion: KmbMotion, model: Any, profile: Any) -> None:
@@ -389,55 +314,39 @@ def _normalize_root_heading(item: dict[str, Any]) -> None:
     ]
 
 
-def _parse_root_2d_targets(
-    item: dict[str, Any],
-    settings: ArdySettings,
-    frame_offset: int = 0,
-) -> list[Root2DTarget]:
-    indices = item.get("frame_indices")
-    root_key = "root_2d" if "root_2d" in item else "smooth_root_2d"
-    positions = item.get(root_key)
-    if not isinstance(indices, list) or not isinstance(positions, list) or len(indices) != len(positions):
-        raise ArdyBackendError("root2d frame_indices and positions must be equal-length arrays.")
-    headings = item.get("global_root_heading")
-    if headings is not None and (not isinstance(headings, list) or len(headings) != len(indices)):
-        raise ArdyBackendError("root2d global_root_heading must match frame_indices when provided.")
+def _parse_root_2d_target(item: dict[str, Any], frame_offset: int = 0) -> Root2DTarget:
+    position = item.get("target_root_2d")
+    if not isinstance(position, (list, tuple)) or len(position) != 2:
+        raise ArdyBackendError("root2d_target target_root_2d must contain exactly two coordinates.")
 
-    targets: list[Root2DTarget] = []
-    previous = -1
-    for frame, position, heading_value in zip(indices, positions, headings or [None] * len(indices)):
-        if isinstance(frame, bool) or not isinstance(frame, int) or frame < 0:
-            raise ArdyBackendError("root2d frame indices must be non-negative integers.")
-        arrival_frame = int(frame) + int(frame_offset)
-        if arrival_frame <= previous:
-            raise ArdyBackendError("root2d points must have strictly increasing frame indices.")
-        if not isinstance(position, (list, tuple)) or len(position) != 2:
-            raise ArdyBackendError("root2d positions must contain exactly two coordinates.")
-        point = (float(position[0]), float(position[1]))
-        if not all(math.isfinite(value) for value in point):
-            raise ArdyBackendError("root2d positions must be finite.")
-        heading = None
-        if heading_value is not None:
-            heading = (
-                math.atan2(float(heading_value[1]), float(heading_value[0]))
-                if isinstance(heading_value, (list, tuple)) and len(heading_value) == 2
-                else float(heading_value)
-            )
-            if not math.isfinite(heading):
-                raise ArdyBackendError("root2d heading must be finite.")
-        targets.append(
-            Root2DTarget(
-                position=point,
-                max_speed=settings.max_speed,
-                max_acceleration=settings.max_acceleration,
-                arrival_threshold=0.0,
-                include_heading=heading is not None,
-                heading=heading,
-                arrival_frame=arrival_frame,
-            )
-        )
-        previous = arrival_frame
-    return targets
+    values = {
+        "max_speed": float(item.get("max_speed", 1.25)),
+        "max_acceleration": float(item.get("max_acceleration", 1.5)),
+        "arrival_threshold": float(item.get("arrival_threshold", 0.1)),
+    }
+    point = (float(position[0]), float(position[1]))
+    if not all(math.isfinite(value) for value in (*point, *values.values())):
+        raise ArdyBackendError("root2d_target values must be finite.")
+    if values["max_speed"] <= 0.0 or values["max_acceleration"] <= 0.0:
+        raise ArdyBackendError("root2d_target speed and acceleration must be positive.")
+    if values["arrival_threshold"] < 0.0:
+        raise ArdyBackendError("root2d_target arrival_threshold must be non-negative.")
+    include_heading = item.get("include_heading", True)
+    if not isinstance(include_heading, bool):
+        raise ArdyBackendError("root2d_target include_heading must be a boolean.")
+    arrival_frame = item.get("target_frame")
+    if arrival_frame is not None:
+        if isinstance(arrival_frame, bool) or not isinstance(arrival_frame, int) or arrival_frame < 0:
+            raise ArdyBackendError("root2d_target target_frame must be a non-negative integer.")
+        arrival_frame += int(frame_offset)
+    return Root2DTarget(
+        position=point,
+        max_speed=values["max_speed"],
+        max_acceleration=values["max_acceleration"],
+        arrival_threshold=values["arrival_threshold"],
+        include_heading=include_heading,
+        arrival_frame=arrival_frame,
+    )
 
 
 def _plan_root_2d_target(
@@ -446,17 +355,12 @@ def _plan_root_2d_target(
     current_velocity_2d: tuple[float, float],
     anchor_frame: int,
     fps: float,
-    future_horizon_frames: int | None = None,
-    extend_prediction_to_horizon: bool = False,
 ) -> dict[str, Any] | None:
     position = np.asarray(anchor_root_2d, dtype=np.float64)
     goal = np.asarray(target.position, dtype=np.float64)
     delta = goal - position
     distance = float(np.linalg.norm(delta))
-    release_distance = target.arrival_threshold
-    if target.arrival_frame is None:
-        release_distance = max(release_distance, TARGET_ARRIVAL_RELEASE_DISTANCE)
-    if distance <= release_distance:
+    if distance <= target.arrival_threshold:
         return None
 
     direction = delta / distance
@@ -467,25 +371,9 @@ def _plan_root_2d_target(
         velocity *= target.max_speed / initial_speed
 
     prediction_frames = max(1, seconds_to_frame_count(TARGET_VELOCITY_PREDICTION_SECONDS, fps))
-    future_horizon_tail_step: int | None = None
-    future_horizon_frames_value = (
-        max(1, int(future_horizon_frames))
-        if future_horizon_frames is not None
-        else None
-    )
-    if future_horizon_frames_value is not None:
-        if extend_prediction_to_horizon:
-            prediction_frames = future_horizon_frames_value
-        elif target.arrival_frame is None and future_horizon_frames_value == prediction_frames:
-            future_horizon_tail_step = future_horizon_frames_value + TARGET_VELOCITY_UPDATE_INTERVAL
-            prediction_frames = future_horizon_tail_step
     dt = 1.0 / fps
     timed_positions: list[np.ndarray] | None = None
     timed_velocities: list[np.ndarray] | None = None
-    limited_positions: list[np.ndarray] | None = None
-    limited_velocities: list[np.ndarray] | None = None
-    limited_directions: list[np.ndarray] | None = None
-    arrival_step: int | None = None
     if target.arrival_frame is not None:
         remaining_frames = target.arrival_frame - anchor_frame
         if remaining_frames <= 0:
@@ -527,62 +415,10 @@ def _plan_root_2d_target(
             velocity = unlimited_velocity.copy()
             timed_positions, timed_velocities, _, _ = build_timed_path(velocity)
         prediction_frames = min(prediction_frames, remaining_frames)
-        arrival_step = remaining_frames
-    else:
-        limited_positions = []
-        limited_velocities = []
-        limited_directions = []
-        simulation_position = position.copy()
-        simulation_velocity = velocity.copy()
-        simulation_direction = direction.copy()
-        for step in range(1, prediction_frames + TARGET_HEADING_TURN_FRAMES + 1):
-            remaining_delta = goal - simulation_position
-            remaining_distance = float(np.linalg.norm(remaining_delta))
-            if remaining_distance <= target.arrival_threshold:
-                simulation_position = goal.copy()
-            else:
-                simulation_direction = remaining_delta / remaining_distance
-                stopping_speed = math.sqrt(max(0.0, 2.0 * target.max_acceleration * remaining_distance))
-                desired_velocity = simulation_direction * min(target.max_speed, stopping_speed)
-                velocity_delta = desired_velocity - simulation_velocity
-                max_velocity_delta = target.max_acceleration * dt
-                velocity_delta_length = float(np.linalg.norm(velocity_delta))
-                if velocity_delta_length > max_velocity_delta:
-                    velocity_delta *= max_velocity_delta / velocity_delta_length
-                simulation_velocity += velocity_delta
-                displacement = simulation_velocity * dt
-                if float(np.dot(displacement, simulation_direction)) >= remaining_distance:
-                    simulation_position = goal.copy()
-                    simulation_velocity[:] = 0.0
-                else:
-                    simulation_position += displacement
-
-            if arrival_step is None and float(np.linalg.norm(goal - simulation_position)) <= target.arrival_threshold:
-                arrival_step = step
-            limited_positions.append(simulation_position.copy())
-            limited_velocities.append(simulation_velocity.copy())
-            limited_directions.append(simulation_direction.copy())
 
     frame_indices: list[int] = []
     positions: list[list[float]] = []
     headings: list[float] = []
-    constraint_steps = list(
-        range(
-            TARGET_VELOCITY_GOAL_FRAME_INTERVAL,
-            prediction_frames + 1,
-            TARGET_VELOCITY_GOAL_FRAME_INTERVAL,
-        )
-    )
-    if not constraint_steps or constraint_steps[-1] != prediction_frames:
-        constraint_steps.append(prediction_frames)
-    if target.arrival_frame is None and future_horizon_frames is not None:
-        guard_frames = max(1, (int(future_horizon_frames) + 3) // 4)
-        if future_horizon_tail_step is not None:
-            constraint_steps = [
-                step for step in constraint_steps if step != future_horizon_frames_value
-            ]
-        constraint_steps = sorted({max(step, guard_frames + 1) for step in constraint_steps})
-    constraint_step_set = set(constraint_steps)
     for step in range(1, prediction_frames + 1):
         if timed_positions is not None and timed_velocities is not None:
             position = timed_positions[step - 1]
@@ -595,34 +431,38 @@ def _plan_root_2d_target(
                 else np.array([0.0, 1.0])
             )
         else:
-            position = limited_positions[step - 1]
-            velocity = limited_velocities[step - 1]
-            direction = limited_directions[step - 1]
+            remaining_delta = goal - position
+            remaining_distance = float(np.linalg.norm(remaining_delta))
+            if remaining_distance <= target.arrival_threshold:
+                position = goal.copy()
+                remaining_distance = 0.0
+            else:
+                direction = remaining_delta / remaining_distance
+                stopping_speed = math.sqrt(max(0.0, 2.0 * target.max_acceleration * remaining_distance))
+                desired_velocity = direction * min(target.max_speed, stopping_speed)
+                velocity_delta = desired_velocity - velocity
+                max_velocity_delta = target.max_acceleration * dt
+                velocity_delta_length = float(np.linalg.norm(velocity_delta))
+                if velocity_delta_length > max_velocity_delta:
+                    velocity_delta *= max_velocity_delta / velocity_delta_length
+                velocity += velocity_delta
+                displacement = velocity * dt
+                if float(np.dot(displacement, direction)) >= remaining_distance:
+                    position = goal.copy()
+                    velocity[:] = 0.0
+                else:
+                    position += displacement
 
-        if step in constraint_step_set:
-            point = [float(position[0]), float(position[1])]
-            if not target.include_heading and positions and point == positions[-1]:
-                continue
+        if step % TARGET_VELOCITY_GOAL_FRAME_INTERVAL == 0 or step == prediction_frames:
             frame_indices.append(anchor_frame + step)
-            positions.append(point)
+            positions.append([float(position[0]), float(position[1])])
             if target.include_heading:
                 velocity_length = float(np.linalg.norm(velocity))
                 if velocity_length > 1e-8:
                     heading_direction = velocity / velocity_length
                 else:
                     heading_direction = direction
-                motion_heading = math.atan2(float(heading_direction[0]), float(heading_direction[1]))
-                if target.heading is not None and arrival_step is not None:
-                    remaining = max(0, arrival_step - step)
-                    progress = max(0.0, min(1.0, 1.0 - remaining / TARGET_HEADING_TURN_FRAMES))
-                    progress = progress * progress * (3.0 - 2.0 * progress)
-                    shortest_delta = math.atan2(
-                        math.sin(target.heading - motion_heading),
-                        math.cos(target.heading - motion_heading),
-                    )
-                    motion_heading += shortest_delta * progress
-                    motion_heading = math.atan2(math.sin(motion_heading), math.cos(motion_heading))
-                headings.append(motion_heading)
+                headings.append(math.atan2(float(heading_direction[0]), float(heading_direction[1])))
 
     result: dict[str, Any] = {
         "type": "root2d",
@@ -632,6 +472,31 @@ def _plan_root_2d_target(
     if target.include_heading:
         result["global_root_heading"] = headings
     return result
+
+
+def _normalize_root_2d_target(target: Root2DTarget, transform: Any, skeleton: Any) -> Root2DTarget:
+    if transform is None:
+        return target
+
+    import torch
+    from ardy.constraints import Root2DConstraintSet
+    from kimodo.constraints import transform_constraints_to_origin
+
+    constraint = Root2DConstraintSet(
+        skeleton,
+        frame_indices=torch.tensor([0], dtype=torch.long),
+        root_2d=torch.tensor([target.position], dtype=torch.float32, device=skeleton.device),
+    )
+    transform_constraints_to_origin([constraint], transform)
+    position = constraint.root_2d[0].detach().cpu()
+    return Root2DTarget(
+        position=(float(position[0]), float(position[1])),
+        max_speed=target.max_speed,
+        max_acceleration=target.max_acceleration,
+        arrival_threshold=target.arrival_threshold,
+        include_heading=target.include_heading,
+        arrival_frame=target.arrival_frame,
+    )
 
 
 def _constraint_to_plain_item(constraint: Any) -> dict[str, Any]:
@@ -794,25 +659,12 @@ def _transition_history_frames(
     return max(patch, min(maximum, aligned))
 
 
-def _future_clip_mask(values: KmbClipMask | None, joint_names: tuple[str, ...]) -> dict[str, Any]:
-    joint_count = len(joint_names)
-    if values is None:
-        raise ArdyBackendError("Future KMB clip mask must be an object.")
-
-    by_name = {name.lower(): index for index, name in enumerate(joint_names)}
-    joint_position = np.zeros((joint_count - 1, 3), dtype=bool)
-    joint_rotation = np.zeros(joint_count, dtype=bool)
-    joint_rotation[0] = values.root_rotation
-    for joint in values.joints:
-        joint_index = by_name[joint.joint_name.lower()]
-        joint_position[joint_index - 1] = joint.position
-        joint_rotation[joint_index] = joint.rotation
-    return {
-        "root_position": list(values.root_position),
-        "root_heading": values.root_heading,
-        "joint_position": joint_position,
-        "joint_rotation": joint_rotation,
-    }
+def _future_clip_mask(item: dict[str, Any], joint_count: int) -> list[bool]:
+    values = item.get("mask")
+    expected = 4 + max(0, joint_count - 1) * 3
+    if not isinstance(values, list) or len(values) != expected or any(not isinstance(value, bool) for value in values):
+        raise ArdyBackendError(f"Future KMB clip mask must contain exactly {expected} booleans.")
+    return values
 
 
 def _append_outputs(left: dict[str, np.ndarray] | None, right: dict[str, Any]) -> dict[str, np.ndarray]:
@@ -828,6 +680,47 @@ def _append_outputs(left: dict[str, np.ndarray] | None, right: dict[str, Any]) -
 
 def _slice_outputs(outputs: dict[str, np.ndarray], start: int, end: int) -> dict[str, np.ndarray]:
     return {key: value[:, start:end].copy() for key, value in outputs.items() if value.ndim >= 2}
+
+
+def _parse_timeline_segments(
+    value: Any,
+    profile: Any,
+    total_frames: int,
+) -> tuple[ArdyTimelineSegment, ...]:
+    if value is None:
+        return ()
+    if total_frames <= 0:
+        raise ArdyBackendError("ardy_timeline_segments requires a fixed positive duration.")
+    if not isinstance(value, list) or not value:
+        raise ArdyBackendError("ardy_timeline_segments must be a non-empty array.")
+
+    segments: list[ArdyTimelineSegment] = []
+    cursor = 0
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ArdyBackendError(f"ardy_timeline_segments[{index}] must be an object.")
+        prompt = str(item.get("prompt") or "").strip() or "idle"
+        try:
+            duration_seconds = float(item.get("duration"))
+        except (TypeError, ValueError) as exc:
+            raise ArdyBackendError(
+                f"ardy_timeline_segments[{index}].duration must be a finite positive number."
+            ) from exc
+        if not math.isfinite(duration_seconds) or duration_seconds <= 0.0:
+            raise ArdyBackendError(
+                f"ardy_timeline_segments[{index}].duration must be a finite positive number."
+            )
+        frame_count = seconds_to_frame_count(duration_seconds, profile.source_fps)
+        if frame_count <= 0:
+            raise ArdyBackendError(f"ardy_timeline_segments[{index}] resolves to zero frames.")
+        segments.append(ArdyTimelineSegment(prompt, cursor, cursor + frame_count))
+        cursor += frame_count
+
+    if cursor != total_frames:
+        raise ArdyBackendError(
+            f"ardy_timeline_segments resolves to {cursor} frames, but duration resolves to {total_frames}."
+        )
+    return tuple(segments)
 
 
 class ArdySession:
@@ -846,8 +739,6 @@ class ArdySession:
         import torch
 
         self.profile = profile
-        self.session_trace_id = str(request.get("_kimodo_session_id") or request.get("task_id") or "")
-        self.request_trace_id = str(request.get("task_id") or "")
         self.quickserver_root = Path(quickserver_root).resolve()
         self.settings = ArdySettings.from_request(request, profile)
         self._auto_history_frames = self.settings.history_crop_frames
@@ -855,7 +746,7 @@ class ArdySession:
         self.diffusion_steps = self._resolve_steps(
             request.get("diffusion_steps", profile.max_diffusion_steps)
         )
-        self.cfg_text_weight = 2.0
+        self.cfg_text_weight = self._resolve_cfg(request)
         requested_seed = request.get("seed")
         self.resolved_seed = secrets.randbelow(2**31) if requested_seed is None else int(requested_seed)
         self.returned_until = 0
@@ -873,11 +764,10 @@ class ArdySession:
                 duration_seconds,
                 profile.source_fps,
             )
-        self.timeline_segments = parse_timeline_segments(
-            request.get("timeline_segments"),
-            float(profile.source_fps),
+        self.timeline_segments = _parse_timeline_segments(
+            request.get("ardy_timeline_segments"),
+            profile,
             self._initial_duration_frames,
-            ArdyBackendError,
         )
         self.motion_cpu = None
         self.outputs: dict[str, np.ndarray] | None = None
@@ -887,8 +777,8 @@ class ArdySession:
         self.history_cpu = None
         self.constraints: list[Any] = []
         self.constraint_items: list[dict[str, Any]] = []
-        self.root_2d_targets: list[Root2DTarget] = []
-        self.future_clips: list[tuple[int, Any, dict[str, Any]]] = []
+        self.root_2d_target: Root2DTarget | None = None
+        self.future_clips: list[tuple[int, Any, list[bool]]] = []
         self._cpu_rng_state = torch.Generator(device="cpu").manual_seed(self.resolved_seed).get_state()
         self._cuda_rng_state = None
         if str(model.device).startswith("cuda"):
@@ -907,6 +797,12 @@ class ArdySession:
         prompt = str(value or "").strip()
         return prompt or "idle"
 
+    @staticmethod
+    def _resolve_cfg(request: dict[str, Any]) -> float:
+        from core import kimodo_runtime
+
+        return kimodo_runtime._resolve_cfg_text_weight(request)
+
     def _resolve_steps(self, value: Any) -> int:
         if isinstance(value, bool):
             raise ArdyBackendError("diffusion_steps must be an integer.")
@@ -922,6 +818,10 @@ class ArdySession:
 
     def _generation_parameters_changed(self, request: dict[str, Any]) -> bool:
         if "diffusion_steps" in request and self._resolve_steps(request.get("diffusion_steps")) != self.diffusion_steps:
+            return True
+        if ("text_weight" in request or "cfg_weight" in request) and not math.isclose(
+            self._resolve_cfg(request), self.cfg_text_weight, rel_tol=0.0, abs_tol=1e-9
+        ):
             return True
         return False
 
@@ -949,8 +849,7 @@ class ArdySession:
                     if cold_start
                     else "Encoding prompt..."
                 )
-            with _TEXT_ENCODER_LOCK:
-                self.text_feat, self.text_pad_mask = encode_text([self.prompt])
+            self.text_feat, self.text_pad_mask = encode_text([self.prompt])
             if cancel_event is not None and cancel_event.is_set():
                 raise kimodo_runtime.GenerateCancelledError("Generation canceled.")
             if progress is not None:
@@ -997,20 +896,18 @@ class ArdySession:
         import torch
 
         plain: list[dict[str, Any]] = []
-        root_2d_targets: list[Root2DTarget] = []
+        root_2d_target = None
         history_tensors: list[Any] = []
         history_root_positions: list[np.ndarray] = []
-        future_clips: list[tuple[int, Any, dict[str, Any]]] = []
+        future_clips: list[tuple[int, Any, list[bool]]] = []
         anchor_root_2d = None
         if apply_from > 0 and self.outputs is not None and "root_positions" in self.outputs:
             anchor = self.outputs["root_positions"][0, apply_from - 1]
             anchor_root_2d = (float(anchor[0]), float(anchor[2]))
-        for item in parse_constraints(value, ArdyBackendError):
-            if item.get("type") == "root2d":
-                root_2d_targets.extend(_parse_root_2d_targets(item, self.settings, apply_from))
-                continue
+        for item in _parse_constraints(value):
             if item.get("type") == "root2d_target":
-                raise ArdyBackendError("root2d_target was removed; use type 'root2d' with frame_indices and positions.")
+                root_2d_target = _parse_root_2d_target(item, apply_from)
+                continue
             if item.get("type") != "clip":
                 copied = dict(item)
                 _normalize_root_heading(copied)
@@ -1021,33 +918,24 @@ class ArdySession:
                 plain.extend(_expand_dense_root_constraint(copied, apply_from - 1, anchor_root_2d))
                 continue
 
-            parsed_clip = parse_kmb_clip(
-                item,
-                attachments,
-                float(self.profile.source_fps),
-                ArdyBackendError,
-            )
-            motion = parsed_clip.motion
+            motion = parse_kmb1(_clip_payload(item, attachments, self.quickserver_root))
             _validate_kmb(motion, model, self.profile)
-            target_offset = parsed_clip.target_start_frame
-            tensor = _motion_to_tensor(motion, model, 0, motion.num_frames)
-            history_frames = min(motion.num_frames, max(0, -target_offset))
-            if history_frames:
+            start, end = _clip_slice(item, motion)
+            is_history = item.get("is_history", True)
+            if not isinstance(is_history, bool):
+                raise ArdyBackendError("clip is_history must be a boolean.")
+            tensor = _motion_to_tensor(motion, model, start, end)
+            if is_history:
                 if not initial:
-                    raise ArdyBackendError("Only the first Generate may provide negative-time ClipConstraints.")
-                history_tensors.append(tensor[:, :history_frames])
-                history_root_positions.append(
-                    np.asarray(motion.root_positions[:history_frames], dtype=np.float64)
-                )
-            if history_frames < motion.num_frames:
+                    raise ArdyBackendError("Only the first Generate may provide explicit History KMB attachments.")
+                if "mask" in item:
+                    raise ArdyBackendError("History KMB attachments cannot specify a mask.")
+                history_tensors.append(tensor)
+                history_root_positions.append(np.asarray(motion.root_positions[start:end], dtype=np.float64))
+            else:
                 future_clips.append(
-                    (
-                        apply_from + max(0, target_offset),
-                        tensor[:, history_frames:].detach().cpu(),
-                        _future_clip_mask(parsed_clip.mask, motion.joint_names),
-                    )
+                    (apply_from, tensor.detach().cpu(), _future_clip_mask(item, len(motion.joint_names)))
                 )
-            continue
 
         if history_root_positions:
             roots = np.concatenate(history_root_positions, axis=0)
@@ -1059,14 +947,34 @@ class ArdySession:
             self.initial_history_velocity_2d = (float(velocity[0]), float(velocity[1]))
 
         self.constraint_items = plain
-        self.root_2d_targets = root_2d_targets
+        self.root_2d_target = root_2d_target
         self.future_clips = future_clips
+        if (
+            initial
+            and self._normalize_constraint_origin
+            and root_2d_target is not None
+            and plain
+            and not history_tensors
+            and not future_clips
+        ):
+            from ardy.constraints import load_constraints_lst
+            from kimodo.constraints import normalize_constraints_to_anchor
+
+            normalized_constraints = load_constraints_lst(plain, model.motion_rep.skeleton)
+            self.constraint_origin = normalize_constraints_to_anchor(normalized_constraints)
+            if self.constraint_origin is not None:
+                self.constraint_items = [_constraint_to_plain_item(constraint) for constraint in normalized_constraints]
+                self.root_2d_target = _normalize_root_2d_target(
+                    root_2d_target,
+                    self.constraint_origin,
+                    model.motion_rep.skeleton,
+                )
         self._refresh_root_2d_target_constraints(model, apply_from)
         if (
             initial
             and self._normalize_constraint_origin
             and self.constraints
-            and not root_2d_targets
+            and root_2d_target is None
             and not history_tensors
             and not future_clips
         ):
@@ -1100,31 +1008,40 @@ class ArdySession:
         from ardy.constraints import load_constraints_lst
 
         plain = list(self.constraint_items)
-        root_2d, velocity_2d = self._root_state_at_boundary(boundary_frame)
-        previous_frame = boundary_frame - 1
-        for target in self.root_2d_targets:
-            if target.arrival_frame is None or target.arrival_frame <= previous_frame:
-                continue
+        if self.root_2d_target is not None:
+            root_2d, velocity_2d = self._root_state_at_boundary(boundary_frame)
             target_constraint = _plan_root_2d_target(
-                target,
+                self.root_2d_target,
                 root_2d,
                 velocity_2d,
-                previous_frame,
+                boundary_frame - 1,
                 float(self.profile.source_fps),
             )
-            if target_constraint is not None:
+            if target_constraint is None:
+                self.root_2d_target = None
+            else:
+                if boundary_frame > 0 or self.initial_history_root_2d is not None:
+                    fps = float(self.profile.source_fps)
+                    seam_root_2d = np.asarray(root_2d) + np.asarray(velocity_2d) / fps
+                    plain.append(
+                        {
+                            "type": "root2d",
+                            "frame_indices": [boundary_frame],
+                            "smooth_root_2d": [seam_root_2d.tolist()],
+                        }
+                    )
                 plain.append(target_constraint)
-            root_2d = target.position
-            velocity_2d = (0.0, 0.0)
-            previous_frame = target.arrival_frame
         self.constraints = load_constraints_lst(plain, model.motion_rep.skeleton) if plain else []
 
     def _apply_settings(self, request: dict[str, Any]) -> bool:
         settings_keys = {
-            "ardy_history_weight",
+            "ardy_history_crop_seconds",
+            "ardy_future_crop_seconds",
             "ardy_playback_reserve_seconds",
+            "ardy_adaptive_playback_reserve",
             "ardy_max_speed",
             "ardy_max_acceleration",
+            "ardy_history_transition_weight",
         }
         if not any(key in request for key in settings_keys):
             return False
@@ -1151,8 +1068,8 @@ class ArdySession:
         apply_from: int,
         cancel_event: threading.Event,
     ) -> bool:
-        if "timeline_segments" in request:
-            raise ArdyBackendError("timeline_segments is only supported by fixed-duration generation.")
+        if "ardy_timeline_segments" in request:
+            raise ArdyBackendError("ardy_timeline_segments is only supported by fixed-duration generation.")
         changed = "prompt" in request or "constraints_json" in request or self._generation_parameters_changed(request)
         if not changed:
             return False
@@ -1160,6 +1077,8 @@ class ArdySession:
             self._activate_prompt(model, request.get("prompt"), cancel_event=cancel_event)
         if "diffusion_steps" in request:
             self.diffusion_steps = self._resolve_steps(request.get("diffusion_steps"))
+        if "text_weight" in request or "cfg_weight" in request:
+            self.cfg_text_weight = self._resolve_cfg(request)
         if "constraints_json" in request:
             self._set_constraints(
                 request.get("constraints_json"), attachments, model, apply_from=apply_from, initial=False
@@ -1236,58 +1155,23 @@ class ArdySession:
             root_slice = model.motion_rep.slice_dict["root_pos"]
             heading_slice = model.motion_rep.slice_dict["global_root_heading"]
             joint_slice = model.motion_rep.slice_dict["local_joints_positions"]
-            rotation_slice = model.motion_rep.slice_dict["global_rot_data"]
             for axis in range(3):
                 channel = root_slice.start + axis
-                if clip_mask["root_position"][axis]:
-                    available = ~mask[:, destination, channel].bool()
-                    observed[:, destination, channel] = torch.where(
-                        available,
-                        source[:, :, channel],
-                        observed[:, destination, channel],
-                    )
-                    mask[:, destination, channel] = torch.where(
-                        available,
-                        torch.ones_like(mask[:, destination, channel]),
-                        mask[:, destination, channel],
-                    )
-            if clip_mask["root_heading"]:
-                available = ~mask[:, destination, heading_slice].bool()
-                observed[:, destination, heading_slice] = torch.where(
-                    available,
-                    source[:, :, heading_slice],
-                    observed[:, destination, heading_slice],
-                )
-                mask[:, destination, heading_slice] = torch.where(
-                    available,
-                    torch.ones_like(mask[:, destination, heading_slice]),
-                    mask[:, destination, heading_slice],
-                )
-            joint_mask = source.new_tensor(clip_mask["joint_position"]).reshape(1, 1, -1)
-            available = ~mask[:, destination, joint_slice].bool()
-            requested = joint_mask.bool() & available
-            observed[:, destination, joint_slice] = torch.where(
-                requested,
-                source[:, :, joint_slice],
-                observed[:, destination, joint_slice],
-            )
-            mask[:, destination, joint_slice] = mask[:, destination, joint_slice].bool() | requested
-            rotation_mask = source.new_tensor(clip_mask["joint_rotation"]).reshape(1, 1, -1, 1)
-            rotation_mask = rotation_mask.expand(-1, -1, -1, 6).reshape(1, 1, -1)
-            available = ~mask[:, destination, rotation_slice].bool()
-            requested = rotation_mask.bool() & available
-            observed[:, destination, rotation_slice] = torch.where(
-                requested,
-                source[:, :, rotation_slice],
-                observed[:, destination, rotation_slice],
-            )
-            mask[:, destination, rotation_slice] = mask[:, destination, rotation_slice].bool() | requested
+                if clip_mask[axis]:
+                    observed[:, destination, channel] = source[:, :, channel]
+                    mask[:, destination, channel] = 1
+            if clip_mask[3]:
+                observed[:, destination, heading_slice] = source[:, :, heading_slice]
+                mask[:, destination, heading_slice] = 1
+            joint_mask = source.new_tensor(clip_mask[4:]).reshape(1, 1, -1)
+            observed[:, destination, joint_slice] = source[:, :, joint_slice] * joint_mask
+            mask[:, destination, joint_slice] = joint_mask
         return observed, mask
 
-    def _next_root_target(self, frame: int) -> tuple[int, tuple[float, float]] | None:
+    def _next_fullbody_target(self, frame: int) -> tuple[int, tuple[float, float]] | None:
         target: tuple[int, tuple[float, float]] | None = None
         for constraint in self.constraints:
-            if getattr(constraint, "name", None) not in ("fullbody", "root2d"):
+            if getattr(constraint, "name", None) != "fullbody":
                 continue
             roots = getattr(constraint, "root_2d", None)
             if roots is None:
@@ -1308,7 +1192,7 @@ class ArdySession:
 
         nearest_frame = -1
         for constraint in self.constraints:
-            if getattr(constraint, "name", None) not in ("fullbody", "root2d"):
+            if getattr(constraint, "name", None) != "fullbody":
                 continue
             roots = getattr(constraint, "root_2d", None)
             if roots is None:
@@ -1329,7 +1213,7 @@ class ArdySession:
             default=-1,
         )
         max_clip = max((start + int(source.shape[1]) - 1 for start, source, _ in self.future_clips), default=-1)
-        if not self.settings.auto_history or self.root_2d_targets:
+        if not self.settings.auto_history or self.root_2d_target is not None:
             return _history_limit_for_future(
                 self.profile,
                 self.settings,
@@ -1337,7 +1221,7 @@ class ArdySession:
                 max(max_constraint, max_clip),
             )
 
-        target = self._next_root_target(frame)
+        target = self._next_fullbody_target(frame)
         maximum_history = int(self.profile.max_context_frames) - int(self.profile.horizon_frames)
         desired = self.settings.history_crop_frames
         force_minimum = False
@@ -1377,29 +1261,6 @@ class ArdySession:
         )
         return min(self._auto_history_frames, other_limit)
 
-    def _next_initial_noise(self, model: Any):
-        import torch
-
-        denoiser = getattr(model, "denoiser", None)
-        root_dim = getattr(denoiser, "nframe_root_dim", None)
-        latent_dim = getattr(denoiser, "latent_embedding_dim", None)
-        if root_dim is None or latent_dim is None:
-            return None, None
-        token_count = int(model.gen_horizon_len) // int(model.num_frames_per_token)
-        device = torch.device(model.device)
-        if device.type not in ("cpu", "cuda"):
-            return None, None
-        generator = torch.Generator(device=device)
-        state = self._cuda_rng_state if device.type == "cuda" else self._cpu_rng_state
-        if state is not None:
-            generator.set_state(state)
-        noise = torch.randn(
-            (1, token_count, int(root_dim) + int(latent_dim)),
-            generator=generator,
-            device=device,
-        )
-        return noise, generator.get_state()
-
     def _generate_horizon(self, model: Any, cancel_event: threading.Event | None = None) -> None:
         import torch
         from ardy.postprocess import post_process_motion
@@ -1432,32 +1293,29 @@ class ArdySession:
             num_frames = int(math.ceil(num_frames / patch) * patch)
         num_frames = min(int(self.profile.max_context_frames), max(history_len + horizon, num_frames))
         observed, motion_mask = self._condition_window(model, history_len, window_start, num_frames)
-        initial_noise, next_rng_state = self._next_initial_noise(model)
-        with torch.no_grad():
-            kwargs = {
-                "num_frames": num_frames,
-                "num_denoising_steps": self.diffusion_steps,
-                "motion_mask": motion_mask,
-                "observed_motion": observed,
-                "cfg_weight": (self.cfg_text_weight, float(self.profile.cfg_constraint_weight)),
-                "texts": [self.prompt],
-                "init_history_sequence": history,
-            }
-            if self.text_feat is not None:
-                kwargs["text_feat"] = self.text_feat
-                kwargs["text_pad_mask"] = self.text_pad_mask
-            if initial_noise is not None:
-                kwargs["initial_noise"] = initial_noise
-            motion = _ARDY_INFERENCE_BATCHER.run(
-                model,
-                kwargs,
-                getattr(self, "session_trace_id", ""),
-            )
-        if next_rng_state is not None:
-            if torch.device(model.device).type == "cuda":
-                self._cuda_rng_state = next_rng_state
-            else:
-                self._cpu_rng_state = next_rng_state
+
+        devices = [torch.device(model.device).index or 0] if str(model.device).startswith("cuda") else []
+        with torch.random.fork_rng(devices=devices):
+            torch.random.set_rng_state(self._cpu_rng_state)
+            if self._cuda_rng_state is not None:
+                torch.cuda.set_rng_state(self._cuda_rng_state, device=model.device)
+            with torch.no_grad():
+                kwargs = {
+                    "num_frames": num_frames,
+                    "num_denoising_steps": self.diffusion_steps,
+                    "motion_mask": motion_mask,
+                    "observed_motion": observed,
+                    "cfg_weight": (self.cfg_text_weight, float(self.profile.cfg_constraint_weight)),
+                    "texts": [self.prompt],
+                    "init_history_sequence": history,
+                }
+                if self.text_feat is not None:
+                    kwargs["text_feat"] = self.text_feat
+                    kwargs["text_pad_mask"] = self.text_pad_mask
+                motion = model.autoregressive_step(**kwargs)
+            self._cpu_rng_state = torch.random.get_rng_state()
+            if self._cuda_rng_state is not None:
+                self._cuda_rng_state = torch.cuda.get_rng_state(device=model.device)
 
         generated = motion[:, history_len : history_len + horizon]
         output = model.motion_rep.inverse(generated, is_normalized=True)
@@ -1481,15 +1339,6 @@ class ArdySession:
                 )
             )
 
-        self._log_horizon_trace(
-            horizon_start,
-            horizon,
-            history_len,
-            window_start,
-            num_frames,
-            output,
-        )
-
         generated_cpu = generated.detach().cpu()
         self.motion_cpu = generated_cpu if self.motion_cpu is None else torch.cat((self.motion_cpu, generated_cpu), dim=1)
         keep = min(self.settings.history_crop_frames, int(motion.shape[1]))
@@ -1497,93 +1346,13 @@ class ArdySession:
         self.history_cpu = motion[:, -keep:].detach().cpu() if keep > 0 else None
         self.outputs = _append_outputs(self.outputs, to_numpy(output))
 
-    def _log_horizon_trace(
-        self,
-        horizon_start: int,
-        horizon: int,
-        history_len: int,
-        window_start: int,
-        num_frames: int,
-        output: dict[str, Any],
-    ) -> None:
-        session_trace_id = getattr(self, "session_trace_id", "")
-        if not session_trace_id:
-            return
-        profile_horizon = int(self.profile.horizon_frames)
-        protected_end = horizon_start + max(1, (profile_horizon + 3) // 4)
-        constraints: list[dict[str, Any]] = []
-        protected_hits: list[dict[str, Any]] = []
-        for constraint in self.constraints:
-            indices = [int(value) for value in constraint.frame_indices.detach().cpu().tolist()]
-            item: dict[str, Any] = {
-                "type": str(getattr(constraint, "name", "constraint")),
-                "frames": indices,
-                "gaps": [right - left for left, right in zip(indices, indices[1:])],
-            }
-            roots = getattr(constraint, "root_2d", None)
-            if roots is not None:
-                item["root_xz"] = np.round(
-                    roots.detach().cpu().numpy().astype(np.float64), 4
-                ).tolist()
-            headings = getattr(constraint, "global_root_heading", None)
-            if headings is not None:
-                item["heading_rad"] = np.round(
-                    headings.detach().cpu().numpy().astype(np.float64), 4
-                ).tolist()
-            constraints.append(item)
-            for frame in indices:
-                if horizon_start <= frame < protected_end:
-                    protected_hits.append({"type": item["type"], "frame": frame})
-
-        roots = output.get("root_positions")
-        generated_root_xz: list[list[float]] = []
-        if roots is not None:
-            root_array = roots.detach().cpu().numpy()[0].astype(np.float64)
-            generated_root_xz = np.round(root_array[:, [0, 2]], 4).tolist()
-        heading = output.get("global_root_heading")
-        generated_heading: list[float] = []
-        if heading is not None:
-            heading_array = heading.detach().cpu().numpy()[0].astype(np.float64)
-            generated_heading = np.round(
-                np.arctan2(heading_array[:, 1], heading_array[:, 0]),
-                4,
-            ).tolist()
-
-        targets = self.root_2d_targets
-        trace = {
-            "session": session_trace_id,
-            "request": getattr(self, "request_trace_id", ""),
-            "horizon": [horizon_start, horizon_start + horizon],
-            "protected": [horizon_start, protected_end],
-            "history": [window_start, window_start + history_len],
-            "condition_window": [window_start, window_start + num_frames],
-            "protected_hits": protected_hits,
-            "root_targets": [
-                {
-                    "frame": target.arrival_frame,
-                    "position": [round(float(value), 4) for value in target.position],
-                    "include_heading": bool(target.include_heading),
-                    "heading_rad": None if target.heading is None else round(float(target.heading), 4),
-                }
-                for target in targets
-            ],
-            "constraints": constraints,
-            "generated_root_xz": generated_root_xz,
-            "generated_heading_rad": generated_heading,
-        }
-        print(
-            "[ARDY_HORIZON] "
-            + json.dumps(trace, ensure_ascii=False, separators=(",", ":")),
-            flush=True,
-        )
-
     def _ensure_generated(self, frame_exclusive: int, model: Any, cancel_event: threading.Event) -> None:
         from core import kimodo_runtime
 
         while self.frame_count < frame_exclusive:
             if cancel_event.is_set():
                 raise kimodo_runtime.GenerateCancelledError("Generation canceled.")
-            if self.root_2d_targets:
+            if self.root_2d_target is not None:
                 self._refresh_root_2d_target_constraints(model, self.frame_count)
             self._generate_horizon(model, cancel_event)
         if cancel_event.is_set():
@@ -1617,7 +1386,6 @@ class ArdySession:
         cancel_event: threading.Event,
     ) -> tuple[dict[str, Any], dict[str, np.ndarray] | None]:
         fps = float(self.profile.source_fps)
-        self.request_trace_id = str(request.get("task_id") or getattr(self, "request_trace_id", ""))
         patch = int(self.profile.frames_per_token)
         time_seconds = float(request.get("time_as_double", 0.0))
         if not math.isfinite(time_seconds) or time_seconds < 0.0:
@@ -1680,7 +1448,7 @@ class ArdySession:
         self.constraints = []
         self.constraint_items = []
         self.constraint_origin = None
-        self.root_2d_targets = []
+        self.root_2d_target = None
         self.future_clips = []
         self.timeline_segments = ()
         self._encoded_prompts = {}
@@ -1698,8 +1466,8 @@ def execute_stream_generate(
     progress: Callable[[str], None] | None = None,
 ) -> tuple[ArdySession | None, dict[str, Any], bytes | None]:
     from core import kimodo_runtime
+
     fixed_length = "duration" in request
-    analysis_option = request.get("analysis_option")
     if fixed_length:
         try:
             duration_seconds = float(request.get("duration"))
@@ -1720,38 +1488,34 @@ def execute_stream_generate(
             progress,
             cancel_event,
         )
-        request = {
-            "time_as_double": request.get("time_as_double", 0.0),
-            "analysis_option": analysis_option,
-        }
+        request = {"time_as_double": request.get("time_as_double", 0.0)}
     try:
         started = time.perf_counter()
         metadata, output = session.generate(request, attachments, model, cancel_event)
+        payload = b""
         if output:
             output = kimodo_runtime._restore_kimodo_output_origin(
                 output,
                 session.constraint_origin,
                 model,
             )
+            payload = kimodo_runtime._build_generate_flatbuffer_payload(model, output, sample_index=0)
         elapsed = time.perf_counter() - started
         session.record_response_duration(
             elapsed,
             int(metadata["end_frame_exclusive"]) - int(metadata["start_frame"]),
         )
-        response, payload = kimodo_runtime._finalize_generation_result(
-            {"analysis_option": analysis_option},
-            model,
-            output,
-            output_format="kmb_v1",
-            metadata={
-                "motion_rep_fingerprint": profile.motion_rep_fingerprint,
-                "resolved_seed": session.resolved_seed,
-                "ardy_playback_reserve_seconds": session.effective_playback_reserve_frames / float(profile.source_fps),
-                "ardy_server_response_seconds": elapsed,
-                **metadata,
-            },
-        )
-        return (None if fixed_length else session), response, payload
+        return (None if fixed_length else session), {
+            "status": "done",
+            "output_format": "kmb_v1",
+            "byte_length": len(payload),
+            "motion_rep_fingerprint": profile.motion_rep_fingerprint,
+            "resolved_seed": session.resolved_seed,
+            "ardy_playback_reserve_seconds": session.effective_playback_reserve_frames / float(profile.source_fps),
+            "ardy_adaptive_playback_reserve": session.settings.adaptive_playback_reserve,
+            "ardy_server_response_seconds": elapsed,
+            **metadata,
+        }, payload or None
     finally:
         if fixed_length:
             session.close()
@@ -1764,8 +1528,6 @@ def load_runtime(
     device: str,
     *,
     text_encoder: Any = None,
-    cancel_event: threading.Event | None = None,
-    logger: Any = None,
 ):
     from ardy.model import load_model
     from kimodo.model.load_model import _select_text_encoder_conf
@@ -1780,39 +1542,23 @@ def load_runtime(
         "stats/motion/mean.npy",
         "stats/motion/std.npy",
     )
-    assets.raise_if_download_cancelled(cancel_event)
     if not all((checkpoint_dir / relative).is_file() for relative in required):
         models_root.mkdir(parents=True, exist_ok=True)
-        checkpoint_asset = assets.AssetSpec(
-            label=f"ARDY checkpoint {profile.model_name}",
-            local_dir_name=profile.model_name,
-            modelscope_repo=profile.modelscope_repo,
-            huggingface_repo=f"nvidia/{profile.model_name}",
-        )
-        if logger is None:
-            class _SilentLogger:
-                def log(self, _message: str) -> None:
-                    pass
-
-            logger = _SilentLogger()
         try:
-            assets.download_via_modelscope(checkpoint_asset, checkpoint_dir, logger, cancel_event)
-        except assets.DownloadCancelledError:
-            raise
+            from modelscope import snapshot_download
+
+            snapshot_download(model_id=profile.modelscope_repo, local_dir=str(checkpoint_dir))
         except Exception as modelscope_error:
             try:
-                assets.download_via_huggingface(checkpoint_asset, checkpoint_dir, cancel_event)
-            except assets.DownloadCancelledError:
-                raise
+                from huggingface_hub import snapshot_download
+
+                snapshot_download(repo_id=f"nvidia/{profile.model_name}", local_dir=str(checkpoint_dir))
             except Exception as huggingface_error:
                 raise RuntimeError(
                     "ARDY checkpoint download failed via both ModelScope and Hugging Face: "
                     f"modelscope={modelscope_error}; huggingface={huggingface_error}"
                 ) from huggingface_error
-        if not all((checkpoint_dir / relative).is_file() for relative in required):
-            raise RuntimeError(f"Downloaded ARDY checkpoint is incomplete: {checkpoint_dir}")
 
-    assets.raise_if_download_cancelled(cancel_event)
     if text_encoder is None:
         text_encoder = instantiate_from_dict(
             _select_text_encoder_conf(get_env_var("TEXT_ENCODER_URL", DEFAULT_TEXT_ENCODER_URL), device)

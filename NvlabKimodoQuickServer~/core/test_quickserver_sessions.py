@@ -1,7 +1,5 @@
 import io
-import json
 import math
-import os
 from pathlib import Path
 import threading
 from types import SimpleNamespace
@@ -16,126 +14,10 @@ import torch
 from core import ardy_backend
 from core import kimodo_runtime
 from core import quickserver_cli
-from core.protocol.kmb_motion import parse_clip_mask
-from core.protocol.timeline_segments import TimelineSegment, parse_timeline_segments
-from kimodo.frame_time import seconds_to_frame_count, seconds_to_protocol_frame_index
-from kimodo.model import kimodo_model
+from kimodo.frame_time import seconds_to_frame_count
 
 
 class QuickServerProtocolV2Tests(unittest.TestCase):
-    def test_removed_loop_protocol_field_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "generate.loop protocol field has been removed"):
-            quickserver_cli._execute_generate({"loop": False}, SimpleNamespace(), threading.Event())
-
-    def test_constraint_duplicate_indices_keep_the_first_value(self):
-        from kimodo.motion_rep.conditioning import get_unique_index_and_data
-
-        indices, values = get_unique_index_and_data(
-            torch.tensor([[0], [0], [1]], dtype=torch.long),
-            torch.tensor([10.0, 20.0, 30.0]),
-        )
-
-        self.assertEqual(indices.tolist(), [[0], [1]])
-        self.assertEqual(values.tolist(), [10.0, 30.0])
-
-    def test_normal_clip_mask_preserves_position_axes(self):
-        mask = parse_clip_mask(
-            {
-                "mask": {
-                    "root_position": [True, False, False],
-                    "root_heading": True,
-                    "root_rotation": False,
-                    "joints": [
-                        {
-                            "joint_name": "Spine",
-                            "position": [False, True, False],
-                            "rotation": True,
-                        }
-                    ],
-                }
-            },
-            ["Hips", "Spine"],
-        )
-        root_axes, heading, joint_axes, rotation_joints = kimodo_runtime._clip_constraint_mask(
-            mask,
-            SimpleNamespace(root_idx=0),
-            ["Hips", "Spine"],
-        )
-
-        self.assertEqual(root_axes, [True, False, False])
-        self.assertTrue(heading)
-        self.assertEqual(joint_axes, [[False, False, False], [False, True, False]])
-        self.assertEqual(rotation_joints, [1])
-
-    def test_legacy_flat_clip_mask_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "must be an object"):
-            parse_clip_mask(
-                {"mask": [True, True, True, True, True, True, True]},
-                ["Hips", "Spine"],
-            )
-
-    def test_protocol_help_lists_model_configuration_command(self):
-        commands = quickserver_cli._build_protocol_help()["commands"]
-        self.assertIn("runtime.list_models", [item["cmd"] for item in commands])
-        self.assertIn("help", [item["cmd"] for item in commands])
-
-    def test_model_configurations_are_flattened_by_model_and_encoder(self):
-        runtime_profile = SimpleNamespace(
-            runtime_device="cuda:0",
-            free_vram_gb=32.0,
-            nf4_available=True,
-            int8_accelerator_available=True,
-            fp16_accelerator_available=True,
-        )
-        result = quickserver_cli._build_model_configurations(
-            "C:/runtime",
-            {"model": "Kimodo-SOMA-RP-v1", "text_encoder_mode": "high_performance"},
-            runtime_profile,
-        )
-
-        self.assertEqual(
-            len(result["configs"]),
-            2 * (len(quickserver_cli.assets.MAIN_MODELS) + len(quickserver_cli.assets.MOTION_MODEL_PROFILES)),
-        )
-        default = next(item for item in result["configs"] if item["default"])
-        self.assertEqual(default["model"], "Kimodo-SOMA-RP-v1")
-        self.assertEqual(default["text_encoder_model"], "high_performance")
-        self.assertEqual(default["text_encoder_route"], "nf4")
-        self.assertEqual(default["source_fps"], 30.0)
-        self.assertEqual(default["max_diffusion_steps"], 1000)
-        self.assertFalse(default["supports_streaming"])
-        self.assertTrue(default["supports_timeline_segments"])
-
-        ardy_result = quickserver_cli._build_model_configurations(
-            "C:/runtime",
-            {"model": "ardy-core", "text_encoder_mode": "high_precision"},
-            runtime_profile,
-        )
-        self.assertEqual(ardy_result["default"]["model"], "ARDY-Core-RP-20FPS-Horizon40")
-        ardy_default = next(item for item in ardy_result["configs"] if item["default"])
-        self.assertEqual(ardy_default["source_fps"], 20.0)
-        self.assertTrue(ardy_default["supports_streaming"])
-
-    def test_posix_pid_check_uses_signal_zero(self):
-        with patch.object(quickserver_cli.os, "name", "posix"), patch.object(
-            quickserver_cli.os, "kill"
-        ) as kill:
-            self.assertTrue(quickserver_cli._pid_is_running(1234))
-
-        kill.assert_called_once_with(1234, 0)
-
-    def test_posix_pid_check_treats_missing_process_as_stopped(self):
-        with patch.object(quickserver_cli.os, "name", "posix"), patch.object(
-            quickserver_cli.os, "kill", side_effect=ProcessLookupError()
-        ):
-            self.assertFalse(quickserver_cli._pid_is_running(1234))
-
-    def test_posix_pid_check_treats_permission_denied_as_running(self):
-        with patch.object(quickserver_cli.os, "name", "posix"), patch.object(
-            quickserver_cli.os, "kill", side_effect=PermissionError()
-        ):
-            self.assertTrue(quickserver_cli._pid_is_running(1234))
-
     def test_seconds_to_frame_count_uses_tolerance_protected_ceiling(self):
         self.assertEqual(seconds_to_frame_count(4.5666666, 30.0), 137)
         self.assertEqual(seconds_to_frame_count(5.0, 30.0), 150)
@@ -144,22 +26,11 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             seconds_to_frame_count(float("nan"), 30.0)
 
-    def test_protocol_frame_index_uses_signed_ceiling(self):
-        self.assertEqual(seconds_to_protocol_frame_index(-0.051, 20.0), -1)
-        self.assertEqual(seconds_to_protocol_frame_index(-0.01, 20.0), 0)
-        self.assertEqual(seconds_to_protocol_frame_index(0.051, 20.0), 2)
-
     def test_kimodo_long_generation_segments_are_equal_and_never_exceed_ten_seconds(self):
         self.assertEqual(kimodo_runtime._generation_segment_frames(300, 30.0), [300])
         self.assertEqual(kimodo_runtime._generation_segment_frames(360, 30.0), [180, 180])
         self.assertEqual(kimodo_runtime._generation_segment_frames(630, 30.0), [210, 210, 210])
         self.assertEqual(kimodo_runtime._generation_segment_frames(301, 30.0), [151, 150])
-
-    def test_kimodo_static_graph_requires_explicit_opt_in(self):
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(kimodo_model._kimodo_static_graph_enabled())
-        with patch.dict(os.environ, {"KIMODO_STATIC_GRAPH": "1"}, clear=True):
-            self.assertTrue(kimodo_model._kimodo_static_graph_enabled())
 
     def test_kimodo_long_generation_uses_transition_connected_segments(self):
         class RecordingModel:
@@ -183,29 +54,6 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(model.args[:2], (["walk.", "walk."], [165, 165]))
         self.assertTrue(model.kwargs["multi_prompt"])
         self.assertEqual(model.kwargs["num_transition_frames"], 5)
-
-    def test_kimodo_timeline_segments_preserve_prompt_boundaries(self):
-        class RecordingModel:
-            fps = 30.0
-
-            def __call__(self, *args, **kwargs):
-                self.args = args
-                return {"generated": True}
-
-        model = RecordingModel()
-        request = {
-            "duration": 12.0,
-            "prompt": "unused",
-            "timeline_segments": [
-                {"prompt": "walk", "duration": 2.0},
-                {"prompt": "turn", "duration": 10.0},
-            ],
-        }
-        with patch.object(kimodo_runtime, "_load_constraints", return_value=[]):
-            kimodo_runtime._run_generate(request, model, emit_progress=False)
-
-        self.assertEqual(model.args[0], ["walk.", "turn."])
-        self.assertEqual(model.args[1], [60, 300])
 
     def test_quickserver_generate_uses_shared_segmented_kimodo_runner(self):
         model = SimpleNamespace()
@@ -244,7 +92,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(constraint.frame_indices.device.type, "meta")
         self.assertEqual(index_dict["global_joints_positions"][0].device.type, "meta")
 
-    def test_fixed_ardy_root2d_constraints_preserve_the_wire_coordinates(self):
+    def test_fixed_ardy_constraints_normalize_and_restore_the_origin(self):
         session = self._fake_ardy_session()
         session._normalize_constraint_origin = True
         skeleton = SimpleNamespace(device=torch.device("cpu"), root_idx=0)
@@ -265,8 +113,22 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             initial=True,
         )
 
-        np.testing.assert_allclose(session.constraints[0].root_2d.cpu(), [[-0.539, 0.0]], atol=1e-7)
-        self.assertIsNone(session.constraint_origin)
+        np.testing.assert_allclose(session.constraints[0].root_2d.cpu(), [[0.0, 0.0]], atol=1e-7)
+        np.testing.assert_allclose(session.constraints[0].global_root_heading.cpu(), [0.0], atol=1e-7)
+
+        output = {
+            "root_positions": np.zeros((1, 1, 3), dtype=np.float32),
+            "global_root_heading": np.asarray([[[1.0, 0.0]]], dtype=np.float32),
+            "local_rot_mats": np.eye(3, dtype=np.float32).reshape(1, 1, 1, 3, 3),
+        }
+        restored = kimodo_runtime._restore_kimodo_output_origin(
+            output,
+            session.constraint_origin,
+            model,
+        )
+
+        np.testing.assert_allclose(restored["root_positions"][0, 0], [-0.539, 0.0, 0.0], atol=1e-6)
+        np.testing.assert_allclose(restored["global_root_heading"][0, 0], [0.0, 1.0], atol=1e-6)
 
     def test_direct_kmb_is_the_only_binary_motion_format(self):
         self.assertEqual(
@@ -278,89 +140,11 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             "removed_format",
         )
 
-    def test_ardy_clip_mask_accepts_object_and_rejects_legacy_array(self):
-        names = ("Hips", "Spine", "LeftArm")
-        mask = parse_clip_mask(
-            {
-                "mask": {
-                    "root_position": [True, False, True],
-                    "root_heading": True,
-                    "root_rotation": True,
-                    "joints": [
-                        {
-                            "joint_name": "Spine",
-                            "position": [True, True, True],
-                            "rotation": True,
-                        }
-                    ],
-                }
-            },
-            names,
-            ardy_backend.ArdyBackendError,
-        )
-        current = ardy_backend._future_clip_mask(mask, names)
-        self.assertEqual(current["root_position"], [True, False, True])
-        self.assertTrue(current["root_heading"])
-        self.assertEqual(current["joint_rotation"].tolist(), [True, True, False])
-        self.assertEqual(current["joint_position"].tolist(), [[True, True, True], [False, False, False]])
-        with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "must be an object"):
-            parse_clip_mask(
-                {"mask": [True, False, True, True, True, True, True, False, False, False]},
-                names,
-                ardy_backend.ArdyBackendError,
-            )
-
-    def test_kimodo_clip_constraints_receive_generate_attachments(self):
-        model = SimpleNamespace(skeleton=object())
-        payload = b"clip-kmb"
-        item = {"type": "clip", "attachment": 0}
-        with patch("kimodo.constraints.load_constraints_lst", return_value=[]), patch.object(
-            kimodo_runtime,
-            "_load_clip_constraint",
-            return_value="clip-constraint",
-        ) as load_clip:
-            constraints = kimodo_runtime._load_constraints(json.dumps([item]), model, attachments=(payload,))
-
-        self.assertEqual(constraints, ["clip-constraint"])
-        load_clip.assert_called_once_with(item, model, (payload,))
-
-    def test_normal_generate_passes_kmb_attachments_to_runtime(self):
-        model = SimpleNamespace()
-        expected_response = {"status": "done"}
-        with patch.object(kimodo_runtime, "_run_generate", return_value=({}, "walk.")) as run_generate, patch.object(
-            kimodo_runtime, "_finalize_generation_result", return_value=(expected_response, None)
-        ):
-            response, payload = quickserver_cli._execute_generate(
-                {"duration": 1.0},
-                model,
-                threading.Event(),
-                attachments=(b"clip-kmb",),
-            )
-
-        self.assertEqual(response, expected_response)
-        self.assertIsNone(payload)
-        self.assertEqual(run_generate.call_args.kwargs, {"emit_progress": False, "attachments": (b"clip-kmb",)})
-
-    def test_kimodo_root2d_keeps_explicit_points_and_heading_pairs(self):
-        model = SimpleNamespace(fps=30.0, skeleton=object())
-        with patch("kimodo.constraints.load_constraints_lst", side_effect=lambda items, _skeleton: items):
-            constraints = kimodo_runtime._load_constraints(
-                '[{"type":"root2d","frame_indices":[0,149],"smooth_root_2d":[[0.0,0.0],[100.0,0.0]],"global_root_heading":[[0.0,1.0],[1.0,0.0]]}]',
-                model,
-                horizon_frames=150,
-            )
-
-        self.assertEqual([item["type"] for item in constraints], ["root2d"])
-        self.assertEqual(constraints[0]["frame_indices"], [0, 149])
-        self.assertEqual(constraints[0]["global_root_heading"], [[0.0, 1.0], [1.0, 0.0]])
-
-    def test_root2d_target_protocol_is_rejected(self):
-        model = SimpleNamespace(fps=30.0, skeleton=object())
-        with self.assertRaisesRegex(ValueError, "root2d_target was removed"):
+    def test_kimodo_rejects_automatic_root_target_with_explicit_semantics(self):
+        with self.assertRaisesRegex(ValueError, "automatic ARDY-only navigation constraint"):
             kimodo_runtime._load_constraints(
-                '[{"type":"root2d_target","target_root_2d":[100.0,0.0]}]',
-                model,
-                horizon_frames=150,
+                '[{"type":"root2d_target","target_root_2d":[1.0,2.0]}]',
+                SimpleNamespace(skeleton=object()),
             )
 
     def test_runtime_loading_progress_uses_stage_details_without_task_ids(self):
@@ -382,76 +166,6 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             ),
             ("progress", "Loading TextEncoder weights..."),
         )
-
-    def test_queued_task_stays_queued_while_another_worker_loads(self):
-        self.assertEqual(
-            quickserver_cli._build_streaming_status_message(
-                "loading_runtime", 1, "queued-task", "Preparing motion runtime..."
-            ),
-            ("queued", "Task 'queued-task' waiting in queue. queue_index=1"),
-        )
-
-    def test_ardy_batcher_merges_compatible_session_contexts(self):
-        calls = []
-
-        class FakeModel:
-            device = "cpu"
-            _kimodo_runtime_signature = "shared-ardy-runtime"
-            denoiser = SimpleNamespace()
-            motion_rep = SimpleNamespace(motion_rep_dim=6)
-
-            @staticmethod
-            def autoregressive_step(**kwargs):
-                calls.append(kwargs)
-                return kwargs["initial_noise"]
-
-        batcher = ardy_backend._ArdyInferenceBatcher(max_batch_size=2, wait_seconds=0.05)
-        batcher.set_session_count(2)
-        barrier = threading.Barrier(3)
-        results = [None, None]
-
-        def submit(index, text_length):
-            barrier.wait()
-            results[index] = batcher.run(
-                FakeModel(),
-                {
-                    "num_frames": 8,
-                    "num_denoising_steps": 10,
-                    "motion_mask": None,
-                    "observed_motion": None,
-                    "cfg_weight": (1.0, 1.0),
-                    "texts": [f"prompt-{index}"],
-                    "text_feat": torch.full((1, text_length, 4), float(index + 1)),
-                    "text_pad_mask": torch.ones((1, text_length), dtype=torch.bool),
-                    "init_history_sequence": torch.full((1, 4, 5), float(index + 1)),
-                    "initial_noise": torch.full((1, 2, 3), float(index + 1)),
-                },
-            )
-
-        threads = [
-            threading.Thread(target=submit, args=(0, 2)),
-            threading.Thread(target=submit, args=(1, 3)),
-        ]
-        for thread in threads:
-            thread.start()
-        barrier.wait()
-        for thread in threads:
-            thread.join(timeout=2.0)
-
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(tuple(calls[0]["text_feat"].shape), (2, 3, 4))
-        self.assertEqual(tuple(calls[0]["init_history_sequence"].shape), (2, 4, 5))
-        self.assertEqual(sorted(float(result[0, 0, 0]) for result in results), [1.0, 2.0])
-
-    def test_ardy_batch_capacity_grows_and_shrinks_with_session_count(self):
-        batcher = ardy_backend._ArdyInferenceBatcher(max_batch_size=8)
-
-        self.assertEqual(
-            [batcher.set_session_count(count) for count in (1, 2, 3, 4, 5, 8)],
-            [1, 2, 4, 4, 8, 8],
-        )
-        self.assertEqual(batcher.set_session_count(4), 8)
-        self.assertEqual(batcher.set_session_count(3), 4)
 
     def test_cold_text_encoder_reports_loading_and_generation_stages(self):
         session = object.__new__(ardy_backend.ArdySession)
@@ -536,34 +250,6 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             quickserver_cli._build_text_encoder_signature(base),
             quickserver_cli._build_text_encoder_signature(high_performance),
         )
-
-    def test_text_encoder_execution_gate_allows_matching_ardy_and_serializes_kimodo(self):
-        gate = quickserver_cli._TextEncoderExecutionGate()
-        ardy_key = ("text_encoder_mode=high_precision", "ardy")
-        kimodo_key = ("text_encoder_mode=high_performance", "kimodo")
-        kimodo_entered = threading.Event()
-
-        gate.acquire(ardy_key)
-        gate.acquire(ardy_key)
-
-        def enter_kimodo():
-            gate.acquire(kimodo_key)
-            try:
-                kimodo_entered.set()
-            finally:
-                gate.release(kimodo_key)
-
-        thread = threading.Thread(target=enter_kimodo)
-        thread.start()
-        self.assertFalse(kimodo_entered.wait(0.05))
-
-        gate.release(ardy_key)
-        self.assertFalse(kimodo_entered.wait(0.05))
-        gate.release(ardy_key)
-
-        self.assertTrue(kimodo_entered.wait(1.0))
-        thread.join(timeout=1.0)
-        self.assertFalse(thread.is_alive())
 
     def test_clearing_shared_text_encoder_detaches_every_runtime_reference(self):
         encoder = object()
@@ -676,71 +362,11 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             self.assertEqual(settings.playback_reserve_frames, expected_reserve)
             self.assertTrue(settings.adaptive_playback_reserve)
 
-            ignored_legacy_fields = ardy_backend.ArdySettings.from_request(
-                {
-                    "ardy_history_crop_seconds": 2.0,
-                    "ardy_future_crop_seconds": 2.0,
-                    "ardy_history_transition_weight": 0.0,
-                    "ardy_adaptive_playback_reserve": False,
-                },
+            fixed = ardy_backend.ArdySettings.from_request(
+                {"ardy_history_crop_seconds": 2.0},
                 profile,
             )
-            self.assertTrue(ignored_legacy_fields.auto_history)
-            self.assertEqual(ignored_legacy_fields.history_crop_frames, expected_history)
-            self.assertTrue(ignored_legacy_fields.adaptive_playback_reserve)
-
-    def test_analysis_only_returns_one_manifest_entry_per_clip_without_a_model(self):
-        roots = np.asarray([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32)
-        quats = np.zeros((2, 1, 4), dtype=np.float32)
-        quats[..., 3] = 1.0
-
-        def parse(payload, _error_type=ValueError):
-            return ardy_backend.KmbMotion(
-                payload=payload,
-                model_name="test",
-                fps=20.0,
-                joint_names=("root",),
-                joint_parents=(-1,),
-                root_positions=roots,
-                local_rot_quats=quats,
-                foot_contacts=None,
-            )
-
-        request = {
-            "analysis_option": {"analysis_only": True, "keyframes": {"max_count": 4}},
-            "constraints_json": json.dumps([
-                {"type": "clip", "format": "kmb_attachment_v1", "attachment": 0, "start_frame": 0, "end_frame_exclusive": 2},
-                {"type": "clip", "format": "kmb_attachment_v1", "attachment": 1, "start_frame": 0, "end_frame_exclusive": 2},
-            ]),
-        }
-        with patch.object(quickserver_cli, "parse_kmb1", side_effect=parse):
-            response, payload = quickserver_cli._execute_analysis_only(request, (b"first", b"second"))
-
-        self.assertEqual(response["output_format"], "kmb_attachments_v1")
-        self.assertEqual(payload, b"firstsecond")
-        self.assertEqual([item["index"] for item in response["kmb_attachments"]], [0, 1])
-        self.assertEqual([item["start_frame"] for item in response["kmb_attachments"]], [0, 0])
-        self.assertEqual(response["analysis"]["clips"][0]["frame_count"], 2)
-
-    def test_history_weight_maps_to_token_aligned_window(self):
-        profile = SimpleNamespace(
-            source_fps=20.0,
-            horizon_frames=40,
-            frames_per_token=4,
-            max_context_frames=200,
-        )
-
-        for weight, expected_frames in ((0.0, 4), (0.5, 84), (1.0, 160)):
-            settings = ardy_backend.ArdySettings.from_request(
-                {"ardy_history_weight": weight},
-                profile,
-            )
-            self.assertEqual(settings.history_crop_frames, expected_frames)
-            self.assertFalse(settings.auto_history)
-            self.assertFalse(settings.adaptive_playback_reserve)
-
-        with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "ardy_history_weight"):
-            ardy_backend.ArdySettings.from_request({"ardy_history_weight": 1.01}, profile)
+            self.assertFalse(fixed.auto_history)
 
     def test_cursor_patch_pause_and_seek_use_one_cached_timeline(self):
         session = self._fake_ardy_session()
@@ -764,7 +390,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         )
         self.assertEqual((patched["start_frame"], patched["end_frame_exclusive"]), (20, 60))
         self.assertEqual(session.diffusion_steps, 12)
-        self.assertEqual(session.cfg_text_weight, 1.0)
+        self.assertEqual(session.cfg_text_weight, 4.0)
 
         session.generate({"time_as_double": 1.0}, (), model, cancel)
         seek, output = session.generate({"time_as_double": 0.2}, (), model, cancel)
@@ -811,12 +437,11 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             "type": "clip",
             "format": "kmb_attachment_v1",
             "attachment": 0,
-            "start_time": -8.3,
-            "duration": 8.3,
+            "is_history": True,
         }
 
         with (
-            patch("core.protocol.kmb_motion.parse_kmb1", return_value=motion),
+            patch.object(ardy_backend, "parse_kmb1", return_value=motion),
             patch.object(ardy_backend, "_validate_kmb"),
             patch.object(ardy_backend, "_motion_to_tensor", return_value=encoded),
             patch("ardy.constraints.load_constraints_lst", return_value=[object()]),
@@ -831,50 +456,6 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         root_2d, velocity_2d = session._root_state_at_boundary(0)
         np.testing.assert_allclose(root_2d, [1.65, 3.3], atol=1e-6)
         np.testing.assert_allclose(velocity_2d, [0.2, 0.4], atol=1e-5)
-
-    def test_cross_zero_clip_is_split_into_history_and_future(self):
-        session = self._fake_ardy_session()
-        session.quickserver_root = Path.cwd()
-        motion = ardy_backend.KmbMotion(
-            payload=b"kmb",
-            model_name="test",
-            fps=20.0,
-            joint_names=("root",),
-            joint_parents=(-1,),
-            root_positions=np.zeros((8, 3), dtype=np.float32),
-            local_rot_quats=np.zeros((8, 1, 4), dtype=np.float32),
-            foot_contacts=None,
-        )
-        encoded = torch.arange(8, dtype=torch.float32).reshape(1, 8, 1)
-        model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=object()))
-        item = {
-            "type": "clip",
-            "format": "kmb_attachment_v1",
-            "attachment": 0,
-            "start_time": -0.2,
-            "duration": 0.4,
-            "mask": {
-                "root_position": [True, False, False],
-                "root_heading": False,
-                "root_rotation": False,
-                "joints": [],
-            },
-        }
-
-        with (
-            patch("core.protocol.kmb_motion.parse_kmb1", return_value=motion),
-            patch.object(ardy_backend, "_validate_kmb"),
-            patch.object(ardy_backend, "_motion_to_tensor", return_value=encoded),
-            patch("ardy.constraints.load_constraints_lst", return_value=[]),
-        ):
-            session._set_constraints([item], (b"kmb",), model, apply_from=0, initial=True)
-
-        self.assertTrue(torch.equal(session.initial_history_cpu, encoded[:, :4]))
-        self.assertEqual(len(session.future_clips), 1)
-        target_start, future, mask = session.future_clips[0]
-        self.assertEqual(target_start, 0)
-        self.assertTrue(torch.equal(future, encoded[:, 4:]))
-        self.assertEqual(mask["root_position"], [True, False, False])
 
     def test_truncate_rebuilds_history_from_initial_history_and_generated_prefix(self):
         session = self._fake_ardy_session()
@@ -964,85 +545,17 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             atol=1e-7,
         )
 
-    def test_root_target_reserves_the_first_quarter_of_each_future_horizon(self):
-        target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, True)
-
-        for horizon in (8, 52):
-            with self.subTest(horizon=horizon):
-                planned = ardy_backend._plan_root_2d_target(
-                    target,
-                    (0.0, 0.0),
-                    (0.0, 0.0),
-                    39,
-                    20.0,
-                    horizon,
-                )
-                guard_frames = math.ceil(horizon / 4)
-                expected_first = max(49, 40 + guard_frames)
-                self.assertEqual(planned["frame_indices"][0], expected_first)
-                self.assertEqual(planned["frame_indices"][1:], [59, 69, 79])
-
-    def test_root_target_moves_core40_terminal_waypoint_past_the_horizon(self):
-        target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, True)
-
-        planned = ardy_backend._plan_root_2d_target(
-            target,
-            (0.0, 0.0),
-            (0.0, 0.0),
-            39,
-            20.0,
-            40,
-        )
-
-        self.assertEqual(planned["frame_indices"], [50, 59, 69, 83])
-
-    def test_horizon_trace_reports_protected_hits_and_generated_trajectory(self):
-        session = self._fake_ardy_session()
-        session.session_trace_id = "session:test"
-        session.request_trace_id = "task:test"
-        session.root_2d_targets = [
-            ardy_backend.Root2DTarget((5.0, 2.0), 1.25, 1.5, 0.0, True, heading=0.25, arrival_frame=60)
-        ]
-        session.constraints = [
-            SimpleNamespace(
-                name="root2d",
-                frame_indices=torch.tensor([40, 50], dtype=torch.long),
-                root_2d=torch.tensor([[1.0, 2.0], [3.0, 4.0]], dtype=torch.float32),
-                global_root_heading=torch.tensor([0.0, 0.25], dtype=torch.float32),
-            )
-        ]
-        output = {
-            "root_positions": torch.tensor(
-                [[[1.0, 0.0, 2.0], [3.0, 0.0, 4.0]]], dtype=torch.float32
-            ),
-            "global_root_heading": torch.tensor(
-                [[[1.0, 0.0], [0.0, 1.0]]], dtype=torch.float32
-            ),
-        }
-
-        with patch("builtins.print") as print_mock:
-            session._log_horizon_trace(40, 40, 20, 20, 60, output)
-
-        trace = json.loads(print_mock.call_args.args[0].removeprefix("[ARDY_HORIZON] "))
-        self.assertEqual(trace["horizon"], [40, 80])
-        self.assertEqual(trace["protected"], [40, 50])
-        self.assertEqual(trace["protected_hits"], [{"type": "root2d", "frame": 40}])
-        self.assertEqual(trace["constraints"][0]["gaps"], [10])
-        self.assertEqual(trace["generated_root_xz"], [[1.0, 2.0], [3.0, 4.0]])
-        self.assertEqual(trace["generated_heading_rad"], [0.0, 1.5708])
-
-    def test_timed_root2d_frames_are_offset_with_the_constraint_patch(self):
-        targets = ardy_backend._parse_root_2d_targets(
+    def test_timed_root_target_frame_is_offset_with_the_constraint_patch(self):
+        target = ardy_backend._parse_root_2d_target(
             {
-                "type": "root2d",
-                "frame_indices": [12],
-                "smooth_root_2d": [[1.0, 2.0]],
+                "type": "root2d_target",
+                "target_root_2d": [1.0, 2.0],
+                "target_frame": 12,
             },
-            ardy_backend.ArdySettings(160, 160, 20, True),
             frame_offset=8,
         )
 
-        self.assertEqual(targets[0].arrival_frame, 20)
+        self.assertEqual(target.arrival_frame, 20)
 
     def test_timed_root_target_uses_the_full_arrival_window(self):
         start = (-0.6220054, 1.545403)
@@ -1136,122 +649,18 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertAlmostEqual(planned["global_root_heading"][0], math.pi / 2)
         self.assertAlmostEqual(planned["global_root_heading"][-1], -math.pi / 2)
 
-    def test_root_target_keeps_motion_heading_until_the_last_forty_frames(self):
-        target = ardy_backend.Root2DTarget((-10.0, 0.0), 1.25, 1.5, 0.1, True, heading=0.25)
-        motion_target = ardy_backend.Root2DTarget((-10.0, 0.0), 1.25, 1.5, 0.1, True)
-
-        planned = ardy_backend._plan_root_2d_target(target, (0.0, 0.0), (1.0, 0.0), -1, 20.0)
-        motion_planned = ardy_backend._plan_root_2d_target(
-            motion_target, (0.0, 0.0), (1.0, 0.0), -1, 20.0
-        )
-
-        np.testing.assert_allclose(
-            planned["global_root_heading"], motion_planned["global_root_heading"], atol=1e-7
-        )
-
-    def test_root_target_smoothly_reaches_final_heading_over_the_last_forty_frames(self):
-        target = ardy_backend.Root2DTarget(
-            (0.0, -2.0),
-            10.0,
-            10.0,
-            0.001,
-            True,
-            heading=-math.pi + 0.2,
-            arrival_frame=39,
-        )
-
-        planned = ardy_backend._plan_root_2d_target(
-            target, (0.0, 0.0), (0.0, 0.0), -1, 20.0
-        )
-
-        headings = planned["global_root_heading"]
-        self.assertEqual(planned["frame_indices"], [9, 19, 29, 39])
-        self.assertLess(headings[0], -3.0)
-        remaining_angles = [
-            abs(math.atan2(math.sin(target.heading - heading), math.cos(target.heading - heading)))
-            for heading in headings
-        ]
-        self.assertTrue(all(a > b for a, b in zip(remaining_angles, remaining_angles[1:])))
-        self.assertAlmostEqual(headings[-1], target.heading, places=7)
-
-    def test_untimed_root_target_uses_its_discrete_arrival_prediction_for_heading(self):
-        target = ardy_backend.Root2DTarget(
-            (1.0, 0.0), 1.25, 1.5, 0.001, True, heading=0.0
-        )
-
-        planned = ardy_backend._plan_root_2d_target(
-            target, (0.0, 0.0), (0.0, 0.0), -1, 20.0
-        )
-
-        headings = planned["global_root_heading"]
-        self.assertGreater(headings[0], headings[1])
-        self.assertGreater(headings[1], headings[2])
-        self.assertAlmostEqual(headings[2], target.heading, places=7)
-        np.testing.assert_allclose(planned["smooth_root_2d"][2], target.position, atol=1e-7)
-
-    def test_root_target_omits_heading_when_disabled_even_with_final_heading(self):
-        target = ardy_backend.Root2DTarget(
-            (1.0, 0.0), 1.25, 1.5, 0.1, False, heading=0.25
-        )
-
-        planned = ardy_backend._plan_root_2d_target(target, (0.0, 0.0), (0.0, 0.0), -1, 20.0)
-
-        self.assertNotIn("global_root_heading", planned)
-
-    def test_root2d_parses_a_heading_vector_per_point(self):
-        targets = ardy_backend._parse_root_2d_targets(
-            {
-                "type": "root2d",
-                "frame_indices": [4],
-                "smooth_root_2d": [[1.0, 2.0]],
-                "global_root_heading": [[0.0, 1.0]],
-            },
-            ardy_backend.ArdySettings(160, 160, 20, True),
-        )
-
-        self.assertAlmostEqual(targets[0].heading, math.pi / 2)
-
     def test_root_target_stops_inside_arrival_threshold(self):
         target = ardy_backend.Root2DTarget((0.05, 0.0), 1.25, 1.5, 0.1, True)
         self.assertIsNone(
             ardy_backend._plan_root_2d_target(target, (0.0, 0.0), (0.0, 0.0), -1, 20.0)
         )
 
-    def test_untimed_root_target_releases_near_arrival_before_an_extra_horizon(self):
-        target = ardy_backend.Root2DTarget((0.102, 0.0), 1.25, 1.5, 0.1, False)
-
-        self.assertIsNone(
-            ardy_backend._plan_root_2d_target(
-                target,
-                (0.0, 0.0),
-                (0.0, 0.0),
-                -1,
-                20.0,
-                40,
-            )
-        )
-
-    def test_root_target_omits_repeated_arrival_waypoints_when_heading_is_disabled(self):
-        target = ardy_backend.Root2DTarget((1.0, 0.0), 1.25, 1.5, 0.1, False)
-
-        planned = ardy_backend._plan_root_2d_target(
-            target,
-            (0.0, 0.0),
-            (0.0, 0.0),
-            -1,
-            20.0,
-            40,
-        )
-
-        self.assertEqual(planned["frame_indices"], [10, 19, 29])
-        self.assertEqual(planned["smooth_root_2d"].count([1.0, 0.0]), 1)
-
-    def test_root2d_protocol_keeps_multiple_ordered_points_and_replaces_the_snapshot(self):
+    def test_root_target_protocol_is_resolved_replaced_and_cleared_in_python(self):
         session = self._fake_ardy_session()
-        session.motion_cpu = torch.zeros((1, 40, 1), dtype=torch.float32)
-        session.outputs = {"root_positions": np.zeros((1, 40, 3), dtype=np.float32)}
-        session.outputs["root_positions"][0, 38, [0, 2]] = [0.95, 1.9]
-        session.outputs["root_positions"][0, 39, [0, 2]] = [1.0, 2.0]
+        session.motion_cpu = torch.zeros((1, 8, 1), dtype=torch.float32)
+        session.outputs = {"root_positions": np.zeros((1, 8, 3), dtype=np.float32)}
+        session.outputs["root_positions"][0, 6, [0, 2]] = [0.95, 1.9]
+        session.outputs["root_positions"][0, 7, [0, 2]] = [1.0, 2.0]
         model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=object()))
         loaded = []
 
@@ -1261,41 +670,35 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
         with patch("ardy.constraints.load_constraints_lst", side_effect=load_constraints):
             session._set_constraints(
-                [{
-                    "type": "root2d",
-                    "frame_indices": [10, 29],
-                    "smooth_root_2d": [[5.0, 0.0], [6.0, 2.0]],
-                    "global_root_heading": [[0.0, 1.0], [1.0, 0.0]],
-                }],
+                [{"type": "root2d_target", "target_root_2d": [5.0, 0.0]}],
                 (),
                 model,
-                apply_from=40,
+                apply_from=8,
                 initial=False,
             )
-            self.assertEqual([target.position for target in session.root_2d_targets], [(5.0, 0.0), (6.0, 2.0)])
-            self.assertEqual([target.arrival_frame for target in session.root_2d_targets], [50, 69])
+            self.assertEqual(session.root_2d_target.position, (5.0, 0.0))
             self.assertEqual([item["type"] for item in loaded[-1]], ["root2d", "root2d"])
-            self.assertEqual(loaded[-1][0]["frame_indices"][-1], 50)
-            self.assertEqual(loaded[-1][1]["frame_indices"][-1], 69)
+            self.assertEqual(loaded[-1][0]["frame_indices"], [8])
+            np.testing.assert_allclose(loaded[-1][0]["smooth_root_2d"], [[1.05, 2.1]], atol=1e-6)
+            self.assertNotIn("global_root_heading", loaded[-1][0])
 
             session._set_constraints(
-                [{"type": "root2d", "frame_indices": [12], "smooth_root_2d": [[-3.0, 2.0]]}],
+                [{"type": "root2d_target", "target_root_2d": [-3.0, 2.0]}],
                 (),
                 model,
-                apply_from=40,
+                apply_from=8,
                 initial=False,
             )
-            self.assertEqual([target.position for target in session.root_2d_targets], [(-3.0, 2.0)])
-            self.assertEqual([item["type"] for item in loaded[-1]], ["root2d"])
+            self.assertEqual(session.root_2d_target.position, (-3.0, 2.0))
+            self.assertEqual([item["type"] for item in loaded[-1]], ["root2d", "root2d"])
 
-            session._set_constraints([], (), model, apply_from=40, initial=False)
-            self.assertEqual(session.root_2d_targets, [])
+            session._set_constraints([], (), model, apply_from=8, initial=False)
+            self.assertIsNone(session.root_2d_target)
             self.assertEqual(session.constraints, [])
 
-    def test_root2d_protocol_uses_global_settings_and_does_not_normalize_coordinates(self):
+    def test_fixed_root_target_uses_the_same_constraint_origin(self):
         session = self._fake_ardy_session()
         session._normalize_constraint_origin = True
-        session.settings = ardy_backend.ArdySettings(160, 160, 20, True, max_speed=2.25, max_acceleration=3.5)
         skeleton = SimpleNamespace(device=torch.device("cpu"))
         model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=skeleton))
 
@@ -1303,9 +706,15 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             [
                 {
                     "type": "root2d",
-                    "frame_indices": [0, 16],
-                    "smooth_root_2d": [[10.0, 20.0], [13.0, 24.0]],
-                    "global_root_heading": [[0.0, 1.0], [1.0, 0.0]],
+                    "frame_indices": [0],
+                    "smooth_root_2d": [[10.0, 20.0]],
+                    "global_root_heading": [[0.0, 1.0]],
+                },
+                {
+                    "type": "root2d_target",
+                    "target_root_2d": [13.0, 24.0],
+                    "max_speed": 2.25,
+                    "max_acceleration": 3.5,
                 },
             ],
             (),
@@ -1314,14 +723,14 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             initial=True,
         )
 
-        self.assertIsNone(session.constraint_origin)
-        self.assertEqual([target.position for target in session.root_2d_targets], [(10.0, 20.0), (13.0, 24.0)])
-        self.assertEqual([target.max_speed for target in session.root_2d_targets], [2.25, 2.25])
-        self.assertEqual([target.max_acceleration for target in session.root_2d_targets], [3.5, 3.5])
+        np.testing.assert_allclose(session.constraint_origin[0].cpu(), [10.0, 20.0])
+        np.testing.assert_allclose(session.root_2d_target.position, [-4.0, 3.0], atol=1e-6)
+        self.assertEqual(session.root_2d_target.max_speed, 2.25)
+        self.assertEqual(session.root_2d_target.max_acceleration, 3.5)
 
     def test_root_target_cursor_sync_preserves_cached_future(self):
         session = self._fake_ardy_session()
-        session.root_2d_targets = [ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.0, True, arrival_frame=120)]
+        session.root_2d_target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, True)
         session.motion_cpu = torch.zeros((1, 80, 1), dtype=torch.float32)
         session.outputs = {"root_positions": np.zeros((1, 80, 3), dtype=np.float32)}
         session.returned_until = 80
@@ -1346,7 +755,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
     def test_root_target_refreshes_when_extending_a_horizon(self):
         session = self._fake_ardy_session()
-        session.root_2d_targets = [ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.0, True, arrival_frame=120)]
+        session.root_2d_target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, True)
         session.motion_cpu = torch.zeros((1, 40, 1), dtype=torch.float32)
         session.outputs = {"root_positions": np.zeros((1, 40, 3), dtype=np.float32)}
         replanned_from = []
@@ -1411,41 +820,45 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(output["root_positions"].shape[1], 60)
 
     def test_timeline_segments_resolve_prompt_boundaries_from_fixed_duration(self):
-        segments = parse_timeline_segments(
+        profile = SimpleNamespace(source_fps=20.0, frames_per_token=4)
+
+        segments = ardy_backend._parse_timeline_segments(
             [
                 {"prompt": "walk", "duration": 1.0},
                 {"prompt": "turn left", "duration": 2.0},
             ],
-            20.0,
+            profile,
             60,
         )
 
         self.assertEqual(
             segments,
             (
-                TimelineSegment("walk", 0, 20),
-                TimelineSegment("turn left", 20, 60),
+                ardy_backend.ArdyTimelineSegment("walk", 0, 20),
+                ardy_backend.ArdyTimelineSegment("turn left", 20, 60),
             ),
         )
 
     def test_timeline_segments_allow_unaligned_boundary_and_reject_mismatched_duration(self):
+        profile = SimpleNamespace(source_fps=20.0, frames_per_token=4)
+
         with self.assertRaisesRegex(ardy_backend.ArdyBackendError, "resolves to 20 frames"):
-            parse_timeline_segments(
-                [{"prompt": "walk", "duration": 1.0}], 20.0, 40, ardy_backend.ArdyBackendError
+            ardy_backend._parse_timeline_segments(
+                [{"prompt": "walk", "duration": 1.0}], profile, 40
             )
-        segments = parse_timeline_segments(
+        segments = ardy_backend._parse_timeline_segments(
             [
                 {"prompt": "walk", "duration": 0.1},
                 {"prompt": "turn", "duration": 1.9},
             ],
-            20.0,
+            profile,
             40,
         )
         self.assertEqual(
             segments,
             (
-                TimelineSegment("walk", 0, 2),
-                TimelineSegment("turn", 2, 40),
+                ardy_backend.ArdyTimelineSegment("walk", 0, 2),
+                ardy_backend.ArdyTimelineSegment("turn", 2, 40),
             ),
         )
 
@@ -1454,8 +867,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         session.profile.frames_per_token = 4
         session.profile.horizon_frames = 40
         session.timeline_segments = (
-            TimelineSegment("walk", 0, 101),
-            TimelineSegment("turn", 101, 192),
+            ardy_backend.ArdyTimelineSegment("walk", 0, 101),
+            ardy_backend.ArdyTimelineSegment("turn", 101, 192),
         )
         activated = []
         session._activate_prompt = lambda _model, prompt, **_kwargs: activated.append(prompt)
@@ -1722,36 +1135,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(history_limit, 4)
         self.assertEqual(session._auto_history_frames, 4)
         self.assertEqual([constraint.name for constraint in session.constraints], ["fullbody"])
-        self.assertEqual(session.root_2d_targets, [])
-
-    def test_auto_history_keeps_full_history_for_timed_root2d_points(self):
-        session = self._fake_ardy_session()
-        session.settings = ardy_backend.ArdySettings(
-            160,
-            160,
-            20,
-            False,
-            auto_history=True,
-            max_speed=1.25,
-            max_acceleration=1.5,
-            history_transition_weight=0.5,
-        )
-        session._auto_history_frames = 160
-        session.root_2d_targets = [
-            ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.0, True, arrival_frame=20)
-        ]
-        session.constraints = [
-            SimpleNamespace(
-                name="root2d",
-                frame_indices=torch.tensor([20], dtype=torch.long),
-                root_2d=torch.tensor([[10.0, 0.0]], dtype=torch.float32),
-            )
-        ]
-
-        history_limit = session._resolve_history_limit(0)
-
-        self.assertEqual(history_limit, 160)
-        self.assertEqual(session._auto_history_frames, 160)
+        self.assertIsNone(session.root_2d_target)
 
     @staticmethod
     def _fake_ardy_session():
@@ -1783,7 +1167,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         session.constraint_items = []
         session.constraint_origin = None
         session._normalize_constraint_origin = False
-        session.root_2d_targets = []
+        session.root_2d_target = None
         session.future_clips = []
         session.timeline_segments = ()
         session._encoded_prompts = {}

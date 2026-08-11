@@ -737,7 +737,7 @@ def _run_prepare(ctx: TestContext) -> dict[str, Any]:
             _terminate_process_tree(launcher_proc, timeout_sec=30)
 
     source_root = root_runtime / "kimodo"
-    source_env_dir = root_runtime / ".venv"
+    source_env_dir = source_root / ".venv"
     if not shared_env_ready:
         if not _looks_like_reusable_env(source_env_dir):
             raise RuntimeError(f"Prepare did not create a source venv at: {source_env_dir}")

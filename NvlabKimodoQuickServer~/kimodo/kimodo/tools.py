@@ -307,9 +307,8 @@ def seed_everything(seed: int, deterministic: bool = False) -> None:
     random.seed(seed)  # for Python random module.
     np.random.seed(seed)  # for NumPy.
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    if deterministic and torch.cuda.is_available():
+    torch.cuda.manual_seed_all(seed)
+    if deterministic:
         torch.backends.cudnn.deterministic = True  # for deterministic behavior.
         torch.backends.cudnn.benchmark = False  # if you want to make the behavior deterministic.
 

@@ -259,17 +259,6 @@ class KimodoMotionRep(MotionRepBase):
             m_sliced = motion_mask[:, self.slice_dict["smooth_root_pos"]]
             m_sliced[indices, 1] = True
 
-        if (fname := "clip_root_positions") in index_dict and index_dict[fname]:
-            indices = _cat_indices(index_dict[fname])
-            indices, values = get_unique_index_and_data(indices, torch.cat(data_dict[fname]))
-            values = _match_obs_dtype(values)
-            f_sliced = observed_motion[:, self.slice_dict["smooth_root_pos"]]
-            m_sliced = motion_mask[:, self.slice_dict["smooth_root_pos"]]
-            available = ~m_sliced[indices[:, 0], indices[:, 1]]
-            selected = indices[available]
-            f_sliced[selected[:, 0], selected[:, 1]] = values[available]
-            m_sliced[selected[:, 0], selected[:, 1]] = True
-
         if (fname := "global_root_heading") in index_dict and index_dict[fname]:
             indices = _cat_indices(index_dict[fname])
             indices, global_root_heading = get_unique_index_and_data(indices, torch.cat(data_dict[fname]))
@@ -291,31 +280,6 @@ class KimodoMotionRep(MotionRepBase):
             f_sliced[masking] = global_rot_data.flatten()
             m_sliced = motion_mask[:, self.slice_dict["global_rot_data"]]
             m_sliced[masking] = True
-
-        if (fname := "local_joints_positions") in index_dict and index_dict[fname]:
-            indices_lst = _cat_indices(index_dict[fname])
-            indices_lst, local_joints_positions = get_unique_index_and_data(indices_lst, torch.cat(data_dict[fname]))
-            local_joints_positions = _match_obs_dtype(local_joints_positions)
-            f_sliced = observed_motion[:, self.slice_dict[fname]]
-            masking = torch.zeros(len(f_sliced) * self.nbjoints, 3, device=device, dtype=bool)
-            masking[indices_lst.T[0] * self.nbjoints + indices_lst.T[1]] = True
-            masking = masking.reshape(len(f_sliced), self.nbjoints * 3)
-            f_sliced[masking] = local_joints_positions.flatten()
-            m_sliced = motion_mask[:, self.slice_dict[fname]]
-            m_sliced[masking] = True
-
-        if (fname := "clip_local_joints_positions") in index_dict and index_dict[fname]:
-            indices = _cat_indices(index_dict[fname])
-            indices, values = get_unique_index_and_data(indices, torch.cat(data_dict[fname]))
-            values = _match_obs_dtype(values)
-            feature_indices = indices[:, 1] * 3 + indices[:, 2]
-            f_sliced = observed_motion[:, self.slice_dict["local_joints_positions"]]
-            m_sliced = motion_mask[:, self.slice_dict["local_joints_positions"]]
-            available = ~m_sliced[indices[:, 0], feature_indices]
-            selected = indices[available]
-            selected_features = feature_indices[available]
-            f_sliced[selected[:, 0], selected_features] = values[available]
-            m_sliced[selected[:, 0], selected_features] = True
 
         if (fname := "global_joints_positions") in index_dict and index_dict[fname]:
             indices_lst = _cat_indices(index_dict[fname])

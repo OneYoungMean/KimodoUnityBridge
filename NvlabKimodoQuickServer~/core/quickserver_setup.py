@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
-import platform
 from pathlib import Path
 import shutil
 import socket
@@ -35,7 +34,7 @@ class ProjectPaths:
 
     @property
     def venv_dir(self) -> Path:
-        return self.root_dir / ".venv"
+        return self.source_root / ".venv"
 
     @property
     def venv_python(self) -> Path:
@@ -516,35 +515,31 @@ def _ensure_motion_correction(paths: ProjectPaths, uv_bin: str, logger: SetupLog
         logger.log("[INFO] motion_correction already present, skip reinstall.")
         return True
 
-    is_macos = sys.platform == "darwin"
-    if is_macos:
-        # The bundled extension is an Apple Silicon CPython 3.12 wheel.  There
-        # is intentionally no source-build fallback: each Mac must receive the
-        # matching native artifact explicitly.
-        machine = platform.machine().lower()
-        wheel_path = paths.wheels_dir / "motion_correction-1.0.0-cp312-cp312-macosx_11_0_arm64.whl"
-        if machine not in {"arm64", "aarch64"}:
-            raise SetupError(f"Unsupported macOS architecture for MotionCorrection: {machine!r}; expected arm64.")
-        if not wheel_path.exists():
-            raise SetupError(f"Missing macOS ARM64 MotionCorrection wheel: {wheel_path}")
     try:
-        if not is_macos and os.name == "nt":
-            wheel_path = paths.wheels_dir / "motion_correction-1.0.0-cp312-cp312-win_amd64.whl"
-        elif not is_macos:
-            wheel_path = paths.wheels_dir / "motion_correction-1.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
-        if not is_macos and not wheel_path.exists():
-            raise SetupError(f"Missing motion_correction wheel: {wheel_path}")
+        if sys.platform == "darwin":
+            motion_correction_root = paths.source_root / "MotionCorrection"
+            if not motion_correction_root.exists():
+                raise SetupError(f"Missing MotionCorrection source tree: {motion_correction_root}")
+            logger.log("[STEP] macOS detected: installing cmake helper and building motion_correction from source...")
+            _run_logged(
+                [uv_bin, "pip", "install", "--python", str(paths.venv_python), "--default-index", default_index, "cmake"],
+                logger,
+            )
+            _run_logged(
+                [uv_bin, "pip", "install", "--python", str(paths.venv_python), "--default-index", default_index, str(motion_correction_root)],
+                logger,
+            )
+            return True
 
-        logger.log(f"[STEP] Installing MotionCorrection wheel {wheel_path.name}...")
+        if os.name == "nt":
+            wheel_path = paths.wheels_dir / "motion_correction-1.0.0-cp312-cp312-win_amd64.whl"
+        else:
+            wheel_path = paths.wheels_dir / "motion_correction-1.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+        if not wheel_path.exists():
+            raise SetupError(f"Missing motion_correction wheel: {wheel_path}")
         _run_logged([uv_bin, "pip", "install", "--python", str(paths.venv_python), str(wheel_path)], logger)
-        rc, output = _run_capture([str(paths.venv_python), "-c", "import motion_correction; print(motion_correction.__file__)"])
-        if rc != 0:
-            raise SetupError(f"Installed MotionCorrection wheel failed import.\n{output}")
-        logger.log("[OK] MotionCorrection wheel is ready.")
         return True
     except Exception as exc:
-        if is_macos:
-            raise
         logger.log(f"[WARN] motion_correction setup skipped: {exc}")
         logger.log("[WARN] Bridge will continue without motion_correction postprocessing.")
         return False
