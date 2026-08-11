@@ -56,7 +56,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。Runt
 | Bake Retarget | Bake 时重定向到另一 current Session 角色 | `kimodo_bake_range(retarget_character)` | 完整 | 需要有效 Humanoid Avatar |
 | 任意 Clip 独立 Retarget | Editor Retarget 工具可进行 Bone/Muscle 转换和写回 | 无 | 部分 | CLI 仅覆盖 Bake 内的 Retarget |
 | 一般 Timeline 编排 | Clip 放置、重叠、Ease、Track/Binding 编辑 | 外围 Unity 自动化 | 外部工具 | Kimodo command 只维护自身 Session 工作流 |
-| Runtime Motion Driver | 连续生成、提示词、Root2D、Hand/Foot Pose 约束和实时播放 | 无 Editor command | 部分 | 公共 C# API 位于 `KimodoRuntimeMotionDriver`；当前导出不包含独立末端 `target_positions` |
+| Runtime Motion Driver | 连续生成、提示词、Root2D、Hand/Foot Pose 约束和实时播放 | 无 Editor command | 部分 | 公共 C# API 位于 `KimodoRuntimeMotionDriver`；Root2D 到达阈值内不再暂存约束；当前导出不包含独立末端 `target_positions` |
 | Runtime 路线调用 | 按世界坐标目标或 waypoint 队列驱动 Runtime Motion Driver | `KimodoCliMotionRoutePlanner.Animate/AnimateRoute` | 部分 | 这是组件 API，不是 `command_dispatcher` command |
 | Runtime 发布安装 | 将运行时复制到 `StreamingAssets` | 无 | 未覆盖 | 当前入口为 Unity 菜单命令 |
 | Server Manager | 项目运行时路径、状态、模型、缓存和维护操作 | `kimodo_help(section:"models")`、调试安装 | 部分 | 其余维护能力保留在 Project Settings UI |

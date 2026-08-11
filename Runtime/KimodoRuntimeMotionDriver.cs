@@ -9,199 +9,6 @@ using UnityEngine.Serialization;
 
 namespace KimodoBridge
 {
-    internal sealed class KimodoRuntimeConstraintBuffer
-    {
-        private readonly List<KimodoMarkerSampleResult> overlapPoses = new List<KimodoMarkerSampleResult>();
-        private readonly List<KimodoMarkerSampleResult> stagedSamples = new List<KimodoMarkerSampleResult>();
-        private readonly List<KimodoMarkerSampleResult> pendingSamples = new List<KimodoMarkerSampleResult>();
-        private int pendingRevision;
-
-        internal int StagedCount => stagedSamples.Count;
-        internal int PendingCount => pendingSamples.Count;
-        internal int OverlapCount => overlapPoses.Count;
-        internal int PendingRevision => pendingRevision;
-
-        internal void Stage(KimodoMarkerSampleResult sample, double absoluteTimeOffset = 0.0)
-        {
-            if (sample == null)
-            {
-                return;
-            }
-
-            sample.sampleTime += absoluteTimeOffset;
-            UpsertByType(stagedSamples, sample);
-        }
-
-        internal bool CommitStaged()
-        {
-            if (stagedSamples.Count == 0)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < stagedSamples.Count; i++)
-            {
-                UpsertByType(pendingSamples, stagedSamples[i]);
-            }
-
-            stagedSamples.Clear();
-            pendingRevision++;
-            return true;
-        }
-
-        internal void ClearUserConstraints()
-        {
-            stagedSamples.Clear();
-            pendingSamples.Clear();
-            pendingRevision++;
-        }
-
-        internal void ClearAll()
-        {
-            ClearUserConstraints();
-            overlapPoses.Clear();
-        }
-
-        internal void SetOverlapPoses(IReadOnlyList<KimodoMarkerSampleResult> poses)
-        {
-            overlapPoses.Clear();
-            if (poses == null)
-            {
-                return;
-            }
-
-            for (int i = 0; i < poses.Count; i++)
-            {
-                if (poses[i] != null)
-                {
-                    overlapPoses.Add(poses[i]);
-                }
-            }
-        }
-
-        internal void ClearOverlapPoses()
-        {
-            overlapPoses.Clear();
-        }
-
-        internal List<KimodoMarkerSampleResult> BuildActive(
-            bool isArdy,
-            double ardyApplyTime,
-            bool includeOverlap,
-            float maxConstraintTime,
-            string fullBodyConstraintType)
-        {
-            var samples = new List<KimodoMarkerSampleResult>();
-            if (includeOverlap)
-            {
-                KimodoMarkerSampleResult terminalPose = null;
-                for (int i = 0; i < overlapPoses.Count; i++)
-                {
-                    KimodoMarkerSampleResult candidate = overlapPoses[i];
-                    if (candidate != null &&
-                        (terminalPose == null || candidate.sampleTime < terminalPose.sampleTime))
-                    {
-                        terminalPose = candidate;
-                    }
-                }
-
-                if (terminalPose != null)
-                {
-                    KimodoMarkerSampleResult sample = terminalPose.Clone();
-                    sample.constraintType = fullBodyConstraintType;
-                    sample.sampleTime = 0.0;
-                    sample.kimodoRootPosition = new Vector3(0f, sample.kimodoRootPosition.y, 0f);
-                    sample.unityRootPos = sample.kimodoRootPosition;
-                    samples.Add(sample);
-                }
-            }
-
-            for (int i = 0; i < pendingSamples.Count; i++)
-            {
-                KimodoMarkerSampleResult pending = pendingSamples[i];
-                if (pending == null)
-                {
-                    continue;
-                }
-
-                KimodoMarkerSampleResult clone = pending.Clone();
-                clone.sampleTime = isArdy
-                    ? Math.Max(0.0, clone.sampleTime - ardyApplyTime)
-                    : Mathf.Clamp((float)clone.sampleTime, 0f, maxConstraintTime);
-                samples.Add(clone);
-            }
-
-            samples.Sort((a, b) => a.sampleTime.CompareTo(b.sampleTime));
-            return samples;
-        }
-
-        internal void CompleteGeneration(bool isArdy)
-        {
-            CompleteGeneration(isArdy, pendingRevision);
-        }
-
-        internal void CompleteGeneration(bool isArdy, int consumedPendingRevision)
-        {
-            if (!isArdy && consumedPendingRevision == pendingRevision)
-            {
-                pendingSamples.Clear();
-            }
-        }
-
-        private static void UpsertByType(
-            List<KimodoMarkerSampleResult> samples,
-            KimodoMarkerSampleResult sample)
-        {
-            // Root2D is a waypoint sequence.  Unlike pose/end-effector
-            // constraints, subsequent targets must not evict an earlier point.
-            // Replacing an equal-time point still gives UI callers an easy way
-            // to correct the currently staged destination.
-            if (string.Equals(sample?.constraintType, "root2d", StringComparison.OrdinalIgnoreCase))
-            {
-                RemoveRoot2DAtTime(samples, sample.sampleTime);
-                if (sample != null)
-                {
-                    samples.Add(sample);
-                }
-                return;
-            }
-
-            RemoveByType(samples, sample?.constraintType);
-            if (sample != null)
-            {
-                samples.Add(sample);
-            }
-        }
-
-        private static void RemoveRoot2DAtTime(List<KimodoMarkerSampleResult> samples, double sampleTime)
-        {
-            const double tolerance = 1e-6;
-            for (int i = samples.Count - 1; i >= 0; i--)
-            {
-                KimodoMarkerSampleResult existing = samples[i];
-                if (existing == null ||
-                    (string.Equals(existing.constraintType, "root2d", StringComparison.OrdinalIgnoreCase) &&
-                     Math.Abs(existing.sampleTime - sampleTime) <= tolerance))
-                {
-                    samples.RemoveAt(i);
-                }
-            }
-        }
-
-        private static void RemoveByType(List<KimodoMarkerSampleResult> samples, string constraintType)
-        {
-            for (int i = samples.Count - 1; i >= 0; i--)
-            {
-                KimodoMarkerSampleResult existing = samples[i];
-                if (existing == null ||
-                    string.Equals(existing.constraintType, constraintType, StringComparison.OrdinalIgnoreCase))
-                {
-                    samples.RemoveAt(i);
-                }
-            }
-        }
-    }
-
     internal sealed class KimodoRuntimeGenerationSession : IDisposable
     {
         internal CancellationTokenSource LifetimeCts;
@@ -320,12 +127,6 @@ namespace KimodoBridge
         private bool drawDebugSkeleton;
         [SerializeField] private bool verboseLogging = true;
 
-        private const string FullBodyConstraintType = "fullbody";
-        private const string LeftHandConstraintType = "left-hand";
-        private const string RightHandConstraintType = "right-hand";
-        private const string LeftFootConstraintType = "left-foot";
-        private const string RightFootConstraintType = "right-foot";
-        private const string Root2DConstraintType = "root2d";
         private const string IdlePrompt = "idle";
         private const string KimodoFolderName = "NvlabKimodoQuickServer~";
         private const float MinGenerationDurationSeconds = 1f;
@@ -335,7 +136,7 @@ namespace KimodoBridge
             new KimodoRuntimeGenerationSession();
         private string promptDraft;
         private string statusMessage = "Idle.";
-        private readonly KimodoRuntimeConstraintBuffer constraintBuffer = new KimodoRuntimeConstraintBuffer();
+        private readonly KimodoRuntimeConstraints constraints = new KimodoRuntimeConstraints();
         private readonly List<Animator> resolvedTargetAnimatorBuffer = new List<Animator>();
         private KimodoBridgeService bridgeService;
         private KimodoRuntimeMotionPlayer motionPlayer;
@@ -434,11 +235,11 @@ namespace KimodoBridge
 
             if (loopHint && !KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
-                constraintBuffer.SetOverlapPoses(startedSegment.ConstraintOverlapPoses);
+                constraints.SetOverlap(startedSegment.ConstraintOverlapPoses);
             }
             else
             {
-                constraintBuffer.ClearOverlapPoses();
+                constraints.ClearOverlap();
             }
 
             UpdateStatus($"Playing segment {startedSegment.Index}.");
@@ -526,7 +327,7 @@ namespace KimodoBridge
         {
             StageEndEffectorConstraintInternal(
                 "LeftHand constraint",
-                LeftHandConstraintType,
+                KimodoRuntimeConstraints.LeftHandType,
                 "LeftHand",
                 worldX,
                 worldY,
@@ -538,7 +339,7 @@ namespace KimodoBridge
         {
             StageEndEffectorConstraintInternal(
                 "RightHand constraint",
-                RightHandConstraintType,
+                KimodoRuntimeConstraints.RightHandType,
                 "RightHand",
                 worldX,
                 worldY,
@@ -550,7 +351,7 @@ namespace KimodoBridge
         {
             StageEndEffectorConstraintInternal(
                 "LeftFoot constraint",
-                LeftFootConstraintType,
+                KimodoRuntimeConstraints.LeftFootType,
                 "LeftFoot",
                 worldX,
                 worldY,
@@ -562,7 +363,7 @@ namespace KimodoBridge
         {
             StageEndEffectorConstraintInternal(
                 "RightFoot constraint",
-                RightFootConstraintType,
+                KimodoRuntimeConstraints.RightFootType,
                 "RightFoot",
                 worldX,
                 worldY,
@@ -588,7 +389,7 @@ namespace KimodoBridge
                 worldX,
                 worldZ,
                 duration,
-                NormalizeHeading(new Vector2(worldHeadingX, worldHeadingZ)));
+                KimodoRoot2DPlanner.NormalizeHeading(new Vector2(worldHeadingX, worldHeadingZ)));
         }
 
         public void SetRoot2DTarget(
@@ -605,22 +406,27 @@ namespace KimodoBridge
             ardyMaxSpeed = maxSpeed;
             ardyMaxAcceleration = maxAcceleration;
             Vector3 current = GetCurrentPositionInternal();
-            float distance = Vector2.Distance(
-                new Vector2(current.x, current.z),
-                new Vector2(worldX, worldZ));
-            float duration = distance <= Mathf.Max(0f, arrivalThresholdMeters)
-                ? MinGenerationDurationSeconds
-                : EstimateRoot2DTargetDuration(
-                    distance,
-                    maxSpeed,
-                    maxAcceleration,
-                    MinGenerationDurationSeconds,
-                    MaxGenerationDurationSeconds);
+            var target = new Vector2(worldX, worldZ);
+            if (KimodoRoot2DPlanner.HasArrived(current, target, arrivalThresholdMeters))
+            {
+                UpdateStatus($"Root2D target already within {Mathf.Max(0f, arrivalThresholdMeters):0.###} m.");
+                return;
+            }
+
+            float distance = Vector2.Distance(new Vector2(current.x, current.z), target);
+            float duration = KimodoRoot2DPlanner.EstimateDuration(
+                distance,
+                maxSpeed,
+                maxAcceleration,
+                MinGenerationDurationSeconds,
+                MaxGenerationDurationSeconds);
             StageRoot2DWorldConstraintInternal(
                 worldX,
                 worldZ,
                 duration,
-                includeHeading && worldHeading.HasValue ? NormalizeHeading(worldHeading.Value) : (Vector2?)null);
+                includeHeading && worldHeading.HasValue
+                    ? KimodoRoot2DPlanner.NormalizeHeading(worldHeading.Value)
+                    : (Vector2?)null);
         }
 
         public string QueuePromptedRoot2D(
@@ -660,7 +466,7 @@ namespace KimodoBridge
 
         public void ClearConstraints()
         {
-            constraintBuffer.ClearUserConstraints();
+            constraints.ClearUser();
             generationSession.ArdyConstraintsDirty = true;
             _ = RefreshUpcomingGenerationAsync(
                 "Constraints cleared.",
@@ -676,7 +482,7 @@ namespace KimodoBridge
         public async Task ResetMotionAsync()
         {
             promptDraft = ResolveInitialPrompt();
-            constraintBuffer.ClearAll();
+            constraints.Clear();
             generationSession.SegmentIndex = 0;
             generationSession.GenerationRequestVersion++;
             generationSession.LastGenerationWaitStatusSegment = -1;
@@ -742,7 +548,7 @@ namespace KimodoBridge
                 generationSession.GenerationRequestVersion = 0;
                 generationSession.GenerationBlocked = false;
                 generationSession.LastGenerationWaitStatusSegment = -1;
-                constraintBuffer.ClearAll();
+                constraints.Clear();
                 motionPlayer.Stop();
                 motionPlayer.ResetCompletionState();
                 motionPlayer.ClearQueue();
@@ -816,7 +622,7 @@ namespace KimodoBridge
             generationCts?.Dispose();
             generationSession.GenerationInFlight = false;
             generationSession.LastGenerationWaitStatusSegment = -1;
-            constraintBuffer.ClearAll();
+            constraints.Clear();
             motionPlayer.Stop();
             motionPlayer.ResetCompletionState();
             motionPlayer.ClearQueue();
@@ -1056,7 +862,7 @@ namespace KimodoBridge
                                 modelName,
                                 out KimodoRawMotionMetadata parsedMetadata,
                                 out string parseError,
-                                FullBodyConstraintType,
+                                KimodoRuntimeConstraints.FullBodyType,
                                 0.0,
                                 allowPartialJoints))
                         {
@@ -1085,7 +891,7 @@ namespace KimodoBridge
                     effectiveLastFrameIndex,
                     out effectiveTailPose,
                     out string tailError,
-                    FullBodyConstraintType,
+                    KimodoRuntimeConstraints.FullBodyType,
                     0.0,
                     allowPartialJoints))
                 {
@@ -1160,7 +966,7 @@ namespace KimodoBridge
                         : metadata.Motion.LastFrameTimeSeconds
                 }));
 
-                constraintBuffer.CompleteGeneration(isArdy, consumedPendingRevision);
+                constraints.CompleteGeneration(isArdy, consumedPendingRevision);
                 generationSession.SegmentIndex = requestSegmentIndex + 1;
                 UpdateStatus($"Segment {requestSegmentIndex} ready.");
             }
@@ -1192,18 +998,17 @@ namespace KimodoBridge
         private List<KimodoMarkerSampleResult> BuildActiveGenerationConstraints()
         {
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
-            return constraintBuffer.BuildActive(
+            return constraints.BuildForGeneration(
                 isArdy,
                 isArdy ? motionPlayer.PlaybackTimeAsDouble : 0.0,
                 includeOverlap: loopHint && !isArdy,
-                ResolveGenerationDurationSeconds(),
-                FullBodyConstraintType);
+                ResolveGenerationDurationSeconds());
         }
 
         private string BuildNextConstraintsJson(out int consumedPendingRevision)
         {
             List<KimodoMarkerSampleResult> activeConstraints = BuildActiveGenerationConstraints();
-            consumedPendingRevision = constraintBuffer.PendingRevision;
+            consumedPendingRevision = constraints.PendingRevision;
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile profile);
             if (activeConstraints.Count == 0)
             {
@@ -1477,7 +1282,7 @@ namespace KimodoBridge
             string waitingStatus,
             string generatingStatus)
         {
-            if (!constraintBuffer.CommitStaged())
+            if (!constraints.Commit())
             {
                 return;
             }
@@ -1496,7 +1301,7 @@ namespace KimodoBridge
                 return;
             }
 
-            constraintBuffer.Stage(
+            constraints.Stage(
                 sample,
                 KimodoMotionModelProfiles.TryGetArdy(modelName, out _)
                     ? motionPlayer.PlaybackTimeAsDouble
@@ -1575,7 +1380,7 @@ namespace KimodoBridge
             out KimodoMarkerSampleResult sample,
             out string error)
         {
-            if (!TryCaptureCurrentPoseConstraint(Root2DConstraintType, durationSeconds, out sample, out error))
+            if (!TryCaptureCurrentPoseConstraint(KimodoRuntimeConstraints.Root2DType, durationSeconds, out sample, out error))
             {
                 return false;
             }
@@ -1586,7 +1391,7 @@ namespace KimodoBridge
             Vector3 constraintModelOrigin = isArdy
                 ? Vector3.zero
                 : motionPlayer.NextSegmentRootOrigin;
-            Vector2 modelTarget = ResolveModelRoot2DTarget(
+            Vector2 modelTarget = KimodoRoot2DPlanner.ToModelTarget(
                 sample.kimodoRootPosition,
                 constraintModelOrigin,
                 currentWorldPosition,
@@ -1599,14 +1404,14 @@ namespace KimodoBridge
                 sample.kimodoRootPosition.y,
                 modelTarget.y);
             sample.unityRootPos = new Vector3(worldX, sample.unityRootPos.y, worldZ);
-            sample.constraintType = Root2DConstraintType;
+            sample.constraintType = KimodoRuntimeConstraints.Root2DType;
             sample.localAxisAngles = new List<Vector3>();
             sample.sampledJointIndices = new List<int>();
             sample.hasRootHeading = false;
             if (worldHeading.HasValue)
             {
                 sample.hasRootHeading = true;
-                sample.rootHeading = ResolveModelRoot2DHeading(modelToWorldRotation, worldHeading.Value);
+                sample.rootHeading = KimodoRoot2DPlanner.ToModelHeading(modelToWorldRotation, worldHeading.Value);
             }
 
             return true;
@@ -1618,6 +1423,13 @@ namespace KimodoBridge
             out KimodoMarkerSampleResult sample,
             out string error)
         {
+            if (motionPlayer == null)
+            {
+                sample = null;
+                error = "Cannot stage a runtime constraint before the driver is initialized.";
+                return false;
+            }
+
             if (!motionPlayer.EnsureConstraintSkeletonReady(modelName, out error))
             {
                 sample = null;
@@ -1635,75 +1447,6 @@ namespace KimodoBridge
                 null,
                 out sample,
                 out error);
-        }
-
-        private static Vector2 NormalizeHeading(Vector2 heading)
-        {
-            if (heading.sqrMagnitude <= 1e-8f)
-            {
-                return Vector2.right;
-            }
-
-            heading.Normalize();
-            return heading;
-        }
-
-        internal static Vector2 ResolveModelRoot2DOffset(
-            Vector3 currentWorldPosition,
-            Quaternion worldRotation,
-            Vector3 targetWorldPosition)
-        {
-            Vector3 worldDelta = targetWorldPosition - currentWorldPosition;
-            worldDelta.y = 0f;
-            Vector3 localDelta = Quaternion.Inverse(worldRotation) * worldDelta;
-            return new Vector2(localDelta.x, localDelta.z);
-        }
-
-        internal static Vector2 ResolveModelRoot2DTarget(
-            Vector3 currentModelRootPosition,
-            Vector3 constraintModelOrigin,
-            Vector3 currentWorldPosition,
-            Quaternion modelToWorldRotation,
-            Vector3 targetWorldPosition,
-            float sourceHumanScale = 1f,
-            float targetHumanScale = 1f)
-        {
-            Vector2 offset = ResolveModelRoot2DOffset(
-                currentWorldPosition,
-                modelToWorldRotation,
-                targetWorldPosition);
-            offset *= Mathf.Max(1e-6f, sourceHumanScale) / Mathf.Max(1e-6f, targetHumanScale);
-            return new Vector2(
-                currentModelRootPosition.x + offset.x - constraintModelOrigin.x,
-                currentModelRootPosition.z + offset.y - constraintModelOrigin.z);
-        }
-
-        internal static Vector2 ResolveModelRoot2DHeading(
-            Quaternion modelToWorldRotation,
-            Vector2 worldHeading)
-        {
-            Vector2 normalizedWorldHeading = NormalizeHeading(worldHeading);
-            Vector3 modelHeading = Quaternion.Inverse(modelToWorldRotation) *
-                new Vector3(normalizedWorldHeading.x, 0f, normalizedWorldHeading.y);
-            return NormalizeHeading(new Vector2(modelHeading.x, modelHeading.z));
-        }
-
-        internal static float EstimateRoot2DTargetDuration(
-            float distanceMeters,
-            float maxSpeedMetersPerSecond,
-            float maxAccelerationMetersPerSecond2,
-            float minimumDurationSeconds,
-            float maximumDurationSeconds)
-        {
-            float distance = Mathf.Max(0f, distanceMeters);
-            float maxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond);
-            float maxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
-            float accelerationTime = maxSpeed / maxAcceleration;
-            float accelerationDistance = 0.5f * maxAcceleration * accelerationTime * accelerationTime;
-            float duration = distance <= 2f * accelerationDistance
-                ? 2f * Mathf.Sqrt(distance / maxAcceleration)
-                : 2f * accelerationTime + (distance - 2f * accelerationDistance) / maxSpeed;
-            return Mathf.Clamp(duration, minimumDurationSeconds, maximumDurationSeconds);
         }
 
         private Quaternion ResolveModelToWorldRotation()

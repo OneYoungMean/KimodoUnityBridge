@@ -206,7 +206,7 @@ namespace KimodoBridge
 
         private float EstimateSegmentDuration(float distanceMeters)
         {
-            return KimodoRuntimeMotionDriver.EstimateRoot2DTargetDuration(
+            return KimodoRoot2DPlanner.EstimateDuration(
                 distanceMeters,
                 maxSpeedMetersPerSecond,
                 maxAccelerationMetersPerSecond2,

@@ -1,0 +1,301 @@
+    internal sealed class KimodoRuntimeConstraintBuffer
+    {
+        private readonly List<KimodoMarkerSampleResult> overlapPoses = new List<KimodoMarkerSampleResult>();
+        private readonly List<KimodoMarkerSampleResult> stagedSamples = new List<KimodoMarkerSampleResult>();
+        private readonly List<KimodoMarkerSampleResult> pendingSamples = new List<KimodoMarkerSampleResult>();
+        private int pendingRevision;
+
+        internal int StagedCount => stagedSamples.Count;
+        internal int PendingCount => pendingSamples.Count;
+        internal int OverlapCount => overlapPoses.Count;
+        internal int PendingRevision => pendingRevision;
+
+        internal void Stage(KimodoMarkerSampleResult sample, double absoluteTimeOffset = 0.0)
+        {
+            if (sample == null)
+            {
+                return;
+            }
+
+            sample.sampleTime += absoluteTimeOffset;
+            UpsertByType(stagedSamples, sample);
+        }
+
+        internal bool CommitStaged()
+        {
+            if (stagedSamples.Count == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < stagedSamples.Count; i++)
+            {
+                UpsertByType(pendingSamples, stagedSamples[i]);
+            }
+
+            stagedSamples.Clear();
+            pendingRevision++;
+            return true;
+        }
+
+        internal void ClearUserConstraints()
+        {
+            stagedSamples.Clear();
+            pendingSamples.Clear();
+            pendingRevision++;
+        }
+
+        internal void ClearAll()
+        {
+            ClearUserConstraints();
+            overlapPoses.Clear();
+        }
+
+        internal void SetOverlapPoses(IReadOnlyList<KimodoMarkerSampleResult> poses)
+        {
+            overlapPoses.Clear();
+            if (poses == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < poses.Count; i++)
+            {
+                if (poses[i] != null)
+                {
+                    overlapPoses.Add(poses[i]);
+                }
+            }
+        }
+
+        internal void ClearOverlapPoses()
+        {
+            overlapPoses.Clear();
+        }
+
+        internal List<KimodoMarkerSampleResult> BuildActive(
+            bool isArdy,
+            double ardyApplyTime,
+            bool includeOverlap,
+            float maxConstraintTime,
+            string fullBodyConstraintType)
+        {
+            var samples = new List<KimodoMarkerSampleResult>();
+            if (includeOverlap)
+            {
+                KimodoMarkerSampleResult terminalPose = null;
+                for (int i = 0; i < overlapPoses.Count; i++)
+                {
+                    KimodoMarkerSampleResult candidate = overlapPoses[i];
+                    if (candidate != null &&
+                        (terminalPose == null || candidate.sampleTime < terminalPose.sampleTime))
+                    {
+                        terminalPose = candidate;
+                    }
+                }
+
+                if (terminalPose != null)
+                {
+                    KimodoMarkerSampleResult sample = terminalPose.Clone();
+                    sample.constraintType = fullBodyConstraintType;
+                    sample.sampleTime = 0.0;
+                    sample.kimodoRootPosition = new Vector3(0f, sample.kimodoRootPosition.y, 0f);
+                    sample.unityRootPos = sample.kimodoRootPosition;
+                    samples.Add(sample);
+                }
+            }
+
+            for (int i = 0; i < pendingSamples.Count; i++)
+            {
+                KimodoMarkerSampleResult pending = pendingSamples[i];
+                if (pending == null)
+                {
+                    continue;
+                }
+
+                KimodoMarkerSampleResult clone = pending.Clone();
+                clone.sampleTime = isArdy
+                    ? Math.Max(0.0, clone.sampleTime - ardyApplyTime)
+                    : Mathf.Clamp((float)clone.sampleTime, 0f, maxConstraintTime);
+                samples.Add(clone);
+            }
+
+            samples.Sort((a, b) => a.sampleTime.CompareTo(b.sampleTime));
+            return samples;
+        }
+
+        internal void CompleteGeneration(bool isArdy)
+        {
+            CompleteGeneration(isArdy, pendingRevision);
+        }
+
+        internal void CompleteGeneration(bool isArdy, int consumedPendingRevision)
+        {
+            if (!isArdy && consumedPendingRevision == pendingRevision)
+            {
+                pendingSamples.Clear();
+            }
+        }
+
+        private static void UpsertByType(
+            List<KimodoMarkerSampleResult> samples,
+            KimodoMarkerSampleResult sample)
+        {
+            // Root2D is a waypoint sequence.  Unlike pose/end-effector
+            // constraints, subsequent targets must not evict an earlier point.
+            // Replacing an equal-time point still gives UI callers an easy way
+            // to correct the currently staged destination.
+            if (string.Equals(sample?.constraintType, "root2d", StringComparison.OrdinalIgnoreCase))
+            {
+                RemoveRoot2DAtTime(samples, sample.sampleTime);
+                if (sample != null)
+                {
+                    samples.Add(sample);
+                }
+                return;
+            }
+
+            RemoveByType(samples, sample?.constraintType);
+            if (sample != null)
+            {
+                samples.Add(sample);
+            }
+        }
+
+        private static void RemoveRoot2DAtTime(List<KimodoMarkerSampleResult> samples, double sampleTime)
+        {
+            const double tolerance = 1e-6;
+            for (int i = samples.Count - 1; i >= 0; i--)
+            {
+                KimodoMarkerSampleResult existing = samples[i];
+                if (existing == null ||
+                    (string.Equals(existing.constraintType, "root2d", StringComparison.OrdinalIgnoreCase) &&
+                     Math.Abs(existing.sampleTime - sampleTime) <= tolerance))
+                {
+                    samples.RemoveAt(i);
+                }
+            }
+        }
+
+        private static void RemoveByType(List<KimodoMarkerSampleResult> samples, string constraintType)
+        {
+            for (int i = samples.Count - 1; i >= 0; i--)
+            {
+                KimodoMarkerSampleResult existing = samples[i];
+                if (existing == null ||
+                    string.Equals(existing.constraintType, constraintType, StringComparison.OrdinalIgnoreCase))
+                {
+                    samples.RemoveAt(i);
+                }
+            }
+        }
+    }
+
+// Constraint protocol constants and Root2D planning formerly owned by the driver.
+        private const string FullBodyConstraintType = "fullbody";
+        private const string LeftHandConstraintType = "left-hand";
+        private const string RightHandConstraintType = "right-hand";
+        private const string LeftFootConstraintType = "left-foot";
+        private const string RightFootConstraintType = "right-foot";
+        private const string Root2DConstraintType = "root2d";
+
+        public void SetRoot2DTarget(
+            float worldX,
+            float worldZ,
+            float maxSpeedMetersPerSecond = 1.25f,
+            float maxAccelerationMetersPerSecond2 = 1.5f,
+            float arrivalThresholdMeters = 0.1f,
+            bool includeHeading = true,
+            Vector2? worldHeading = null)
+        {
+            float maxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond);
+            float maxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
+            ardyMaxSpeed = maxSpeed;
+            ardyMaxAcceleration = maxAcceleration;
+            Vector3 current = GetCurrentPositionInternal();
+            float distance = Vector2.Distance(
+                new Vector2(current.x, current.z),
+                new Vector2(worldX, worldZ));
+            float duration = distance <= Mathf.Max(0f, arrivalThresholdMeters)
+                ? MinGenerationDurationSeconds
+                : EstimateRoot2DTargetDuration(
+                    distance,
+                    maxSpeed,
+                    maxAcceleration,
+                    MinGenerationDurationSeconds,
+                    MaxGenerationDurationSeconds);
+            StageRoot2DWorldConstraintInternal(
+                worldX,
+                worldZ,
+                duration,
+                includeHeading && worldHeading.HasValue ? NormalizeHeading(worldHeading.Value) : (Vector2?)null);
+        }
+
+        private static Vector2 NormalizeHeading(Vector2 heading)
+        {
+            if (heading.sqrMagnitude <= 1e-8f)
+            {
+                return Vector2.right;
+            }
+
+            heading.Normalize();
+            return heading;
+        }
+
+        internal static Vector2 ResolveModelRoot2DOffset(
+            Vector3 currentWorldPosition,
+            Quaternion worldRotation,
+            Vector3 targetWorldPosition)
+        {
+            Vector3 worldDelta = targetWorldPosition - currentWorldPosition;
+            worldDelta.y = 0f;
+            Vector3 localDelta = Quaternion.Inverse(worldRotation) * worldDelta;
+            return new Vector2(localDelta.x, localDelta.z);
+        }
+
+        internal static Vector2 ResolveModelRoot2DTarget(
+            Vector3 currentModelRootPosition,
+            Vector3 constraintModelOrigin,
+            Vector3 currentWorldPosition,
+            Quaternion modelToWorldRotation,
+            Vector3 targetWorldPosition,
+            float sourceHumanScale = 1f,
+            float targetHumanScale = 1f)
+        {
+            Vector2 offset = ResolveModelRoot2DOffset(
+                currentWorldPosition,
+                modelToWorldRotation,
+                targetWorldPosition);
+            offset *= Mathf.Max(1e-6f, sourceHumanScale) / Mathf.Max(1e-6f, targetHumanScale);
+            return new Vector2(
+                currentModelRootPosition.x + offset.x - constraintModelOrigin.x,
+                currentModelRootPosition.z + offset.y - constraintModelOrigin.z);
+        }
+
+        internal static Vector2 ResolveModelRoot2DHeading(
+            Quaternion modelToWorldRotation,
+            Vector2 worldHeading)
+        {
+            Vector2 normalizedWorldHeading = NormalizeHeading(worldHeading);
+            Vector3 modelHeading = Quaternion.Inverse(modelToWorldRotation) *
+                new Vector3(normalizedWorldHeading.x, 0f, normalizedWorldHeading.y);
+            return NormalizeHeading(new Vector2(modelHeading.x, modelHeading.z));
+        }
+
+        internal static float EstimateRoot2DTargetDuration(
+            float distanceMeters,
+            float maxSpeedMetersPerSecond,
+            float maxAccelerationMetersPerSecond2,
+            float minimumDurationSeconds,
+            float maximumDurationSeconds)
+        {
+            float distance = Mathf.Max(0f, distanceMeters);
+            float maxSpeed = Mathf.Max(0.01f, maxSpeedMetersPerSecond);
+            float maxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
+            float accelerationTime = maxSpeed / maxAcceleration;
+            float accelerationDistance = 0.5f * maxAcceleration * accelerationTime * accelerationTime;
+            float duration = distance <= 2f * accelerationDistance
+                ? 2f * Mathf.Sqrt(distance / maxAcceleration)
+                : 2f * accelerationTime + (distance - 2f * accelerationDistance) / maxSpeed;
+            return Mathf.Clamp(duration, minimumDurationSeconds, maximumDurationSeconds);
+        }

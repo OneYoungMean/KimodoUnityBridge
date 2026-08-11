@@ -210,7 +210,7 @@ namespace KimodoBridge.Editor.Tests
             float expected)
         {
             Assert.That(
-                KimodoRuntimeMotionDriver.EstimateRoot2DTargetDuration(
+                KimodoRoot2DPlanner.EstimateDuration(
                     distance,
                     maxSpeed,
                     maxAcceleration,
@@ -227,7 +227,7 @@ namespace KimodoBridge.Editor.Tests
             Vector3 expectedLocalOffset = new Vector3(2f, 0f, 3f);
             Vector3 targetWorldPosition = currentWorldPosition + worldRotation * expectedLocalOffset;
 
-            Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DOffset(
+            Vector2 actual = KimodoRoot2DPlanner.ToModelOffset(
                 currentWorldPosition,
                 worldRotation,
                 targetWorldPosition);
@@ -244,7 +244,7 @@ namespace KimodoBridge.Editor.Tests
             Vector3 expectedLocalOffset = new Vector3(2f, 0f, 3f);
             Vector3 targetWorldPosition = currentWorldPosition + worldRotation * expectedLocalOffset;
 
-            Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DTarget(
+            Vector2 actual = KimodoRoot2DPlanner.ToModelTarget(
                 Vector3.zero,
                 Vector3.zero,
                 currentWorldPosition,
@@ -263,7 +263,7 @@ namespace KimodoBridge.Editor.Tests
             Quaternion worldRotation = Quaternion.Euler(0f, 90f, 0f);
             Vector3 targetWorldPosition = currentWorldPosition + worldRotation * new Vector3(2f, 0f, 3f);
 
-            Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DTarget(
+            Vector2 actual = KimodoRoot2DPlanner.ToModelTarget(
                 currentModelRootPosition,
                 Vector3.zero,
                 currentWorldPosition,
@@ -284,7 +284,7 @@ namespace KimodoBridge.Editor.Tests
             Vector3 targetWorldPosition = currentWorldPosition +
                 modelToWorldRotation * new Vector3(1f, 0f, 1.5f);
 
-            Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DTarget(
+            Vector2 actual = KimodoRoot2DPlanner.ToModelTarget(
                 currentModelRootPosition,
                 nextSegmentRootOrigin,
                 currentWorldPosition,
@@ -300,7 +300,7 @@ namespace KimodoBridge.Editor.Tests
         [Test]
         public void Root2DWorldHeading_ConvertsIntoModelBasis()
         {
-            Vector2 actual = KimodoRuntimeMotionDriver.ResolveModelRoot2DHeading(
+            Vector2 actual = KimodoRoot2DPlanner.ToModelHeading(
                 Quaternion.Euler(0f, 90f, 0f),
                 Vector2.right);
 
@@ -331,9 +331,9 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void RuntimeConstraintBuffer_StagesAndCommitsOneSamplePerType()
+        public void RuntimeConstraints_StagesOwnedSamplesAndCommitsOnePerType()
         {
-            var buffer = new KimodoRuntimeConstraintBuffer();
+            var buffer = new KimodoRuntimeConstraints();
             var firstHand = new KimodoMarkerSampleResult
             {
                 constraintType = "left-hand",
@@ -345,6 +345,7 @@ namespace KimodoBridge.Editor.Tests
                 sampleTime = 2.0
             };
             buffer.Stage(firstHand, absoluteTimeOffset: 1.0);
+            Assert.That(firstHand.sampleTime, Is.EqualTo(1.0), "Staging must not mutate the caller's pose.");
             buffer.Stage(replacementHand);
             buffer.Stage(new KimodoMarkerSampleResult
             {
@@ -353,49 +354,46 @@ namespace KimodoBridge.Editor.Tests
             });
 
             Assert.That(buffer.StagedCount, Is.EqualTo(2));
-            Assert.That(buffer.CommitStaged(), Is.True);
+            Assert.That(buffer.Commit(), Is.True);
             Assert.That(buffer.StagedCount, Is.Zero);
             Assert.That(buffer.PendingCount, Is.EqualTo(2));
 
-            List<KimodoMarkerSampleResult> active = buffer.BuildActive(
+            List<KimodoMarkerSampleResult> active = buffer.BuildForGeneration(
                 isArdy: false,
-                ardyApplyTime: 0.0,
+                playbackTime: 0.0,
                 includeOverlap: false,
-                maxConstraintTime: 5f,
-                fullBodyConstraintType: "fullbody");
+                duration: 5f);
             Assert.That(active, Has.Count.EqualTo(2));
             Assert.That(active[0].sampleTime, Is.EqualTo(2.0).Within(1e-6));
             Assert.That(active[1].sampleTime, Is.EqualTo(3.0).Within(1e-6));
         }
 
         [Test]
-        public void RuntimeConstraintBuffer_UsesArdyAbsoluteTimeAndNormalTargetTiming()
+        public void RuntimeConstraints_UsesArdyAbsoluteTimeAndNormalTargetTiming()
         {
-            var buffer = new KimodoRuntimeConstraintBuffer();
+            var buffer = new KimodoRuntimeConstraints();
             buffer.Stage(new KimodoMarkerSampleResult
             {
                 constraintType = "root2d",
                 sampleTime = 2.0
             }, absoluteTimeOffset: 10.0);
-            Assert.That(buffer.CommitStaged(), Is.True);
+            Assert.That(buffer.Commit(), Is.True);
 
-            List<KimodoMarkerSampleResult> ardyActive = buffer.BuildActive(
+            List<KimodoMarkerSampleResult> ardyActive = buffer.BuildForGeneration(
                 isArdy: true,
-                ardyApplyTime: 11.0,
+                playbackTime: 11.0,
                 includeOverlap: false,
-                maxConstraintTime: 5f,
-                fullBodyConstraintType: "fullbody");
+                duration: 5f);
             Assert.That(ardyActive, Has.Count.EqualTo(1));
             Assert.That(ardyActive[0].sampleTime, Is.EqualTo(1.0).Within(1e-6));
 
             buffer.CompleteGeneration(isArdy: true);
             Assert.That(buffer.PendingCount, Is.EqualTo(1));
-            List<KimodoMarkerSampleResult> normalActive = buffer.BuildActive(
+            List<KimodoMarkerSampleResult> normalActive = buffer.BuildForGeneration(
                 isArdy: false,
-                ardyApplyTime: 0.0,
+                playbackTime: 0.0,
                 includeOverlap: false,
-                maxConstraintTime: 5f,
-                fullBodyConstraintType: "fullbody");
+                duration: 5f);
             Assert.That(normalActive, Has.Count.EqualTo(1));
             Assert.That(normalActive[0].sampleTime, Is.EqualTo(5.0).Within(1e-6));
 
@@ -404,15 +402,15 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void RuntimeConstraintBuffer_PreservesConstraintCommittedDuringGeneration()
+        public void RuntimeConstraints_PreservesConstraintCommittedDuringGeneration()
         {
-            var buffer = new KimodoRuntimeConstraintBuffer();
+            var buffer = new KimodoRuntimeConstraints();
             buffer.Stage(new KimodoMarkerSampleResult
             {
                 constraintType = "root2d",
                 sampleTime = 1.0
             });
-            Assert.That(buffer.CommitStaged(), Is.True);
+            Assert.That(buffer.Commit(), Is.True);
             int consumedRevision = buffer.PendingRevision;
 
             buffer.Stage(new KimodoMarkerSampleResult
@@ -420,24 +418,23 @@ namespace KimodoBridge.Editor.Tests
                 constraintType = "root2d",
                 sampleTime = 2.0
             });
-            Assert.That(buffer.CommitStaged(), Is.True);
-            buffer.CompleteGeneration(isArdy: false, consumedPendingRevision: consumedRevision);
+            Assert.That(buffer.Commit(), Is.True);
+            buffer.CompleteGeneration(isArdy: false, consumedRevision: consumedRevision);
 
             Assert.That(buffer.PendingCount, Is.EqualTo(2));
-            List<KimodoMarkerSampleResult> active = buffer.BuildActive(
+            List<KimodoMarkerSampleResult> active = buffer.BuildForGeneration(
                 isArdy: false,
-                ardyApplyTime: 0.0,
+                playbackTime: 0.0,
                 includeOverlap: false,
-                maxConstraintTime: 5f,
-                fullBodyConstraintType: "fullbody");
+                duration: 5f);
             Assert.That(active.Select(sample => sample.sampleTime), Is.EqualTo(new[] { 1.0, 2.0 }));
         }
 
         [Test]
-        public void RuntimeConstraintBuffer_OnlyAddsTerminalOverlapPoseToNormalKimodo()
+        public void RuntimeConstraints_OnlyAddsTerminalOverlapPoseToNormalKimodo()
         {
-            var buffer = new KimodoRuntimeConstraintBuffer();
-            buffer.SetOverlapPoses(new[]
+            var buffer = new KimodoRuntimeConstraints();
+            buffer.SetOverlap(new[]
             {
                 new KimodoMarkerSampleResult
                 {
@@ -453,24 +450,22 @@ namespace KimodoBridge.Editor.Tests
                 }
             });
 
-            List<KimodoMarkerSampleResult> normalActive = buffer.BuildActive(
+            List<KimodoMarkerSampleResult> normalActive = buffer.BuildForGeneration(
                 isArdy: false,
-                ardyApplyTime: 0.0,
+                playbackTime: 0.0,
                 includeOverlap: true,
-                maxConstraintTime: 5f,
-                fullBodyConstraintType: "fullbody");
+                duration: 5f);
             Assert.That(normalActive, Has.Count.EqualTo(1));
             Assert.That(normalActive[0].constraintType, Is.EqualTo("fullbody"));
             Assert.That(normalActive[0].sampleTime, Is.Zero);
             Assert.That(normalActive[0].kimodoRootPosition, Is.EqualTo(new Vector3(0f, 3f, 0f)));
 
             Assert.That(
-                buffer.BuildActive(
+                buffer.BuildForGeneration(
                     isArdy: true,
-                    ardyApplyTime: 0.0,
+                    playbackTime: 0.0,
                     includeOverlap: false,
-                    maxConstraintTime: 5f,
-                    fullBodyConstraintType: "fullbody"),
+                    duration: 5f),
                 Is.Empty);
         }
 
