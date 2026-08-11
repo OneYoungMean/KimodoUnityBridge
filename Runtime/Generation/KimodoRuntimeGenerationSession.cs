@@ -258,6 +258,18 @@ namespace KimodoBridge
             return hasAppliedSignature;
         }
 
+        internal static bool ShouldRequestArdyGeneration(
+            float bufferedDurationSeconds,
+            float playbackReserveSeconds,
+            bool refreshPending) =>
+            refreshPending || bufferedDurationSeconds <= Mathf.Max(0.2f, playbackReserveSeconds);
+
+        internal static bool ShouldDiscardResult(
+            bool isArdy,
+            bool staleRequest,
+            bool lifetimeCancelled) =>
+            lifetimeCancelled || (!isArdy && staleRequest);
+
         public void Dispose()
         {
             Running = false;

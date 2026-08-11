@@ -542,7 +542,7 @@ namespace KimodoBridge
             }
 
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
-            if (isArdy && !ShouldRequestArdyGeneration(
+            if (isArdy && !KimodoRuntimeGenerationSession.ShouldRequestArdyGeneration(
                     motionPlayer.BufferedDurationSeconds,
                     generationSession.ArdyPlaybackReserveSeconds,
                     generationSession.ArdyRefreshPending))
@@ -658,7 +658,10 @@ namespace KimodoBridge
                 KimodoBridgeGenerationResult bridgeResult =
                     await bridgeService.GenerateAsync(request, OnProgress, generationToken);
                 bool staleRequest = requestVersion != generationSession.RequestVersion || generationToken.IsCancellationRequested;
-                if (ShouldDiscardCompletedGenerationResult(isArdy, staleRequest, token.IsCancellationRequested))
+                if (KimodoRuntimeGenerationSession.ShouldDiscardResult(
+                        isArdy,
+                        staleRequest,
+                        token.IsCancellationRequested))
                 {
                     if (verboseLogging)
                     {
@@ -675,7 +678,10 @@ namespace KimodoBridge
                 }
                 if (isArdy)
                 {
-                    ValidateArdyResult(bridgeResult, ardyProfile, resolvedRequestSeed);
+                    KimodoRuntimeSegmentBuilder.ValidateArdyResult(
+                        bridgeResult,
+                        ardyProfile,
+                        resolvedRequestSeed);
                     if (bridgeResult.ArdyPlaybackReserveSeconds.HasValue)
                     {
                         generationSession.SetArdyPlaybackReserve(
@@ -693,109 +699,17 @@ namespace KimodoBridge
                     }
                 }
 
-                KimodoRawMotionMetadata metadata;
-                if (isArdy)
-                {
-                    if (!bridgeResult.MotionData.TryReadUnityRootPosition(0, out Vector3 firstRootPosition) ||
-                        !bridgeResult.MotionData.TryReadUnityRootPosition(
-                            bridgeResult.MotionData.FrameCount - 1,
-                            out Vector3 lastRootPosition))
-                    {
-                        throw new InvalidOperationException("Failed to read ARDY KMB root positions.");
-                    }
-                    metadata = new KimodoRawMotionMetadata(
-                        bridgeResult.MotionData,
-                        firstRootPosition,
-                        lastRootPosition,
-                        null);
-                }
-                else
-                {
-                    metadata = await Task.Run(() =>
-                    {
-                        var generationResult = new KimodoGenerationResultDto
-                        {
-                            motionJsonCompact = bridgeResult?.MotionJsonCompact,
-                            motionData = bridgeResult?.MotionData,
-                            motionFormat = bridgeResult?.MotionFormat,
-                            rawStatus = bridgeResult?.RawStatus,
-                            message = bridgeResult?.Message
-                        };
-
-                        if (!KimodoRawMotionUtility.TryAnalyzeGenerationResult(
-                                generationResult,
-                                modelName,
-                                out KimodoRawMotionMetadata parsedMetadata,
-                                out string parseError,
-                                KimodoRuntimeConstraints.FullBodyType,
-                                0.0,
-                                allowPartialJoints))
-                        {
-                            throw new InvalidOperationException(parseError);
-                        }
-
-                        return parsedMetadata;
-                    }, generationToken);
-                }
-
-                int effectiveLastFrameIndex = isArdy
-                    ? metadata.Motion.FrameCount - 1
-                    : KimodoRuntimeSegmentAnalysisUtility.ResolveEffectiveLastFrameIndex(
-                        metadata.Motion,
-                        segmentTrimTrailSettings);
-                if (!metadata.Motion.TryReadUnityRootPosition(effectiveLastFrameIndex, out Vector3 effectiveLastRootPosition))
-                {
-                    throw new InvalidOperationException(
-                        $"Failed to read effective tail root position for frame {effectiveLastFrameIndex}.");
-                }
-
-                KimodoMarkerSampleResult effectiveTailPose = null;
-                if (!isArdy && !KimodoRawMotionUtility.TryExtractMarkerSample(
-                    metadata.Motion,
-                    modelName,
-                    effectiveLastFrameIndex,
-                    out effectiveTailPose,
-                    out string tailError,
-                    KimodoRuntimeConstraints.FullBodyType,
-                    0.0,
-                    allowPartialJoints))
-                {
-                    throw new InvalidOperationException(tailError);
-                }
-
-                List<KimodoMarkerSampleResult> constraintOverlapPoses = isArdy
-                    ? new List<KimodoMarkerSampleResult>()
-                    : KimodoRuntimeSegmentAnalysisUtility.BuildConstraintOverlapPoses(
-                        metadata.Motion,
+                KimodoRuntimeGeneratedSegment generatedSegment =
+                    await KimodoRuntimeSegmentBuilder.BuildAsync(
+                        bridgeResult,
                         modelName,
-                        effectiveLastFrameIndex,
+                        prompt,
+                        requestSegmentIndex,
+                        isArdy,
+                        segmentTrimTrailSettings,
                         segmentOverlapHeadSettings,
-                        allowPartialJoints);
-                if (!isArdy && constraintOverlapPoses.Count == 0)
-                {
-                    KimodoMarkerSampleResult fallbackPose = effectiveTailPose.Clone();
-                    fallbackPose.sampleTime = 0.0;
-                    constraintOverlapPoses.Add(fallbackPose);
-                }
-
-                var generatedSegment = new KimodoRuntimeGeneratedSegment
-                {
-                    Index = requestSegmentIndex,
-                    PromptText = prompt,
-                    Motion = metadata.Motion,
-                    ConstraintOverlapPoses = constraintOverlapPoses,
-                    FirstRootPosition = metadata.FirstRootPosition,
-                    LastRootPosition = effectiveLastRootPosition,
-                    WorldAccumulatedOffset = Vector3.zero,
-                    EffectiveLastFrameIndex = effectiveLastFrameIndex,
-                    EffectiveLastFrameTimeSeconds = metadata.Motion.FrameRate > 0f
-                        ? (isArdy ? metadata.Motion.FrameCount : effectiveLastFrameIndex) / metadata.Motion.FrameRate
-                        : metadata.Motion.LastFrameTimeSeconds,
-                    MotionBytes = bridgeResult?.MotionBytes,
-                    MotionRepFingerprint = bridgeResult?.MotionRepFingerprint ?? string.Empty,
-                    ResolvedSeed = bridgeResult?.ResolvedSeed,
-                    UseRawRootPosition = isArdy
-                };
+                        allowPartialJoints,
+                        generationToken);
                 if (isArdy)
                 {
                     if (!motionPlayer.ReplaceArdy(
@@ -816,18 +730,7 @@ namespace KimodoBridge
                 {
                     motionPlayer.Enqueue(generatedSegment, verboseLogging);
                 }
-                SegmentReady?.Invoke(CreateSegmentReport(new KimodoRuntimeGeneratedSegment
-                {
-                    Index = requestSegmentIndex,
-                    PromptText = prompt,
-                    Motion = metadata.Motion,
-                    FirstRootPosition = metadata.FirstRootPosition,
-                    LastRootPosition = effectiveLastRootPosition,
-                    EffectiveLastFrameIndex = effectiveLastFrameIndex,
-                    EffectiveLastFrameTimeSeconds = metadata.Motion.FrameRate > 0f
-                        ? (isArdy ? metadata.Motion.FrameCount : effectiveLastFrameIndex) / metadata.Motion.FrameRate
-                        : metadata.Motion.LastFrameTimeSeconds
-                }));
+                SegmentReady?.Invoke(CreateSegmentReport(generatedSegment));
 
                 constraints.CompleteGeneration(isArdy, consumedPendingRevision);
                 generationSession.AdvanceSegment(requestSegmentIndex);
@@ -985,63 +888,6 @@ namespace KimodoBridge
                 forceCpu,
                 randomSeed,
                 fixedSeed);
-
-        internal static bool ShouldRequestArdyGeneration(
-            float bufferedDurationSeconds,
-            float playbackReserveSeconds,
-            bool refreshPending)
-        {
-            return refreshPending || bufferedDurationSeconds <= Mathf.Max(0.2f, playbackReserveSeconds);
-        }
-
-        internal static void ValidateArdyResult(
-            KimodoBridgeGenerationResult result,
-            KimodoMotionModelProfile profile,
-            int requestedSeed)
-        {
-            if (result == null ||
-                !string.Equals(result.MotionFormat, "kmb_v1", StringComparison.OrdinalIgnoreCase) ||
-                result.EndFrameExclusive < result.StartFrame)
-            {
-                throw new InvalidOperationException("ARDY result metadata is invalid.");
-            }
-            int expectedFrames = result.EndFrameExclusive - result.StartFrame;
-            if (expectedFrames == 0)
-            {
-                if (result.MotionData != null || result.MotionBytes == null || result.MotionBytes.Length != 0)
-                {
-                    throw new InvalidOperationException("Empty ARDY result contains unexpected KMB data.");
-                }
-            }
-            else if (result.MotionData == null ||
-                result.MotionBytes == null ||
-                result.MotionBytes.Length == 0 ||
-                result.MotionData.FrameCount != expectedFrames ||
-                result.MotionData.JointCount != profile.JointCount ||
-                Mathf.Abs(result.MotionData.FrameRate - profile.SourceFps) > 1e-4f)
-            {
-                throw new InvalidOperationException("ARDY KMB frame count, FPS, or rig metadata does not match its response.");
-            }
-            if (!string.Equals(
-                    result.MotionRepFingerprint,
-                    profile.MotionRepFingerprint,
-                    StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("ARDY result motion representation fingerprint mismatch.");
-            }
-            if (!result.ResolvedSeed.HasValue || result.ResolvedSeed.Value != requestedSeed)
-            {
-                throw new InvalidOperationException("ARDY result resolved_seed does not match the requested seed.");
-            }
-        }
-
-        internal static bool ShouldDiscardCompletedGenerationResult(
-            bool isArdy,
-            bool staleRequest,
-            bool lifetimeCancelled)
-        {
-            return lifetimeCancelled || (!isArdy && staleRequest);
-        }
 
         private string SetPromptInternal(string prompt)
         {

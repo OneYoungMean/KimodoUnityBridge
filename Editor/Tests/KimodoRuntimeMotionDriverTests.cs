@@ -123,7 +123,7 @@ namespace KimodoBridge.Editor.Tests
                 EndFrameExclusive = frameCount
             };
 
-            Assert.DoesNotThrow(() => KimodoRuntimeMotionDriver.ValidateArdyResult(result, profile, 42));
+            Assert.DoesNotThrow(() => KimodoRuntimeSegmentBuilder.ValidateArdyResult(result, profile, 42));
         }
 
         [Test]
@@ -156,26 +156,67 @@ namespace KimodoBridge.Editor.Tests
             };
 
             Assert.DoesNotThrow(() =>
-                KimodoRuntimeMotionDriver.ValidateArdyResult(result, profile, 42));
+                KimodoRuntimeSegmentBuilder.ValidateArdyResult(result, profile, 42));
+        }
+
+        [Test]
+        public void RuntimeSegmentBuilder_CreatesPlayableArdySegment()
+        {
+            var motion = new KimodoRawMotionData(
+                2,
+                1,
+                20f,
+                new[] { "Hips" },
+                new[] { -1 },
+                new[] { new Vector3(1f, 0f, 2f), new Vector3(3f, 0f, 4f) },
+                new List<float>
+                {
+                    1f, 0f, 0f, 0f,
+                    1f, 0f, 0f, 0f
+                },
+                0);
+            var result = new KimodoBridgeGenerationResult
+            {
+                MotionData = motion,
+                MotionBytes = new byte[] { 1 },
+                MotionRepFingerprint = "fingerprint",
+                ResolvedSeed = 7
+            };
+
+            KimodoRuntimeGeneratedSegment segment = KimodoRuntimeSegmentBuilder.BuildAsync(
+                result,
+                KimodoMotionModelProfiles.ArdyCoreModelName,
+                "walk",
+                3,
+                true,
+                new KimodoSegmentTrimTrailSettings(),
+                new KimodoSegmentOverlapHeadSettings(),
+                false,
+                System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+
+            Assert.That(segment.Index, Is.EqualTo(3));
+            Assert.That(segment.LastRootPosition, Is.EqualTo(new Vector3(3f, 0f, 4f)));
+            Assert.That(segment.EffectiveLastFrameTimeSeconds, Is.EqualTo(0.1f));
+            Assert.That(segment.UseRawRootPosition, Is.True);
         }
 
         [Test]
         public void CompletedStaleArdyResult_IsKeptToPreserveTheServerCursor()
         {
             Assert.That(
-                KimodoRuntimeMotionDriver.ShouldDiscardCompletedGenerationResult(
+                KimodoRuntimeGenerationSession.ShouldDiscardResult(
                     isArdy: true,
                     staleRequest: true,
                     lifetimeCancelled: false),
                 Is.False);
             Assert.That(
-                KimodoRuntimeMotionDriver.ShouldDiscardCompletedGenerationResult(
+                KimodoRuntimeGenerationSession.ShouldDiscardResult(
                     isArdy: false,
                     staleRequest: true,
                     lifetimeCancelled: false),
                 Is.True);
             Assert.That(
-                KimodoRuntimeMotionDriver.ShouldDiscardCompletedGenerationResult(
+                KimodoRuntimeGenerationSession.ShouldDiscardResult(
                     isArdy: true,
                     staleRequest: false,
                     lifetimeCancelled: true),
@@ -519,7 +560,7 @@ namespace KimodoBridge.Editor.Tests
             bool expected)
         {
             Assert.That(
-                KimodoRuntimeMotionDriver.ShouldRequestArdyGeneration(
+                KimodoRuntimeGenerationSession.ShouldRequestArdyGeneration(
                     bufferedSeconds,
                     reserveSeconds,
                     refreshPending),
