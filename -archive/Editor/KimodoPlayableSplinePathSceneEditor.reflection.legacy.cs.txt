@@ -1,0 +1,11 @@
+Type contextType = Type.GetType("UnityEditor.Splines.SplineToolContext, Unity.Splines.Editor");
+Type moveToolType = Type.GetType("UnityEditor.Splines.SplineMoveTool, Unity.Splines.Editor");
+if (contextType != null && moveToolType != null)
+{
+    ToolManager.SetActiveContext(contextType);
+    ToolManager.SetActiveTool(moveToolType);
+}
+else
+{
+    Debug.LogWarning("[Kimodo][SplinePath] Unity Splines editor tools are unavailable.");
+}

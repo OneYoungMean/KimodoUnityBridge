@@ -1,9 +1,9 @@
 #if KIMODO_SPLINES
-using System;
 using System.Collections.Generic;
 using Unity.Mathematics;
 using UnityEditor;
 using UnityEditor.EditorTools;
+using UnityEditor.Splines;
 using UnityEditor.Timeline;
 using UnityEngine;
 using UnityEngine.Splines;
@@ -44,17 +44,8 @@ namespace KimodoBridge.Editor
 
             SceneVisibilityManager.instance.Show(path.gameObject, true);
             Selection.activeGameObject = path.gameObject;
-            Type contextType = Type.GetType("UnityEditor.Splines.SplineToolContext, Unity.Splines.Editor");
-            Type moveToolType = Type.GetType("UnityEditor.Splines.SplineMoveTool, Unity.Splines.Editor");
-            if (contextType != null && moveToolType != null)
-            {
-                ToolManager.SetActiveContext(contextType);
-                ToolManager.SetActiveTool(moveToolType);
-            }
-            else
-            {
-                Debug.LogWarning("[Kimodo][SplinePath] Unity Splines editor tools are unavailable.");
-            }
+            ToolManager.SetActiveContext<SplineToolContext>();
+            ToolManager.SetActiveTool<SplineMoveTool>();
             SceneView.lastActiveSceneView?.FrameSelected();
             ScheduleRefresh();
         }
