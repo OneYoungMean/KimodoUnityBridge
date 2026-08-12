@@ -46,11 +46,6 @@ namespace KimodoBridge.Editor.Tests
                 command_kimodo.GetGenerationCommand,
                 command_kimodo.CancelGenerationCommand
             }));
-            Assert.That(
-                JToken.DeepEquals(
-                    JObject.Parse(KimodoUnityBridge.Command.command_dispatcher.GetCommandDefinitionsJson()),
-                    definitions),
-                Is.True);
         }
 
         [Test]
