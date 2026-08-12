@@ -1,0 +1,3 @@
+Unity6000.5.7f1/artifacts/**/evidence/generated-assets/** -text -diff
+Unity6000.5.7f1/artifacts/**/evidence/logs/** -text -diff
+Unity6000.5.7f1/artifacts/**/unity-runtime.log -text -diff

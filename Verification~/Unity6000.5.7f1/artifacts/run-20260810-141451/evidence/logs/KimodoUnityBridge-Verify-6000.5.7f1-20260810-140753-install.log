@@ -1,0 +1,1105 @@
+[Licensing::Module] Trying to connect to existing licensing client channel...
+Built from '6000.5/staging' branch; Version is '6000.5.7f1 (017862109af0) revision 96354'; Using compiler version '194234433'; Build Type 'Release'
+[Licensing::IpcConnector] Successfully connected to: "LicenseClient-47694" at "2026-08-10T06:08:51.5733145Z"
+OS: 'Windows 11  (10.0.26200) Professional' Language: 'zh' Physical Memory: 65456 MB
+BatchMode: 1, IsHumanControllingUs: 0, StartBugReporterOnCrash: 0, Is64bit: 1
+System  architecture: x64
+Process architecture: x64
+Date: 2026-08-10T06:08:51Z
+[Licensing::Client] Code 10 while verifying Licensing Client signature (process Id: 24268, path: "C:/Program Files/Unity 6000.5.7f1/Editor/Data/Resources/Licensing/Client/Unity.Licensing.Client.exe")
+[Licensing::Module] LicensingClient has failed validation; ignoring
+[Licensing::Client] Handshaking with LicensingClient:
+  Version:                 1.18.1+9fbee8e
+  Session Id:              64003880df4a40ab9958eb9cab0d49a7
+  Correlation Id:          6dea5e4a31ff5246dd708970ffd9c95d
+  External correlation Id: 802060010134506422
+  Machine Id:              p2ebsrCQBEwD3gNZicbTzamtJYg=
+[Licensing::Module] Successfully connected to LicensingClient on channel: "LicenseClient-47694" (connect: 0.00s, validation: 0.00s, handshake: 0.05s)
+[Licensing::IpcConnector] Successfully connected to: "LicenseClient-47694-notifications" at "2026-08-10T06:08:51.6257301Z"
+[Licensing::Module] Error: Access token is unavailable; failed to update
+[Licensing::Client] Successfully resolved entitlement details
+[Licensing::Module] License group:
+  Id: F4-ADP9-KV3M-F9DZ-ES2D-XXXX
+  Product: Unity Personal
+  Type: ULF
+  Expiration: 2026-08-19T02:31:47Z
+[Licensing::Client] Successfully updated license, isAsync: True, time: 0.00
+[Licensing::Client] Successfully resolved entitlement details
+[Licensing::Module] Licensing Background thread has ended after 0.08s
+
+COMMAND LINE ARGUMENTS:
+C:\Program Files\Unity 6000.5.7f1\Editor\Unity.exe
+-batchmode
+-nographics
+-projectPath
+C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753
+-quit
+-logFile
+C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753-install.log
+Successfully changed project path to: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753
+C:/tmp/KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753
+[UnityMemory] Configuration Parameters - Can be set up in boot.config
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-gi-baking-worker=262144"
+    "memorysetup-temp-allocator-size-nav-mesh-worker=65536"
+    "memorysetup-temp-allocator-size-audio-worker=65536"
+    "memorysetup-temp-allocator-size-cloud-worker=32768"
+    "memorysetup-temp-allocator-size-gfx=262144"
+    "memorysetup-temp-allocator-size-preload-manager=33554432"
+    "memorysetup-allocator-temp-initial-block-size-main=262144"
+    "memorysetup-allocator-temp-initial-block-size-worker=262144"
+    "memorysetup-temp-allocator-size-job-worker=262144"
+    "memorysetup-temp-allocator-size-background-worker=32768"
+    "memorysetup-bucket-allocator-granularity=16"
+    "memorysetup-bucket-allocator-bucket-count=8"
+    "memorysetup-bucket-allocator-block-size=33554432"
+    "memorysetup-bucket-allocator-block-count=8"
+    "memorysetup-main-allocator-block-size=16777216"
+    "memorysetup-thread-allocator-block-size=16777216"
+    "memorysetup-main-allocator-mimalloc-enabled=0"
+    "memorysetup-gfx-main-allocator-block-size=16777216"
+    "memorysetup-gfx-thread-allocator-block-size=16777216"
+    "memorysetup-cache-allocator-block-size=4194304"
+    "memorysetup-typetree-allocator-block-size=2097152"
+    "memorysetup-profiler-bucket-allocator-granularity=16"
+    "memorysetup-profiler-bucket-allocator-bucket-count=8"
+    "memorysetup-profiler-bucket-allocator-block-size=33554432"
+    "memorysetup-profiler-bucket-allocator-block-count=8"
+    "memorysetup-profiler-allocator-block-size=16777216"
+    "memorysetup-profiler-editor-allocator-block-size=1048576"
+    "memorysetup-temp-allocator-size-main=16777216"
+    "memorysetup-job-temp-allocator-block-size=2097152"
+    "memorysetup-job-temp-allocator-block-size-background=1048576"
+    "memorysetup-job-temp-allocator-reduction-small-platforms=262144"
+Logging is directed to a specific file, skipping project log.Player connection [65792]  Target information:
+
+Player connection [65792]  * "[IP] 192.168.71.100 [Port] 55507 [Flags] 2 [Guid] 1978870854 [EditorId] 1978870854 [Version] 1048832 [Id] WindowsEditor(7,VNO2) [Debug] 1 [PackageName] WindowsEditor [ProjectName] Editor" 
+
+Player connection [65792]  * "[IP] 198.18.0.1 [Port] 55507 [Flags] 2 [Guid] 1978870854 [EditorId] 1978870854 [Version] 1048832 [Id] WindowsEditor(7,VNO2) [Debug] 1 [PackageName] WindowsEditor [ProjectName] Editor" 
+
+Player connection [65792] Host joined multi-casting on [225.0.0.222:54997]...
+Player connection [65792] Host joined alternative multi-casting on [225.0.0.222:34997]...
+Input System module state changed to: Initialized.
+[Physics::Module] Initialized fallback backend.
+[Physics::Module] Id: 0xdecafbad
+[Package Manager] Connected to IPC stream "Upm-72236" after 0.2 seconds.
+[Licensing::Client] Successfully resolved entitlement details
+Library Redirect Path: Library/
+[Physics::Module] Selected backend.
+[Physics::Module] Name: PhysX
+[Physics::Module] Id: 0xf2b8ea05
+[Physics::Module] SDK Version: 4.1.2
+[Physics::Module] Integration Version: 1.0.0
+[Physics::Module] Threading Mode: Multi-Threaded
+Artifact Garbage Collection - Removed 55 unused hashed content files
+Initialize engine version: 6000.5.7f1 (017862109af0)
+[Subsystems] Discovering subsystems at path C:/Program Files/Unity 6000.5.7f1/Editor/Data/Resources/UnitySubsystems
+[Subsystems] Discovering subsystems at path C:/tmp/KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753/Assets
+Forcing GfxDevice: Null
+GfxDevice: creating device client; kGfxThreadingModeNonThreaded
+NullGfxDevice:
+    Version:  NULL 1.0 [1.0]
+    Renderer: Null Device
+    Vendor:   Unity Technologies
+Initialize mono
+Mono path[0] = 'C:/Program Files/Unity 6000.5.7f1/Editor/Data/Managed'
+Mono path[1] = 'C:/Program Files/Unity 6000.5.7f1/Editor/Data/BCLExtensions/runtime/netstandard2.1'
+Mono path[2] = 'C:/Program Files/Unity 6000.5.7f1/Editor/Data/MonoBleedingEdge/lib/mono/unityjit-win32'
+Mono config path = 'C:/Program Files/Unity 6000.5.7f1/Editor/Data/MonoBleedingEdge/etc'
+Using monoOptions --debugger-agent=transport=dt_socket,embedding=1,server=y,suspend=n,address=127.0.0.1:56236
+CodeReloadManager initialized
+ImportWorker Server TCP listen port: 0
+AcceleratorClientConnectionCallback - disconnected - :0
+Begin MonoManager ReloadAssembly
+Registering precompiled unity dll's ...
+Register platform support module: C:/Program Files/Unity 6000.5.7f1/Editor/Data/PlaybackEngines/WindowsStandaloneSupport/UnityEditor.WindowsStandalone.Extensions.dll
+Registered in 0.002827 seconds.
+Native extension for WindowsStandalone target not found
+Package Manager log level set to [2]
+ScheduleIndexationOnStartup MainProcess:False IndexOnStartup:False
+Mono: successfully reloaded assembly
+- Finished resetting the current domain, in  0.404 seconds
+Domain Reload Profiling: 922ms
+	BeginReloadAssembly (118ms)
+		CreateAndSetChildDomain (10ms)
+	RebuildCommonClasses (5ms)
+	RebuildNativeTypeToScriptingClass (16ms)
+	initialDomainReloadingComplete (93ms)
+	LoadAllAssembliesAndSetupDomain (283ms)
+		LoadAssemblies (104ms)
+		AnalyzeDomain (203ms)
+			TypeCache.Refresh (202ms)
+				TypeCache.ScanAssembly (187ms)
+	FinalizeReload (407ms)
+		SetupLoadedEditorAssemblies (0ms)
+			BeforeProcessingInitializeOnLoad (93ms)
+			ProcessInitializeOnLoadAttributes (96ms)
+			ProcessInitializeOnLoadMethodAttributes (138ms)
+[Licensing::Client] Successfully resolved entitlement details
+Application.AssetDatabase Initial Refresh Start
+[Package Manager] Restoring resolved packages state from cache
+[Licensing::Client] Successfully resolved entitlement details
+[Package Manager] Registered 37 packages:
+  Built-in packages:
+    com.unity.multiplayer.center@1.0.1 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.multiplayer.center@b860850997d0)
+    com.unity.modules.accessibility@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.accessibility)
+    com.unity.modules.adaptiveperformance@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.adaptiveperformance)
+    com.unity.modules.ai@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.ai)
+    com.unity.modules.androidjni@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.androidjni)
+    com.unity.modules.animation@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.animation)
+    com.unity.modules.assetbundle@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.assetbundle)
+    com.unity.modules.audio@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.audio)
+    com.unity.modules.cloth@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.cloth)
+    com.unity.modules.director@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.director)
+    com.unity.modules.imageconversion@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.imageconversion)
+    com.unity.modules.imgui@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.imgui)
+    com.unity.modules.jsonserialize@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.jsonserialize)
+    com.unity.modules.particlesystem@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.particlesystem)
+    com.unity.modules.physics@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.physics)
+    com.unity.modules.physics2d@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.physics2d)
+    com.unity.modules.physicscore2d@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.physicscore2d)
+    com.unity.modules.screencapture@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.screencapture)
+    com.unity.modules.terrain@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.terrain)
+    com.unity.modules.terrainphysics@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.terrainphysics)
+    com.unity.modules.tilemap@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.tilemap)
+    com.unity.modules.ui@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.ui)
+    com.unity.modules.uielements@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.uielements)
+    com.unity.modules.umbra@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.umbra)
+    com.unity.modules.unityanalytics@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unityanalytics)
+    com.unity.modules.unitywebrequest@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unitywebrequest)
+    com.unity.modules.unitywebrequestassetbundle@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unitywebrequestassetbundle)
+    com.unity.modules.unitywebrequestaudio@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unitywebrequestaudio)
+    com.unity.modules.unitywebrequesttexture@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unitywebrequesttexture)
+    com.unity.modules.unitywebrequestwww@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unitywebrequestwww)
+    com.unity.modules.vectorgraphics@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.vectorgraphics)
+    com.unity.modules.vehicles@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.vehicles)
+    com.unity.modules.video@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.video)
+    com.unity.modules.wind@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.wind)
+    com.unity.modules.xr@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.xr)
+    com.unity.modules.subsystems@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.subsystems)
+    com.unity.modules.hierarchycore@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.hierarchycore)
+[Subsystems] No new subsystems found in resolved package list.
+[Package Manager] Done registering packages in 0.02 seconds
+[Package Manager] Done resolving packages in 7.84 seconds
+[Licensing::Client] Successfully resolved entitlement details
+[Package Manager] Lock file was modified
+[Package Manager] Registered 40 packages:
+  Packages from [https://packages.unity.com]:
+    com.unity.nuget.newtonsoft-json@3.2.2 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.nuget.newtonsoft-json@4dfd81071c64)
+    com.unity.timeline@1.8.12 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.timeline@8cd8509afae5)
+  Built-in packages:
+    com.unity.multiplayer.center@1.0.1 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.multiplayer.center@b860850997d0)
+    com.unity.modules.accessibility@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.accessibility)
+    com.unity.modules.adaptiveperformance@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.adaptiveperformance)
+    com.unity.modules.ai@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.ai)
+    com.unity.modules.androidjni@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.androidjni)
+    com.unity.modules.animation@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.animation)
+    com.unity.modules.assetbundle@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.assetbundle)
+    com.unity.modules.audio@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.audio)
+    com.unity.modules.cloth@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.cloth)
+    com.unity.modules.director@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.director)
+    com.unity.modules.imageconversion@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.imageconversion)
+    com.unity.modules.imgui@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.imgui)
+    com.unity.modules.jsonserialize@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.jsonserialize)
+    com.unity.modules.particlesystem@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.particlesystem)
+    com.unity.modules.physics@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.physics)
+    com.unity.modules.physics2d@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.physics2d)
+    com.unity.modules.physicscore2d@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.physicscore2d)
+    com.unity.modules.screencapture@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.screencapture)
+    com.unity.modules.terrain@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.terrain)
+    com.unity.modules.terrainphysics@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.terrainphysics)
+    com.unity.modules.tilemap@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.tilemap)
+    com.unity.modules.ui@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.ui)
+    com.unity.modules.uielements@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.uielements)
+    com.unity.modules.umbra@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.umbra)
+    com.unity.modules.unityanalytics@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unityanalytics)
+    com.unity.modules.unitywebrequest@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unitywebrequest)
+    com.unity.modules.unitywebrequestassetbundle@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unitywebrequestassetbundle)
+    com.unity.modules.unitywebrequestaudio@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unitywebrequestaudio)
+    com.unity.modules.unitywebrequesttexture@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unitywebrequesttexture)
+    com.unity.modules.unitywebrequestwww@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.unitywebrequestwww)
+    com.unity.modules.vectorgraphics@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.vectorgraphics)
+    com.unity.modules.vehicles@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.vehicles)
+    com.unity.modules.video@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.video)
+    com.unity.modules.wind@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.wind)
+    com.unity.modules.xr@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.xr)
+    com.unity.modules.subsystems@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.subsystems)
+    com.unity.modules.hierarchycore@1.0.0 (location: C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\Library\PackageCache\com.unity.modules.hierarchycore)
+  Local packages:
+    com.unity.kimodo_unity_motion_tools@file:C:\tmp\KimodoUnityBridge-workflow-unity65 (location: C:\tmp\KimodoUnityBridge-workflow-unity65)
+[Subsystems] No new subsystems found in resolved package list.
+[Package Manager] Done registering packages in 0.00 seconds
+A meta data file (.meta) exists but its folder 'Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraint' can't be found, and has been created. Empty directories cannot be stored in version control, so it's assumed that the meta data file is for an empty directory in version control. When moving or deleting folders outside of Unity, please ensure that the corresponding .meta file is moved or deleted along with it.
+A meta data file (.meta) exists but its folder 'Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraints/Ardy' can't be found, and has been created. Empty directories cannot be stored in version control, so it's assumed that the meta data file is for an empty directory in version control. When moving or deleting folders outside of Unity, please ensure that the corresponding .meta file is moved or deleted along with it.
+[API Updater] Processing imported assemblies took 101 ms (0/0 assembly(ies)).
+Assembly Updater Post Process Assets time: 0.104717s
+[ScriptCompilation] Requested script compilation because: Assembly Definition File(s) changed
+[ScriptCompilation] Requested script compilation because: AssetDatabase observed changes in script compilation related files
+Starting: C:\Program Files\Unity 6000.5.7f1\Editor\Data\Tools\BuildPipeline\bee_backend.exe --ipc --defer-dag-verification --dagfile="Library/Bee/1900b0aEDbg.dag" --continue-on-failure --profile="Library/Bee/backend1.traceevents" ScriptAssemblies
+WorkingDir: C:/tmp/KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753
+DisplayProgressbar: Compiling Scripts
+Starting: C:\Program Files\Unity 6000.5.7f1\Editor\Data\netcorerun\netcorerun.exe "C:\Program Files\Unity 6000.5.7f1\Editor\Data\Tools\BuildPipeline\ScriptCompilationBuildProgram.exe" "Library/Bee/1900b0aEDbg.dag.json" "Library/Bee/1900b0aEDbg-inputdata.json" "Library\Bee\buildprogram0.traceevents"
+WorkingDir: C:/tmp/KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753
+ExitCode: 4 Duration: 0s137ms
+Rebuilding DAG because FileSignature timestamp changed: Library/Bee/1900b0aEDbg-inputdata.json
+*** Tundra requires additional run (0.10 seconds), 0 items updated, 168 evaluated
+ExitCode: 0 Duration: 0s257ms
+Starting: C:\Program Files\Unity 6000.5.7f1\Editor\Data\Tools\BuildPipeline\bee_backend.exe --ipc --defer-dag-verification --dagfile="Library/Bee/1900b0aEDbg.dag" --continue-on-failure --dagfilejson="Library\Bee\1900b0aEDbg.dag.json" --profile="Library/Bee/backend2.traceevents" ScriptAssemblies
+WorkingDir: C:/tmp/KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753
+ExitCode: 0 Duration: 5s158ms
+Finished compiling graph: 205 nodes, 1363 flattened edges (1321 ToBuild, 12 ToUse), maximum node priority 42
+[158/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.rsp2
+[159/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.UnityAdditionalFile.txt
+[160/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Multiplayer.Center.Common.rsp
+[161/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Multiplayer.Center.Editor.rsp
+[162/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.dll.mvfrm.rsp
+[163/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.rsp
+[164/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.Editor.rsp2
+[165/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.Editor.UnityAdditionalFile.txt
+[166/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.Editor.dll.mvfrm.rsp
+[167/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.Editor.rsp
+[168/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.rsp2
+[169/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.UnityAdditionalFile.txt
+[170/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.dll.mvfrm.rsp
+[171/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.Editor.rsp2
+[172/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.Editor.UnityAdditionalFile.txt
+[173/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.rsp
+[174/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.Editor.dll.mvfrm.rsp
+[175/202    0s] WriteText Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.Editor.rsp
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Multiplayer.Center.Common.dll (+2 others) [CacheMiss fa518683db112c2f2f6c19208c45712e00000000000000000000000000000006]
+[176/202    0s] MovedFromExtractor-Combine Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.dll.mvfrm
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.dll (+2 others) [CacheMiss f692d5061f29bdeec93d2a162b4629ee00000000000000000000000000000006]
+[177/202    1s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Multiplayer.Center.Common.dll (+2 others)
+[178/202    1s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.dll (+2 others)
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Multiplayer.Center.Common.dll (+2 others) [CacheWrite fa518683db112c2f2f6c19208c45712e00000000000000000000000000000006]
+[181/202    0s] CopyFiles Library/ScriptAssemblies/Unity.Multiplayer.Center.Common.pdb
+[182/202    0s] CopyFiles Library/ScriptAssemblies/Unity.Multiplayer.Center.Common.dll
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.dll (+2 others) [CacheWrite f692d5061f29bdeec93d2a162b4629ee00000000000000000000000000000006]
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Multiplayer.Center.Editor.dll (+2 others) [CacheMiss 1c70058da23a60026656f642972aca4300000000000000000000000000000006]
+[183/202    0s] CopyFiles Library/ScriptAssemblies/Unity.Timeline.pdb
+[184/202    0s] CopyFiles Library/ScriptAssemblies/Unity.Timeline.dll
+[185/202    0s] MovedFromExtractor Library/Bee/artifacts/mvdfrm/Unity.Timeline.ref.dll_733236CB90539738.mvfrm
+[186/202    0s] MovedFromExtractor-Combine Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.dll.mvfrm
+[187/202    0s] MovedFromExtractor-Combine Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.Editor.dll.mvfrm
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.dll (+2 others) [CacheMiss 917a465eaa0547ebb41f6e79b20fed1600000000000000000000000000000006]
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.Editor.dll (+2 others) [CacheMiss 8bafd9c48d39f8def35a1e1b1022e6da00000000000000000000000000000006]
+[188/202    0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Multiplayer.Center.Editor.dll (+2 others)
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Multiplayer.Center.Editor.dll (+2 others) [CacheWrite 1c70058da23a60026656f642972aca4300000000000000000000000000000006]
+[189/202    0s] CopyFiles Library/ScriptAssemblies/Unity.Multiplayer.Center.Editor.pdb
+[190/202    0s] CopyFiles Library/ScriptAssemblies/Unity.Multiplayer.Center.Editor.dll
+[191/202    0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.dll (+2 others)
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\KimodoRuntimeMotionDriver.cs(287,49): warning CS0414: The field 'KimodoRuntimeMotionDriver.startupTimeoutMinutes' is assigned but its value is never used
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(77,21): warning UAC1001: Field 'resolvedSeed' type 'int?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(11,23): warning UAC1001: Field 'duration' type 'float?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(13,21): warning UAC1001: Field 'seed' type 'int?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(29,21): warning UAC1001: Field 'simulate_free_vram_gb' type 'int?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(33,24): warning UAC1001: Field 'ardy_history_weight' type 'double?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(34,24): warning UAC1001: Field 'ardy_max_speed' type 'double?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(35,24): warning UAC1001: Field 'ardy_max_acceleration' type 'double?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(36,24): warning UAC1001: Field 'ardy_playback_reserve_seconds' type 'double?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.dll (+2 others) [CacheWrite 917a465eaa0547ebb41f6e79b20fed1600000000000000000000000000000006]
+[192/202    0s] CopyFiles Library/ScriptAssemblies/KimodoTool.pdb
+[193/202    0s] CopyFiles Library/ScriptAssemblies/KimodoTool.dll
+[194/202    1s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.Editor.dll (+2 others)
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/Unity.Timeline.Editor.dll (+2 others) [CacheWrite 8bafd9c48d39f8def35a1e1b1022e6da00000000000000000000000000000006]
+[195/202    0s] CopyFiles Library/ScriptAssemblies/Unity.Timeline.Editor.pdb
+[196/202    0s] CopyFiles Library/ScriptAssemblies/Unity.Timeline.Editor.dll
+[197/202    0s] MovedFromExtractor Library/Bee/artifacts/mvdfrm/Unity.Timeline.Editor.ref.dll_0DA365A2C678CBF9.mvfrm
+[198/202    0s] MovedFromExtractor-Combine Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.Editor.dll.mvfrm
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.Editor.dll (+2 others) [CacheMiss 5b01d11a7414b0a360a47cf2a197be9b00000000000000000000000000000006]
+[199/202    1s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.Editor.dll (+2 others)
+C:\tmp\KimodoUnityBridge-workflow-unity65\Editor\Clip\KimodoEditorClipUtility.cs(274,51): warning CS0618: 'EntityId.implicit operator EntityId(int)' is obsolete: 'EntityId will not be representable by an int in the future. This casting operator will be removed in a future version.'
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Editor\Core\KimodoNavMeshTimelineGenerationService.cs(106,36): warning CS0618: 'Object.FindObjectsOfType<T>(bool)' is obsolete: 'Object.FindObjectsOfType has been deprecated. Use Object.FindObjectsByType instead which lets you decide whether you need the results sorted or not.  FindObjectsOfType sorts the results by InstanceID but if you do not need this using FindObjectSortMode.None is considerably faster.'
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Editor\Preview\Avatar\KimodoAvatarPreviewCore.cs(49,22): warning CS0414: The field 'KimodoAvatarPreviewCore.transitionModeActive' is assigned but its value is never used
+
+C:\tmp\KimodoUnityBridge-workflow-unity65\Editor\Retarget\KimodoRetargetToolsEditor.cs(22,44): warning UAC1009: Field 'positions' uses an unsupported type 'System.Collections.Generic.List<System.Collections.Generic.List<System.Collections.Generic.List<float>>>'. Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1009)
+[           0s] Csc Library/Bee/artifacts/1900b0aEDbg.dag/KimodoTool.Editor.dll (+2 others) [CacheWrite 5b01d11a7414b0a360a47cf2a197be9b00000000000000000000000000000006]
+[200/202    0s] CopyFiles Library/ScriptAssemblies/KimodoTool.Editor.pdb
+[201/202    0s] CopyFiles Library/ScriptAssemblies/KimodoTool.Editor.dll
+*** Tundra build success (5.13 seconds), 42 items updated, 202 evaluated
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\KimodoRuntimeMotionDriver.cs(287,49): warning CS0414: The field 'KimodoRuntimeMotionDriver.startupTimeoutMinutes' is assigned but its value is never used
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(77,21): warning UAC1001: Field 'resolvedSeed' type 'int?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(11,23): warning UAC1001: Field 'duration' type 'float?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(13,21): warning UAC1001: Field 'seed' type 'int?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(29,21): warning UAC1001: Field 'simulate_free_vram_gb' type 'int?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(33,24): warning UAC1001: Field 'ardy_history_weight' type 'double?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(34,24): warning UAC1001: Field 'ardy_max_speed' type 'double?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(35,24): warning UAC1001: Field 'ardy_max_acceleration' type 'double?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+C:\tmp\KimodoUnityBridge-workflow-unity65\Runtime\Generation\KimodoRuntimeGenerationTypes.cs(36,24): warning UAC1001: Field 'ardy_playback_reserve_seconds' type 'double?' is skipped by serialization (missing the [Serializable] attribute). Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1001)
+C:\tmp\KimodoUnityBridge-workflow-unity65\Editor\Clip\KimodoEditorClipUtility.cs(274,51): warning CS0618: 'EntityId.implicit operator EntityId(int)' is obsolete: 'EntityId will not be representable by an int in the future. This casting operator will be removed in a future version.'
+C:\tmp\KimodoUnityBridge-workflow-unity65\Editor\Core\KimodoNavMeshTimelineGenerationService.cs(106,36): warning CS0618: 'Object.FindObjectsOfType<T>(bool)' is obsolete: 'Object.FindObjectsOfType has been deprecated. Use Object.FindObjectsByType instead which lets you decide whether you need the results sorted or not.  FindObjectsOfType sorts the results by InstanceID but if you do not need this using FindObjectSortMode.None is considerably faster.'
+C:\tmp\KimodoUnityBridge-workflow-unity65\Editor\Preview\Avatar\KimodoAvatarPreviewCore.cs(49,22): warning CS0414: The field 'KimodoAvatarPreviewCore.transitionModeActive' is assigned but its value is never used
+C:\tmp\KimodoUnityBridge-workflow-unity65\Editor\Retarget\KimodoRetargetToolsEditor.cs(22,44): warning UAC1009: Field 'positions' uses an unsupported type 'System.Collections.Generic.List<System.Collections.Generic.List<System.Collections.Generic.List<float>>>'. Refer to the Serialization rules analyzer reference. (https://docs.unity3d.com/6000.5/Documentation/Manual/script-serialization-analyzer.html#uac1009)
+AssetDatabase: script compilation time: 5.984837s
+Begin MonoManager ReloadAssembly
+Importing 'GUID: 41bc149dbd39ae8e9ba8bdf18e44fb76 - Path: Packages/com.unity.kimodo_unity_motion_tools' with importer (DefaultImporter)
+Imported 'GUID: 41bc149dbd39ae8e9ba8bdf18e44fb76' -> (Import Result ID: '5dad4d90bb9b91925ce2e2f24324cefa') in 0.016 seconds [static dependencies only]. Details - ImportResultOutputID=54a303f49569f9933731f0de191121d4 DependenciesID=80d79f0034d978c78052711af7455d4a StaticDependenciesID=d05e5e1c941b55f6e56b0b53a68de7b8 
+Importing 'GUID: a5a20a36fab5ed4fc023d92d2ac579fb - Path: Packages/com.unity.nuget.newtonsoft-json' with importer (DefaultImporter)
+Imported 'GUID: a5a20a36fab5ed4fc023d92d2ac579fb' -> (Import Result ID: '9d8032214a95334503e693ae3548a37a') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=1f0f4a14a5340d3799f666b64e1dc430 DependenciesID=00ffcc3476686d5f3041cf98e8ce31d4 StaticDependenciesID=86f54b8f8335d8c84b6bfd46f39be31a 
+Importing 'GUID: 1c5abd9001f2cd9af77d9ddad8aa161e - Path: Packages/com.unity.timeline' with importer (DefaultImporter)
+Imported 'GUID: 1c5abd9001f2cd9af77d9ddad8aa161e' -> (Import Result ID: 'b69849fbc76517ee46482ffa46712876') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=1f65545442d98b1fe3c319e95096f413 DependenciesID=430e075c9ac1dbca02e236f37c7b7824 StaticDependenciesID=9dc5e7336019c7e39848ccfbbaa9077c 
+Importing 'GUID: 5486badfefef3eb47b45d071d232469d - Path: Packages/com.unity.timeline/DocCodeExamples' with importer (DefaultImporter)
+Imported 'GUID: 5486badfefef3eb47b45d071d232469d' -> (Import Result ID: 'bd5432f1e6a901256646fb94c4eb9718') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=cd251c2bbe37cc2ec362558b135eb230 DependenciesID=1f3aaee8b3b7f82ac31aa537bc4ad7bb StaticDependenciesID=3348fc6eff5aa86196424136c249da01 
+Importing 'GUID: 9b4f21acd14fdd445b37b76f6587539e - Path: Packages/com.unity.timeline/Editor' with importer (DefaultImporter)
+Imported 'GUID: 9b4f21acd14fdd445b37b76f6587539e' -> (Import Result ID: '0ee4f04499c9faf889ae856c60bf7788') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=e8ed54da6304d6b6b614caba5e1d8588 DependenciesID=fb3dd41c8955a458077e454531af1fcf StaticDependenciesID=a09f4a9143f057f3759dc218f1dffd32 
+Importing 'GUID: ccd097047fc9a7047a6afa88530f2d96 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime' with importer (DefaultImporter)
+Imported 'GUID: ccd097047fc9a7047a6afa88530f2d96' -> (Import Result ID: 'aff7b10ba5b424dba5fe49d3b3bfd9dc') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=96632dceb8e65a49c16a8630164c8a28 DependenciesID=d1d890038905f7e89c13fdccbe286358 StaticDependenciesID=93c8cdcd379046c41f1c06e8a463fbbc 
+Importing 'GUID: 0d6a500cce13dd146b90614ad15e857a - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual' with importer (DefaultImporter)
+Imported 'GUID: 0d6a500cce13dd146b90614ad15e857a' -> (Import Result ID: 'bf230943cbab4566d0df89bcc2c9c3f6') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=0470a3fb5866c1679e21a2a11b95ed24 DependenciesID=f9eb3ffa666ebf407df6af6876386651 StaticDependenciesID=837efaaadcf682d4809ac265b0e6574d 
+Importing 'GUID: 1d197b55786ce834794d7e4a325d7652 - Path: Packages/com.unity.kimodo_unity_motion_tools/TimelineInject' with importer (DefaultImporter)
+Imported 'GUID: 1d197b55786ce834794d7e4a325d7652' -> (Import Result ID: 'bbb82207bcae9e4d1681638e06cbf1b7') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=85c4eb4db19583e88f79f512d62b6394 DependenciesID=3158168c32ba42585952e4a9b60cd714 StaticDependenciesID=7f60cc73d1a7ec2c84e409db9a505371 
+Importing 'GUID: fd381424d5fc62a40b2635c39c034ee0 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor' with importer (DefaultImporter)
+Imported 'GUID: fd381424d5fc62a40b2635c39c034ee0' -> (Import Result ID: 'd4f7527887535ed2357aa7b07b07d755') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=771f842c92742b8e8f82ce1f53bd8b6e DependenciesID=3fc11100ed3275958edbfd8acefd7612 StaticDependenciesID=b346b4b86374b2d47ef51cc36b3cf502 
+Importing 'GUID: de1c7164adaf49d47b5de31c140713c9 - Path: Packages/com.unity.nuget.newtonsoft-json/Runtime' with importer (DefaultImporter)
+Imported 'GUID: de1c7164adaf49d47b5de31c140713c9' -> (Import Result ID: 'e7a013d3370aaa03eb6e23db5f3de876') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=7909f08ee5b247d0069e57f51313d2a8 DependenciesID=9d2177c9195ed510986d371dfc284feb StaticDependenciesID=a951538c4777e3a3d3b91cf28608e36c 
+Importing 'GUID: efcf753a96a07b24dbe5f23a8ad5963d - Path: Packages/com.unity.timeline/Runtime' with importer (DefaultImporter)
+Imported 'GUID: efcf753a96a07b24dbe5f23a8ad5963d' -> (Import Result ID: '82dd77a3c15b70c2b7e5e3bf136b5492') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=48f48f2cc30378f1618f75a1d812da99 DependenciesID=17d437c6538d51545fdd5e7815a68f95 StaticDependenciesID=ff62c8eb1f4cde119695f9a85208f8fd 
+Importing 'GUID: 40f3b6b8ed6985d4b9636847f04deeb4 - Path: Packages/com.unity.kimodo_unity_motion_tools/TimelineInject/Runtime' with importer (DefaultImporter)
+Imported 'GUID: 40f3b6b8ed6985d4b9636847f04deeb4' -> (Import Result ID: '5a2b31a371b6f27e9ee68ed1ad0165ef') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=23ad937b5186678ada9af8cbd20f929d DependenciesID=0ecd812e63ea2c2cee7e1d5fd6a4e6d6 StaticDependenciesID=1874a38fc11f4d0b8aeaae0eebbc0413 
+Importing 'GUID: 507f711b94136567ea02d0c481a26cef - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Clip' with importer (DefaultImporter)
+Imported 'GUID: 507f711b94136567ea02d0c481a26cef' -> (Import Result ID: 'bb9198952c5f45c6ebeec49d1e61881f') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=c8141bde78a61a5cf80918e0d85a9452 DependenciesID=9e8557fbd0d11e78b2ba6456c4e4f66a StaticDependenciesID=90db87cb10348c0c3d427dcdfeff4335 
+Importing 'GUID: b058e46de745325499b89c2ea4d998f4 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Character' with importer (DefaultImporter)
+Imported 'GUID: b058e46de745325499b89c2ea4d998f4' -> (Import Result ID: 'e7343557aba6034b433b665901e357f3') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=796568aa3efc2f298f62e89dcac43a23 DependenciesID=f3dd5182b0c23e8c0504cb5b408234f5 StaticDependenciesID=0bc52ffeb4653e42b4638f762d6fc6e3 
+Importing 'GUID: c05b36c44c17cf0449fbf16f2fb51810 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Retarget' with importer (DefaultImporter)
+Imported 'GUID: c05b36c44c17cf0449fbf16f2fb51810' -> (Import Result ID: '14334327934635c4748f615451568e51') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=3ddb310e4a96d41de6019113a1d55c78 DependenciesID=a67ac86ef3594e0cbddfadfd79e99dc0 StaticDependenciesID=16a5131f9bcdf1652653c3eb7ef20f7c 
+Importing 'GUID: c07c8169b51ce3443b14d17017f92cc3 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Retarget' with importer (DefaultImporter)
+Imported 'GUID: c07c8169b51ce3443b14d17017f92cc3' -> (Import Result ID: '49fe02bb265457ec4657bd071b1b0c47') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=e736a7434d7c916c61eccb8f120bef73 DependenciesID=4ce3393154c06ec6ecad83196838fa85 StaticDependenciesID=2b4c36593cff3bc6b89eaa0de8494ad2 
+Importing 'GUID: d0403d0ac4a8a164b807215282a965e8 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Constraints' with importer (DefaultImporter)
+Imported 'GUID: d0403d0ac4a8a164b807215282a965e8' -> (Import Result ID: 'fb66d58a30ae731fa9a364ffa329a1a8') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=a1dcb6bf8ccf6f5278591d455433804e DependenciesID=02e8d8975b439a7bdbb77f229876e8c7 StaticDependenciesID=16bb161b4d868af2c807d3344e04d902 
+Importing 'GUID: d0cd29fb1ad218b48b814bc3e6d8ac0e - Path: Packages/com.unity.timeline/Runtime/Activation' with importer (DefaultImporter)
+Imported 'GUID: d0cd29fb1ad218b48b814bc3e6d8ac0e' -> (Import Result ID: '59501d18e1e799d21a58b3ca78aee745') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=727033004f03d3912feb846b87aeca65 DependenciesID=185f7abd49521caca5a07318e3a80b9a StaticDependenciesID=c205bf3591dd03d8fea5679f5f398b18 
+Importing 'GUID: e091bb444874ef244b1ba4a813fc1e34 - Path: Packages/com.unity.timeline/Editor/Audio' with importer (DefaultImporter)
+Imported 'GUID: e091bb444874ef244b1ba4a813fc1e34' -> (Import Result ID: '62f105e253adcd15fec9088d4ed05eca') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=39128cb3b21ac855221409f0d0ace2d2 DependenciesID=623d078ddeed6dd9565b07f5f4f4f6a4 StaticDependenciesID=d5e210f21a75d07adbb040c55360fada 
+Importing 'GUID: 3174898fbcdf12448963cdb5f5b60a33 - Path: Packages/com.unity.timeline/Editor/Animation' with importer (DefaultImporter)
+Imported 'GUID: 3174898fbcdf12448963cdb5f5b60a33' -> (Import Result ID: '61c1381d0155d5be4d3a06847b096b65') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=63ac71c38e34c4a65c38d748e44c0928 DependenciesID=42352c7bcfec9a0676aa0d23ab8c5b52 StaticDependenciesID=2338687c850c019468bd5716b03ee2e2 
+Importing 'GUID: 41d1976cd80422e53f8db5e965bca61a - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Sampling' with importer (DefaultImporter)
+Imported 'GUID: 41d1976cd80422e53f8db5e965bca61a' -> (Import Result ID: 'cc05bf672d7f1e9272929c361eb808a0') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=4a658851d0bd763b129a2b370b4aa865 DependenciesID=9cf356d437041b5ee70af0a8b6309cd4 StaticDependenciesID=d203a5a5b50d87200ab703e230e449c1 
+Importing 'GUID: 919d97c1a707113409177d498d31cf51 - Path: Packages/com.unity.timeline/Editor/Attributes' with importer (DefaultImporter)
+Imported 'GUID: 919d97c1a707113409177d498d31cf51' -> (Import Result ID: '13a1a06f44f35ccf644006cf5f40aab9') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=7a67b29a7f18ae3d90042973bce8972b DependenciesID=779c167f695e5e4383c3d7b63918af3f StaticDependenciesID=e1a000dffdb356d454781ece0b35c14b 
+Importing 'GUID: b124f0b8ca43e6e46bdc0322fad15ea3 - Path: Packages/com.unity.timeline/Editor/Activation' with importer (DefaultImporter)
+Imported 'GUID: b124f0b8ca43e6e46bdc0322fad15ea3' -> (Import Result ID: '35ee74bf865791be95511f781bd80284') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=86ebd3a3485b43e7849be0428bd4798f DependenciesID=11690c30e224448159c8da833a4b68f9 StaticDependenciesID=9a5c1cc8cf80bff86c46a97fa45433f6 
+Importing 'GUID: d19b75372f4e44d4fa4b2cffbb54124b - Path: Packages/com.unity.timeline/Runtime/Audio' with importer (DefaultImporter)
+Imported 'GUID: d19b75372f4e44d4fa4b2cffbb54124b' -> (Import Result ID: '22c6a8cbf7a30a4c1f4ea7e2f1cf75a5') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=9899eee98282190e3eb2cb2e3424626a DependenciesID=e3850b97ebfcad483517ad2e42ad75d4 StaticDependenciesID=d42da0242d988dcc9d35b080ef6c1326 
+Importing 'GUID: 735dc51446c7d374fa99b4665050ca86 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraint' with importer (DefaultImporter)
+Imported 'GUID: 735dc51446c7d374fa99b4665050ca86' -> (Import Result ID: 'f89d6c3ae2a40ac76157093ad4dcd5f3') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=ac0e14f45fee11c2f0ee6119985d0104 DependenciesID=88415756e852155b6393d5e031005336 StaticDependenciesID=2deb87bd9421df2c970c171c291eafe8 
+Importing 'GUID: c329e2d3756ebbf4980f6f883d348af6 - Path: Packages/com.unity.kimodo_unity_motion_tools/TimelineInject/Editor' with importer (DefaultImporter)
+Imported 'GUID: c329e2d3756ebbf4980f6f883d348af6' -> (Import Result ID: '21a2c7ca11ea5ae98925454a035be154') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=db517bc265853c1e477dc5c94594b171 DependenciesID=95c76a920cc2237011b98678014825e9 StaticDependenciesID=5ab5f44bdeddae80505c8143eb80e13f 
+Importing 'GUID: 14f21d7a1e53a8c4e87b25526a7eb63c - Path: Packages/com.unity.nuget.newtonsoft-json/Runtime/AOT' with importer (DefaultImporter)
+Imported 'GUID: 14f21d7a1e53a8c4e87b25526a7eb63c' -> (Import Result ID: '9d4d288f35522e48d4dfb3d92938b4d6') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=a597531dc357219541867abb29c5f502 DependenciesID=9f8073d8af0117e0680f3053fbcdde6e StaticDependenciesID=fec5c25aa9e7ae59ef2fd0342e03784a 
+Importing 'GUID: 159426d66375bda4b911be06d758ddba - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Tests' with importer (DefaultImporter)
+Imported 'GUID: 159426d66375bda4b911be06d758ddba' -> (Import Result ID: '2089e9105250aee5d799f8aecfe41eb6') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=edfa310ebf22d87dcab9d48d9721aac6 DependenciesID=af4a26c6134598f028f3fb49dd8d5001 StaticDependenciesID=410ff40972fdd50d194b9f11b4ce1853 
+Importing 'GUID: 4584db2acba045742a16942983e7fb96 - Path: Packages/com.unity.timeline/Editor/Recording' with importer (DefaultImporter)
+Imported 'GUID: 4584db2acba045742a16942983e7fb96' -> (Import Result ID: '85ec40b7579be18b9010b40ee200044d') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=b229eec83d1c6b0c8e3cde7f7ebcc595 DependenciesID=aca63ed1775300da9c1c789119cf2b45 StaticDependenciesID=4f4a87e2fcf5238952e588302b2dc232 
+Importing 'GUID: 65303e8a940ce4b44acfcd573621ca7e - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Model' with importer (DefaultImporter)
+Imported 'GUID: 65303e8a940ce4b44acfcd573621ca7e' -> (Import Result ID: 'be43558378f2c19f7ec0f1912670f54a') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=a3d715ad9aba6cccf665286578d06f13 DependenciesID=723a3e85a9c546416da871d0ee0b953f StaticDependenciesID=5882710e9ae9c7ad1675cd606e40472e 
+Importing 'GUID: 5673d7b11cb9ad04eb2368068b720c17 - Path: Packages/com.unity.timeline/Editor/State' with importer (DefaultImporter)
+Imported 'GUID: 5673d7b11cb9ad04eb2368068b720c17' -> (Import Result ID: '83d5213f22eb9eab6963a382f5970b8c') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=2eac5a2e1c8ac0c556021a6fe4642614 DependenciesID=a2cc854d3d407853184d067848b3b275 StaticDependenciesID=4c24d6ea4fa4a841fdd6a74b6e353b26 
+Importing 'GUID: 66a7554a06f25f97fff92cdb46542b33 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Sampling' with importer (DefaultImporter)
+Imported 'GUID: 66a7554a06f25f97fff92cdb46542b33' -> (Import Result ID: '4cfb1baa27f314fb9f9ff1ccb773fc30') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=a1e00786cdeb862f48df6a4e01389f8b DependenciesID=26b42a2f5214a43e8709edc284600d81 StaticDependenciesID=90a4d105c0c985b9b1a516ecb7152932 
+Importing 'GUID: 8620e97e7e9859049934889a52248435 - Path: Packages/com.unity.timeline/Editor/Actions' with importer (DefaultImporter)
+Imported 'GUID: 8620e97e7e9859049934889a52248435' -> (Import Result ID: '484c3258ee3ee0142739a8da95b5af58') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=9def90ac2ba79112af73c5705f3d7773 DependenciesID=d331191b236754a2d79c8cf04c32e5f7 StaticDependenciesID=b799631b960217a0cd5885741cc83f64 
+Importing 'GUID: f601c0d674119f74db9c15166b3a58c4 - Path: Packages/com.unity.timeline/Editor/Extensions' with importer (DefaultImporter)
+Imported 'GUID: f601c0d674119f74db9c15166b3a58c4' -> (Import Result ID: 'd170c69848752babb96fad2bda4b1a8b') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=8257783ceb1fb930c0b7342711f3810d DependenciesID=211fd679cf6312843fa43d713d1d24a6 StaticDependenciesID=a206da60856a0935fc9280753fc2d211 
+Importing 'GUID: 57ff740bce4ab0c498ada374a8ca1dc0 - Path: Packages/com.unity.timeline/Editor/Analytics' with importer (DefaultImporter)
+Imported 'GUID: 57ff740bce4ab0c498ada374a8ca1dc0' -> (Import Result ID: 'e1c2ba1ee654dcd9911cce5779002407') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=393129eb08d85fba8f956299b81c6c99 DependenciesID=7ad582016931bd7fe348783061e4efd3 StaticDependenciesID=768b7cf0f1a914e7bad6e7ea9f47a345 
+Importing 'GUID: 97706ebfbd93cf04a8aed917f5dfd7c6 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/CLIAbility' with importer (DefaultImporter)
+Imported 'GUID: 97706ebfbd93cf04a8aed917f5dfd7c6' -> (Import Result ID: 'afbb4b32dd49ac7f3c69cb74a556d5f9') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=9a120edbf3e21bb9bf5c457d59bc921d DependenciesID=9e1918bd85ad50401cd27346e2c393ce StaticDependenciesID=070e345a94b3b78addd230fa409b9fd5 
+Importing 'GUID: 97ec50a9658d4ac7bff90f6decead87b - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Resources' with importer (DefaultImporter)
+Imported 'GUID: 97ec50a9658d4ac7bff90f6decead87b' -> (Import Result ID: '800f8f9f9d0c67ba62c5b530aa5b0e97') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=ab56e9c9eed2e555fe47d1c60284c232 DependenciesID=5738f9b22eb8add3053e554be2a7631c StaticDependenciesID=4cb306918f8ab298f2fb53eaaaca9a70 
+Importing 'GUID: a77cec0d8f4e942d383bb0c51a439644 - Path: Packages/com.unity.timeline/Editor/Localization' with importer (DefaultImporter)
+Imported 'GUID: a77cec0d8f4e942d383bb0c51a439644' -> (Import Result ID: '3f66e0a59fbebe15cfc165bbfcb405a8') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=75a6602a9c5ac7230c8330266136cfdc DependenciesID=9b8ab9195401d8250bf4b0a87e8b0d45 StaticDependenciesID=75a73d5f3127b1ba4748fb69db3cf537 
+Importing 'GUID: a73ebdb6c1006364f8c7b37dc53d8ab7 - Path: Packages/com.unity.timeline/Editor/Utilities' with importer (DefaultImporter)
+Imported 'GUID: a73ebdb6c1006364f8c7b37dc53d8ab7' -> (Import Result ID: '3bd5043aaff571c644ee19c28128e519') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=becce145279ae60f9166839927ed2ba6 DependenciesID=ddeb4f88b797c165cb7bd55816bb3dee StaticDependenciesID=f02612951404a68afb6b615ff88e1406 
+Importing 'GUID: a78f058523e54f3d9d123a501852cb59 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Ai' with importer (DefaultImporter)
+Imported 'GUID: a78f058523e54f3d9d123a501852cb59' -> (Import Result ID: 'fda23cf7e738a7a278f6ae60aafebe81') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=0f5adbacf0896e13ee6c71460cb61e82 DependenciesID=23a73773a05326e18cc3d9979f15510a StaticDependenciesID=e433dfbe17854aa80bbbcd06d4ae3401 
+Importing 'GUID: 28e8b16370ff78c4faca58757271619f - Path: Packages/com.unity.timeline/Editor/Window' with importer (DefaultImporter)
+Imported 'GUID: 28e8b16370ff78c4faca58757271619f' -> (Import Result ID: '5d350a746691f530ab21928a21310d6c') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=9046ee6484368b20fc8df9317590da52 DependenciesID=453e43facc49f7b700847636a64aed64 StaticDependenciesID=52314bdce3b56f3914aec0aea8e28d1c 
+Importing 'GUID: b8c5993172f27e4419d7d4ed5ef77840 - Path: Packages/com.unity.timeline/Runtime/Events' with importer (DefaultImporter)
+Imported 'GUID: b8c5993172f27e4419d7d4ed5ef77840' -> (Import Result ID: '06ee7a859e21b7b54ce53417c974663e') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=1f67dab3e6b736542c24717408852b88 DependenciesID=68b5187c8f5fd4520e917645c9b4fe95 StaticDependenciesID=59ff1818f1f1f609a0727574e75879a0 
+Importing 'GUID: f8730045d7da0f84cb11c0d868899577 - Path: Packages/com.unity.timeline/Runtime/Utilities' with importer (DefaultImporter)
+Imported 'GUID: f8730045d7da0f84cb11c0d868899577' -> (Import Result ID: '9aff932e30cad488b1daf27a3ba8758c') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=55760058a1c70826be275210ad276029 DependenciesID=bd4e0e8ada736653fb7979e5b405b223 StaticDependenciesID=3c15e8496042569c653b2a46eba61f9e 
+Importing 'GUID: 594c905c4cc2cae488b2a4a86d8a943c - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Core' with importer (DefaultImporter)
+Imported 'GUID: 594c905c4cc2cae488b2a4a86d8a943c' -> (Import Result ID: '62af9f28052504a043049904886e0edf') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=24a0e6cdc99fae32566457f84fe6d934 DependenciesID=61b4e8f534a77796cd93e84dcff5ddd3 StaticDependenciesID=4215d08e683b4e73b1c1c46b71ebc8b2 
+Importing 'GUID: 89dadab81112e244786f1380ba04f065 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraints' with importer (DefaultImporter)
+Imported 'GUID: 89dadab81112e244786f1380ba04f065' -> (Import Result ID: '6d954924e40901800008b3b6a637b28b') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=82e0a726748180830930a4474b56b787 DependenciesID=44076ca0651e0e72da9a0ad44f39989b StaticDependenciesID=c45514a6fa4e11382827f783679b8a67 
+Importing 'GUID: 3a5038547af7c7f46bd90a015862e0b3 - Path: Packages/com.unity.timeline/Editor/Items' with importer (DefaultImporter)
+Imported 'GUID: 3a5038547af7c7f46bd90a015862e0b3' -> (Import Result ID: '52a4979c47bafb83257fee498a948ee7') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=a45a743fb7a74a09e40f20fcbf25bc76 DependenciesID=3a0329fa8e08381f8b8ead5b1b6f216e StaticDependenciesID=a317d2eb57e49fa5aa9566fb044f6736 
+Importing 'GUID: 7a24ec4b5c3e08e47bf50c8298c1fe0d - Path: Packages/com.unity.timeline/Editor/ControlTrack' with importer (DefaultImporter)
+Imported 'GUID: 7a24ec4b5c3e08e47bf50c8298c1fe0d' -> (Import Result ID: '6fb40ed873fe3c5f9b6e804fa90341c0') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=d5ad4025081f04c0fcca49f1388f64ba DependenciesID=b08a2a52f0774f84ad3059fb8e7f7a44 StaticDependenciesID=a3990fdb6e1a7a10c59e96e06abc0ae5 
+Importing 'GUID: 9a6069768ff3d8043a79348813f86cba - Path: Packages/com.unity.timeline/Editor/Playables' with importer (DefaultImporter)
+Imported 'GUID: 9a6069768ff3d8043a79348813f86cba' -> (Import Result ID: '970dde60105b565a21679c3d63a6dc9e') in 0.006 seconds [static dependencies only]. Details - ImportResultOutputID=b67a6db84d35de503a0289eac961bd81 DependenciesID=1ba2445f8e90e9a68ff28077f8edde1e StaticDependenciesID=07f9fa6172b0fcdd60f9aa2080035375 
+Importing 'GUID: cae60a41b37427b48a00027b3e0fc1e6 - Path: Packages/com.unity.timeline/Editor/Manipulators' with importer (DefaultImporter)
+Imported 'GUID: cae60a41b37427b48a00027b3e0fc1e6' -> (Import Result ID: 'cded0f9a2de2b281dd3cfcd2c20ea424') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=e8a7cba7b3dabe470c5a1abc696a9a39 DependenciesID=76612c45baac543411b57315ad712d21 StaticDependenciesID=2d6b96881f6e2948e06bc44f8d7f337a 
+Importing 'GUID: ea998292f45ea494d9e100f5f6362f91 - Path: Packages/com.unity.timeline/Runtime/Control' with importer (DefaultImporter)
+Imported 'GUID: ea998292f45ea494d9e100f5f6362f91' -> (Import Result ID: '8469515abed21d20613f6303b8fa510b') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=78263d4a910c1aee0da58a032c716d0b DependenciesID=bb7f119b024c70f99910cd391d5808c1 StaticDependenciesID=f68a773d381a076712425c05b8743143 
+Importing 'GUID: 4b3e4ba2d8878ea41bb2e38502524526 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Generation' with importer (DefaultImporter)
+Imported 'GUID: 4b3e4ba2d8878ea41bb2e38502524526' -> (Import Result ID: 'cd10491641f4efd401edb93edb7a0b0e') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=9c3549ad75bcb6b1b06f4872a9c7f1b6 DependenciesID=f88f6c74178e51012bda8cdd0bea7038 StaticDependenciesID=d0fe7fb748b9bf6383a0786fd1f932e9 
+Importing 'GUID: 8b14bec2bf8aaba4cb3fa6ecd283dc65 - Path: Packages/com.unity.timeline/Editor/Undo' with importer (DefaultImporter)
+Imported 'GUID: 8b14bec2bf8aaba4cb3fa6ecd283dc65' -> (Import Result ID: '0a140dfafdc4fa7133469a9198bd7fa6') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=2394d979f6b366e764a5336c7add916d DependenciesID=1c0a8c15ac941ecb8ca295a11cf0b19a StaticDependenciesID=0ecb150d9a111653919594eaa46a809b 
+Importing 'GUID: 8b7d06780fca6fc4384580d3ebed9219 - Path: Packages/com.unity.timeline/Runtime/Playables' with importer (DefaultImporter)
+Imported 'GUID: 8b7d06780fca6fc4384580d3ebed9219' -> (Import Result ID: '7c259560d2283ec7052c183c9404694f') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=d943a956d094a7330bed8899fe792c53 DependenciesID=e774faf6fdf7e86ca51214d152c89dc9 StaticDependenciesID=951be010e3a7ed4262cb6086683f91bd 
+Importing 'GUID: ab72a9166535e384bba710eea94f795a - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Common' with importer (DefaultImporter)
+Imported 'GUID: ab72a9166535e384bba710eea94f795a' -> (Import Result ID: '70bcb5d3d1fde3937fb33fc1c03c6964') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=a63b7a511963a66622ca557a624a4931 DependenciesID=85e176596903bfdc9414f27c5f537f59 StaticDependenciesID=8117764dad5dcfcd5e36ac95f9703c55 
+Importing 'GUID: 0c04c8cb23b78e04492e0f310cdee93e - Path: Packages/com.unity.timeline/Runtime/AssetUpgrade' with importer (DefaultImporter)
+Imported 'GUID: 0c04c8cb23b78e04492e0f310cdee93e' -> (Import Result ID: 'a699014b244fc7c9e83283c5b353919b') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=22a869ca3736257a71b3dce3def62fa7 DependenciesID=21b429fa60332ee24b82dfee093010ea StaticDependenciesID=f8cb6ad3ac1c2505fc2446e01abd6d8b 
+Importing 'GUID: 4c6f60d349ea37048af03504fc872f33 - Path: Packages/com.unity.timeline/Runtime/Evaluation' with importer (DefaultImporter)
+Imported 'GUID: 4c6f60d349ea37048af03504fc872f33' -> (Import Result ID: '9d302b68c2e407be88fe796a5fb7e1da') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=4eb028bace86ae8b6503d3be8728a289 DependenciesID=5894e5264bc6203f17beb86cac042209 StaticDependenciesID=4a8c3e35f8961ef0633f695438661639 
+Importing 'GUID: 5c9e934e41d94ef989d3a36f6c3bd3e4 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Tools' with importer (DefaultImporter)
+Imported 'GUID: 5c9e934e41d94ef989d3a36f6c3bd3e4' -> (Import Result ID: 'd6d167b48c7d22caf805e3c0450a0a06') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=d2f72a97d0903054e9cd97196696fab8 DependenciesID=0e1b222e100d4ec3748221f2e44ccc45 StaticDependenciesID=cb54910620c3c8bf1e34cc5f76de228f 
+Importing 'GUID: 6c61ba0c209bcc74f83e3650039ebdf9 - Path: Packages/com.unity.timeline/Runtime/Extensions' with importer (DefaultImporter)
+Imported 'GUID: 6c61ba0c209bcc74f83e3650039ebdf9' -> (Import Result ID: '06581c4138246cabbd046ca74f80529c') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=075fac3be6dfad5db958a2a00eb3b9f4 DependenciesID=6cabcd2347a493b78759150fdd03be10 StaticDependenciesID=249a989543af46071f809ffb68221a60 
+Importing 'GUID: bca859bcf54a06cb1f7173eb891c3523 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Avatar' with importer (DefaultImporter)
+Imported 'GUID: bca859bcf54a06cb1f7173eb891c3523' -> (Import Result ID: '1f6c638802950ca1595ec9ce90252303') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=eb30d9b3c562ff7208a351aefda42d4f DependenciesID=b38ec031429608bf3759791a1fa58a47 StaticDependenciesID=f68a2e0ce5dc301deffdfb80f03b6296 
+Importing 'GUID: cce613d1538e76a4785658931c7db093 - Path: Packages/com.unity.timeline/Editor/Signals' with importer (DefaultImporter)
+Imported 'GUID: cce613d1538e76a4785658931c7db093' -> (Import Result ID: '3a637485161984d1139e7d416e4f963f') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=7cfc6234d69d31108cc77decdbb99315 DependenciesID=395c6ec73666b8f2e7f8b1b9cda19524 StaticDependenciesID=14846f95b1148c8d096def25259f86d8 
+Importing 'GUID: ec817e5e5781e0a4983a1dc8875d1974 - Path: Packages/com.unity.timeline/Runtime/Attributes' with importer (DefaultImporter)
+Imported 'GUID: ec817e5e5781e0a4983a1dc8875d1974' -> (Import Result ID: '6ba4f9c644b195aee0d6725bd80c73ae') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=ed8b1437fe7f1f38dea98fd889c7c4f6 DependenciesID=ba28bf3b0620be39dea33587fec0beb2 StaticDependenciesID=7e2ef3990e83467a4445426c77055773 
+Importing 'GUID: ece36bb2bc4128d42911bbc757a56860 - Path: Packages/com.unity.timeline/Editor/StyleSheets' with importer (DefaultImporter)
+Imported 'GUID: ece36bb2bc4128d42911bbc757a56860' -> (Import Result ID: '956751620a4d28210dae8e880c7cbe42') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=82a7767bbb14d91216e5c51985e2a94f DependenciesID=a241c4774a11068d61e6a0c71f7128d3 StaticDependenciesID=fcf23e688ca173788f84f825bfbe3cf1 
+Importing 'GUID: 1d62303155eef29a90e98e3d68748cce - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Clip' with importer (DefaultImporter)
+Imported 'GUID: 1d62303155eef29a90e98e3d68748cce' -> (Import Result ID: '489b9f0c6fd56162f508381aed8b0892') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=ef8c1b69d342c0557c3743cf376d9c72 DependenciesID=620de0a2eda0e49b5a075a89b4002d7b StaticDependenciesID=9742f869748a476a483e31f13afc0e58 
+Importing 'GUID: 2d8485e4e3a2bcb429fc32900ca26d9e - Path: Packages/com.unity.timeline/Editor/inspectors' with importer (DefaultImporter)
+Imported 'GUID: 2d8485e4e3a2bcb429fc32900ca26d9e' -> (Import Result ID: 'dda1d25f57894b5b88c656f9a5d47141') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=d5b388c69753b71f1865caabef513f4d DependenciesID=83e03bb86797239a1e52e60ab5ee0081 StaticDependenciesID=059e6259e015033e8c6afab32666e6d0 
+Importing 'GUID: ad70ff8d98b257540b683737743828cb - Path: Packages/com.unity.timeline/Editor/CustomEditors' with importer (DefaultImporter)
+Imported 'GUID: ad70ff8d98b257540b683737743828cb' -> (Import Result ID: 'f09927fec04662083f2d68d018e97faa') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=fda184013b25e2bdc31b4a11c282ba34 DependenciesID=bbd1d78a49b782ddf7fc7d2a10a7bb6f StaticDependenciesID=58d49c1b87124f3e331da922be3813b3 
+Importing 'GUID: bdb4f6935641b574b984da8dc27cab45 - Path: Packages/com.unity.timeline/Runtime/Scripting' with importer (DefaultImporter)
+Imported 'GUID: bdb4f6935641b574b984da8dc27cab45' -> (Import Result ID: '1e54eb7b266a821c329d6260cb140d14') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=1c3e1e18681cccdd84b845f448ed5c38 DependenciesID=22b464133a5dc5a2bde66cb61bcb32e7 StaticDependenciesID=187ff12c793399f0d5affec240a59655 
+Importing 'GUID: 1e2955738d9b546778e3eaa5257fa30a - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Server' with importer (DefaultImporter)
+Imported 'GUID: 1e2955738d9b546778e3eaa5257fa30a' -> (Import Result ID: '39e8fbd0cf3085b10458bd3f914457cb') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=08700749ec06e6e54aae17787cbb87cb DependenciesID=17de1673061624c347dd2ea08f160bd2 StaticDependenciesID=57f6fec23239531235ebb61dd4d9fcb9 
+Importing 'GUID: 6e7f90d0e4b974d9adcf0723c91df091 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Avatar' with importer (DefaultImporter)
+Imported 'GUID: 6e7f90d0e4b974d9adcf0723c91df091' -> (Import Result ID: '7ca8ffcb76842bdf6116f9ee5a0edf20') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=c600fbc5bd81021ac80a16660a670707 DependenciesID=63502a01ae14c12f692cfc029765270d StaticDependenciesID=d19742c4c1b2cac0cb243c5df490c21b 
+Importing 'GUID: de9eb5e2046ffc9448f07e495c436506 - Path: Packages/com.unity.timeline/Runtime/Animation' with importer (DefaultImporter)
+Imported 'GUID: de9eb5e2046ffc9448f07e495c436506' -> (Import Result ID: 'a7d1c7e440d0754838daa85321dbab07') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=757805109d81a338fc20ec1e081dd6c9 DependenciesID=9414575fe9d5d786ffc2e302196e97c3 StaticDependenciesID=fdf174a3f98baee616e87dcd15398cb2 
+Importing 'GUID: 0f71aeefaa877ae4787e8356f25ad1e5 - Path: Packages/com.unity.timeline/Editor/Properties' with importer (DefaultImporter)
+Imported 'GUID: 0f71aeefaa877ae4787e8356f25ad1e5' -> (Import Result ID: '3c5524a022122683ce3e338f4aecd172') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=384c97d63386821fb2547d927929fa36 DependenciesID=ea22429a84a61be82097f1d6f736cfd9 StaticDependenciesID=32735a3a3e76c30139aa35316a8fed5b 
+Importing 'GUID: 1f9fe2dcf34ba677224dd16381a046af - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Preview' with importer (DefaultImporter)
+Imported 'GUID: 1f9fe2dcf34ba677224dd16381a046af' -> (Import Result ID: '082319bbcf8038e9001f2bb6c5bc9adf') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=b4666696e84156cbce6e1266f9b3e5d9 DependenciesID=73cd907500f7d9f175f0c3d806d148de StaticDependenciesID=c48f1226031942c4b58d9555a22636b3 
+Importing 'GUID: 3f712d22a7bc4afc928520de3f941dcc - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Bridge' with importer (DefaultImporter)
+Imported 'GUID: 3f712d22a7bc4afc928520de3f941dcc' -> (Import Result ID: '80ad9c141eb5d96d67f5c40fb2bacfae') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=1fbba17f127b6ad6d1baf15d7a7530d9 DependenciesID=570dcb77d12c12d28772f4d4c36e1d63 StaticDependenciesID=486b7d5dc46031d969a03f6d9b490997 
+Importing 'GUID: 9f2ad7cb0b669c04d80de0ebde5db836 - Path: Packages/com.unity.timeline/Editor/Samples' with importer (DefaultImporter)
+Imported 'GUID: 9f2ad7cb0b669c04d80de0ebde5db836' -> (Import Result ID: '1ee241bfe6079257e75f1efd56380f20') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=f41523bba5fad642c754502e176d4133 DependenciesID=50ee3b3570ae6e77a625e2c1e746445f StaticDependenciesID=e231d712d2e6438c552ff3817d07df31 
+Importing 'GUID: ff97302ee78d6ad478b433ec557ee303 - Path: Packages/com.unity.timeline/Runtime/Properties' with importer (DefaultImporter)
+Imported 'GUID: ff97302ee78d6ad478b433ec557ee303' -> (Import Result ID: 'fe83f3355665dc11642e3f918e52db7c') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=5be7fe1bfe0856df2d4278b00285f2df DependenciesID=b933fda970418b40a7b7e639f4084eba StaticDependenciesID=63c23b791662b8ba87d3fb6e073c158a 
+Importing 'GUID: ffcbe86028d681144b703991885c535a - Path: Packages/com.unity.timeline/Editor/treeview' with importer (DefaultImporter)
+Imported 'GUID: ffcbe86028d681144b703991885c535a' -> (Import Result ID: '97dd523ffc34d7d9e211aac71068971d') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=2f5be7c10f109b1c7f00f4e8d8791d42 DependenciesID=c1d1c3e73ddc2d904af6881bf3650304 StaticDependenciesID=ebaca7182968db483fb588475340e213 
+Importing 'GUID: 12a2d6aa8a743f04aa760f8c675c97e6 - Path: Packages/com.unity.timeline/Editor/StyleSheets/res' with importer (DefaultImporter)
+Imported 'GUID: 12a2d6aa8a743f04aa760f8c675c97e6' -> (Import Result ID: '0e6626d4c2ee121695da4bfbecb53241') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=456177208ad3499a369906df98c27e1b DependenciesID=373a5a08908f14698cfd445a9438072c StaticDependenciesID=7c815bfe38c815fd549afa7230fa2532 
+Importing 'GUID: b2dedac180fec0649be7144132b51399 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Core/GenerationPipeline' with importer (DefaultImporter)
+Imported 'GUID: b2dedac180fec0649be7144132b51399' -> (Import Result ID: 'dc09f2edec5986237a1cf022fd9b0fd9') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=2b5bd9857ac0058a125047584394f2db DependenciesID=20adbdecd8a64e72a7ed0a3613db9316 StaticDependenciesID=6c31b7ebb2db291727aabc326af6ca90 
+Importing 'GUID: 7336b069ed635e843afb6f9465724855 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraints/Ardy' with importer (DefaultImporter)
+Imported 'GUID: 7336b069ed635e843afb6f9465724855' -> (Import Result ID: '3a346ac57d350b9ff452f5bc7a085c23') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=346f94f9e1e63801cb9673a449c6212c DependenciesID=b9f217f4c53c2b40d6cea03328518dbb StaticDependenciesID=8c651b5548da92eb35de84585a3a0e7a 
+Importing 'GUID: 54ec227ed0c5b804395b2cdd8b32225a - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Core/Manager' with importer (DefaultImporter)
+Imported 'GUID: 54ec227ed0c5b804395b2cdd8b32225a' -> (Import Result ID: '372d30946679dded2974c716fe674884') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=362d1b3418fa529b007886660a29f25b DependenciesID=fbbe89adda876d26eebe893efb20dbbb StaticDependenciesID=2208ad174d24798ef8329367a9cbe57c 
+Importing 'GUID: d40a0edbdcdcf9747a420f3bbe0f18db - Path: Packages/com.unity.timeline/Editor/treeview/Drawers' with importer (DefaultImporter)
+Imported 'GUID: d40a0edbdcdcf9747a420f3bbe0f18db' -> (Import Result ID: '03900a7b04e83ca5fcd9ce8d4766e4b4') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=d64537aa1e77d13ad8462d4074c4ceea DependenciesID=348763398318cb35fddea11cf860ca54 StaticDependenciesID=ed879aced9459c8a29caf0c609cdb018 
+Importing 'GUID: 85f36a2c3ad1f6a4d9b81a893cc81193 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Generation/Pipeline' with importer (DefaultImporter)
+Imported 'GUID: 85f36a2c3ad1f6a4d9b81a893cc81193' -> (Import Result ID: 'd245d2f18cea20e9136cf4b86c0b0362') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=6441bc1bdb2194ba47fd808501777354 DependenciesID=4b436e05b5e02c67be87802df6f1c752 StaticDependenciesID=42bf39a9162cdb9d3ea6af2c9800c4ce 
+Importing 'GUID: d55400f78d024c05b04dc124bb181d9e - Path: Packages/com.unity.timeline/Editor/Utilities/Scopes' with importer (DefaultImporter)
+Imported 'GUID: d55400f78d024c05b04dc124bb181d9e' -> (Import Result ID: '8865a5a860cdaa7c7744ec2368300020') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=9289d8d2d57f4d4812ebbea901b16504 DependenciesID=d78560617115b5c252069ccf633543d2 StaticDependenciesID=c564fc39b82d0e68ddf0ac0bccd78929 
+Importing 'GUID: 06ae1baf5524b314fa65b173b9eca869 - Path: Packages/com.unity.timeline/Editor/treeview/Snapping' with importer (DefaultImporter)
+Imported 'GUID: 06ae1baf5524b314fa65b173b9eca869' -> (Import Result ID: '3585f4bd97cfa595625892ddf444de90') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=3aec5c582cd27f523e233b7429261902 DependenciesID=38829715a6f1e11fcf2eebc658ffbc5b StaticDependenciesID=2ad3d5ecbb58e91a3b79641c54c104a2 
+Importing 'GUID: 86cacab070a0a46e99aedb596a32c4fe - Path: Packages/com.unity.timeline/Editor/inspectors/CurvesOwner' with importer (DefaultImporter)
+Imported 'GUID: 86cacab070a0a46e99aedb596a32c4fe' -> (Import Result ID: '0edbe0b1d8c988a48eca1d0ad4357a27') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=c3d1d5feed71f3c39545d6911f087486 DependenciesID=1bc2b7b1249250d1e47983ac9d2d62d6 StaticDependenciesID=b2ea904441fc5abad17e5c1b0e2be4b5 
+Importing 'GUID: f6d64d8648793944dbadfd71f0f4b0a1 - Path: Packages/com.unity.timeline/Editor/Manipulators/Trim' with importer (DefaultImporter)
+Imported 'GUID: f6d64d8648793944dbadfd71f0f4b0a1' -> (Import Result ID: '0531273f4d04771929489a75d19326d4') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=068f51142288c004e9cbaeb4b7244044 DependenciesID=d2beb1fdcd4904a3bd0db92a234a47ea StaticDependenciesID=5c144a6a01c3e1ce870dcfa42c83333f 
+Importing 'GUID: f68c7f7359094f045930a108c444e7a4 - Path: Packages/com.unity.timeline/Editor/inspectors/ClipInspector' with importer (DefaultImporter)
+Imported 'GUID: f68c7f7359094f045930a108c444e7a4' -> (Import Result ID: '0fd66367f3861b6325f66c794ee47406') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=a469fe196b47a43a9dc1afd9d63e1399 DependenciesID=873bacfbf3c318f653ad0c592486f440 StaticDependenciesID=c12203f85933602ffda124b4a7c017b5 
+Importing 'GUID: 37472f5179ca2004489ac901814cdbc3 - Path: Packages/com.unity.timeline/Editor/Window/Modes' with importer (DefaultImporter)
+Imported 'GUID: 37472f5179ca2004489ac901814cdbc3' -> (Import Result ID: '0895443a2fe7298ec6086669592be9ea') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=2f7dd00a4a782fcc64cf20fb9001b290 DependenciesID=a939229c6b680cd04c2a79e73da011c2 StaticDependenciesID=dfb7af9b9f2485a72ecb83f2422b2fd3 
+Importing 'GUID: 67e9c6cf60c57a54f9f4db1bc33fd2e3 - Path: Packages/com.unity.timeline/Editor/Manipulators/Utils' with importer (DefaultImporter)
+Imported 'GUID: 67e9c6cf60c57a54f9f4db1bc33fd2e3' -> (Import Result ID: 'bea39f21f9ccff95149660fac7a18f58') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=c2c77d0f1755e39bac82fb5325360790 DependenciesID=6454a4227459613854c9c39ac8a147eb StaticDependenciesID=95d8468a62eabf855280e3cb9cf484ec 
+Importing 'GUID: 9712ddc4988a6634d85c306b2a3964ce - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraints/Preview' with importer (DefaultImporter)
+Imported 'GUID: 9712ddc4988a6634d85c306b2a3964ce' -> (Import Result ID: 'fd60d9d917552a486fdebd899be6eceb') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=8260e31b7f8bffb39ea1cb3b06f3e0a6 DependenciesID=a88ee063b202d76d98df15d22d425b89 StaticDependenciesID=30e55a330e56005ca47cd8c4d43b2fee 
+Importing 'GUID: 985eed4bc2fbee941b761b8816d9055d - Path: Packages/com.unity.timeline/Editor/Actions/Menus' with importer (DefaultImporter)
+Imported 'GUID: 985eed4bc2fbee941b761b8816d9055d' -> (Import Result ID: 'd13c1d62429ce54958800c1c4e8559d2') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=37fb4cfed04ea48c7d5e3f0c36e55a7e DependenciesID=b2aada3a754bc6f28423fabee560f5ff StaticDependenciesID=40f33f697c7f717bdb0bfeac480bacad 
+Importing 'GUID: c85fbb4424935b84fbde9f92c5a32028 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraints/InOut' with importer (DefaultImporter)
+Imported 'GUID: c85fbb4424935b84fbde9f92c5a32028' -> (Import Result ID: '76d503c748cf88de0cad31f415bd96d0') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=14a7fbd75b04fcf69eafae0600a48e5f DependenciesID=a525e8e2feefb5b0d673177658b83ccb StaticDependenciesID=deee574b317ce58599d65c3955964b73 
+Importing 'GUID: 190bc7a78326a6d40881cb4447d600e7 - Path: Packages/com.unity.kimodo_unity_motion_tools/TimelineInject/Runtime/Constraints' with importer (DefaultImporter)
+Imported 'GUID: 190bc7a78326a6d40881cb4447d600e7' -> (Import Result ID: '72a221f684018aa80d0b941ce986ce24') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=6e2ba7cf05224da6cb7f84cd871aac42 DependenciesID=1e9cc18a58bc621d4687670c94760b6c StaticDependenciesID=b93da714eafa8b4ed0d10c45e4e5f1bb 
+Importing 'GUID: b9d7bb79ed0c2854a8a5ed7decc3e44f - Path: Packages/com.unity.timeline/Editor/Window/ViewModel' with importer (DefaultImporter)
+Imported 'GUID: b9d7bb79ed0c2854a8a5ed7decc3e44f' -> (Import Result ID: 'd1e3fdde3fe71067193591263a2e0667') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=6066846c25e31af2d932ff77d53f1791 DependenciesID=ca7dbfb5a8cb49d07e0c9cf78777ca78 StaticDependenciesID=e1de2675797e5a3ddee73d563f012436 
+Importing 'GUID: 4ad09461bf994e54da846f726a23118e - Path: Packages/com.unity.timeline/Editor/Manipulators/Cursors' with importer (DefaultImporter)
+Imported 'GUID: 4ad09461bf994e54da846f726a23118e' -> (Import Result ID: 'a221b986560fb1831e8e6b81d2d0a63f') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=b9a90c1860e59fe3e45b1be6f3d93eb4 DependenciesID=cd2dbb9d26e6432dddb87306deb384b7 StaticDependenciesID=fec8eb5b45f0e26bd489ed06cb9ae281 
+Importing 'GUID: 9ae2a76ee7ccca0428dc74da645e9f5c - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraints/Generation' with importer (DefaultImporter)
+Imported 'GUID: 9ae2a76ee7ccca0428dc74da645e9f5c' -> (Import Result ID: '9f9a5fa5298d8a34e9159d2944fe5029') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=5f837750ae784dafb7b7b5080fdabc78 DependenciesID=1d1a3b48964cf2325c3c25872e5cb62e StaticDependenciesID=8c686c7cf121a43c6ce244cdbc9ef0ab 
+Importing 'GUID: daf7e0225dc54a478bcf324f45081186 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraints/Path' with importer (DefaultImporter)
+Imported 'GUID: daf7e0225dc54a478bcf324f45081186' -> (Import Result ID: 'f84e28de7967380777b4c109f94b9bf1') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=55f7bf46f23d4c2f32295a1d324196ac DependenciesID=b19f76cb9236652e89a81132c3967db9 StaticDependenciesID=a75924e84a72ac6cbff2853712a51e83 
+Importing 'GUID: fa68ac03b8845a142974ec6497cb4acc - Path: Packages/com.unity.timeline/Editor/StyleSheets/Extensions' with importer (DefaultImporter)
+Imported 'GUID: fa68ac03b8845a142974ec6497cb4acc' -> (Import Result ID: '3bb231a89de976769c4308b7ad7661d2') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=1fe98b8bce3412e427f97c92fde81173 DependenciesID=022db044b1d841b25b948dbc124e752e StaticDependenciesID=cf491c4eb7765b8c44668177d2218cae 
+Importing 'GUID: 5b00473355622524394628f7ec51808d - Path: Packages/com.unity.timeline/Runtime/Events/Signals' with importer (DefaultImporter)
+Imported 'GUID: 5b00473355622524394628f7ec51808d' -> (Import Result ID: 'b22a8e30652bacdaf304f863d48edc42') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=df0af3c69b3bf4c6f13215504c20266b DependenciesID=3b4dffa87b290b6c2e42c2ada667c355 StaticDependenciesID=eeb88e38407340970dd57b8926fe56e4 
+Importing 'GUID: 5ba130fc1db953547a50bcf5c162a3e8 - Path: Packages/com.unity.timeline/Editor/Signals/TreeView' with importer (DefaultImporter)
+Imported 'GUID: 5ba130fc1db953547a50bcf5c162a3e8' -> (Import Result ID: 'c7bc931dc5ffa7e6858a92a78ad56b85') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=d0677d6f97bf0fc518248aa6bee07a65 DependenciesID=0da470687ddf4db32f92bf145eb1332b StaticDependenciesID=aaf7ada422a66fd09819f555b5f773e2 
+Importing 'GUID: db34f310723c62440a05d3e69f262a70 - Path: Packages/com.unity.timeline/Editor/Manipulators/AddDelete' with importer (DefaultImporter)
+Imported 'GUID: db34f310723c62440a05d3e69f262a70' -> (Import Result ID: 'fb350b6ed6f02a1b74f1b7fd8fb7fbc1') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=874c8fb6cb6108fed248e38ca3287f69 DependenciesID=13e79a686e96d89ac48077e824118cf6 StaticDependenciesID=854a0ef5c57720263594a58eb4e2478f 
+Importing 'GUID: 4c7e748e107315f1cf3fd111ef492c92 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Preview/Avatar' with importer (DefaultImporter)
+Imported 'GUID: 4c7e748e107315f1cf3fd111ef492c92' -> (Import Result ID: '012ea54ae5d3079cd07a59a67b7ffd90') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=cab4e76a71ca04fcaab450fca5b1ff79 DependenciesID=bdce6b8d46cc277ee463b408d3795f8c StaticDependenciesID=42f58407aa6668a6a942e004b7e5a60e 
+Importing 'GUID: 9c7a66319d373ec4e868715990f533aa - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraints/UI' with importer (DefaultImporter)
+Imported 'GUID: 9c7a66319d373ec4e868715990f533aa' -> (Import Result ID: '9c39fc94bb884fc594250b03b737a7fa') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=25a0d9d29ee4f4260c3cbd17f31d945f DependenciesID=26af33a1d0198ea0681059fbde0a735a StaticDependenciesID=27311c97ab8edb0069008880637a6237 
+Importing 'GUID: 3d453576028bb344db0d59db893bf3a6 - Path: Packages/com.unity.timeline/Editor/treeview/TrackGui' with importer (DefaultImporter)
+Imported 'GUID: 3d453576028bb344db0d59db893bf3a6' -> (Import Result ID: '4e7783b7d302842f21b9e2c78a6cec58') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=744aebc2de9dc037ecea7e16235b54c0 DependenciesID=17122d11ea2a6688a19bd7f085b5a8c0 StaticDependenciesID=c396cc9502251681db57d28409479d6c 
+Importing 'GUID: 9d816a6ab06c6834480f5f45f440e287 - Path: Packages/com.unity.timeline/Editor/treeview/ItemGui' with importer (DefaultImporter)
+Imported 'GUID: 9d816a6ab06c6834480f5f45f440e287' -> (Import Result ID: '2f4b500c428ed5116ed64f4c6436cf13') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=5d13cd041d30327c9bec815ce5710e78 DependenciesID=20c9a770ced2ff4f4f298deabbcf9581 StaticDependenciesID=27bb0541eeb0de9fa63ded94ae134276 
+Importing 'GUID: bd3ffb9a97575a44a82f9ca086813154 - Path: Packages/com.unity.timeline/Editor/Manipulators/Move' with importer (DefaultImporter)
+Imported 'GUID: bd3ffb9a97575a44a82f9ca086813154' -> (Import Result ID: 'eb692aee66230a5da8e76a27c1de75ac') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=5f8bef7a7f26be5f755b9e92d276de0e DependenciesID=8a690b52b69bf1c91dcea269722db91d StaticDependenciesID=b7ec97c411e2040c8ae3a973e695ef46 
+Importing 'GUID: dec586c160776104da4d9a4e472662bc - Path: Packages/com.unity.timeline/Editor/Manipulators/Sequence' with importer (DefaultImporter)
+Imported 'GUID: dec586c160776104da4d9a4e472662bc' -> (Import Result ID: '4224d65c472a58d215a9887e1fe3c5c1') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=3ab67d3915e770a5b0c2565ee3b7c0e1 DependenciesID=1fed7b60fc7025183fbfbed7e70da605 StaticDependenciesID=7101d53207754d1099aa02a4837ba3f8 
+Importing 'GUID: 5f603f10b9ec26841b2ecb6003dc1d0e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images' with importer (DefaultImporter)
+Imported 'GUID: 5f603f10b9ec26841b2ecb6003dc1d0e' -> (Import Result ID: 'b56785ab304bab2d809c58e1cd0c4e03') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=4f758fe79c66d3da96e7df9601304fdb DependenciesID=c4f536732e5af1916553e1b232128ff7 StaticDependenciesID=00317e2ed49080ea8c85cf9f94964fc1 
+Importing 'GUID: bf75c8e9905eca1469bdb21977073b58 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraints/Normalization' with importer (DefaultImporter)
+Imported 'GUID: bf75c8e9905eca1469bdb21977073b58' -> (Import Result ID: 'c6ac65868e07e1fd34d74d8c13034c5f') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=9b98114dde8c6ccf535264041f6a0ce8 DependenciesID=098bcd45dcb99ebb40560e0dac3f215a StaticDependenciesID=6e2f92e62a3d1db3332556521936201d 
+Importing 'GUID: ef6de8914d35dc346b6f56f1560052e0 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Bridge/Protocol' with importer (DefaultImporter)
+Imported 'GUID: ef6de8914d35dc346b6f56f1560052e0' -> (Import Result ID: 'dda3e2e87f0f3a3106772664b535cbbe') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=abb2026a24a0dfd44356c15074e35a3a DependenciesID=19ecbd668c46d56cfb48ea1e6241f4c0 StaticDependenciesID=21fd992f4231cdd96b684eafd2bff093 
+Importing 'GUID: 21b6b069ae021364ab45e1094807ec98 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin' with importer (DefaultImporter)
+Imported 'GUID: 21b6b069ae021364ab45e1094807ec98' -> (Import Result ID: '9784e2878cf7d7f871a029d951f6d02e') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=5464331e643a2ff868a33314e36f30a5 DependenciesID=9da1f2a64ca639610f3c09e784df3639 StaticDependenciesID=25a6bf79eb53681295b9b038723b6c24 
+Importing 'GUID: 456d458547ae36d44a13d4a4682f0441 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Shared' with importer (DefaultImporter)
+Imported 'GUID: 456d458547ae36d44a13d4a4682f0441' -> (Import Result ID: '63d06439461344b94012074f5e9ecc1d') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=4467844a9e6706b4ce4447aacb59f546 DependenciesID=ab0e9dc5a6c7a1f3d909824b4bdedd88 StaticDependenciesID=4abeb081efdb8cb30d500b9525557807 
+Importing 'GUID: 16388ae022a89264b84107f0c1b44680 - Path: Packages/com.unity.timeline/Editor/treeview/Drawers/Layers' with importer (DefaultImporter)
+Imported 'GUID: 16388ae022a89264b84107f0c1b44680' -> (Import Result ID: '5f124bd2385025569af2f331d2a4e459') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=2131d50a6d4444925bd3f713c2960d63 DependenciesID=a1de4d891b635e59e685585d7523e91f StaticDependenciesID=5187bdc55421f86e7be06b4b5d010c55 
+Importing 'GUID: f6c67c989a798c748aee67a19120d898 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Bridge/Protocol/Plugins' with importer (DefaultImporter)
+Imported 'GUID: f6c67c989a798c748aee67a19120d898' -> (Import Result ID: 'f0c2267195ad038a961bfa5153ad1799') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=6f3c8634bb1aaead10030e9e36ab0282 DependenciesID=ee8ea921662f3917209a2812d5df17ee StaticDependenciesID=e282fd3ecda93bb739f97ccc2b6380f4 
+Importing 'GUID: a90603761ea3d8449a60aebebd202228 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons' with importer (DefaultImporter)
+Imported 'GUID: a90603761ea3d8449a60aebebd202228' -> (Import Result ID: 'ed7dcfe896c1c18d32e8e5409c22d148') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=e6e0b98c85422c89eb9108ce6ba11de4 DependenciesID=443a5510cafdcc20a17a9584a76b5a74 StaticDependenciesID=3d004b7d7928b3564353b63c6baff499 
+Importing 'GUID: c94c14933d814144eba796272908bd95 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Bridge/Protocol/Generated' with importer (DefaultImporter)
+Imported 'GUID: c94c14933d814144eba796272908bd95' -> (Import Result ID: '0190db218f301c73622b0431c56b2128') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=127ab114014df0ab4341a83d75fc218f DependenciesID=e6a2835d7f5e179c1fe3bbdbbc686cd7 StaticDependenciesID=0bbd6f3ba640b673bd865bc2551b1e75 
+Importing 'GUID: 8ad9b938ad733e94ca95fe5a5c19a5b8 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin' with importer (DefaultImporter)
+Imported 'GUID: 8ad9b938ad733e94ca95fe5a5c19a5b8' -> (Import Result ID: '45d6659d905f1cd11e5889058ad2f8dc') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=040f2ebfbe6f71907499352587d096f0 DependenciesID=b22c02162ee491f2d7d9c046cd143e50 StaticDependenciesID=473d8083ab67f2a18dfec73d0a1ab92e 
+Importing 'GUID: f06555f75b070af458a003d92f9efb00 - Path: Packages/com.unity.timeline/Runtime/Unity.Timeline.asmdef' with importer (AssemblyDefinitionImporter)
+Imported 'GUID: f06555f75b070af458a003d92f9efb00' -> (Import Result ID: 'a09ade8cc43e3c6d787ade7d19e563c9') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=929857d72ca6f6c0c2c1e88dfe0b7977 DependenciesID=711a8047d96a6e0418bd944ea033b6e8 StaticDependenciesID=f1c9d137448c319e3647f0627ef9a919 
+Importing 'GUID: 02f771204943f4a40949438e873e3eff - Path: Packages/com.unity.timeline/Editor/Unity.Timeline.Editor.asmdef' with importer (AssemblyDefinitionImporter)
+Imported 'GUID: 02f771204943f4a40949438e873e3eff' -> (Import Result ID: 'f03154249058259090fb47a1d030d7a0') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=c975a7bb6214e5b33d042e3b8d770e66 DependenciesID=3ee47d4645279731d0fa606d26816f05 StaticDependenciesID=ef1f26a4002ac04f9b6e3df0ffd3d07e 
+Importing 'GUID: 33dc2ceca38ccf94bb509ad209902a15 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Tests/KimodoTool.Editor.Tests.asmdef' with importer (AssemblyDefinitionImporter)
+Imported 'GUID: 33dc2ceca38ccf94bb509ad209902a15' -> (Import Result ID: '9c03081c042675638c798c843715b512') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=7616451124235219f4938343c8e060f7 DependenciesID=f63a8c1b829730e5f2c0ad13ba672a3f StaticDependenciesID=7949c0d95d218fc3a4b26bbc922917ae 
+Importing 'GUID: 54f114e602d205743a02438efbf668d9 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/KimodoTool.Editor.asmdef' with importer (AssemblyDefinitionImporter)
+Imported 'GUID: 54f114e602d205743a02438efbf668d9' -> (Import Result ID: 'b8ab23a88524a5c4b552e9f6aa48aac3') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=812496ef1fc20130e2c67c02e2693836 DependenciesID=f3bb2b1ee8d840e3a889fccb81f671ee StaticDependenciesID=3346ac10446507f368c5a08667939443 
+Importing 'GUID: 9550f6b9c1ac87345a996c43f204fb30 - Path: Packages/com.unity.timeline/DocCodeExamples/DocCodeExamples.asmdef' with importer (AssemblyDefinitionImporter)
+Imported 'GUID: 9550f6b9c1ac87345a996c43f204fb30' -> (Import Result ID: '6e82f60e0c8f3b851e5ccbca94cd19cb') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=48d256367a7bac6360b85afd4e1d38d3 DependenciesID=2e8913c634fd58dcafbe649780f97758 StaticDependenciesID=b8cd1348ac0bb45e58737942e65f41ad 
+Importing 'GUID: 4f39d61532cb43e198f3c8cc61ec43d1 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Constraints/Path/KimodoTool.Splines.Editor.asmdef' with importer (AssemblyDefinitionImporter)
+Imported 'GUID: 4f39d61532cb43e198f3c8cc61ec43d1' -> (Import Result ID: 'a829249658f6fd08d3607291e7ef732f') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=4e290d8d56fb614064c9ad4b191ab7b2 DependenciesID=dd22e4f556d557d61029edc511c351ba StaticDependenciesID=fa1e1f14075bcfc8898d4a54a6f7731c 
+Importing 'GUID: ff86ae37735575640ba2ef5dc2b53cc9 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/KimodoTool.asmdef' with importer (AssemblyDefinitionImporter)
+Imported 'GUID: ff86ae37735575640ba2ef5dc2b53cc9' -> (Import Result ID: '27976cb61f5b14eee2f04202fca07cf1') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=4bed0fa1eed5e4d562ac970b79f256ae DependenciesID=d2c8dbb830aab238e62ae26b0de7ec3f StaticDependenciesID=1f5bbcd7ed0784a2b25197f1b783331d 
+Importing 'GUID: c3caac5ea594b3c449f2fb7c09a17e0e - Path: Packages/com.unity.kimodo_unity_motion_tools/TimelineInject/Runtime/Timeline.asmref' with importer (AssemblyDefinitionReferenceImporter)
+Imported 'GUID: c3caac5ea594b3c449f2fb7c09a17e0e' -> (Import Result ID: 'c7b1ac206916a9f2f755c83054a3ee9d') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=85674f023dfb250f4cfc364f4a1626fc DependenciesID=dbced89f0221df899f4789f81713a801 StaticDependenciesID=fb5af61a2b792faa4e81df616b48ca87 
+Importing 'GUID: fe5df4533da936a40a30258543cc4186 - Path: Packages/com.unity.kimodo_unity_motion_tools/TimelineInject/Editor/TimelineEditor.asmref' with importer (AssemblyDefinitionReferenceImporter)
+Imported 'GUID: fe5df4533da936a40a30258543cc4186' -> (Import Result ID: 'f2abd81e30ad3f30c8fb585febab859f') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=a440ec6c37c31334a11308c1a2eb9119 DependenciesID=ef2667494bbc9116a31794fcddecda93 StaticDependenciesID=c50ba27c62cbb54ebdacc83fb039f9e5 
+Native extension for WindowsStandalone target not found
+ScheduleIndexationOnStartup MainProcess:True IndexOnStartup:True
+Mono: successfully reloaded assembly
+- Finished resetting the current domain, in  0.471 seconds
+Domain Reload Profiling: 1186ms
+	BeginReloadAssembly (346ms)
+		DisableScriptedObjects (34ms)
+		CreateAndSetChildDomain (160ms)
+	RebuildCommonClasses (9ms)
+	RebuildNativeTypeToScriptingClass (16ms)
+	initialDomainReloadingComplete (81ms)
+	LoadAllAssembliesAndSetupDomain (260ms)
+		LoadAssemblies (226ms)
+		AnalyzeDomain (38ms)
+			TypeCache.Refresh (27ms)
+				TypeCache.ScanAssembly (19ms)
+			BuildScriptInfoCaches (9ms)
+	FinalizeReload (474ms)
+		SetupLoadedEditorAssemblies (0ms)
+			BeforeProcessingInitializeOnLoad (102ms)
+			ProcessInitializeOnLoadAttributes (87ms)
+			ProcessInitializeOnLoadMethodAttributes (84ms)
+			AfterProcessingInitializeOnLoad (15ms)
+		AwakeInstancesAfterBackupRestoration (25ms)
+Importing 'GUID: 2c489f852d28e31448d7c15dc5d5e5f7 - Path: Packages/com.unity.kimodo_unity_motion_tools/LICENSE' with importer (DefaultImporter)
+Imported 'GUID: 2c489f852d28e31448d7c15dc5d5e5f7' -> (Import Result ID: 'db110a5ee35d8ce80435f887fb65e601') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=8c8fa97d5125ca16798b5d4b962eef24 DependenciesID=b63f1fb079317d57a8a4264929ad234e StaticDependenciesID=1fe7c121453de7ecf9b22deb87bde6ef 
+Importing 'GUID: 7d34f3cc1c0185b4990cf748e55a8688 - Path: Packages/com.unity.nuget.newtonsoft-json/Runtime/Newtonsoft.Json.pdb' with importer (DefaultImporter)
+Imported 'GUID: 7d34f3cc1c0185b4990cf748e55a8688' -> (Import Result ID: '6d63bb84a211312a9319f9cce0bd15cc') in 0.016 seconds [static dependencies only]. Details - ImportResultOutputID=ab0b3aab74758e59ca0d8012b2070e2e DependenciesID=ee6e7742f71a7167c9f9bd7e8dd43b98 StaticDependenciesID=e2db1a5bc07490eddfcf3a8e57edebff 
+Importing 'GUID: 1396f5bdc432cd247ac75b97a31e4d1a - Path: Packages/com.unity.nuget.newtonsoft-json/Runtime/AOT/Newtonsoft.Json.pdb' with importer (DefaultImporter)
+Imported 'GUID: 1396f5bdc432cd247ac75b97a31e4d1a' -> (Import Result ID: '50bbc61095f632f2ddba4ec4ed5746b2') in 0.001 seconds [static dependencies only]. Details - ImportResultOutputID=4c69539965c9a1fdd5169cc0adbf45ec DependenciesID=6010b2a9477e3bc4039447caabb1c7a7 StaticDependenciesID=1717f35951ede7329923119540a8d8d5 
+Importing 'GUID: a547a7f0abac69e4ea6783ad8a706637 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Bridge/Protocol/motion_packet.fbs' with importer (DefaultImporter)
+Imported 'GUID: a547a7f0abac69e4ea6783ad8a706637' -> (Import Result ID: '293d1c2ae67c7d411b8f756c5abe99a5') in 0.007 seconds [static dependencies only]. Details - ImportResultOutputID=69975d5bdccdb8bbc2406d12a2ed0ab3 DependenciesID=ddaa0c3fe1888f762a57951e50f28167 StaticDependenciesID=9b863809d840f775334271d8a9d945fe 
+Importing 'GUID: 40947ddc2dd4f0d499a92d0f3675c4e8 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineCollapseMarkerButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: 40947ddc2dd4f0d499a92d0f3675c4e8' -> (Import Result ID: '347ac7d5418d04b79db2926fa8bf5463') in 0.008 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=e2453d4e88ae86692f604d518a18f9d9 DependenciesID=4dcdfb61e816e31fd04cd76541d2f116 StaticDependenciesID=1e07646f423c47cb74dc6a423ae833c5 
+Importing 'GUID: 5060c9f9eb2f7ee4695b638a21d8fe01 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineStartPlayback.png' with importer (TextureImporter)
+Imported 'GUID: 5060c9f9eb2f7ee4695b638a21d8fe01' -> (Import Result ID: '52949da8b5699359853234e73092c8c1') in 0.004 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=75f808ccdc88202de42c9173b77eafb7 DependenciesID=905b753eaad240f33c1615ea6f03691e StaticDependenciesID=404dfaedf739c8ec7b3f55ef7f17e9ba 
+Importing 'GUID: 6091f9516d23100479c03bca26138bc8 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackRecordButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 6091f9516d23100479c03bca26138bc8' -> (Import Result ID: '8b131c7607bf18f9695c278eeddd3424') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=87b79eea3f3f4058d6ec2796fdf633a3 DependenciesID=8b8b1f7fde7e14a9a8023fb0ce300184 StaticDependenciesID=01869190af389e2af44d4619e3f47ff9 
+Importing 'GUID: 70e3f118652b9094885689730ad3a47b - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelinePlayRange.png' with importer (TextureImporter)
+Imported 'GUID: 70e3f118652b9094885689730ad3a47b' -> (Import Result ID: 'c30b70ded2f4ff72ab2281fa0a86e4a0') in 0.004 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=e721050982d1be7d9a15163028f1dfbe DependenciesID=dd072f638989956f2fb8ab281e861f74 StaticDependenciesID=170c6d07d249db81fff693bd4bc6fa45 
+Importing 'GUID: a04f1625bf500f64e97445265dfbcc93 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Shared/TimelineConnector.png' with importer (TextureImporter)
+Imported 'GUID: a04f1625bf500f64e97445265dfbcc93' -> (Import Result ID: 'e7832649d5a03b1dd7a77844b2e99378') in 0.004 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=ecd88845603f250ad1496ac0ced24a01 DependenciesID=baa924ce9ee040907f00f6c972ef8415 StaticDependenciesID=01c7daac2fc3ac6f377ad76f35b94f77 
+Importing 'GUID: a09fd8b5d9396c24a96a6de50cddc3b9 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineHold.png' with importer (TextureImporter)
+Imported 'GUID: a09fd8b5d9396c24a96a6de50cddc3b9' -> (Import Result ID: 'e348e085c41c1a8b041d39a6be4faf60') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=853a45a852f5ea8dd1be298025d5c00c DependenciesID=cb325cdeb16c6b52dbc57c83be9d49cf StaticDependenciesID=5c4a02eb3c453b11453d8b5d27d706f4 
+Importing 'GUID: f0f8ff8921b22a74a8c79d955ace248d - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackCurvesButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: f0f8ff8921b22a74a8c79d955ace248d' -> (Import Result ID: 'fe25748c287f47263c976cdf2a10865e') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=3dd047eeece40321e45d8d79d25e3f0a DependenciesID=3be6bdefa8c029641d2c57dddeb90d1e StaticDependenciesID=07ab36406862cc7454f579a4d0e7df0c 
+Importing 'GUID: 4171b549947246b4f9579419d5698a7e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineIconClipIn.png' with importer (TextureImporter)
+Imported 'GUID: 4171b549947246b4f9579419d5698a7e' -> (Import Result ID: '288c953407af7b6a5c8636c8f8d02d43') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=06fcfc7b96ca34b59e90b9fccef531c9 DependenciesID=dbba0b155249c5c75d0e5c101477dd2f StaticDependenciesID=c7eff44decdf797656731a588abb9155 
+Importing 'GUID: 411e6f19c19fa0546af83aeb59c2ed4b - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineEditModeRippleOFF.png' with importer (TextureImporter)
+Imported 'GUID: 411e6f19c19fa0546af83aeb59c2ed4b' -> (Import Result ID: '274e1c74bc36557c1308a4479d281f1f') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=8633a7168c04677d0bd3e6985f0cfa94 DependenciesID=ce4c9bbbcb14728f5f3bb314b8bbfce3 StaticDependenciesID=3e36093952554e0813653d213fbefb43 
+Importing 'GUID: 412f73153f3a3c549b67b2a847741145 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineDisabledBackground.png' with importer (TextureImporter)
+Imported 'GUID: 412f73153f3a3c549b67b2a847741145' -> (Import Result ID: 'c824825c58215a4404200a3e5fcea278') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=48bc8c0a21bb4a8518a003e482755c60 DependenciesID=37f6b5216b0d0454380774d776dd974b StaticDependenciesID=44616a20f845325424bb92e0070e8a19 
+Importing 'GUID: 512aaee9b220348408a2e518f98d6e14 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackMuteButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 512aaee9b220348408a2e518f98d6e14' -> (Import Result ID: '0c7484e6bebcfb425a2977e6fb4b6a0f') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=6b4ccfbdcc6052fc5f7557978a1b9e05 DependenciesID=fee679aa18997731f4dc15c54ecccafe StaticDependenciesID=5263804397dcff3e7fa6c446af228b72 
+Importing 'GUID: 51bf5f55a8a01e546bf6092b54fdae20 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackAvatarButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 51bf5f55a8a01e546bf6092b54fdae20' -> (Import Result ID: 'a3391cb670ed1421da34511842f78aaa') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=0ac8f9813485f7899ba7ed71684bf2d8 DependenciesID=390db8717575c62f00931e0dc146ace6 StaticDependenciesID=145daa1306991981883cb07af4895d66 
+Importing 'GUID: 6192986415256ca47a97a97507406f5e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackMarkerButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 6192986415256ca47a97a97507406f5e' -> (Import Result ID: '8ff768f4e4ad3e9e78b8141b1440fbae') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=40ee6cc9bab4233d3f6d5606f9d6ff66 DependenciesID=ff838f48881a6115fd9e2a4ea6ef5dae StaticDependenciesID=61d9bb39062e069b4fb28fd6c2a51c80 
+Importing 'GUID: 61c21f74972ba8246b3ea400a9231841 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineContinue.png' with importer (TextureImporter)
+Imported 'GUID: 61c21f74972ba8246b3ea400a9231841' -> (Import Result ID: '5376afd143f4c9b9f523687a65dbabeb') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=0be8ab9b40c33f5ca74fa7ddbcbd0e67 DependenciesID=98025c85bda6dee06c804d471c64c3f1 StaticDependenciesID=0fe0c5edaf142408af53f31ca5e790e4 
+Importing 'GUID: 81e8b4a4bcbf7a14898e2658fd827642 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackMuteButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: 81e8b4a4bcbf7a14898e2658fd827642' -> (Import Result ID: 'e199e7c13a563b14eea40d72a39a49f8') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=dbe99d0e169a6655da3e150e7bff7d8d DependenciesID=33254a33f5b71553c848ec0ff3be98e7 StaticDependenciesID=d9f52785ae59c6f547bcea89aa1d39b5 
+Importing 'GUID: 91746a504b59769439bb2749c314d231 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackAvatarButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: 91746a504b59769439bb2749c314d231' -> (Import Result ID: 'd9d4296ad640cc2383522671dd19f316') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=80039ea10a4b60efe63ae9a1c80a7a52 DependenciesID=83e69697969551d1b63e1c84805a8080 StaticDependenciesID=aec81f576980d063d53b5cd8b25b34f1 
+Importing 'GUID: 912fd71cbf4cbe140b4f240bedbc1f3e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineEditModeReplaceOFF.png' with importer (TextureImporter)
+Imported 'GUID: 912fd71cbf4cbe140b4f240bedbc1f3e' -> (Import Result ID: '783e9b28a17a98314ef21719c67b7fe2') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=c6d92f26608f296ba6a9cd72f96c9af9 DependenciesID=f966ced802e318a59672c2abf630eb47 StaticDependenciesID=2d73fc8bf733c0c1b6d474e6aa391c3c 
+Importing 'GUID: b1d064d6d80829f4eb370f679384ea1f - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineDigIn.png' with importer (TextureImporter)
+Imported 'GUID: b1d064d6d80829f4eb370f679384ea1f' -> (Import Result ID: '6592e3bb16b799ca1a71041a3b2689e9') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=a6f2e8a285d5c41ca966ddbc2f34be34 DependenciesID=ec0618dc857cab7f2f0240b850b49427 StaticDependenciesID=db9ca3d05ce850e213e30d083c68bda3 
+Importing 'GUID: c133595e3c100774496e03e66fa69259 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineMarkerItem.png' with importer (TextureImporter)
+Imported 'GUID: c133595e3c100774496e03e66fa69259' -> (Import Result ID: 'ed3a4832bf59193c5f1d222c99c8386a') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=cedbf03511cb0512ad93c2fd8cc16157 DependenciesID=063046cbeff547bc9df168da36f2efad StaticDependenciesID=57e765b681bce285aa50347ca96a2539 
+Importing 'GUID: d18286874382ef042bbbdab5f71329c1 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackMarkerButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: d18286874382ef042bbbdab5f71329c1' -> (Import Result ID: '4313cdf061d75717447032e0cee53028') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=347ec378bcf012a902fac82aa52126af DependenciesID=a55cddeef7d0706fdc9700aa62ffaa3d StaticDependenciesID=cfbccceb90ac24ed37a6c4a632de6791 
+Importing 'GUID: d1eccbb425fdacc4ba53ce4223f4ea30 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackMarkerButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: d1eccbb425fdacc4ba53ce4223f4ea30' -> (Import Result ID: '38b05abac592c2fdde1db2713494438a') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=4fec8891b04a7e012463cb8842439d28 DependenciesID=7cc852d5dc41243193bd4253ad3cbef3 StaticDependenciesID=0cf9019d2e79695f05b4a152f6d85126 
+Importing 'GUID: e17ee60887efdd04389991a15ee0c578 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineAutokey_active.png' with importer (TextureImporter)
+Imported 'GUID: e17ee60887efdd04389991a15ee0c578' -> (Import Result ID: '26f9dbd6a2291fa4ac0866d5168e44ab') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=bf57d97a2bf38872bbe90ee20ae1a194 DependenciesID=8e8774f5fa86cfd050e864fb4dc57cf2 StaticDependenciesID=57810a193834d64a0c530601ec97ff64 
+Importing 'GUID: f179d9a3cccffb04ba2e27f681e9b147 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineMarkerItemCollapsed.png' with importer (TextureImporter)
+Imported 'GUID: f179d9a3cccffb04ba2e27f681e9b147' -> (Import Result ID: 'c01bb53f586cf2bd31031c51f8d8f554') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=c7db3f334a8823072e0442fef194566b DependenciesID=c335f0842528d833f35975e850636be5 StaticDependenciesID=691997658a5e8e8dc41d5f4db54bc599 
+Importing 'GUID: 22c3c381bd3cd4a40a8541103023e1ef - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineDigIn.png' with importer (TextureImporter)
+Imported 'GUID: 22c3c381bd3cd4a40a8541103023e1ef' -> (Import Result ID: '4bc5a104286d79b0976da7866668d484') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=6184fbe978ecb3f24576d8a3cb95026b DependenciesID=6127acab7c7785fc7903703d1d41e286 StaticDependenciesID=eb95cfe54f0e7797c1d8757b60c7b2c8 
+Importing 'GUID: 32f7e3598d6414c489127629e29af3f6 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineIconClipOut.png' with importer (TextureImporter)
+Imported 'GUID: 32f7e3598d6414c489127629e29af3f6' -> (Import Result ID: '2e24da02f3c227e6a8037109cf559eb2') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=8bccb895e6325cc56996f25455ca2eaf DependenciesID=03a1adb48542e3f7aad743c0d0c8445a StaticDependenciesID=be3dacf20005513d6b32584fe988a371 
+Importing 'GUID: 5216b1b48296ef345ad2d2ec43105bf0 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackMuteButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: 5216b1b48296ef345ad2d2ec43105bf0' -> (Import Result ID: 'f0d13761b72cdc4501c9a5c3ee651424') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=73f5dd7d2ad77e0c279e215750e9ddc6 DependenciesID=785367912b6f81866ba99120dd3f976c StaticDependenciesID=6416100f0930892c5989660a6a13fcc3 
+Importing 'GUID: 52ee3ba2abc3da14a95cdf64d32ae0ae - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackLockButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: 52ee3ba2abc3da14a95cdf64d32ae0ae' -> (Import Result ID: 'fdde8effe15ede677958e57046bd74f0') in 0.004 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=2f9cbe3608aef5055b64042def29dceb DependenciesID=0d628248eec9c5abbd1b4092b3c18d28 StaticDependenciesID=30759cf110fbea6afca71e9656a5a00f 
+Importing 'GUID: 829511f8e35bf3a40be037a1050f801c - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Shared/TimelineOutline.png' with importer (TextureImporter)
+Imported 'GUID: 829511f8e35bf3a40be037a1050f801c' -> (Import Result ID: 'dae0917668ca972ee9559e1cca255c8a') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=b4db03116126076541fd46493b23ba7c DependenciesID=c87f5d127f86a1c8fa4876efcc2d013e StaticDependenciesID=4826baa9ac3fbc60f521b64865e9469f 
+Importing 'GUID: 824c4beb0ca6c934bbc7a26919302236 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineStartPlayback.png' with importer (TextureImporter)
+Imported 'GUID: 824c4beb0ca6c934bbc7a26919302236' -> (Import Result ID: '7f10172d4c5b4d681c216163d9cc6824') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=582191849bceca3cb3d06e931cba71df DependenciesID=7259ff6af5e86cc28fc8e735d707dd1a StaticDependenciesID=00f5a75dff4eb489becd6e441b76dc86 
+Importing 'GUID: 92b5e4310629b264dad0fb2cc196d818 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineAutokey.png' with importer (TextureImporter)
+Imported 'GUID: 92b5e4310629b264dad0fb2cc196d818' -> (Import Result ID: '843405e1586d87919346bd7bdf431ca2') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=c6764ccc1c3502150164f08f78fd6337 DependenciesID=4d1c11e54281323e1fa9d2aaf00b09a1 StaticDependenciesID=77badf82a3a2c1a0fa09ed54e82a26c8 
+Importing 'GUID: c285802d9d414814fad592b90b223f15 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineEndPlayback.png' with importer (TextureImporter)
+Imported 'GUID: c285802d9d414814fad592b90b223f15' -> (Import Result ID: 'f45dbb149f9dbf7565aada38b3672b4c') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=37e33686b1e020502d4e5d1910a0ecc4 DependenciesID=7e9f31ebbfb6d2ef76aed43705e20a43 StaticDependenciesID=8c3a837c1e28b0293dca8a8b7817f7b5 
+Importing 'GUID: c207dcd389fb689489f5266468cd4609 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackAvatarButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: c207dcd389fb689489f5266468cd4609' -> (Import Result ID: '443321b081f91318012fe91dcc9f2954') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=d39ddf2f271c9007f88a0815dcaa6cfe DependenciesID=32fca8ce90b38031de3c0b8a8d134d0e StaticDependenciesID=45e84150a4cdf3e673517786e3c43ce0 
+Importing 'GUID: 0304baf8d224f3e47b22d872c8dcd412 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineDisabledBackground.png' with importer (TextureImporter)
+Imported 'GUID: 0304baf8d224f3e47b22d872c8dcd412' -> (Import Result ID: '46fcab94b41b763572c25ac8d88def74') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=747788884f57207feda26beec45fd66d DependenciesID=543ba607a6b3a11eecb8b0bb207e589e StaticDependenciesID=b1b4f860f8a8a92572464bc971d7fe49 
+Importing 'GUID: 0367ce1ebbbb18940b79eed63a0315d5 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineCollapseMarkerButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: 0367ce1ebbbb18940b79eed63a0315d5' -> (Import Result ID: 'bac13971465d802e523893e6a0a99542') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=32f0d7acc56a3024c925348c9b9cbee1 DependenciesID=2840933598d308697d8329eae7b12459 StaticDependenciesID=c4cc7d10726f43cb72169edf1f8c1420 
+Importing 'GUID: 03ae22b9de3989144a9bebf8972b4fad - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Shared/TimelineDisplay.png' with importer (TextureImporter)
+Imported 'GUID: 03ae22b9de3989144a9bebf8972b4fad' -> (Import Result ID: '95489ce26f6b586b3ad50308c9726a75') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=abec96d3e6b42fc2f97f0d9d39cf7ca4 DependenciesID=6de424ffdd8d839774f75d14d3b370c3 StaticDependenciesID=85e7678e65e1e15974e651d8747615ec 
+Importing 'GUID: 33b1871a2d09cfa459a93f4e8feb5c41 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineClipFG.png' with importer (TextureImporter)
+Imported 'GUID: 33b1871a2d09cfa459a93f4e8feb5c41' -> (Import Result ID: '110f4a17cd49efa8b2ecc4946dc952c5') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=b1058f52450f1d4cf74d9d7d46b26a60 DependenciesID=63f131ff6415c60832e0c327735d4956 StaticDependenciesID=46ab29478833aca685746bc31afacfb1 
+Importing 'GUID: 33a52b41b4de5874ca7da1da32067e39 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackMarkerButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: 33a52b41b4de5874ca7da1da32067e39' -> (Import Result ID: 'be1b8c0a854e77a860d162420816f64a') in 0.004 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=7ca9f63eddf667a6b5241b697cde7cac DependenciesID=a27c32168597af3134c18e8b3f92b766 StaticDependenciesID=cd69ef8c18d9b57e86dfdb8005b5d65b 
+Importing 'GUID: 43ed4593c5ddda0439fcc1bdaf8309fe - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackCurvesButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 43ed4593c5ddda0439fcc1bdaf8309fe' -> (Import Result ID: 'ac63dbcd7115d2df6ad139c98c92738a') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=a14812d999f8ae4e12573249f7d6e022 DependenciesID=d2913d7cb1327feb9a61ff9c9de2336c StaticDependenciesID=ca387b477c166ebf96821f3b41af8637 
+Importing 'GUID: 43eeff8a446b32242a4fb1a5c1bd7b8e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelinePlayRange.png' with importer (TextureImporter)
+Imported 'GUID: 43eeff8a446b32242a4fb1a5c1bd7b8e' -> (Import Result ID: '4a9a4b91ee53494c369ca56191eb37e8') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=0b6cc4bb53de7c9b3585809523e3cea3 DependenciesID=b04024892ca15a745715101f5333ead2 StaticDependenciesID=25afab6780f0a55cc68924752cdd09bd 
+Importing 'GUID: 73f5ebb64da7b2a40ab6bffac80f1a61 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineSelector.png' with importer (TextureImporter)
+Imported 'GUID: 73f5ebb64da7b2a40ab6bffac80f1a61' -> (Import Result ID: '226d270e477293ad673289f41909a725') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=0029e964e75911c77ffe5f91dc82af47 DependenciesID=86595a1ba3afcfcece5994b81f7d8394 StaticDependenciesID=be551ec0c043bf793e2f7e02de241c25 
+Importing 'GUID: a383d8b1327c9254896ad76d6efaf357 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackCurvesButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: a383d8b1327c9254896ad76d6efaf357' -> (Import Result ID: '3823c51a9ddb5190fb8fa52ad1178331') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=dd1a3767f5455aaf0d7ee1a91a532666 DependenciesID=d71b432b7144741fa063457738c2ac89 StaticDependenciesID=cfa967d5f60a22cffc1d1db3fe15e571 
+Importing 'GUID: b3644a971cca0bd4eb357cb9aca4dde1 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackMarkerButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: b3644a971cca0bd4eb357cb9aca4dde1' -> (Import Result ID: '7f3cd528bd5938f66bead70d183cc854') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=880f36ca0bf7cd4ddd28bb52bf84c037 DependenciesID=79d577d463342a5f05af2d415ad35ccf StaticDependenciesID=83945ed6217e64f3121b1e8e2775cfff 
+Importing 'GUID: c35a22ede3f5feb488bf69587ddc36ed - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackMarkerButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: c35a22ede3f5feb488bf69587ddc36ed' -> (Import Result ID: '779243ee12dbdfb646f57bbbfecc55ed') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=75e88a9370fb655217218ddae643990f DependenciesID=d1bbfddd4b17a48f6d3907ece37557ac StaticDependenciesID=195271b7bcc6defbf37632b7c3afcce2 
+Importing 'GUID: d3b5c4f7d6b94f64085b3713bffa680e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelinePingPong.png' with importer (TextureImporter)
+Imported 'GUID: d3b5c4f7d6b94f64085b3713bffa680e' -> (Import Result ID: '8a45d5e773252dd92f4fa3b4bebee1c8') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=5c20f01152b0663d767446ca05d4a1f0 DependenciesID=0662800b5f0ab071e95af168f926ba14 StaticDependenciesID=c11c1d2c73e6317d1abb47b7b7f6c3d3 
+Importing 'GUID: 2446ee609b613cd4e9142ccc55cb7c43 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineCollapseMarkerButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: 2446ee609b613cd4e9142ccc55cb7c43' -> (Import Result ID: '76960b9cdfcbceb8c4d8af7d764ee944') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=d7ca23882a863db7f21e8e931b280811 DependenciesID=8587df0551e7b47cc6354cddee78e087 StaticDependenciesID=de2fe937f736589a4463335de1db3fba 
+Importing 'GUID: 24b97c67b63a23b48bea4036d28a5818 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineMarkerItem.png' with importer (TextureImporter)
+Imported 'GUID: 24b97c67b63a23b48bea4036d28a5818' -> (Import Result ID: '76f841415d5f44d53fe8ed7b3d30e904') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=330ca29a3d6c128e5d1d4fe83233b5f6 DependenciesID=564bbec35bae178e4c557616a47c6bbf StaticDependenciesID=1146a18a81f7b57a1a09d41d35d6480a 
+Importing 'GUID: 54623075676bd504d93243fb18745161 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackAvatarButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: 54623075676bd504d93243fb18745161' -> (Import Result ID: '13090ade4c937fafc104cc4a8654dbc3') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=a5f61afcb7dd3349f258758c27b952e8 DependenciesID=55060ac4ec8e311a9e918b8d8854679e StaticDependenciesID=e9dea2b9c8baa3db1a42918a020b2537 
+Importing 'GUID: 945f4ecec6df62244b9ebcc363833642 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/Timeline-Marker-Warning-Overlay.png' with importer (TextureImporter)
+Imported 'GUID: 945f4ecec6df62244b9ebcc363833642' -> (Import Result ID: '9a260f3e25a3b5d7fca3c6cf423906f4') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=271e18c0e36babf9e72d05425e51a5c8 DependenciesID=2b9534c613116b96c9172bc350f55bec StaticDependenciesID=56cb0ff8ffcc4c3eb292f93751b72b96 
+Importing 'GUID: d44fc8b11425e0043aa7c20a301ce707 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineClipBG.png' with importer (TextureImporter)
+Imported 'GUID: d44fc8b11425e0043aa7c20a301ce707' -> (Import Result ID: 'b3007af0c61229b359dcd6e924136fb6') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=6d4417ef4cbe6948e880d474ca5401f8 DependenciesID=4b6d887e46f83414e8dd4ae65c9bd6df StaticDependenciesID=e000f5947adbae54ed746136b1147281 
+Importing 'GUID: 15845fb26c2846947b4dedb9fb348cc1 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineSignal.png' with importer (TextureImporter)
+Imported 'GUID: 15845fb26c2846947b4dedb9fb348cc1' -> (Import Result ID: '907d11f3710f550923357630011936e7') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=4941a8c01745447760e955b17fad0f3a DependenciesID=105d9ba8d78154c4f8ef2b62e3e6a23b StaticDependenciesID=df06cb0982f5b916e22cdcea7dddee02 
+Importing 'GUID: 359cf58d5969d1a4aad29b095c7fc338 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineActivation.png' with importer (TextureImporter)
+Imported 'GUID: 359cf58d5969d1a4aad29b095c7fc338' -> (Import Result ID: 'f3a9fed525ab1fdd4e2adb97db2d9c94') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=6dc1e8aa521d4d10450dfcdb7ed1c334 DependenciesID=dd29f50bb4c13b0974fc2d6ce38d0b3f StaticDependenciesID=698b0d26557946176f04293ee0637585 
+Importing 'GUID: 75f26f1c549568c4e9950a368bd08cb8 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Shared/Timeline-Marker-Multi-Overlay.png' with importer (TextureImporter)
+Imported 'GUID: 75f26f1c549568c4e9950a368bd08cb8' -> (Import Result ID: '83224f8a3217ab1bee907e920fee4532') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=79d62c41df869064ee48f0b17916c1fb DependenciesID=075c27f1475adec708538e3235bd7031 StaticDependenciesID=75a5089b9a58a005afb27d54e6fb71d6 
+Importing 'GUID: 9589d5d9eb09dec43b2ad51af4e78b1e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackCurvesButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: 9589d5d9eb09dec43b2ad51af4e78b1e' -> (Import Result ID: 'b63398b07ef0d3b2bbbf6556c50585db') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=1c1f4d3deee7ce056287041537cf0478 DependenciesID=da178f41833655a7f14ac35befce2dec StaticDependenciesID=159ae116cdc4698ddc1521e8b3e92cfe 
+Importing 'GUID: a5e21f4e466690645980dd0cf0b664bc - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineSignalSelected.png' with importer (TextureImporter)
+Imported 'GUID: a5e21f4e466690645980dd0cf0b664bc' -> (Import Result ID: 'c05e26e0178c3485fb9f69edace00122') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=22fdb6b5ce027a7241391b82dc67d4d3 DependenciesID=758e343410fedc53cfd3c425faa00630 StaticDependenciesID=2bb6173730b55b6afe59f979ab286ee1 
+Importing 'GUID: c5c1f094d9a9b3f4c9cc6c3a87af871c - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineEditModeRippleON.png' with importer (TextureImporter)
+Imported 'GUID: c5c1f094d9a9b3f4c9cc6c3a87af871c' -> (Import Result ID: '463bb335f441dee5627666358fcd9d66') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=bf0d2e727546d96cc6d8af6d8b1d2f0a DependenciesID=8d2e8d61cf4d46bdd1720ddb28507e14 StaticDependenciesID=740355bbe2dfb6554a7f76158e897841 
+Importing 'GUID: d55a54a15106e3f418a43134888f2211 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackCurvesButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: d55a54a15106e3f418a43134888f2211' -> (Import Result ID: 'd26d4d7a43c5d66536b7ab9e09fa62c8') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=048e0ca9647c40a374665d65f08416da DependenciesID=a0fa5883a760d4bafffdf0c026a2aca7 StaticDependenciesID=2e199c34b6da05f48eb7d05736900686 
+Importing 'GUID: e50018fd67fc156459e4014bdad3f5f6 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Shared/TimelineSwatch.png' with importer (TextureImporter)
+Imported 'GUID: e50018fd67fc156459e4014bdad3f5f6' -> (Import Result ID: 'cecf5092873eddaa670d225ae0d7d660') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=f8f1866e6e18043de1355d837d90569b DependenciesID=1e964adb5bf952419f67f991f18ba68f StaticDependenciesID=023f2e955ecc1ec8eee44e21176fdaff 
+Importing 'GUID: e54e20c7a9730fe4c822d63228527ae4 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackMuteButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: e54e20c7a9730fe4c822d63228527ae4' -> (Import Result ID: '12b0a90ab57157bb31d2203d34303502') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=9739dba3a874b3219b6f66ed40d7d25b DependenciesID=bd5185113b4a3d30b0e420ad0345bcd7 StaticDependenciesID=287973853bd3d05a48fc3ffe8e225039 
+Importing 'GUID: 06bf6150656339941aa98e175a995445 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineSelector.png' with importer (TextureImporter)
+Imported 'GUID: 06bf6150656339941aa98e175a995445' -> (Import Result ID: '62e47cbff8ac157f69fcef8ff46dce70') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=dd51bf2797b41c46a989039b0410bb95 DependenciesID=27b9f616f3f4bb494e63c306b92836d6 StaticDependenciesID=a19d3e903f6df68b13a3bccd2e8cd303 
+Importing 'GUID: 360dded8761e81d4d98c10f469d55492 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineLoop.png' with importer (TextureImporter)
+Imported 'GUID: 360dded8761e81d4d98c10f469d55492' -> (Import Result ID: '5ebf860d9eb87952c4598ce036d20176') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=cd5e238b487157b41569b2efa03f2f8f DependenciesID=4f56b9a5ac93eb14a6e5a7c36b0b9ab6 StaticDependenciesID=8d240ab6ce5600c107fb69cb4be664ad 
+Importing 'GUID: b6e9dc9aad5843748a0124b8925c3743 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineMarkerItemSelected.png' with importer (TextureImporter)
+Imported 'GUID: b6e9dc9aad5843748a0124b8925c3743' -> (Import Result ID: '826aaff43f84cd063e3536c624087af5') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=0c5bbae2281d85bbf872dbc3cd254d32 DependenciesID=98b85d609b4800e13edcae59df0a227d StaticDependenciesID=1602f90b64e17193b8c0411971760943 
+Importing 'GUID: c6a0c6226c05f954fa6cd03aebb4d255 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackRecordButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: c6a0c6226c05f954fa6cd03aebb4d255' -> (Import Result ID: '29719b2f565c72044e940a0f7b863243') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=8c46bc9adff7e1d4b1976f4b0526739d DependenciesID=5e190b67c38eb238358ffc1b6822bf4b StaticDependenciesID=c7a4af8b88c68da52c606a7966b795e1 
+Importing 'GUID: f6717d61970edba4686c297677881a77 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineAutokey_active@2x.png' with importer (TextureImporter)
+Imported 'GUID: f6717d61970edba4686c297677881a77' -> (Import Result ID: '382696d6e87e643e07ea3bbc606c63f9') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=9a3134047e50703b0eb207aa1ce45c58 DependenciesID=12f84ee7a8e5e705a661d8dc53a3a881 StaticDependenciesID=34f449f064188c6d0a05d8e711ab8d1f 
+Importing 'GUID: 1732e542f535d374bbfa7565fc78414e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Shared/TimelineWarning.png' with importer (TextureImporter)
+Imported 'GUID: 1732e542f535d374bbfa7565fc78414e' -> (Import Result ID: '474fbe4c0a24d2e8f614ec6f2739ba5e') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=cdd4be747ed98806f2dac64ad00c05ca DependenciesID=4c2ac8255874963c93f9670a6899216a StaticDependenciesID=5bea08c6d127d9a508b140d43f27e70a 
+Importing 'GUID: 67a774c4384aa6c488128e2851b18ced - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineEditModeRippleON.png' with importer (TextureImporter)
+Imported 'GUID: 67a774c4384aa6c488128e2851b18ced' -> (Import Result ID: 'bf9661110adef85ed0441018b00e0c59') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=fadf165631ac6f40337931d2d2fd7a2e DependenciesID=2af99023fc223803c824741fd5d04606 StaticDependenciesID=75b2c488d3f9c2fd549ef60923849001 
+Importing 'GUID: 77d926c9a4ddcc940b8c000b45cbfb35 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackMarkerButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 77d926c9a4ddcc940b8c000b45cbfb35' -> (Import Result ID: 'b527e1fa411aec263c257a69086b57d8') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=3471f459a0fa42210694d9f24722f73a DependenciesID=b1d28ba48b1b08886e0d01bed17d344c StaticDependenciesID=151fb94c8a185ee9b825875ae4b2a27c 
+Importing 'GUID: a7a968b204ed77c4ba90be3ef3ee8551 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineIconClipOut.png' with importer (TextureImporter)
+Imported 'GUID: a7a968b204ed77c4ba90be3ef3ee8551' -> (Import Result ID: 'c5505d83de62b016ffe2bd39bf166224') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=5243edb545ea41bc86a229e18963e3ed DependenciesID=b6a8b46bfd3317b4be6e9ec4ad78d4b4 StaticDependenciesID=62080721d5b4435f5ae1cc5dc431fe9c 
+Importing 'GUID: c7df1e797b21c774f9b859d17f674737 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineLoop.png' with importer (TextureImporter)
+Imported 'GUID: c7df1e797b21c774f9b859d17f674737' -> (Import Result ID: '6f771c653aa8a6099de454a584fdc9ae') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=1d27b094e7895c88d77d9908cb1eda56 DependenciesID=1cd179a4efcd87f6992c56e7b74b320f StaticDependenciesID=cab6da50b2cfd864d3c120f3eb789af6 
+Importing 'GUID: e7048936877a4874aa8c4d7b8128093f - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/611566669-3d01af83-712c-45a9-99f6-8f33fa8dba6e.png' with importer (TextureImporter)
+Imported 'GUID: e7048936877a4874aa8c4d7b8128093f' -> (Import Result ID: '081e6c1ade37460c56138d99e1678759') in 0.163 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=c43673005a5f042aec93084759b5abbe DependenciesID=2ae448f2b8769e1a35ebd391267de7e9 StaticDependenciesID=fcee7c51acc74a9a15cfc74e9bafe893 
+Importing 'GUID: f747f9cdf03f2ff418fe728a77e8cbef - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineContinue.png' with importer (TextureImporter)
+Imported 'GUID: f747f9cdf03f2ff418fe728a77e8cbef' -> (Import Result ID: 'ad394cd1f4a4c838269aa1affcc331db') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=29aacbe66e4f77edfde8755d4e8d6b68 DependenciesID=dbfe849a1e141740964910055afa5000 StaticDependenciesID=d3478148d33631a81132ae62ffe0630f 
+Importing 'GUID: 183f7b7549219ab47becb461a16df882 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineAutokey_active@2x.png' with importer (TextureImporter)
+Imported 'GUID: 183f7b7549219ab47becb461a16df882' -> (Import Result ID: 'e345e9f5891d7ec75a61c0b685120dec') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=650dfd75ecff49d1b9d0d603211d678b DependenciesID=9b63ff3bf28382e6ee6889b1fa4a798b StaticDependenciesID=f359074ed187a57277872e283a5a0f54 
+Importing 'GUID: 2887294cc7f1fe840bff6e349409648d - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineActivation.png' with importer (TextureImporter)
+Imported 'GUID: 2887294cc7f1fe840bff6e349409648d' -> (Import Result ID: '02ede597686bf37f8bc69c782470161b') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=bb81e45aaf3a5a00955ba7f6daa9dba9 DependenciesID=5bbf1f08be40986391ed272bcc8ef332 StaticDependenciesID=02ae6fdde94beec2771216e0c19ac433 
+Importing 'GUID: 88a102afa3a70234f98a0dff9dd663eb - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/611555932-5f18b33e-4a21-42cf-8acd-57c0e548d44d.gif' with importer (TextureImporter)
+Imported 'GUID: 88a102afa3a70234f98a0dff9dd663eb' -> (Import Result ID: '955f352dce9b85c1aaad17c7500ce544') in 0.019 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=9ee9c31d8afd2cbf8f9a630deeea7c64 DependenciesID=22f721fd6e24c36f234c436122b892f9 StaticDependenciesID=9e044269de9aa81667550da7aec46d54 
+Importing 'GUID: 88d697f38121de443ba144702e5122d9 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelinePingPong.png' with importer (TextureImporter)
+Imported 'GUID: 88d697f38121de443ba144702e5122d9' -> (Import Result ID: '24fe71980f4886c93221e3eaf7e3a096') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=8f8697b09525692153c9525ccd1b80b7 DependenciesID=b9f21e4bd94470b87a97bbb30fb005e4 StaticDependenciesID=c4671bfc1d026ecd43b97f1972eee5f9 
+Importing 'GUID: a82846d41464fcf4b962ebdc815963f5 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineEditModeMixON.png' with importer (TextureImporter)
+Imported 'GUID: a82846d41464fcf4b962ebdc815963f5' -> (Import Result ID: '5341d6efa7b8e711f8dcddf7b9fdd939') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=63b1ae1d4be6663204674ab7ced7ce1f DependenciesID=850c3252cc842f65cf9a0c5ef22cd648 StaticDependenciesID=6d08941c2a6daf28ad3bb0453be3d400 
+Importing 'GUID: a88fa20ed164bbe4da6bf533f94a3113 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineSignalCollapsed.png' with importer (TextureImporter)
+Imported 'GUID: a88fa20ed164bbe4da6bf533f94a3113' -> (Import Result ID: 'b73a5704380d795d4d2ff743a93633f2') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=7ed579ef3ccb4684549deafa5ad31923 DependenciesID=bf863a7761dbb542e1fed84dd0cc8c44 StaticDependenciesID=a02babcace3c2f3a3c25a46c28b17d3a 
+Importing 'GUID: b8c531b4e51e4994a81837c4e9b0d649 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackLockButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: b8c531b4e51e4994a81837c4e9b0d649' -> (Import Result ID: '598b7b4448db3fec5904aa9974a6e644') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=bb277d0790f72eb6d8c0e127d0432af9 DependenciesID=4d798679d4b2f5648520712b23b6aa7c StaticDependenciesID=875763dc9d9a60bd10816b6b5849a5b7 
+Importing 'GUID: b80d5b6acdfbc114b9efab6295fd96c1 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineCollapseMarkerButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: b80d5b6acdfbc114b9efab6295fd96c1' -> (Import Result ID: 'f6b85664ee8dc99ce8f5be4447142b31') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=39d022d47dd5d56ea870d5a28cd23afc DependenciesID=ed1986a8aae75d1b728434ad30612113 StaticDependenciesID=623ce9e129b8703d578108432dddf30d 
+Importing 'GUID: e8aa120f1b4731e43a2dd31eb70bbbe2 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackLockButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: e8aa120f1b4731e43a2dd31eb70bbbe2' -> (Import Result ID: '9c39ad51e84635f62e49b2c4a78cc8ed') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=116b7bf70bf02873751de09dbd3621b5 DependenciesID=8b238a5d797d62d3ad1299b4a952cb82 StaticDependenciesID=425bd3ae71b0796634bd2a23053d75b3 
+Importing 'GUID: 09ae14686a02d484ab41e76fd1efba14 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineEditModeReplaceOFF.png' with importer (TextureImporter)
+Imported 'GUID: 09ae14686a02d484ab41e76fd1efba14' -> (Import Result ID: 'ffae724dcd7dba8aa3a2156f02933240') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=cdad80d0321a049b8eefc7b249f36214 DependenciesID=e2ab959d1e1f898fd2a7803da577e369 StaticDependenciesID=413a217057e0829de0edba8070a2f5fc 
+Importing 'GUID: 193dae938a3136440b693b45a2494737 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackMarkerButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 193dae938a3136440b693b45a2494737' -> (Import Result ID: '4a46bb3e86d141f81297cff5936f724a') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=12563a14299d7d974265326de3f33fd8 DependenciesID=312bd821d48a0793f9adc65df087afad StaticDependenciesID=c4668d1e82de6ad3fb495afd53b02f39 
+Importing 'GUID: 39d9575ed0465354cb02b69ea18526de - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineEditModeMixOFF.png' with importer (TextureImporter)
+Imported 'GUID: 39d9575ed0465354cb02b69ea18526de' -> (Import Result ID: 'ca35eb2d2853ef792ad6ba9f03806981') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=201c2fca975c1f0372fe1a2811348624 DependenciesID=86c7cd54bf1042f7bfc381d7859c270e StaticDependenciesID=7d21f48567872d77b88a116b88b584a1 
+Importing 'GUID: 495998c718a094540bbe57ae5ab07647 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackRecordButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: 495998c718a094540bbe57ae5ab07647' -> (Import Result ID: 'f06df47bae9b79389fc9db6f59facfde') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=2c43e5f54701d0da6218894d3f440ec9 DependenciesID=2425ccfd936e4813722201fab1fa4479 StaticDependenciesID=314bf419d1d2f128506a1c12bf72fa32 
+Importing 'GUID: 6952cd3b0f88917449a8fa4d19fc5009 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineEndPlayback.png' with importer (TextureImporter)
+Imported 'GUID: 6952cd3b0f88917449a8fa4d19fc5009' -> (Import Result ID: 'c750502b5561f7b47aec288bfe912b75') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=92ab01dd853643b797ab5ca260757953 DependenciesID=28b33c914fd44e13fcaa91427d5e8f65 StaticDependenciesID=b3e21c794a4428133ec4e5f5e39afb1b 
+Importing 'GUID: 69ff79f863a32ad44a9497d4896d9d1c - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineInfiniteTrackNoShadow.png' with importer (TextureImporter)
+Imported 'GUID: 69ff79f863a32ad44a9497d4896d9d1c' -> (Import Result ID: 'f01bd81bb96e6cadb6ed10a7865fdac0') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=bcb1331b15b4d1808a6e9421a968ac36 DependenciesID=2282eea3e63255e385c06d6a0e17e3ba StaticDependenciesID=ee2bd12b4a2972d1d65385a390a3c8ef 
+Importing 'GUID: d91793cd853a258448e4d5545bb38e45 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineSignalCollapsed.png' with importer (TextureImporter)
+Imported 'GUID: d91793cd853a258448e4d5545bb38e45' -> (Import Result ID: '7e1de6ec7e56230224548f7e3137c20c') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=88520b160e7f1ee0c751fb493ad05d7d DependenciesID=0b4acba9aa04d38412f4bab2f2cacfa6 StaticDependenciesID=51173d07d07362532613a934a0b68c8e 
+Importing 'GUID: f9fd2f335364cda41937eab39bf20049 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineKeyframe.png' with importer (TextureImporter)
+Imported 'GUID: f9fd2f335364cda41937eab39bf20049' -> (Import Result ID: '0b809dbae29996ebcbac1af22f85c85b') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=88d24e0b0a6bd0332827462b1e378dd2 DependenciesID=e9d4908436963d2f8dffb65365b13c67 StaticDependenciesID=ee083f2c6113809b87a95d3c51db1732 
+Importing 'GUID: 0a5e3e063c4e1ab45999cf6e40c13c07 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineAutokey_active.png' with importer (TextureImporter)
+Imported 'GUID: 0a5e3e063c4e1ab45999cf6e40c13c07' -> (Import Result ID: '6dfc340da907dbd2516a248295498a6c') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=062424ad15a0d33bbbedea21db793997 DependenciesID=d6cfae69a7b232f1c7022b8ac13bae01 StaticDependenciesID=059a46b31dc61eb0148be672b3b9442c 
+Importing 'GUID: 1a7852b1b33b816498b6af1e739f5995 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineSignalSelected.png' with importer (TextureImporter)
+Imported 'GUID: 1a7852b1b33b816498b6af1e739f5995' -> (Import Result ID: 'ea3e7954968d1802b3e48fb34a2b3590') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=890af91c21e7afbd8785d5ef12a08615 DependenciesID=46bda0e422c2c026f7154a5345d291df StaticDependenciesID=2c401a5270eeb9bd4fc65de2bba2c24f 
+Importing 'GUID: 6ab002208ec290544b44bc263dc58a95 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackMuteButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: 6ab002208ec290544b44bc263dc58a95' -> (Import Result ID: '466e97e1f1a3200fe700b95e24965e27') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=5bee585d2f707a7c07806a4e8984408f DependenciesID=02a95259e9e8df32f94d911a79183426 StaticDependenciesID=ca205048b4734518020b7cb1293cd6d5 
+Importing 'GUID: eae63adb172f1164db61a7f4bdfc3637 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineInfiniteTrackNoShadow.png' with importer (TextureImporter)
+Imported 'GUID: eae63adb172f1164db61a7f4bdfc3637' -> (Import Result ID: 'f03143e74357d18cfba25f0c2366f532') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=8433bf1521361db9504cea401097c087 DependenciesID=6e2039cab628b26ee1f183b59739b5f6 StaticDependenciesID=dd5afc60a042cdaa39479450f95df714 
+Importing 'GUID: 3b9e9b3d9ade166499e7a17109ca73bf - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineTimeCursor.png' with importer (TextureImporter)
+Imported 'GUID: 3b9e9b3d9ade166499e7a17109ca73bf' -> (Import Result ID: '22a0f2d008dd9bb85a71043c32c64723') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=da603b9b451710e2176abec27d3146e3 DependenciesID=7e6830887b7ed54385fb2983c82c88fb StaticDependenciesID=d06a62ee2e807ce4bf467d63aac79953 
+Importing 'GUID: 4bf6507f1346b2746a35384f6a5fd5f9 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackAvatarButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: 4bf6507f1346b2746a35384f6a5fd5f9' -> (Import Result ID: '7d30ccc4693b7d01861a449fe1b06858') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=9a766a1b9c61d687c219b49c54de5f45 DependenciesID=debe25fe940a126a9c8483fcc002f4da StaticDependenciesID=2fe57e90246585a4312f8a2bd601d58b 
+Importing 'GUID: 7b4b3cedf598c954cb2f38d6e2e34c0d - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineEditModeReplaceON.png' with importer (TextureImporter)
+Imported 'GUID: 7b4b3cedf598c954cb2f38d6e2e34c0d' -> (Import Result ID: 'c3188a7b2aaeac5510d4076066dad460') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=6ae2fe7213714e2bdfdabfd023897e51 DependenciesID=e04553576cf2fcd835cab903a4610a25 StaticDependenciesID=1bf60edf266ebd8e2775256135886193 
+Importing 'GUID: ab1e2f0dfb0df5e40bb95359b3d8ed3a - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineIconClipIn.png' with importer (TextureImporter)
+Imported 'GUID: ab1e2f0dfb0df5e40bb95359b3d8ed3a' -> (Import Result ID: '3f3848a17eaf93bcc060384c1c8f6afb') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=8faa8a915ad5496500efdf6ef634314c DependenciesID=23af77109ab61cec6e3c0059f12a727e StaticDependenciesID=244ec8805251c544de3f814fca83638c 
+Importing 'GUID: db31466324572e740a431e4e0e03a016 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackMuteButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: db31466324572e740a431e4e0e03a016' -> (Import Result ID: '13832add5fd65b2d287e29fa80421b73') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=7641d99edfb4552a4bb7cb8c7fcaecf6 DependenciesID=3fe8cda708568eae3e5408fe0fc657ec StaticDependenciesID=2aab6d85e5353eff7707cc2fd08ebc9c 
+Importing 'GUID: db15c78579dee4a4db85f392634c8ecc - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackRecordButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: db15c78579dee4a4db85f392634c8ecc' -> (Import Result ID: '0db23f38c3b891b6b1e7b71904c2f56f') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=2b531fb055612f94e2ca0f5d1d60d1a2 DependenciesID=c6afca64eaeae840855ec64b45761b77 StaticDependenciesID=c178f90d215a930195bae81276cc72d6 
+Importing 'GUID: db66ea47c76423f4a881937d34495801 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Shared/TimelineBottomShadow.png' with importer (TextureImporter)
+Imported 'GUID: db66ea47c76423f4a881937d34495801' -> (Import Result ID: '47243ff6f99f2400487122e8eddff815') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=c97bf263a425c1f19a605f95d7c59173 DependenciesID=e39a3294fc7ccce99d4ad01d7c225e02 StaticDependenciesID=4deb84cef939144928bf208ef8f9d246 
+Importing 'GUID: fbcdeb07ee516a64daa01ce462874280 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackCurvesButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: fbcdeb07ee516a64daa01ce462874280' -> (Import Result ID: 'b476b3204a8bb95dfe26992bef4bffba') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=2ade387eb98e524ee4f244d84f2ec16f DependenciesID=ebe4eff5b43a9dfa89069cf32106821a StaticDependenciesID=3145d1dc4a6ac13e65c331469cd2c712 
+Importing 'GUID: 2c85066ea99cfbe4f90294bf295ce543 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackLockButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 2c85066ea99cfbe4f90294bf295ce543' -> (Import Result ID: '7c33410449c00e827486005f368abb7a') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=d9f9dc4747fe6e133ef4020ec28b8d60 DependenciesID=3eb271745886a346850b755ae9d180c6 StaticDependenciesID=be35594b820e12e8ef4f238e2dc2a5bf 
+Importing 'GUID: 6ca5daa3415451940921fa7e2c3db9e8 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Shared/TimelineGroupBackground.png' with importer (TextureImporter)
+Imported 'GUID: 6ca5daa3415451940921fa7e2c3db9e8' -> (Import Result ID: '7a27e21d07a2307574b22d4ea54f0e92') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=a913af11297582bd12b559adaa2ac963 DependenciesID=ce7c9f509978ee842436186d2be5e60f StaticDependenciesID=08d3550f838a2a6bd50481c5e215cbcc 
+Importing 'GUID: 7c05578092876a0458b8b480269aef86 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackAvatarButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 7c05578092876a0458b8b480269aef86' -> (Import Result ID: 'e0ba299120b82971c67e4585c7dcc5d2') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=af67850f90c733f65f8910b78dfbc795 DependenciesID=a093dab35b557bad4a4b2bfccb420528 StaticDependenciesID=8359fa1d5c25829133819c2eec22c2fb 
+Importing 'GUID: 7c681ffb5a436684fa3e98a9b66775c0 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineEditModeMixON.png' with importer (TextureImporter)
+Imported 'GUID: 7c681ffb5a436684fa3e98a9b66775c0' -> (Import Result ID: '9c8aaa2af1fed13cbd3be7d4c15c13c0') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=d29ee79fa750b3616cb7a75974a2727c DependenciesID=4fa01313387889df37a0c3c60b15fdad StaticDependenciesID=24ae398c34af6cba9112e014f76eb1d8 
+Importing 'GUID: 9c706019afb28944eb19b500ea0da38c - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackMuteButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 9c706019afb28944eb19b500ea0da38c' -> (Import Result ID: 'a34501b6de2f36020f39d83a14b00461') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=4c42b4cbff44468c5f2d154852e4e866 DependenciesID=ce4236447e7aa5ee0010d17d83ee4592 StaticDependenciesID=5c6c3134225fc4bc672f525e2e22db24 
+Importing 'GUID: 9c6daec86666cbb4b9e558b839a103db - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackRecordButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: 9c6daec86666cbb4b9e558b839a103db' -> (Import Result ID: '4fae15f5f84e59d94d594bd838524640') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=db5ba82f3743a610306dd996490f509e DependenciesID=497ac48ccd3b958686958af9d46c7b22 StaticDependenciesID=36f4c7e1f819020fb627f91a7f1cac5c 
+Importing 'GUID: ac5017dfbeee42347b3b45ecc572674e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackMuteButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: ac5017dfbeee42347b3b45ecc572674e' -> (Import Result ID: '44a871b4c9a51a7c2df55f9bcfa2f45b') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=2ee19bbb6f38fc13f63010529f2b4e20 DependenciesID=3a3c129cecc73d249f437f6628484b6e StaticDependenciesID=fd828371e25507f94b02453c17efac90 
+Importing 'GUID: 3dd65256ca8837544b3e738c0d3ee0e2 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineMarkerItemSelected.png' with importer (TextureImporter)
+Imported 'GUID: 3dd65256ca8837544b3e738c0d3ee0e2' -> (Import Result ID: '6903c13b94867a595dd785d3b90667e0') in 0.002 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=be9e01657f9749a5af06e841c8de7ce2 DependenciesID=eebabb2523040ca7b82bf21b7dc33639 StaticDependenciesID=c4faa6d83a27bde9cab0c4e0790bb8de 
+Importing 'GUID: 5dfe66e61e0d270468ae75349ff3a3eb - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Shared/TimelineSeqEnd.png' with importer (TextureImporter)
+Imported 'GUID: 5dfe66e61e0d270468ae75349ff3a3eb' -> (Import Result ID: 'cfb9b9202d8bdd8d6824836e38bc43a7') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=9a8520f540a3ae4139b79d6985eef418 DependenciesID=05c52afb0f596a16469734fde532676d StaticDependenciesID=f7527387222727e2ef155c27e3fa977a 
+Importing 'GUID: 6d41c3e8796a4fd4e80840354039e4ac - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineEditModeReplaceON.png' with importer (TextureImporter)
+Imported 'GUID: 6d41c3e8796a4fd4e80840354039e4ac' -> (Import Result ID: '0d9a13d1780404e71d43feb2c3356502') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=c0f7fbe25ce1c4169c847e944e206ec2 DependenciesID=68ec3a3de8f81888b8aad2017a19b4aa StaticDependenciesID=c5a50da95c95a22d4e23c5842a3fdcfd 
+Importing 'GUID: 7d4691eba7565c34ab785c00fbc27ff8 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineMarkerItemCollapsed.png' with importer (TextureImporter)
+Imported 'GUID: 7d4691eba7565c34ab785c00fbc27ff8' -> (Import Result ID: '9daa5bde774b7160d528735457fc2be1') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=13cbe6e373856ec8445906541f61983a DependenciesID=dc90f26cc8032708c2f44d29d933ffa0 StaticDependenciesID=e9708a6bb431b0504546d2bd3cff8bf0 
+Importing 'GUID: ad2e3e92b00839c4e991ca602ef19822 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineSignal.png' with importer (TextureImporter)
+Imported 'GUID: ad2e3e92b00839c4e991ca602ef19822' -> (Import Result ID: 'b74f12af2953890e4069c737f0cf1843') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=a932cba789065b43c40c8d85abfb6303 DependenciesID=5a8191eb520a051c89261702717c2a8a StaticDependenciesID=741bddc52ed1d46f5e482c88097047a5 
+Importing 'GUID: bd7b7cac6eb0c3f469781d9a729a1c94 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineEditModeRippleOFF.png' with importer (TextureImporter)
+Imported 'GUID: bd7b7cac6eb0c3f469781d9a729a1c94' -> (Import Result ID: '4206afdfbf111b679d8950b497094168') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=45942531bcbacd477ceef3b052860b79 DependenciesID=683f9403d449a1559ad9a79ca28eea37 StaticDependenciesID=b40d0fa5061234bd4541e8d66cd69242 
+Importing 'GUID: ddbd45249a133a846b2f20e39b537565 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineHold.png' with importer (TextureImporter)
+Imported 'GUID: ddbd45249a133a846b2f20e39b537565' -> (Import Result ID: '9fcfcff095fa75ac55961410e5e8f9d7') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=6d10a1fbb4f544e0fb4de34061f7d8c4 DependenciesID=f13d83a4f1f78e1eaf024703876ea700 StaticDependenciesID=8e4831a0bb4b19def7960d33f6aa57e7 
+Importing 'GUID: ed665472b4fee2043a5c1cc802beaa8e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineTimeCursor.png' with importer (TextureImporter)
+Imported 'GUID: ed665472b4fee2043a5c1cc802beaa8e' -> (Import Result ID: 'b7ee722224d448b69521a0beff7715ca') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=f228bf80693c016b8e6fe3411c2de598 DependenciesID=b994a602984513ef4ef5f6d27a7ac117 StaticDependenciesID=e6c8ff50d8116013d8e795e5072e8355 
+Importing 'GUID: fd12dbe3b63ae464f824b4a74c0e1766 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackAvatarButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: fd12dbe3b63ae464f824b4a74c0e1766' -> (Import Result ID: 'bd5a3420218e3dd87c083365b58a1b60') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=172cf95e907ea326b5f5545bb702db1f DependenciesID=c24b3c26957cd04c673c75848656be90 StaticDependenciesID=a93b504cd0be34b1d5535d382344ce22 
+Importing 'GUID: fd194f75fe3d7ca4488fa775ae832fd8 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackAvatarButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: fd194f75fe3d7ca4488fa775ae832fd8' -> (Import Result ID: '36cc7c6464d18d3e0a89f4d84f89185c') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=a69248510dd916920a43cf8c81383dd1 DependenciesID=af2b705a55a9b72552b15de2e07ab4f8 StaticDependenciesID=97427ce30995134e1818dcc3ef78e1e3 
+Importing 'GUID: 0e5ba0f04df278944a8f5a62f64f5aa6 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackRecordButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: 0e5ba0f04df278944a8f5a62f64f5aa6' -> (Import Result ID: '6f171ca38f3481b1279d17c64e166438') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=63cbad954dfcd62e7d425f1fed39da4d DependenciesID=6996e259febef8f9a8f3ec663ba0748c StaticDependenciesID=8813f3c0b4854b40071f5c6e05f39285 
+Importing 'GUID: 8eba099eb091faf419fecdcd5cdabfd7 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineKeyframe.png' with importer (TextureImporter)
+Imported 'GUID: 8eba099eb091faf419fecdcd5cdabfd7' -> (Import Result ID: '44474308f44a310cf67594603a4259a3') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=b319c079e5a20841b327d4989569e40b DependenciesID=0c3b1da744a874e19e1dce04e0c103e4 StaticDependenciesID=0cf77c5d2bf359e7e8372909f87b3204 
+Importing 'GUID: 9e541b6dcfb77d34481f69b3d62d0343 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackCurvesButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 9e541b6dcfb77d34481f69b3d62d0343' -> (Import Result ID: '1541227638096937ce98e2d2eeaf6222') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=1f9ccc0b5a01a922ee71f749ce0d7b9c DependenciesID=88cf2871008f4f906c4db061a7c98ae7 StaticDependenciesID=576765855c25f1d03c8f6052351555ba 
+Importing 'GUID: fef7487d8b06bba408f70354e2463ce4 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackLockButtonDisabled.png' with importer (TextureImporter)
+Imported 'GUID: fef7487d8b06bba408f70354e2463ce4' -> (Import Result ID: '680c8b352641e781c7e14b3586d68940') in 0.004 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=42b65148fea49436a97e7c23a087b7c8 DependenciesID=6a0b5b67eff7cae9bba379d3afcfc0bb StaticDependenciesID=8ff022af20ed1c0b086e289ab2e1bc21 
+Importing 'GUID: 0f1c9a12872a30f45bab34f536332bb3 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackRecordButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 0f1c9a12872a30f45bab34f536332bb3' -> (Import Result ID: '75c5ac84e8b5d2f98d642eae85e6e79f') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=3acfd4d4c34b8037720a87b4819b9b0d DependenciesID=6908028321ada016b15f549d3ccf8c92 StaticDependenciesID=0b57be9a6e5a1098a89ac279b5807590 
+Importing 'GUID: 1f3ea4caa6e0ec74388e4d7d16690e68 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackCurvesButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 1f3ea4caa6e0ec74388e4d7d16690e68' -> (Import Result ID: 'deeca4adc14c552c9f068c8452279473') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=8032b5f238a862676bfff08c0b4825ea DependenciesID=1265e9b9d35436d633da7493ef1c7221 StaticDependenciesID=7951e2412b6b8ad516cd7dab60da8410 
+Importing 'GUID: 3f2cf01510f76f541833f9028505ec28 - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/Kimodo Unity Bridge_01.png' with importer (TextureImporter)
+Imported 'GUID: 3f2cf01510f76f541833f9028505ec28' -> (Import Result ID: '5f378fa1d5f4e20cc4d6ea0c52237a0d') in 0.098 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=e8f62d001d43cc4b111051b4abcc4f22 DependenciesID=8ec01a4bb12845c5071a17d8cb23cd29 StaticDependenciesID=32313f5516e023db71a9410cb21090fc 
+Importing 'GUID: 4f8d98ef7dbbe3d469e14c04722cbeed - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TimelineHeaderMarkerIcon.png' with importer (TextureImporter)
+Imported 'GUID: 4f8d98ef7dbbe3d469e14c04722cbeed' -> (Import Result ID: '485a38b5c5057ffafb7b72ee52f766bc') in 0.004 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=12694620179399c9db362ad7b84bd1da DependenciesID=7a4969ba0a6c20022ad185f2c139eabd StaticDependenciesID=994cbdd85df633385a586d6a736f18b9 
+Importing 'GUID: 6fb5cabb85ba3794682b16eba19440cb - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackLockButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 6fb5cabb85ba3794682b16eba19440cb' -> (Import Result ID: '4a1f0cfffabdb82d9c65545a24055bb0') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=cc3621b10b835703712cf0de69a2fb87 DependenciesID=6b2242c224b999c3d304d05f8e4f21a9 StaticDependenciesID=72dd29a542770c4328ddede1c0a41ef5 
+Importing 'GUID: 6f0b77e050cdb12478ed9514b3a0e40e - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/d_TrackLockButtonDisabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 6f0b77e050cdb12478ed9514b3a0e40e' -> (Import Result ID: '412675b11ee08c54a4f6df43979b5bd6') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=c784902b2a41b40c161eade9c0687977 DependenciesID=84df67d1a8a61c63f9db98adc1c389fa StaticDependenciesID=33abf6bc095a27ddcc68a45580f12d9f 
+Importing 'GUID: 8fca5ed160cdc5440a4c7561db4082b2 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineEditModeMixOFF.png' with importer (TextureImporter)
+Imported 'GUID: 8fca5ed160cdc5440a4c7561db4082b2' -> (Import Result ID: 'd2ad6ab67cd3577c183aee8536d3b6ea') in 0.004 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=5586721bd8cbb24c1c4318d81a1835cf DependenciesID=6e4c8af2bdc03f47a90e6daf73676113 StaticDependenciesID=4c693a56d517d401be1b72408640c327 
+Importing 'GUID: 8fdae4ac756ed6047b01021ff0cc3ebb - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackRecordButtonEnabled@2x.png' with importer (TextureImporter)
+Imported 'GUID: 8fdae4ac756ed6047b01021ff0cc3ebb' -> (Import Result ID: 'c3d5fcdd026d5e996d1604689cfed493') in 0.006 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=df70beaaf46c207362bfe3ba0dc7ed3b DependenciesID=a7ade3efbc7f789334c4ecd60f832e5a StaticDependenciesID=7eeae57d3bb36a7ba163758fecebe858 
+Importing 'GUID: af24c542434a025448222d576f61a956 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/DarkSkin/TimelineAutokey@2x.png' with importer (TextureImporter)
+Imported 'GUID: af24c542434a025448222d576f61a956' -> (Import Result ID: 'dbf0e1836aa228a80daac034909ea673') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=a8b6e9151682cc9ddbf22aa061898094 DependenciesID=f86a525c370e9cd58268dc246d3f1f34 StaticDependenciesID=f198cff32187fd6666c5a39a89637b1f 
+Importing 'GUID: af3aec622aef40c45813b39e405966a3 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineAutokey.png' with importer (TextureImporter)
+Imported 'GUID: af3aec622aef40c45813b39e405966a3' -> (Import Result ID: 'c4c339bd1cde365bb359e62526713e29') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=e2d10f76706dedafef7900637b16730a DependenciesID=5719fcb158c5b3a1c198e716bd601e0c StaticDependenciesID=5c23b19d73883d82ab143a271f898a1e 
+Importing 'GUID: bf1debab21103154b99778ba6e074175 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TimelineHeaderMarkerIcon.png' with importer (TextureImporter)
+Imported 'GUID: bf1debab21103154b99778ba6e074175' -> (Import Result ID: 'd0844f4e11fe9ab61e60366e89db18d4') in 0.003 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=b2d3319bd05b4d55bc480163be0a7f55 DependenciesID=b5f7843846e02716f6895b0f389e331c StaticDependenciesID=70506378fcba5e5c7d26175834501d68 
+Importing 'GUID: cf575301f1e76c4478de0e77db15eba0 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/Icons/TrackLockButtonEnabled.png' with importer (TextureImporter)
+Imported 'GUID: cf575301f1e76c4478de0e77db15eba0' -> (Import Result ID: '43f422a0aaf1ce766e53138884fb251a') in 0.005 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=5c6f095abe7368831f252348e456307a DependenciesID=6495d1e6541ee2647d7b0342139ce0d6 StaticDependenciesID=df5a6e1c86c71af1f3e21fea64ce1c84 
+Importing 'GUID: cf3fbf98d5c3f1941bd9c0256918a4c8 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Images/LightSkin/TimelineAutokey@2x.png' with importer (TextureImporter)
+Imported 'GUID: cf3fbf98d5c3f1941bd9c0256918a4c8' -> (Import Result ID: 'ea6a21a3282da956ee11f4094cfcdebd') in 0.006 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=8b246dab1dc7361432ce4fbfa7756ca2 DependenciesID=a884b7727b641cdcdb9825e6eab27483 StaticDependenciesID=6b9e6d469c6c296fd6021b190b54393e 
+Importing 'GUID: 834c224ed4f14ad40811f5f161fbe870 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/MuscleClip.anim' with importer (NativeFormatImporter)
+Imported 'GUID: 834c224ed4f14ad40811f5f161fbe870' -> (Import Result ID: 'c2decfa6bdf510ac5fc70e2666c5651e') in 0.076 seconds [static dependencies only]. Details - ImportResultOutputID=fcafed3f0b00c19a1a80fab73fce32ed DependenciesID=a2de45a9892f457dd3dfc06917e1ddc9 StaticDependenciesID=f085fcb7a0747a9b7f1e119467ec88be 
+Importing 'GUID: c91389c39d842cc4190ea8be0836798a - Path: Packages/com.unity.timeline/Editor/StyleSheets/res/HumanoidDefault.anim' with importer (NativeFormatImporter)
+Imported 'GUID: c91389c39d842cc4190ea8be0836798a' -> (Import Result ID: 'c9b4a64621dd58a1a65cad5029eb2908') in 0.005 seconds [static dependencies only]. Details - ImportResultOutputID=33c2296e7a3f538708b2a69d329b74e7 DependenciesID=8eedfb01280239bf529282cf58ae93ce StaticDependenciesID=7d50b7e1ea78686dcb5c7a9868858e17 
+Importing 'GUID: 2cb1ca12d228148318e1a7d8cc441147 - Path: Packages/com.unity.timeline/Editor/Localization/ja.po' with importer (LocalizationImporter)
+Imported 'GUID: 2cb1ca12d228148318e1a7d8cc441147' -> (Import Result ID: '57c3e4277391ad082767fef9f9c07bc0') in 0.004 seconds [static dependencies only]. Details - ImportResultOutputID=510c9d487b6f7b0e01dcc25692f09a5d DependenciesID=1b762c89fdc0c51a94e25be69450651a StaticDependenciesID=ac0e56da2075e5395a63bc65ca35076e 
+Importing 'GUID: d1515f7acb0ea8d49b6ce2db95af38a7 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/SMPLX.fbx' with importer (FBXImporter)
+Launched and connected shader compiler UnityShaderCompiler.exe after 0.03 seconds
+Imported 'GUID: d1515f7acb0ea8d49b6ce2db95af38a7' -> (Import Result ID: '2591f733805dcf123c2fd1a812c5214b') in 0.192 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=ba73877dd94ac2a6bd16e9ed34cfba23 DependenciesID=45cdfba55a76e7619d0b364517c74385 StaticDependenciesID=26502460c2e419da892364d45b062454 
+Importing 'GUID: 4246ef31ebd8c9448a4ebe5d5459a8e4 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/SOMA30.fbx' with importer (FBXImporter)
+Imported 'GUID: 4246ef31ebd8c9448a4ebe5d5459a8e4' -> (Import Result ID: '8695289d831c02663c2b5ef316bedbc1') in 0.057 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=0193d814297d81835ec6980bce873195 DependenciesID=4a7dd9b1bb9d60b8b090ab976cc55139 StaticDependenciesID=341970efa7185f6e7d4f04c8c6ec1563 
+Importing 'GUID: 138d6af561fb0f444b376fcf343f7217 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/SOMA77.fbx' with importer (FBXImporter)
+Imported 'GUID: 138d6af561fb0f444b376fcf343f7217' -> (Import Result ID: '0177e28c23e3279adf5956c184b8bc9c') in 0.105 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=f8f4de0c361bc1a72151edc76ef4ab14 DependenciesID=34d756259d62e7311daf722c60a3af38 StaticDependenciesID=3f11153dfe24cb80ff7facb62a6811ab 
+Importing 'GUID: 46a6f19ca1178c4478955aa3a75f397a - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/T-Pose.fbx' with importer (FBXImporter)
+Keyframe reduction: Ratio: 100.000000%;
+Imported 'GUID: 46a6f19ca1178c4478955aa3a75f397a' -> (Import Result ID: '4dd55efc862d043c8d7762315d3747f9') in 0.128 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=bea8851a5d75627dec5c71a61ad580e2 DependenciesID=57252a860f2106af8e46c7c4e7a8c3cc StaticDependenciesID=8183bf7e6b5c4d6c6905031669c2885b 
+Importing 'GUID: cc09b26154e1aac448af3abae05da792 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/G1.fbx' with importer (FBXImporter)
+Imported 'GUID: cc09b26154e1aac448af3abae05da792' -> (Import Result ID: 'ce2e281c5e3f0f6ed5c65503b453a5b4') in 0.064 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=55dc664152c44b5bb2a795868569d481 DependenciesID=99cfe8261d6bb81601ed15eaed129cd9 StaticDependenciesID=7c1ffc551aed2af3336500aa476ab7c3 
+Importing 'GUID: 6e1c47532d2e35c4084a31676521099c - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/SOMA_cskel27.fbx' with importer (FBXImporter)
+Imported 'GUID: 6e1c47532d2e35c4084a31676521099c' -> (Import Result ID: 'aa2ac6025df5e88e21e7e3899915941e') in 0.053 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=be9a3ccc325de1ebdde9a0a21bfedc0c DependenciesID=bfad400c9686c2e766b7210b9d7c3c30 StaticDependenciesID=f91983d7aefb19c4bfea6693553232b5 
+Importing 'GUID: 3453fcae9020bca4abba5d33260c8239 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Resources/SMPLXAvatar.asset' with importer (NativeFormatImporter)
+Imported 'GUID: 3453fcae9020bca4abba5d33260c8239' -> (Import Result ID: '473411b6815454fb9bc5e95d171c6446') in 0.004 seconds [static dependencies only]. Details - ImportResultOutputID=2e5a2718cc58eb3eb32aa035e2196415 DependenciesID=5df7e2b1c0b70651bbc74dbd923840bf StaticDependenciesID=c962986b105874600e7340353aa57449 
+Importing 'GUID: e6bc262627d4f6b45987357dbd6b98d1 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Resources/SOMAAvatar.asset' with importer (NativeFormatImporter)
+Imported 'GUID: e6bc262627d4f6b45987357dbd6b98d1' -> (Import Result ID: '6ebd7ad2ccce56ade004e518b9b053db') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=bdf3b9ff4b40e29af2916b2a761eb45b DependenciesID=90c472117d5cd202b998513fce4c8065 StaticDependenciesID=f8b7a826d6e1b220f8d81feaf2c76713 
+Importing 'GUID: a7a7d269e8541214ba9f25c2be1ef887 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Resources/G1Avatar.asset' with importer (NativeFormatImporter)
+Imported 'GUID: a7a7d269e8541214ba9f25c2be1ef887' -> (Import Result ID: '4286b7e31b0df7eddedfd4b754903e7a') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=dcc09bcb31b61c6f06ab715483859051 DependenciesID=1a4b4aabd21ba2722b26ec6011447010 StaticDependenciesID=dacad83e971d69f4a63f74c722f17adf 
+Importing 'GUID: 7ac854568a5ff11418100727631bf561 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Resources/SOMA_cskel27Avatar.asset' with importer (NativeFormatImporter)
+Imported 'GUID: 7ac854568a5ff11418100727631bf561' -> (Import Result ID: '7dbbbeffbf2f86c9a9b4800efc5b801b') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=af87a9c17361c189ca92e432e0b0730c DependenciesID=4cdc50c5149615c06484ee4bccb09837 StaticDependenciesID=ce693743a4fe826f3dafab155a897d10 
+Importing 'GUID: 51bd45ca4f0f28342a12f4b0c80e9f4f - Path: Packages/com.unity.nuget.newtonsoft-json/README.md' with importer (TextScriptImporter)
+Imported 'GUID: 51bd45ca4f0f28342a12f4b0c80e9f4f' -> (Import Result ID: '103b5f3ac073a9af110bdd1e2b34610d') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=e261ed62c985b710abdee8ae17cf1147 DependenciesID=8c4c9b9a597f60e1b78104e68279c75d StaticDependenciesID=03d62af84158e20071613a01771c1699 
+Importing 'GUID: 3235ecefad2a6a645aa0222aca200aeb - Path: Packages/com.unity.timeline/Editor/StyleSheets/res/Timeline_LightSkin.txt' with importer (TextScriptImporter)
+Imported 'GUID: 3235ecefad2a6a645aa0222aca200aeb' -> (Import Result ID: 'a818b40a845c81d6cd2da426c58ebb31') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=24a76a39fa4a2b4781f95c155f1e02a6 DependenciesID=df490890d24b1527dc47f8268b1faa6f StaticDependenciesID=1efba15c5420dd6a4c0b43b424a175cb 
+Importing 'GUID: d2bd6f75d310451f9e59d71dccd3d9a4 - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/BlendTree 与 Timeline Transition 示例.md' with importer (TextScriptImporter)
+Imported 'GUID: d2bd6f75d310451f9e59d71dccd3d9a4' -> (Import Result ID: 'a7f550b40e5396f5282675846d2748c4') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=ed141e3a0920e92d83d19e7cbdf1220b DependenciesID=45f69115b99f49c69cb1d22006e6f7d6 StaticDependenciesID=a20365e7e121830846928c8761d80f52 
+Importing 'GUID: 13a9c1b4df2e489e8eb9cacca7429596 - Path: Packages/com.unity.timeline/package.json' with importer (PackageManifestImporter)
+Imported 'GUID: 13a9c1b4df2e489e8eb9cacca7429596' -> (Import Result ID: 'd2ecd224448bfb2e7c59a7af1940fdcc') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=e088798285051d6a1b7c5d5613463259 DependenciesID=fb7699fe6abf2149c998111e9b76dfee StaticDependenciesID=eccde1f2fd34edd0491067eb8afa9d38 
+Importing 'GUID: 13ea63dc994d09f4385841c8f956f313 - Path: Packages/com.unity.kimodo_unity_motion_tools/README.md' with importer (TextScriptImporter)
+Imported 'GUID: 13ea63dc994d09f4385841c8f956f313' -> (Import Result ID: '3db3c5bc364778cd195c68d48dfe08f6') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=24e5398fef547123d015969767519f39 DependenciesID=0c16a86fea2a81a32d1dfac2bd83c60a StaticDependenciesID=1d0917c594be522c3c39443201985877 
+Importing 'GUID: 93bf2c1618c6e6349bda0e585a26731a - Path: Packages/com.unity.kimodo_unity_motion_tools/package.json' with importer (PackageManifestImporter)
+Imported 'GUID: 93bf2c1618c6e6349bda0e585a26731a' -> (Import Result ID: 'e87cbff8c6f914fb6a0bdf72b303d59b') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=68e264d68c0887ea3fcbdbc90fc767dd DependenciesID=912f4b7ba5926e14a7ac8b8e91a6051c StaticDependenciesID=413ace14eb049e70a01e5c2a26172bc3 
+Importing 'GUID: a36ec35072094df4b9a20c87844cf010 - Path: Packages/com.unity.kimodo_unity_motion_tools/Editor/Core/GenerationPipeline/README.md' with importer (TextScriptImporter)
+Imported 'GUID: a36ec35072094df4b9a20c87844cf010' -> (Import Result ID: 'ec9ab81caf5578c6ab15777be1d54081') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=adc98668399b4091f1871f747a3450e7 DependenciesID=9c40177522f0a20f67a5ba67e95ca350 StaticDependenciesID=208d96659f6c7237452625e0727718d5 
+Importing 'GUID: 0455895b780ef1849a580c6d87a06c15 - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/常见问题与报错处理.md' with importer (TextScriptImporter)
+Imported 'GUID: 0455895b780ef1849a580c6d87a06c15' -> (Import Result ID: 'b4e6cb1ee2d3b689dbfae260c981b643') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=8ace5911810d81395a308cd37cc10d65 DependenciesID=816ab11ea81fa0ea93d64f0fd907ca9a StaticDependenciesID=de5b01832baf335b6af6008dabf2648c 
+Importing 'GUID: 14fbd6db4d5f7114e91ed7c5eccd109b - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/README.md' with importer (TextScriptImporter)
+Imported 'GUID: 14fbd6db4d5f7114e91ed7c5eccd109b' -> (Import Result ID: '508c5d3cf24480dbdccc3ab2c7b848fb') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=0779f8d0a441870e1de8eae06f77c4b6 DependenciesID=0b0a829b1d090e89a3e3dd709e93cd1e StaticDependenciesID=6fd1d62ba3a960a1eb7053026cfdcf8e 
+Importing 'GUID: 24efe08f95549ab4699df4c1b55703e5 - Path: Packages/com.unity.nuget.newtonsoft-json/LICENSE.md' with importer (TextScriptImporter)
+Imported 'GUID: 24efe08f95549ab4699df4c1b55703e5' -> (Import Result ID: '063f1962cb291e68647c270393a1031f') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=deeef29049f43f54f589096df9d0c728 DependenciesID=dfd02a7882a3716ae4ab0d00e4186872 StaticDependenciesID=f43f22f5b641a9f28e5304fe43612769 
+Importing 'GUID: 54905d77593e9eb44a7c25d704bb4163 - Path: Packages/com.unity.timeline/Editor/StyleSheets/res/Timeline_DarkSkin.txt' with importer (TextScriptImporter)
+Imported 'GUID: 54905d77593e9eb44a7c25d704bb4163' -> (Import Result ID: '4d50873f94940df40427f41505984ada') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=0e9137931ea63fa858b08fa6287b66bd DependenciesID=159e5267156b67c7ee56c9d752f1981d StaticDependenciesID=5a6212c1c33e9c8d2abb8117aa157fbd 
+Importing 'GUID: 64bc78c809e843879a1869ff2ac27d34 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Resources/cskel27_neutral.json' with importer (TextScriptImporter)
+Imported 'GUID: 64bc78c809e843879a1869ff2ac27d34' -> (Import Result ID: '75467eb1b99be2481a0da0ba00260a3b') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=a3faf03132bfe6ed71c26056212c0b87 DependenciesID=c3df0f0ee744622b8d60743f05b0251d StaticDependenciesID=ed9069ac27ec086b31067960379dcf8d 
+Importing 'GUID: 9422d9b1fde3cf644b4a0dddd10a7348 - Path: Packages/com.unity.nuget.newtonsoft-json/Third Party Notices.md' with importer (TextScriptImporter)
+Imported 'GUID: 9422d9b1fde3cf644b4a0dddd10a7348' -> (Import Result ID: 'a806d3cb219743239b865a75227ad292') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=906205049c14497590ba5594e7aebab2 DependenciesID=9094f2e656fbac4080706eb25f852636 StaticDependenciesID=84d3efcd4dcbb7ff722172eebc843b82 
+Importing 'GUID: f452f0129fe4f104abaf3f78071ad3d6 - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/QuickServer 启动与协议说明书.md' with importer (TextScriptImporter)
+Imported 'GUID: f452f0129fe4f104abaf3f78071ad3d6' -> (Import Result ID: '4c38b561c9b9bb623dee343f5288fcfd') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=dcd2b4929c6b2e1f7103e5b6695239fc DependenciesID=591a9ada14901bebdea49b19b0bdb2b8 StaticDependenciesID=d3f10498b6c3d5f84f0fe814d02ac747 
+Importing 'GUID: f4d265e8f31ca704fa6172e89ac59908 - Path: Packages/com.unity.kimodo_unity_motion_tools/FastBegin.md' with importer (TextScriptImporter)
+Imported 'GUID: f4d265e8f31ca704fa6172e89ac59908' -> (Import Result ID: '48d28d396ce26facac7dba90aa488752') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=b78cfd4915e3be25f06fd8e631925085 DependenciesID=8c2b7c6449455cd1e679a4c2822d5d7d StaticDependenciesID=c769b38c028d4ef6f2449b2e66ba9eb2 
+Importing 'GUID: 16f24f695cc06684991baf4b1bc6ad22 - Path: Packages/com.unity.nuget.newtonsoft-json/CHANGELOG.md' with importer (TextScriptImporter)
+Imported 'GUID: 16f24f695cc06684991baf4b1bc6ad22' -> (Import Result ID: '83c3ad37367373acc06ee24a12f970b2') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=f9a7147d566c0e7adfc44e3d48d0d9e2 DependenciesID=7bf1f9a647801cb10211a3236fb8e203 StaticDependenciesID=da0777aab9a6707c1314313bff95f9de 
+Importing 'GUID: f66454863bc106549a6b53849ee63b41 - Path: Packages/com.unity.timeline/README.md' with importer (TextScriptImporter)
+Imported 'GUID: f66454863bc106549a6b53849ee63b41' -> (Import Result ID: '3cc1de05fe647707e80a3f60a294a883') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=b7cb84b51923d398568b86b732179325 DependenciesID=247c506d2e395f5886a02468e51833cd StaticDependenciesID=098fe48e782c4269add8f5aa28cff404 
+Importing 'GUID: f62daaa09f30ce1409a590a4b4cdf15d - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/Constraint Tool 说明书.md' with importer (TextScriptImporter)
+Imported 'GUID: f62daaa09f30ce1409a590a4b4cdf15d' -> (Import Result ID: '2428e3eca56c4b3e40ed677714f33491') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=42658218cc376cbccfd63cbb3e27ec09 DependenciesID=78535d6322db02508f5a25c63965d572 StaticDependenciesID=5c2ef685882f3805ecd7ced4e8164a36 
+Importing 'GUID: f67ef9e4a3b04785b411ce20b2bb1007 - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/Command API 说明书.md' with importer (TextScriptImporter)
+Imported 'GUID: f67ef9e4a3b04785b411ce20b2bb1007' -> (Import Result ID: '3d7fa3031e36bc0504a63b1ae2bb4193') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=1f4b086b3c1e58726dae27cdd1c02883 DependenciesID=ce8ed33f53412243e9582d3f7bef6fc3 StaticDependenciesID=cdc221f9fd64431bac2266cc0aafef9d 
+Importing 'GUID: 780002b3ecb606b4e8376a590084249d - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/AI 工作流示例与 Constraint API 设计.md' with importer (TextScriptImporter)
+Imported 'GUID: 780002b3ecb606b4e8376a590084249d' -> (Import Result ID: '4a758ad19acfc048edac86deb480ffec') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=d39e1140ab11f1188003397c839cfe6f DependenciesID=f9b425a298c63f8cb5a68c70eb5f47fd StaticDependenciesID=78f6c82ca3e154c13bcc36cc67394ffd 
+Importing 'GUID: a8a90c35b04530c4f971aaef6fdf3612 - Path: Packages/com.unity.nuget.newtonsoft-json/link.xml' with importer (TextScriptImporter)
+Imported 'GUID: a8a90c35b04530c4f971aaef6fdf3612' -> (Import Result ID: '2f7938311f07b073b54b3ec54c06e26a') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=621bafaa599061d934bceb05659a724d DependenciesID=a0b469596892392b1ce255db8769569f StaticDependenciesID=29243a467fcfeeacec460bfbeb8fe39f 
+Importing 'GUID: f8d4e5c2f2df25449ae8c391afbe5114 - Path: Packages/com.unity.nuget.newtonsoft-json/package.json' with importer (PackageManifestImporter)
+Imported 'GUID: f8d4e5c2f2df25449ae8c391afbe5114' -> (Import Result ID: '75fe7a5fb05fedbe40ace362d35137c2') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=bd3c6d73d5bd56ad948b0d222ae9abd2 DependenciesID=1870e858c24ebd0ebca9834d8b8f4257 StaticDependenciesID=334d89eed6c17b08be5b3c60c2eab7e9 
+Importing 'GUID: 4a0757ee0236f39489520769ae710288 - Path: Packages/com.unity.timeline/CHANGELOG.md' with importer (TextScriptImporter)
+Imported 'GUID: 4a0757ee0236f39489520769ae710288' -> (Import Result ID: '96986b5f15886d0df8ec80dc62d2f850') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=f0b9b79c1b7b6d69660f4654db170482 DependenciesID=d1e8957a09fd7afbf08b744e9496b04c StaticDependenciesID=115e4c0abadd4815b5f17e4c71cf6d4d 
+Importing 'GUID: 6ae95540e86c47aaa631bd47a70fa5a0 - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/使用 Unity Cowork 读取 Kimodo Skill.md' with importer (TextScriptImporter)
+Imported 'GUID: 6ae95540e86c47aaa631bd47a70fa5a0' -> (Import Result ID: 'bddf51dc2583a59a4d917053608db9cc') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=f12937cbf8c0933256544a1f79f61d9a DependenciesID=08c8dfc712cc5f4d2ef866292cf4e1cf StaticDependenciesID=d69a5d3666dac2ae2163a404546c4990 
+Importing 'GUID: 6a5dd63d43a24b94920e875068956e9e - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/使用 Unity MCP 读取 Kimodo Skill.md' with importer (TextScriptImporter)
+Imported 'GUID: 6a5dd63d43a24b94920e875068956e9e' -> (Import Result ID: '361ddfb062ce4e0e82e1626fcb783300') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=2acab4b51ea9535b18d03ab15c4c3817 DependenciesID=ed74601c82d0406537bc56071da6f709 StaticDependenciesID=162c5e42c144759e52d88a092d74ed67 
+Importing 'GUID: 7a144a582b214af1bb9c05499a916d84 - Path: Packages/com.unity.kimodo_unity_motion_tools/Runtime/Resources/g1skel34_neutral.json' with importer (TextScriptImporter)
+Imported 'GUID: 7a144a582b214af1bb9c05499a916d84' -> (Import Result ID: '117ce6d8e41e0bbe34194229a9a103ca') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=b6c951194350830f1d31a95f406c9716 DependenciesID=417048f80331ea08aa391f47852f0c0d StaticDependenciesID=04b7f6b3c3174650a19286a574623fa9 
+Importing 'GUID: 8b4add7121811f141a445633604b253d - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/Kimodo Server Manager 说明书.md' with importer (TextScriptImporter)
+Imported 'GUID: 8b4add7121811f141a445633604b253d' -> (Import Result ID: '44da74073bec142c8b0f034913a62cd9') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=6744080832b88089bb6acdfdbf86346a DependenciesID=8cc501303ebd6e0f0979ec922c183746 StaticDependenciesID=4011e4d870d45e8f1b7af433ae991f21 
+Importing 'GUID: 4c5640e415edbe342bbe339175268dfc - Path: Packages/com.unity.nuget.newtonsoft-json/Runtime/AOT/Newtonsoft.Json.xml' with importer (TextScriptImporter)
+Imported 'GUID: 4c5640e415edbe342bbe339175268dfc' -> (Import Result ID: '46315095ff638cd9e509a40bfade82c9') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=e5b88eb46f7e1e4d9ff61c1b6da19dba DependenciesID=80a4e27f48ee07a2850a8f98645e7894 StaticDependenciesID=c89a50b79366b1915bc66f42a34111ae 
+Importing 'GUID: 8c67d9fafab224c399c8eb76e0620f99 - Path: Packages/com.unity.timeline/ValidationExceptions.json' with importer (TextScriptImporter)
+Imported 'GUID: 8c67d9fafab224c399c8eb76e0620f99' -> (Import Result ID: 'c5c1a59a11fdbc064308a6a45b7725b2') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=0fa7a52f868bf1e9c6163eab8c38b598 DependenciesID=2f1d15e328cfefabc1cd0206b30b8205 StaticDependenciesID=d9d6823424bf267b000f49476f311e0b 
+Importing 'GUID: 9ce5d0afb1584e78b54c0697660400b6 - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/Runtime Motion Driver 说明书.md' with importer (TextScriptImporter)
+Imported 'GUID: 9ce5d0afb1584e78b54c0697660400b6' -> (Import Result ID: '65247389f63e271ad1cc659eac2b0132') in 0.002 seconds [static dependencies only]. Details - ImportResultOutputID=79f09ca9f2f11ffc8398281f1ab833c5 DependenciesID=b0c5ef3592caadfc36afd3c7e2982b8e StaticDependenciesID=292962f87e64a56a3b2ebda302d77602 
+Importing 'GUID: 2edaad673fc6ad248a6d514e161a1079 - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/Timeline Tool 说明书.md' with importer (TextScriptImporter)
+Imported 'GUID: 2edaad673fc6ad248a6d514e161a1079' -> (Import Result ID: '2d09572667d775ca35569427058737b7') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=6a5201ad95100124bb8df5198fdb7575 DependenciesID=c49cd3ff37ef4be8f904a40479c0d67c StaticDependenciesID=282c7f1777a3f26e75f5cdf7c1e8a6b1 
+Importing 'GUID: 6ecb9e17e44feb84cb80451fa27b09fe - Path: Packages/com.unity.timeline/LICENSE.md' with importer (TextScriptImporter)
+Imported 'GUID: 6ecb9e17e44feb84cb80451fa27b09fe' -> (Import Result ID: 'af18a271dda945ab1f8a3f29adba0021') in 0.004 seconds [static dependencies only]. Details - ImportResultOutputID=e6398c85326f93e5c4475f53a7045725 DependenciesID=6c194539ae3c09e30c3f7435a72368cc StaticDependenciesID=b4f4b2da4c1e940a40c4aad3ee29008b 
+Importing 'GUID: fed01095b990a354289891ead909238f - Path: Packages/com.unity.nuget.newtonsoft-json/Runtime/Newtonsoft.Json.xml' with importer (TextScriptImporter)
+Imported 'GUID: fed01095b990a354289891ead909238f' -> (Import Result ID: '40dbedbda2bfd00670f015024c5efb6b') in 0.004 seconds [static dependencies only]. Details - ImportResultOutputID=1a77166256dec369b8ea760f3327d8e3 DependenciesID=445355b4cec91c16e14999338429d87a StaticDependenciesID=c68069a018ac896707f64f19ab8f96fe 
+Importing 'GUID: 0f774aa645794e399843d4dff29f9601 - Path: Packages/com.unity.kimodo_unity_motion_tools/Manual/使用 Unity CLI 读取 Kimodo Skill.md' with importer (TextScriptImporter)
+Imported 'GUID: 0f774aa645794e399843d4dff29f9601' -> (Import Result ID: '17b057df662994779ee0eb237ee60480') in 0.003 seconds [static dependencies only]. Details - ImportResultOutputID=79fd76938992d498a53ed189f799e3b2 DependenciesID=687713669cbc9eb552d0dcf94e5f0132 StaticDependenciesID=25c6437d9aca53059e766f4ce28063d0 
+Importing 'GUID: 5393cdb70614ab24f94f78bfcf5d1455 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Extensions/dark.uss' with importer (ScriptedImporter : UnityEditor.CoreModule:UnityEditor.UIElements.StyleSheets:StyleSheetImporter)
+Imported 'GUID: 5393cdb70614ab24f94f78bfcf5d1455' -> (Import Result ID: '376e81cdac25befc8cc15a021e298182') in 0.046 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=5e6c879caa550e197aef002566c6c7d2 DependenciesID=2f4c1db7ce01c179268f4a2dfd3b40e5 StaticDependenciesID=e057517e27bc845a1f39a0121f5dff3b 
+Importing 'GUID: e98085123be873947970c4f10099a39a - Path: Packages/com.unity.timeline/Editor/StyleSheets/Extensions/light.uss' with importer (ScriptedImporter : UnityEditor.CoreModule:UnityEditor.UIElements.StyleSheets:StyleSheetImporter)
+Imported 'GUID: e98085123be873947970c4f10099a39a' -> (Import Result ID: '575edaf62f38d19c202d0eefe4e7a10c') in 0.014 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=2d2f7dc17e23093e1f8140bcaadd5e8c DependenciesID=a4c7f9a49e3770bb1ecc74bff16aca61 StaticDependenciesID=0d092f01d286fbcb186d07a91d6a0d1f 
+Importing 'GUID: ada555936059fa149bb48537842ee230 - Path: Packages/com.unity.timeline/Editor/StyleSheets/Extensions/common.uss' with importer (ScriptedImporter : UnityEditor.CoreModule:UnityEditor.UIElements.StyleSheets:StyleSheetImporter)
+Imported 'GUID: ada555936059fa149bb48537842ee230' -> (Import Result ID: 'bc79a7b85ca5ae7e627b8313ca171b8e') in 0.039 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=dea750c9a1edf4b01255e2e5ced48566 DependenciesID=ecaef58e1b0bbf984b01e94405d2c913 StaticDependenciesID=f2d0aa0c9a278ba3c4b1fe98ed62956e 
+Importing 'GUID: eded20d65a4c8a7489e4df3772953e51 - Path: Packages/com.unity.timeline/Editor/StyleSheets/ClipInspector.uss' with importer (ScriptedImporter : UnityEditor.CoreModule:UnityEditor.UIElements.StyleSheets:StyleSheetImporter)
+Imported 'GUID: eded20d65a4c8a7489e4df3772953e51' -> (Import Result ID: '715f2eb1f3b452daee6c7f22eeb17ed8') in 0.023 seconds [static and dynamic dependencies]. Details - ImportResultOutputID=1b76e5e3c0c63b0a1c8a825922c47e57 DependenciesID=d417e907a795ffe5ef43e2c1f5f1a26d StaticDependenciesID=3f8f046513bf7071d73f026042dfefc7 
+Starting new worker id: 0 with log in C:/tmp/KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753/Logs/AssetImportWorkerHW0.log
+[C:\build\output\unity\unity\Modules\LocalizationEditor\LocalizationDatabase.cpp:816]Packages/com.unity.timeline/Editor/Localization/ja.po
+No restricted APIs configured; Validation skipped.
+Checking 3 assemblies for restricted APIs found 0 usage(s) in 4 ms
+Loading style catalogs (8)
+	StyleSheets/Extensions/base/common.uss
+	UIPackageResources/StyleSheets/Default/Variables/Public/common.uss
+	StyleSheets/Northstar/common.uss
+	StyleSheets/Extensions/fonts/inter.uss
+	StyleSheets/Extensions/base/dark.uss
+	UIPackageResources/StyleSheets/Default/Northstar/Palette/dark.uss
+	Packages/com.unity.timeline/Editor/StyleSheets/Extensions/dark.uss
+	Packages/com.unity.timeline/Editor/StyleSheets/Extensions/common.uss
+
+Asset Pipeline Refresh (id=3796d259488a7144088cab73bf88b89e): Total: 18.034 seconds - Initiated by InitialRefreshV2(ForceSynchronousImport)
+	(Values over 0.05ms)
+	Summary:
+		Imports: total=313 (actual=313, local cache=0, cache server=0)
+		Asset DB Process Time: managed=35 ms, native=2860 ms
+		Asset DB Callback time: managed=198 ms, native=8036 ms
+		Scripting: domain reloads=1, domain reload time=790 ms, compile time=6093 ms, other=20 ms
+		Project Asset Count: scripts=238, non-scripts=269
+		Asset File Changes: new=819, changed=819, moved=0, deleted=0
+		Scan Filter Count: 0
+	InvokePackagesCallback: 7894.541ms
+	ApplyChangesToAssetFolders: 0.863ms
+	Scan: 198.862ms
+	Collect global state as custom dependencies: 11.385ms
+	OnSourceAssetsModified: 2.126ms
+	CategorizeScriptCompilationAssets: 4.704ms
+	ProcessAssetsWithTransientArtifactChanges: 10.436ms
+	CategorizeAssets: 3.506ms
+	CompileScripts: 6092.708ms
+	ImportOutOfDateAssets: 2552.372ms (483.611ms without children)
+		ImportManagerImport: 2055.715ms (154.082ms without children)
+			UpdateCategorizedAssets: 1.063ms
+		UnloadImportedAssets: 0.177ms
+		ReloadImportedAssets: 0.100ms
+		EnsureUptoDateAssetsAreRegisteredWithGuidPM: 0.054ms
+		ImportSchedulerStart: 12.805ms
+	PostProcessAllAssets: 344.664ms
+		VersionControlSettings.HiddenFilePostprocess 28.520ms
+		LocalizationDatabase.AssetDatabasePostprocessCallback 2.976ms
+		ShaderAssetModifiedCallback 2.806ms
+		PostProcessCallbackCreateDeferredMaterials 2.223ms
+		AssemblyValidation.PostprocessAllAssets 2.181ms
+		RaytracingShaderImportPostprocess 1.354ms
+		ComputeShaderImportPostprocess 1.150ms
+		SpeedTreeImporter.PostprocessAllAssets 1.045ms
+		VCAutoAddAssetPostprocess 0.755ms
+		BlockShaderImporter.PostprocessAllAssets 0.585ms
+		MonoPostProcessAllAssets: 196.938ms
+			StyleCatalogPostProcessor.OnPostprocessAllAssets 136.163ms
+			AssetPostprocessor.OnPostprocessAllAssets 15.741ms
+			BuilderAssetPostprocessor.OnPostprocessAllAssets 8.020ms
+			WindowAssetPostprocessingWatcher.OnPostprocessAllAssets 7.351ms
+			TextAssetPostProcessor.OnPostprocessAllAssets 3.780ms
+			AssetChangedListener.OnPostprocessAllAssets 3.626ms
+			SyncVS.PostprocessSyncProject 2.187ms
+			SpeedTree9Postprocessor.OnPostprocessAllAssets 1.776ms
+			RetainedModeAssetPostprocessor.OnPostprocessAllAssets 1.734ms
+			KimodoRetargetCacheInvalidationPostprocessor.OnPostprocessAllAssets 1.486ms
+			EditModeScopePostprocessor.OnPostprocessAllAssets 0.965ms
+			ArtifactBrowserPostProcessor.OnPostprocessAllAssets 0.658ms
+			AudioMixerPostprocessor.OnPostprocessAllAssets 0.310ms
+			AssetEvents.OnPostprocessAllAssets 0.260ms
+			TerrainToolbarOverlayPostProcessor.OnPostprocessAllAssets 0.250ms
+			SpeedTreePostProcessor.OnPostprocessAllAssets 0.239ms
+			ConfigAssetsTracker.OnPostprocessAllAssets 0.215ms
+			ReferencedClipsPostProcessor.OnPostprocessAllAssets 0.193ms
+			AssetDatabaseCallbacks.OnPostprocessAllAssets 0.181ms
+			SamplePostprocessor.OnPostprocessAllAssets 0.178ms
+			ScenarioDriftAssetsTracker.OnPostprocessAllAssets 0.150ms
+			AudioContainerPostProcessor.OnPostprocessAllAssets 0.112ms
+			RenderPipelineGlobalSettingsPostprocessor.OnPostprocessAllAssets 0.084ms
+	PostAssetChangesProfiler: 1.243ms
+	UnloadStreamsBegin: 1.419ms
+	PersistCurrentRevisions: 0.405ms
+	GenerateScriptTypeHashes: 0.377ms
+	GenerateScriptTypeSerializationHashes: 0.826ms
+	Untracked: 904.394ms
+
+Application.AssetDatabase Initial Refresh End
+Scanning for USB devices : 3.258ms
+Initializing Unity extensions:
+[MODES] ModeService[none].Initialize
+[MODES] ModeService[none].LoadModes
+[MODES] Loading mode Default (0) for mode-current-id-KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753
+Unloading 12 Unused Serialized files (Serialized files now loaded: 0)
+Unloading 591 unused Assets / (1.0 MB). Loaded Objects now: 1223.
+Memory consumption went from 211.2 MB to 210.2 MB.
+Total: 7.096900 ms (FindLiveObjects: 0.129400 ms CreateObjectMapping: 0.133100 ms MarkObjects: 6.350500 ms  DeleteObjects: 0.479900 ms)
+
+Batchmode quit successfully invoked - shutting down!
+[Physics::Module] Cleanup current backend.
+[Physics::Module] Id: 0xf2b8ea05
+Input System module state changed to: ShutdownInProgress.
+Input Polling Thread exited.
+Input System module state changed to: Shutdown.
+[Licensing::IpcConnector] LicenseClient-47694-notifications channel disconnected successfully.
+[Licensing::IpcConnector] LicenseClient-47694 channel disconnected successfully.
+AcceleratorClientConnectionCallback - disconnected - :0
+Cleanup mono
+CodeReloadManager destroyed
+Exiting batchmode successfully now!
+Exiting without the bug reporter. Application will terminate with return code 0

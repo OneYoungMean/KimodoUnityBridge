@@ -1,0 +1,132 @@
+{
+  "analysis_id": "b845ad02-10c4-4b87-af51-ca97c75520e8",
+  "session_id": "57e990e1-8933-46fb-9748-551ebaa43ef3",
+  "timeline_asset_guid": "9fcdd472d7ae0854db97f7e6a0d30852",
+  "session_name": "Session_20260810_141734_387",
+  "character_ref": "GlobalObjectId_V1-2-c358e2867028f0342ae7a7c05630d438-919132149155446097-1718155165",
+  "character": "Unity65VerifyHumanoid",
+  "start": 0.0,
+  "end": 1.0,
+  "created_at_utc": "2026-08-10T06:20:33.7574457Z",
+  "poses": [
+    {
+      "pose": {
+        "source": "Unity65VerifyHumanoid",
+        "frame": 0
+      },
+      "analysis": {
+        "clip_index": 0,
+        "frame": 0,
+        "saliency": 0.0
+      }
+    },
+    {
+      "pose": {
+        "source": "Unity65VerifyHumanoid",
+        "frame": 34
+      },
+      "analysis": {
+        "clip_index": 0,
+        "frame": 34,
+        "saliency": 0.4034
+      }
+    },
+    {
+      "pose": {
+        "source": "Unity65VerifyHumanoid",
+        "frame": 58
+      },
+      "analysis": {
+        "clip_index": 0,
+        "frame": 58,
+        "saliency": 0.4592
+      }
+    }
+  ],
+  "analysis": {
+    "algorithm": "motion-quality-v1",
+    "quality_score": 0.0226,
+    "issues": [
+      {
+        "clip_index": 0,
+        "frame": 1,
+        "score": 1.0,
+        "reasons": [
+          "continuity",
+          "acceleration",
+          "pose"
+        ]
+      },
+      {
+        "clip_index": 0,
+        "frame": 6,
+        "score": 0.6836,
+        "reasons": [
+          "continuity",
+          "pose"
+        ]
+      },
+      {
+        "clip_index": 0,
+        "frame": 29,
+        "score": 0.6091,
+        "reasons": [
+          "continuity",
+          "acceleration"
+        ]
+      }
+    ],
+    "clips": [
+      {
+        "frame_count": 30,
+        "fps": 30.0,
+        "quality_score": 0.0226,
+        "keyframes": [
+          {
+            "frame": 0,
+            "time": 0.0,
+            "saliency": 0.0
+          },
+          {
+            "frame": 17,
+            "time": 0.566667,
+            "saliency": 0.4034
+          },
+          {
+            "frame": 29,
+            "time": 0.966667,
+            "saliency": 0.4592
+          }
+        ],
+        "issues": [
+          {
+            "frame": 1,
+            "score": 1.0,
+            "reasons": [
+              "continuity",
+              "acceleration",
+              "pose"
+            ]
+          },
+          {
+            "frame": 6,
+            "score": 0.6836,
+            "reasons": [
+              "continuity",
+              "pose"
+            ]
+          },
+          {
+            "frame": 29,
+            "score": 0.6091,
+            "reasons": [
+              "continuity",
+              "acceleration"
+            ]
+          }
+        ]
+      }
+    ],
+    "source": "quickserver_analysis_only"
+  }
+}

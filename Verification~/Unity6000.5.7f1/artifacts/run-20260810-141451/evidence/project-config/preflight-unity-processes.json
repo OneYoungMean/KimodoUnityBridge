@@ -1,0 +1,51 @@
+{
+  "note": "Sanitized snapshot taken before creating or opening the isolated verification project. Hub access tokens and licensing arguments are intentionally omitted.",
+  "running": [
+    {
+      "pid": 53236,
+      "unity": "2022.3.62f3c1",
+      "role": "editor",
+      "project_paths_seen": [
+        "C:\\nvlab\\KimodoUnityBridge_FullDemo",
+        "C:\\tmp\\KimodoUnityBridge_FullDemo-main"
+      ],
+      "action": "left untouched; not tested"
+    },
+    {
+      "pid": 61380,
+      "unity": "2022.3.62f3c1",
+      "role": "AssetImportWorker0",
+      "project_path": "C:\\nvlab\\KimodoUnityBridge_FullDemo",
+      "action": "left untouched; not tested"
+    },
+    {
+      "pid": 61420,
+      "unity": "2022.3.62f3c1",
+      "role": "AssetImportWorker1",
+      "project_path": "C:\\nvlab\\KimodoUnityBridge_FullDemo",
+      "action": "left untouched; not tested"
+    },
+    {
+      "pid": 67336,
+      "unity": "6000.5.7f1",
+      "role": "editor",
+      "project_path": "C:\\tmp\\KimodoUnityBridge_FullDemo-main",
+      "action": "left untouched; project not reused"
+    },
+    {
+      "pid": 15836,
+      "unity": "6000.5.7f1",
+      "role": "AssetImportWorkerHW1",
+      "project_path": "C:\\tmp\\KimodoUnityBridge_FullDemo-main",
+      "action": "left untouched"
+    },
+    {
+      "pid": 14460,
+      "unity": "6000.5.7f1",
+      "role": "AssetImportWorkerHW2",
+      "project_path": "C:\\tmp\\KimodoUnityBridge_FullDemo-main",
+      "action": "left untouched"
+    }
+  ],
+  "chosen_isolated_project": "C:\\tmp\\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753"
+}

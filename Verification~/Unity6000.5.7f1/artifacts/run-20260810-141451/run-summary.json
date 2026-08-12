@@ -1,0 +1,49 @@
+{
+  "unity": {
+    "version": "6000.5.7f1",
+    "revision": "017862109af0",
+    "executable": "C:\\Program Files\\Unity 6000.5.7f1\\Editor\\Unity.exe",
+    "isolated_project": "C:\\tmp\\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753"
+  },
+  "package": {
+    "name": "com.unity.kimodo_unity_motion_tools",
+    "version": "2.0.20",
+    "install": "file:C:/tmp/KimodoUnityBridge-workflow-unity65",
+    "source": "Local"
+  },
+  "api": {
+    "definitions": 18,
+    "schema_help_records": 18,
+    "dispatcher_events": 158,
+    "destructive_success_calls": 0
+  },
+  "workflow": {
+    "session": "Session_20260810_141734_387",
+    "character": "Unity65VerifyHumanoid",
+    "model": "Kimodo-SOMA-RP-v1",
+    "text_encoder_model": "high_performance",
+    "request_id": "8672331c-466b-4b1c-bbd1-0806cb4d8a3c",
+    "terminal_status": "completed",
+    "animation": "Unity65_SingleClip",
+    "duration_frames": 60,
+    "seed": 650507,
+    "analysis_id": "b845ad02-10c4-4b87-af51-ca97c75520e8",
+    "bake_ok": true
+  },
+  "artifacts": {
+    "generated_clip": "evidence/generated-assets/Kimodo_Unity65_SingleClip.anim",
+    "baked_clip": "evidence/generated-assets/Kimodo_Unity65_BakeProbe.anim",
+    "pose_picture": "evidence/images/pose-contact-sheet.png",
+    "analysis_picture": "evidence/images/analysis-contact-sheet.png",
+    "raw_events": "dispatcher-events.jsonl",
+    "unity_log": "unity-runtime.log"
+  },
+  "unverified": [
+    "interactive Timeline playback and subjective motion quality",
+    "session_try_remove success path",
+    "session_try_add clip and animator paths",
+    "query_current_session transition path",
+    "active generation cancellation",
+    "retarget, remove_root_motion true, alternate output modes and models"
+  ]
+}

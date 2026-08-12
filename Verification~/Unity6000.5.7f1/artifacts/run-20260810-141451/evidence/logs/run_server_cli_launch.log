@@ -1,0 +1,5 @@
+VENV_PYTHON=C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\NvlabKimodoQuickServer~\kimodo\.venv\Scripts\python.exe
+SOURCE_ROOT=C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\NvlabKimodoQuickServer~\kimodo
+ARDY_SOURCE_ROOT=C:\tmp\KimodoUnityBridge-Verify-6000.5.7f1-20260810-140753\NvlabKimodoQuickServer~\ardy
+CLI_ARGS=run --output file --watchpid 78100
+CLI_RC=0
