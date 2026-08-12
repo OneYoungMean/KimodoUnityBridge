@@ -277,7 +277,7 @@ class Root2DConstraintSet:
 
         return cls(
             skeleton,
-            frame_indices=torch.tensor(dico["frame_indices"]),
+            frame_indices=torch.tensor(dico["frame_indices"], device=device, dtype=torch.long),
             smooth_root_2d=torch.tensor(dico["smooth_root_2d"], device=device),
             global_root_heading=global_root_heading,
         )
@@ -407,8 +407,8 @@ class FullBodyConstraintSet:
     @classmethod
     def from_dict(cls, skeleton: SkeletonBase, dico: dict) -> "FullBodyConstraintSet":
         """Build a FullBodyConstraintSet from a dict (e.g. loaded from JSON)."""
-        frame_indices = torch.tensor(dico["frame_indices"])
         device = skeleton.device if hasattr(skeleton, "device") else "cpu"
+        frame_indices = torch.tensor(dico["frame_indices"], device=device, dtype=torch.long)
         local_rot = torch.tensor(dico["local_joints_rot"], device=device)
         local_rot_mats = axis_angle_to_matrix(local_rot)
         local_rot_mats = _convert_constraint_local_rots_to_skeleton(local_rot_mats, skeleton)
@@ -578,14 +578,31 @@ class EndEffectorConstraintSet:
         to_crop: bool = False,
     ) -> None:
         self.skeleton = skeleton
-        self.frame_indices = frame_indices
+        # Keep every indexing tensor on the same device as the motion/model.
+        # JSON deserialization creates frame_indices on CPU by default, while
+        # inference commonly runs on CUDA.  Mixing them in create_pairs (which
+        # internally calls torch.stack/cat) raises a CPU/CUDA device error.
+        device = getattr(skeleton, "device", global_joints_positions.device)
+        self.frame_indices = frame_indices.to(device=device, dtype=torch.long)
+        global_joints_positions = global_joints_positions.to(device=device)
+        global_joints_rots = global_joints_rots.to(device=device)
+        if smooth_root_2d is not None:
+            smooth_root_2d = smooth_root_2d.to(device=device)
         self.joint_names = joint_names
 
         # joint_names are constant for all the frames
         rot_joint_names, pos_joint_names = self.skeleton.expand_joint_names(self.joint_names)
         # indexing works for motion_rep with smooth root only (contains pelvis index)
-        self.pos_indices = torch.tensor([self.skeleton.bone_index[jname] for jname in pos_joint_names])
-        self.rot_indices = torch.tensor([self.skeleton.bone_index[jname] for jname in rot_joint_names])
+        self.pos_indices = torch.tensor(
+            [self.skeleton.bone_index[jname] for jname in pos_joint_names],
+            device=device,
+            dtype=torch.long,
+        )
+        self.rot_indices = torch.tensor(
+            [self.skeleton.bone_index[jname] for jname in rot_joint_names],
+            device=device,
+            dtype=torch.long,
+        )
 
         # if we pass the full smooth root 3D as input
         if smooth_root_2d is not None and smooth_root_2d.shape[-1] == 3:
@@ -721,8 +738,8 @@ class EndEffectorConstraintSet:
     @classmethod
     def from_dict(cls, skeleton: SkeletonBase, dico: dict) -> "EndEffectorConstraintSet":
         """Build an EndEffectorConstraintSet from a dict (e.g. loaded from JSON)."""
-        frame_indices = torch.tensor(dico["frame_indices"])
         device = skeleton.device if hasattr(skeleton, "device") else "cpu"
+        frame_indices = torch.tensor(dico["frame_indices"], device=device, dtype=torch.long)
         local_rot = torch.tensor(dico["local_joints_rot"], device=device)
         local_rot_mats = axis_angle_to_matrix(local_rot)
         local_rot_mats = _convert_constraint_local_rots_to_skeleton(local_rot_mats, skeleton)

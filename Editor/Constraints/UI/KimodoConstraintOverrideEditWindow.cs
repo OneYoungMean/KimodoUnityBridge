@@ -337,19 +337,26 @@ namespace KimodoBridge.Editor
             using (new EditorGUI.DisabledScope(!marker.useOverride))
             {
                 DrawPropertyIfExists(so, "sampleData.sampleTime");
-                DrawPropertyIfExists(so, "sampleData.kimodoRootPosition");
-                DrawPropertyIfExists(so, "sampleData.localAxisAngles");
-                SerializedProperty includeHeadingProp = so.FindProperty("sampleData.hasRootHeading");
-                if (includeHeadingProp != null)
+                if (marker is KimodoRoot2DConstraintMarker)
                 {
-                    EditorGUILayout.PropertyField(includeHeadingProp);
-                    if (includeHeadingProp.boolValue)
+                    KimodoRoot2DConstraintEditorGUI.Draw(so);
+                }
+                else
+                {
+                    DrawPropertyIfExists(so, "sampleData.kimodoRootPosition");
+                    DrawPropertyIfExists(so, "sampleData.localAxisAngles");
+                    SerializedProperty includeHeadingProp = so.FindProperty("sampleData.hasRootHeading");
+                    if (includeHeadingProp != null)
                     {
-                        SerializedProperty headingProp = so.FindProperty("sampleData.rootHeading");
-                        EditorGUILayout.PropertyField(headingProp, true);
-                        if (headingProp != null)
+                        EditorGUILayout.PropertyField(includeHeadingProp);
+                        if (includeHeadingProp.boolValue)
                         {
-                            KimodoConstraintHeadingPreviewGUI.Draw(headingProp.vector2Value, enabled: true);
+                            SerializedProperty headingProp = so.FindProperty("sampleData.rootHeading");
+                            EditorGUILayout.PropertyField(headingProp, true);
+                            if (headingProp != null)
+                            {
+                                KimodoConstraintHeadingPreviewGUI.Draw(headingProp.vector2Value, enabled: true);
+                            }
                         }
                     }
                 }

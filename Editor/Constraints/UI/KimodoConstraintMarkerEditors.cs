@@ -12,6 +12,75 @@ using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
+    internal static class KimodoRoot2DConstraintEditorGUI
+    {
+        internal static float ResolveRotationY(Vector2 heading)
+        {
+            return heading.sqrMagnitude > 1e-8f
+                ? Mathf.Atan2(heading.x, heading.y) * Mathf.Rad2Deg
+                : 0f;
+        }
+
+        internal static Vector2 ResolveHeading(float rotationY)
+        {
+            float radians = rotationY * Mathf.Deg2Rad;
+            return new Vector2(Mathf.Sin(radians), Mathf.Cos(radians));
+        }
+
+        internal static void Draw(SerializedObject serializedObject)
+        {
+            SerializedProperty positionProp = serializedObject.FindProperty("sampleData.kimodoRootPosition");
+            if (positionProp != null)
+            {
+                Vector3 position = positionProp.vector3Value;
+                EditorGUI.BeginChangeCheck();
+                float forward = EditorGUILayout.FloatField(
+                    new GUIContent("Forward", "Signed ground-plane position along canonical Unity +Z."),
+                    position.z);
+                float rightward = EditorGUILayout.FloatField(
+                    new GUIContent("Rightward", "Signed ground-plane position along canonical Unity +X."),
+                    position.x);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    position.x = rightward;
+                    position.z = forward;
+                    positionProp.vector3Value = position;
+                }
+            }
+
+            SerializedProperty includeHeadingProp = serializedObject.FindProperty("sampleData.hasRootHeading");
+            if (includeHeadingProp == null)
+            {
+                return;
+            }
+
+            EditorGUILayout.PropertyField(
+                includeHeadingProp,
+                new GUIContent("Constrain Rotation Y", "Constrain the absolute world yaw around Unity Y."));
+            if (!includeHeadingProp.boolValue)
+            {
+                return;
+            }
+
+            SerializedProperty headingProp = serializedObject.FindProperty("sampleData.rootHeading");
+            if (headingProp == null)
+            {
+                return;
+            }
+
+            EditorGUI.BeginChangeCheck();
+            float rotationY = EditorGUILayout.FloatField(
+                new GUIContent("Rotation Y", "Absolute world yaw in degrees around Unity Y."),
+                ResolveRotationY(headingProp.vector2Value));
+            if (EditorGUI.EndChangeCheck())
+            {
+                headingProp.vector2Value = ResolveHeading(rotationY);
+            }
+
+            KimodoConstraintHeadingPreviewGUI.Draw(headingProp.vector2Value, enabled: true);
+        }
+    }
+
     [InitializeOnLoad]
     internal static class KimodoConstraintSelectionPreviewTool
     {
@@ -644,7 +713,7 @@ namespace KimodoBridge.Editor
     {
         protected override string TypeLabel => "Root2D";
         protected override string TipText =>
-            "Purpose: constrain the character root trajectory on the ground plane (X/Z) at a key frame. Optional heading constraint is supported.\n" +
+            "Purpose: constrain forward (+Z), rightward (+X), and optional absolute Rotation Y at a key frame.\n" +
             "Recommended for path following, locomotion route control, and turn direction control.";
 
         protected override void DrawFields(bool readOnly)
@@ -655,18 +724,7 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUI.BeginDisabledGroup(readOnly);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.kimodoRootPosition"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.hasRootHeading"));
-            SerializedProperty includeGlobalHeadingProp = serializedObject.FindProperty("sampleData.hasRootHeading");
-            if (includeGlobalHeadingProp != null && includeGlobalHeadingProp.boolValue)
-            {
-                SerializedProperty headingProp = serializedObject.FindProperty("sampleData.rootHeading");
-                EditorGUILayout.PropertyField(headingProp);
-                if (headingProp != null)
-                {
-                    KimodoConstraintHeadingPreviewGUI.Draw(headingProp.vector2Value, enabled: true);
-                }
-            }
+            KimodoRoot2DConstraintEditorGUI.Draw(serializedObject);
             EditorGUI.EndDisabledGroup();
         }
     }

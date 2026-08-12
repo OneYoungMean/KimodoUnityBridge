@@ -182,13 +182,20 @@ namespace KimodoBridge.Editor
         {
             if (previewRoot == null ||
                 sample == null ||
-                !string.Equals(sample.constraintType, "root2d", StringComparison.OrdinalIgnoreCase) ||
-                !sample.hasRootHeading)
+                !string.Equals(sample.constraintType, "root2d", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
 
-            previewRoot.position = sample.kimodoRootPosition;
+            Vector3 previewPosition = previewRoot.position;
+            previewPosition.x = sample.kimodoRootPosition.x;
+            previewPosition.z = sample.kimodoRootPosition.z;
+            previewRoot.position = previewPosition;
+            if (!sample.hasRootHeading)
+            {
+                return;
+            }
+
             Vector3 forward = new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y);
             if (forward.sqrMagnitude > 1e-8f)
             {

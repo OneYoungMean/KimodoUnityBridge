@@ -107,6 +107,50 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void Root2DPreviewPosition_UpdatesGroundPlaneAndPreservesHeightWithoutHeading()
+        {
+            var preview = new GameObject("Root2DPreviewPositionTest");
+            try
+            {
+                preview.transform.position = new Vector3(8f, 1.75f, 9f);
+                preview.transform.rotation = Quaternion.Euler(0f, 25f, 0f);
+                Quaternion storedRotation = preview.transform.rotation;
+                var sample = new KimodoMarkerSampleResult
+                {
+                    constraintType = "root2d",
+                    hasRootHeading = false,
+                    kimodoRootPosition = new Vector3(2f, -4f, 3f)
+                };
+
+                KimodoConstraintSpaceConverter.ApplyRoot2DHeadingToPreviewRoot(sample, preview.transform);
+
+                Assert.That(preview.transform.position, Is.EqualTo(new Vector3(2f, 1.75f, 3f)));
+                Assert.That(Quaternion.Angle(preview.transform.rotation, storedRotation), Is.LessThan(0.001f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(preview);
+            }
+        }
+
+        [TestCase(0f, 0f, 1f)]
+        [TestCase(90f, 1f, 0f)]
+        [TestCase(-90f, -1f, 0f)]
+        public void Root2DEditorRotationY_UsesCanonicalUnityYaw(
+            float rotationY,
+            float expectedHeadingX,
+            float expectedHeadingZ)
+        {
+            Vector2 heading = KimodoRoot2DConstraintEditorGUI.ResolveHeading(rotationY);
+
+            Assert.That(heading.x, Is.EqualTo(expectedHeadingX).Within(1e-5f));
+            Assert.That(heading.y, Is.EqualTo(expectedHeadingZ).Within(1e-5f));
+            Assert.That(
+                Mathf.DeltaAngle(KimodoRoot2DConstraintEditorGUI.ResolveRotationY(heading), rotationY),
+                Is.EqualTo(0f).Within(1e-4f));
+        }
+
+        [Test]
         public void ConstraintPreviewClone_WithResolvedAvatarAndNullBindingAvatar_AppliesAndKeepsSampledPose()
         {
             Assert.That(
