@@ -452,6 +452,8 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(analyze["inputSchema"]["required"].Values<string>(), Is.EqualTo(new[] { "character" }));
             Assert.That(analyze["inputSchema"]["properties"]["animation"].Value<string>("type"), Is.EqualTo("string"));
             Assert.That(analyze["inputSchema"]["properties"]["start_frame"].Value<string>("type"), Is.EqualTo("integer"));
+            Assert.That(analyze["inputSchema"]["properties"]["poses"]["items"]["required"].Values<string>(),
+                Is.EqualTo(new[] { "source", "frame" }));
             Assert.That(definitions["tools"].Values<JObject>().Select(item => item.Value<string>("name")),
                 Does.Not.Contain("kimodo_analyze_range"));
             Assert.That(picture["inputSchema"]["properties"]["poses"]["items"]["required"].Values<string>(),

@@ -57,6 +57,7 @@ def build_clip_constraint_analysis(clips: list[dict[str, Any]], options: dict[st
             for issue in item["issues"]
         ],
         "clips": results,
+        "hints": _build_hints(results),
     }
 
 
@@ -100,6 +101,12 @@ def _analyze_clip(index: int, clip: dict[str, Any], options: dict[str, Any]) -> 
     saliency = np.clip(0.45 * acceleration_score + 0.35 * pose_score + 0.20 * velocity_score, 0.0, 1.0)
     keyframes = _select_signal_keyframes(saliency, fps, options)
     issues = _select_issues(severity, continuity_score, acceleration_score, pose_score, invalid_score, fps)
+    keyframe_options = options.get("keyframes", {})
+    if keyframe_options is True:
+        keyframe_options = {}
+    if not isinstance(keyframe_options, dict):
+        keyframe_options = {}
+    keyframe_budget = max(1, min(24, int(keyframe_options.get("max_count", 8)), frames))
     worst_count = max(1, int(np.ceil(frames * 0.1)))
     quality = 1.0 - float(np.mean(np.sort(severity)[-worst_count:]))
     return {
@@ -108,7 +115,23 @@ def _analyze_clip(index: int, clip: dict[str, Any], options: dict[str, Any]) -> 
         "quality_score": round(float(np.clip(quality, 0.0, 1.0)), 4),
         "keyframes": keyframes,
         "issues": issues,
+        "keyframe_budget_reached": len(keyframes) >= keyframe_budget,
     }
+
+
+def _build_hints(results: list[dict[str, Any]]) -> list[str]:
+    hints: list[str] = []
+    issues = [issue for result in results for issue in result["issues"]]
+    reasons = {reason for issue in issues for reason in issue["reasons"]}
+    if "continuity" in reasons or "pose" in reasons:
+        hints.append("motion discontinuity may exist; inspect the reported issue frames and nearby playback.")
+    if "acceleration" in reasons:
+        hints.append("abrupt root-motion acceleration may exist; inspect the reported issue frames and nearby playback.")
+    if "invalid_pose" in reasons:
+        hints.append("invalid pose data was detected; regenerate or repair the affected frames.")
+    if any(result["keyframe_budget_reached"] and result["frame_count"] > len(result["keyframes"]) for result in results):
+        hints.append("keyframe budget was reached; increase keyframes.max_count if the selected poses do not cover the motion.")
+    return hints
 
 
 def _select_signal_keyframes(signal: np.ndarray, fps: float, options: dict[str, Any]) -> list[dict[str, Any]]:

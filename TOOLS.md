@@ -5,13 +5,13 @@ This is machine-facing operational context, not a human tutorial. The English se
 Current versions / 当前版本：
 
 - Unity package: `3.0.0` / Unity 包：`3.0.0`
-- QuickServer: `2.2.4` — project-local Kimodo and ARDY generation runtime with explicit hand/foot target positions. / QuickServer：`2.2.4`——支持显式手脚末端目标位置的项目级 Kimodo 与 ARDY 生成运行时。
+- QuickServer: `2.2.5` — project-local Kimodo and ARDY generation runtime with motion-quality analysis hints. / QuickServer：`2.2.5`——带动作质量分析提示的项目级 Kimodo 与 ARDY 生成运行时。
 
 ## English
 
 ### 1. Boundary
 
-Use Kimodo only when an existing Unity project needs humanoid animation generation, analysis, pose editing, constraints, recording, retargeting, Animator import, or Timeline animation work. Use the Unity automation mechanism already present in the environment. Leave project creation, unrelated scene work, rendering, and general Timeline editing to other tools. The runtime belongs to the Unity project; never install or manage it as a machine-wide service.
+Use Kimodo for humanoid animation generation, analysis, pose editing, constraints, recording, retargeting, Animator import, and Timeline animation work in an existing Unity project. Use the environment's Unity automation mechanism and the project-owned runtime.
 
 ### 2. Install into an existing project
 
@@ -24,7 +24,7 @@ Use Kimodo only when an existing Unity project needs humanoid animation generati
    ```
 
    Use a user-supplied Git/Gitee URL or local `file:` path when requested.
-4. Let the existing Unity automation refresh the project. Diagnose package resolution from Unity logs; never edit `Library/PackageCache`.
+4. Let the existing Unity automation refresh the project and use Unity logs to diagnose package resolution.
 
 ### 3. Discover commands before use
 
@@ -55,7 +55,7 @@ The returned schema is authoritative. Use only returned command names and parame
 - A current Session is the preferred workspace. `kimodo_generate_animation` can create and retain an automatic Session when none is open.
 - Sessions reuse one hidden transient Director. `session_close` detaches that Director and preserves user scene GameObjects; named Session assets remain available for reopen.
 - Use only models returned by `kimodo_help` with `section:"models"`.
-- Do not call the raw QuickServer TCP protocol for normal Unity animation tasks.
+
 
 ### 5. Minimal generation workflow
 
@@ -67,7 +67,7 @@ kimodo_get_generation {"request_id":"<request_id>"}  # repeat to terminal state
 session_close {}
 ```
 
-Before each non-trivial call, request that command's current help. Verify the final response, generated animation asset, Session metadata, and Unity Console. Report visual playback separately when it was not observed.
+Before each non-trivial call, request that command's current help. Verify the final response, generated animation asset, Session metadata, and Unity Console. Generation completion produces a draft; apply the animation quality gate below before final acceptance.
 
 ### 6. Pose and constraint semantics
 
@@ -93,21 +93,29 @@ kimodo_generate_animation -> pass the locator in constraints
 kimodo_get_generation -> poll to terminal state
 ```
 
-### 7. Analysis, recording, retargeting, and Animator
+### 7. Animation quality gate
 
-- `kimodo_analyze` accepts either one named animation or a Session frame range. Save its `analysis_id` for `query_picture`.
+After every successful generation, query the returned animation safe name and Session range, run `kimodo_analyze`, and pass its `analysis_id` to `query_picture`. Open and inspect the returned `image_path`; checking only that the path exists is not visual inspection. Compare the key poses with the prompt and check action readability, silhouette, balance, support/contact, facing and travel direction, left/right limb assignment, penetrations, and visibly broken or implausible poses. If the result fails, identify the failing frames, revise the prompt or constraints, regenerate, and repeat the gate.
+
+For `loop:true` or a requested cycle, inspect relative frames `0`, `1`, `duration_frames-2`, and `duration_frames-1` and compare both sides of the wrap. Check pose, root position and heading, motion direction, phase, and planted hand/foot contacts. An in-place loop should return to the same root transform and pose within a small visual tolerance. A locomotion loop may retain cycle displacement, but displacement, heading, phase, and velocity must continue across the seam; do not force its root back to the origin. Endpoint stills alone do not prove temporal continuity. Inspect playback when available; otherwise report temporal seam verification as incomplete.
+
+Report visual acceptance as `passed`, `needs_revision`, or `not_verified`. Never report `passed` unless the image was actually opened and inspected. Sparse key-pose images do not verify foot sliding, popping, timing, acceleration, or other temporal qualities; report them as unverified unless playback or sufficiently dense samples were inspected.
+
+### 8. Analysis, recording, retargeting, and Animator
+
+- `kimodo_analyze` accepts one named animation, a Session frame range, or two or more explicit pose locators. The first two routes use QuickServer and return keyframes, issues, quality score, and advisory `hints`. A `poses` request compares each adjacent pair locally: `muscle.cosine_similarity`/`cosine_distance` use complete Humanoid muscles, while `root_motion` reports XYZ delta, planar distance, vertical delta, and shortest yaw delta. Pose comparison does not replace temporal clip analysis. Save the `analysis_id` returned by clip/range analysis for `query_picture`.
 - `kimodo_record_range` records a half-open Session range into a source-character AnimationClip.
 - `kimodo_retarget_animation` retargets one loaded animation to another current Session character. Valid source and target Humanoid Avatars are required.
 - `session_try_add` imports a humanoid character, AnimationClip, or Animator content according to its current schema. Deterministic clip-to-clip transitions may be recorded; BlendTree branch choice and unrelated Timeline placement belong to the surrounding Unity tool.
 - Query current Session state before mutation and use returned safe names rather than scene guesses.
 
-### 8. Project-owned runtime and diagnosis
+### 9. Project-owned runtime and diagnosis
 
-Normal generation prepares and starts the project-local runtime as needed. `kimodo_debug_install_server` is debug-only incremental repair/setup; inspect its current help before use. Do not expose it as a global installer.
+Normal generation prepares and starts the project-local runtime as needed. `kimodo_debug_install_server` performs incremental repair/setup; inspect its current help before use.
 
 The default runtime root is the Unity project's `NvlabKimodoQuickServer~`, with its Python environment at root `.venv`. When Auto Sync Server is enabled and the installed runtime is older than the packaged version, major sync clears everything, minor sync keeps `models`, and patch sync keeps `models` plus root `.venv`. Relevant logs are `log/setup.log` and `log/bridge_server.log`. On failure, capture the command JSON/result, Unity version, `Editor.log`, runtime logs, Session state, and whether the failure occurred during package resolution, setup, model provisioning, generation, recording, retargeting, or playback.
 
-### 9. Backend developer seam
+### 10. Backend developer seam
 
 For backend maintenance only, `NvlabKimodoQuickServer~/core` is the source of server routing, setup, protocol, and ARDY behavior; `NvlabKimodoQuickServer~/kimodo` contains Kimodo model/motion code. Launchers call `core.quickserver_cli`. Treat current source and tests as authoritative.
 
@@ -115,7 +123,7 @@ For backend maintenance only, `NvlabKimodoQuickServer~/core` is the source of se
 
 ### 1. 边界
 
-仅在一个现有 Unity 项目需要人形动画生成、分析、Pose 编辑、约束、录制、Retarget、Animator 导入或 Timeline 动画工作时使用 Kimodo。复用环境中已经存在的 Unity 自动化机制。项目创建、无关场景工作、渲染以及一般 Timeline 编辑交给其他工具。运行时归 Unity 项目所有，禁止安装或管理成机器级全局服务。
+在现有 Unity 项目中，使用 Kimodo 进行人形动画生成、分析、Pose 编辑、Constraint、录制、Retarget、Animator 导入和 Timeline 动画工作。复用环境中的 Unity 自动化机制和项目级运行时。
 
 ### 2. 安装到现有项目
 
@@ -128,7 +136,7 @@ For backend maintenance only, `NvlabKimodoQuickServer~/core` is the source of se
    ```
 
    用户明确指定时改用其 Git/Gitee 地址或本地 `file:` 路径。
-4. 让现有 Unity 自动化刷新项目。从 Unity 日志诊断包解析错误；禁止编辑 `Library/PackageCache`。
+4. 让现有 Unity 自动化刷新项目，并从 Unity 日志诊断包解析错误。
 
 ### 3. 使用前发现命令
 
@@ -159,7 +167,7 @@ command_dispatcher.Invoke("kimodo_help", "{\"section\":\"models\"}");
 - 优先在当前 Session 中工作。没有 Session 时，`kimodo_generate_animation` 可以创建并保留自动 Session。
 - 所有 Session 复用一个隐藏的临时 Director。`session_close` 只解绑该 Director，并保留用户场景 GameObject；命名 Session 资产仍可重新打开。
 - 模型只能使用 `kimodo_help` 的 `section:"models"` 返回项。
-- 普通 Unity 动画任务不得直接调用 QuickServer TCP 协议。
+
 
 ### 5. 最小生成工作流
 
@@ -171,7 +179,7 @@ kimodo_get_generation {"request_id":"<request_id>"}  # 重复至终态
 session_close {}
 ```
 
-每个非平凡调用前先查询该命令的当前 help。验证最终响应、生成的动画资产、Session Metadata 和 Unity Console。没有实际观察播放时，将视觉验证单独标为未验证。
+每个非平凡调用前先查询该命令的当前 help。验证最终响应、生成的动画资产、Session Metadata 和 Unity Console。生成完成只会得到草稿；最终验收前必须执行下方动画质量门。
 
 ### 6. Pose 与 Constraint 语义
 
@@ -197,20 +205,28 @@ kimodo_generate_animation -> 在 constraints 中传入 locator
 kimodo_get_generation -> 轮询到终态
 ```
 
-### 7. Analysis、录制、Retarget 与 Animator
+### 7. 动画质量门
 
-- `kimodo_analyze` 接受一个命名动画或一段 Session 帧区间；保存返回的 `analysis_id` 供 `query_picture` 使用。
+每次生成成功后，查询返回的动画安全名称和 Session 区间，执行 `kimodo_analyze`，并将其 `analysis_id` 传给 `query_picture`。实际打开并检查返回的 `image_path`；仅检查路径存在不算视觉检查。将关键姿势与 Prompt 比较，检查动作可读性、剪影、平衡、支撑/接触、朝向与移动方向、左右肢体、穿插，以及明显损坏或不合理的姿势。结果未通过时，指出失败帧，修改 Prompt 或 Constraint，重新生成并重复质量门。
+
+当使用 `loop:true` 或用户要求循环动作时，检查相对帧 `0`、`1`、`duration_frames-2` 和 `duration_frames-1`，比较接缝两侧。检查姿态、Root 位置和朝向、运动方向、相位以及手脚支撑接触。原地循环的首尾 Root Transform 和姿态应在较小视觉容差内一致；位移循环可以保留周期位移，但位移、朝向、相位和速度必须跨接缝连续，不要强制把 Root 拉回原点。仅凭首尾静帧不能证明时间连续性；可以播放时应检查播放，否则将时间接缝验证报告为不完整。
+
+视觉验收只报告为 `passed`、`needs_revision` 或 `not_verified`。没有实际打开并检查图像时，绝不能报告 `passed`。稀疏关键姿势图不能验证滑步、跳变、时序、加速度或其他时间质量；除非检查过播放或足够密集的采样，否则将其报告为未验证。
+
+### 8. Analysis、录制、Retarget 与 Animator
+
+- `kimodo_analyze` 接受一个命名动画、一段 Session 帧区间，或两个及以上显式 Pose locator。前两种路径使用 QuickServer，返回关键帧、问题、质量分数和建议性 `hints`。`poses` 请求在本地比较每一对相邻 Pose：`muscle.cosine_similarity`/`cosine_distance` 使用完整 Humanoid muscle，`root_motion` 返回 XYZ 差值、平面距离、垂直差值和最短 Yaw 差值。Pose 比较不能替代时序 Clip 分析。保存 Clip/区间分析返回的 `analysis_id`，供 `query_picture` 使用。
 - `kimodo_record_range` 将半开 Session 区间录制为源角色的 AnimationClip。
 - `kimodo_retarget_animation` 将一个已加载动画 Retarget 到当前 Session 的另一角色；源角色和目标角色都必须具有有效 Humanoid Avatar。
 - `session_try_add` 按当前 schema 导入 Humanoid 角色、AnimationClip 或 Animator 内容。确定性的 Clip-to-Clip 过渡可以录制；BlendTree 分支选择和无关 Timeline 摆放由外围 Unity 工具负责。
 - 修改前先查询当前 Session 状态，使用返回的安全名称，不猜测场景名称。
 
-### 8. 项目级运行时与诊断
+### 9. 项目级运行时与诊断
 
-普通生成会按需准备并启动项目级运行时。`kimodo_debug_install_server` 仅用于调试式增量修复/安装，使用前先读取当前 help；不得把它暴露成全局安装器。
+普通生成会按需准备并启动项目级运行时。`kimodo_debug_install_server` 用于增量修复/安装，使用前先读取当前 help。
 
 默认运行根目录是 Unity 项目下的 `NvlabKimodoQuickServer~`，Python 环境位于该根目录的 `.venv`。启用 Auto Sync Server 后，运行时版本低于包内版本时会按 major/minor/patch 层级同步：major 清空全部内容，minor 保留 `models`，patch 保留 `models` 和根目录 `.venv`。相关日志为 `log/setup.log` 和 `log/bridge_server.log`。失败时保存命令 JSON/返回、Unity 版本、`Editor.log`、运行时日志、Session 状态，并标明问题发生在包解析、setup、模型准备、生成、录制、Retarget 还是播放阶段。
 
-### 9. 后端开发边界
+### 10. 后端开发边界
 
 仅在维护后端时，`NvlabKimodoQuickServer~/core` 是服务器路由、setup、协议与 ARDY 行为的源码；`NvlabKimodoQuickServer~/kimodo` 保存 Kimodo 模型/动作代码。启动脚本调用 `core.quickserver_cli`。以当前源码和测试为准。

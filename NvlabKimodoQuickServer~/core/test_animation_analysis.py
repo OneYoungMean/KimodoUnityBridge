@@ -38,7 +38,7 @@ class AnimationAnalysisTests(unittest.TestCase):
         quats[10:, 1, 3] = 0.0
         result = build_clip_constraint_analysis(
             [{"root_positions": roots, "local_rot_quats": quats, "fps": 20.0}],
-            {"analysis_only": True, "keyframes": {"max_count": 5}},
+            {"analysis_only": True, "keyframes": {"max_count": 3}},
         )
         self.assertEqual("motion-quality-v1", result["algorithm"])
         self.assertEqual(1, len(result["clips"]))
@@ -47,3 +47,5 @@ class AnimationAnalysisTests(unittest.TestCase):
         self.assertTrue(result["issues"])
         self.assertTrue(all(0.0 <= item["score"] <= 1.0 for item in result["issues"]))
         self.assertTrue(0.0 <= result["quality_score"] <= 1.0)
+        self.assertTrue(any("discontinuity" in hint for hint in result["hints"]))
+        self.assertTrue(any("keyframe budget" in hint for hint in result["hints"]))

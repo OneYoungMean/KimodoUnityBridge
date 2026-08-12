@@ -960,10 +960,13 @@ namespace KimodoUnityBridge.Command
                 TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
                 bool animationMode = arguments["animation"] != null;
                 bool rangeMode = arguments["start_frame"] != null || arguments["end_frame"] != null;
-                if (animationMode == rangeMode)
+                JArray suppliedPoses = arguments["poses"] as JArray;
+                bool posesMode = suppliedPoses != null;
+                if ((animationMode ? 1 : 0) + (rangeMode ? 1 : 0) + (posesMode ? 1 : 0) != 1)
                 {
-                    throw new InvalidOperationException("Provide exactly one analysis source: animation, or start_frame with end_frame.");
+                    throw new InvalidOperationException("Provide exactly one analysis source: animation, start_frame with end_frame, or poses.");
                 }
+                if (posesMode) return AnalyzeExplicitPoses(character, suppliedPoses);
                 int startFrame;
                 int endFrame;
                 TimelineAnimationRecord animation = null;
@@ -1146,6 +1149,85 @@ namespace KimodoUnityBridge.Command
                 return RecordTimelineRange(arguments);
             });
         }
+
+        private static string AnalyzeExplicitPoses(TimelineCharacterRecord character, JArray suppliedPoses)
+        {
+            if (suppliedPoses.Count < 2)
+                throw new InvalidOperationException("poses must contain at least two {source,frame} locators.");
+
+            var locators = suppliedPoses.Select((item, index) =>
+            {
+                if (item is not JObject pose)
+                    throw new InvalidOperationException($"poses[{index}] must be a {{source,frame}} object.");
+                return RequirePoseLocator(pose);
+            }).ToList();
+            var samples = locators.Select(locator => ReadPoseSample(locator, KimodoAnalyzeCommand)).ToList();
+            var comparisons = new JArray();
+            for (int index = 1; index < samples.Count; index++)
+            {
+                KimodoMarkerSampleResult previous = samples[index - 1];
+                KimodoMarkerSampleResult current = samples[index];
+                float cosine = MuscleCosineSimilarity(previous.muscles, current.muscles);
+                Vector3 delta = current.kimodoRootPosition - previous.kimodoRootPosition;
+                float previousYaw = PoseRootYaw(previous);
+                float currentYaw = PoseRootYaw(current);
+                comparisons.Add(new JObject
+                {
+                    ["from"] = PoseLocatorJson(locators[index - 1].Source, locators[index - 1].Frame),
+                    ["to"] = PoseLocatorJson(locators[index].Source, locators[index].Frame),
+                    ["muscle"] = new JObject
+                    {
+                        ["cosine_similarity"] = RoundMetric(cosine),
+                        ["cosine_distance"] = RoundMetric(1f - cosine)
+                    },
+                    ["root_motion"] = new JObject
+                    {
+                        ["delta"] = new JArray(RoundMetric(delta.x), RoundMetric(delta.y), RoundMetric(delta.z)),
+                        ["planar_distance"] = RoundMetric(new Vector2(delta.x, delta.z).magnitude),
+                        ["vertical_delta"] = RoundMetric(delta.y),
+                        ["yaw_delta_degrees"] = RoundMetric(Mathf.DeltaAngle(previousYaw, currentYaw))
+                    }
+                });
+            }
+            return Ok(new JObject
+            {
+                ["character"] = character.Name,
+                ["analysis"] = new JObject
+                {
+                    ["algorithm"] = "pose-comparison-v1",
+                    ["comparison_mode"] = "adjacent_pairs",
+                    ["comparisons"] = comparisons
+                }
+            });
+        }
+
+        private static float MuscleCosineSimilarity(IList<float> left, IList<float> right)
+        {
+            int count = Math.Min(left?.Count ?? 0, right?.Count ?? 0);
+            if (count != HumanTrait.MuscleCount)
+                throw new InvalidOperationException("Pose comparison requires complete humanoid muscle data.");
+            double dot = 0.0, leftMagnitude = 0.0, rightMagnitude = 0.0;
+            for (int index = 0; index < count; index++)
+            {
+                dot += left[index] * right[index];
+                leftMagnitude += left[index] * left[index];
+                rightMagnitude += right[index] * right[index];
+            }
+            double denominator = Math.Sqrt(leftMagnitude * rightMagnitude);
+            if (denominator <= 1e-12) return leftMagnitude <= 1e-12 && rightMagnitude <= 1e-12 ? 1f : 0f;
+            return Mathf.Clamp((float)(dot / denominator), -1f, 1f);
+        }
+
+        private static float PoseRootYaw(KimodoMarkerSampleResult sample)
+        {
+            Quaternion rotation = sample.localAxisAngles != null && sample.localAxisAngles.Count > 0
+                ? KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0])
+                : Quaternion.identity;
+            Vector3 forward = rotation * Vector3.forward;
+            return Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+        }
+
+        private static double RoundMetric(float value) => Math.Round(value, 6);
 
         private static string RecordTimelineRange(JObject arguments)
         {
