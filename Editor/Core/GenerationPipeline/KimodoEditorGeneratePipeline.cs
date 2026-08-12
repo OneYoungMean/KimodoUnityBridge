@@ -14,8 +14,6 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoEditorGeneratePipeline
     {
-        private const string DefaultModelName = "Kimodo-SOMA-RP-v1";
-
         public static async Task<command_generate_result> ExecuteAsync(KimodoEditorGenerateRequest request)
         {
             if (request == null)
@@ -29,7 +27,7 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("Prompt is empty.");
             }
 
-            string modelName = string.IsNullOrWhiteSpace(request.ModelName) ? DefaultModelName : request.ModelName.Trim();
+            string modelName = KimodoMotionModelProfiles.NormalizeName(request.ModelName);
             ThrowIfCanceled(request);
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating motion...");
 
@@ -722,12 +720,10 @@ namespace KimodoBridge.Editor
                         : new List<KimodoClipConstraint>()
                 },
                 analysis_option_json = request.AnalysisOptionsJson ?? string.Empty,
-                model = modelName,
+                model = KimodoMotionModelProfiles.NormalizeName(modelName),
                 text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(request.TextEncoderMode),
                 simulate_free_vram_gb = KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental ? 0 : (int?)null,
                 models_root = modelsRoot,
-                force_hf_download = false,
-                owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id,
                 ardy_history_weight = request.ArdyHistoryWeight,
                 ardy_max_speed = request.ArdyMaxSpeed,
                 ardy_max_acceleration = request.ArdyMaxAcceleration

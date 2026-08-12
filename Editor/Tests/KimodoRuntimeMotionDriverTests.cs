@@ -633,6 +633,27 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void EditorRuntimeRequest_UsesSharedModelAndBridgeOwnership()
+        {
+            var request = new KimodoEditorGenerateRequest
+            {
+                TargetFrameCount = 30,
+                TargetFrameRate = 30f,
+                RuntimeFrameCount = 30
+            };
+
+            KimodoGenerationRequestDto generation =
+                KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
+                    request,
+                    "walk",
+                    " ").GenerationRequest;
+
+            Assert.That(generation.model, Is.EqualTo(KimodoMotionModelProfiles.DefaultModelName));
+            Assert.That(generation.owner_pid, Is.Zero);
+            Assert.That(generation.force_hf_download, Is.False);
+        }
+
+        [Test]
         public void RuntimeGenerationSession_ResetAndDisposeOwnsArdyLifecycle()
         {
             var session = new KimodoRuntimeGenerationSession();

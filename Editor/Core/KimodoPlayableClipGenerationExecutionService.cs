@@ -872,12 +872,11 @@ namespace KimodoBridge.Editor
             var analysisRequest = new KimodoGenerationRequestDto
             {
                 prompt = string.Empty,
-                model = modelName,
+                model = KimodoMotionModelProfiles.NormalizeName(modelName),
                 text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(request.TextEncoderMode),
                 models_root = request.ModelsRoot ?? string.Empty,
                 output_format = "kmb_attachments_v1",
                 analysis_option_json = options.ToString(Formatting.None),
-                owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id,
                 analysis_clip_constraints = new List<KimodoKmbClipConstraint>
                 {
                     new KimodoKmbClipConstraint
