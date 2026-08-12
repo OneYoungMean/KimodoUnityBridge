@@ -1275,15 +1275,34 @@ namespace KimodoBridge.Editor.Tests
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoTimelineRequestLengthTest");
+            SkeletonCache skeleton = null;
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
                 TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
                 timelineClip.duration = 12.0;
-                directorRoot.AddComponent<PlayableDirector>().playableAsset = timeline;
+                PlayableDirector director = directorRoot.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                Assert.That(
+                    KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                        KimodoMotionModelProfiles.DefaultModelName,
+                        out Avatar avatar,
+                        out string error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                        avatar,
+                        "KimodoTimelineRequestLengthSkeleton",
+                        out skeleton,
+                        out error),
+                    Is.True,
+                    error);
+                director.SetGenericBinding(track, skeleton.animator);
                 var playable = (KimodoPlayableClip)timelineClip.asset;
                 playable.bridgeModelName = KimodoMotionModelProfiles.DefaultModelName;
                 playable.inOutConstraintMode = KimodoInOutConstraintMode.None;
+                playable.autoBeginAnchor = false;
 
                 KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
                     playable,
@@ -1296,6 +1315,7 @@ namespace KimodoBridge.Editor.Tests
             }
             finally
             {
+                skeleton?.Dispose();
                 UnityEngine.Object.DestroyImmediate(directorRoot);
                 UnityEngine.Object.DestroyImmediate(timeline);
             }

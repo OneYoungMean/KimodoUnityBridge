@@ -146,15 +146,19 @@ namespace KimodoBridge.Editor.Tests
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoArdyAutoHistoryRequestTest");
+            SkeletonCache skeleton = null;
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
                 TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
                 timelineClip.duration = 4.0;
-                directorRoot.AddComponent<PlayableDirector>().playableAsset = timeline;
+                PlayableDirector director = directorRoot.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                skeleton = BindTestSkeleton(director, track, "KimodoArdyAutoHistoryRequestSkeleton");
                 var clip = (KimodoPlayableClip)timelineClip.asset;
                 clip.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
                 clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
+                clip.autoBeginAnchor = false;
                 clip.ardyTargetMaxSpeed = 2.25f;
                 clip.ardyTargetMaxAcceleration = 3.5f;
 
@@ -175,6 +179,7 @@ namespace KimodoBridge.Editor.Tests
             }
             finally
             {
+                skeleton?.Dispose();
                 Object.DestroyImmediate(directorRoot);
                 Object.DestroyImmediate(timeline);
             }
@@ -185,15 +190,19 @@ namespace KimodoBridge.Editor.Tests
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoArdyManualHistoryRequestTest");
+            SkeletonCache skeleton = null;
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
                 TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
                 timelineClip.duration = 4.0;
-                directorRoot.AddComponent<PlayableDirector>().playableAsset = timeline;
+                PlayableDirector director = directorRoot.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                skeleton = BindTestSkeleton(director, track, "KimodoArdyManualHistoryRequestSkeleton");
                 var clip = (KimodoPlayableClip)timelineClip.asset;
                 clip.bridgeModelName = KimodoMotionModelProfiles.ArdyCoreModelName;
                 clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
+                clip.autoBeginAnchor = false;
                 clip.ardyAutoHistory = false;
                 clip.ardyHistoryWeight = 0.25f;
 
@@ -213,6 +222,7 @@ namespace KimodoBridge.Editor.Tests
             }
             finally
             {
+                skeleton?.Dispose();
                 Object.DestroyImmediate(directorRoot);
                 Object.DestroyImmediate(timeline);
             }
@@ -223,14 +233,18 @@ namespace KimodoBridge.Editor.Tests
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoGenerationRequestOptionsTest");
+            SkeletonCache skeleton = null;
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
                 TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
                 timelineClip.duration = 2.0;
-                directorRoot.AddComponent<PlayableDirector>().playableAsset = timeline;
+                PlayableDirector director = directorRoot.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                skeleton = BindTestSkeleton(director, track, "KimodoGenerationRequestOptionsSkeleton");
                 var clip = (KimodoPlayableClip)timelineClip.asset;
                 clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
+                clip.autoBeginAnchor = false;
                 clip.analysisOptionsJson = "{\"keyframes\":{\"enabled\":true}}";
 
                 KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
@@ -266,9 +280,34 @@ namespace KimodoBridge.Editor.Tests
             }
             finally
             {
+                skeleton?.Dispose();
                 Object.DestroyImmediate(directorRoot);
                 Object.DestroyImmediate(timeline);
             }
+        }
+
+        private static SkeletonCache BindTestSkeleton(
+            PlayableDirector director,
+            AnimationTrack track,
+            string rootName)
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoMotionModelProfiles.DefaultModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    rootName,
+                    out SkeletonCache skeleton,
+                    out error),
+                Is.True,
+                error);
+            director.SetGenericBinding(track, skeleton.animator);
+            return skeleton;
         }
     }
 }

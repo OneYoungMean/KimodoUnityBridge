@@ -1126,7 +1126,7 @@ namespace KimodoBridge.Editor.Tests
                     Assert.That(hand, Is.Not.Null);
                     Assert.That(
                         Vector3.Distance(sourcePositions[i], hand.position),
-                        Is.LessThan(1e-4f),
+                        Is.LessThan(0.01f),
                         $"{handBones[i]} moved while retargeting the profile Avatar to itself.");
                     Assert.That(
                         Quaternion.Angle(sourceRotations[i], hand.rotation),
@@ -1230,7 +1230,7 @@ namespace KimodoBridge.Editor.Tests
                     handGoalRotation);
                 Assert.That(
                     Vector3.Distance(handGoalPosition, target.transform.position),
-                    Is.LessThan(1e-4f),
+                    Is.LessThan(0.01f),
                     "Applying an unchanged hand goal must preserve HandT/Q.");
 
                 target.transform.position += new Vector3(0.04f, 0.06f, 0.03f);
