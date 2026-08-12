@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using KimodoBridge;
 using KimodoBridge.Editor;
 using TimelineInject;
@@ -1386,31 +1385,12 @@ namespace CharacterAnimationCli.Unity.Command
             window.SetTimeline(director);
             window.locked = true;
             TimelineEditor.selectedClips = Array.Empty<TimelineClip>();
-            TryEnableTimelinePreview(window);
+            if (!KimodoTimelinePreviewRefreshUtility.TryEnablePreview())
+            {
+                Debug.LogWarning("[Kimodo][Command] Timeline preview could not be enabled automatically.");
+            }
             window.Focus();
             TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
-        }
-
-        private static void TryEnableTimelinePreview(TimelineEditorWindow window)
-        {
-            try
-            {
-                PropertyInfo property = typeof(TimelineEditorWindow).GetProperty("previewMode", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (property != null && property.CanWrite && property.PropertyType == typeof(bool))
-                {
-                    property.SetValue(window, true, null);
-                    return;
-                }
-                FieldInfo field = typeof(TimelineEditorWindow).GetField("m_PreviewMode", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (field != null && field.FieldType == typeof(bool))
-                {
-                    field.SetValue(window, true);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[Kimodo][Command] Timeline preview could not be enabled automatically: {ex.Message}");
-            }
         }
 
         private static void CloseTimelineWindow(TimelineAsset timelineAsset)

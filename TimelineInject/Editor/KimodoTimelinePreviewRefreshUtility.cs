@@ -46,6 +46,18 @@ namespace TimelineInject
             SceneView.RepaintAll();
         }
 
+        public static bool TryEnablePreview()
+        {
+            var state = TimelineEditor.state;
+            if (state == null)
+            {
+                return false;
+            }
+
+            state.previewMode = true;
+            return true;
+        }
+
         public static GameObject InstantiateForAnimatorPreview(Object original)
         {
             return EditorUtility.InstantiateForAnimatorPreview(original) as GameObject;
