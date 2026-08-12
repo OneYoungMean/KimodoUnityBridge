@@ -1377,7 +1377,7 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static void OpenTimelineWindow(PlayableDirector director)
         {
-            if (director == null)
+            if (director == null || Application.isBatchMode)
             {
                 return;
             }
@@ -1395,6 +1395,10 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static void CloseTimelineWindow(TimelineAsset timelineAsset)
         {
+            if (Application.isBatchMode)
+            {
+                return;
+            }
             TimelineEditor.selectedClips = Array.Empty<TimelineClip>();
             if (timelineAsset != null && TimelineEditor.inspectedAsset == timelineAsset)
             {
