@@ -26,3 +26,6 @@ Expose `schema.tools` through `Invoke`. Treat the live schema and returned error
 Use `kimodo_help({"section":"constraints"})` for current constraint details and `kimodo_help({"section":"models"})` when selecting a non-default model or text encoder.
 
 The Chinese counterpart is [SKILL-zh.md](SKILL-zh.md).
+## Prompt wording
+
+Write a concise natural-language action prompt from: action, phase, trajectory/direction, speed, body state, object/contact, and intended ending. Dataset-style labels often encode these as tokens such as `walk_ff_225_stop`, `jog_arc_cw_loop`, or `two_hands_walk_ff_start`; remove take, actor, mirror, and internal variant suffixes such as `001`, `__A494`, `_M`, and `_R`. Keep the action-bearing tokens and express them as a sentence.

@@ -26,3 +26,6 @@ string result = command_dispatcher.Invoke(commandName, argumentsJson);
 当前 Constraint 细节通过 `kimodo_help({"section":"constraints"})` 查询；选择非默认模型或 Text Encoder 时调用 `kimodo_help({"section":"models"})`。
 
 英文原文：[SKILL.md](SKILL.md)。
+## Prompt 表述
+
+将动作、阶段、路径/方向、速度、身体状态、对象/接触和预期结束状态组成简洁的自然语言 Prompt。数据集式标签常用 `walk_ff_225_stop`、`jog_arc_cw_loop`、`two_hands_walk_ff_start` 这样的 token；去除 `001`、`__A494`、`_M`、`_R` 等 take、演员、镜像和内部变体后缀，保留动作语义 token 并改写成一句话。
