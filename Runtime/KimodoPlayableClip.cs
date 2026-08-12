@@ -115,20 +115,6 @@ namespace KimodoBridge
         [HideInInspector]
         public int fps = Mathf.RoundToInt(KimodoMotionModelProfiles.DefaultFrameRate);
 
-        public KimodoBakeSkeletonType InferredSkeletonType
-        {
-            get
-            {
-                return KimodoMotionModelProfiles.ResolveBakeSkeletonType(bridgeModelName);
-            }
-        }
-
-        public static KimodoBakeSkeletonType ResolveBakeSkeletonTypeFromModelName(string modelName) =>
-            KimodoMotionModelProfiles.ResolveBakeSkeletonType(modelName);
-
-        public static string NormalizeBridgeModelName(string modelName) =>
-            KimodoMotionModelProfiles.NormalizeName(modelName);
-
         public Avatar CustomRetargetAvatar
         {
             get => customRetargetAvatar;
@@ -139,11 +125,6 @@ namespace KimodoBridge
         public int ConstraintPreviewPriority => 1;
         public string ConstraintPreviewName => "Clip";
 
-        public const float FIXED_FRAME_RATE = KimodoMotionModelProfiles.DefaultFrameRate;
-        public const int MIN_FRAMES = KimodoMotionModelProfiles.MinGenerationFrames;
-        public const int MAX_FRAMES = KimodoMotionModelProfiles.MaxGenerationFrames;
-        public const int DEFAULT_FRAMES = KimodoMotionModelProfiles.DefaultGenerationFrames;
-        public const string DefaultBridgeModelName = KimodoMotionModelProfiles.DefaultModelName;
         public const float DefaultArdyTargetMaxSpeed = 1.25f;
         public const float DefaultArdyTargetMaxAcceleration = 1.5f;
 

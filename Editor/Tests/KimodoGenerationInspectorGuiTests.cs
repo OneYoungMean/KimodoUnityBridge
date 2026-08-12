@@ -73,7 +73,7 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
-        [TestCase(KimodoPlayableClip.DefaultBridgeModelName, "Kimodo_Playable_20260730_120000_123")]
+        [TestCase(KimodoMotionModelProfiles.DefaultModelName, "Kimodo_Playable_20260730_120000_123")]
         [TestCase(KimodoMotionModelProfiles.ArdyCoreModelName, "ARDY_Playable_20260730_120000_123")]
         public void TimelineGeneratedClipName_IdentifiesModelFamily(string modelName, string expected)
         {

@@ -111,7 +111,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -130,7 +130,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 Assert.That(
                     KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                        KimodoPlayableClip.DefaultBridgeModelName,
+                        KimodoMotionModelProfiles.DefaultModelName,
                         source,
                         out string[] jointNames,
                         out int[] parentIndices,
@@ -155,7 +155,7 @@ namespace KimodoBridge.Editor.Tests
                     KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
                         source.animator,
                         source.skeletonRoot,
-                        KimodoPlayableClip.DefaultBridgeModelName,
+                        KimodoMotionModelProfiles.DefaultModelName,
                         0.0,
                         "fullbody",
                         jointNames,
@@ -170,7 +170,7 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     KimodoRetargetAvatarUtility.TryApplyMarkerSampleToTransformMap(
                         sample,
-                        KimodoPlayableClip.DefaultBridgeModelName,
+                        KimodoMotionModelProfiles.DefaultModelName,
                         source.skeletonRoot,
                         source.uniqueNameMap,
                         out error),
@@ -194,7 +194,7 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                         profileSample,
-                        KimodoPlayableClip.FIXED_FRAME_RATE,
+                        KimodoMotionModelProfiles.DefaultFrameRate,
                         expectedTarget,
                         out BoneSample expectedBoneSample,
                         out _,
@@ -231,7 +231,7 @@ namespace KimodoBridge.Editor.Tests
                     1,
                     KimodoUnityObjectIdUtility.IdHash(source.animator),
                     1,
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     KimodoConstraintRigType.Soma77,
                     avatar);
 
@@ -318,7 +318,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -360,7 +360,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -460,7 +460,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -548,7 +548,7 @@ namespace KimodoBridge.Editor.Tests
             const bool preserveSampledPoseForInspection = true;
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -769,7 +769,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -787,7 +787,7 @@ namespace KimodoBridge.Editor.Tests
                 101,
                 KimodoUnityObjectIdUtility.IdHash(source.animator),
                 102,
-                KimodoPlayableClip.DefaultBridgeModelName,
+                KimodoMotionModelProfiles.DefaultModelName,
                 KimodoConstraintRigType.Soma77,
                 avatar);
             const string entryId = "end-target-test";
@@ -795,7 +795,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 KimodoConstraintPoseCache.DestroyAll();
                 KimodoMarkerSampleResult sample = KimodoMarkerSamplingUtility.CreateDefaultMarkerSample(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     source.skeletonRoot,
                     "left-hand");
                 var items = new[]
@@ -837,7 +837,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -855,7 +855,7 @@ namespace KimodoBridge.Editor.Tests
                 103,
                 KimodoUnityObjectIdUtility.IdHash(source.animator),
                 104,
-                KimodoPlayableClip.DefaultBridgeModelName,
+                KimodoMotionModelProfiles.DefaultModelName,
                 KimodoConstraintRigType.Soma77,
                 avatar);
             const string entryId = "fullbody-targets-test";
@@ -863,7 +863,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 KimodoConstraintPoseCache.DestroyAll();
                 KimodoMarkerSampleResult sample = KimodoMarkerSamplingUtility.CreateDefaultMarkerSample(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     source.skeletonRoot,
                     "fullbody");
                 Assert.That(
@@ -999,7 +999,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -1027,7 +1027,7 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                         source,
-                        KimodoPlayableClip.FIXED_FRAME_RATE,
+                        KimodoMotionModelProfiles.DefaultFrameRate,
                         cache,
                         out _,
                         out MuscleSample solved,
@@ -1057,7 +1057,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -1112,7 +1112,7 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                         input,
-                        KimodoPlayableClip.FIXED_FRAME_RATE,
+                        KimodoMotionModelProfiles.DefaultFrameRate,
                         target,
                         out _,
                         out _,
@@ -1146,7 +1146,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -1164,7 +1164,7 @@ namespace KimodoBridge.Editor.Tests
                 111,
                 KimodoUnityObjectIdUtility.IdHash(source.animator),
                 112,
-                KimodoPlayableClip.DefaultBridgeModelName,
+                KimodoMotionModelProfiles.DefaultModelName,
                 KimodoConstraintRigType.Soma77,
                 avatar);
             const string entryId = "end-target-hand-ik-test";
@@ -1172,7 +1172,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 KimodoConstraintPoseCache.DestroyAll();
                 KimodoMarkerSampleResult sample = KimodoMarkerSamplingUtility.CreateDefaultMarkerSample(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     source.skeletonRoot,
                     "left-hand");
                 Assert.That(
@@ -1329,7 +1329,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -1371,7 +1371,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -1396,7 +1396,7 @@ namespace KimodoBridge.Editor.Tests
                 cache.poseHandler.SetHumanPose(ref directPose);
                 Assert.That(
                     KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                        KimodoPlayableClip.DefaultBridgeModelName,
+                        KimodoMotionModelProfiles.DefaultModelName,
                         cache,
                         out _,
                         out _,
@@ -1410,7 +1410,7 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                         source,
-                        KimodoPlayableClip.FIXED_FRAME_RATE,
+                        KimodoMotionModelProfiles.DefaultFrameRate,
                         cache,
                         out BoneSample target,
                         out MuscleSample targetMuscle,
@@ -1442,7 +1442,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -1471,7 +1471,7 @@ namespace KimodoBridge.Editor.Tests
                 cache.poseHandler.SetHumanPose(ref directPose);
                 Assert.That(
                     KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                        KimodoPlayableClip.DefaultBridgeModelName,
+                        KimodoMotionModelProfiles.DefaultModelName,
                         cache,
                         out _,
                         out _,
@@ -1485,7 +1485,7 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
                         new[] { sample, sample },
-                        KimodoPlayableClip.FIXED_FRAME_RATE,
+                        KimodoMotionModelProfiles.DefaultFrameRate,
                         out clip,
                         out error),
                     Is.True,
@@ -1603,7 +1603,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -1618,7 +1618,7 @@ namespace KimodoBridge.Editor.Tests
                 error);
             Assert.That(
                 KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     cache,
                     out _,
                     out _,
@@ -1628,7 +1628,7 @@ namespace KimodoBridge.Editor.Tests
                 error);
             Transform profileRoot = joints[0];
 
-            var clip = new AnimationClip { frameRate = KimodoPlayableClip.FIXED_FRAME_RATE };
+            var clip = new AnimationClip { frameRate = KimodoMotionModelProfiles.DefaultFrameRate };
             PlayableGraph graph = default;
             try
             {
@@ -1678,7 +1678,7 @@ namespace KimodoBridge.Editor.Tests
                 output.SetSourcePlayable(offsetPlayable);
                 graph.Play();
                 graph.Evaluate(0f);
-                graph.Evaluate(1f / KimodoPlayableClip.FIXED_FRAME_RATE);
+                graph.Evaluate(1f / KimodoMotionModelProfiles.DefaultFrameRate);
 
                 Vector3 expectedPosition = offsetPosition +
                     offsetRotation * new Vector3(0.3f, baselinePosition.y, -0.2f);
@@ -2028,7 +2028,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -2050,7 +2050,7 @@ namespace KimodoBridge.Editor.Tests
                     KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
                         sample,
                         cache,
-                        KimodoPlayableClip.DefaultBridgeModelName,
+                        KimodoMotionModelProfiles.DefaultModelName,
                         "left-hand",
                         0.0,
                         out KimodoMarkerSampleResult result,
@@ -2176,13 +2176,13 @@ namespace KimodoBridge.Editor.Tests
                     clipId: 1,
                     animatorId: 2,
                     trackId: 3,
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     KimodoConstraintRigType.Soma77);
                 var secondContext = new PoseCacheRenderContext(
                     clipId: 1,
                     animatorId: 2,
                     trackId: 4,
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     KimodoConstraintRigType.Soma77);
 
                 Assert.That(
@@ -2221,7 +2221,7 @@ namespace KimodoBridge.Editor.Tests
                     clipId: 1,
                     animatorId: 2,
                     trackId: 3,
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     KimodoConstraintRigType.Soma77);
                 Assert.That(
                     KimodoConstraintPoseCache.TryGetOrCreateSession(
@@ -2256,7 +2256,7 @@ namespace KimodoBridge.Editor.Tests
                     clipId: 1,
                     animatorId: 2,
                     trackId: 3,
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     KimodoConstraintRigType.Soma77);
                 Assert.That(
                     KimodoConstraintPoseCache.TryGetOrCreateSession(
@@ -2299,7 +2299,7 @@ namespace KimodoBridge.Editor.Tests
                     clipId,
                     animatorId: 1,
                     trackId,
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     KimodoConstraintRigType.Soma77);
                 Assert.That(
                     KimodoConstraintPoseCache.TryGetOrCreateSession(context, out session, out string error),
@@ -2339,7 +2339,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -2360,7 +2360,7 @@ namespace KimodoBridge.Editor.Tests
                     Quaternion.Euler(0f, 35f, 0f));
                 Assert.That(
                     KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                        KimodoPlayableClip.DefaultBridgeModelName,
+                        KimodoMotionModelProfiles.DefaultModelName,
                         source,
                         out string[] jointNames,
                         out int[] parentIndices,
@@ -2372,7 +2372,7 @@ namespace KimodoBridge.Editor.Tests
                     KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
                         source.animator,
                         source.skeletonRoot,
-                        KimodoPlayableClip.DefaultBridgeModelName,
+                        KimodoMotionModelProfiles.DefaultModelName,
                         0.0,
                         "fullbody",
                         jointNames,
@@ -2387,7 +2387,7 @@ namespace KimodoBridge.Editor.Tests
                     1,
                     KimodoUnityObjectIdUtility.IdHash(source.animator),
                     1,
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     KimodoConstraintRigType.Soma77);
                 Assert.That(
                     KimodoConstraintPoseCache.TryResolveTargetHipsPose(

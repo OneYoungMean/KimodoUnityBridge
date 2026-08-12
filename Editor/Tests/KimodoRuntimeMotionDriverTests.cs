@@ -28,8 +28,6 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(KimodoMotionModelProfiles.TryGetArdy("ardy-core", out KimodoMotionModelProfile profile), Is.True);
             Assert.That(profile.ModelName, Is.EqualTo(KimodoMotionModelProfiles.ArdyCoreModelName));
 
-            Assert.That(KimodoPlayableClip.FIXED_FRAME_RATE, Is.EqualTo(KimodoMotionModelProfiles.DefaultFrameRate));
-            Assert.That(KimodoPlayableClip.NormalizeBridgeModelName(null), Is.EqualTo(KimodoMotionModelProfiles.DefaultModelName));
         }
 
         [TestCase(4.5666666, 30.0, 137)]
@@ -935,7 +933,7 @@ namespace KimodoBridge.Editor.Tests
             KimodoBridgeCommandResult trimmed = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
                 request,
                 result,
-                KimodoPlayableClip.DefaultBridgeModelName);
+                KimodoMotionModelProfiles.DefaultModelName);
 
             Assert.That(trimmed.MotionData.FrameCount, Is.EqualTo(3));
             Assert.That(trimmed.MotionData.TryReadUnityRootPosition(0, out Vector3 first), Is.True);
@@ -1107,8 +1105,8 @@ namespace KimodoBridge.Editor.Tests
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
                 TimelineClip first = CreateArdyTimelineClip(track, 0.0, 1.0, 100);
                 TimelineClip second = CreateArdyTimelineClip(track, 1.0, 1.0, 100);
-                ((KimodoPlayableClip)first.asset).bridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
-                ((KimodoPlayableClip)second.asset).bridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
+                ((KimodoPlayableClip)first.asset).bridgeModelName = KimodoMotionModelProfiles.DefaultModelName;
+                ((KimodoPlayableClip)second.asset).bridgeModelName = KimodoMotionModelProfiles.DefaultModelName;
 
                 Assert.That(
                     KimodoPlayableClipGenerationExecutionService.TryValidateConnectedSelection(
@@ -1263,7 +1261,7 @@ namespace KimodoBridge.Editor.Tests
                 timelineClip.duration = 12.0;
                 directorRoot.AddComponent<PlayableDirector>().playableAsset = timeline;
                 var playable = (KimodoPlayableClip)timelineClip.asset;
-                playable.bridgeModelName = KimodoPlayableClip.DefaultBridgeModelName;
+                playable.bridgeModelName = KimodoMotionModelProfiles.DefaultModelName;
                 playable.inOutConstraintMode = KimodoInOutConstraintMode.None;
 
                 KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
@@ -1313,7 +1311,7 @@ namespace KimodoBridge.Editor.Tests
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    KimodoPlayableClip.DefaultBridgeModelName,
+                    KimodoMotionModelProfiles.DefaultModelName,
                     out Avatar avatar,
                     out string error),
                 Is.True,
@@ -1328,7 +1326,7 @@ namespace KimodoBridge.Editor.Tests
                     KimodoTimelineGenerationOutputPlanner.Capture(
                         playable,
                         avatar,
-                        KimodoPlayableClip.DefaultBridgeModelName,
+                        KimodoMotionModelProfiles.DefaultModelName,
                         bindingObject: null);
                 UnityEngine.Object.DestroyImmediate(playable);
                 playable = null;
@@ -1338,7 +1336,7 @@ namespace KimodoBridge.Editor.Tests
                         snapshot,
                         bindingObject: null,
                         generated,
-                        KimodoPlayableClip.DefaultBridgeModelName);
+                        KimodoMotionModelProfiles.DefaultModelName);
 
                 Assert.That(resolved.TargetRetargetAvatar, Is.SameAs(avatar));
                 Assert.That(KimodoRetargetCoreUtility.IsValidHumanoid(resolved.OriginRetargetAvatar), Is.True);
