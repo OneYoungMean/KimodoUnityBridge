@@ -34,10 +34,10 @@ namespace KimodoBridge.Editor
             request.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating motion...");
 
             KimodoBridgeCommandResult runtimeResult = await ExecuteRuntimePipelineAsync(request, prompt, modelName);
-            return BakeRuntimeResult(request, prompt, modelName, runtimeResult);
+            return RecordAndRetargetRuntimeResult(request, prompt, modelName, runtimeResult);
         }
 
-        internal static command_generate_result BakeRuntimeResult(
+        internal static command_generate_result RecordAndRetargetRuntimeResult(
             KimodoEditorGenerateRequest request,
             string prompt,
             string modelName,
@@ -66,16 +66,16 @@ namespace KimodoBridge.Editor
             }
 
             ThrowIfCanceled(request);
-            request.Progress?.Invoke(KimodoBridgeCommandStage.Bake, "Baking animation...");
-            if (!KimodoRetargetToolsEditor.BakeIntoClip(
+            request.Progress?.Invoke(KimodoBridgeCommandStage.Record, "Recording animation...");
+            if (!KimodoRetargetToolsEditor.RecordIntoClip(
                     request.TargetClip,
                     motionJson,
-                    KimodoPlayableClip.ResolveBakeSkeletonTypeFromModelName(modelName),
+                    KimodoPlayableClip.ResolveRecordSkeletonTypeFromModelName(modelName),
                     modelName,
                     null,
-                    out string bakeError))
+                    out string recordError))
             {
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(bakeError) ? "Bake failed." : bakeError);
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(recordError) ? "Record failed." : recordError);
             }
 
             ThrowIfCanceled(request);
@@ -108,7 +108,7 @@ namespace KimodoBridge.Editor
                 KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
                 KimodoEditorClipWritebackService.FlushWritebackAssets();
                 request.Progress?.Invoke(KimodoBridgeCommandStage.Retarget, "Skipping retarget: binding hierarchy already matches clip bindings.");
-                return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
+                return CompleteOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
             }
 
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(outputPlan.OriginRetargetAvatar))
@@ -124,7 +124,7 @@ namespace KimodoBridge.Editor
                 out Vector3 targetPlanarOffset,
                 out Quaternion targetPlanarRotation,
                 out float targetHumanScale);
-            if (!KimodoRetargetToolsEditor.TryBakeMuscleClipToClip(
+            if (!KimodoRetargetToolsEditor.TryRecordMuscleClipToClip(
                     request.TargetClip,
                     outputPlan.OriginRetargetAvatar,
                     request.TargetClip,
@@ -144,7 +144,7 @@ namespace KimodoBridge.Editor
                 KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
                 EditorUtility.SetDirty(request.TargetClip);
                 KimodoEditorClipWritebackService.FlushWritebackAssets();
-                return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
+                return CompleteOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
             }
 
             ThrowIfCanceled(request);
@@ -181,7 +181,7 @@ namespace KimodoBridge.Editor
             KimodoEditorClipWritebackService.FlushWritebackAssets();
             ThrowIfCanceled(request);
 
-            return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
+            return CompleteOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
         }
 
         private static void ResolveTimelinePlanarOffset(
@@ -337,7 +337,7 @@ namespace KimodoBridge.Editor
             return result;
         }
 
-        private static command_generate_result CompleteBakedOutput(
+        private static command_generate_result CompleteOutput(
             KimodoEditorGenerateRequest request,
             string prompt,
             string modelName,
@@ -413,10 +413,10 @@ namespace KimodoBridge.Editor
 
             if (rawBoneClip != null && !ReferenceEquals(rawBoneClip, request.TargetClip))
             {
-                if (!KimodoRetargetToolsEditor.BakeIntoClip(
+                if (!KimodoRetargetToolsEditor.RecordIntoClip(
                         rawBoneClip,
                         runtimeResult.MotionJsonCompact,
-                        KimodoPlayableClip.ResolveBakeSkeletonTypeFromModelName(modelName),
+                        KimodoPlayableClip.ResolveRecordSkeletonTypeFromModelName(modelName),
                         modelName,
                         null,
                         out string rawTrimError))

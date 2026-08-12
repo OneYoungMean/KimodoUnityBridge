@@ -1,6 +1,6 @@
 # Kimodo Unity Motion Tools
 
-Kimodo adds local AI humanoid animation generation to an existing Unity project. It supports prompt-driven motion, pose and end-effector constraints, analysis, baking, retargeting, Animator content, Timeline authoring, and runtime motion playback.
+Kimodo adds local AI humanoid animation generation to an existing Unity project. It supports prompt-driven motion, pose and end-effector constraints, analysis, recording, retargeting, Animator content, Timeline authoring, and runtime motion playback.
 
 - Runs from a project-owned local runtime.
 - Supports Windows, macOS, and Linux; CUDA is the primary acceleration path and CPU fallback is available.
@@ -31,7 +31,7 @@ Or add the dependency to `Packages/manifest.json` without changing other entries
 
 1. Import the package's **Light Sample** from Unity Package Manager, or open the [FullDemo](https://github.com/OneYoungMean/KimodoUnityBridge_FullDemo).
 2. Open its Timeline and select a Kimodo clip bound to a character.
-3. Enter a motion prompt and choose **Generate & Bake**.
+3. Enter a motion prompt and choose **Generate & Record**.
 4. Wait for the project-local runtime and model to become ready, then play the Timeline.
 
 Runtime diagnostics are written to `NvlabKimodoQuickServer~/log/setup.log` and `NvlabKimodoQuickServer~/log/bridge_server.log` in the Unity project.

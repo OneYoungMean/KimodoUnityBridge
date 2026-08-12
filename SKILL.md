@@ -54,7 +54,7 @@ Do not close the Session while generation is running. A terminal status is `comp
 - Discovery: `kimodo_help`.
 - Session: `session_open`, `session_close`, `query_current_session`, `session_try_add`, `session_try_remove`.
 - Pose and constraints: `pose_create`, `pose_get`, `pose_set`, `pose_copy`, `kimodo_build_root2d_path`.
-- Animation: `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation`, `kimodo_analyze`, `query_picture`, `kimodo_bake_range`.
+- Animation: `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation`, `kimodo_analyze`, `query_picture`, `kimodo_record_range`, `kimodo_retarget_animation`.
 - Debug maintenance: `kimodo_debug_install_server`; use only when explicitly diagnosing the local QuickServer installation.
 
 For pose/constraint examples, see [Manual/AI workflow and Constraint API](Manual/AI%20工作流示例与%20Constraint%20API%20设计.md). Always check the command's live schema before copying an example.

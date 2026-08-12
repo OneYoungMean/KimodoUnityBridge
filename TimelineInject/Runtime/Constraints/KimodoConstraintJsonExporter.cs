@@ -244,7 +244,6 @@ namespace TimelineInject
                     BuildLocalJointFrame(sample.localAxisAngles)
                 }
             };
-
             return json;
         }
 
@@ -273,6 +272,18 @@ namespace TimelineInject
                     BuildLocalJointFrame(sample.localAxisAngles)
                 }
             };
+            if (sample.hasEndEffectorTargetPosition)
+            {
+                Quaternion rootRotation = sample.localAxisAngles != null && sample.localAxisAngles.Count > 0
+                    ? KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0])
+                    : Quaternion.identity;
+                Vector3 unityTarget = sample.kimodoRootPosition +
+                    rootRotation * sample.endEffectorTargetPositionRootLocal;
+                json.target_positions = new List<float[]>
+                {
+                    new[] { -unityTarget.x, unityTarget.y, unityTarget.z }
+                };
+            }
 
             return json;
         }
@@ -416,6 +427,10 @@ namespace TimelineInject
             {
                 merged.joint_names = new List<string>(group[0].joint_names);
             }
+            if (isEndEffectorFamily && group.Any(item => item.target_positions != null))
+            {
+                merged.target_positions = new List<float[]>();
+            }
             for (int i = 0; i < group.Count; i++)
             {
                 KimodoConstraintJson c = group[i];
@@ -440,6 +455,20 @@ namespace TimelineInject
                 if (merged.global_root_heading != null && c.global_root_heading != null)
                 {
                     merged.global_root_heading.AddRange(c.global_root_heading);
+                }
+                if (merged.target_positions != null)
+                {
+                    if (c.target_positions != null && c.target_positions.Count == c.frame_indices.Count)
+                    {
+                        merged.target_positions.AddRange(c.target_positions);
+                    }
+                    else
+                    {
+                        for (int frame = 0; frame < c.frame_indices.Count; frame++)
+                        {
+                            merged.target_positions.Add(null);
+                        }
+                    }
                 }
             }
 

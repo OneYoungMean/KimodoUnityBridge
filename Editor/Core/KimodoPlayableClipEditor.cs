@@ -173,7 +173,7 @@ namespace KimodoBridge.Editor
             SyncRequestHandleState();
             serializedObject.UpdateIfRequiredOrScript();
             DrawGenerationSection();
-            DrawBakeSection();
+            DrawRecordingSection();
             DrawErrorSection();
             DrawGeneratedInfo();
             DrawAnimationClipSection();
@@ -305,8 +305,8 @@ namespace KimodoBridge.Editor
             GUI.enabled = !disableGenerate;
             int selectedGenerateClipCount = KimodoPlayableClipGenerationExecutionService.GetSelectedPlayableClipCount(clip);
             string generateLabel = selectedGenerateClipCount > 1
-                ? $"Generate {selectedGenerateClipCount} Clips & Bake"
-                : "Generate & Bake";
+                ? $"Generate {selectedGenerateClipCount} Clips & Record"
+                : "Generate & Record";
             string generateTooltip = selectedGenerateClipCount > 1
                 ? "Generate the selected Timeline clips one at a time in Timeline order."
                 : "Generate only this Timeline clip.";
@@ -338,12 +338,12 @@ namespace KimodoBridge.Editor
                     out _,
                     out string connectedReason);
                 GUI.enabled = !disableGenerate && hasConnectedPlan;
-                string connectedLabel = $"Generate {connectedClipCount} Connected Clips & Bake";
+                string connectedLabel = $"Generate {connectedClipCount} Connected Clips & Record";
                 if (GUILayout.Button(
                         new GUIContent(
                             connectedLabel,
                             hasConnectedPlan
-                                ? "Generate all compatible clips in one server request, then slice and bake them in Unity."
+                                ? "Generate all compatible clips in one server request, then slice and record them in Unity."
                                 : connectedReason),
                         GUILayout.Height(28)))
                 {
@@ -559,7 +559,7 @@ namespace KimodoBridge.Editor
 
             if (animationClipProp != null)
             {
-                EditorGUILayout.PropertyField(animationClipProp, new GUIContent("Clip", "Baked Unity AnimationClip used by this playable clip."));
+                EditorGUILayout.PropertyField(animationClipProp, new GUIContent("Clip", "Recorded Unity AnimationClip used by this playable clip."));
             }
             else
             {
@@ -587,14 +587,14 @@ namespace KimodoBridge.Editor
             EditorGUILayout.Space();
         }
 
-        private void DrawBakeSection()
+        private void DrawRecordingSection()
         {
-            EditorGUILayout.LabelField("Animation Bake", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Animation Output", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
             if (autoRetargetOnBindingProp != null)
             {
-                EditorGUILayout.PropertyField(autoRetargetOnBindingProp, new GUIContent("Auto Retarget On Binding", "Automatically retarget baked motion to the bound character avatar at playback/bind time."));
+                EditorGUILayout.PropertyField(autoRetargetOnBindingProp, new GUIContent("Auto Retarget On Binding", "Automatically retarget recorded motion to the bound character avatar at playback/bind time."));
             }
             if (autoRetargetOnBindingProp != null && !autoRetargetOnBindingProp.boolValue && customRetargetAvatarProp != null)
             {
@@ -688,7 +688,7 @@ namespace KimodoBridge.Editor
             switch (handle.Status)
             {
                 case command_status.Running:
-                    lastStatus = string.IsNullOrWhiteSpace(handle.Message) ? "Generating and baking..." : handle.Message;
+                    lastStatus = string.IsNullOrWhiteSpace(handle.Message) ? "Generating and recording..." : handle.Message;
                     lastError = string.Empty;
                     break;
                 case command_status.Completed:
@@ -770,7 +770,7 @@ namespace KimodoBridge.Editor
 
             if (enabledProp != null)
             {
-                EditorGUILayout.PropertyField(enabledProp, new GUIContent("Reduce Keyframes", "Enable curve keyframe reduction after bake."));
+                EditorGUILayout.PropertyField(enabledProp, new GUIContent("Reduce Keyframes", "Enable curve keyframe reduction after recording."));
             }
 
             bool curveFilterEnabled = enabledProp == null || enabledProp.boolValue;

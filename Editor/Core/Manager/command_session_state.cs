@@ -139,6 +139,8 @@ namespace KimodoUnityBridge.Command
                 return;
             }
 
+            SetSessionClipPostExtrapolationToNone(session.TimelineAsset);
+
             PlayableDirector director = GetOrCreateSharedTimelineDirector();
             director.Stop();
             ClearTimelineBindings(director);
@@ -386,6 +388,7 @@ namespace KimodoUnityBridge.Command
         {
             double duration = Math.Max(0.0001, clip != null ? clip.length : 0.0001);
             TimelineClip timelineClip = character.Track.CreateClip<AnimationPlayableAsset>();
+            SetClipPostExtrapolationToNone(timelineClip);
             timelineClip.start = character.NextStartSeconds;
             timelineClip.duration = duration;
             string animationName = MakeUniqueAnimationName(character,
@@ -398,6 +401,27 @@ namespace KimodoUnityBridge.Command
             character.NextStartSeconds = timelineClip.end + ClipSafeZoneSeconds;
             EditorUtility.SetDirty(character.Track);
             return animation;
+        }
+
+        internal static void SetClipPostExtrapolationToNone(TimelineClip clip)
+        {
+            if (clip == null)
+            {
+                return;
+            }
+            typeof(TimelineClip).GetField(
+                    "m_PostExtrapolationMode",
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(clip, TimelineClip.ClipExtrapolation.None);
+        }
+
+        private static void SetSessionClipPostExtrapolationToNone(TimelineAsset timeline)
+        {
+            foreach (TimelineClip clip in timeline.GetOutputTracks().SelectMany(track => track.GetClips()))
+            {
+                SetClipPostExtrapolationToNone(clip);
+            }
+            EditorUtility.SetDirty(timeline);
         }
 
         private static string MakeUniqueAnimationName(TimelineCharacterRecord character, string requestedName)
@@ -455,6 +479,7 @@ namespace KimodoUnityBridge.Command
                 new UnityEngine.Object[] { timelineAsset, trace.Character.Track, trace.Session.Director },
                 "Kimodo Add Generation Clip");
             TimelineClip timelineClip = trace.Character.Track.CreateClip<KimodoPlayableClip>();
+            SetClipPostExtrapolationToNone(timelineClip);
             timelineClip.start = trace.StartSeconds;
             timelineClip.duration = trace.DurationSeconds;
             timelineClip.displayName = MakeUniqueAnimationName(
@@ -516,15 +541,19 @@ namespace KimodoUnityBridge.Command
                         marker = trace.Character.Track.CreateMarker<KimodoFullBodyConstraintMarker>(trace.StartSeconds + localTime);
                         break;
                     case "left_hand":
+                    case "left-hand":
                         marker = trace.Character.Track.CreateMarker<KimodoLeftHandConstraintMarker>(trace.StartSeconds + localTime);
                         break;
                     case "right_hand":
+                    case "right-hand":
                         marker = trace.Character.Track.CreateMarker<KimodoRightHandConstraintMarker>(trace.StartSeconds + localTime);
                         break;
                     case "left_foot":
+                    case "left-foot":
                         marker = trace.Character.Track.CreateMarker<KimodoLeftFootConstraintMarker>(trace.StartSeconds + localTime);
                         break;
                     case "right_foot":
+                    case "right-foot":
                         marker = trace.Character.Track.CreateMarker<KimodoRightFootConstraintMarker>(trace.StartSeconds + localTime);
                         break;
                     default:
@@ -746,9 +775,10 @@ namespace KimodoUnityBridge.Command
                     return Ok(new JObject
                     {
                         ["character"] = character.Name,
-                        ["constraints"] = new JArray(character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
-                            .Where(marker => marker is not KimodoUntypedConstraintMarker)
-                            .Select(marker => DescribeTimelineConstraint(marker, 0)))
+                        ["constraints"] = DescribeTimelineConstraints(
+                            character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
+                                .Where(marker => marker is not KimodoUntypedConstraintMarker),
+                            0)
                     });
                 }
                 TimelineAnimationRecord animation = ResolveAnimation(arguments, character);
@@ -783,14 +813,13 @@ namespace KimodoUnityBridge.Command
                     {
                         ["character"] = character.Name,
                         ["animation"] = animation.Name,
-                        ["constraints"] = new JArray(character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
+                        ["constraints"] = DescribeTimelineConstraints(character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
                             .Where(marker => marker is not KimodoUntypedConstraintMarker)
                             .Where(marker =>
                             {
                                 int frame = Mathf.RoundToInt((float)(marker.time * SessionFrameRate));
                                 return frame >= startFrame && frame < endFrame;
-                            })
-                            .Select(marker => DescribeTimelineConstraint(marker, startFrame)))
+                            }), startFrame)
                     });
                 }
                 throw new InvalidOperationException("query must be characters, character_animations, animation, character_constraints, animation_constraints, animation_transitions, or transition.");
@@ -881,7 +910,7 @@ namespace KimodoUnityBridge.Command
             string assetName = $"{source.name}_{character.Name}_Retarget";
             AnimationClip output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
                 assetName, KimodoEditorClipWritebackService.GeneratedClipFolder);
-            if (KimodoRetargetToolsEditor.TryBakeMuscleClipToClip(source, character.Avatar, output, out string error))
+            if (KimodoRetargetToolsEditor.TryRecordMuscleClipToClip(source, character.Avatar, output, out string error))
             {
                 AssetDatabase.SaveAssets();
                 return output;
@@ -959,7 +988,7 @@ namespace KimodoUnityBridge.Command
                 {
                     if (!animationMode)
                     {
-                        animation = BakeTransientAnalysisRange(session, character, startFrame, endFrame, out transientClip, out transientTimelineClip);
+                        animation = RecordTransientAnalysisRange(session, character, startFrame, endFrame, out transientClip, out transientTimelineClip);
                     }
 
                     JObject analysis = AnalyzeClipWithServer(arguments, session, animation);
@@ -1069,7 +1098,7 @@ namespace KimodoUnityBridge.Command
             return analysis;
         }
 
-        private static TimelineAnimationRecord BakeTransientAnalysisRange(
+        private static TimelineAnimationRecord RecordTransientAnalysisRange(
             TimelineSessionRecord session,
             TimelineCharacterRecord character,
             int startFrame,
@@ -1080,27 +1109,27 @@ namespace KimodoUnityBridge.Command
             int frameCount = endFrame - startFrame;
             Transform[] transforms = character.Root.GetComponentsInChildren<Transform>(true);
             string[] paths = transforms.Select(transform => AnimationUtility.CalculateTransformPath(transform, character.Root.transform)).ToArray();
-            var frames = new List<BakeBoneFrame>(frameCount);
-            double originalTime = session.Director.time;
-            for (int frame = 0; frame < frameCount; frame++)
+            var frames = new List<RecordedBoneFrame>(frameCount);
+            using (var evaluation = KimodoTimelineEvaluationScope.Begin(session.Director))
             {
-                session.Director.time = (startFrame + frame) / SessionFrameRate;
-                session.Director.Evaluate();
-                var sample = new BakeBoneFrame(transforms.Length);
-                for (int index = 0; index < transforms.Length; index++)
+                for (int frame = 0; frame < frameCount; frame++)
                 {
-                    sample.Positions[index] = transforms[index].localPosition;
-                    sample.Rotations[index] = transforms[index].localRotation;
+                    evaluation.EvaluateAt((startFrame + frame) / SessionFrameRate);
+                    var sample = new RecordedBoneFrame(transforms.Length);
+                    for (int index = 0; index < transforms.Length; index++)
+                    {
+                        sample.Positions[index] = transforms[index].localPosition;
+                        sample.Rotations[index] = transforms[index].localRotation;
+                    }
+                    frames.Add(sample);
                 }
-                frames.Add(sample);
             }
-            session.Director.time = originalTime;
-            session.Director.Evaluate();
 
             transientClip = new AnimationClip { name = "__KimodoAnalysisRange__", frameRate = (float)SessionFrameRate };
             transientClip.hideFlags = HideFlags.HideAndDontSave;
-            WriteBoneBakeCurves(transientClip, transforms, paths, frames, (float)SessionFrameRate);
+            WriteRecordedBoneCurves(transientClip, transforms, paths, frames, (float)SessionFrameRate);
             transientTimelineClip = character.Track.CreateClip<AnimationPlayableAsset>();
+            SetClipPostExtrapolationToNone(transientTimelineClip);
             transientTimelineClip.start = character.NextStartSeconds;
             transientTimelineClip.duration = frameCount / SessionFrameRate;
             transientTimelineClip.displayName = transientClip.name;
@@ -1109,16 +1138,16 @@ namespace KimodoUnityBridge.Command
                 transientTimelineClip, null, null, 0, frameCount);
         }
 
-        public static string KimodoBakeTimelineRange(string argumentsJson)
+        public static string KimodoRecordTimelineRange(string argumentsJson)
         {
             return Execute(argumentsJson, arguments =>
             {
                 RejectTimelineSessionId(arguments);
-                return BakeTimelineRange(arguments);
+                return RecordTimelineRange(arguments);
             });
         }
 
-        private static string BakeTimelineRange(JObject arguments)
+        private static string RecordTimelineRange(JObject arguments)
         {
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             TimelineCharacterRecord source = ResolveCurrentSessionCharacter(arguments);
@@ -1132,90 +1161,68 @@ namespace KimodoUnityBridge.Command
             }
             if (endFrame <= startFrame)
             {
-                throw new InvalidOperationException("The bake range must satisfy 0 <= start_frame < end_frame.");
+                throw new InvalidOperationException("The record range must satisfy 0 <= start_frame < end_frame.");
             }
-            ThrowIfGenerationRangeLocked(session, source, startFrame, endFrame, KimodoBakeRangeCommand);
+            ThrowIfGenerationRangeLocked(session, source, startFrame, endFrame, KimodoRecordRangeCommand);
             double start = startFrame / SessionFrameRate;
             double end = endFrame / SessionFrameRate;
-            TimelineCharacterRecord target = source;
-            string targetReference = arguments.Value<string>("retarget_character")?.Trim();
-            if (!string.IsNullOrWhiteSpace(targetReference))
-            {
-                target = ResolveSessionCharacterByReference(session, targetReference, addIfMissing: false);
-                if (!KimodoRetargetCoreUtility.IsValidHumanoid(target.Avatar))
-                {
-                    throw new InvalidOperationException($"Retarget target '{target.Name}' requires a valid humanoid Avatar.");
-                }
-            }
 
             float frameRate = session.TimelineAsset.editorSettings.frameRate > 0f
                 ? (float)session.TimelineAsset.editorSettings.frameRate
                 : KimodoPlayableClip.FIXED_FRAME_RATE;
             int frameCount = Math.Max(2, Mathf.CeilToInt((float)((end - start) / speed * frameRate)) + 1);
-            var poses = new List<MuscleSample>(frameCount);
-            var boneFrames = new List<BakeBoneFrame>(frameCount);
+            var boneFrames = new List<RecordedBoneFrame>(frameCount);
             Transform[] transforms = source.Root.GetComponentsInChildren<Transform>(true);
             string[] paths = transforms.Select(transform => AnimationUtility.CalculateTransformPath(transform, source.Root.transform)).ToArray();
             AnimationClip output = null;
             try
             {
-                RuntimeAnimatorController savedController = source.Animator.runtimeAnimatorController;
-                source.Animator.runtimeAnimatorController = null;
-                try
+                using (var evaluation = KimodoTimelineEvaluationScope.Begin(session.Director))
                 {
-                    for (int frame = 0; frame < frameCount; frame++)
+                    RuntimeAnimatorController savedController = source.Animator.runtimeAnimatorController;
+                    source.Animator.runtimeAnimatorController = null;
+                    try
                     {
-                        double time = frame == frameCount - 1 ? end : start + (end - start) * frame / (frameCount - 1);
-                        session.Director.time = time;
-                        session.Director.Evaluate();
-                        poses.Add(CaptureMuscleSample(source));
-                        var frameData = new BakeBoneFrame(transforms.Length);
-                        for (int index = 0; index < transforms.Length; index++)
+                        for (int frame = 0; frame < frameCount; frame++)
                         {
-                            frameData.Positions[index] = transforms[index].localPosition;
-                            frameData.Rotations[index] = transforms[index].localRotation;
+                            double time = frame == frameCount - 1 ? end : start + (end - start) * frame / (frameCount - 1);
+                            evaluation.EvaluateAt(time);
+                            var frameData = new RecordedBoneFrame(transforms.Length);
+                            for (int index = 0; index < transforms.Length; index++)
+                            {
+                                frameData.Positions[index] = transforms[index].localPosition;
+                                frameData.Rotations[index] = transforms[index].localRotation;
+                            }
+                            boneFrames.Add(frameData);
                         }
-                        boneFrames.Add(frameData);
                     }
-                }
-                finally
-                {
-                    source.Animator.runtimeAnimatorController = savedController;
+                    finally
+                    {
+                        source.Animator.runtimeAnimatorController = savedController;
+                    }
                 }
 
                 if (removeRootMotion)
                 {
-                    RemoveBakeRootMotion(poses, boneFrames);
+                    RemoveRecordedRootMotion(boneFrames);
                 }
 
                 string assetName = arguments.Value<string>("name")?.Trim();
                 if (string.IsNullOrWhiteSpace(assetName))
                 {
-                    assetName = $"{source.Name}_Bake_{DateTime.Now:yyyyMMdd_HHmmss_fff}";
+                    assetName = $"{source.Name}_Record_{DateTime.Now:yyyyMMdd_HHmmss_fff}";
                 }
                 string folder = NormalizeOutputFolder(arguments.Value<string>("output_folder"));
                 output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(assetName, folder);
                 output.frameRate = frameRate;
-                if (target != source)
-                {
-                    if (!KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(poses, output, out string error))
-                    {
-                        throw new InvalidOperationException($"Bake retarget failed: {error}");
-                    }
-                    KimodoEditorClipUtility.ApplyMuscleClipSettings(output);
-                }
-                else
-                {
-                    WriteBoneBakeCurves(output, transforms, paths, boneFrames, frameRate);
-                }
+                WriteRecordedBoneCurves(output, transforms, paths, boneFrames, frameRate);
 
-                TimelineAnimationRecord animation = AppendAnimationClip(session, target, output, "baked", null);
+                TimelineAnimationRecord animation = AppendAnimationClip(session, source, output, "recorded", null);
                 SaveTimelineSession(session);
                 return Ok(new JObject
                 {
-                    ["baked"] = true,
-                    ["character"] = target.Name,
-                    ["source_character"] = source.Name,
+                    ["recorded"] = true,
+                    ["character"] = source.Name,
                     ["start_frame"] = startFrame,
                     ["end_frame"] = endFrame,
                     ["speed"] = speed,
@@ -1235,21 +1242,78 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static void RemoveBakeRootMotion(List<MuscleSample> poses, List<BakeBoneFrame> boneFrames)
+        public static string KimodoRetargetAnimation(string argumentsJson)
         {
-            if (poses.Count > 0)
+            return Execute(argumentsJson, arguments =>
             {
-                Vector3 firstPosition = poses[0].pose.bodyPosition;
-                float firstYaw = poses[0].pose.bodyRotation.eulerAngles.y;
-                for (int i = 0; i < poses.Count; i++)
+                RejectTimelineSessionId(arguments);
+                TimelineSessionRecord session = RequireCurrentTimelineSession();
+                TimelineCharacterRecord source = ResolveCurrentSessionCharacter(arguments);
+                TimelineAnimationRecord sourceAnimation = ResolveAnimation(arguments, source);
+                TimelineCharacterRecord target = ResolveSessionCharacterByReference(
+                    session,
+                    RequiredStringValue(arguments, "target_character"),
+                    addIfMissing: false);
+                if (!KimodoRetargetCoreUtility.IsValidHumanoid(source.Avatar) ||
+                    !KimodoRetargetCoreUtility.IsValidHumanoid(target.Avatar))
                 {
-                    HumanPose pose = poses[i].pose;
-                    pose.bodyPosition = new Vector3(firstPosition.x, pose.bodyPosition.y, firstPosition.z);
-                    Vector3 euler = pose.bodyRotation.eulerAngles;
-                    pose.bodyRotation = Quaternion.Euler(euler.x, firstYaw, euler.z);
-                    poses[i].pose = pose;
+                    throw new InvalidOperationException("Retarget requires valid humanoid source and target Avatars.");
                 }
-            }
+
+                AnimationClip output = null;
+                try
+                {
+                    string assetName = arguments.Value<string>("name")?.Trim();
+                    if (string.IsNullOrWhiteSpace(assetName))
+                    {
+                        assetName = $"{sourceAnimation.Name}_To_{target.Name}";
+                    }
+                    output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
+                        assetName,
+                        NormalizeOutputFolder(arguments.Value<string>("output_folder")));
+                    KimodoEditorClipUtility.CopyClipData(sourceAnimation.Clip, output);
+                    AnimationClip providedHumanoidClip = sourceAnimation.Clip.isHumanMotion
+                        ? sourceAnimation.Clip
+                        : null;
+                    if (!KimodoRetargetCoreUtility.TryRetargetClip(
+                            output,
+                            source.Avatar,
+                            target.Avatar,
+                            exportMuscleClip: false,
+                            providedSourceHumanoidClip: providedHumanoidClip,
+                            out AnimationClip retargeted,
+                            out string error,
+                            debugLog: KimodoPlayableClipGenerationSettings.DebugLog))
+                    {
+                        throw new InvalidOperationException($"Retarget failed: {error}");
+                    }
+                    output = retargeted;
+                    EditorUtility.SetDirty(output);
+                    TimelineAnimationRecord animation = AppendAnimationClip(session, target, output, "retargeted", null);
+                    SaveTimelineSession(session);
+                    return Ok(new JObject
+                    {
+                        ["retargeted"] = true,
+                        ["source_character"] = source.Name,
+                        ["character"] = target.Name,
+                        ["animation"] = DescribeAnimation(animation)
+                    });
+                }
+                catch
+                {
+                    string outputPath = output != null ? AssetDatabase.GetAssetPath(output) : string.Empty;
+                    if (!string.IsNullOrWhiteSpace(outputPath))
+                    {
+                        AssetDatabase.DeleteAsset(outputPath);
+                        AssetDatabase.SaveAssets();
+                    }
+                    throw;
+                }
+            });
+        }
+
+        private static void RemoveRecordedRootMotion(List<RecordedBoneFrame> boneFrames)
+        {
             if (boneFrames.Count > 0 && boneFrames[0].Positions.Length > 0)
             {
                 Vector3 firstPosition = boneFrames[0].Positions[0];
@@ -1264,21 +1328,11 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static MuscleSample CaptureMuscleSample(TimelineCharacterRecord character)
-        {
-            var pose = new HumanPose();
-            using (var handler = new HumanPoseHandler(character.Avatar, character.Animator.transform))
-            {
-                handler.GetHumanPose(ref pose);
-            }
-            return new MuscleSample { pose = pose };
-        }
-
-        private static void WriteBoneBakeCurves(
+        private static void WriteRecordedBoneCurves(
             AnimationClip clip,
             Transform[] transforms,
             string[] paths,
-            List<BakeBoneFrame> frames,
+            List<RecordedBoneFrame> frames,
             float frameRate)
         {
             for (int index = 0; index < transforms.Length; index++)
@@ -1394,32 +1448,44 @@ namespace KimodoUnityBridge.Command
             return result;
         }
 
-        private static JObject DescribeTimelineConstraint(KimodoConstraintMarkerBase marker, int relativeToFrame)
+        private static JArray DescribeTimelineConstraints(
+            IEnumerable<KimodoConstraintMarkerBase> markers,
+            int relativeToFrame)
         {
-            int globalFrame = Mathf.RoundToInt((float)(marker.time * SessionFrameRate));
-            var result = new JObject
+            var frames = new SortedDictionary<int, JObject>();
+            foreach (KimodoConstraintMarkerBase marker in markers ?? Enumerable.Empty<KimodoConstraintMarkerBase>())
             {
-                ["frame"] = globalFrame - relativeToFrame,
-                ["type"] = marker.ConstraintType
-            };
-            if (relativeToFrame != 0)
-            {
-                result["global_frame"] = globalFrame;
+                int globalFrame = Mathf.RoundToInt((float)(marker.time * SessionFrameRate));
+                if (!frames.TryGetValue(globalFrame, out JObject frame))
+                {
+                    frame = new JObject { ["frame"] = globalFrame - relativeToFrame };
+                    frames.Add(globalFrame, frame);
+                }
+
+                string field = (marker.ConstraintType ?? string.Empty).Replace('-', '_');
+                var value = new JObject();
+                KimodoMarkerSampleResult sample = marker.SampleData;
+                if (field == "root2d" && (sample.muscles == null || sample.muscles.Count == 0))
+                {
+                    value["position"] = new JArray(sample.kimodoRootPosition.x, sample.kimodoRootPosition.z);
+                    value["heading"] = new JArray(sample.rootHeading.x, sample.rootHeading.y);
+                }
+                else
+                {
+                    value["pose"] = PoseLocatorJson(marker.name, globalFrame);
+                }
+                if (field != "fullbody" && field != "root2d" && sample.hasEndEffectorTargetPosition)
+                {
+                    Quaternion rootRotation = sample.localAxisAngles != null && sample.localAxisAngles.Count > 0
+                        ? KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0])
+                        : Quaternion.identity;
+                    Vector3 position = sample.kimodoRootPosition +
+                        rootRotation * sample.endEffectorTargetPositionRootLocal;
+                    value["position"] = new JArray(position.x, position.y, position.z);
+                }
+                frame[field] = value;
             }
-            if (marker.ConstraintType == "root2d" &&
-                (marker.SampleData.muscles == null || marker.SampleData.muscles.Count == 0))
-            {
-                result["forwardPos"] = marker.SampleData.kimodoRootPosition.z;
-                result["rightwardPos"] = marker.SampleData.kimodoRootPosition.x;
-                result["rotateY"] = marker.SampleData.hasRootHeading
-                    ? Mathf.Atan2(marker.SampleData.rootHeading.x, marker.SampleData.rootHeading.y) * Mathf.Rad2Deg
-                    : 0f;
-            }
-            else
-            {
-                result["pose"] = PoseLocatorJson(marker.name, globalFrame);
-            }
-            return result;
+            return new JArray(frames.Values);
         }
 
         private static bool Overlaps(TimelineClip clip, double start, double end)
@@ -1768,9 +1834,9 @@ namespace KimodoUnityBridge.Command
             public MarkerTrack AnalysisTrack { get; set; }
         }
 
-        private sealed class BakeBoneFrame
+        private sealed class RecordedBoneFrame
         {
-            public BakeBoneFrame(int count)
+            public RecordedBoneFrame(int count)
             {
                 Positions = new Vector3[count];
                 Rotations = new Quaternion[count];

@@ -7,6 +7,8 @@ using KimodoUnityBridge.Command;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Playables;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor.Tests
 {
@@ -35,7 +37,8 @@ namespace KimodoBridge.Editor.Tests
                 command_session.TryAddCommand,
                 command_session.TryRemoveCommand,
                 command_kimodo.AnalyzeCommand,
-                command_kimodo.BakeRangeCommand,
+                command_kimodo.RecordRangeCommand,
+                command_kimodo.RetargetAnimationCommand,
                 command_kimodo.GenerateAnimationCommand,
                 command_kimodo.QueryPictureCommand,
                 "pose_create",
@@ -82,9 +85,9 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(workflow[1]["arguments"].Value<string>("query"), Is.EqualTo("characters"));
             Assert.That(workflow[2]["arguments"].Value<int>("duration_frames"), Is.EqualTo(60));
             Assert.That(workflow[3].Value<string>("repeat_until"), Does.Contain("completed"));
-            Assert.That(response["constraints"].Values<JObject>().Select(item => item.Value<string>("type")),
-                Is.EqualTo(new[] { "fullbody", "root2d" }));
-            Assert.That(response["constraint_rules"].Values<string>().Single(), Does.Contain("root2d"));
+            Assert.That(response["constraint"].Value<string>("fullbody"), Does.Contain("pose"));
+            Assert.That(response["constraint"].Value<string>("left_hand"), Does.Contain("position"));
+            Assert.That(response["constraint_rules"].Values<string>(), Has.Some.Contains("root2d"));
         }
 
         [Test]
@@ -102,18 +105,20 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ConstraintHelp_DescribesFullBodyAndRoot2D()
+        public void ConstraintHelp_DescribesUnifiedSparseFrameObject()
         {
             JObject response = JObject.Parse(command_kimodo.Help("{\"section\":\"constraints\"}"));
             Assert.That(response.Value<bool>("ok"), Is.True);
-            Assert.That(response["constraints"].Values<JObject>().Select(item => item.Value<string>("type")),
-                Is.EqualTo(new[] { "fullbody", "root2d" }));
-            Assert.That(response["constraints"][0].Value<string>("description"), Does.Contain("root bone"));
-            Assert.That(response["constraints"][1].Value<string>("description"), Does.Contain("root-only"));
+            Assert.That(((JObject)response["constraint"]).Properties().Select(property => property.Name),
+                Is.EqualTo(new[]
+                {
+                    "frame", "fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot"
+                }));
+            Assert.That(response["rules"].Values<string>(), Has.Some.Contains("legacy"));
         }
 
         [Test]
-        public void Root2DProtocol_UsesSemanticForwardRightYawFields()
+        public void ConstraintSchema_UsesCanonicalRoot2DPositionAndHeading()
         {
             JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
             JObject generate = definitions["tools"]
@@ -121,11 +126,12 @@ namespace KimodoBridge.Editor.Tests
                 .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationCommand);
             JObject itemProperties = (JObject)generate["inputSchema"]["properties"]["constraints"]["items"]["properties"];
 
-            Assert.That(itemProperties.Property("forwardPos"), Is.Not.Null);
-            Assert.That(itemProperties.Property("rightwardPos"), Is.Not.Null);
-            Assert.That(itemProperties.Property("rotateY"), Is.Not.Null);
-            Assert.That(itemProperties.Property("position"), Is.Null);
-            Assert.That(itemProperties.Property("heading"), Is.Null);
+            JObject rootProperties = (JObject)itemProperties["root2d"]["properties"];
+            Assert.That(rootProperties.Property("position"), Is.Not.Null);
+            Assert.That(rootProperties.Property("heading"), Is.Not.Null);
+            Assert.That(rootProperties.Property("forwardPos"), Is.Null);
+            Assert.That(rootProperties.Property("rightwardPos"), Is.Null);
+            Assert.That(rootProperties.Property("rotateY"), Is.Null);
 
             JObject path = JObject.Parse(command_context.BuildRoot2DPath(
                 "{\"shape\":\"line\",\"duration_frames\":60}"));
@@ -282,6 +288,25 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void SessionClipPostExtrapolation_IsNone()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>();
+                TimelineClip clip = track.CreateClip<AnimationPlayableAsset>();
+
+                command_context.SetClipPostExtrapolationToNone(clip);
+
+                Assert.That(clip.postExtrapolationMode, Is.EqualTo(TimelineClip.ClipExtrapolation.None));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void GetGeneration_UnknownRequest_ReturnsStructuredError()
         {
             JObject response = JObject.Parse(command_kimodo.GetGeneration(
@@ -298,9 +323,20 @@ namespace KimodoBridge.Editor.Tests
                 .Values<JObject>()
                 .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationCommand)["inputSchema"]["properties"];
             Assert.That(assetProperties["constraints"]["items"]["required"].Values<string>(),
-                Is.EqualTo(new[] { "frame", "type" }));
-            Assert.That(assetProperties["constraints"]["items"]["properties"]["type"]["enum"].Values<string>(),
-                Is.EqualTo(new[] { "fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot" }));
+                Is.EqualTo(new[] { "frame" }));
+            JObject constraintProperties = (JObject)assetProperties["constraints"]["items"]["properties"];
+            Assert.That(constraintProperties.Properties().Select(property => property.Name),
+                Is.EqualTo(new[]
+                {
+                    "frame", "fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot"
+                }));
+            Assert.That(constraintProperties.Property("type"), Is.Null);
+            Assert.That(assetProperties["constraints"]["items"]["anyOf"].Values<JObject>()
+                    .Select(item => item["required"].Values<string>().Single()),
+                Is.EqualTo(new[]
+                {
+                    "fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot"
+                }));
             Assert.That(assetProperties["analysis_option"].Value<string>("type"), Is.EqualTo("object"));
             Assert.That(assetProperties.Property("loop"), Is.Null);
             Assert.That(assetProperties["model"].Value<string>("type"), Is.EqualTo("string"));
@@ -313,13 +349,15 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void SessionSchemas_ExposeCurrentSessionQueriesAndBakeWithoutSessionId()
+        public void SessionSchemas_SeparateRecordAndRetargetWithoutBakeAlias()
         {
             JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
             JObject query = definitions["tools"].Values<JObject>()
                 .Single(tool => tool.Value<string>("name") == command_query.CurrentSessionCommand);
-            JObject bake = definitions["tools"].Values<JObject>()
-                .Single(tool => tool.Value<string>("name") == command_kimodo.BakeRangeCommand);
+            JObject record = definitions["tools"].Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == command_kimodo.RecordRangeCommand);
+            JObject retarget = definitions["tools"].Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == command_kimodo.RetargetAnimationCommand);
 
             JObject queryProperties = (JObject)query["inputSchema"]["properties"];
             Assert.That(queryProperties.Properties().Select(property => property.Name),
@@ -329,11 +367,77 @@ namespace KimodoBridge.Editor.Tests
                 "characters", "character_animations", "animation", "character_constraints", "animation_constraints",
                 "animation_transitions", "transition"
             }));
-            Assert.That(bake["inputSchema"]["properties"]["retarget_character"].Value<string>("type"),
-                Is.EqualTo("string"));
-            Assert.That(bake["inputSchema"]["properties"]["speed"].Value<string>("type"),
+            Assert.That(record["inputSchema"]["properties"]["speed"].Value<string>("type"),
                 Is.EqualTo("number"));
-            Assert.That(((JObject)bake["inputSchema"]["properties"]).Property("timeline_session_id"), Is.Null);
+            Assert.That(((JObject)record["inputSchema"]["properties"]).Property("retarget_character"), Is.Null);
+            Assert.That(retarget["inputSchema"]["required"].Values<string>(),
+                Is.EqualTo(new[] { "character", "animation", "target_character" }));
+            Assert.That(((JObject)record["inputSchema"]["properties"]).Property("timeline_session_id"), Is.Null);
+            Assert.That(definitions["tools"].Values<JObject>().Select(tool => tool.Value<string>("name")),
+                Does.Not.Contain("kimodo_bake_range"));
+        }
+
+        [Test]
+        public void TimelineEvaluationScope_RestoresStoppedStateTimeAndAnimatorEvents()
+        {
+            var root = new GameObject("KimodoTimelineEvaluationScopeTest");
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                PlayableDirector director = root.AddComponent<PlayableDirector>();
+                Animator animator = root.AddComponent<Animator>();
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>();
+                director.playableAsset = timeline;
+                director.SetGenericBinding(track, animator);
+                director.time = 0.25;
+                animator.fireEvents = true;
+
+                using (KimodoTimelineEvaluationScope evaluation = KimodoTimelineEvaluationScope.Begin(director))
+                {
+                    Assert.That(animator.fireEvents, Is.False);
+                    evaluation.EvaluateAt(0.5);
+                }
+
+                Assert.That(director.playableGraph.IsValid(), Is.False);
+                Assert.That(director.time, Is.EqualTo(0.25).Within(1e-6));
+                Assert.That(animator.fireEvents, Is.True);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
+        public void TimelineEvaluationScope_ResumesAPlayingDirector()
+        {
+            var root = new GameObject("KimodoTimelineEvaluationScopePlayingTest");
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                PlayableDirector director = root.AddComponent<PlayableDirector>();
+                Animator animator = root.AddComponent<Animator>();
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>();
+                director.playableAsset = timeline;
+                director.extrapolationMode = DirectorWrapMode.Hold;
+                director.SetGenericBinding(track, animator);
+                director.Play();
+                Assert.That(director.state, Is.EqualTo(PlayState.Playing));
+
+                using (KimodoTimelineEvaluationScope evaluation = KimodoTimelineEvaluationScope.Begin(director))
+                {
+                    Assert.That(director.state, Is.EqualTo(PlayState.Paused));
+                    evaluation.EvaluateAt(0.5);
+                }
+
+                Assert.That(director.state, Is.EqualTo(PlayState.Playing));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
         }
 
         [Test]
@@ -353,7 +457,9 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(picture["inputSchema"]["properties"]["poses"]["items"]["required"].Values<string>(),
                 Is.EqualTo(new[] { "source", "frame" }));
             Assert.That(picture["inputSchema"]["properties"]["constraints"]["items"]["required"].Values<string>(),
-                Is.EqualTo(new[] { "frame", "type" }));
+                Is.EqualTo(new[] { "frame" }));
+            Assert.That(((JObject)picture["inputSchema"]["properties"]["constraints"]["items"]["properties"])
+                .Property("type"), Is.Null);
         }
 
         [Test]

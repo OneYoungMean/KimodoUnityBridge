@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using KimodoBridge;
+using KimodoBridge.Editor;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
@@ -65,44 +66,109 @@ namespace KimodoUnityBridge.Command
                             throw new InvalidOperationException($"constraints[{i}] must be an object.");
                         }
                         int frame = RequiredNonNegativeFrame(item, "frame");
-                        string type = RequiredStringValue(item, "type").ToLowerInvariant();
-                        if (type != "fullbody" && type != "root2d" && type != "left_hand" &&
-                            type != "right_hand" && type != "left_foot" && type != "right_foot")
+                        JObject fullBody = item["fullbody"] as JObject;
+                        JObject root2D = item["root2d"] as JObject;
+                        string[] endEffectorFields = { "left_hand", "right_hand", "left_foot", "right_foot" };
+                        if (fullBody == null && root2D == null &&
+                            endEffectorFields.All(field => item[field] is not JObject))
                         {
-                            throw new InvalidOperationException($"constraints[{i}].type is not supported.");
+                            throw new InvalidOperationException($"constraints[{i}] must contain at least one constraint field.");
                         }
-                        JObject annotation = new JObject { ["constraint_type"] = type, ["frame"] = frame };
-                        if (item["pose"] is JObject pose)
+
+                        if (fullBody != null)
                         {
-                            requests.Add(BuildCaptureRequest(RequirePoseLocator(pose), annotation));
+                            requests.Add(BuildCaptureRequest(
+                                RequirePoseLocator(fullBody["pose"] as JObject),
+                                ConstraintAnnotation("fullbody", frame)));
                         }
-                        else if (type == "root2d")
+                        if (root2D != null)
                         {
-                            string characterRef = arguments.Value<string>("character")?.Trim();
-                            TimelineCharacterRecord character = !string.IsNullOrWhiteSpace(characterRef)
-                                ? ResolveSessionCharacterByReference(session, characterRef, false)
-                                : session.Characters.Count == 1
-                                    ? session.Characters[0]
-                                    : throw new InvalidOperationException("character is required to picture a position-only root2d constraint when the Session has multiple characters.");
-                            float forwardPos = RequiredFiniteScalar(item, "forwardPos");
-                            float rightwardPos = RequiredFiniteScalar(item, "rightwardPos");
-                            float rotateY = RequiredFiniteScalar(item, "rotateY");
-                            float radians = rotateY * Mathf.Deg2Rad;
-                            var sample = new KimodoMarkerSampleResult
+                            bool hasPosition = root2D["position"] != null;
+                            bool hasHeading = root2D["heading"] != null;
+                            if (hasPosition != hasHeading)
                             {
-                                constraintType = type,
-                                kimodoRootPosition = new Vector3(
-                                    rightwardPos,
+                                throw new InvalidOperationException($"constraints[{i}].root2d requires position and heading together.");
+                            }
+                            if (root2D["pose"] is JObject rootPose && !hasPosition)
+                            {
+                                requests.Add(BuildCaptureRequest(
+                                    RequirePoseLocator(rootPose),
+                                    ConstraintAnnotation("root2d", frame)));
+                            }
+                            else if (hasPosition)
+                            {
+                                TimelineCharacterRecord character = ResolveCaptureConstraintCharacter(session, arguments);
+                                KimodoMarkerSampleResult sample = root2D["pose"] is JObject pose
+                                    ? ReadPoseSample(RequirePoseLocator(pose)).Clone()
+                                    : new KimodoMarkerSampleResult();
+                                Vector2 position = RequiredVector2(root2D, "position");
+                                Vector2 heading = RequiredVector2(root2D, "heading");
+                                if (heading.sqrMagnitude <= 1e-8f)
+                                {
+                                    throw new InvalidOperationException($"constraints[{i}].root2d.heading must be non-zero.");
+                                }
+                                sample.constraintType = "root2d";
+                                sample.kimodoRootPosition = new Vector3(
+                                    position.x,
                                     ResolveCharacterRootHeight(character),
-                                    forwardPos),
-                                rootHeading = new Vector2(Mathf.Sin(radians), Mathf.Cos(radians)),
-                                hasRootHeading = true
-                            };
-                            requests.Add(new CaptureRequest(character, session.Director.time, annotation, sample, frame, true));
+                                    position.y);
+                                sample.rootHeading = heading.normalized;
+                                sample.hasRootHeading = true;
+                                requests.Add(new CaptureRequest(
+                                    character,
+                                    session.Director.time,
+                                    ConstraintAnnotation("root2d", frame),
+                                    sample,
+                                    frame,
+                                    root2D["pose"] == null));
+                            }
+                            else
+                            {
+                                throw new InvalidOperationException($"constraints[{i}].root2d requires pose or position plus heading.");
+                            }
                         }
-                        else
+
+                        foreach (string field in endEffectorFields)
                         {
-                            throw new InvalidOperationException($"constraints[{i}].pose is required unless type is root2d with forwardPos, rightwardPos, and rotateY.");
+                            if (item[field] is not JObject value)
+                            {
+                                continue;
+                            }
+                            bool hasPose = value["pose"] is JObject;
+                            bool hasPosition = value["position"] != null;
+                            bool hasRotation = value["rotation"] != null;
+                            if (!hasPose && !hasPosition && !hasRotation)
+                            {
+                                throw new InvalidOperationException(
+                                    $"constraints[{i}].{field} requires pose, position, or rotation.");
+                            }
+                            Vector3? position = hasPosition ? RequiredVector3(value, "position") : null;
+                            Quaternion? rotation = hasRotation ? RequiredQuaternion(value, "rotation") : null;
+                            JObject basePose = value["pose"] as JObject ?? fullBody?["pose"] as JObject;
+                            string type = field.Replace('_', '-');
+                            if (basePose != null)
+                            {
+                                requests.Add(BuildCaptureRequest(
+                                    RequirePoseLocator(basePose),
+                                    ConstraintAnnotation(field, frame),
+                                    type,
+                                    position,
+                                    rotation));
+                            }
+                            else
+                            {
+                                TimelineCharacterRecord character = ResolveCaptureConstraintCharacter(session, arguments);
+                                requests.Add(new CaptureRequest(
+                                    character,
+                                    session.Director.time,
+                                    ConstraintAnnotation(field, frame),
+                                    null,
+                                    frame,
+                                    false,
+                                    type,
+                                    position,
+                                    rotation));
+                            }
                         }
                     }
                 }
@@ -111,6 +177,25 @@ namespace KimodoUnityBridge.Command
                 if (arguments["analysis_id"] != null) result["analysis_id"] = arguments.Value<string>("analysis_id");
                 return Ok(result);
             });
+        }
+
+        private static JObject ConstraintAnnotation(string type, int frame) => new JObject
+        {
+            ["constraint_type"] = type,
+            ["frame"] = frame
+        };
+
+        private static TimelineCharacterRecord ResolveCaptureConstraintCharacter(
+            TimelineSessionRecord session,
+            JObject arguments)
+        {
+            string characterRef = arguments.Value<string>("character")?.Trim();
+            return !string.IsNullOrWhiteSpace(characterRef)
+                ? ResolveSessionCharacterByReference(session, characterRef, false)
+                : session.Characters.Count == 1
+                    ? session.Characters[0]
+                    : throw new InvalidOperationException(
+                        "character is required to picture direct constraints when the Session has multiple characters.");
         }
 
         private static float ResolveCharacterRootHeight(TimelineCharacterRecord character)
@@ -131,7 +216,12 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static CaptureRequest BuildCaptureRequest(PoseLocator locator, JObject annotation)
+        private static CaptureRequest BuildCaptureRequest(
+            PoseLocator locator,
+            JObject annotation,
+            string constraintType = null,
+            Vector3? targetPosition = null,
+            Quaternion? targetRotation = null)
         {
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
@@ -139,14 +229,18 @@ namespace KimodoUnityBridge.Command
             if (character != null)
             {
                 ThrowIfGenerationRangeLocked(session, character, locator.Frame, locator.Frame + 1, QueryPictureCommand);
-                return new CaptureRequest(character, locator.Frame / SessionFrameRate, annotation, null, locator.Frame);
+                return new CaptureRequest(
+                    character, locator.Frame / SessionFrameRate, annotation, null, locator.Frame, false,
+                    constraintType, targetPosition, targetRotation);
             }
             character = ResolvePoseCacheOwner(locator.Source);
             if (character != null)
             {
                 KimodoUntypedConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
                     ?? throw new InvalidOperationException("Writable pose source does not contain a pose at the requested frame.");
-                return new CaptureRequest(character, session.Director.time, annotation, marker.SampleData.Clone(), locator.Frame);
+                return new CaptureRequest(
+                    character, session.Director.time, annotation, marker.SampleData.Clone(), locator.Frame, false,
+                    constraintType, targetPosition, targetRotation);
             }
             TimelineCharacterRecord owner = session.Characters.FirstOrDefault(item => item.Track.GetMarkers()
                 .OfType<KimodoConstraintMarkerBase>().Any(marker => marker is not KimodoUntypedConstraintMarker &&
@@ -157,7 +251,9 @@ namespace KimodoUnityBridge.Command
                     string.Equals(marker.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
                     Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame)
                 ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
-            return new CaptureRequest(owner, session.Director.time, annotation, constraint.SampleData.Clone(), locator.Frame);
+            return new CaptureRequest(
+                owner, session.Director.time, annotation, constraint.SampleData.Clone(), locator.Frame, false,
+                constraintType, targetPosition, targetRotation);
         }
 
         private static string CacheAnalysisResult(
@@ -224,7 +320,7 @@ namespace KimodoUnityBridge.Command
             Color background = new Color(0.12f, 0.12f, 0.12f, 1f);
             Color[] clear = Enumerable.Repeat(background, resolution * resolution).ToArray();
             sheet.SetPixels(clear);
-            double originalTime = session.Director.time;
+            KimodoTimelineEvaluationScope evaluation = KimodoTimelineEvaluationScope.Begin(session.Director);
             var metadata = new JArray();
             var previews = new List<GameObject>(requests.Count);
             try
@@ -232,8 +328,8 @@ namespace KimodoUnityBridge.Command
                 for (int index = 0; index < requests.Count; index++)
                 {
                     CaptureRequest request = requests[index];
-                    KimodoMarkerSampleResult pose = request.PoseData?.Clone() ?? SampleCapturePose(session, request);
-                    previews.Add(CreatePosePreview(request.Character, pose, request.Root2DOnly));
+                    KimodoMarkerSampleResult pose = request.PoseData?.Clone() ?? SampleCapturePose(evaluation, request);
+                    previews.Add(CreatePosePreview(request, pose));
                     string label = (index + 1).ToString(CultureInfo.InvariantCulture);
                     var item = new JObject
                     {
@@ -281,21 +377,21 @@ namespace KimodoUnityBridge.Command
                 {
                     if (preview != null) UnityEngine.Object.DestroyImmediate(preview);
                 }
-                session.Director.time = originalTime;
-                session.Director.Evaluate();
+                evaluation.Dispose();
                 TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
                 UnityEngine.Object.DestroyImmediate(sheet);
             }
         }
 
-        private static KimodoMarkerSampleResult SampleCapturePose(TimelineSessionRecord session, CaptureRequest request)
+        private static KimodoMarkerSampleResult SampleCapturePose(
+            KimodoTimelineEvaluationScope evaluation,
+            CaptureRequest request)
         {
             RuntimeAnimatorController savedController = request.Character.Animator.runtimeAnimatorController;
             try
             {
                 request.Character.Animator.runtimeAnimatorController = null;
-                session.Director.time = request.Time;
-                session.Director.Evaluate();
+                evaluation.EvaluateAt(request.Time);
                 TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
                 var pose = new HumanPose();
                 using (var handler = new HumanPoseHandler(request.Character.Avatar, request.Character.Animator.transform))
@@ -318,11 +414,12 @@ namespace KimodoUnityBridge.Command
         }
 
         private static GameObject CreatePosePreview(
-            TimelineCharacterRecord character,
-            KimodoMarkerSampleResult sample,
-            bool root2DOnly)
+            CaptureRequest request,
+            KimodoMarkerSampleResult sample)
         {
             const int captureLayer = 31;
+            TimelineCharacterRecord character = request.Character;
+            bool root2DOnly = request.Root2DOnly;
             GameObject preview = UnityEngine.Object.Instantiate(character.Root);
             preview.name = "Kimodo Pose Preview";
             preview.hideFlags = HideFlags.HideAndDontSave;
@@ -348,6 +445,16 @@ namespace KimodoUnityBridge.Command
                 }
             }
             animator.transform.SetPositionAndRotation(position, rotation);
+            if (!string.IsNullOrWhiteSpace(request.ConstraintType) &&
+                KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(request.ConstraintType, out HumanBodyBones bone))
+            {
+                Transform endEffector = animator.GetBoneTransform(bone);
+                if (endEffector != null)
+                {
+                    if (request.TargetPosition.HasValue) endEffector.position = request.TargetPosition.Value;
+                    if (request.TargetRotation.HasValue) endEffector.rotation = request.TargetRotation.Value;
+                }
+            }
             return preview;
         }
 
@@ -519,7 +626,10 @@ namespace KimodoUnityBridge.Command
                 JObject analysisFrame,
                 KimodoMarkerSampleResult poseData = null,
                 int frame = -1,
-                bool root2DOnly = false)
+                bool root2DOnly = false,
+                string constraintType = null,
+                Vector3? targetPosition = null,
+                Quaternion? targetRotation = null)
             {
                 Character = character;
                 Time = time;
@@ -527,6 +637,9 @@ namespace KimodoUnityBridge.Command
                 PoseData = poseData;
                 Frame = frame;
                 Root2DOnly = root2DOnly;
+                ConstraintType = constraintType;
+                TargetPosition = targetPosition;
+                TargetRotation = targetRotation;
             }
             public TimelineCharacterRecord Character { get; }
             public double Time { get; }
@@ -534,6 +647,9 @@ namespace KimodoUnityBridge.Command
             public KimodoMarkerSampleResult PoseData { get; }
             public int Frame { get; }
             public bool Root2DOnly { get; }
+            public string ConstraintType { get; }
+            public Vector3? TargetPosition { get; }
+            public Quaternion? TargetRotation { get; }
         }
 
         private sealed class AnalysisCacheRecord

@@ -54,7 +54,7 @@ session_close({})
 - 发现：`kimodo_help`。
 - Session：`session_open`、`session_close`、`query_current_session`、`session_try_add`、`session_try_remove`。
 - Pose/约束：`pose_create`、`pose_get`、`pose_set`、`pose_copy`、`kimodo_build_root2d_path`。
-- 动画：`kimodo_generate_animation`、`kimodo_get_generation`、`kimodo_cancel_generation`、`kimodo_analyze`、`query_picture`、`kimodo_bake_range`。
+- 动画：`kimodo_generate_animation`、`kimodo_get_generation`、`kimodo_cancel_generation`、`kimodo_analyze`、`query_picture`、`kimodo_record_range`、`kimodo_retarget_animation`。
 - Debug 维护：`kimodo_debug_install_server`；只在明确诊断本地 QuickServer 安装时使用。
 
 Pose/Constraint 示例见 [Manual/AI 工作流示例与 Constraint API 设计](Manual/AI%20工作流示例与%20Constraint%20API%20设计.md)。复制示例前始终检查命令的实时 Schema。

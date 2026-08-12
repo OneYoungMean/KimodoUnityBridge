@@ -479,30 +479,27 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            double originalTime = director.time;
-            try
+            using (var evaluation = KimodoTimelineEvaluationScope.Begin(director))
             {
-                double startTime = timelineClip.start;
-                double endTime = Math.Max(startTime, timelineClip.end - 1e-6);
-                for (int i = 0; i < InitialCurveSampleCount; i++)
+                try
                 {
-                    double t = i / (double)(InitialCurveSampleCount - 1);
-                    director.time = startTime + ((endTime - startTime) * t);
-                    director.Evaluate();
-                    Vector3 root = animator.rootPosition;
-                    points.Add(root);
+                    double startTime = timelineClip.start;
+                    double endTime = Math.Max(startTime, timelineClip.end - 1e-6);
+                    for (int i = 0; i < InitialCurveSampleCount; i++)
+                    {
+                        double t = i / (double)(InitialCurveSampleCount - 1);
+                        evaluation.EvaluateAt(startTime + ((endTime - startTime) * t));
+                        Vector3 root = animator.rootPosition;
+                        points.Add(root);
+                    }
+                    return true;
                 }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                points.Clear();
-                error = $"Fit spline from root motion failed: {ex.Message}";
-                return false;
-            }
-            finally
-            {
-                RestoreDirectorTime(director, originalTime);
+                catch (Exception ex)
+                {
+                    points.Clear();
+                    error = $"Fit spline from root motion failed: {ex.Message}";
+                    return false;
+                }
             }
         }
 
@@ -523,24 +520,21 @@ namespace KimodoBridge.Editor
 
             if (context.Director != null && context.Animator != null)
             {
-                double originalTime = context.Director.time;
-                try
+                using (var evaluation = KimodoTimelineEvaluationScope.Begin(context.Director))
                 {
-                    context.Director.time = context.SourceClip.start;
-                    context.Director.Evaluate();
-                    position = context.Animator.rootPosition;
-                    position.y = ResolveProfileRootHeight(context, position.y);
-                    rotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(context.Animator.rootRotation);
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    error = $"Resolve spline path start pose failed: {ex.Message}";
-                    return false;
-                }
-                finally
-                {
-                    RestoreDirectorTime(context.Director, originalTime);
+                    try
+                    {
+                        evaluation.EvaluateAt(context.SourceClip.start);
+                        position = context.Animator.rootPosition;
+                        position.y = ResolveProfileRootHeight(context, position.y);
+                        rotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(context.Animator.rootRotation);
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        error = $"Resolve spline path start pose failed: {ex.Message}";
+                        return false;
+                    }
                 }
             }
 
@@ -580,19 +574,6 @@ namespace KimodoBridge.Editor
             catch (InvalidOperationException)
             {
                 return fallback;
-            }
-        }
-
-        private static void RestoreDirectorTime(PlayableDirector director, double time)
-        {
-            try
-            {
-                director.time = time;
-                director.Evaluate();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[Kimodo][SplinePath] Failed to restore Timeline time: {ex.Message}");
             }
         }
 

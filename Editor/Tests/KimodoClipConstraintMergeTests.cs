@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace KimodoBridge.Editor.Tests
 {
-    public sealed class KimodoClipConstraintBakeTests
+    public sealed class KimodoClipConstraintMergeTests
     {
         [Test]
         public void MergeMaskedMotionKeepsUnconstrainedRootAxesAndJoints()
@@ -34,7 +34,7 @@ namespace KimodoBridge.Editor.Tests
                 }
             };
 
-            KimodoRawMotionData merged = KimodoClipConstraintBakeUtility.MergeMaskedMotion(
+            KimodoRawMotionData merged = KimodoClipConstraintMergeUtility.MergeMaskedMotion(
                 baseline,
                 constrained,
                 mask);
@@ -50,7 +50,7 @@ namespace KimodoBridge.Editor.Tests
         [Test]
         public void AppendConstraintsJsonCombinesArrays()
         {
-            string result = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
+            string result = KimodoClipConstraintMergeUtility.AppendConstraintsJson(
                 "[{\"type\":\"root2d\"}]",
                 "[{\"type\":\"fullbody\"}]");
 
@@ -72,7 +72,7 @@ namespace KimodoBridge.Editor.Tests
                 Quaternion.identity,
                 Quaternion.identity);
 
-            KimodoRawMotionData aligned = KimodoClipConstraintBakeUtility.AlignConstraintMotion(
+            KimodoRawMotionData aligned = KimodoClipConstraintMergeUtility.AlignConstraintMotion(
                 baseline,
                 constraint,
                 trimStartFrame: 1);

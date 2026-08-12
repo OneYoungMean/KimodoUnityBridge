@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
-    internal static class KimodoClipConstraintBakeUtility
+    internal static class KimodoClipConstraintMergeUtility
     {
         internal static bool TryMergeHumanoidFootIkMotion(
             KimodoRawMotionData baseline,
@@ -194,20 +194,20 @@ namespace KimodoBridge.Editor
         {
             if (baseline == null || constrained == null)
             {
-                throw new InvalidOperationException("ClipConstraint bake requires two motion results.");
+                throw new InvalidOperationException("ClipConstraint merge requires two motion results.");
             }
             if (baseline.FrameCount != constrained.FrameCount ||
                 baseline.JointCount != constrained.JointCount ||
                 !Mathf.Approximately(baseline.FrameRate, constrained.FrameRate))
             {
                 throw new InvalidOperationException(
-                    $"ClipConstraint bake motion results do not have matching layouts. " +
+                    $"ClipConstraint merge motion results do not have matching layouts. " +
                     $"baseline=[frames:{baseline.FrameCount}, joints:{baseline.JointCount}, fps:{baseline.FrameRate}], " +
                     $"constraint=[frames:{constrained.FrameCount}, joints:{constrained.JointCount}, fps:{constrained.FrameRate}].");
             }
             if (mask == null)
             {
-                throw new InvalidOperationException("ClipConstraint bake requires a mask.");
+                throw new InvalidOperationException("ClipConstraint merge requires a mask.");
             }
 
             var joints = new Dictionary<string, KimodoClipConstraintJointMask>(StringComparer.OrdinalIgnoreCase);
@@ -234,7 +234,7 @@ namespace KimodoBridge.Editor
                 if (!baseline.TryReadUnityRootPosition(frame, out Vector3 baselineRoot) ||
                     !constrained.TryReadUnityRootPosition(frame, out Vector3 constrainedRoot))
                 {
-                    throw new InvalidOperationException($"ClipConstraint bake cannot read root frame {frame}.");
+                    throw new InvalidOperationException($"ClipConstraint merge cannot read root frame {frame}.");
                 }
                 roots[frame] = new Vector3(
                     mask.rootPosition?.x == true ? constrainedRoot.x : baselineRoot.x,
@@ -251,7 +251,7 @@ namespace KimodoBridge.Editor
                     if (!source.TryReadUnityLocalRotation(frame, joint, jointCount, out Quaternion rotation))
                     {
                         throw new InvalidOperationException(
-                            $"ClipConstraint bake cannot read local rotation for joint '{jointNames[joint]}' at frame {frame}.");
+                            $"ClipConstraint merge cannot read local rotation for joint '{jointNames[joint]}' at frame {frame}.");
                     }
                     rotations.Add(rotation.w);
                     rotations.Add(rotation.x);
@@ -345,10 +345,10 @@ namespace KimodoBridge.Editor
                 legacy = false,
                 frameRate = motion.FrameRate
             };
-            if (!KimodoRetargetToolsEditor.BakeIntoClip(
+            if (!KimodoRetargetToolsEditor.RecordIntoClip(
                     clip,
                     KimodoRawMotionUtility.ToCompactJson(motion),
-                    KimodoPlayableClip.ResolveBakeSkeletonTypeFromModelName(modelName),
+                    KimodoPlayableClip.ResolveRecordSkeletonTypeFromModelName(modelName),
                     modelName,
                     null,
                     out error))
@@ -375,7 +375,7 @@ namespace KimodoBridge.Editor
         {
             if (baseline == null || constraint == null)
             {
-                throw new InvalidOperationException("ClipConstraint bake requires two motion results.");
+                throw new InvalidOperationException("ClipConstraint merge requires two motion results.");
             }
 
             KimodoRawMotionData aligned = constraint;
@@ -390,7 +390,7 @@ namespace KimodoBridge.Editor
                         out string sliceError))
                 {
                     throw new InvalidOperationException(
-                        $"ClipConstraint bake could not remove the runtime guard frame: {sliceError}");
+                        $"ClipConstraint merge could not remove the runtime guard frame: {sliceError}");
                 }
             }
 
@@ -405,7 +405,7 @@ namespace KimodoBridge.Editor
                         out string resampleError))
                 {
                     throw new InvalidOperationException(
-                        $"ClipConstraint bake could not align motion timebases: {resampleError}");
+                        $"ClipConstraint merge could not align motion timebases: {resampleError}");
                 }
                 aligned = resampled;
             }
@@ -422,7 +422,7 @@ namespace KimodoBridge.Editor
         {
             if (motion == null || frames == null || frames.Count == 0)
             {
-                throw new InvalidOperationException("FullBody bake requires motion keyframes.");
+                throw new InvalidOperationException("FullBody constraint recording requires motion keyframes.");
             }
 
             var samples = new List<KimodoMarkerSampleResult>(frames.Count);
@@ -438,7 +438,7 @@ namespace KimodoBridge.Editor
                         "fullbody",
                         sampleTimeOffsetSeconds + frame / motion.FrameRate))
                 {
-                    throw new InvalidOperationException($"FullBody bake sample failed at frame {frame}: {error}");
+                    throw new InvalidOperationException($"FullBody constraint recording failed at frame {frame}: {error}");
                 }
                 samples.Add(sample);
             }

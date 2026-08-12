@@ -24,10 +24,10 @@ namespace KimodoBridge.Editor
             public List<float> foot_contacts;
         }
 
-        public static bool BakeIntoClip(
+        public static bool RecordIntoClip(
             AnimationClip targetClip,
             string motionJson,
-            KimodoBakeSkeletonType skeletonType,
+            KimodoRecordSkeletonType skeletonType,
             string modelName,
             KimodoCurveFilterOptions curveFilterOptions,
             out string error)
@@ -55,11 +55,11 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (skeletonType != KimodoBakeSkeletonType.SOMA &&
-                skeletonType != KimodoBakeSkeletonType.G1 &&
-                skeletonType != KimodoBakeSkeletonType.SMPLX)
+            if (skeletonType != KimodoRecordSkeletonType.SOMA &&
+                skeletonType != KimodoRecordSkeletonType.G1 &&
+                skeletonType != KimodoRecordSkeletonType.SMPLX)
             {
-                error = "Unsupported bake skeleton type.";
+                error = "Unsupported recording skeleton type.";
                 return false;
             }
 
@@ -86,7 +86,7 @@ namespace KimodoBridge.Editor
                 frameRate = fps
             };
 
-            BakeMotionCurvesDirect(rawClip, data, fps, frameCount, ResolveProfileAvatarForBake(modelName));
+            RecordMotionCurvesDirect(rawClip, data, fps, frameCount, ResolveProfileAvatarForRecording(modelName));
             KimodoFootContactTrackUtility.Apply(rawClip, data.foot_contacts, frameCount, fps);
             KimodoEditorClipUtility.CopyClipData(rawClip, targetClip, forceNoLoopKeepY: true);
             UnityEngine.Object.DestroyImmediate(rawClip);
@@ -98,13 +98,13 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        public static bool TryBakeMuscleClipToClip(
+        public static bool TryRecordMuscleClipToClip(
             AnimationClip sourceClip,
             Avatar sourceAvatar,
             AnimationClip targetClip,
             out string error)
         {
-            return TryBakeMuscleClipToClip(
+            return TryRecordMuscleClipToClip(
                 sourceClip,
                 sourceAvatar,
                 targetClip,
@@ -114,7 +114,7 @@ namespace KimodoBridge.Editor
                 out error);
         }
 
-        public static bool TryBakeMuscleClipToClip(
+        public static bool TryRecordMuscleClipToClip(
             AnimationClip sourceClip,
             Avatar sourceAvatar,
             AnimationClip targetClip,
@@ -1309,14 +1309,14 @@ namespace KimodoBridge.Editor
             int frameHint = data.num_frames > 0 ? data.num_frames : positionFrames;
             if (frameHint < 2)
             {
-                error = "Need at least 2 frames for baking.";
+                error = "Need at least 2 frames for recording.";
                 return false;
             }
 
             return true;
         }
 
-        private static void BakeMotionCurvesDirect(AnimationClip targetClip, MotionJsonData data, float fps, int frameCount, Avatar profileAvatar)
+        private static void RecordMotionCurvesDirect(AnimationClip targetClip, MotionJsonData data, float fps, int frameCount, Avatar profileAvatar)
         {
             int jointCount = Mathf.Min(data.joint_names.Length, data.num_joints > 0 ? data.num_joints : data.joint_names.Length);
             bool hasPositions = data.positions != null && data.positions.Count > 0;
@@ -1392,7 +1392,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static Avatar ResolveProfileAvatarForBake(string modelName)
+        private static Avatar ResolveProfileAvatarForRecording(string modelName)
         {
             if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar avatar, out _))
             {

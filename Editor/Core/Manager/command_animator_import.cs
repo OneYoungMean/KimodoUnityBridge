@@ -73,9 +73,9 @@ namespace KimodoUnityBridge.Command
                     string key = $"{sourceRef}|transition|{from.Key}|{ordinal}|{to.Key}";
                     if (character.Animations.Any(item => string.Equals(item.ImportKey, key, StringComparison.Ordinal))) continue;
                     string requestedName = $"{from.Animations[0].Name}__to__{to.Animations[0].Name}";
-                    AnimationClip baked = BakeAnimatorTransition(character, from.Animations[0].Clip,
+                    AnimationClip recorded = RecordAnimatorTransition(character, from.Animations[0].Clip,
                         to.Animations[0].Clip, transition, requestedName);
-                    TimelineAnimationRecord animation = AppendAnimationClip(session, character, baked,
+                    TimelineAnimationRecord animation = AppendAnimationClip(session, character, recorded,
                         "animator_transition", null, requestedName);
                     animation.AnimatorImportName = imported.Name;
                     animation.ImportKey = key;
@@ -165,7 +165,7 @@ namespace KimodoUnityBridge.Command
             ["suggestion"] = "Choose concrete animation candidates and use Timeline clip overlap/blend APIs; Kimodo does not select BlendTree branches."
         };
 
-        private static AnimationClip BakeAnimatorTransition(
+        private static AnimationClip RecordAnimatorTransition(
             TimelineCharacterRecord character,
             AnimationClip fromClip,
             AnimationClip toClip,
@@ -183,8 +183,8 @@ namespace KimodoUnityBridge.Command
             animator.runtimeAnimatorController = null;
             Transform[] transforms = preview.GetComponentsInChildren<Transform>(true);
             string[] paths = transforms.Select(item => AnimationUtility.CalculateTransformPath(item, preview.transform)).ToArray();
-            var frames = new List<BakeBoneFrame>(frameCount);
-            PlayableGraph graph = PlayableGraph.Create("Kimodo Animator Transition Bake");
+            var frames = new List<RecordedBoneFrame>(frameCount);
+            PlayableGraph graph = PlayableGraph.Create("Kimodo Animator Transition Record");
             graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
             try
             {
@@ -207,7 +207,7 @@ namespace KimodoUnityBridge.Command
                     mixer.SetInputWeight(0, 1f - u);
                     mixer.SetInputWeight(1, u);
                     graph.Evaluate(0f);
-                    var sample = new BakeBoneFrame(transforms.Length);
+                    var sample = new RecordedBoneFrame(transforms.Length);
                     for (int index = 0; index < transforms.Length; index++)
                     {
                         sample.Positions[index] = transforms[index].localPosition;
@@ -221,11 +221,11 @@ namespace KimodoUnityBridge.Command
                 if (graph.IsValid()) graph.Destroy();
                 UnityEngine.Object.DestroyImmediate(preview);
             }
-            AnimationClip baked = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
+            AnimationClip recorded = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
                 requestedName, KimodoEditorClipWritebackService.GeneratedClipFolder);
-            baked.frameRate = 60f;
-            WriteBoneBakeCurves(baked, transforms, paths, frames, 60f);
-            return baked;
+            recorded.frameRate = 60f;
+            WriteRecordedBoneCurves(recorded, transforms, paths, frames, 60f);
+            return recorded;
         }
 
         private sealed class ImportedState

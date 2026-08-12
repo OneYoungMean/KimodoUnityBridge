@@ -125,7 +125,7 @@ namespace KimodoBridge
         Constraint = 2,
         InvokeBackend = 3,
         AssetWrite = 4,
-        Bake = 5,
+        Record = 5,
         Retarget = 6,
         Finalize = 7,
         Completed = 8

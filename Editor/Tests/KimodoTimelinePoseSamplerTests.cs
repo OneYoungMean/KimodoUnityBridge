@@ -1631,16 +1631,16 @@ namespace KimodoBridge.Editor.Tests
 
             Assert.That(first.StartFrame, Is.EqualTo(0));
             Assert.That(first.EndFrame, Is.EqualTo(60));
-            Assert.That(first.BakedStartFrame, Is.EqualTo(0));
-            Assert.That(first.BakedEndFrame, Is.EqualTo(60));
+            Assert.That(first.SampledStartFrame, Is.EqualTo(0));
+            Assert.That(first.SampledEndFrame, Is.EqualTo(60));
             Assert.That(second.StartFrame, Is.EqualTo(60));
             Assert.That(second.EndFrame, Is.EqualTo(120));
-            Assert.That(second.BakedStartFrame, Is.EqualTo(59));
-            Assert.That(second.BakedEndFrame, Is.EqualTo(120));
+            Assert.That(second.SampledStartFrame, Is.EqualTo(59));
+            Assert.That(second.SampledEndFrame, Is.EqualTo(120));
             Assert.That(last.StartFrame, Is.EqualTo(240));
             Assert.That(last.EndFrame, Is.EqualTo(300));
-            Assert.That(last.BakedStartFrame, Is.EqualTo(239));
-            Assert.That(last.BakedEndFrame, Is.EqualTo(300));
+            Assert.That(last.SampledStartFrame, Is.EqualTo(239));
+            Assert.That(last.SampledEndFrame, Is.EqualTo(300));
         }
 
         [Test]

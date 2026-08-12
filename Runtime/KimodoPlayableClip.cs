@@ -13,7 +13,7 @@ namespace KimodoBridge
         HighPrecision = 1
     }
 
-    public enum KimodoBakeSkeletonType
+    public enum KimodoRecordSkeletonType
     {
         SOMA = 0,
         G1 = 1,
@@ -50,7 +50,7 @@ namespace KimodoBridge
         [Range(0f, 1f)]
         [Tooltip("CurveFilterOptions.floatError (0-1).")]
         public float floatError = 0.25f;
-        [Tooltip("Run AnimationClip.EnsureQuaternionContinuity() after bake/reduction.")]
+        [Tooltip("Run AnimationClip.EnsureQuaternionContinuity() after recording/reduction.")]
         public bool ensureQuaternionContinuity = true;
     }
 
@@ -106,8 +106,8 @@ namespace KimodoBridge
         public bool autoBeginAnchor = true;
         public bool isGenerated;
         public string lastGeneratedPrompt;
-        [Header("Bake Options")]
-        [Tooltip("Auto retarget baked animation according to timeline binding animator.")]
+        [Header("Output Options")]
+        [Tooltip("Auto retarget recorded animation according to timeline binding animator.")]
         public bool autoRetargetOnBinding = true;
         [SerializeField]
         public KimodoCurveFilterOptions curveFilterOptions = new KimodoCurveFilterOptions();
@@ -117,28 +117,28 @@ namespace KimodoBridge
         [HideInInspector]
         public int fps = Mathf.RoundToInt(FIXED_FRAME_RATE);
 
-        public KimodoBakeSkeletonType InferredSkeletonType
+        public KimodoRecordSkeletonType InferredRecordSkeletonType
         {
             get
             {
-                return ResolveBakeSkeletonTypeFromModelName(bridgeModelName);
+                return ResolveRecordSkeletonTypeFromModelName(bridgeModelName);
             }
         }
 
-        public static KimodoBakeSkeletonType ResolveBakeSkeletonTypeFromModelName(string modelName)
+        public static KimodoRecordSkeletonType ResolveRecordSkeletonTypeFromModelName(string modelName)
         {
             string normalized = NormalizeBridgeModelName(modelName).ToLowerInvariant();
             if (normalized.Contains("smplx"))
             {
-                return KimodoBakeSkeletonType.SMPLX;
+                return KimodoRecordSkeletonType.SMPLX;
             }
 
             if (normalized.Contains("g1"))
             {
-                return KimodoBakeSkeletonType.G1;
+                return KimodoRecordSkeletonType.G1;
             }
 
-            return KimodoBakeSkeletonType.SOMA;
+            return KimodoRecordSkeletonType.SOMA;
         }
 
         public static string NormalizeBridgeModelName(string modelName)

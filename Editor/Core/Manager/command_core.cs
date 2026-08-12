@@ -20,6 +20,11 @@ namespace KimodoUnityBridge.Command
     /// </summary>
     internal static partial class command_context
     {
+        private static Vector2 LoopBezier(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
+        {
+            t = Mathf.Clamp01(t); float u = 1f - t;
+            return u * u * u * p0 + 3f * u * u * t * p1 + 3f * u * t * t * p2 + t * t * t * p3;
+        }
         public const string HelpCommand = "kimodo_help";
         public const string DebugInstallServerCommand = "kimodo_debug_install_server";
         public const string GenerateAnimationCommand = "kimodo_generate_animation";
@@ -29,7 +34,8 @@ namespace KimodoUnityBridge.Command
         public const string SessionTryAddCommand = "session_try_add";
         public const string SessionTryRemoveCommand = "session_try_remove";
         public const string KimodoAnalyzeCommand = "kimodo_analyze";
-        public const string KimodoBakeRangeCommand = "kimodo_bake_range";
+        public const string KimodoRecordRangeCommand = "kimodo_record_range";
+        public const string KimodoRetargetAnimationCommand = "kimodo_retarget_animation";
         public const string QueryPictureCommand = "query_picture";
         public const string PoseCreateCommand = "pose_create";
         public const string PoseGetCommand = "pose_get";
@@ -72,7 +78,7 @@ namespace KimodoUnityBridge.Command
                             Optional("character", "string", "Safe character name in the current Session."),
                             Optional("animation", "string", "Safe animation name in the selected character."))),
                     CommandDefinition(SessionTryAddCommand,
-                        "TryAdd a humanoid character, AnimationClip, or AnimatorController content to the current Session. Appended clips keep a fixed 4-frame safezone. Deterministic Clip-to-Clip transitions are baked; BlendTree choices remain explicit Timeline work.",
+                        "TryAdd a humanoid character, AnimationClip, or AnimatorController content to the current Session. Appended clips keep a fixed 4-frame safezone. Deterministic Clip-to-Clip transitions are recorded; BlendTree choices remain explicit Timeline work.",
                         Properties(
                             Required("kind", "string", "character, clip, or animator."),
                             Required("character", "string", "Scene character name/path for kind=character, or target Session character name otherwise."),
@@ -92,15 +98,22 @@ namespace KimodoUnityBridge.Command
                             Optional("start_frame", "integer", "Inclusive Session frame at 60 FPS; requires end_frame."),
                             Optional("end_frame", "integer", "Exclusive Session frame at 60 FPS; requires start_frame."),
                             Optional("analysis_option", "object", "Optional QuickServer analysis configuration; analysis_only is forced true."))),
-                    CommandDefinition(KimodoBakeRangeCommand,
-                        "Bake a Session time range into an AnimationClip and append it to a character with a fixed 4-frame safezone; optionally retarget it to another current Session character. Overlap with a running generation on the source track returns generation_range_locked.",
+                    CommandDefinition(KimodoRecordRangeCommand,
+                        "Record a Session time range into an AnimationClip and append it to the source character with a fixed 4-frame safezone. Overlap with a running generation on the source track returns generation_range_locked.",
                         Properties(
                             Required("start_frame", "integer", "Inclusive Session frame at 60 FPS."),
                             Required("end_frame", "integer", "Exclusive Session frame at 60 FPS."),
                             Required("character", "string", "Safe source character name in the current Session."),
-                            Optional("retarget_character", "string", "Optional safe target character name."),
                             Optional("remove_root_motion", "boolean", "Keep vertical motion but remove horizontal root translation and yaw; defaults to false."),
                             Optional("speed", "number", "Playback speed multiplier; defaults to 1.0."),
+                            Optional("name", "string", "Requested safe output animation name."),
+                            Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
+                    CommandDefinition(KimodoRetargetAnimationCommand,
+                        "Retarget one loaded animation to another current Session character and append the result with a fixed 4-frame safezone.",
+                        Properties(
+                            Required("character", "string", "Safe source character name in the current Session."),
+                            Required("animation", "string", "Safe source animation name."),
+                            Required("target_character", "string", "Safe target character name in the current Session."),
                             Optional("name", "string", "Requested safe output animation name."),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
                     CommandDefinition(GenerateAnimationCommand,
@@ -109,6 +122,7 @@ namespace KimodoUnityBridge.Command
                             Required("character", "string", "Safe scene or Session character name."),
                             Required("prompt", "string", "Motion prompt."),
                             Optional("duration_frames", "integer", "Duration in 60 FPS Session frames; defaults to 300."),
+                            Optional("loop", "boolean", "Enable loop-oriented generation preprocessing. If the extended duration exceeds 600 frames, generation falls back to the default flow with a warning."),
                             Optional("model", "string", "Registered model name/configuration id; omitted uses the Project Settings default. Use kimodo_help({section:'models'}) to query models."),
                             Enum("text_encoder_model", "high_performance", "high_precision"),
                             Optional("seed", "integer", "Deterministic seed; omitted chooses a random seed."),
@@ -117,7 +131,7 @@ namespace KimodoUnityBridge.Command
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."),
                             Optional("name", "string", "Requested safe animation name; defaults to the prompt."),
                             Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
-                            OptionalConstraints("constraints", "Inline constraints {frame,type,pose}; root2d may use forwardPos, rightwardPos, and rotateY instead of pose."))),
+                            OptionalConstraints("constraints", "One sparse constraint object per frame; combine fullbody, root2d, and hand/foot targets in the same object."))),
                     CommandDefinition(QueryPictureCommand,
                         "Render explicit poses, a cached analysis, or inline constraints together in one four-view square image.",
                         Properties(
@@ -186,8 +200,10 @@ namespace KimodoUnityBridge.Command
                     return SessionTryRemove(argumentsJson);
                 case KimodoAnalyzeCommand:
                     return KimodoAnalyzeTimelineRange(argumentsJson);
-                case KimodoBakeRangeCommand:
-                    return KimodoBakeTimelineRange(argumentsJson);
+                case KimodoRecordRangeCommand:
+                    return KimodoRecordTimelineRange(argumentsJson);
+                case KimodoRetargetAnimationCommand:
+                    return KimodoRetargetAnimation(argumentsJson);
                 case QueryPictureCommand:
                     return Capture(argumentsJson);
                 case PoseCreateCommand:
@@ -371,7 +387,7 @@ namespace KimodoUnityBridge.Command
                         ["required"] = item["inputSchema"]?["required"]?.DeepClone() ?? new JArray(),
                         ["debug_only"] = item.Value<bool?>("debug_only") ?? false
                     })),
-                    ["constraints"] = constraintManual["constraints"].DeepClone(),
+                    ["constraint"] = constraintManual["constraint"].DeepClone(),
                     ["constraint_rules"] = constraintManual["rules"].DeepClone()
                 });
             });
@@ -382,38 +398,22 @@ namespace KimodoUnityBridge.Command
             return new JObject
             {
                 ["manual"] = "Kimodo generation constraint reference",
-                ["constraints"] = new JArray
+                ["constraint"] = new JObject
                 {
-                    new JObject
-                    {
-                        ["type"] = "fullbody",
-                        ["description"] = "A complete body pose constraint from a pose locator. It constrains the full-body joints and also includes root forwardPos, rightwardPos, and rotateY.",
-                        ["shape"] = new JObject
-                        {
-                            ["frame"] = "Relative frame in the generated clip.",
-                            ["type"] = "fullbody",
-                            ["pose"] = "{source,frame} pose locator"
-                        }
-                    },
-                    new JObject
-                    {
-                        ["type"] = "root2d",
-                        ["description"] = "A root-only constraint. It constrains forwardPos, rightwardPos, and rotateY on the ground plane, without constraining the rest of the body.",
-                        ["shape"] = new JObject
-                        {
-                            ["frame"] = "Relative frame in the generated clip.",
-                            ["type"] = "root2d",
-                            ["pose"] = "{source,frame} pose locator, or direct forwardPos + rightwardPos + rotateY",
-                            ["forwardPos"] = "Signed ground-plane distance along the canonical forward axis (+Z).",
-                            ["rightwardPos"] = "Signed ground-plane distance along the canonical right axis (+X).",
-                            ["rotateY"] = "Absolute yaw in degrees around Unity Y; zero faces canonical forward (+Z)."
-                        }
-                    }
+                    ["frame"] = "Relative frame in the generated clip at 60 FPS.",
+                    ["fullbody"] = "Optional {pose:{source,frame}}.",
+                    ["root2d"] = "Optional {pose:{source,frame}} or {position:[x,z],heading:[x,z]}.",
+                    ["left_hand"] = "Optional {pose?,position:[x,y,z]?,rotation:[x,y,z,w]?}.",
+                    ["right_hand"] = "Same shape as left_hand.",
+                    ["left_foot"] = "Same shape as left_hand.",
+                    ["right_foot"] = "Same shape as left_hand."
                 },
                 ["rules"] = new JArray
                 {
-                    "A fullbody constraint already includes the root bone constraint; do not add root2d at the same frame.",
-                    "Use fullbody for a complete pose and root2d when only the root trajectory or heading should be constrained."
+                    "Put every constraint for one frame in one object; the legacy {frame,type,...} union is not accepted.",
+                    "root2d overrides the planar root position and heading inherited from fullbody at the same frame.",
+                    "Hand/foot position and rotation override their pose or the same-frame fullbody pose.",
+                    "Positions and rotations use canonical Unity coordinates: +X right, +Y up, +Z forward, quaternion [x,y,z,w]."
                 }
             };
         }
@@ -512,6 +512,38 @@ namespace KimodoUnityBridge.Command
                 {
                     throw new InvalidOperationException("duration_frames must be a positive integer at 60 FPS.");
                 }
+                // Loop preprocessing is deliberately bounded by the QuickServer 10 second limit.
+                // For over-limit requests, preserve the normal generation path and report a warning.
+                bool loopRequested = arguments.Value<bool?>("loop") ??
+                    prompt.IndexOf("loop", StringComparison.OrdinalIgnoreCase) >= 0;
+                bool loopFallback = false;
+                string loopWarning = null;
+                int requestedDurationFrames = durationFrames;
+                if (loopRequested)
+                {
+                    long extended = (long)durationFrames * 2L;
+                    if (extended > 600L)
+                    {
+                        loopFallback = true;
+                        loopWarning = $"loop_requested_but_exceeds_max_duration: requested={durationFrames} frames, extended={extended} frames, max=600. Fallback to default generation.";
+                        Debug.LogWarning("[Kimodo][Command] " + loopWarning);
+                    }
+                    else
+                    {
+                        durationFrames = (int)extended;
+                        if (arguments["constraints"] is JArray loopConstraints)
+                        {
+                            int padding = requestedDurationFrames / 2;
+                            foreach (JObject item in loopConstraints.OfType<JObject>().ToList())
+                            {
+                                item["frame"] = (item.Value<int?>("frame") ?? 0) + padding;
+                            }
+                            AddLoopBezierRootConstraints(loopConstraints, requestedDurationFrames, padding);
+                        }
+                    }
+                    // Successful loop requests use the extended interval and injected Root2D
+                    // samples; over-limit requests intentionally remain on the default path.
+                }
                 float duration = (float)(durationFrames / SessionFrameRate);
                 string analysisOptionsJson = ParseAnalysisOptionsJson(arguments);
                 int frameCount = Math.Max(1, KimodoFrameTimeUtility.SecondsToFrameCount(duration, frameRate));
@@ -600,6 +632,17 @@ namespace KimodoUnityBridge.Command
                     startedResponse["start_frame"] = Mathf.RoundToInt((float)(trace.StartSeconds * SessionFrameRate));
                     startedResponse["duration_frames"] = Mathf.RoundToInt((float)(trace.DurationSeconds * SessionFrameRate));
                 }
+                if (loopRequested && !loopFallback)
+                {
+                    startedResponse["loop"] = true;
+                    startedResponse["loop_source_duration_frames"] = requestedDurationFrames;
+                    startedResponse["loop_extended_duration_frames"] = durationFrames;
+                }
+                if (loopWarning != null)
+                {
+                    startedResponse["warnings"] = new JArray(loopWarning);
+                    startedResponse["loop_fallback"] = loopFallback;
+                }
                 return Started(generation, startedResponse);
             });
         }
@@ -679,10 +722,10 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException("constraints must be an array.");
             }
-            var samples = new List<KimodoMarkerSampleResult>(constraints.Count);
+            var samples = new List<KimodoMarkerSampleResult>(constraints.Count * 2);
             SkeletonCache targetCache = null;
             TimelineSessionRecord session = RequireCurrentTimelineSession();
-            double originalSessionTime = session.Director.time;
+            KimodoTimelineEvaluationScope evaluation = KimodoTimelineEvaluationScope.Begin(session.Director);
             try
             {
                 if (constraints.Count > 0 &&
@@ -711,65 +754,259 @@ namespace KimodoUnityBridge.Command
                     {
                         throw new InvalidOperationException($"constraints[{i}].frame must be within [0,{durationFrames}).");
                     }
-                    string constraintType = RequiredStringValue(constraint, "type").ToLowerInvariant();
-                    if (constraintType != "fullbody" && constraintType != "root2d" &&
-                        constraintType != "left_hand" && constraintType != "right_hand" &&
-                        constraintType != "left_foot" && constraintType != "right_foot")
-                    {
-                        throw new InvalidOperationException($"constraints[{i}].type is not supported.");
-                    }
                     double at = relativeFrame / SessionFrameRate;
-                    var cachedSample = new KimodoMarkerSampleResult { constraintType = constraintType };
-                    if (constraint["pose"] is JObject pose)
+                    JObject fullBody = constraint["fullbody"] as JObject;
+                    JObject root2D = constraint["root2d"] as JObject;
+                    JObject[] endEffectors =
                     {
-                        cachedSample = ReadPoseSample(RequirePoseLocator(pose)).Clone();
-                        cachedSample.constraintType = constraintType;
+                        constraint["left_hand"] as JObject,
+                        constraint["right_hand"] as JObject,
+                        constraint["left_foot"] as JObject,
+                        constraint["right_foot"] as JObject
+                    };
+                    string[] endEffectorTypes = { "left-hand", "right-hand", "left-foot", "right-foot" };
+                    if (fullBody == null && root2D == null && endEffectors.All(value => value == null))
+                    {
+                        throw new InvalidOperationException($"constraints[{i}] must contain at least one constraint field.");
                     }
-                    else if (constraintType == "root2d")
+                    KimodoMarkerSampleResult rootSample = root2D != null
+                        ? BuildRoot2DConstraintSample(root2D, targetRootHeight, at, i)
+                        : null;
+                    KimodoMarkerSampleResult fullBodyPose = fullBody != null
+                        ? ReadConstraintPose(fullBody, $"constraints[{i}].fullbody")
+                        : null;
+                    if (fullBodyPose != null && rootSample != null)
                     {
-                        float forwardPos = RequiredFiniteScalar(constraint, "forwardPos");
-                        float rightwardPos = RequiredFiniteScalar(constraint, "rightwardPos");
-                        float rotateY = RequiredFiniteScalar(constraint, "rotateY");
-                        float radians = rotateY * Mathf.Deg2Rad;
-                        cachedSample.kimodoRootPosition = new Vector3(
-                            rightwardPos,
-                            targetRootHeight,
-                            forwardPos);
-                        cachedSample.rootHeading = new Vector2(Mathf.Sin(radians), Mathf.Cos(radians));
-                        cachedSample.hasRootHeading = true;
+                        ApplyRoot2DOverride(fullBodyPose, rootSample);
                     }
-                    else
+                    if (fullBodyPose != null)
                     {
-                        throw new InvalidOperationException($"constraints[{i}].pose is required unless type is root2d with forwardPos, rightwardPos, and rotateY.");
+                        samples.Add(BuildProfileConstraintSample(
+                            fullBodyPose, "fullbody", fullBody, targetCache, modelName, at, i));
                     }
-                    if (cachedSample.muscles != null && cachedSample.muscles.Count == HumanTrait.MuscleCount &&
-                        constraintType != "root2d")
+                    if (rootSample != null)
                     {
-                        var humanPose = new HumanPose { muscles = cachedSample.muscles.ToArray() };
-                        KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(targetCache);
-                        targetCache.poseHandler.SetHumanPose(ref humanPose);
-                        BoneSample boneSample = KimodoRetargetSamplingUtility.CaptureBoneSample(targetCache);
-                        if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
-                                boneSample, targetCache, modelName, constraintType, at,
-                                out KimodoMarkerSampleResult converted, out string convertError))
+                        samples.Add(rootSample);
+                    }
+
+                    for (int part = 0; part < endEffectors.Length; part++)
+                    {
+                        JObject value = endEffectors[part];
+                        if (value == null)
                         {
-                            throw new InvalidOperationException($"Convert constraints[{i}] failed: {convertError}");
+                            continue;
                         }
-                        PreservePoseConstraintRoot(cachedSample, converted);
-                        converted.muscles = new List<float>(cachedSample.muscles);
-                        cachedSample = converted;
+                        KimodoMarkerSampleResult pose = value["pose"] is JObject
+                            ? ReadConstraintPose(value, $"constraints[{i}].{endEffectorTypes[part].Replace('-', '_')}")
+                            : fullBodyPose?.Clone();
+                        pose ??= new KimodoMarkerSampleResult();
+                        if (rootSample != null)
+                        {
+                            ApplyRoot2DOverride(pose, rootSample);
+                        }
+                        samples.Add(BuildProfileConstraintSample(
+                            pose, endEffectorTypes[part], value, targetCache, modelName, at, i));
                     }
-                    cachedSample.sampleTime = at;
-                    samples.Add(cachedSample);
                 }
             }
             finally
             {
-                session.Director.time = originalSessionTime;
-                session.Director.Evaluate();
                 targetCache?.Dispose();
+                evaluation.Dispose();
             }
             return samples;
+        }
+
+        private static void AddLoopBezierRootConstraints(JArray constraints, int sourceDuration, int padding)
+        {
+            JObject first = constraints.OfType<JObject>().OrderBy(x => x.Value<int?>("frame") ?? int.MaxValue).FirstOrDefault(x => x["root2d"] != null);
+            JObject last = constraints.OfType<JObject>().OrderByDescending(x => x.Value<int?>("frame") ?? int.MinValue).FirstOrDefault(x => x["root2d"] != null);
+            if (first == null || last == null) return;
+            Vector2 a = ReadLoopPosition(first["root2d"] as JObject);
+            Vector2 b = ReadLoopPosition(last["root2d"] as JObject);
+            Vector2 d = (b - a) / 3f;
+            for (int i = 0; i < padding; i++)
+            {
+                float t = (i + 1f) / (padding + 1f);
+                Vector2 pre = LoopBezier(b, b - d, a + d, a, t);
+                constraints.Add(CreateLoopRootConstraint(i, pre, a - b));
+                Vector2 post = LoopBezier(b, b - d, a + d, a, t);
+                constraints.Add(CreateLoopRootConstraint(padding + sourceDuration + i, post, a - b));
+            }
+        }
+
+        private static JObject CreateLoopRootConstraint(int frame, Vector2 position, Vector2 heading)
+        {
+            return new JObject
+            {
+                ["frame"] = frame,
+                ["root2d"] = new JObject
+                {
+                    ["position"] = new JObject { ["x"] = position.x, ["y"] = position.y },
+                    ["heading"] = new JObject { ["x"] = heading.x, ["y"] = heading.y }
+                }
+            };
+        }
+
+        private static Vector2 ReadLoopPosition(JObject root)
+        {
+            JObject p = root?["position"] as JObject;
+            return new Vector2(p?.Value<float?>("x") ?? 0f, p?.Value<float?>("y") ?? 0f);
+        }
+
+        private static KimodoMarkerSampleResult ReadConstraintPose(JObject value, string path)
+        {
+            if (value?["pose"] is not JObject pose)
+            {
+                throw new InvalidOperationException($"{path}.pose is required.");
+            }
+            return ReadPoseSample(RequirePoseLocator(pose)).Clone();
+        }
+
+        private static KimodoMarkerSampleResult BuildRoot2DConstraintSample(
+            JObject value,
+            float targetRootHeight,
+            double sampleTime,
+            int constraintIndex)
+        {
+            KimodoMarkerSampleResult sample = value["pose"] is JObject pose
+                ? ReadPoseSample(RequirePoseLocator(pose)).Clone()
+                : new KimodoMarkerSampleResult();
+            bool hasPosition = value["position"] != null;
+            bool hasHeading = value["heading"] != null;
+            if (hasPosition != hasHeading)
+            {
+                throw new InvalidOperationException($"constraints[{constraintIndex}].root2d requires position and heading together.");
+            }
+            if (hasPosition)
+            {
+                Vector2 position = RequiredVector2(value, "position");
+                Vector2 heading = RequiredVector2(value, "heading");
+                if (heading.sqrMagnitude <= 1e-8f)
+                {
+                    throw new InvalidOperationException($"constraints[{constraintIndex}].root2d.heading must be non-zero.");
+                }
+                sample.kimodoRootPosition = new Vector3(position.x, targetRootHeight, position.y);
+                sample.rootHeading = heading.normalized;
+                sample.hasRootHeading = true;
+            }
+            else if (value["pose"] == null)
+            {
+                throw new InvalidOperationException($"constraints[{constraintIndex}].root2d requires pose or position plus heading.");
+            }
+            sample.constraintType = "root2d";
+            sample.sampleTime = sampleTime;
+            return sample;
+        }
+
+        private static KimodoMarkerSampleResult BuildProfileConstraintSample(
+            KimodoMarkerSampleResult source,
+            string constraintType,
+            JObject value,
+            SkeletonCache targetCache,
+            string modelName,
+            double sampleTime,
+            int constraintIndex)
+        {
+            bool hasPose = value?["pose"] is JObject;
+            bool hasPosition = value?["position"] != null;
+            bool hasRotation = value?["rotation"] != null;
+            if (constraintType != "fullbody" && !hasPose && !hasPosition && !hasRotation)
+            {
+                throw new InvalidOperationException(
+                    $"constraints[{constraintIndex}].{constraintType.Replace('-', '_')} requires pose, position, or rotation.");
+            }
+
+            KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(targetCache);
+            if (source?.muscles != null && source.muscles.Count == HumanTrait.MuscleCount)
+            {
+                var humanPose = new HumanPose { muscles = source.muscles.ToArray() };
+                targetCache.poseHandler.SetHumanPose(ref humanPose);
+            }
+            if (hasRotation)
+            {
+                if (!KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(
+                        constraintType,
+                        out HumanBodyBones bone) ||
+                    targetCache.humanBoneTransforms == null ||
+                    !targetCache.humanBoneTransforms.TryGetValue(bone, out Transform endEffector) ||
+                    endEffector == null)
+                {
+                    throw new InvalidOperationException(
+                        $"constraints[{constraintIndex}].{constraintType.Replace('-', '_')}.rotation cannot resolve its profile bone.");
+                }
+                endEffector.rotation = RequiredQuaternion(value, "rotation");
+            }
+
+            BoneSample boneSample = KimodoRetargetSamplingUtility.CaptureBoneSample(targetCache);
+            if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                    boneSample,
+                    targetCache,
+                    modelName,
+                    constraintType,
+                    sampleTime,
+                    out KimodoMarkerSampleResult converted,
+                    out string error))
+            {
+                throw new InvalidOperationException($"Convert constraints[{constraintIndex}] failed: {error}");
+            }
+            PreservePoseConstraintRoot(source, converted);
+            if (constraintType == "fullbody" && source?.muscles != null)
+            {
+                converted.muscles = new List<float>(source.muscles);
+            }
+            if (hasPosition)
+            {
+                Vector3 target = RequiredVector3(value, "position");
+                Quaternion rootRotation = converted.localAxisAngles != null && converted.localAxisAngles.Count > 0
+                    ? KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(converted.localAxisAngles[0])
+                    : Quaternion.identity;
+                converted.hasEndEffectorTargetPosition = true;
+                converted.endEffectorTargetPositionRootLocal = Quaternion.Inverse(rootRotation) *
+                    (target - converted.kimodoRootPosition);
+            }
+            converted.sampleTime = sampleTime;
+            return converted;
+        }
+
+        private static void ApplyRoot2DOverride(
+            KimodoMarkerSampleResult destination,
+            KimodoMarkerSampleResult root2D)
+        {
+            destination.kimodoRootPosition = new Vector3(
+                root2D.kimodoRootPosition.x,
+                destination.kimodoRootPosition.y,
+                root2D.kimodoRootPosition.z);
+            destination.rootHeading = root2D.rootHeading;
+            destination.hasRootHeading = root2D.hasRootHeading;
+            if (!root2D.hasRootHeading)
+            {
+                return;
+            }
+            destination.localAxisAngles ??= new List<Vector3>();
+            if (destination.localAxisAngles.Count == 0)
+            {
+                destination.localAxisAngles.Add(Vector3.zero);
+            }
+            Quaternion rotation = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(destination.localAxisAngles[0]);
+            float yaw = Mathf.Atan2(root2D.rootHeading.x, root2D.rootHeading.y) * Mathf.Rad2Deg;
+            destination.localAxisAngles[0] = KimodoRuntimeUtility.QuaternionToAxisAngleVector(
+                ApplyPoseRootYaw(rotation, yaw));
+        }
+
+        private static Vector2 RequiredVector2(JObject value, string name)
+        {
+            if (value?[name] is not JArray array || array.Count != 2)
+            {
+                throw new InvalidOperationException($"{name} must be a two-number array.");
+            }
+            float x = array[0].Value<float>();
+            float y = array[1].Value<float>();
+            if (float.IsNaN(x) || float.IsInfinity(x) || float.IsNaN(y) || float.IsInfinity(y))
+            {
+                throw new InvalidOperationException($"{name} values must be finite.");
+            }
+            return new Vector2(x, y);
         }
 
         internal static void PreservePoseConstraintRoot(
@@ -1581,10 +1818,60 @@ namespace KimodoUnityBridge.Command
 
         private static PropertyDefinition OptionalConstraints(string name, string description)
         {
+            JObject poseLocator = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["source"] = new JObject { ["type"] = "string" },
+                    ["frame"] = new JObject { ["type"] = "integer" }
+                },
+                ["required"] = new JArray("source", "frame")
+            };
+            JObject vector2 = NumberArray(2);
+            JObject vector3 = NumberArray(3);
+            JObject quaternion = NumberArray(4);
+            JObject fullBody = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject { ["pose"] = poseLocator.DeepClone() },
+                ["required"] = new JArray("pose")
+            };
+            JObject root2D = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["pose"] = poseLocator.DeepClone(),
+                    ["position"] = vector2.DeepClone(),
+                    ["heading"] = vector2.DeepClone()
+                },
+                ["anyOf"] = new JArray(
+                    new JObject { ["required"] = new JArray("pose") },
+                    new JObject { ["required"] = new JArray("position", "heading") })
+            };
+            JObject endEffector = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["pose"] = poseLocator.DeepClone(),
+                    ["position"] = vector3,
+                    ["rotation"] = quaternion
+                },
+                ["anyOf"] = new JArray(
+                    new JObject { ["required"] = new JArray("pose") },
+                    new JObject { ["required"] = new JArray("position") },
+                    new JObject { ["required"] = new JArray("rotation") })
+            };
             return new PropertyDefinition(name, new JObject
             {
                 ["type"] = "array",
-                ["description"] = description + " fullbody is a complete body pose plus forwardPos/rightwardPos/rotateY; root2d constrains only those root fields.",
+                ["description"] = description + " Coordinates use +X right, +Y up, +Z forward; rotations are [x,y,z,w].",
                 ["items"] = new JObject
                 {
                     ["type"] = "object",
@@ -1592,32 +1879,32 @@ namespace KimodoUnityBridge.Command
                     ["properties"] = new JObject
                     {
                         ["frame"] = new JObject { ["type"] = "integer", ["description"] = "Relative frame in the generated clip at 60 FPS." },
-                        ["type"] = new JObject
-                        {
-                            ["type"] = "string",
-                            ["description"] = "fullbody constrains the full body and root; root2d constrains only the root on the ground plane.",
-                            ["enum"] = new JArray("fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot")
-                        },
-                        ["pose"] = new JObject
-                        {
-                            ["type"] = "object",
-                            ["description"] = "Pose locator for fullbody, or for root2d when deriving forward/right position and yaw from a pose.",
-                            ["additionalProperties"] = false,
-                            ["properties"] = new JObject
-                            {
-                                ["source"] = new JObject { ["type"] = "string" },
-                                ["frame"] = new JObject { ["type"] = "integer" }
-                            },
-                            ["required"] = new JArray("source", "frame")
-                        },
-                        ["forwardPos"] = new JObject { ["type"] = "number", ["description"] = "Signed ground-plane distance along canonical forward (+Z)." },
-                        ["rightwardPos"] = new JObject { ["type"] = "number", ["description"] = "Signed ground-plane distance along canonical right (+X)." },
-                        ["rotateY"] = new JObject { ["type"] = "number", ["description"] = "Absolute yaw in degrees around Unity Y; zero faces canonical forward (+Z)." }
+                        ["fullbody"] = fullBody,
+                        ["root2d"] = root2D,
+                        ["left_hand"] = endEffector.DeepClone(),
+                        ["right_hand"] = endEffector.DeepClone(),
+                        ["left_foot"] = endEffector.DeepClone(),
+                        ["right_foot"] = endEffector.DeepClone()
                     },
-                    ["required"] = new JArray("frame", "type")
+                    ["required"] = new JArray("frame"),
+                    ["anyOf"] = new JArray(
+                        new JObject { ["required"] = new JArray("fullbody") },
+                        new JObject { ["required"] = new JArray("root2d") },
+                        new JObject { ["required"] = new JArray("left_hand") },
+                        new JObject { ["required"] = new JArray("right_hand") },
+                        new JObject { ["required"] = new JArray("left_foot") },
+                        new JObject { ["required"] = new JArray("right_foot") })
                 }
             }, false);
         }
+
+        private static JObject NumberArray(int count) => new JObject
+        {
+            ["type"] = "array",
+            ["items"] = new JObject { ["type"] = "number" },
+            ["minItems"] = count,
+            ["maxItems"] = count
+        };
 
         private static PropertyDefinition OptionalPoseLocators(string name, string description)
         {
@@ -1765,3 +2052,8 @@ namespace KimodoUnityBridge.Command
         }
     }
 }
+
+
+
+
+
