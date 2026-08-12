@@ -1,10 +1,22 @@
 using System;
 using System.IO;
+using UnityEditor;
 
 namespace KimodoBridge.Editor
 {
+    [InitializeOnLoad]
     internal static class KimodoBridgeRuntimeInstallFacade
     {
+        static KimodoBridgeRuntimeInstallFacade()
+        {
+            KimodoEditorRuntimeHooks.Register(
+                ResolveRuntimeRootOrThrow,
+                IsRuntimeSyncRequired,
+                TrySyncRuntimeRootIfNeeded,
+                ResolveKimodoStaticGraphEnabled,
+                BootstrapRuntimeRootIfMissing);
+        }
+
         internal static string[] SupportedModelNames => KimodoServerRuntimeUtil.SupportedModelNames;
 
         internal static string GetRuntimeRootPath()

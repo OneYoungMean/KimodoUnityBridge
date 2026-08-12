@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -1105,43 +1104,10 @@ namespace KimodoBridge
         }
 
 #if UNITY_EDITOR
-        private static Type ResolveEditorRuntimeFacadeTypeOrThrow()
-        {
-            const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
-            Type facadeType = Type.GetType($"{typeName}, KimodoTool.Editor");
-            if (facadeType == null)
-            {
-                Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
-                for (int i = 0; i < assemblies.Length; i++)
-                {
-                    facadeType = assemblies[i].GetType(typeName, throwOnError: false);
-                    if (facadeType != null)
-                    {
-                        break;
-                    }
-                }
-            }
-
-            return facadeType ??
-                throw new TypeLoadException($"Cannot resolve editor runtime facade '{typeName}'.");
-        }
-
         private static string ResolveEditorRuntimeRootOrThrow()
         {
-            const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
-            const string methodName = "ResolveRuntimeRootOrThrow";
-
-            Type facadeType = ResolveEditorRuntimeFacadeTypeOrThrow();
-            MethodInfo resolveMethod = facadeType.GetMethod(
-                methodName,
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            if (resolveMethod == null)
-            {
-                throw new MissingMethodException(typeName, methodName);
-            }
-
-            object result = resolveMethod.Invoke(null, null);
-            if (result is string runtimeRoot && !string.IsNullOrWhiteSpace(runtimeRoot))
+            string runtimeRoot = KimodoEditorRuntimeHooks.ResolveRuntimeRootOrThrow();
+            if (!string.IsNullOrWhiteSpace(runtimeRoot))
             {
                 return Path.GetFullPath(runtimeRoot);
             }
@@ -1151,56 +1117,17 @@ namespace KimodoBridge
 
         private static bool IsEditorRuntimeSyncRequired(string runtimeRoot)
         {
-            const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
-            const string methodName = "IsRuntimeSyncRequired";
-
-            Type facadeType = ResolveEditorRuntimeFacadeTypeOrThrow();
-            MethodInfo syncMethod = facadeType.GetMethod(
-                methodName,
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            if (syncMethod == null)
-            {
-                throw new MissingMethodException(typeName, methodName);
-            }
-
-            return syncMethod.Invoke(null, new object[] { runtimeRoot }) is bool required && required;
+            return KimodoEditorRuntimeHooks.IsRuntimeSyncRequired(runtimeRoot);
         }
 
         private static bool TrySyncEditorRuntimeRoot(string runtimeRoot, out string message)
         {
-            const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
-            const string methodName = "TrySyncRuntimeRootIfNeeded";
-            object[] arguments = { runtimeRoot, null };
-
-            Type facadeType = ResolveEditorRuntimeFacadeTypeOrThrow();
-            MethodInfo syncMethod = facadeType.GetMethod(
-                methodName,
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            if (syncMethod == null)
-            {
-                throw new MissingMethodException(typeName, methodName);
-            }
-
-            bool result = syncMethod.Invoke(null, arguments) is bool ok && ok;
-            message = arguments[1] as string ?? string.Empty;
-            return result;
+            return KimodoEditorRuntimeHooks.TrySyncRuntimeRoot(runtimeRoot, out message);
         }
 
         private static bool ResolveEditorKimodoStaticGraphEnabled()
         {
-            const string typeName = "KimodoBridge.Editor.KimodoBridgeRuntimeInstallFacade";
-            const string methodName = "ResolveKimodoStaticGraphEnabled";
-
-            Type facadeType = ResolveEditorRuntimeFacadeTypeOrThrow();
-            MethodInfo resolveMethod = facadeType.GetMethod(
-                methodName,
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            if (resolveMethod == null)
-            {
-                throw new MissingMethodException(typeName, methodName);
-            }
-
-            return resolveMethod.Invoke(null, null) is bool enabled && enabled;
+            return KimodoEditorRuntimeHooks.ResolveStaticGraphEnabled();
         }
 #endif
     }
