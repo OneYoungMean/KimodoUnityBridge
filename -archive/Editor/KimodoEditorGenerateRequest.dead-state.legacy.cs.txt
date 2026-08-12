@@ -1,0 +1,35 @@
+// Removed from Editor/Core/GenerationPipeline/KimodoEditorGenerateRequest.cs.
+// GenerationTimeoutSeconds was copied from settings but never read by generation.
+public float GenerationTimeoutSeconds = 600f;
+
+// DenseRootPath is consumed while exporting constraint JSON. The request copy was never read.
+public bool DenseRootPath;
+
+// Removed from Editor/Core/KimodoPlayableClipGenerationSettings.cs.
+internal const float MinGenerationTimeoutSeconds = 10f;
+internal const float DefaultGenerationTimeoutSeconds = 600f;
+[SerializeField] private float generationTimeoutSeconds = DefaultGenerationTimeoutSeconds;
+
+internal float GenerationTimeoutSeconds
+{
+    get => Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);
+    set => generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, value);
+}
+
+generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);
+
+// Removed from Editor/Server/KimodoServerManagerSettingsProvider.cs.
+EditorGUI.BeginChangeCheck();
+float timeoutSeconds = EditorGUILayout.FloatField(
+    new GUIContent("Generate Timeout (sec)", "Global timeout used by Kimodo generation requests."),
+    settings.GenerationTimeoutSeconds);
+if (EditorGUI.EndChangeCheck())
+{
+    settings.GenerationTimeoutSeconds = timeoutSeconds;
+    settings.SaveSettings();
+}
+
+// Removed from Editor/Core/KimodoPlayableClipGenerationHostService.cs.
+bool denseRootPath = constraintResult.DenseRootPath;
+GenerationTimeoutSeconds = settings.GenerationTimeoutSeconds,
+DenseRootPath = denseRootPath,

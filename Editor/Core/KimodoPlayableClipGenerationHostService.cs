@@ -70,7 +70,6 @@ namespace KimodoBridge.Editor
             string constraintsJson = constraintResult.ConstraintsJson;
             List<KimodoMarkerSampleResult> constraintSamples = constraintResult.CombinedSamples;
             bool hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
-            bool denseRootPath = constraintResult.DenseRootPath;
 
             ArdyEditorHistorySource initialHistorySource = null;
             if (isArdy)
@@ -143,10 +142,8 @@ namespace KimodoBridge.Editor
                     modelName),
                 OutputPlan = outputPlanSnapshot,
                 ModelsRoot = settings.LocalModelsPath?.Trim() ?? string.Empty,
-                GenerationTimeoutSeconds = settings.GenerationTimeoutSeconds,
                 Token = token,
                 HasSyntheticAutoBeginConstraint = hasSyntheticAutoBeginConstraint,
-                DenseRootPath = denseRootPath,
                 ConstraintSamples = constraintSamples,
                 TimelineClipSnapshot = timelineClip,
                 ResetTimelineTimeScaleAfterGeneration =

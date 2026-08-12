@@ -13,8 +13,6 @@ namespace KimodoBridge.Editor
         internal const int MinTimelineConstraintCacheTimeFrames = 1;
         internal const int MaxTimelineConstraintCacheTimeFrames = 900;
         internal const int DefaultTimelineConstraintCacheTimeFrames = 60;
-        internal const float MinGenerationTimeoutSeconds = 10f;
-        internal const float DefaultGenerationTimeoutSeconds = 600f;
         internal const string DefaultPromptFallback = "a man walk and say hello";
         private const string KeepCpuForceEditorPrefsKey = "KimodoBridge.KeepCpuForceExperimental";
 
@@ -25,7 +23,6 @@ namespace KimodoBridge.Editor
         [SerializeField] private string defaultBridgeModelName = KimodoMotionModelProfiles.DefaultModelName;
         [FormerlySerializedAs("defaultBridgeVramMode")]
         [SerializeField] private KimodoTextEncoderMode defaultTextEncoderMode = KimodoTextEncoderMode.HighPerformance;
-        [SerializeField] private float generationTimeoutSeconds = DefaultGenerationTimeoutSeconds;
         [SerializeField] private bool keepCpuForceExperimental;
         [SerializeField] private bool writeResampledTimelineCacheClips;
         [SerializeField] private bool enableDebugLog;
@@ -143,12 +140,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        internal float GenerationTimeoutSeconds
-        {
-            get => Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);
-            set => generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, value);
-        }
-
         internal bool SetupWizardCompleted
         {
             get => setupWizardCompleted;
@@ -178,7 +169,6 @@ namespace KimodoBridge.Editor
             localModelsPath = localModelsPath ?? string.Empty;
             defaultPrompt = DefaultPrompt;
             defaultBridgeModelName = KimodoMotionModelProfiles.NormalizeName(defaultBridgeModelName);
-            generationTimeoutSeconds = Mathf.Max(MinGenerationTimeoutSeconds, generationTimeoutSeconds);
             keepCpuForceExperimental = effectiveKeepCpuForce;
             quickServerPath = quickServerPath?.Trim() ?? string.Empty;
             EditorPrefs.SetBool(KeepCpuForceEditorPrefsKey, effectiveKeepCpuForce);

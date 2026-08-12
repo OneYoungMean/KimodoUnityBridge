@@ -25,13 +25,11 @@ namespace KimodoBridge.Editor
         public Func<AnimationClip, string, KimodoEditorGenerateOutputPlan> ResolveOutputPlan;
         public KimodoEditorGenerateOutputPlan OutputPlan;
         public string ModelsRoot = string.Empty;
-        public float GenerationTimeoutSeconds = 600f;
         public AnimationClip TargetClip;
         public AnimationClip RawBoneClip;
         public Action<KimodoBridgeCommandStage, string> Progress;
         public CancellationToken Token;
         public bool HasSyntheticAutoBeginConstraint;
-        public bool DenseRootPath;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
         public TimelineClip TimelineClipSnapshot;
         public bool ResetTimelineTimeScaleAfterGeneration;
