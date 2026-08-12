@@ -49,6 +49,18 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void EveryPublishedCommand_IsRoutedByDispatcher()
+        {
+            foreach (string name in JObject.Parse(command_dispatcher.GetCommandDefinitionsJson())["tools"]
+                         .Values<JObject>().Select(tool => tool.Value<string>("name")))
+            {
+                JObject response = JObject.Parse(command_dispatcher.Invoke(name, "{"));
+                Assert.That(response.Value<bool>("ok"), Is.False, name);
+                Assert.That(response.Value<string>("error"), Does.Not.StartWith("Unknown Kimodo command"), name);
+            }
+        }
+
+        [Test]
         public void HelpSchema_ProvidesCommandManualAndModelsSection()
         {
             JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());

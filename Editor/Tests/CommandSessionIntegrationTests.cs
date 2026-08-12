@@ -1,3 +1,4 @@
+using CharacterAnimationCli.Unity;
 using CharacterAnimationCli.Unity.Command;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -98,6 +99,90 @@ namespace KimodoBridge.Editor.Tests
 
             Assert.That(removed.Value<bool>("ok"), Is.True, removed.ToString());
             Assert.That(QueryCharacters(), Does.Not.Contain(safeName));
+        }
+
+        [Test]
+        public void PoseCommands_CreateGetSetAndCopyWritablePose()
+        {
+            string safeName = AddCharacter()["character"].Value<string>("name");
+            JObject created = Invoke(command_context.PoseCreateCommand, new JObject
+            {
+                ["character"] = safeName,
+                ["pose"] = CharacterPoseJson.ToJson(new CharacterPose())
+            });
+            Assert.That(created.Value<bool>("ok"), Is.True, created.ToString());
+            JObject locator = (JObject)created["pose"];
+
+            JObject read = Invoke(command_context.PoseGetCommand, new JObject { ["pose"] = locator.DeepClone() });
+            Assert.That(read.Value<bool>("ok"), Is.True, read.ToString());
+            Assert.That(read["data"]["muscles"], Has.Count.EqualTo(CharacterPose.MuscleCount));
+
+            JObject updated = Invoke(command_context.PoseSetCommand, new JObject
+            {
+                ["pose"] = locator.DeepClone(),
+                ["data"] = new JObject { ["root"] = new JObject { ["t"] = new JArray(0.25f, 0f, 0f) } }
+            });
+            Assert.That(updated.Value<bool>("ok"), Is.True, updated.ToString());
+            Assert.That(updated["data"]["root"]["t"][0].Value<float>(), Is.EqualTo(0.25f));
+
+            JObject copied = Invoke(command_context.PoseCopyCommand, new JObject
+            {
+                ["character"] = safeName,
+                ["pose"] = locator.DeepClone()
+            });
+            Assert.That(copied.Value<bool>("ok"), Is.True, copied.ToString());
+            Assert.That(copied["pose"].Value<int>("frame"), Is.Not.EqualTo(locator.Value<int>("frame")));
+        }
+
+        [Test]
+        public void BuildRoot2DPathCommand_ReturnsSixtyFpsLine()
+        {
+            JObject response = Invoke(command_context.BuildRoot2DPathCommand, new JObject
+            {
+                ["shape"] = "line",
+                ["duration_frames"] = 60
+            });
+
+            Assert.That(response.Value<bool>("ok"), Is.True, response.ToString());
+            Assert.That(response.Value<int>("fps"), Is.EqualTo(60));
+            Assert.That(response["points"], Has.Count.EqualTo(2));
+        }
+
+        [TestCase(command_kimodo.DebugInstallServerCommand, "Error reading JObject")]
+        [TestCase(command_kimodo.AnalyzeCommand, "Provide exactly one analysis source")]
+        [TestCase(command_kimodo.BakeRangeCommand, "bake range must satisfy")]
+        [TestCase(command_kimodo.GenerateAnimationCommand, "duration_frames must be a positive integer")]
+        [TestCase(command_kimodo.QueryPictureCommand, "Provide exactly one of poses")]
+        [TestCase(command_kimodo.GetGenerationCommand, "Unknown or expired request_id")]
+        [TestCase(command_kimodo.CancelGenerationCommand, "Unknown or expired request_id")]
+        public void GuardedCommands_ReachTheirHandlerWithoutExternalSideEffects(string command, string expectedError)
+        {
+            JObject arguments = new JObject();
+            if (command == command_kimodo.AnalyzeCommand || command == command_kimodo.BakeRangeCommand ||
+                command == command_kimodo.GenerateAnimationCommand)
+            {
+                arguments["character"] = AddCharacter()["character"].Value<string>("name");
+            }
+            if (command == command_kimodo.BakeRangeCommand)
+            {
+                arguments["start_frame"] = 1;
+                arguments["end_frame"] = 1;
+            }
+            if (command == command_kimodo.GenerateAnimationCommand)
+            {
+                arguments["prompt"] = "walk";
+                arguments["duration_frames"] = 0;
+            }
+            if (command == command_kimodo.GetGenerationCommand || command == command_kimodo.CancelGenerationCommand)
+            {
+                arguments["request_id"] = Guid.NewGuid().ToString("D");
+            }
+
+            JObject response = command == command_kimodo.DebugInstallServerCommand
+                ? JObject.Parse(command_dispatcher.Invoke(command, "{"))
+                : Invoke(command, arguments);
+            Assert.That(response.Value<bool>("ok"), Is.False, response.ToString());
+            Assert.That(response.Value<string>("error"), Does.Contain(expectedError));
         }
 
         private JObject AddCharacter()
