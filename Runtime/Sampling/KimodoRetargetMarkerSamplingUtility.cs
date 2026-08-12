@@ -7,26 +7,21 @@ namespace KimodoBridge
 {
     internal static class KimodoRetargetMarkerSamplingUtility
     {
-        private const string DefaultModelName = "Kimodo-SOMA-RP-v1";
-
         internal static bool TryResolveTargetAvatar(
             Avatar explicitTargetAvatar,
-            Animator fallbackAnimator,
             string modelName,
             out Avatar targetAvatar,
             out string error)
         {
             targetAvatar = null;
             error = string.Empty;
-            _ = fallbackAnimator;
-
             if (KimodoRetargetCoreUtility.IsValidHumanoid(explicitTargetAvatar))
             {
                 targetAvatar = explicitTargetAvatar;
                 return true;
             }
 
-            string resolvedModelName = string.IsNullOrWhiteSpace(modelName) ? DefaultModelName : modelName.Trim();
+            string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
             if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(resolvedModelName, out Avatar resolvedAvatar, out string targetError) &&
                 KimodoRetargetCoreUtility.IsValidHumanoid(resolvedAvatar))
             {
@@ -51,7 +46,7 @@ namespace KimodoBridge
         {
             result = null;
             error = string.Empty;
-            string resolvedModelName = string.IsNullOrWhiteSpace(modelName) ? DefaultModelName : modelName.Trim();
+            string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
 
             if (sample == null || !sample.IsValid)
             {

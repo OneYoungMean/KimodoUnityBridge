@@ -763,7 +763,6 @@ namespace KimodoBridge.Editor
             float kimodoHumanScale = 1f;
             if (KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
                     null,
-                    context?.Animator,
                     modelName,
                     out Avatar targetAvatar,
                     out _) &&

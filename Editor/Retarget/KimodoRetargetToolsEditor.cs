@@ -330,7 +330,6 @@ namespace KimodoBridge.Editor
             double sampleTime,
             Avatar sourceAvatar,
             Avatar explicitTargetAvatar,
-            Animator fallbackAnimator,
             string modelName,
             bool forceRefresh,
             out KimodoMarkerSampleResult sample,
@@ -353,7 +352,6 @@ namespace KimodoBridge.Editor
 
             if (!KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
                     explicitTargetAvatar,
-                    fallbackAnimator,
                     modelName,
                     out Avatar targetAvatar,
                     out error))

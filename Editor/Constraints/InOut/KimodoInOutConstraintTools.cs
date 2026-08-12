@@ -303,7 +303,6 @@ namespace KimodoBridge.Editor
                     clipSampleTime,
                     sourceAvatar,
                     null,
-                    null,
                     KimodoMotionModelProfiles.NormalizeName(modelName),
                     forceRefresh: false,
                     out KimodoMarkerSampleResult sampledPose,

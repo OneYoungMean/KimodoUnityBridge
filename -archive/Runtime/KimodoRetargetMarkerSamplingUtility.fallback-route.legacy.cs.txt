@@ -1,0 +1,14 @@
+        private const string DefaultModelName = "Kimodo-SOMA-RP-v1";
+
+        internal static bool TryResolveTargetAvatar(
+            Avatar explicitTargetAvatar,
+            Animator fallbackAnimator,
+            string modelName,
+            out Avatar targetAvatar,
+            out string error)
+        {
+            targetAvatar = null;
+            error = string.Empty;
+            _ = fallbackAnimator;
+
+            string resolvedModelName = string.IsNullOrWhiteSpace(modelName) ? DefaultModelName : modelName.Trim();

@@ -777,7 +777,6 @@ namespace KimodoBridge.Editor
 
                 if (!KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
                         null,
-                        context.Animator,
                         modelName,
                         out Avatar targetAvatar,
                         out error))
@@ -1001,7 +1000,6 @@ namespace KimodoBridge.Editor
             }
             if (!KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
                     null,
-                    context.Animator,
                     modelName,
                     out Avatar targetAvatar,
                     out error))
