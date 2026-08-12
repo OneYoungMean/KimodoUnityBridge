@@ -333,6 +333,34 @@ namespace KimodoBridge.Editor
             }
         }
 
+        internal static AnimationClip CreateRawBoneWritebackClip(AnimationClip sourceClip)
+        {
+            if (sourceClip == null)
+            {
+                return null;
+            }
+
+            string sourceName = string.IsNullOrWhiteSpace(sourceClip.name) ? "KimodoRawBone" : sourceClip.name.Trim();
+            bool persist = KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips;
+            AnimationClip rawBoneClip = persist
+                ? CreateGeneratedCacheAnimationClipAsset($"{sourceName}_RawBone")
+                : new AnimationClip
+                {
+                    hideFlags = HideFlags.HideAndDontSave,
+                    name = $"{sourceName}_RawBone"
+                };
+            KimodoEditorClipUtility.CopyClipData(sourceClip, rawBoneClip, forceNoLoopKeepY: true);
+            rawBoneClip.legacy = sourceClip.legacy;
+            rawBoneClip.frameRate = sourceClip.frameRate;
+            if (persist)
+            {
+                EditorUtility.SetDirty(rawBoneClip);
+                KimodoPlayableClipGenerationSettings.DebugLog(
+                    $"[Kimodo][Generate] Wrote raw Kimodo bone clip: '{AssetDatabase.GetAssetPath(rawBoneClip)}'.");
+            }
+            return rawBoneClip;
+        }
+
         internal static bool TryDeleteUnreferencedNamedClipCaches(out NamedClipCacheCleanupSummary summary, out string error)
         {
             summary = new NamedClipCacheCleanupSummary(0, 0, 0, 0);

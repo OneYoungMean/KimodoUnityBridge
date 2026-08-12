@@ -99,7 +99,7 @@ namespace KimodoBridge.Editor.Tests
             try
             {
                 settings.WriteResampledTimelineCacheClips = persist;
-                rawBone = KimodoEditorGeneratePipeline.CreateRawBoneWritebackClip(source);
+                rawBone = KimodoEditorClipWritebackService.CreateRawBoneWritebackClip(source);
 
                 string assetPath = AssetDatabase.GetAssetPath(rawBone);
                 Assert.That(string.IsNullOrWhiteSpace(assetPath), Is.EqualTo(!persist));

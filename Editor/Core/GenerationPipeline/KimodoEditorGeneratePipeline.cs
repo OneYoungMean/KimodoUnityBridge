@@ -78,9 +78,8 @@ namespace KimodoBridge.Editor
 
             ThrowIfCanceled(request);
             EditorUtility.SetDirty(request.TargetClip);
-            KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
 
-            AnimationClip rawBoneClip = CreateRawBoneWritebackClip(request.TargetClip);
+            AnimationClip rawBoneClip = KimodoEditorClipWritebackService.CreateRawBoneWritebackClip(request.TargetClip);
             request.RawBoneClip = rawBoneClip;
             if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
@@ -104,7 +103,6 @@ namespace KimodoBridge.Editor
             {
                 TryFilterGeneratedBoneClip(request.TargetClip, outputPlan.TargetRetargetAvatar, outputPlan.CurveFilterOptions);
                 KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
-                KimodoEditorClipWritebackService.FlushWritebackAssets();
                 request.Progress?.Invoke(KimodoBridgeCommandStage.Retarget, "Skipping retarget: binding hierarchy already matches clip bindings.");
                 return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
             }
@@ -141,7 +139,6 @@ namespace KimodoBridge.Editor
                 request.TargetClip.EnsureQuaternionContinuity();
                 KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
                 EditorUtility.SetDirty(request.TargetClip);
-                KimodoEditorClipWritebackService.FlushWritebackAssets();
                 return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
             }
 
@@ -176,7 +173,6 @@ namespace KimodoBridge.Editor
             ThrowIfCanceled(request);
             TryFilterGeneratedBoneClip(request.TargetClip, outputPlan.TargetRetargetAvatar, outputPlan.CurveFilterOptions);
             KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
-            KimodoEditorClipWritebackService.FlushWritebackAssets();
             ThrowIfCanceled(request);
 
             return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
@@ -349,6 +345,7 @@ namespace KimodoBridge.Editor
                 runtimeResult,
                 outputPlan,
                 rawBoneClip);
+            KimodoEditorClipWritebackService.FlushWritebackAssets();
             if (rawBoneClip != null && string.IsNullOrWhiteSpace(AssetDatabase.GetAssetPath(rawBoneClip)))
             {
                 UnityEngine.Object.DestroyImmediate(rawBoneClip);
@@ -856,34 +853,6 @@ namespace KimodoBridge.Editor
 
             request.OutputPlan = plan;
             return plan;
-        }
-
-        internal static AnimationClip CreateRawBoneWritebackClip(AnimationClip sourceClip)
-        {
-            if (sourceClip == null)
-            {
-                return null;
-            }
-
-            string sourceName = string.IsNullOrWhiteSpace(sourceClip.name) ? "KimodoRawBone" : sourceClip.name.Trim();
-            bool persist = KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips;
-            AnimationClip rawBoneClip = persist
-                ? KimodoEditorClipWritebackService.CreateGeneratedCacheAnimationClipAsset($"{sourceName}_RawBone")
-                : new AnimationClip
-                {
-                    hideFlags = HideFlags.HideAndDontSave,
-                    name = $"{sourceName}_RawBone"
-                };
-            KimodoEditorClipUtility.CopyClipData(sourceClip, rawBoneClip, forceNoLoopKeepY: true);
-            rawBoneClip.legacy = sourceClip.legacy;
-            rawBoneClip.frameRate = sourceClip.frameRate;
-            if (persist)
-            {
-                EditorUtility.SetDirty(rawBoneClip);
-                KimodoPlayableClipGenerationSettings.DebugLog(
-                    $"[Kimodo][Generate] Wrote raw Kimodo bone clip: '{AssetDatabase.GetAssetPath(rawBoneClip)}'.");
-            }
-            return rawBoneClip;
         }
 
         private static void TryFilterGeneratedBoneClip(
