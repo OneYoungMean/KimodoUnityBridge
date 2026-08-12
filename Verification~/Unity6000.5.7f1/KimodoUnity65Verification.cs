@@ -16,7 +16,7 @@ public static class KimodoUnity65Verification
     private const string PackageName = "com.unity.kimodo_unity_motion_tools";
     private const string CharacterName = "Unity65VerifyHumanoid";
     private const string GeneratedName = "Unity65_SingleClip";
-    private const string BakedName = "Unity65_BakeProbe";
+    private const string RecordedName = "Unity65_RecordProbe";
     private static string outputRoot;
     private static string eventsPath;
     private static int sequence;
@@ -154,7 +154,7 @@ public static class KimodoUnity65Verification
             });
 
             Invoke("error", "kimodo_analyze", new JObject { ["character"] = CharacterName });
-            Invoke("error", "kimodo_bake_range", new JObject
+            Invoke("error", "kimodo_record_range", new JObject
             {
                 ["character"] = CharacterName, ["start_frame"] = 2, ["end_frame"] = 1
             });
@@ -179,12 +179,17 @@ public static class KimodoUnity65Verification
                 {
                     new JObject
                     {
-                        ["frame"] = 0, ["type"] = "fullbody", ["pose"] = writable.DeepClone()
+                        ["frame"] = 0,
+                        ["fullbody"] = new JObject { ["pose"] = writable.DeepClone() }
                     },
                     new JObject
                     {
-                        ["frame"] = 59, ["type"] = "root2d",
-                        ["position"] = new JArray(0.5, 0.0), ["heading"] = new JArray(1.0, 0.0)
+                        ["frame"] = 59,
+                        ["root2d"] = new JObject
+                        {
+                            ["position"] = new JArray(0.5, 0.0),
+                            ["heading"] = new JArray(1.0, 0.0)
+                        }
                     }
                 }
             });
@@ -242,14 +247,14 @@ public static class KimodoUnity65Verification
                 RecordFileFromResponse("analysis_picture", analysisPicture, "image_path");
             }
 
-            JObject bake = Invoke("basic", "kimodo_bake_range", new JObject
+            JObject record = Invoke("basic", "kimodo_record_range", new JObject
             {
                 ["character"] = CharacterName,
                 ["start_frame"] = 0,
                 ["end_frame"] = 2,
                 ["speed"] = 1.0,
                 ["remove_root_motion"] = false,
-                ["name"] = BakedName,
+                ["name"] = RecordedName,
                 ["output_folder"] = "Assets/KimodoVerificationGenerated"
             });
             RecordAssetMatches();
@@ -262,7 +267,7 @@ public static class KimodoUnity65Verification
                 ["session_open_ok"] = open.Value<bool?>("ok"),
                 ["character_add_ok"] = add.Value<bool?>("ok"),
                 ["generation_terminal"] = terminal?.Value<string>("status") ?? "not_accepted",
-                ["bake_ok"] = bake.Value<bool?>("ok"),
+                ["record_ok"] = record.Value<bool?>("ok"),
                 ["session_close_ok"] = close.Value<bool?>("ok"),
                 ["animations_response_ok"] = animations.Value<bool?>("ok")
             });

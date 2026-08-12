@@ -17,12 +17,9 @@ class AnimationAnalysisTests(unittest.TestCase):
             output,
         )
         keyframes = result["keyframes"]
-        self.assertEqual(0, keyframes[0]["frame"])
-        self.assertEqual(19, keyframes[-1]["frame"])
-        self.assertEqual(sorted(item["time"] for item in keyframes), [item["time"] for item in keyframes])
         self.assertLessEqual(len(keyframes), 6)
-        self.assertTrue(all(0.0 <= item["saliency"] <= 1.0 for item in keyframes))
-        self.assertTrue(all("score" not in item for item in keyframes))
+        self.assertTrue(all(item["role"] == "representative_basis" for item in keyframes))
+        self.assertTrue(all(0.0 <= item["non_root_subspace_explained_variance"] <= 1.0 for item in keyframes))
 
     def test_analysis_is_omitted_when_not_requested(self):
         output = {"posed_joints": np.zeros((1, 1, 1, 3), dtype=np.float32)}
@@ -40,12 +37,10 @@ class AnimationAnalysisTests(unittest.TestCase):
             [{"root_positions": roots, "local_rot_quats": quats, "fps": 20.0}],
             {"analysis_only": True, "keyframes": {"max_count": 3}},
         )
-        self.assertEqual("motion-quality-v1", result["algorithm"])
+        self.assertEqual("motion-quality-v2", result["algorithm"])
         self.assertEqual(1, len(result["clips"]))
-        self.assertEqual(0, result["keyframes"][0]["frame"])
-        self.assertEqual(19, result["keyframes"][-1]["frame"])
         self.assertTrue(result["issues"])
         self.assertTrue(all(0.0 <= item["score"] <= 1.0 for item in result["issues"]))
+        self.assertTrue(all(item["from_frame"] == max(0, item["frame"] - 1) for item in result["issues"]))
         self.assertTrue(0.0 <= result["quality_score"] <= 1.0)
         self.assertTrue(any("discontinuity" in hint for hint in result["hints"]))
-        self.assertTrue(any("keyframe budget" in hint for hint in result["hints"]))

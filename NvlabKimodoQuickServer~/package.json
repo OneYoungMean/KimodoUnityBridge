@@ -1,6 +1,6 @@
 {
   "name": "com.nvlab.kimodo.quickserver",
   "displayName": "Kimodo QuickServer",
-  "version": "2.2.5",
-  "description": "Shared motion generation server for Kimodo and ARDY Unity clients with motion-quality analysis hints"
+  "version": "2.2.6",
+  "description": "Shared motion generation server for Kimodo and ARDY Unity clients with representative-pose analysis"
 }

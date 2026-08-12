@@ -5,7 +5,7 @@ This is machine-facing operational context, not a human tutorial. The English se
 Current versions / 当前版本：
 
 - Unity package: `3.0.0` / Unity 包：`3.0.0`
-- QuickServer: `2.2.5` — project-local Kimodo and ARDY generation runtime with motion-quality analysis hints. / QuickServer：`2.2.5`——带动作质量分析提示的项目级 Kimodo 与 ARDY 生成运行时。
+- QuickServer: `2.2.6` — project-local Kimodo and ARDY generation runtime with representative non-root pose analysis. / QuickServer：`2.2.6`——带代表性非 Root 姿势分析的项目级 Kimodo 与 ARDY 生成运行时。
 
 ## English
 
@@ -103,7 +103,7 @@ Report visual acceptance as `passed`, `needs_revision`, or `not_verified`. Never
 
 ### 8. Analysis, recording, retargeting, and Animator
 
-- `kimodo_analyze` accepts one named animation, a Session frame range, or two or more explicit pose locators. The first two routes use QuickServer and return keyframes, issues, quality score, and advisory `hints`. A `poses` request compares each adjacent pair locally: `muscle.cosine_similarity`/`cosine_distance` use complete Humanoid muscles, while `root_motion` reports XYZ delta, planar distance, vertical delta, and shortest yaw delta. Pose comparison does not replace temporal clip analysis. Save the `analysis_id` returned by clip/range analysis for `query_picture`.
+- `kimodo_analyze` accepts one named animation, a Session frame range, or two or more explicit pose locators. The first two routes use QuickServer. `keyframes.max_count` defaults to `4`: QuickServer selects real representative frames greedily so their linear span reconstructs maximum non-root pose variance; root translation and root-joint rotation are excluded when available. Each keyframe returns `non_root_subspace_explained_variance`. `issues.max_count` defaults to `8`; issues are ranked by severity and report the discontinuity transition as `from_frame` to `frame`. `continuity_quality_score`/quality score concerns numeric continuity only, not motion semantics. A `poses` request compares each adjacent pair locally: `muscle.cosine_similarity`/`cosine_distance` use complete Humanoid muscles, while `root_motion` reports XYZ delta, planar distance, vertical delta, and shortest yaw delta. Pose comparison does not replace temporal clip analysis. Save the `analysis_id` returned by clip/range analysis for `query_picture`.
 - `kimodo_record_range` records a half-open Session range into a source-character AnimationClip.
 - `kimodo_retarget_animation` retargets one loaded animation to another current Session character. Valid source and target Humanoid Avatars are required.
 - `session_try_add` imports a humanoid character, AnimationClip, or Animator content according to its current schema. Deterministic clip-to-clip transitions may be recorded; BlendTree branch choice and unrelated Timeline placement belong to the surrounding Unity tool.
@@ -215,7 +215,7 @@ kimodo_get_generation -> 轮询到终态
 
 ### 8. Analysis、录制、Retarget 与 Animator
 
-- `kimodo_analyze` 接受一个命名动画、一段 Session 帧区间，或两个及以上显式 Pose locator。前两种路径使用 QuickServer，返回关键帧、问题、质量分数和建议性 `hints`。`poses` 请求在本地比较每一对相邻 Pose：`muscle.cosine_similarity`/`cosine_distance` 使用完整 Humanoid muscle，`root_motion` 返回 XYZ 差值、平面距离、垂直差值和最短 Yaw 差值。Pose 比较不能替代时序 Clip 分析。保存 Clip/区间分析返回的 `analysis_id`，供 `query_picture` 使用。
+- `kimodo_analyze` 接受一个命名动画、一段 Session 帧区间，或两个及以上显式 Pose locator。前两种路径使用 QuickServer。`keyframes.max_count` 默认是 `4`：QuickServer 贪心选择真实代表帧，使其线性张成空间重构最多非 Root 姿势方差；排除 Root 平移，并在可用时排除 Root 关节旋转。每个关键帧返回 `non_root_subspace_explained_variance`。`issues.max_count` 默认是 `8`；问题按严重度排序，并以 `from_frame` 到 `frame` 表示跳变过渡。`continuity_quality_score`/质量分数只表示数值连续性，不表示动作语义。`poses` 请求在本地比较每一对相邻 Pose：`muscle.cosine_similarity`/`cosine_distance` 使用完整 Humanoid muscle，`root_motion` 返回 XYZ 差值、平面距离、垂直差值和最短 Yaw 差值。Pose 比较不能替代时序 Clip 分析。保存 Clip/区间分析返回的 `analysis_id`，供 `query_picture` 使用。
 - `kimodo_record_range` 将半开 Session 区间录制为源角色的 AnimationClip。
 - `kimodo_retarget_animation` 将一个已加载动画 Retarget 到当前 Session 的另一角色；源角色和目标角色都必须具有有效 Humanoid Avatar。
 - `session_try_add` 按当前 schema 导入 Humanoid 角色、AnimationClip 或 Animator 内容。确定性的 Clip-to-Clip 过渡可以录制；BlendTree 分支选择和无关 Timeline 摆放由外围 Unity 工具负责。
