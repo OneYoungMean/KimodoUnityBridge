@@ -117,7 +117,7 @@ namespace KimodoUnityBridge.Command
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."),
                             Optional("name", "string", "Requested safe animation name; defaults to the prompt."),
                             Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
-                            OptionalConstraints("constraints", "Inline constraints {frame,type,pose}; root2d may use position and heading instead of pose."))),
+                            OptionalConstraints("constraints", "Inline constraints {frame,type,pose}; root2d may use forwardPos, rightwardPos, and rotateY instead of pose."))),
                     CommandDefinition(QueryPictureCommand,
                         "Render explicit poses, a cached analysis, or inline constraints together in one four-view square image.",
                         Properties(
@@ -131,7 +131,7 @@ namespace KimodoUnityBridge.Command
                         "Create a writable pose for a character.",
                         Properties(
                             Required("character", "string", "Target character name."),
-                            Required("pose", "object", "Pose data containing the canonical profile root, muscles, and optional foot_ik."))),
+                            Required("pose", "object", "Pose data containing root.forwardPos, root.rightwardPos, root.rotateY, muscles, and optional foot_ik."))),
                     CommandDefinition(PoseGetCommand,
                         "Read a pose from any returned {source,frame} locator. Sampling a character Timeline frame locked by generation returns generation_range_locked.",
                         Properties(Required("pose", "object", "{source,frame} pose locator at fixed 60 FPS."))),
@@ -139,14 +139,14 @@ namespace KimodoUnityBridge.Command
                         "Update a writable pose.",
                         Properties(
                             Required("pose", "object", "Writable {source,frame} pose locator."),
-                            Optional("data", "object", "Partial pose data to update."))),
+                            Optional("data", "object", "Partial pose data to update; root uses forwardPos, rightwardPos, and rotateY."))),
                     CommandDefinition(PoseCopyCommand,
                         "Copy any pose into a writable pose for the target character.",
                         Properties(
                             Required("character", "string", "Target character name."),
                             Required("pose", "object", "Source {source,frame} pose locator."))),
                     CommandDefinition(BuildRoot2DPathCommand,
-                        "Build dependency-free Root2D path points at fixed 60 FPS.",
+                        "Build dependency-free Root2D path points at fixed 60 FPS. Each point returns forwardPos, rightwardPos, and rotateY.",
                         Properties(
                             Required("shape", "string", "line, turn, s, or circle."),
                             Optional("duration_frames", "integer", "Duration at 60 FPS; defaults to 300."),
@@ -387,7 +387,7 @@ namespace KimodoUnityBridge.Command
                     new JObject
                     {
                         ["type"] = "fullbody",
-                        ["description"] = "A complete body pose constraint from a pose locator. It constrains the full-body joints and also includes the root bone position and heading.",
+                        ["description"] = "A complete body pose constraint from a pose locator. It constrains the full-body joints and also includes root forwardPos, rightwardPos, and rotateY.",
                         ["shape"] = new JObject
                         {
                             ["frame"] = "Relative frame in the generated clip.",
@@ -398,14 +398,15 @@ namespace KimodoUnityBridge.Command
                     new JObject
                     {
                         ["type"] = "root2d",
-                        ["description"] = "A root-only constraint. It constrains the root bone position and heading on the ground plane, without constraining the rest of the body.",
+                        ["description"] = "A root-only constraint. It constrains forwardPos, rightwardPos, and rotateY on the ground plane, without constraining the rest of the body.",
                         ["shape"] = new JObject
                         {
                             ["frame"] = "Relative frame in the generated clip.",
                             ["type"] = "root2d",
-                            ["pose"] = "{source,frame} pose locator, or direct position + heading",
-                            ["position"] = "[x,z]",
-                            ["heading"] = "[x,z] forward direction"
+                            ["pose"] = "{source,frame} pose locator, or direct forwardPos + rightwardPos + rotateY",
+                            ["forwardPos"] = "Signed ground-plane distance along the canonical forward axis (+Z).",
+                            ["rightwardPos"] = "Signed ground-plane distance along the canonical right axis (+X).",
+                            ["rotateY"] = "Absolute yaw in degrees around Unity Y; zero faces canonical forward (+Z)."
                         }
                     }
                 },
@@ -694,6 +695,11 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException($"Build pose constraint target failed: {cacheError}");
                 }
 
+                // Fullbody FK sampling mutates the shared cache pose. Capture the
+                // profile root height once so later root2d constraints do not
+                // inherit the previous fullbody pose's transient hips height.
+                float targetRootHeight = ResolveTargetRootHeight(targetCache, modelName);
+
                 for (int i = 0; i < constraints.Count; i++)
                 {
                     if (constraints[i] is not JObject constraint)
@@ -716,25 +722,25 @@ namespace KimodoUnityBridge.Command
                     var cachedSample = new KimodoMarkerSampleResult { constraintType = constraintType };
                     if (constraint["pose"] is JObject pose)
                     {
-                        JObject poseResult = ReadPose(RequirePoseLocator(pose));
-                        ApplyPoseJson(cachedSample, poseResult["data"] as JObject
-                            ?? throw new InvalidOperationException($"constraints[{i}].pose data is unavailable."));
+                        cachedSample = ReadPoseSample(RequirePoseLocator(pose)).Clone();
+                        cachedSample.constraintType = constraintType;
                     }
                     else if (constraintType == "root2d")
                     {
-                        Vector2 position = RequiredVector2(constraint, "position");
-                        Vector2 heading = RequiredVector2(constraint, "heading");
-                        if (heading.sqrMagnitude < 1e-8f)
-                        {
-                            throw new InvalidOperationException($"constraints[{i}].heading must be non-zero.");
-                        }
-                        cachedSample.kimodoRootPosition = new Vector3(position.x, 0f, position.y);
-                        cachedSample.rootHeading = heading.normalized;
+                        float forwardPos = RequiredFiniteScalar(constraint, "forwardPos");
+                        float rightwardPos = RequiredFiniteScalar(constraint, "rightwardPos");
+                        float rotateY = RequiredFiniteScalar(constraint, "rotateY");
+                        float radians = rotateY * Mathf.Deg2Rad;
+                        cachedSample.kimodoRootPosition = new Vector3(
+                            rightwardPos,
+                            targetRootHeight,
+                            forwardPos);
+                        cachedSample.rootHeading = new Vector2(Mathf.Sin(radians), Mathf.Cos(radians));
                         cachedSample.hasRootHeading = true;
                     }
                     else
                     {
-                        throw new InvalidOperationException($"constraints[{i}].pose is required unless type is root2d with position and heading.");
+                        throw new InvalidOperationException($"constraints[{i}].pose is required unless type is root2d with forwardPos, rightwardPos, and rotateY.");
                     }
                     if (cachedSample.muscles != null && cachedSample.muscles.Count == HumanTrait.MuscleCount &&
                         constraintType != "root2d")
@@ -785,6 +791,21 @@ namespace KimodoUnityBridge.Command
                     destination.localAxisAngles[0] = source.localAxisAngles[0];
                 }
             }
+        }
+
+        internal static float ResolveTargetRootHeight(SkeletonCache targetCache, string modelName)
+        {
+            if (targetCache != null &&
+                KimodoRetargetAvatarUtility.TryGetProfileRootJointTransform(
+                    targetCache.uniqueNameMap,
+                    modelName,
+                    out Transform profileRootJoint) &&
+                profileRootJoint != null)
+            {
+                return profileRootJoint.position.y;
+            }
+
+            return 0f;
         }
 
         private static bool TrySampleDirectSkeletonConstraint(
@@ -1563,7 +1584,7 @@ namespace KimodoUnityBridge.Command
             return new PropertyDefinition(name, new JObject
             {
                 ["type"] = "array",
-                ["description"] = description + " fullbody is a complete body pose plus root position/heading; root2d constrains only the root position/heading.",
+                ["description"] = description + " fullbody is a complete body pose plus forwardPos/rightwardPos/rotateY; root2d constrains only those root fields.",
                 ["items"] = new JObject
                 {
                     ["type"] = "object",
@@ -1580,7 +1601,7 @@ namespace KimodoUnityBridge.Command
                         ["pose"] = new JObject
                         {
                             ["type"] = "object",
-                            ["description"] = "Pose locator for fullbody, or for root2d when deriving root position and heading from a pose.",
+                            ["description"] = "Pose locator for fullbody, or for root2d when deriving forward/right position and yaw from a pose.",
                             ["additionalProperties"] = false,
                             ["properties"] = new JObject
                             {
@@ -1589,8 +1610,9 @@ namespace KimodoUnityBridge.Command
                             },
                             ["required"] = new JArray("source", "frame")
                         },
-                        ["position"] = new JObject { ["type"] = "array", ["description"] = "Direct root2d root position [x,z].", ["items"] = new JObject { ["type"] = "number" }, ["minItems"] = 2, ["maxItems"] = 2 },
-                        ["heading"] = new JObject { ["type"] = "array", ["description"] = "Direct root2d root heading [x,z].", ["items"] = new JObject { ["type"] = "number" }, ["minItems"] = 2, ["maxItems"] = 2 }
+                        ["forwardPos"] = new JObject { ["type"] = "number", ["description"] = "Signed ground-plane distance along canonical forward (+Z)." },
+                        ["rightwardPos"] = new JObject { ["type"] = "number", ["description"] = "Signed ground-plane distance along canonical right (+X)." },
+                        ["rotateY"] = new JObject { ["type"] = "number", ["description"] = "Absolute yaw in degrees around Unity Y; zero faces canonical forward (+Z)." }
                     },
                     ["required"] = new JArray("frame", "type")
                 }

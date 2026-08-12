@@ -84,21 +84,25 @@ namespace KimodoUnityBridge.Command
                                 : session.Characters.Count == 1
                                     ? session.Characters[0]
                                     : throw new InvalidOperationException("character is required to picture a position-only root2d constraint when the Session has multiple characters.");
-                            Vector2 position = RequiredVector2(item, "position");
-                            Vector2 heading = RequiredVector2(item, "heading");
-                            if (heading.sqrMagnitude < 1e-8f) throw new InvalidOperationException($"constraints[{i}].heading must be non-zero.");
+                            float forwardPos = RequiredFiniteScalar(item, "forwardPos");
+                            float rightwardPos = RequiredFiniteScalar(item, "rightwardPos");
+                            float rotateY = RequiredFiniteScalar(item, "rotateY");
+                            float radians = rotateY * Mathf.Deg2Rad;
                             var sample = new KimodoMarkerSampleResult
                             {
                                 constraintType = type,
-                                kimodoRootPosition = new Vector3(position.x, 0f, position.y),
-                                rootHeading = heading.normalized,
+                                kimodoRootPosition = new Vector3(
+                                    rightwardPos,
+                                    ResolveCharacterRootHeight(character),
+                                    forwardPos),
+                                rootHeading = new Vector2(Mathf.Sin(radians), Mathf.Cos(radians)),
                                 hasRootHeading = true
                             };
                             requests.Add(new CaptureRequest(character, session.Director.time, annotation, sample, frame, true));
                         }
                         else
                         {
-                            throw new InvalidOperationException($"constraints[{i}].pose is required unless type is root2d with position and heading.");
+                            throw new InvalidOperationException($"constraints[{i}].pose is required unless type is root2d with forwardPos, rightwardPos, and rotateY.");
                         }
                     }
                 }
@@ -107,6 +111,24 @@ namespace KimodoUnityBridge.Command
                 if (arguments["analysis_id"] != null) result["analysis_id"] = arguments.Value<string>("analysis_id");
                 return Ok(result);
             });
+        }
+
+        private static float ResolveCharacterRootHeight(TimelineCharacterRecord character)
+        {
+            if (character?.Animator == null || !KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
+            {
+                return 0f;
+            }
+
+            try
+            {
+                Transform hips = character.Animator.GetBoneTransform(HumanBodyBones.Hips);
+                return hips != null ? hips.position.y : 0f;
+            }
+            catch (InvalidOperationException)
+            {
+                return 0f;
+            }
         }
 
         private static CaptureRequest BuildCaptureRequest(PoseLocator locator, JObject annotation)

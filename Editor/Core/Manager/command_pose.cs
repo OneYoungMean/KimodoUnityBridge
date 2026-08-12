@@ -35,10 +35,9 @@ namespace KimodoUnityBridge.Command
             TimelineCharacterRecord character = ResolveSessionCharacterByReference(
                 session, RequiredStringValue(arguments, "character"), false);
             RequireWritablePoseAvatar(character);
-            JObject result = ReadPose(RequirePoseLocator(arguments["pose"] as JObject), PoseCopyCommand);
-            JObject data = result["data"] as JObject
-                ?? throw new InvalidOperationException("Source pose data is unavailable.");
-            return Ok(new JObject { ["pose"] = StoreWritablePose(character, data) });
+            KimodoMarkerSampleResult sourceSample = ReadPoseSample(
+                RequirePoseLocator(arguments["pose"] as JObject), PoseCopyCommand);
+            return Ok(new JObject { ["pose"] = StoreWritablePose(character, sourceSample) });
         });
 
         public static string PoseSet(string argumentsJson) => Execute(argumentsJson, arguments =>
@@ -111,8 +110,9 @@ namespace KimodoUnityBridge.Command
                 points.Add(new JObject
                 {
                     ["frame"] = frame,
-                    ["position"] = new JArray(position.x, position.y),
-                    ["heading"] = new JArray(heading.x, heading.y)
+                    ["forwardPos"] = position.y,
+                    ["rightwardPos"] = position.x,
+                    ["rotateY"] = Mathf.Atan2(heading.x, heading.y) * Mathf.Rad2Deg
                 });
             }
             return Ok(new JObject
@@ -177,45 +177,68 @@ namespace KimodoUnityBridge.Command
 
         private static JObject ReadPose(PoseLocator locator, string command = GenerateAnimationCommand)
         {
+            KimodoMarkerSampleResult sample = ReadPoseSample(locator, command);
+            TimelineSessionRecord session = RequireCurrentTimelineSession();
+            TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
+                string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase));
+            if (character != null)
+            {
+                return new JObject
+                {
+                    ["pose"] = PoseLocatorJson(character.Name, locator.Frame),
+                    ["data"] = PoseSampleToJson(sample)
+                };
+            }
+            character = ResolvePoseCacheOwner(locator.Source);
+            if (character != null)
+            {
+                return new JObject
+                {
+                    ["pose"] = PoseLocatorJson(character.PoseCacheTrack.name, locator.Frame),
+                    ["data"] = PoseSampleToJson(sample)
+                };
+            }
+            return new JObject
+            {
+                ["pose"] = PoseLocatorJson(locator.Source, locator.Frame),
+                ["data"] = PoseSampleToJson(sample)
+            };
+        }
+
+        private static KimodoMarkerSampleResult ReadPoseSample(
+            PoseLocator locator,
+            string command = GenerateAnimationCommand)
+        {
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
                 string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase));
             if (character != null)
             {
                 ThrowIfGenerationRangeLocked(session, character, locator.Frame, locator.Frame + 1, command);
-                JObject data = CaptureCharacterPose(session, character, locator.Frame);
-                return new JObject
-                {
-                    ["pose"] = PoseLocatorJson(character.Name, locator.Frame),
-                    ["data"] = data
-                };
+                return CaptureCharacterPoseSample(session, character, locator.Frame).Clone();
             }
+
             character = ResolvePoseCacheOwner(locator.Source);
             if (character != null)
             {
                 KimodoUntypedConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
                     ?? throw new InvalidOperationException("Writable pose source does not contain a pose at the requested frame.");
-                return new JObject
-                {
-                    ["pose"] = PoseLocatorJson(character.PoseCacheTrack.name, locator.Frame),
-                    ["data"] = PoseSampleToJson(marker.SampleData)
-                };
+                return marker.SampleData?.Clone() ?? new KimodoMarkerSampleResult();
             }
-            TimelineSessionRecord current = RequireCurrentTimelineSession();
-            KimodoConstraintMarkerBase constraint = current.Characters
+
+            KimodoConstraintMarkerBase constraint = session.Characters
                 .SelectMany(item => item.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>())
                 .FirstOrDefault(item => item is not KimodoUntypedConstraintMarker &&
                     string.Equals(item.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
                     Mathf.RoundToInt((float)(item.time * SessionFrameRate)) == locator.Frame)
                 ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
-            return new JObject
-            {
-                ["pose"] = PoseLocatorJson(constraint.name, locator.Frame),
-                ["data"] = PoseSampleToJson(constraint.SampleData)
-            };
+            return constraint.SampleData?.Clone() ?? new KimodoMarkerSampleResult();
         }
 
-        private static JObject CaptureCharacterPose(TimelineSessionRecord session, TimelineCharacterRecord character, int frame)
+        private static KimodoMarkerSampleResult CaptureCharacterPoseSample(
+            TimelineSessionRecord session,
+            TimelineCharacterRecord character,
+            int frame)
         {
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
             {
@@ -246,7 +269,7 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException($"Timeline retarget pose sampling failed: {sampleError}");
             }
-            return PoseSampleToJson(sample);
+            return sample;
         }
 
         private static void RequireWritablePoseAvatar(TimelineCharacterRecord character)
@@ -265,6 +288,23 @@ namespace KimodoUnityBridge.Command
             marker.useOverride = true;
             marker.constraintEnabled = true;
             ApplyPoseJson(marker.SampleData, data);
+            marker.SampleData.sampleTime = frame / SessionFrameRate;
+            EditorUtility.SetDirty(marker);
+            EditorUtility.SetDirty(character.PoseCacheTrack);
+            SaveTimelineSession(RequireCurrentTimelineSession());
+            return PoseLocatorJson(character.PoseCacheTrack.name, frame);
+        }
+
+        private static JObject StoreWritablePose(
+            TimelineCharacterRecord character,
+            KimodoMarkerSampleResult sourceSample)
+        {
+            int frame = AllocatePoseFrame(character.PoseCacheTrack);
+            KimodoUntypedConstraintMarker marker = character.PoseCacheTrack.CreateMarker<KimodoUntypedConstraintMarker>(frame / SessionFrameRate);
+            marker.name = $"Pose_{frame}";
+            marker.useOverride = true;
+            marker.constraintEnabled = true;
+            marker.SampleData = sourceSample?.Clone() ?? new KimodoMarkerSampleResult();
             marker.SampleData.sampleTime = frame / SessionFrameRate;
             EditorUtility.SetDirty(marker);
             EditorUtility.SetDirty(character.PoseCacheTrack);
@@ -324,8 +364,9 @@ namespace KimodoUnityBridge.Command
             {
                 ["root"] = new JObject
                 {
-                    ["position"] = Vector3Json(sample.kimodoRootPosition),
-                    ["rotation_y"] = ResolvePoseRootYaw(rootRotation)
+                    ["forwardPos"] = sample.kimodoRootPosition.z,
+                    ["rightwardPos"] = sample.kimodoRootPosition.x,
+                    ["rotateY"] = ResolvePoseRootYaw(rootRotation)
                 },
                 ["muscles"] = muscles,
                 ["foot_ik"] = new JObject
@@ -339,15 +380,25 @@ namespace KimodoUnityBridge.Command
         private static void ApplyPoseJson(KimodoMarkerSampleResult sample, JObject data)
         {
             JObject root = data["root"] as JObject;
-            if (root?["position"] != null) sample.kimodoRootPosition = RequiredVector3(root, "position");
-            if (root?["rotation_y"] != null)
+            if (root == null)
             {
-                JToken rotationYToken = root["rotation_y"];
-                if (rotationYToken.Type != JTokenType.Integer && rotationYToken.Type != JTokenType.Float)
-                    throw new InvalidOperationException("rotation_y must be a number in degrees.");
-                float rotationY = rotationYToken.Value<float>();
-                if (float.IsNaN(rotationY) || float.IsInfinity(rotationY))
-                    throw new InvalidOperationException("rotation_y must be finite.");
+                return;
+            }
+            if (root["position"] != null || root["rotation_y"] != null)
+            {
+                throw new InvalidOperationException("root.position/root.rotation_y were removed; use root.forwardPos, root.rightwardPos, and root.rotateY.");
+            }
+            if (root["forwardPos"] != null)
+            {
+                sample.kimodoRootPosition.z = RequiredFiniteScalar(root, "forwardPos");
+            }
+            if (root["rightwardPos"] != null)
+            {
+                sample.kimodoRootPosition.x = RequiredFiniteScalar(root, "rightwardPos");
+            }
+            if (root["rotateY"] != null)
+            {
+                float rotationY = RequiredFiniteScalar(root, "rotateY");
                 sample.localAxisAngles ??= new List<Vector3>();
                 if (sample.localAxisAngles.Count == 0) sample.localAxisAngles.Add(Vector3.zero);
                 Quaternion currentRotation = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0]);
@@ -355,7 +406,7 @@ namespace KimodoUnityBridge.Command
                 sample.localAxisAngles[0] = KimodoRuntimeUtility.QuaternionToAxisAngleVector(rotation);
                 Vector3 forward = rotation * Vector3.forward;
                 Vector2 heading = new Vector2(forward.x, forward.z);
-                sample.rootHeading = heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.right;
+                sample.rootHeading = heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.up;
                 sample.hasRootHeading = true;
             }
             if (data["muscles"] is JObject muscles)
@@ -400,11 +451,15 @@ namespace KimodoUnityBridge.Command
             if (value?["rotation"] != null) rotation = RequiredQuaternion(value, "rotation");
         }
 
-        private static Vector2 RequiredVector2(JObject value, string name)
+        private static float RequiredFiniteScalar(JObject value, string name)
         {
-            JArray array = value?[name] as JArray;
-            if (array == null || array.Count != 2) throw new InvalidOperationException($"{name} must be [x,z].");
-            return new Vector2(array[0].Value<float>(), array[1].Value<float>());
+            JToken token = value?[name];
+            if (token == null || (token.Type != JTokenType.Integer && token.Type != JTokenType.Float))
+                throw new InvalidOperationException($"{name} must be a number.");
+            float result = token.Value<float>();
+            if (float.IsNaN(result) || float.IsInfinity(result))
+                throw new InvalidOperationException($"{name} must be finite.");
+            return result;
         }
 
         private static Vector3 RequiredVector3(JObject value, string name)
