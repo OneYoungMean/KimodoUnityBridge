@@ -147,16 +147,7 @@ namespace KimodoUnityBridge.Command
                 {
                     continue;
                 }
-                PlayableDirector director = Resources.FindObjectsOfTypeAll<PlayableDirector>()
-                    .FirstOrDefault(item => item != null && item.playableAsset == timeline && item.gameObject.scene.IsValid());
-                if (director == null)
-                {
-                    var directorObject = new GameObject($"{TimelineDirectorNamePrefix}{KimodoRuntimeUtility.SanitizeName(metadata.sessionName, "Session")}");
-                    directorObject.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
-                    director = directorObject.AddComponent<PlayableDirector>();
-                    director.playableAsset = timeline;
-                }
-                var session = new TimelineSessionRecord(sessionId, metadata.sessionName, director, timeline, path, metadata.isAutomatic, metadata);
+                var session = new TimelineSessionRecord(sessionId, metadata.sessionName, null, timeline, path, metadata.isAutomatic, metadata);
                 foreach (KimodoCommandCharacterMetadata savedCharacter in metadata.characters ?? new List<KimodoCommandCharacterMetadata>())
                 {
                     GameObject root = ResolveObject(savedCharacter.characterRef) as GameObject;
@@ -175,7 +166,6 @@ namespace KimodoUnityBridge.Command
                         continue;
                     }
                     var character = new TimelineCharacterRecord(savedCharacter.characterRef, root, animator, avatarResult.Avatar, track, poseTrack, avatarResult.Error);
-                    director.SetGenericBinding(track, animator);
                     session.Characters.Add(character);
                 }
                 foreach (KimodoCommandAnimatorImportMetadata imported in metadata.animatorImports ?? new List<KimodoCommandAnimatorImportMetadata>())
@@ -207,7 +197,9 @@ namespace KimodoUnityBridge.Command
                         ToAnimation = saved.toAnimation ?? string.Empty
                     };
                     character.Animations.Add(restoredAnimation);
-                    character.NextStartSeconds = Math.Max(character.NextStartSeconds, clip.end);
+                    character.NextStartSeconds = Math.Max(
+                        character.NextStartSeconds,
+                        clip.end + command_context.ClipSafeZoneSeconds);
                 }
                 lock (TimelineSessionsLock)
                 {

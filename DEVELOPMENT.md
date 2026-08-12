@@ -35,7 +35,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。Runt
 | 命令与模型发现 | 返回全部 command schema、单命令 schema 和可用模型配置 | `kimodo_help` | 完整 | schema 是参数真相 |
 | Package 安装 | 通过 UPM Git、embedded 或 `file:` 安装 | 分发 skill 修改 `manifest.json` | 部分 | 安装发生在 command 可用之前 |
 | 项目级 QuickServer 准备 | 生成时按需准备、启动和连接项目运行时 | `kimodo_debug_install_server` | 调试 | 常规生成不要求显式安装命令 |
-| Session 创建、加载与关闭 | 创建/加载可保留的 60 FPS Timeline Session | `session_open`, `session_close` | 完整 | 同时只维护一个 current Session |
+| Session 创建、加载与关闭 | 创建/加载可保留的 60 FPS Timeline Session | `session_open`, `session_close` | 完整 | 同时只维护一个 current Session，并复用一个不保存到场景的临时 Director |
 | Session 状态查询 | 查询角色、动画、约束和 Animator transition | `query_current_session` | 完整 | 支持 7 种 query |
 | 角色加入与移除 | 将场景 Humanoid Animator 加入/移出 Session | `session_try_add`, `session_try_remove` | 完整 | 使用安全名称或场景路径 |
 | AnimationClip 加入与移除 | 将项目 Clip 加入角色轨道并维护虚拟时间地址 | `session_try_add`, `session_try_remove` | 完整 | 非 Muscle Clip 会尝试 Retarget |

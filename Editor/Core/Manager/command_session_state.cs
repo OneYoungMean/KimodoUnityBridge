@@ -21,11 +21,15 @@ namespace KimodoUnityBridge.Command
     {
         private const string AutomaticTimelineSessionName = "__KimodoAuto__";
         private const string TimelineDirectorNamePrefix = "Kimodo_CommandSession_";
+        internal const int ClipSafeZoneFrames = 4;
+        internal const double ClipSafeZoneSeconds = ClipSafeZoneFrames / 60.0;
+        private const string SharedTimelineDirectorName = TimelineDirectorNamePrefix + "Director";
         private const string GeneratedTimelineFolder = KimodoEditorClipWritebackService.GeneratedClipFolder + "/Timelines";
         private static readonly Dictionary<string, TimelineSessionRecord> TimelineSessions =
             new Dictionary<string, TimelineSessionRecord>(StringComparer.OrdinalIgnoreCase);
         private static readonly object TimelineSessionsLock = new object();
         private static TimelineSessionRecord currentTimelineSession;
+        private static PlayableDirector sharedTimelineDirector;
 
         public static string SessionOpenTimeline(string argumentsJson)
         {
@@ -121,24 +125,35 @@ namespace KimodoUnityBridge.Command
             PersistTimelineSessionMetadata(current);
             CloseTimelineWindow(current.TimelineAsset);
             EditorUtility.SetDirty(current.TimelineAsset);
-            EditorUtility.SetDirty(current.Director);
+            if (current.Director != null)
+            {
+                EditorUtility.SetDirty(current.Director);
+            }
             AssetDatabase.SaveAssets();
         }
 
         private static void ActivateTimelineSession(TimelineSessionRecord session)
         {
-            foreach (PlayableDirector director in Resources.FindObjectsOfTypeAll<PlayableDirector>())
+            if (session == null || session.TimelineAsset == null)
             {
-                if (director == null || director == session.Director || director.gameObject == null ||
-                    !director.gameObject.scene.IsValid() ||
-                    !director.name.StartsWith(TimelineDirectorNamePrefix, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                director.Stop();
-                director.enabled = false;
+                return;
             }
-            session.Director.enabled = true;
+
+            PlayableDirector director = GetOrCreateSharedTimelineDirector();
+            director.Stop();
+            ClearTimelineBindings(director);
+            director.playableAsset = session.TimelineAsset;
+            director.time = session.CurrentTime;
+            foreach (TimelineCharacterRecord character in session.Characters)
+            {
+                if (character.Track != null && character.Animator != null)
+                {
+                    director.SetGenericBinding(character.Track, character.Animator);
+                }
+            }
+            director.enabled = true;
+            director.RebuildGraph();
+            session.Director = director;
         }
 
         private static void DeactivateTimelineSession(TimelineSessionRecord session)
@@ -147,8 +162,67 @@ namespace KimodoUnityBridge.Command
             {
                 return;
             }
-            session.Director.Stop();
-            session.Director.enabled = false;
+            PlayableDirector director = session.Director;
+            session.CurrentTime = director.time;
+            director.Stop();
+            ClearTimelineBindings(director);
+            if (director.playableAsset == session.TimelineAsset)
+            {
+                director.playableAsset = null;
+            }
+            director.enabled = false;
+            session.Director = null;
+        }
+
+        private static PlayableDirector GetOrCreateSharedTimelineDirector()
+        {
+            if (sharedTimelineDirector != null)
+            {
+                return sharedTimelineDirector;
+            }
+
+            PlayableDirector[] owned = Resources.FindObjectsOfTypeAll<PlayableDirector>()
+                .Where(IsOwnedTimelineDirector)
+                .ToArray();
+            PlayableDirector director = owned.FirstOrDefault(item => item.name == SharedTimelineDirectorName)
+                ?? owned.FirstOrDefault();
+            if (director == null)
+            {
+                var directorObject = new GameObject(SharedTimelineDirectorName);
+                director = directorObject.AddComponent<PlayableDirector>();
+            }
+
+            foreach (PlayableDirector duplicate in owned.Where(item => item != director))
+            {
+                duplicate.Stop();
+                UnityEngine.Object.DestroyImmediate(duplicate.gameObject);
+            }
+
+            director.name = SharedTimelineDirectorName;
+            director.gameObject.name = SharedTimelineDirectorName;
+            director.gameObject.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
+            director.playOnAwake = false;
+            sharedTimelineDirector = director;
+            return director;
+        }
+
+        private static bool IsOwnedTimelineDirector(PlayableDirector director)
+        {
+            return director != null && director.gameObject != null &&
+                director.name.StartsWith(TimelineDirectorNamePrefix, StringComparison.Ordinal) &&
+                (director.gameObject.hideFlags & HideFlags.DontSaveInEditor) != 0;
+        }
+
+        private static void ClearTimelineBindings(PlayableDirector director)
+        {
+            if (director?.playableAsset is not TimelineAsset timeline)
+            {
+                return;
+            }
+            foreach (TrackAsset track in timeline.GetOutputTracks())
+            {
+                director.ClearGenericBinding(track);
+            }
         }
 
         private static TimelineSessionRecord CreateTimelineSession(string requestedName, bool isAutomatic)
@@ -180,9 +254,9 @@ namespace KimodoUnityBridge.Command
             metadata.isAutomatic = isAutomatic;
             AssetDatabase.AddObjectToAsset(metadata, timelineAsset);
 
-            GameObject directorObject = new GameObject($"Kimodo_CommandSession_{safeName}");
-            directorObject.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
-            PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
+            PlayableDirector director = GetOrCreateSharedTimelineDirector();
+            director.Stop();
+            ClearTimelineBindings(director);
             director.playableAsset = timelineAsset;
             director.time = 0.0;
 
@@ -321,7 +395,7 @@ namespace KimodoUnityBridge.Command
             var animation = new TimelineAnimationRecord(
                 Guid.NewGuid(), timelineClip.displayName, source, clip, timelineClip, analysis, null, 0, 0);
             character.Animations.Add(animation);
-            character.NextStartSeconds += duration;
+            character.NextStartSeconds = timelineClip.end + ClipSafeZoneSeconds;
             EditorUtility.SetDirty(character.Track);
             return animation;
         }
@@ -511,7 +585,7 @@ namespace KimodoUnityBridge.Command
                 {
                     throw new InvalidOperationException("Timeline Session was closed before generation could be started.");
                 }
-                trace.Character.NextStartSeconds = trace.StartSeconds + trace.DurationSeconds;
+                trace.Character.NextStartSeconds = trace.StartSeconds + trace.DurationSeconds + ClipSafeZoneSeconds;
             }
         }
 
@@ -1565,12 +1639,13 @@ namespace KimodoUnityBridge.Command
             public Guid Id { get; }
             public string Name { get; }
             public DateTime CreatedAtUtc { get; }
-            public PlayableDirector Director { get; }
+            public PlayableDirector Director { get; internal set; }
             public TimelineAsset TimelineAsset { get; }
             public string TimelineAssetPath { get; }
             public bool IsAutomatic { get; }
             public KimodoCommandSessionMetadata Metadata { get; }
             public bool AutoCloseWhenIdle { get; set; }
+            public double CurrentTime { get; set; }
             public List<TimelineCharacterRecord> Characters { get; } = new List<TimelineCharacterRecord>();
         }
 

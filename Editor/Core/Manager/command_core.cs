@@ -63,7 +63,7 @@ namespace KimodoUnityBridge.Command
                         Properties(
                             Optional("session_name", "string", "Existing Session name to load; omitted always creates a new Session."))),
                     CommandDefinition(SessionCloseCommand,
-                        "Close the current animation editing Session while preserving it for a later named reopen.",
+                        "Close the current animation editing Session while preserving scene contents and the Session for a later named reopen. Kimodo detaches its shared transient Director instead of leaving one Director per Session.",
                         Properties()),
                     CommandDefinition(QueryCurrentSessionCommand,
                         "Query characters, a character's animations, one animation, character constraints, or animation constraints.",
@@ -72,7 +72,7 @@ namespace KimodoUnityBridge.Command
                             Optional("character", "string", "Safe character name in the current Session."),
                             Optional("animation", "string", "Safe animation name in the selected character."))),
                     CommandDefinition(SessionTryAddCommand,
-                        "TryAdd a humanoid character, AnimationClip, or AnimatorController content to the current Session. Deterministic Clip-to-Clip transitions are baked; BlendTree choices remain explicit Timeline work.",
+                        "TryAdd a humanoid character, AnimationClip, or AnimatorController content to the current Session. Appended clips keep a fixed 4-frame safezone. Deterministic Clip-to-Clip transitions are baked; BlendTree choices remain explicit Timeline work.",
                         Properties(
                             Required("kind", "string", "character, clip, or animator."),
                             Required("character", "string", "Scene character name/path for kind=character, or target Session character name otherwise."),
@@ -93,7 +93,7 @@ namespace KimodoUnityBridge.Command
                             Optional("end_frame", "integer", "Exclusive Session frame at 60 FPS; requires start_frame."),
                             Optional("analysis_option", "object", "Optional QuickServer analysis configuration; analysis_only is forced true."))),
                     CommandDefinition(KimodoBakeRangeCommand,
-                        "Bake a Session time range into an AnimationClip and append it to a character; optionally retarget it to another current Session character. Overlap with a running generation on the source track returns generation_range_locked.",
+                        "Bake a Session time range into an AnimationClip and append it to a character with a fixed 4-frame safezone; optionally retarget it to another current Session character. Overlap with a running generation on the source track returns generation_range_locked.",
                         Properties(
                             Required("start_frame", "integer", "Inclusive Session frame at 60 FPS."),
                             Required("end_frame", "integer", "Exclusive Session frame at 60 FPS."),
@@ -104,7 +104,7 @@ namespace KimodoUnityBridge.Command
                             Optional("name", "string", "Requested safe output animation name."),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
                     CommandDefinition(GenerateAnimationCommand,
-                        "Append a configured KimodoPlayableClip to the character Timeline and generate its AnimationClip asset. Without a current Session, a retained __KimodoAuto__ Session is created and closed after generation.",
+                        "Append a configured KimodoPlayableClip to the character Timeline with a fixed 4-frame safezone and generate its AnimationClip asset. Without a current Session, a retained __KimodoAuto__ Session is created and closed after generation.",
                         Properties(
                             Required("character", "string", "Safe scene or Session character name."),
                             Required("prompt", "string", "Motion prompt."),

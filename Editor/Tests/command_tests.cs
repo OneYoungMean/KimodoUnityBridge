@@ -82,6 +82,9 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(workflow[1]["arguments"].Value<string>("query"), Is.EqualTo("characters"));
             Assert.That(workflow[2]["arguments"].Value<int>("duration_frames"), Is.EqualTo(60));
             Assert.That(workflow[3].Value<string>("repeat_until"), Does.Contain("completed"));
+            Assert.That(response["constraints"].Values<JObject>().Select(item => item.Value<string>("type")),
+                Is.EqualTo(new[] { "fullbody", "root2d" }));
+            Assert.That(response["constraint_rules"].Values<string>().Single(), Does.Contain("root2d"));
         }
 
         [Test]
@@ -96,27 +99,6 @@ namespace KimodoBridge.Editor.Tests
             {
                 UnityEngine.Object.DestroyImmediate(marker);
             }
-        }        
-		public void HelpInvocation_ProvidesRunnableAnimationWorkflow()
-        {
-            JObject response = JObject.Parse(command_dispatcher.Invoke(command_kimodo.HelpCommand));
-            Assert.That(response.Value<bool>("ok"), Is.True);
-
-            JArray workflow = (JArray)response["workflow"];
-            Assert.That(workflow.Values<string>("command"), Is.EqualTo(new[]
-            {
-                command_session.OpenCommand,
-                command_query.CurrentSessionCommand,
-                command_kimodo.GenerateAnimationCommand,
-                command_kimodo.GetGenerationCommand,
-                command_session.CloseCommand
-            }));
-            Assert.That(workflow[1]["arguments"].Value<string>("query"), Is.EqualTo("characters"));
-            Assert.That(workflow[2]["arguments"].Value<int>("duration_frames"), Is.EqualTo(60));
-            Assert.That(workflow[3].Value<string>("repeat_until"), Does.Contain("completed"));
-            Assert.That(response["constraints"].Values<JObject>().Select(item => item.Value<string>("type")),
-                Is.EqualTo(new[] { "fullbody", "root2d" }));
-            Assert.That(response["constraint_rules"].Values<string>().Single(), Does.Contain("root2d"));
         }
 
         [Test]
@@ -157,20 +139,6 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(point.Value<float>("forwardPos"), Is.EqualTo(0f).Within(1e-5f));
             Assert.That(point.Value<float>("rightwardPos"), Is.EqualTo(path.Value<float>("distance")).Within(1e-5f));
             Assert.That(point.Value<float>("rotateY"), Is.EqualTo(90f).Within(1e-5f));
-        }
-
-        [Test]
-        public void WritablePoseMarker_HasAUnityScriptAsset()
-        {
-            var marker = ScriptableObject.CreateInstance<KimodoUntypedConstraintMarker>();
-            try
-            {
-                Assert.That(MonoScript.FromScriptableObject(marker), Is.Not.Null);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(marker);
-            }
         }
 
         [Test]
@@ -304,6 +272,13 @@ namespace KimodoBridge.Editor.Tests
             bool expected)
         {
             Assert.That(command_context.GenerationRangesOverlap(firstStart, firstEnd, secondStart, secondEnd), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void ClipSafeZone_IsFourFramesAtSessionRate()
+        {
+            Assert.That(command_context.ClipSafeZoneFrames, Is.EqualTo(4));
+            Assert.That(command_context.ClipSafeZoneSeconds, Is.EqualTo(4.0 / 60.0).Within(1e-9));
         }
 
         [Test]
