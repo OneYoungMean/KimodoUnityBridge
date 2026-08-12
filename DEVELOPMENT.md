@@ -32,7 +32,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 
 | 能力 | Package 当前能力 | CLI 入口 | 覆盖 | 开发备注 |
 | --- | --- | --- | --- | --- |
-| 命令与模型发现 | 返回全部 command schema、单命令 schema 和可用模型配置 | `kimodo_help` | 完整 | schema 是参数真相 |
+| 命令、路由与模型发现 | 返回 command schema、按意图路由、句柄流向、约束语义和可用模型配置 | `kimodo_help` | 完整 | schema 是参数真相；新 Session 明确为空 |
 | Package 安装 | 通过 UPM Git、embedded 或 `file:` 安装 | 分发 skill 修改 `manifest.json` | 部分 | 安装发生在 command 可用之前 |
 | 项目级 QuickServer 准备 | 生成时按需准备、启动和连接项目运行时 | `kimodo_debug_install_server` | 调试 | 常规生成不要求显式安装命令 |
 | Session 创建、加载与关闭 | 创建/加载可保留的 60 FPS Timeline Session | `session_open`, `session_close` | 完整 | 同时只维护一个 current Session |

@@ -41,14 +41,29 @@ Always start with:
 command_dispatcher.Invoke("kimodo_help", "{}");
 command_dispatcher.Invoke("kimodo_help", "{\"command\":\"COMMAND_NAME\"}");
 command_dispatcher.Invoke("kimodo_help", "{\"section\":\"models\"}");
+command_dispatcher.Invoke("kimodo_help", "{\"section\":\"constraints\"}");
 ```
 
 The returned schema is authoritative. Use only returned command names and parameters, and use a registered model name where required. Every command returns JSON with `ok:true` on success or `ok:false,error:<message>` on failure.
 
-### 4. Stable execution rules
+### 4. Choose a command by intent
+
+| Intent | First command | Continue with |
+| --- | --- | --- |
+| Inspect the current workspace | `query_current_session` | Reuse returned safe names |
+| Add a scene humanoid, project clip, or AnimatorController | `session_try_add` | Query the Session again |
+| Generate motion | `kimodo_generate_animation` | Poll `kimodo_get_generation` |
+| Analyze existing motion | `kimodo_analyze` | `query_picture` or `pose_copy` |
+| Edit a sampled pose | `pose_copy` | `pose_get`, `pose_set`, `query_picture` |
+| Build a mathematical root trajectory | `kimodo_build_root2d_path` | Convert returned points to `root2d` constraints |
+| Bake or retarget a Session range | `kimodo_bake_range` | Query the returned animation safe name |
+
+Kimodo does not discover arbitrary scene objects, choose BlendTree branches, perform general Timeline layout, or prove visual playback. Use the surrounding Unity tool for those tasks. `kimodo_build_root2d_path` is mathematical path generation, not NavMesh sampling.
+
+### 5. Stable execution rules
 
 - Session time is fixed at 60 FPS. Public ranges use `[start_frame,end_frame)`; generation constraint frames are relative to the generated clip.
-- Preserve every returned character/animation safe name, pose locator, `analysis_id`, and `request_id` exactly.
+- Treat every returned character/animation safe name, pose locator, `analysis_id`, and `request_id` as an opaque handle. Never reconstruct one from a display name.
 - Generation is asynchronous. Poll `kimodo_get_generation` until `status` is `completed`, `failed`, or `canceled`; acceptance or `running` is not completion.
 - While generation is running, commands that sample or remove an overlapping range on the same character track fail immediately with `code: generation_range_locked`. Non-overlapping tracks/ranges continue normally; wait for the returned `request_id` to finish or cancel it before retrying.
 - Asset generation and server maintenance run in Unity Edit Mode and must wait while Unity is compiling or importing.
@@ -56,19 +71,23 @@ The returned schema is authoritative. Use only returned command names and parame
 - Use only models returned by `kimodo_help` with `section:"models"`.
 - Do not call the raw QuickServer TCP protocol for normal Unity animation tasks.
 
-### 5. Minimal generation workflow
+Handle routing is fixed: character/animation safe names go to Session commands; `request_id` goes to `kimodo_get_generation` or `kimodo_cancel_generation`; `analysis_id` goes to `query_picture`; a pose `{source,frame}` goes to pose commands or generation constraints.
+
+### 6. Minimal generation workflow
 
 ```text
 session_open {}
+<surrounding Unity tool: inspect the scene and choose an exact GameObject name/path with a valid Humanoid Animator>
+session_try_add {"kind":"character","character":"<scene name or path>"}  # save returned character.name
 query_current_session {"query":"characters"}
 kimodo_generate_animation {"character":"<safe name>","prompt":"stand still and breathe naturally","duration_frames":60}
 kimodo_get_generation {"request_id":"<request_id>"}  # repeat to terminal state
 session_close {}
 ```
 
-Before each non-trivial call, request that command's current help. Verify the final response, generated animation asset, Session metadata, and Unity Console. Report visual playback separately when it was not observed.
+A new Session is empty; `query_current_session` cannot discover scene characters before `session_try_add`. Before each non-trivial call, request that command's current help. Verify the final response, generated animation asset, Session metadata, and Unity Console. Report visual playback separately when it was not observed.
 
-### 6. Pose and constraint semantics
+### 7. Pose and constraint semantics
 
 A pose locator is `{"source":"<source>","frame":<integer>}`. A character source samples a read-only Timeline pose. A `<character>.Poses` source is writable. Use `pose_copy` before modifying a read-only pose, then use `pose_get`/`pose_set`. Pose data is one nested object containing `muscles` (49 values in Unity Muscle index order `0-14,21-54`) plus `root`, `hands.left/right`, and `feet.left/right`; every transform is `{t:[x,y,z],q:[x,y,z,w]}` with translation in meters. These channels have the same semantics as MuscleClip RootTQ, HandTQ, and FootTQ. `pose_set` is a partial patch and does not clamp finite Muscle values. Root2D converts RootTQ through the Avatar on the pose's owning track.
 
@@ -92,14 +111,14 @@ kimodo_generate_animation -> pass the locator in constraints
 kimodo_get_generation -> poll to terminal state
 ```
 
-### 7. Analysis, bake, retarget, and Animator
+### 8. Analysis, bake, retarget, and Animator
 
 - `kimodo_analyze` accepts either one named animation or a Session frame range. Save its `analysis_id` for `query_picture`.
 - `kimodo_bake_range` bakes a half-open Session range and can retarget to another current Session character. A valid Humanoid Avatar is required.
 - `session_try_add` imports a humanoid character, AnimationClip, or Animator content according to its current schema. Deterministic clip-to-clip transitions may be baked; BlendTree branch choice and unrelated Timeline placement belong to the surrounding Unity tool.
 - Query current Session state before mutation and use returned safe names rather than scene guesses.
 
-### 8. Project-owned runtime and diagnosis
+### 9. Project-owned runtime and diagnosis
 
 Normal generation prepares and starts the project-local runtime as needed. `kimodo_debug_install_server` is debug-only incremental repair/setup; inspect its current help before use. Do not expose it as a global installer.
 
@@ -107,7 +126,7 @@ The default runtime root is the Unity project's `NvlabKimodoQuickServer~`, with 
 
 Runtime `SetRoot2DTarget` treats a target inside `arrivalThresholdMeters` as already reached and does not stage a constraint.
 
-### 9. Backend developer seam
+### 10. Backend developer seam
 
 For backend maintenance only, `NvlabKimodoQuickServer~/core` is the source of server routing, setup, protocol, and ARDY behavior; `NvlabKimodoQuickServer~/kimodo` contains Kimodo model/motion code. Launchers call `core.quickserver_cli`. Treat current source and tests as authoritative.
 
@@ -145,14 +164,29 @@ CharacterAnimationCli.Unity.Command.command_dispatcher.Invoke(commandName, argum
 command_dispatcher.Invoke("kimodo_help", "{}");
 command_dispatcher.Invoke("kimodo_help", "{\"command\":\"COMMAND_NAME\"}");
 command_dispatcher.Invoke("kimodo_help", "{\"section\":\"models\"}");
+command_dispatcher.Invoke("kimodo_help", "{\"section\":\"constraints\"}");
 ```
 
 返回的 schema 是权威定义。只使用 schema 返回的命令名和参数，并在要求模型时使用注册模型名。所有命令均返回 JSON：成功为 `ok:true`，失败为 `ok:false,error:<message>`。
 
-### 4. 稳定执行规则
+### 4. 按意图选择命令
+
+| 意图 | 首个命令 | 后续命令 |
+| --- | --- | --- |
+| 检查当前工作区 | `query_current_session` | 复用返回的安全名称 |
+| 加入场景 Humanoid、项目 Clip 或 AnimatorController | `session_try_add` | 再次查询 Session |
+| 生成动作 | `kimodo_generate_animation` | 轮询 `kimodo_get_generation` |
+| 分析现有动作 | `kimodo_analyze` | `query_picture` 或 `pose_copy` |
+| 编辑采样 Pose | `pose_copy` | `pose_get`、`pose_set`、`query_picture` |
+| 构建数学根轨迹 | `kimodo_build_root2d_path` | 将返回点转换为 `root2d` constraints |
+| Bake 或 Retarget Session 区间 | `kimodo_bake_range` | 查询返回的动画安全名称 |
+
+Kimodo 不负责发现任意场景对象、选择 BlendTree 分支、一般 Timeline 排布或证明视觉播放结果；这些工作交给外围 Unity 工具。`kimodo_build_root2d_path` 是数学路径生成，不读取 NavMesh。
+
+### 5. 稳定执行规则
 
 - Session 时间固定为 60 FPS。公开区间使用 `[start_frame,end_frame)`；生成约束帧是生成 Clip 内的相对帧。
-- 原样保存所有返回的角色/动画安全名称、Pose locator、`analysis_id` 和 `request_id`。
+- 将所有返回的角色/动画安全名称、Pose locator、`analysis_id` 和 `request_id` 视为不透明句柄；禁止根据显示名称自行重建。
 - 生成是异步任务。反复调用 `kimodo_get_generation`，直到 `status` 为 `completed`、`failed` 或 `canceled`；accepted 或 `running` 不代表完成。
 - 生成运行期间，若命令要采样或删除同一角色 Track 上与生成区间重叠的范围，会立即返回 `code: generation_range_locked`。不重叠的 Track/区间仍可正常执行；应等待返回的 `request_id` 结束，或取消后重试。
 - 动画资产生成与服务器维护只在 Unity Edit Mode 执行；Unity 编译或导入期间必须等待。
@@ -160,19 +194,23 @@ command_dispatcher.Invoke("kimodo_help", "{\"section\":\"models\"}");
 - 模型只能使用 `kimodo_help` 的 `section:"models"` 返回项。
 - 普通 Unity 动画任务不得直接调用 QuickServer TCP 协议。
 
-### 5. 最小生成工作流
+句柄路由固定：角色/动画安全名称传给 Session 命令；`request_id` 只传给 `kimodo_get_generation` 或 `kimodo_cancel_generation`；`analysis_id` 传给 `query_picture`；Pose `{source,frame}` 传给 Pose 命令或生成约束。
+
+### 6. 最小生成工作流
 
 ```text
 session_open {}
+<外围 Unity 工具：检查场景，选择一个具有有效 Humanoid Animator 的准确 GameObject 名称或路径>
+session_try_add {"kind":"character","character":"<场景名称或路径>"}  # 保存返回的 character.name
 query_current_session {"query":"characters"}
 kimodo_generate_animation {"character":"<安全名称>","prompt":"stand still and breathe naturally","duration_frames":60}
 kimodo_get_generation {"request_id":"<request_id>"}  # 重复至终态
 session_close {}
 ```
 
-每个非平凡调用前先查询该命令的当前 help。验证最终响应、生成的动画资产、Session Metadata 和 Unity Console。没有实际观察播放时，将视觉验证单独标为未验证。
+新 Session 是空的；在 `session_try_add` 之前，`query_current_session` 不能发现场景角色。每个非平凡调用前先查询该命令的当前 help。验证最终响应、生成的动画资产、Session Metadata 和 Unity Console。没有实际观察播放时，将视觉验证单独标为未验证。
 
-### 6. Pose 与 Constraint 语义
+### 7. Pose 与 Constraint 语义
 
 Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 Timeline 上的只读采样 Pose；`<角色>.Poses` 来源可写。修改只读 Pose 前先调用 `pose_copy`，之后使用 `pose_get`/`pose_set`。Pose 数据是一个嵌套对象：`muscles`（49 个值，Unity Muscle 索引顺序为 `0-14,21-54`），以及 `root`、`hands.left/right`、`feet.left/right`；每个变换均为 `{t:[x,y,z],q:[x,y,z,w]}`，位移单位为米。这些通道分别与 MuscleClip 的 RootTQ、HandTQ、FootTQ 语义一致。`pose_set` 是局部 Patch，不会 Clamp 有限的 Muscle 值。Root2D 通过该 Pose 所在轨道的 Avatar 转换 RootTQ。
 
@@ -196,14 +234,14 @@ kimodo_generate_animation -> 在 constraints 中传入 locator
 kimodo_get_generation -> 轮询到终态
 ```
 
-### 7. Analysis、Bake、Retarget 与 Animator
+### 8. Analysis、Bake、Retarget 与 Animator
 
 - `kimodo_analyze` 接受一个命名动画或一段 Session 帧区间；保存返回的 `analysis_id` 供 `query_picture` 使用。
 - `kimodo_bake_range` Bake 半开 Session 区间，并可 Retarget 到当前 Session 的另一角色；角色必须具有有效 Humanoid Avatar。
 - `session_try_add` 按当前 schema 导入 Humanoid 角色、AnimationClip 或 Animator 内容。确定性的 Clip-to-Clip 过渡可以 Bake；BlendTree 分支选择和无关 Timeline 摆放由外围 Unity 工具负责。
 - 修改前先查询当前 Session 状态，使用返回的安全名称，不猜测场景名称。
 
-### 8. 项目级运行时与诊断
+### 9. 项目级运行时与诊断
 
 普通生成会按需准备并启动项目级运行时。`kimodo_debug_install_server` 仅用于调试式增量修复/安装，使用前先读取当前 help；不得把它暴露成全局安装器。
 
@@ -211,6 +249,6 @@ kimodo_get_generation -> 轮询到终态
 
 运行时 `SetRoot2DTarget` 会把 `arrivalThresholdMeters` 范围内的目标视为已经到达，不会暂存约束。
 
-### 9. 后端开发边界
+### 10. 后端开发边界
 
 仅在维护后端时，`NvlabKimodoQuickServer~/core` 是服务器路由、setup、协议与 ARDY 行为的源码；`NvlabKimodoQuickServer~/kimodo` 保存 Kimodo 模型/动作代码。启动脚本调用 `core.quickserver_cli`。以当前源码和测试为准。

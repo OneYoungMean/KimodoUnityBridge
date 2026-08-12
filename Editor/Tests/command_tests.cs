@@ -87,17 +87,24 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(response.Value<bool>("ok"), Is.True);
 
             JArray workflow = (JArray)response["workflow"];
-            Assert.That(workflow.Values<string>("command"), Is.EqualTo(new[]
+            Assert.That(workflow.Values<string>("command").Where(value => value != null), Is.EqualTo(new[]
             {
                 command_session.OpenCommand,
+                command_session.TryAddCommand,
                 command_query.CurrentSessionCommand,
                 command_kimodo.GenerateAnimationCommand,
                 command_kimodo.GetGenerationCommand,
                 command_session.CloseCommand
             }));
-            Assert.That(workflow[1]["arguments"].Value<string>("query"), Is.EqualTo("characters"));
-            Assert.That(workflow[2]["arguments"].Value<int>("duration_frames"), Is.EqualTo(60));
-            Assert.That(workflow[3].Value<string>("repeat_until"), Does.Contain("completed"));
+            Assert.That(workflow[1].Value<string>("external_step"), Does.Contain("Humanoid Animator"));
+            Assert.That(workflow[2]["arguments"].Value<string>("kind"), Is.EqualTo("character"));
+            Assert.That(workflow[3]["arguments"].Value<string>("query"), Is.EqualTo("characters"));
+            Assert.That(workflow[4]["arguments"].Value<int>("duration_frames"), Is.EqualTo(60));
+            Assert.That(workflow[5].Value<string>("repeat_until"), Does.Contain("completed"));
+            Assert.That(response["execution_model"].Values<string>().Any(rule => rule.Contains("no characters")), Is.True);
+            Assert.That(response["routing"].Values<JObject>().Any(route =>
+                route.Value<string>("command") == command_session.TryAddCommand), Is.True);
+            Assert.That(response["handles"]["request_id"].Value<string>(), Does.Contain(command_kimodo.GetGenerationCommand));
             Assert.That(response["constraints"].Values<JObject>().Select(item => item.Value<string>("type")),
                 Is.EqualTo(new[] { "fullbody", "root2d" }));
             Assert.That(response["constraint_rules"].Values<string>().Any(rule => rule.Contains("root2d")), Is.True);

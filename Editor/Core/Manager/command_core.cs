@@ -60,33 +60,33 @@ namespace CharacterAnimationCli.Unity.Command
                         Properties(),
                         debugOnly: true),
                     CommandDefinition(SessionOpenCommand,
-                        "Create a new current animation editing Session, or load an existing named Session.",
+                        "Create an empty current animation Session, or reopen an existing named Session. Add a scene humanoid before using character-scoped commands in a new Session.",
                         Properties(
                             Optional("session_name", "string", "Existing Session name to load; omitted always creates a new Session."))),
                     CommandDefinition(SessionCloseCommand,
                         "Close the current animation editing Session while preserving it for a later named reopen.",
                         Properties()),
                     CommandDefinition(QueryCurrentSessionCommand,
-                        "Query characters, a character's animations, one animation, character constraints, or animation constraints.",
+                        "Read current Session state without changing it. Query characters first, then reuse returned safe names for character- and animation-scoped queries.",
                         Properties(
                             RequiredEnum("query", "characters", "character_animations", "animation", "character_constraints", "animation_constraints", "animation_transitions", "transition"),
                             Optional("character", "string", "Safe character name in the current Session."),
                             Optional("animation", "string", "Safe animation name in the selected character."))),
                     CommandDefinition(SessionTryAddCommand,
-                        "TryAdd a humanoid character, AnimationClip, or AnimatorController content to the current Session. Appended clips keep a fixed 4-frame safezone. Deterministic Clip-to-Clip transitions are baked; BlendTree choices remain explicit Timeline work.",
+                        "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator; kind=clip appends one project AnimationClip to a Session character; kind=animator imports a scene AnimatorController into a Session character. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
                         Properties(
-                            Required("kind", "string", "character, clip, or animator."),
+                            RequiredEnum("kind", "character", "clip", "animator"),
                             Required("character", "string", "Scene character name/path for kind=character, or target Session character name otherwise."),
                             Optional("clip", "string", "Project AnimationClip name for kind=clip."),
                             Optional("animator", "string", "Scene Animator name/path for kind=animator."))),
                     CommandDefinition(SessionTryRemoveCommand,
                         "TryRemove a character track or one clip. Removing a clip does not move other clips or reuse its virtual time address.",
                         Properties(
-                            Required("kind", "string", "character or clip."),
+                            RequiredEnum("kind", "character", "clip"),
                             Required("character", "string", "Safe character name in the current Session."),
                             Optional("animation", "string", "Safe animation name for kind=clip."))),
                     CommandDefinition(KimodoAnalyzeCommand,
-                        "Analyze one named animation or a Session frame range and cache the result under a stable analysis_id. Overlap with a running generation on the same character track returns generation_range_locked.",
+                        "Analyze exactly one source: a named animation, or a half-open Session frame range. Returns analysis_id and pose locators for query_picture or pose_copy. Overlap with running generation on the same track returns generation_range_locked.",
                         Properties(
                             Required("character", "string", "Safe character name in the current Session."),
                             Optional("animation", "string", "Safe animation name; mutually exclusive with start_frame/end_frame."),
@@ -105,7 +105,7 @@ namespace CharacterAnimationCli.Unity.Command
                             Optional("name", "string", "Requested safe output animation name."),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
                     CommandDefinition(GenerateAnimationCommand,
-                        "Append a configured KimodoPlayableClip to the character Timeline with a fixed 4-frame safezone and generate its AnimationClip asset. Without a current Session, a retained __KimodoAuto__ Session is created and closed after generation.",
+                        "Start asynchronous generation for one scene or Session character, append a KimodoPlayableClip with a fixed 4-frame safezone, and return request_id. Poll kimodo_get_generation to a terminal state. Without a current Session, a retained __KimodoAuto__ Session is created and closed after generation.",
                         Properties(
                             Required("character", "string", "Safe scene or Session character name."),
                             Required("prompt", "string", "Motion prompt."),
@@ -129,7 +129,7 @@ namespace CharacterAnimationCli.Unity.Command
                             Optional("resolution", "integer", "Square output size in pixels; defaults to 512."),
                             Optional("scale", "number", "Camera framing scale; defaults to 1.0."))),
                     CommandDefinition(PoseCreateCommand,
-                        "Create a writable canonical 49-Muscle + Root/Hand/Foot TQ pose for a character.",
+                        "Create a writable canonical 49-Muscle + Root/Hand/Foot TQ pose and return its pose locator.",
                         Properties(
                             Required("character", "string", "Target character name."),
                             RequiredCharacterPose("pose", partial: false))),
@@ -142,18 +142,18 @@ namespace CharacterAnimationCli.Unity.Command
                             RequiredPoseLocator("pose"),
                             RequiredCharacterPose("data", partial: true))),
                     CommandDefinition(PoseCopyCommand,
-                        "Copy any pose into a writable pose for the target character.",
+                        "Copy any read-only or writable pose into a new writable pose and return its locator.",
                         Properties(
                             Required("character", "string", "Target character name."),
                             RequiredPoseLocator("pose"))),
                     CommandDefinition(BuildRoot2DPathCommand,
-                        "Build dependency-free Root2D path points at fixed 60 FPS.",
+                        "Return dependency-free Root2D constraint values {frame,position,heading} at fixed 60 FPS; this does not read or bake a NavMesh.",
                         Properties(
-                            Required("shape", "string", "line, turn, s, or circle."),
+                            RequiredEnum("shape", "line", "turn", "s", "circle"),
                             Optional("duration_frames", "integer", "Duration at 60 FPS; defaults to 300."),
                             Optional("max_speed", "number", "Maximum units per second; defaults to 2.5."),
                             Optional("acceleration", "number", "Acceleration/deceleration units per second squared; defaults to 2.5."),
-                            Optional("direction", "string", "left or right; defaults to left."),
+                            Enum("direction", "left", "right"),
                             Optional("turn_degrees", "integer", "0, 45, 90, 135, or 180."))),
                     CommandDefinition(QueryGenerationCommand,
                         "Get generation progress and the generated animation safe name.",
@@ -337,14 +337,50 @@ namespace CharacterAnimationCli.Unity.Command
                 return Ok(new JObject
                 {
                     ["manual"] = "Kimodo command reference",
+                    ["execution_model"] = new JArray
+                    {
+                        "The dispatcher owns at most one current Session. A newly created Session has no characters.",
+                        "Inspect the Unity scene with the surrounding Unity tool, then add one Humanoid Animator with session_try_add(kind=character).",
+                        "Treat returned safe names and locators as opaque handles; never reconstruct or guess them.",
+                        "Generation is asynchronous: save request_id and poll kimodo_get_generation to completed, failed, or canceled.",
+                        "Use surrounding Unity tools for scene discovery, general Timeline placement, BlendTree branch choice, and visual playback verification."
+                    },
+                    ["routing"] = new JArray
+                    {
+                        Route("discover schema or models", "kimodo_help"),
+                        Route("inspect current Session", "query_current_session"),
+                        Route("bring a scene character, project clip, or AnimatorController into the Session", "session_try_add"),
+                        Route("generate motion", "kimodo_generate_animation", "then kimodo_get_generation"),
+                        Route("analyze existing motion", "kimodo_analyze", "then query_picture or pose_copy"),
+                        Route("edit a sampled pose", "pose_copy", "then pose_get, pose_set, and query_picture"),
+                        Route("create a mathematical root trajectory", "kimodo_build_root2d_path", "convert returned points to root2d constraints"),
+                        Route("bake or retarget a Session range", "kimodo_bake_range")
+                    },
+                    ["handles"] = new JObject
+                    {
+                        ["character/animation safe name"] = "Reuse in Session-scoped commands.",
+                        ["request_id"] = "Pass only to kimodo_get_generation or kimodo_cancel_generation.",
+                        ["analysis_id"] = "Pass to query_picture.",
+                        ["pose {source,frame}"] = "Pass to pose_get, pose_copy, pose_set when writable, or generation constraints."
+                    },
                     ["workflow"] = new JArray
                     {
                         new JObject { ["command"] = SessionOpenCommand, ["arguments"] = new JObject() },
                         new JObject
                         {
+                            ["external_step"] = "Inspect the open Unity scene and choose one GameObject with a valid Humanoid Animator; save its exact name or hierarchy path."
+                        },
+                        new JObject
+                        {
+                            ["command"] = SessionTryAddCommand,
+                            ["arguments"] = new JObject { ["kind"] = "character", ["character"] = "<scene name or path>" },
+                            ["save"] = "returned character.name safe name"
+                        },
+                        new JObject
+                        {
                             ["command"] = QueryCurrentSessionCommand,
                             ["arguments"] = new JObject { ["query"] = "characters" },
-                            ["save"] = "one returned character name"
+                            ["verify"] = "returned characters contains the saved safe name"
                         },
                         new JObject
                         {
@@ -789,6 +825,13 @@ namespace CharacterAnimationCli.Unity.Command
             }
             KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(samples, SessionFrameRate);
             return samples;
+        }
+
+        private static JObject Route(string intent, string command, string next = null)
+        {
+            var route = new JObject { ["intent"] = intent, ["command"] = command };
+            if (!string.IsNullOrWhiteSpace(next)) route["next"] = next;
+            return route;
         }
 
         private static bool TrySampleDirectSkeletonConstraint(
