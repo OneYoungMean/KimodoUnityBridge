@@ -57,7 +57,7 @@ namespace KimodoBridge.Editor
             }
 
             ThrowIfCanceled(request);
-            CreateTargetClip(request);
+            request.CreateTargetClip();
             if (request.TargetClip == null)
             {
                 throw new InvalidOperationException("Target clip is null.");
@@ -87,7 +87,7 @@ namespace KimodoBridge.Editor
                 request.TargetClip.frameRate = KimodoMotionModelProfiles.DefaultFrameRate;
             }
             ThrowIfCanceled(request);
-            KimodoEditorGenerateOutputPlan outputPlan = ResolveOutputPlan(request, modelName);
+            KimodoEditorGenerateOutputPlan outputPlan = request.ResolveOutputPlan(modelName);
             if (outputPlan == null)
             {
                 throw new InvalidOperationException("Output plan is null.");
@@ -818,41 +818,6 @@ namespace KimodoBridge.Editor
             {
                 return analysisJson;
             }
-        }
-
-        private static void CreateTargetClip(KimodoEditorGenerateRequest request)
-        {
-            if (request == null || request.CreateTargetClip == null)
-            {
-                return;
-            }
-
-            AnimationClip clip = request.CreateTargetClip();
-            request.CreateTargetClip = null;
-            if (clip == null)
-            {
-                throw new InvalidOperationException("Created target clip is null.");
-            }
-
-            request.TargetClip = clip;
-        }
-
-        private static KimodoEditorGenerateOutputPlan ResolveOutputPlan(KimodoEditorGenerateRequest request, string modelName)
-        {
-            if (request == null || request.ResolveOutputPlan == null)
-            {
-                return request != null ? request.OutputPlan : null;
-            }
-
-            KimodoEditorGenerateOutputPlan plan = request.ResolveOutputPlan(request.TargetClip, modelName);
-            request.ResolveOutputPlan = null;
-            if (plan == null)
-            {
-                throw new InvalidOperationException("Output plan is null.");
-            }
-
-            request.OutputPlan = plan;
-            return plan;
         }
 
         private static void TryFilterGeneratedBoneClip(

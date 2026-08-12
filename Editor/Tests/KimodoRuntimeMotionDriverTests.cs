@@ -654,6 +654,56 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void EditorGenerateRequest_OwnsSingleUseOutputLifecycle()
+        {
+            int createCount = 0;
+            int resolveCount = 0;
+            var outputPlan = new KimodoEditorGenerateOutputPlan();
+            AnimationClip target = null;
+            AnimationClip rawBone = null;
+            AnimationClip resolvedClip = null;
+            var request = new KimodoEditorGenerateRequest(
+                () =>
+                {
+                    createCount++;
+                    return new AnimationClip { hideFlags = HideFlags.HideAndDontSave };
+                },
+                (clip, _) =>
+                {
+                    resolveCount++;
+                    resolvedClip = clip;
+                    return outputPlan;
+                },
+                outputPlan);
+
+            try
+            {
+                request.CreateTargetClip();
+                request.CreateTargetClip();
+                target = request.TargetClip;
+                rawBone = new AnimationClip { hideFlags = HideFlags.HideAndDontSave };
+                request.RawBoneClip = rawBone;
+
+                Assert.That(request.ResolveOutputPlan(KimodoMotionModelProfiles.DefaultModelName), Is.SameAs(outputPlan));
+                Assert.That(request.ResolveOutputPlan(KimodoMotionModelProfiles.DefaultModelName), Is.SameAs(outputPlan));
+                Assert.That(createCount, Is.EqualTo(1));
+                Assert.That(resolveCount, Is.EqualTo(1));
+                Assert.That(resolvedClip, Is.SameAs(target));
+
+                request.CleanupGeneratedClips();
+                Assert.That(target == null, Is.True);
+                Assert.That(rawBone == null, Is.True);
+                Assert.That(request.TargetClip, Is.Null);
+                Assert.That(request.RawBoneClip, Is.Null);
+            }
+            finally
+            {
+                if (target != null) UnityEngine.Object.DestroyImmediate(target);
+                if (rawBone != null) UnityEngine.Object.DestroyImmediate(rawBone);
+            }
+        }
+
+        [Test]
         public void RuntimeGenerationSession_ResetAndDisposeOwnsArdyLifecycle()
         {
             var session = new KimodoRuntimeGenerationSession();

@@ -399,7 +399,7 @@ namespace KimodoBridge.Editor
             {
                 for (int i = finalized; i < entries.Count; i++)
                 {
-                    KimodoPlayableClipGenerationHostService.CleanupFailedGeneration(entries[i].Request);
+                    entries[i].Request?.CleanupGeneratedClips();
                 }
                 throw;
             }
@@ -699,7 +699,7 @@ namespace KimodoBridge.Editor
             }
             catch
             {
-                KimodoPlayableClipGenerationHostService.CleanupFailedGeneration(request);
+                request.CleanupGeneratedClips();
                 throw;
             }
         }
@@ -847,8 +847,7 @@ namespace KimodoBridge.Editor
             }
             catch
             {
-                KimodoPlayableClipGenerationHostService.CleanupFailedGeneration(
-                    finalRequest ?? baselineRequest);
+                (finalRequest ?? baselineRequest)?.CleanupGeneratedClips();
                 throw;
             }
         }

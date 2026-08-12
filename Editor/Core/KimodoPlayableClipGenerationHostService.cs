@@ -117,7 +117,14 @@ namespace KimodoBridge.Editor
                 enableClipConstraintOverride,
                 token);
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
-            return new KimodoEditorGenerateRequest
+            return new KimodoEditorGenerateRequest(
+                () => KimodoTimelineGenerationOutputPlanner.CreateTargetClip(clip),
+                (generatedClip, modelName) => KimodoTimelineGenerationOutputPlanner.Resolve(
+                    outputPlanSnapshot,
+                    outputBindingObject,
+                    generatedClip,
+                    modelName),
+                outputPlanSnapshot)
             {
                 Prompt = settings.ResolvePrompt(prompt),
                 ModelName = resolvedModelName,
@@ -134,13 +141,6 @@ namespace KimodoBridge.Editor
                 AnalysisOptionsJson = string.IsNullOrWhiteSpace(externalConstraint?.AnalysisOptionsJson)
                     ? clip.analysisOptionsJson ?? string.Empty
                     : externalConstraint.AnalysisOptionsJson,
-                CreateTargetClip = () => KimodoTimelineGenerationOutputPlanner.CreateTargetClip(clip),
-                ResolveOutputPlan = (generatedClip, modelName) => KimodoTimelineGenerationOutputPlanner.Resolve(
-                    outputPlanSnapshot,
-                    outputBindingObject,
-                    generatedClip,
-                    modelName),
-                OutputPlan = outputPlanSnapshot,
                 ModelsRoot = settings.LocalModelsPath?.Trim() ?? string.Empty,
                 Token = token,
                 HasSyntheticAutoBeginConstraint = hasSyntheticAutoBeginConstraint,
@@ -255,35 +255,6 @@ namespace KimodoBridge.Editor
                 KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsModified);
             }
             return true;
-        }
-
-        public static void CleanupFailedGeneration(KimodoEditorGenerateRequest request)
-        {
-            if (request == null)
-            {
-                return;
-            }
-
-            TryCleanupGeneratedClip(request.TargetClip);
-            if (!ReferenceEquals(request.RawBoneClip, request.TargetClip))
-            {
-                TryCleanupGeneratedClip(request.RawBoneClip);
-            }
-        }
-
-        private static void TryCleanupGeneratedClip(AnimationClip clip)
-        {
-            if (clip == null)
-            {
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(AssetDatabase.GetAssetPath(clip)))
-            {
-                UnityEngine.Object.DestroyImmediate(clip);
-                return;
-            }
-            KimodoEditorClipWritebackService.TryDeleteGeneratedAnimationClipAsset(clip);
         }
 
         private static void ApplyGeneratedMetadata(KimodoPlayableClip clip, string prompt, string motionJson)

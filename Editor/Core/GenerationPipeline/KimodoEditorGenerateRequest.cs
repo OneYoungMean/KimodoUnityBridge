@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using TimelineInject;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
@@ -10,6 +11,23 @@ namespace KimodoBridge.Editor
 {
     internal sealed class KimodoEditorGenerateRequest
     {
+        private Func<AnimationClip> createTargetClip;
+        private Func<AnimationClip, string, KimodoEditorGenerateOutputPlan> resolveOutputPlan;
+
+        internal KimodoEditorGenerateRequest()
+        {
+        }
+
+        internal KimodoEditorGenerateRequest(
+            Func<AnimationClip> targetClipFactory,
+            Func<AnimationClip, string, KimodoEditorGenerateOutputPlan> outputPlanResolver,
+            KimodoEditorGenerateOutputPlan outputPlan)
+        {
+            createTargetClip = targetClipFactory;
+            resolveOutputPlan = outputPlanResolver;
+            OutputPlan = outputPlan;
+        }
+
         public string Prompt;
         public string ModelName;
         public KimodoTextEncoderMode TextEncoderMode;
@@ -21,12 +39,10 @@ namespace KimodoBridge.Editor
         public int EffectiveSeed;
         public KimodoConstraintPayload Constraints = new KimodoConstraintPayload();
         public string AnalysisOptionsJson;
-        public Func<AnimationClip> CreateTargetClip;
-        public Func<AnimationClip, string, KimodoEditorGenerateOutputPlan> ResolveOutputPlan;
-        public KimodoEditorGenerateOutputPlan OutputPlan;
+        internal KimodoEditorGenerateOutputPlan OutputPlan { get; private set; }
         public string ModelsRoot = string.Empty;
-        public AnimationClip TargetClip;
-        public AnimationClip RawBoneClip;
+        internal AnimationClip TargetClip { get; set; }
+        internal AnimationClip RawBoneClip { get; set; }
         public Action<KimodoBridgeCommandStage, string> Progress;
         public CancellationToken Token;
         public bool HasSyntheticAutoBeginConstraint;
@@ -44,6 +60,58 @@ namespace KimodoBridge.Editor
 
         public float EffectiveRuntimeDurationSeconds =>
             EffectiveRuntimeFrameCount / TargetFrameRate;
+
+        internal void CreateTargetClip()
+        {
+            if (createTargetClip == null)
+            {
+                return;
+            }
+
+            Func<AnimationClip> factory = createTargetClip;
+            createTargetClip = null;
+            TargetClip = factory() ?? throw new InvalidOperationException("Created target clip is null.");
+        }
+
+        internal KimodoEditorGenerateOutputPlan ResolveOutputPlan(string modelName)
+        {
+            if (resolveOutputPlan == null)
+            {
+                return OutputPlan;
+            }
+
+            Func<AnimationClip, string, KimodoEditorGenerateOutputPlan> resolver = resolveOutputPlan;
+            resolveOutputPlan = null;
+            OutputPlan = resolver(TargetClip, modelName) ??
+                throw new InvalidOperationException("Output plan is null.");
+            return OutputPlan;
+        }
+
+        internal void CleanupGeneratedClips()
+        {
+            TryCleanupGeneratedClip(TargetClip);
+            if (!ReferenceEquals(RawBoneClip, TargetClip))
+            {
+                TryCleanupGeneratedClip(RawBoneClip);
+            }
+            TargetClip = null;
+            RawBoneClip = null;
+        }
+
+        private static void TryCleanupGeneratedClip(AnimationClip clip)
+        {
+            if (clip == null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(AssetDatabase.GetAssetPath(clip)))
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+                return;
+            }
+            KimodoEditorClipWritebackService.TryDeleteGeneratedAnimationClipAsset(clip);
+        }
     }
 
     internal sealed class ArdyEditorHistorySource
