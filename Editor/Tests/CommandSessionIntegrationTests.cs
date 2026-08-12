@@ -3,8 +3,11 @@ using CharacterAnimationCli.Unity.Command;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEngine;
 using UnityEngine.Playables;
 
@@ -18,6 +21,8 @@ namespace KimodoBridge.Editor.Tests
         private string timelineAssetPath;
         private GameObject character;
         private bool sessionOpen;
+        private readonly List<GameObject> extraSceneObjects = new List<GameObject>();
+        private readonly List<string> createdAssetPaths = new List<string>();
 
         [SetUp]
         public void SetUp()
@@ -54,6 +59,10 @@ namespace KimodoBridge.Editor.Tests
             {
                 UnityEngine.Object.DestroyImmediate(character);
             }
+            foreach (GameObject item in extraSceneObjects.Where(item => item != null))
+            {
+                UnityEngine.Object.DestroyImmediate(item);
+            }
             foreach (PlayableDirector director in Resources.FindObjectsOfTypeAll<PlayableDirector>()
                          .Where(item => item != null && item.name == $"Kimodo_CommandSession_{sessionName}"))
             {
@@ -62,6 +71,10 @@ namespace KimodoBridge.Editor.Tests
             if (!string.IsNullOrEmpty(timelineAssetPath))
             {
                 AssetDatabase.DeleteAsset(timelineAssetPath);
+            }
+            foreach (string path in createdAssetPaths.Where(path => !string.IsNullOrEmpty(path)).Distinct())
+            {
+                AssetDatabase.DeleteAsset(path);
             }
             AssetDatabase.SaveAssets();
         }
@@ -148,6 +161,163 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(response["points"], Has.Count.EqualTo(2));
         }
 
+        [Test]
+        public void HistoricalPoseWorkflow_SamplesCopiesAndEditsTimelinePose()
+        {
+            string safeName = AddCharacter()["character"].Value<string>("name");
+            AddSampleClip(safeName);
+            JObject sampled = Invoke(command_context.PoseGetCommand, new JObject
+            {
+                ["pose"] = new JObject { ["source"] = safeName, ["frame"] = 0 }
+            });
+            Assert.That(sampled.Value<bool>("ok"), Is.True, sampled.ToString());
+
+            JObject copied = Invoke(command_context.PoseCopyCommand, new JObject
+            {
+                ["character"] = safeName,
+                ["pose"] = new JObject { ["source"] = safeName, ["frame"] = 0 }
+            });
+            Assert.That(copied.Value<bool>("ok"), Is.True, copied.ToString());
+            JObject writable = (JObject)copied["pose"];
+            Assert.That(writable.Value<string>("source"), Does.EndWith(".Poses"));
+
+            JObject edited = Invoke(command_context.PoseSetCommand, new JObject
+            {
+                ["pose"] = writable.DeepClone(),
+                ["data"] = new JObject { ["hands"] = new JObject
+                {
+                    ["left"] = new JObject { ["t"] = new JArray(0.01f, 0.02f, 0.03f) }
+                } }
+            });
+            Assert.That(edited.Value<bool>("ok"), Is.True, edited.ToString());
+            Assert.That(edited["data"]["hands"]["left"]["t"].Values<float>(),
+                Is.EqualTo(new[] { 0.01f, 0.02f, 0.03f }));
+        }
+
+        [Test]
+        public void HistoricalBakeWorkflow_BakesQueriesAndRemovesAnimation()
+        {
+            string safeName = AddCharacter()["character"].Value<string>("name");
+            string requestedName = $"CommandBake_{Guid.NewGuid():N}";
+            JObject baked = Invoke(command_kimodo.BakeRangeCommand, new JObject
+            {
+                ["character"] = safeName,
+                ["start_frame"] = 0,
+                ["end_frame"] = 2,
+                ["name"] = requestedName,
+                ["output_folder"] = "Assets/KimodoGeneratedClips"
+            });
+            Assert.That(baked.Value<bool>("ok"), Is.True, baked.ToString());
+            string animation = baked["animation"].Value<string>("name");
+            string outputPath = AssetDatabase.FindAssets($"{animation} t:AnimationClip", new[] { "Assets/KimodoGeneratedClips" })
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .Single(path => Path.GetFileNameWithoutExtension(path) == animation);
+            createdAssetPaths.Add(outputPath);
+
+            JObject animations = Invoke(command_query.CurrentSessionCommand, new JObject
+            {
+                ["query"] = "character_animations", ["character"] = safeName
+            });
+            Assert.That(animations["animations"].Values<string>("name"), Does.Contain(animation));
+
+            JObject queried = Invoke(command_query.CurrentSessionCommand, new JObject
+            {
+                ["query"] = "animation", ["character"] = safeName, ["animation"] = animation
+            });
+            Assert.That(queried.Value<bool>("ok"), Is.True, queried.ToString());
+            Assert.That(queried["animation"].Value<int>("duration_frames"), Is.GreaterThan(0));
+
+            JObject removed = Invoke(command_session.TryRemoveCommand, new JObject
+            {
+                ["kind"] = "clip", ["character"] = safeName, ["animation"] = animation
+            });
+            Assert.That(removed.Value<bool>("ok"), Is.True, removed.ToString());
+            Assert.That(QueryAnimations(safeName), Does.Not.Contain(animation));
+        }
+
+        [Test]
+        public void HistoricalConstraintWorkflow_ComposesPoseAndRoot2DWithoutStartingGeneration()
+        {
+            string safeName = AddCharacter()["character"].Value<string>("name");
+            AddSampleClip(safeName);
+            JObject copied = Invoke(command_context.PoseCopyCommand, new JObject
+            {
+                ["character"] = safeName,
+                ["pose"] = new JObject { ["source"] = safeName, ["frame"] = 0 }
+            });
+            JObject path = Invoke(command_context.BuildRoot2DPathCommand, new JObject
+            {
+                ["shape"] = "turn", ["duration_frames"] = 60, ["turn_degrees"] = 90
+            });
+            JObject endpoint = (JObject)path["points"].Last;
+
+            JObject response = Invoke(command_kimodo.GenerateAnimationCommand, new JObject
+            {
+                ["character"] = safeName,
+                ["prompt"] = "turn left",
+                ["duration_frames"] = 60,
+                ["constraints"] = new JArray
+                {
+                    new JObject { ["frame"] = 0, ["type"] = "fullbody", ["pose"] = copied["pose"].DeepClone() },
+                    new JObject
+                    {
+                        ["frame"] = endpoint.Value<int>("frame"), ["type"] = "root2d",
+                        ["position"] = endpoint["position"].DeepClone(), ["heading"] = endpoint["heading"].DeepClone()
+                    },
+                    new JObject { ["frame"] = 1, ["type"] = "unsupported" }
+                }
+            });
+
+            Assert.That(response.Value<bool>("ok"), Is.False);
+            Assert.That(response.Value<string>("error"), Does.Contain("constraints[2].type"));
+        }
+
+        [Test]
+        public void HistoricalBlendTreeWorkflow_ImportsCandidatesAndLeavesBranchChoiceExplicit()
+        {
+            string safeName = AddCharacter()["character"].Value<string>("name");
+            AnimationClip clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(
+                AssetDatabase.GUIDToAssetPath("834c224ed4f14ad40811f5f161fbe870"));
+            Assert.That(clip, Is.Not.Null, "Editor/Model/MuscleClip.anim is required by the workflow test.");
+
+            string controllerPath = AssetDatabase.GenerateUniqueAssetPath(
+                $"Assets/KimodoGeneratedClips/CommandAnimator_{Guid.NewGuid():N}.controller");
+            AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(controllerPath);
+            createdAssetPaths.Add(controllerPath);
+            controller.AddParameter("Speed", AnimatorControllerParameterType.Float);
+            AnimatorStateMachine machine = controller.layers[0].stateMachine;
+            AnimatorState blendState = machine.AddState("Locomotion");
+            AnimatorState endState = machine.AddState("End");
+            var tree = new BlendTree { name = "Locomotion", blendParameter = "Speed" };
+            AssetDatabase.AddObjectToAsset(tree, controller);
+            tree.AddChild(clip, 0f);
+            tree.AddChild(clip, 1f);
+            blendState.motion = tree;
+            endState.motion = clip;
+            blendState.AddTransition(endState);
+            AssetDatabase.SaveAssets();
+
+            GameObject source = UnityEngine.Object.Instantiate(
+                AssetDatabase.LoadAssetAtPath<GameObject>(AssetDatabase.GUIDToAssetPath(TPoseGuid)));
+            extraSceneObjects.Add(source);
+            Animator sourceAnimator = source.GetComponentInChildren<Animator>(true);
+            sourceAnimator.gameObject.name = $"BlendTreeSource_{Guid.NewGuid():N}";
+            sourceAnimator.runtimeAnimatorController = controller;
+
+            JObject imported = Invoke(command_session.TryAddCommand, new JObject
+            {
+                ["kind"] = "animator",
+                ["character"] = safeName,
+                ["animator"] = sourceAnimator.gameObject.name
+            });
+
+            Assert.That(imported.Value<bool>("ok"), Is.True, imported.ToString());
+            Assert.That(imported["animations"], Has.Count.EqualTo(3));
+            Assert.That(imported["transitions"], Is.Empty);
+            Assert.That(imported["skipped"].Values<string>("kind"), Does.Contain("blend_tree_transition"));
+            Assert.That(QueryAnimations(safeName), Has.Length.GreaterThanOrEqualTo(3));
+        }
+
         [TestCase(command_kimodo.DebugInstallServerCommand, "Error reading JObject")]
         [TestCase(command_kimodo.AnalyzeCommand, "Provide exactly one analysis source")]
         [TestCase(command_kimodo.BakeRangeCommand, "bake range must satisfy")]
@@ -197,11 +367,39 @@ namespace KimodoBridge.Editor.Tests
             return added;
         }
 
+        private string AddSampleClip(string safeName)
+        {
+            AnimationClip source = AssetDatabase.LoadAssetAtPath<AnimationClip>(
+                AssetDatabase.GUIDToAssetPath("834c224ed4f14ad40811f5f161fbe870"));
+            string clipName = $"CommandSample_{Guid.NewGuid():N}";
+            string clipPath = $"Assets/KimodoGeneratedClips/{clipName}.anim";
+            AnimationClip copy = UnityEngine.Object.Instantiate(source);
+            copy.name = clipName;
+            AssetDatabase.CreateAsset(copy, clipPath);
+            createdAssetPaths.Add(clipPath);
+            JObject added = Invoke(command_session.TryAddCommand, new JObject
+            {
+                ["kind"] = "clip", ["character"] = safeName, ["clip"] = clipName
+            });
+            Assert.That(added.Value<bool>("ok"), Is.True, added.ToString());
+            return added["animation"].Value<string>("name");
+        }
+
         private static string[] QueryCharacters()
         {
             JObject response = Invoke(command_query.CurrentSessionCommand, new JObject { ["query"] = "characters" });
             Assert.That(response.Value<bool>("ok"), Is.True, response.ToString());
             return response["characters"].Values<string>().ToArray();
+        }
+
+        private static string[] QueryAnimations(string characterName)
+        {
+            JObject response = Invoke(command_query.CurrentSessionCommand, new JObject
+            {
+                ["query"] = "character_animations", ["character"] = characterName
+            });
+            Assert.That(response.Value<bool>("ok"), Is.True, response.ToString());
+            return response["animations"].Values<string>("name").ToArray();
         }
 
         private static JObject Invoke(string command, JObject arguments = null) =>
