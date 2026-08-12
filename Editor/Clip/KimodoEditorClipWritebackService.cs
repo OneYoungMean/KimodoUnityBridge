@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
-using UnityEditor.Animations;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -21,7 +20,6 @@ namespace KimodoBridge.Editor
         private const string MuscleCacheNameSuffix = "-muscle-cache";
         private const string BoneCacheNameMarker = "-bone-";
         private const string CacheNameSuffix = "-cache";
-        private const string GeneratedPreviewControllerFolder = GeneratedClipFolder + "/PreviewControllers";
 
         private static readonly HashSet<string> PendingProtectedClipPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static bool generatedClipTrimScheduled;
@@ -108,40 +106,6 @@ namespace KimodoBridge.Editor
             }
 
             return false;
-        }
-
-        public static bool TryCreateGeneratedPreviewAnimatorControllerAsset(
-            out AnimatorController controller,
-            out string assetPath,
-            out string error)
-        {
-            controller = null;
-            assetPath = string.Empty;
-            error = string.Empty;
-
-            try
-            {
-                EnsureFolderExists(GeneratedPreviewControllerFolder);
-                string controllerName = BuildGeneratedPreviewControllerName();
-                assetPath = AssetDatabase.GenerateUniqueAssetPath($"{GeneratedPreviewControllerFolder}/{controllerName}.controller");
-                controller = AnimatorController.CreateAnimatorControllerAtPath(assetPath);
-                if (controller == null)
-                {
-                    error = "Animator controller asset creation returned null.";
-                    return false;
-                }
-
-                EditorUtility.SetDirty(controller);
-                FlushWritebackAssets();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                controller = null;
-                assetPath = string.Empty;
-                error = $"Create generated preview animator controller failed: {ex.Message}";
-                return false;
-            }
         }
 
         public static bool TryLoadNamedClipCache(string cacheName, out AnimationClip cachedClip, out string error)
@@ -774,11 +738,6 @@ namespace KimodoBridge.Editor
             }
 
             return string.IsNullOrWhiteSpace(safeName) ? defaultName : safeName;
-        }
-
-        private static string BuildGeneratedPreviewControllerName()
-        {
-            return $"{GeneratedClipNamePrefix}Preview_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}";
         }
 
         private static int CompareGeneratedClipPathsByAgeOldestFirst(string leftPath, string rightPath)

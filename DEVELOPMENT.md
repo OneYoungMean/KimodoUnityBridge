@@ -12,7 +12,7 @@
 - **未覆盖**：package 已有该能力，但 `command_dispatcher` 没有对应命令。
 - **外部工具**：明确由项目现有的 Unity 自动化工具负责。
 
-Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。Runtime 的 `KimodoCliMotionRoutePlanner` 是组件 API，不计入 Editor command 覆盖率。
+Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未注册到该入口的 Runtime 或 Editor 实现不计入 CLI 能力。
 
 ## 当前 Editor command
 
@@ -49,7 +49,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。Runt
 | Hand/Foot Constraint | 从统一 Pose 的完整 Hand/Foot TQ 重定向出左右手脚末端约束 | `kimodo_generate_animation.constraints` | 完整 | 独立类型复用 Pose locator 的对应末端 TQ |
 | FullBody 与 Hand/Foot IK 场景编辑 | Constraint Editor 用红立方体拖拽 FullBody 盆骨、左右手脚或独立末端目标，并实时写回统一 Pose | 无 | 未覆盖 | 当前是 Editor 交互能力；其余非根骨骼保持旋转编辑 |
 | 数学 Root2D 路径 | 生成 line、turn、s、circle 路径点 | `kimodo_build_root2d_path` | 完整 | 输出可直接转换为 Root2D constraints |
-| Spline 与 NavMesh 路径创作 | Scene 编辑、Spline 采样、NavMesh 路点与脚步约束 | 无 | 未覆盖 | 当前由 Editor UI 和 Editor service 实现 |
+| Spline 路径创作 | Scene 编辑与 Spline 采样 | 无 | 未覆盖 | 当前仅为 Editor 交互能力；CLI 使用数学 Root2D 路径 |
 | 动画分析 | 分析命名动画或半开 Session 帧区间并缓存 `analysis_id` | `kimodo_analyze` | 完整 | 支持 `analysis_option` |
 | 四视图图片 | 渲染 Pose、Analysis 或 Constraints 的诊断拼图 | `query_picture` | 完整 | 返回图片结果用于视觉检查 |
 | Range Bake | 将 Session 半开区间 Bake 为 AnimationClip | `kimodo_bake_range` | 完整 | 支持速度、Root Motion 处理和输出目录 |
@@ -57,7 +57,6 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。Runt
 | 任意 Clip 独立 Retarget | Editor Retarget 工具可进行 Bone/Muscle 转换和写回 | 无 | 部分 | CLI 仅覆盖 Bake 内的 Retarget |
 | 一般 Timeline 编排 | Clip 放置、重叠、Ease、Track/Binding 编辑 | 外围 Unity 自动化 | 外部工具 | Kimodo command 只维护自身 Session 工作流 |
 | Runtime Motion Driver | 连续生成、提示词、Root2D、Hand/Foot Pose 约束和实时播放 | 无 Editor command | 部分 | 公共 C# API 位于 `KimodoRuntimeMotionDriver`；Root2D 到达阈值内不再暂存约束；当前导出不包含独立末端 `target_positions` |
-| Runtime 路线调用 | 按世界坐标目标或 waypoint 队列驱动 Runtime Motion Driver | `KimodoCliMotionRoutePlanner.Animate/AnimateRoute` | 部分 | 这是组件 API，不是 `command_dispatcher` command |
 | Runtime 发布安装 | 将运行时复制到 `StreamingAssets` | 无 | 未覆盖 | 当前入口为 Unity 菜单命令 |
 | Server Manager | 项目运行时路径、状态、模型、缓存和维护操作 | `kimodo_help(section:"models")`、调试安装 | 部分 | 其余维护能力保留在 Project Settings UI |
 

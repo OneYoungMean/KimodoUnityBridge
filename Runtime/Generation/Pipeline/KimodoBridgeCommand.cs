@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace KimodoBridge
 {
-    public sealed class KimodoBridgeCommand : IKimodoGeneratePipeline
+    public sealed class KimodoBridgeCommand
     {
         public async Task<KimodoBridgeCommandResult> ExecuteAsync(
             KimodoBridgeCommandRequest request,

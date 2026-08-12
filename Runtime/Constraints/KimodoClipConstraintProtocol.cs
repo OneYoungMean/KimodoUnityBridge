@@ -86,43 +86,6 @@ namespace KimodoBridge
             return result;
         }
 
-        public static KimodoClipConstraintMask UpperBody(string modelName)
-        {
-            string[] names = GetJointNames(modelName);
-            int[] parents = KimodoRigProfileDatabase.GetParentIndicesForModel(modelName);
-            int upperRoot = Array.FindIndex(names, name =>
-                name.IndexOf("spine", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                name.IndexOf("waist", StringComparison.OrdinalIgnoreCase) >= 0);
-            if (upperRoot < 0)
-            {
-                throw new InvalidOperationException($"Model profile '{modelName}' has no upper-body root joint.");
-            }
-            var result = new KimodoClipConstraintMask();
-            for (int index = 1; index < names.Length; index++)
-            {
-                bool enabled = IsDescendant(index, upperRoot, parents);
-                result.joints.Add(new KimodoClipConstraintJointMask
-                {
-                    jointName = names[index],
-                    position = new KimodoClipConstraintPositionMask { x = enabled, y = enabled, z = enabled },
-                    rotation = enabled
-                });
-            }
-            return result;
-        }
-
-        public static KimodoClipConstraintMask LowerBody(string modelName)
-        {
-            KimodoClipConstraintMask upper = UpperBody(modelName);
-            foreach (KimodoClipConstraintJointMask joint in upper.joints)
-            {
-                bool enabled = !(joint.position.x || joint.position.y || joint.position.z);
-                joint.position = new KimodoClipConstraintPositionMask { x = enabled, y = enabled, z = enabled };
-                joint.rotation = enabled;
-            }
-            return upper;
-        }
-
         public static KimodoClipConstraintMask FullBody(string modelName, bool includeRoot = false)
         {
             string[] names = GetJointNames(modelName);
@@ -223,19 +186,6 @@ namespace KimodoBridge
         {
             KimodoClipConstraintSerializer.AppendJson(output, json);
             KimodoClipConstraintSerializer.Append(output, modelName, clips, attachments);
-        }
-    }
-
-    public static class KimodoClipConstraintProtocol
-    {
-        public static string Serialize(
-            string modelName,
-            IReadOnlyList<KimodoClipConstraint> clips,
-            List<byte[]> attachments)
-        {
-            var output = new JArray();
-            KimodoClipConstraintSerializer.Append(output, modelName, clips, attachments);
-            return output.Count > 0 ? output.ToString(Formatting.None) : string.Empty;
         }
     }
 

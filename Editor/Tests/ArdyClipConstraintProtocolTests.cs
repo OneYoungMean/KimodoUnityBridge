@@ -13,12 +13,12 @@ namespace KimodoBridge.Editor.Tests
                 27,
                 20f,
                 40);
-            KimodoClipConstraintMask mask = KimodoClipConstraintMask.UpperBody(
+            KimodoClipConstraintMask mask = KimodoClipConstraintMask.FullBody(
                 KimodoMotionModelProfiles.ArdyCoreModelName);
             var attachments = new List<byte[]>();
-            string json = KimodoClipConstraintProtocol.Serialize(
-                KimodoMotionModelProfiles.ArdyCoreModelName,
-                new List<KimodoClipConstraint>
+            string json = new KimodoConstraintPayload
+            {
+                clips = new List<KimodoClipConstraint>
                 {
                     new KimodoClipConstraint
                     {
@@ -27,8 +27,8 @@ namespace KimodoBridge.Editor.Tests
                         duration = 2f,
                         mask = mask
                     }
-                },
-                attachments);
+                }
+            }.Serialize(KimodoMotionModelProfiles.ArdyCoreModelName, attachments);
 
             Assert.That(attachments, Has.Count.EqualTo(1));
             Assert.That(json, Does.Contain("\"format\":\"kmb_attachment_v1\""));
@@ -43,13 +43,6 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void MaskHelpers_SelectKnownGenericModel()
-        {
-            KimodoClipConstraintMask mask = KimodoClipConstraintMask.UpperBody("Kimodo-SOMA-RP-v1");
-            Assert.That(mask.joints, Is.Not.Empty);
-        }
-
-        [Test]
         public void Serialize_NegativeTimeRepresentsHistoryWithoutHistoryType()
         {
             byte[] kmb = CreateKmb(
@@ -59,9 +52,9 @@ namespace KimodoBridge.Editor.Tests
                 160);
 
             var attachments = new List<byte[]>();
-            string json = KimodoClipConstraintProtocol.Serialize(
-                KimodoMotionModelProfiles.ArdyCoreModelName,
-                new List<KimodoClipConstraint>
+            string json = new KimodoConstraintPayload
+            {
+                clips = new List<KimodoClipConstraint>
                 {
                     new KimodoClipConstraint
                     {
@@ -70,8 +63,8 @@ namespace KimodoBridge.Editor.Tests
                         duration = 8f,
                         mask = null
                     }
-                },
-                attachments);
+                }
+            }.Serialize(KimodoMotionModelProfiles.ArdyCoreModelName, attachments);
 
             Assert.That(attachments, Has.Count.EqualTo(1));
             Assert.That(json, Does.Contain("\"attachment\":0"));
