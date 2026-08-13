@@ -686,6 +686,66 @@ namespace KimodoBridge.Editor
         protected abstract void DrawFields(bool readOnly);
     }
 
+    [CustomEditor(typeof(KimodoConstraintMarker))]
+    internal sealed class KimodoConstraintMarkerEditor : KimodoConstraintStandardMarkerEditorBase
+    {
+        protected override string TypeLabel => "Constraint";
+        protected override string TipText =>
+            "One canonical pose with independently enabled muscle, root and end-effector channels. " +
+            "Export resolves Muscle → Foot IK → Hand IK → Root2D and keeps the server protocol unchanged.";
+
+        protected override void DrawFields(bool readOnly)
+        {
+            if (readOnly)
+            {
+                EditorGUILayout.HelpBox("Override disabled. Showing sampled result (read-only).", MessageType.Info);
+            }
+            EditorGUI.BeginDisabledGroup(readOnly);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.mask"), true);
+            DrawCanonicalPoseEuler(serializedObject);
+            EditorGUI.EndDisabledGroup();
+        }
+
+        private static void DrawCanonicalPoseEuler(SerializedObject so)
+        {
+            SerializedProperty pose = so.FindProperty("sampleData.characterPose");
+            if (pose == null)
+            {
+                return;
+            }
+
+            EditorGUILayout.LabelField("CharacterPose (canonical)", EditorStyles.boldLabel);
+            SerializedProperty muscles = pose.FindPropertyRelative("muscles");
+            if (muscles != null)
+            {
+                EditorGUILayout.LabelField("Muscle Pose", "Edit dependency-bone Euler angles in Override Edit.");
+            }
+            DrawEulerTransform(pose.FindPropertyRelative("root"), "Root");
+            DrawEulerTransform(pose.FindPropertyRelative("hands.left"), "Left Hand");
+            DrawEulerTransform(pose.FindPropertyRelative("hands.right"), "Right Hand");
+            DrawEulerTransform(pose.FindPropertyRelative("feet.left"), "Left Foot");
+            DrawEulerTransform(pose.FindPropertyRelative("feet.right"), "Right Foot");
+        }
+
+        private static void DrawEulerTransform(SerializedProperty transform, string label)
+        {
+            if (transform == null) return;
+            SerializedProperty position = transform.FindPropertyRelative("t");
+            SerializedProperty rotation = transform.FindPropertyRelative("q");
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+            if (position != null) EditorGUILayout.PropertyField(position, new GUIContent("Position"));
+            if (rotation != null)
+            {
+                Quaternion value = rotation.quaternionValue;
+                EditorGUI.BeginChangeCheck();
+                Vector3 euler = EditorGUILayout.Vector3Field("Euler", value.eulerAngles);
+                if (EditorGUI.EndChangeCheck()) rotation.quaternionValue = Quaternion.Euler(euler);
+            }
+            EditorGUILayout.EndVertical();
+        }
+    }
+
     [CustomEditor(typeof(KimodoFullBodyConstraintMarker))]
     internal sealed class KimodoFullBodyConstraintMarkerEditor : KimodoConstraintStandardMarkerEditorBase
     {
@@ -904,6 +964,7 @@ namespace KimodoBridge.Editor
         private struct PoseRenderSignatureSnapshot
         {
             public string CharacterPoseJson;
+            public string MaskSignature;
             public string ConstraintType;
             public double SampleTime;
             public int ClipId;
@@ -1050,11 +1111,12 @@ namespace KimodoBridge.Editor
                 SourceAvatar = sourceAvatar,
                 ModelName = context.ModelName
             };
+            string samplingType = marker is KimodoConstraintMarker ? "fullbody" : marker.ConstraintType;
             if (!KimodoTimelineConstraintClipCache.TrySampleMarker(
                     timelineContext,
                     sampleTime,
                     sampleTime,
-                    marker.ConstraintType,
+                    samplingType,
                     context.ModelName,
                     forceRefresh,
                     out KimodoMarkerSampleResult sample,
@@ -1084,6 +1146,10 @@ namespace KimodoBridge.Editor
                 $"quantizedSampleTime={timelineSampleTime:R}s");
 
             sample.sampleTime = sampleTime;
+            if (marker is KimodoConstraintMarker)
+            {
+                sample.mask = KimodoConstraintMask.Resolve(marker.SampleData.mask, "fullbody").Clone();
+            }
             KimodoMarkerSampleResult preview = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sample);
             if (preview == null)
             {
@@ -1943,6 +2009,7 @@ namespace KimodoBridge.Editor
             return new PoseRenderSignatureSnapshot
             {
                 CharacterPoseJson = source?.characterPose != null ? JsonUtility.ToJson(source.characterPose) : string.Empty,
+                MaskSignature = BuildMaskSignature(source?.mask),
                 ConstraintType = marker != null ? marker.ConstraintType ?? string.Empty : string.Empty,
                 SampleTime = source != null ? source.sampleTime : 0.0,
                 ClipId = context.ClipId,
@@ -1972,6 +2039,7 @@ namespace KimodoBridge.Editor
         {
             KimodoMarkerSampleResult sample = marker != null ? marker.SampleData : null;
             return string.Equals(snapshot.CharacterPoseJson ?? string.Empty, sample?.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty, StringComparison.Ordinal) &&
+                string.Equals(snapshot.MaskSignature ?? string.Empty, BuildMaskSignature(sample?.mask), StringComparison.Ordinal) &&
                 string.Equals(snapshot.ConstraintType ?? string.Empty, marker != null ? marker.ConstraintType ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
                 Math.Abs(snapshot.SampleTime - (sample != null ? sample.sampleTime : 0.0)) <= 1e-9 &&
                 snapshot.ClipId == context.ClipId &&
@@ -2004,6 +2072,8 @@ namespace KimodoBridge.Editor
                 sample.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty,
                 sample.constraintType ?? string.Empty,
                 FormatDouble(sample.sampleTime),
+                FormatDouble(sample.humanScale),
+                BuildMaskSignature(sample.mask),
                 sample.rigType.ToString(),
                 sample.hasRootHeading ? "1" : "0",
                 FormatVector3(sample.kimodoRootPosition),
@@ -2016,6 +2086,10 @@ namespace KimodoBridge.Editor
                 BuildVector3ListSignature(sample.localAxisAngles),
                 BuildIntListSignature(sample.sampledJointIndices));
         }
+
+        private static string BuildMaskSignature(KimodoConstraintMask mask) => mask == null
+            ? string.Empty
+            : $"{mask.muscle}:{mask.rootPosition}:{mask.rootHeading}:{mask.leftFoot}:{mask.rightFoot}:{mask.leftHand}:{mask.rightHand}";
 
         private static string BuildStringListSignature(IReadOnlyList<string> values)
         {

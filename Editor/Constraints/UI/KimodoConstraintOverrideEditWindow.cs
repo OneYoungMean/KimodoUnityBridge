@@ -1,4 +1,5 @@
 using TimelineInject;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -17,8 +18,10 @@ namespace KimodoBridge.Editor
         private bool previousTimelineLockState;
         private bool sceneDragActive;
         private bool pendingEndEffectorWriteback;
+        private bool pendingRootWriteback;
         private Vector2 scroll;
         private string lastError;
+        private static readonly HumanBodyBones[] MuscleEulerBones = BuildMuscleEulerBones();
 
         internal KimodoConstraintMarkerBase TargetMarker => marker;
 
@@ -173,6 +176,7 @@ namespace KimodoBridge.Editor
             editEntryId = string.Empty;
             sceneDragActive = false;
             pendingEndEffectorWriteback = false;
+            pendingRootWriteback = false;
         }
 
         private void OnSceneGUI(SceneView sceneView)
@@ -204,7 +208,7 @@ namespace KimodoBridge.Editor
             if (TryGetEditContext(out PoseCacheRenderContext context, out _))
             {
                 if (sceneDragActive &&
-                    KimodoConstraintPoseCache.HasEndEffectorTargetTransformChanges(context, editEntryId))
+                    KimodoConstraintPoseCache.HasIkTargetTransformChanges(context, editEntryId))
                 {
                     if (KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
                             context,
@@ -227,6 +231,14 @@ namespace KimodoBridge.Editor
                     return;
                 }
 
+                if (sceneDragActive &&
+                    KimodoConstraintPoseCache.HasRootTargetTransformChanges(context, editEntryId))
+                {
+                    pendingRootWriteback = true;
+                    Repaint();
+                    return;
+                }
+
                 if (!sceneDragActive &&
                     (Tools.current == Tool.Move || Tools.current == Tool.Transform) &&
                     KimodoConstraintPoseCache.IsNonRootPoseTransform(
@@ -237,7 +249,7 @@ namespace KimodoBridge.Editor
                     Tools.current = Tool.Rotate;
                 }
 
-                if (pendingEndEffectorWriteback ||
+                if (pendingEndEffectorWriteback || pendingRootWriteback ||
                     KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
                 {
                     if (sceneDragActive)
@@ -285,6 +297,7 @@ namespace KimodoBridge.Editor
 
                     KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
                     pendingEndEffectorWriteback = false;
+                    pendingRootWriteback = false;
                 }
             }
 
@@ -337,7 +350,12 @@ namespace KimodoBridge.Editor
             using (new EditorGUI.DisabledScope(!marker.useOverride))
             {
                 DrawPropertyIfExists(so, "sampleData.sampleTime");
-                if (marker is KimodoRoot2DConstraintMarker)
+                if (marker is KimodoConstraintMarker)
+                {
+                    DrawPropertyIfExists(so, "sampleData.mask");
+                    DrawCanonicalPoseEuler(so);
+                }
+                else if (marker is KimodoRoot2DConstraintMarker)
                 {
                     KimodoRoot2DConstraintEditorGUI.Draw(so);
                 }
@@ -382,6 +400,77 @@ namespace KimodoBridge.Editor
             EditorGUILayout.HelpBox(
                 "Pose writes back when a Scene drag ends. FullBody pelvis and limb targets support Move/Transform; other non-root bones support rotation only.",
                 MessageType.None);
+        }
+
+        private void DrawCanonicalPoseEuler(SerializedObject so)
+        {
+            SerializedProperty pose = so.FindProperty("sampleData.characterPose");
+            if (pose == null) return;
+            DrawMuscleBoneEulers();
+            DrawEulerTransform(pose.FindPropertyRelative("root"), "Root");
+            DrawEulerTransform(pose.FindPropertyRelative("hands.left"), "Left Hand");
+            DrawEulerTransform(pose.FindPropertyRelative("hands.right"), "Right Hand");
+            DrawEulerTransform(pose.FindPropertyRelative("feet.left"), "Left Foot");
+            DrawEulerTransform(pose.FindPropertyRelative("feet.right"), "Right Foot");
+        }
+
+        private void DrawMuscleBoneEulers()
+        {
+            EditorGUILayout.LabelField("Muscle Dependency Bones (Euler)", EditorStyles.boldLabel);
+            if (!TryGetEditContext(out PoseCacheRenderContext context, out _) ||
+                string.IsNullOrWhiteSpace(editEntryId))
+            {
+                EditorGUILayout.HelpBox("Pose preview is unavailable.", MessageType.None);
+                return;
+            }
+
+            for (int i = 0; i < MuscleEulerBones.Length; i++)
+            {
+                HumanBodyBones bone = MuscleEulerBones[i];
+                if (!KimodoConstraintPoseCache.TryGetHumanoidBoneLocalEuler(
+                        context,
+                        editEntryId,
+                        bone,
+                        out Vector3 euler))
+                {
+                    continue;
+                }
+
+                EditorGUI.BeginChangeCheck();
+                Vector3 changed = EditorGUILayout.Vector3Field(ObjectNames.NicifyVariableName(bone.ToString()), euler);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    KimodoConstraintPoseCache.TrySetHumanoidBoneLocalEuler(context, editEntryId, bone, changed);
+                }
+            }
+        }
+
+        internal static HumanBodyBones[] BuildMuscleEulerBones()
+        {
+            return CharacterPoseMuscleAdapter.UnityBodyMuscleIndices
+                .Select(HumanTrait.BoneFromMuscle)
+                .Where(index => index >= 0 && index < (int)HumanBodyBones.LastBone)
+                .Select(index => (HumanBodyBones)index)
+                .Where(bone => bone != HumanBodyBones.Hips)
+                .Distinct()
+                .ToArray();
+        }
+
+        private static void DrawEulerTransform(SerializedProperty transform, string label)
+        {
+            if (transform == null) return;
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+            SerializedProperty position = transform.FindPropertyRelative("t");
+            SerializedProperty rotation = transform.FindPropertyRelative("q");
+            if (position != null) EditorGUILayout.PropertyField(position, new GUIContent("Position"));
+            if (rotation != null)
+            {
+                EditorGUI.BeginChangeCheck();
+                Vector3 euler = EditorGUILayout.Vector3Field("Euler", rotation.quaternionValue.eulerAngles);
+                if (EditorGUI.EndChangeCheck()) rotation.quaternionValue = Quaternion.Euler(euler);
+            }
+            EditorGUILayout.EndVertical();
         }
 
         private void DrawFooter()
@@ -456,6 +545,7 @@ namespace KimodoBridge.Editor
             if (marker == null ||
                 !TryGetEditContext(out PoseCacheRenderContext context, out _) ||
                 (!pendingEndEffectorWriteback &&
+                 !pendingRootWriteback &&
                  !KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId)))
             {
                 return;
@@ -495,6 +585,7 @@ namespace KimodoBridge.Editor
 
             EditorUtility.SetDirty(marker);
             pendingEndEffectorWriteback = false;
+            pendingRootWriteback = false;
         }
 
         private void LockTimelineWindow()
@@ -554,7 +645,7 @@ namespace KimodoBridge.Editor
             PoseCacheRenderContext context,
             string entryId)
         {
-            if (marker is KimodoFullBodyConstraintMarker &&
+            if ((marker is KimodoFullBodyConstraintMarker || marker is KimodoConstraintMarker) &&
                 KimodoConstraintPoseCache.TryGetFullBodyTarget(
                     context,
                     entryId,

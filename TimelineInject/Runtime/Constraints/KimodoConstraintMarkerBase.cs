@@ -50,6 +50,7 @@ public abstract class KimodoConstraintMarkerBase : Marker, TimelineInject.IKimod
         if (sampleData != null)
         {
             sampleData.constraintType = ConstraintType;
+            sampleData.mask = KimodoConstraintMask.Resolve(sampleData.mask, ConstraintType);
         }
     }
 
@@ -108,7 +109,25 @@ public abstract class KimodoConstraintMarkerBase : Marker, TimelineInject.IKimod
 
 }
 
+/// <summary>The only marker created by new tooling.  Older marker classes are
+/// retained so existing Timeline assets remain readable.</summary>
 [Serializable]
+public sealed class KimodoConstraintMarker : KimodoConstraintMarkerBase
+{
+    public override string ConstraintType => "constraint";
+
+    protected override void OnEnable()
+    {
+        if (SampleData.mask == null)
+        {
+            SampleData.mask = KimodoConstraintMask.ForType("fullbody");
+        }
+        base.OnEnable();
+    }
+}
+
+[Serializable]
+[HideInMenu]
 public sealed class KimodoRoot2DConstraintMarker : KimodoConstraintMarkerBase
 {
     public override string ConstraintType => "root2d";

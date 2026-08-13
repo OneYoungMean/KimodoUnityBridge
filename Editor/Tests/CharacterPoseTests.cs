@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using CharacterAnimationCli.Unity;
 using KimodoBridge;
 using Newtonsoft.Json.Linq;
@@ -170,10 +171,230 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             Assert.That(samples[1].characterPose.root.t, Is.EqualTo(root.root.t));
         }
 
+        [Test]
+        public void UnifiedConstraint_ExpandsToSharedProtocolPoseAndEndEffectorTarget()
+        {
+            var pose = new CharacterPose();
+            pose.root.t = new Vector3(1f, 2f, 3f);
+            pose.root.q = Quaternion.Euler(0f, 90f, 0f);
+            pose.hands.left.t = new Vector3(2f, 0f, 0f);
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintType = "constraint",
+                sampleTime = 1.0,
+                characterPose = pose,
+                localAxisAngles = new System.Collections.Generic.List<Vector3> { Vector3.zero },
+                mask = new KimodoConstraintMask { muscle = true, rootPosition = true, rootHeading = true, leftHand = true }
+            };
+
+            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(new[] { sample }, exportFps: 30.0));
+            JObject fullBody = (JObject)json.First(item => item.Value<string>("type") == "fullbody");
+            JObject endEffector = (JObject)json.First(item => item.Value<string>("type") == "left-hand");
+            JObject root2d = (JObject)json.First(item => item.Value<string>("type") == "root2d");
+
+            Assert.That(endEffector["root_positions"]?[0]?[0]?.Value<float>(), Is.EqualTo(fullBody["root_positions"]?[0]?[0]?.Value<float>()));
+            Assert.That(endEffector["local_joints_rot"]?[0]?.ToString(), Is.EqualTo(fullBody["local_joints_rot"]?[0]?.ToString()));
+            Assert.That(endEffector["target_positions"]?[0]?[0]?.Value<float>(), Is.EqualTo(-1f).Within(1e-5f));
+            Assert.That(endEffector["target_positions"]?[0]?[2]?.Value<float>(), Is.EqualTo(1f).Within(1e-5f));
+            Assert.That(root2d["smooth_root_2d"]?[0]?[0]?.Value<float>(), Is.EqualTo(-1f));
+        }
+
+        [Test]
+        public void UnifiedConstraint_MergedEndEffectorTargetsKeepEveryFrame()
+        {
+            KimodoMarkerSampleResult At(double time, float x) => new KimodoMarkerSampleResult
+            {
+                constraintType = "constraint",
+                sampleTime = time,
+                characterPose = BuildPose(x),
+                localAxisAngles = new System.Collections.Generic.List<Vector3> { Vector3.zero },
+                mask = new KimodoConstraintMask { leftHand = true }
+            };
+
+            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(
+                new[] { At(0.0, 1f), At(1.0, 2f) },
+                exportFps: 30.0));
+            JObject hand = (JObject)json.Single(item => item.Value<string>("type") == "left-hand");
+
+            Assert.That(hand["frame_indices"], Has.Count.EqualTo(2));
+            Assert.That(hand["target_positions"], Has.Count.EqualTo(2));
+            Assert.That(hand["target_positions"]?[0]?[0]?.Value<float>(), Is.EqualTo(-1f).Within(1e-5f));
+            Assert.That(hand["target_positions"]?[1]?[0]?.Value<float>(), Is.EqualTo(-2f).Within(1e-5f));
+        }
+
+        [Test]
+        public void UnifiedConstraint_ProtocolPositionsApplyHumanScaleOnce()
+        {
+            CharacterPose pose = BuildPose(1f);
+            pose.root.t = new Vector3(2f, 3f, 4f);
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintType = "constraint",
+                humanScale = 2f,
+                characterPose = pose,
+                localAxisAngles = new System.Collections.Generic.List<Vector3> { Vector3.zero },
+                mask = new KimodoConstraintMask { muscle = true, rootPosition = true, leftHand = true }
+            };
+
+            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(new[] { sample }));
+            JObject body = (JObject)json.Single(item => item.Value<string>("type") == "fullbody");
+            JObject hand = (JObject)json.Single(item => item.Value<string>("type") == "left-hand");
+            JObject root = (JObject)json.Single(item => item.Value<string>("type") == "root2d");
+
+            Assert.That(body["root_positions"]?[0]?[0]?.Value<float>(), Is.EqualTo(-4f).Within(1e-5f));
+            Assert.That(root["smooth_root_2d"]?[0]?[1]?.Value<float>(), Is.EqualTo(8f).Within(1e-5f));
+            Assert.That(hand["target_positions"]?[0]?[0]?.Value<float>(), Is.EqualTo(-6f).Within(1e-5f));
+        }
+
+        [Test]
+        public void UnifiedRoot2D_ChangesOnlyCanonicalRootWithoutRoundTripDrift()
+        {
+            var pose = new CharacterPose();
+            pose.root.t = new Vector3(3f, 4f, 5f);
+            pose.root.q = Quaternion.Euler(0f, 45f, 0f);
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintType = "constraint",
+                characterPose = pose,
+                mask = new KimodoConstraintMask { rootPosition = true, rootHeading = true }
+            };
+
+            KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(new[] { sample, sample.Clone() }, 60.0);
+
+            Assert.That(sample.characterPose.root.t, Is.EqualTo(new Vector3(3f, 4f, 5f)));
+            Assert.That(Quaternion.Angle(sample.characterPose.root.q, Quaternion.Euler(0f, 45f, 0f)), Is.LessThan(1e-4f));
+        }
+
+        [Test]
+        public void Root2DWithoutHeading_ChangesPositionButKeepsTheSolvedFkHeading()
+        {
+            var fullBody = new CharacterPose();
+            fullBody.root.t = new Vector3(1f, 0f, 2f);
+            fullBody.root.q = Quaternion.Euler(0f, 25f, 0f);
+            var root2D = fullBody.Clone();
+            root2D.root.t = new Vector3(8f, 0f, 9f);
+            root2D.root.q = Quaternion.Euler(0f, 140f, 0f);
+            var samples = new[]
+            {
+                new KimodoMarkerSampleResult { constraintType = "fullbody", sampleTime = 0.0, characterPose = fullBody },
+                new KimodoMarkerSampleResult
+                {
+                    constraintType = "root2d",
+                    sampleTime = 0.0,
+                    characterPose = root2D,
+                    hasRootHeading = false
+                }
+            };
+
+            KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(samples, 60.0);
+
+            Assert.That(samples[0].characterPose.root.t, Is.EqualTo(root2D.root.t));
+            Assert.That(Quaternion.Angle(samples[0].characterPose.root.q, fullBody.root.q), Is.LessThan(1e-4f));
+
+            var merged = KimodoMarkerSamplingUtility.MergeAsUnifiedConstraintSamples(samples, 60.0);
+            Assert.That(merged[0].hasRootHeading, Is.False);
+        }
+
+        [Test]
+        public void UnifiedMerge_ProducesOneMarkerPerFrameWithAllEnabledChannels()
+        {
+            var fullBody = new CharacterPose();
+            fullBody.muscles[0] = 0.25f;
+            var leftHand = fullBody.Clone();
+            leftHand.hands.left.t = new Vector3(1f, 2f, 3f);
+            var root = fullBody.Clone();
+            root.root.t = new Vector3(4f, 0f, 5f);
+
+            var merged = KimodoMarkerSamplingUtility.MergeAsUnifiedConstraintSamples(
+                new[]
+                {
+                    new KimodoMarkerSampleResult { constraintType = "root2d", sampleTime = 0.0, characterPose = root },
+                    new KimodoMarkerSampleResult { constraintType = "left-hand", sampleTime = 0.0, characterPose = leftHand },
+                    new KimodoMarkerSampleResult
+                    {
+                        constraintType = "fullbody",
+                        sampleTime = 0.0,
+                        characterPose = fullBody,
+                        localAxisAngles = new System.Collections.Generic.List<Vector3> { Vector3.one, Vector3.right }
+                    }
+                },
+                60.0);
+
+            Assert.That(merged, Has.Count.EqualTo(1));
+            Assert.That(merged[0].constraintType, Is.EqualTo("constraint"));
+            Assert.That(merged[0].mask.muscle && merged[0].mask.leftHand && merged[0].mask.rootPosition, Is.True);
+            Assert.That(merged[0].characterPose.hands.left.t, Is.EqualTo(leftHand.hands.left.t));
+            Assert.That(merged[0].characterPose.root.t, Is.EqualTo(root.root.t));
+            Assert.That(merged[0].localAxisAngles, Has.Count.EqualTo(2));
+        }
+
+        [Test]
+        public void UnifiedMask_ExplicitEmptyMaskStaysEmpty()
+        {
+            var empty = new KimodoConstraintMask();
+
+            Assert.That(KimodoConstraintMask.Resolve(empty, "constraint"), Is.SameAs(empty));
+            Assert.That(KimodoConstraintMask.Resolve(empty, "constraint").IsEmpty, Is.True);
+            Assert.That(KimodoConstraintMask.Resolve(null, "constraint").muscle, Is.True);
+        }
+
+        [Test]
+        public void SampledUnifiedMarker_KeepsItsAuthoredMaskAndHeadingSwitch()
+        {
+            KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
+            try
+            {
+                marker.useOverride = false;
+                marker.SampleData = new KimodoMarkerSampleResult
+                {
+                    constraintType = "constraint",
+                    hasRootHeading = false,
+                    mask = new KimodoConstraintMask { leftHand = true, rootHeading = true }
+                };
+                var captured = new KimodoMarkerSampleResult
+                {
+                    constraintType = "fullbody",
+                    characterPose = new CharacterPose(),
+                    mask = KimodoConstraintMask.ForType("fullbody"),
+                    hasRootHeading = true
+                };
+
+                KimodoMarkerSampleResult normalized = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(
+                    marker,
+                    captured);
+
+                Assert.That(normalized.constraintType, Is.EqualTo("constraint"));
+                Assert.That(normalized.mask.leftHand, Is.True);
+                Assert.That(normalized.mask.muscle, Is.False);
+                Assert.That(normalized.hasRootHeading, Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(marker);
+            }
+        }
+
+        [Test]
+        public void MuscleEulerUi_UsesTheDistinctBonesBehindThe49Muscles()
+        {
+            HumanBodyBones[] bones = KimodoBridge.Editor.KimodoConstraintOverrideEditWindow.BuildMuscleEulerBones();
+
+            Assert.That(bones, Is.Not.Empty);
+            Assert.That(bones.Distinct().Count(), Is.EqualTo(bones.Length));
+            CollectionAssert.DoesNotContain(bones, HumanBodyBones.Hips);
+        }
+
         private static void AssertTransform(CharacterPoseTransform actual, Vector3 expectedT, Quaternion expectedQ)
         {
             Assert.That(Vector3.Distance(actual.t, expectedT), Is.LessThan(1e-6f));
             Assert.That(Quaternion.Angle(actual.q, expectedQ), Is.LessThan(1e-4f));
+        }
+
+        private static CharacterPose BuildPose(float leftHandX)
+        {
+            var pose = new CharacterPose();
+            pose.hands.left.t = new Vector3(leftHandX, 0f, 0f);
+            return pose;
         }
     }
 }

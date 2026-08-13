@@ -39,6 +39,7 @@ namespace KimodoBridge
             : lastCompletedWorldOffset;
         public float SourceHumanScale => sourceCache != null ? Mathf.Max(1e-6f, sourceCache.humanScale) : 1f;
         public Transform ConstraintSkeletonRoot => sourceCache != null ? sourceCache.skeletonRoot : null;
+        internal SkeletonCache ConstraintSkeletonCache => sourceCache;
         internal Transform DebugProfileSkeletonRoot => sourceCache != null ? sourceCache.skeletonRoot : null;
         public int LastCompletedSegmentIndex { get; private set; } = -1;
         public double PlaybackTimeAsDouble => timeSeconds;

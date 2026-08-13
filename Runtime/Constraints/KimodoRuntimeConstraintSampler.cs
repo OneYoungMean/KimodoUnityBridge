@@ -12,6 +12,8 @@ namespace KimodoBridge
             string constraintType,
             string jointName,
             Vector3 targetWorldPosition,
+            Vector3 currentWorldBodyPosition,
+            Quaternion modelToWorldRotation,
             float sampleTime,
             out KimodoMarkerSampleResult sample,
             out string error)
@@ -31,10 +33,40 @@ namespace KimodoBridge
                 return false;
             }
 
-            Vector3 offset = targetWorldPosition - targetJoint.position;
-            sample.kimodoRootPosition += offset;
-            sample.unityRootPos += offset;
             sample.constraintType = constraintType;
+            sample.mask = KimodoConstraintMask.ForType(constraintType);
+            if (sample.characterPose != null &&
+                KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(constraintType, out HumanBodyBones bone))
+            {
+                // The command target lives in the displayed character's world.
+                // The profile skeleton lives in model space, so retain its
+                // canonical body root and transform the scene-space delta into
+                // that space before storing the HumanPose IK goal.
+                Vector3 modelGoalPosition = sample.characterPose.root.t * sample.humanScale +
+                    Quaternion.Inverse(modelToWorldRotation) *
+                    (targetWorldPosition - currentWorldBodyPosition);
+                KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
+                    sample.characterPose.root.t,
+                    sample.characterPose.root.q,
+                    Mathf.Max(1e-6f, sample.humanScale),
+                    modelGoalPosition,
+                    targetJoint.rotation,
+                    out Vector3 goalPosition,
+                    out Quaternion goalRotation);
+                CharacterAnimationCli.Unity.CharacterPoseTransform goal = bone switch
+                {
+                    HumanBodyBones.LeftHand => sample.characterPose.hands.left,
+                    HumanBodyBones.RightHand => sample.characterPose.hands.right,
+                    HumanBodyBones.LeftFoot => sample.characterPose.feet.left,
+                    HumanBodyBones.RightFoot => sample.characterPose.feet.right,
+                    _ => null
+                };
+                if (goal != null)
+                {
+                    goal.t = goalPosition;
+                    goal.q = goalRotation;
+                }
+            }
             return true;
         }
 
@@ -81,6 +113,14 @@ namespace KimodoBridge
                 sample.unityRootPos.y,
                 targetWorldPosition.y);
             sample.constraintType = KimodoRuntimeConstraints.Root2DType;
+            sample.mask = KimodoConstraintMask.ForType(KimodoRuntimeConstraints.Root2DType);
+            if (sample.characterPose != null)
+            {
+                sample.characterPose.root.t = new Vector3(
+                    modelTarget.x / Mathf.Max(1e-6f, sample.humanScale),
+                    sample.characterPose.root.t.y,
+                    modelTarget.y / Mathf.Max(1e-6f, sample.humanScale));
+            }
             sample.localAxisAngles = new List<Vector3>();
             sample.sampledJointIndices = new List<int>();
             sample.hasRootHeading = worldHeading.HasValue;
@@ -89,6 +129,12 @@ namespace KimodoBridge
                 sample.rootHeading = KimodoRoot2DPlanner.ToModelHeading(
                     modelToWorldRotation,
                     worldHeading.Value);
+                if (sample.characterPose != null)
+                {
+                    sample.characterPose.root.q = Quaternion.LookRotation(
+                        new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y),
+                        Vector3.up);
+                }
             }
 
             return true;
@@ -115,7 +161,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            return KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
+            if (!KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
                 null,
                 player.ConstraintSkeletonRoot,
                 modelName,
@@ -125,7 +171,23 @@ namespace KimodoBridge
                 null,
                 null,
                 out sample,
-                out error);
+                out error))
+            {
+                return false;
+            }
+
+            if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                    player.ConstraintSkeletonCache,
+                    out MuscleSample muscleSample,
+                    out error))
+            {
+                sample = null;
+                return false;
+            }
+
+            sample.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(muscleSample);
+            sample.humanScale = player.SourceHumanScale;
+            return true;
         }
     }
 }

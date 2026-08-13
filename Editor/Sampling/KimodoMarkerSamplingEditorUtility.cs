@@ -90,7 +90,9 @@ namespace KimodoBridge.Editor
 
             return string.Equals(left.constraintType ?? string.Empty, right.constraintType ?? string.Empty, System.StringComparison.Ordinal) &&
                 System.Math.Abs(left.sampleTime - right.sampleTime) <= 1e-9 &&
+                Mathf.Approximately(left.humanScale, right.humanScale) &&
                 string.Equals(CharacterPoseSignature(left), CharacterPoseSignature(right), System.StringComparison.Ordinal) &&
+                string.Equals(MaskSignature(left.mask), MaskSignature(right.mask), System.StringComparison.Ordinal) &&
                 left.rigType == right.rigType &&
                 left.hasRootHeading == right.hasRootHeading &&
                 Approximately(left.kimodoRootPosition, right.kimodoRootPosition) &&
@@ -109,6 +111,13 @@ namespace KimodoBridge.Editor
         private static string CharacterPoseSignature(KimodoMarkerSampleResult sample)
         {
             return sample?.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty;
+        }
+
+        private static string MaskSignature(KimodoConstraintMask mask)
+        {
+            return mask == null
+                ? string.Empty
+                : $"{mask.muscle}:{mask.rootPosition}:{mask.rootHeading}:{mask.leftFoot}:{mask.rightFoot}:{mask.leftHand}:{mask.rightHand}";
         }
 
         private static bool StringListsEqual(System.Collections.Generic.IReadOnlyList<string> left, System.Collections.Generic.IReadOnlyList<string> right)

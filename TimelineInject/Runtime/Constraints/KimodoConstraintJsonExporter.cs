@@ -119,7 +119,11 @@ namespace TimelineInject
 
         public static List<KimodoConstraintJson> BuildConstraints(IReadOnlyList<KimodoMarkerSampleResult> samples)
         {
-            return BuildConstraints(samples, 0.0, null, DefaultExportFps);
+            return BuildConstraints(
+                KimodoConstraintSampleResolver.ExpandProtocolSamples(samples, DefaultExportFps),
+                0.0,
+                null,
+                DefaultExportFps);
         }
 
         private static List<KimodoConstraintJson> BuildConstraints(
@@ -149,6 +153,10 @@ namespace TimelineInject
 
         public static KimodoConstraintJson BuildConstraint(KimodoMarkerSampleResult sample)
         {
+            if (sample != null && string.Equals(sample.constraintType, "constraint", StringComparison.OrdinalIgnoreCase))
+            {
+                return BuildConstraints(new[] { sample }).FirstOrDefault();
+            }
             return BuildConstraint(sample, 0.0, null, DefaultExportFps);
         }
 
@@ -165,6 +173,11 @@ namespace TimelineInject
 
             string type = sample.constraintType ?? string.Empty;
             if (string.IsNullOrWhiteSpace(type))
+            {
+                return null;
+            }
+
+            if (string.Equals(type, "constraint", StringComparison.OrdinalIgnoreCase))
             {
                 return null;
             }
@@ -189,7 +202,11 @@ namespace TimelineInject
             double? clipDurationSeconds = null,
             double exportFps = DefaultExportFps)
         {
-            List<KimodoConstraintJson> constraints = BuildConstraints(samples, clipStartSeconds, clipDurationSeconds, exportFps);
+            List<KimodoConstraintJson> constraints = BuildConstraints(
+                KimodoConstraintSampleResolver.ExpandProtocolSamples(samples, exportFps),
+                clipStartSeconds,
+                clipDurationSeconds,
+                exportFps);
             return mergeByType ? MergeConstraintsByType(constraints) : constraints;
         }
 
@@ -199,6 +216,23 @@ namespace TimelineInject
             double? clipDurationSeconds,
             double exportFps)
         {
+            if (sample.characterPose != null && sample.characterPose.TryValidate(out _))
+            {
+                Vector3 root = sample.characterPose.root.t * Mathf.Max(1e-6f, sample.humanScale);
+                Vector3 forward = sample.characterPose.root.q * Vector3.forward;
+                var canonical = new KimodoConstraintJson
+                {
+                    type = "root2d",
+                    frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
+                    smooth_root_2d = new List<float[]> { new[] { -root.x, root.z } }
+                };
+                if (sample.hasRootHeading)
+                {
+                    canonical.global_root_heading = new List<float[]> { new[] { forward.z, -forward.x } };
+                }
+                return canonical;
+            }
+
             var json = new KimodoConstraintJson
             {
                 type = "root2d",
@@ -226,7 +260,12 @@ namespace TimelineInject
             double? clipDurationSeconds,
             double exportFps)
         {
-            Vector3 kimodoRoot = new Vector3(-sample.kimodoRootPosition.x, sample.kimodoRootPosition.y, sample.kimodoRootPosition.z);
+            if (!TryBuildProtocolPose(sample, out Vector3 unityRoot, out List<Vector3> localAxisAngles))
+            {
+                return BuildLegacyFullBody(sample, clipStartSeconds, clipDurationSeconds, exportFps);
+            }
+            unityRoot *= Mathf.Max(1e-6f, sample.humanScale);
+            Vector3 kimodoRoot = new Vector3(-unityRoot.x, unityRoot.y, unityRoot.z);
             var json = new KimodoConstraintJson
             {
                 type = "fullbody",
@@ -241,7 +280,7 @@ namespace TimelineInject
                 },
                 local_joints_rot = new List<float[][]>
                 {
-                    BuildLocalJointFrame(sample.localAxisAngles)
+                    BuildLocalJointFrame(localAxisAngles)
                 }
             };
 
@@ -254,12 +293,18 @@ namespace TimelineInject
             double? clipDurationSeconds,
             double exportFps)
         {
-            Vector3 kimodoRoot = new Vector3(-sample.kimodoRootPosition.x, sample.kimodoRootPosition.y, sample.kimodoRootPosition.z);
+            if (!TryBuildProtocolPose(sample, out Vector3 unityRoot, out List<Vector3> localAxisAngles))
+            {
+                return BuildLegacyEndEffector(sample, clipStartSeconds, clipDurationSeconds, exportFps);
+            }
+            float humanScale = Mathf.Max(1e-6f, sample.humanScale);
+            Vector3 scaledRoot = unityRoot * humanScale;
+            Vector3 kimodoRoot = new Vector3(-scaledRoot.x, scaledRoot.y, scaledRoot.z);
             var json = new KimodoConstraintJson
             {
                 type = sample.constraintType,
                 frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
-                joint_names = sample.jointNames != null ? new List<string>(sample.jointNames) : new List<string>(),
+                joint_names = new List<string> { ResolveEndEffectorJointName(sample.constraintType) },
                 smooth_root_2d = new List<float[]>
                 {
                     new[] { kimodoRoot.x, kimodoRoot.z }
@@ -270,11 +315,107 @@ namespace TimelineInject
                 },
                 local_joints_rot = new List<float[][]>
                 {
-                    BuildLocalJointFrame(sample.localAxisAngles)
+                    BuildLocalJointFrame(localAxisAngles)
                 }
             };
 
+            CharacterAnimationCli.Unity.CharacterPoseTransform goal = ResolveEndEffectorGoal(sample.characterPose, sample.constraintType);
+            if (goal != null)
+            {
+                // Hand/Foot T/Q use Unity's HumanPose body-relative IK-goal
+                // convention. Unity stores body position and IK goals in units
+                // normalized by humanScale; model protocol space uses metres.
+                Vector3 worldTarget = (unityRoot + sample.characterPose.root.q * goal.t) * humanScale;
+                json.target_positions = new List<float[]> { new[] { -worldTarget.x, worldTarget.y, worldTarget.z } };
+            }
+
             return json;
+        }
+
+        private static KimodoConstraintJson BuildLegacyFullBody(
+            KimodoMarkerSampleResult sample,
+            double clipStartSeconds,
+            double? clipDurationSeconds,
+            double exportFps)
+        {
+            Vector3 root = new Vector3(-sample.kimodoRootPosition.x, sample.kimodoRootPosition.y, sample.kimodoRootPosition.z);
+            return new KimodoConstraintJson
+            {
+                type = "fullbody",
+                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
+                smooth_root_2d = new List<float[]> { new[] { root.x, root.z } },
+                root_positions = new List<float[]> { new[] { root.x, root.y, root.z } },
+                local_joints_rot = new List<float[][]> { BuildLocalJointFrame(sample.localAxisAngles) }
+            };
+        }
+
+        private static KimodoConstraintJson BuildLegacyEndEffector(
+            KimodoMarkerSampleResult sample,
+            double clipStartSeconds,
+            double? clipDurationSeconds,
+            double exportFps)
+        {
+            Vector3 root = new Vector3(-sample.kimodoRootPosition.x, sample.kimodoRootPosition.y, sample.kimodoRootPosition.z);
+            return new KimodoConstraintJson
+            {
+                type = sample.constraintType,
+                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
+                joint_names = sample.jointNames != null ? new List<string>(sample.jointNames) : new List<string> { ResolveEndEffectorJointName(sample.constraintType) },
+                smooth_root_2d = new List<float[]> { new[] { root.x, root.z } },
+                root_positions = new List<float[]> { new[] { root.x, root.y, root.z } },
+                local_joints_rot = new List<float[][]> { BuildLocalJointFrame(sample.localAxisAngles) }
+            };
+        }
+
+        private static string ResolveEndEffectorJointName(string type)
+        {
+            switch ((type ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
+            {
+                case "left-hand": return "LeftHand";
+                case "right-hand": return "RightHand";
+                case "left-foot": return "LeftFoot";
+                case "right-foot": return "RightFoot";
+                default: return "";
+            }
+        }
+
+        private static CharacterAnimationCli.Unity.CharacterPoseTransform ResolveEndEffectorGoal(CharacterAnimationCli.Unity.CharacterPose pose, string type)
+        {
+            if (pose == null) return null;
+            switch ((type ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
+            {
+                case "left-hand": return pose.hands?.left;
+                case "right-hand": return pose.hands?.right;
+                case "left-foot": return pose.feet?.left;
+                case "right-foot": return pose.feet?.right;
+                default: return null;
+            }
+        }
+
+        private static bool TryBuildProtocolPose(KimodoMarkerSampleResult sample, out Vector3 root, out List<Vector3> localAxisAngles)
+        {
+            root = Vector3.zero;
+            localAxisAngles = null;
+            if (sample?.characterPose == null || !sample.characterPose.TryValidate(out _)) return false;
+            root = sample.characterPose.root.t;
+            if (sample.localAxisAngles != null && sample.localAxisAngles.Count > 0)
+            {
+                localAxisAngles = new List<Vector3>(sample.localAxisAngles);
+                // The canonical body root is the only root truth.  The remaining
+                // local rotations are the sampled FK projection for this rig.
+                localAxisAngles[0] = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(sample.characterPose.root.q);
+                return true;
+            }
+
+            // Runtime-created unified constraints do not carry the historical
+            // profile joint arrays.  Keep the canonical root/FK context instead
+            // of falling back to stale legacy fields; a profile-aware editor
+            // projection can replace this minimal frame when available.
+            localAxisAngles = new List<Vector3>
+            {
+                KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(sample.characterPose.root.q)
+            };
+            return true;
         }
 
         private static List<int> BuildFrameIndices(double sampleTime, double? clipDurationSeconds, double exportFps)
@@ -416,6 +557,11 @@ namespace TimelineInject
             {
                 merged.joint_names = new List<string>(group[0].joint_names);
             }
+            bool hasAnyTargetPositions = isEndEffectorFamily && group.Any(item => item?.target_positions != null);
+            if (hasAnyTargetPositions)
+            {
+                merged.target_positions = new List<float[]>();
+            }
             for (int i = 0; i < group.Count; i++)
             {
                 KimodoConstraintJson c = group[i];
@@ -440,6 +586,16 @@ namespace TimelineInject
                 if (merged.global_root_heading != null && c.global_root_heading != null)
                 {
                     merged.global_root_heading.AddRange(c.global_root_heading);
+                }
+                if (merged.target_positions != null)
+                {
+                    int frameCount = c.frame_indices != null ? c.frame_indices.Count : 0;
+                    for (int frame = 0; frame < frameCount; frame++)
+                    {
+                        merged.target_positions.Add(c.target_positions != null && frame < c.target_positions.Count
+                            ? c.target_positions[frame]
+                            : null);
+                    }
                 }
             }
 

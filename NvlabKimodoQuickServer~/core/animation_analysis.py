@@ -44,7 +44,7 @@ def build_clip_constraint_analysis(clips: list[dict[str, Any]], options: dict[st
     total_frames = sum(item["frame_count"] for item in results)
     weighted_quality = sum(item["quality_score"] * item["frame_count"] for item in results)
     return {
-        "algorithm": "motion-quality-v1",
+        "algorithm": "motion-quality-v2",
         "quality_score": round(float(weighted_quality / max(1, total_frames)), 4),
         "keyframes": [
             {"clip_index": index, **keyframe}
@@ -57,6 +57,7 @@ def build_clip_constraint_analysis(clips: list[dict[str, Any]], options: dict[st
             for issue in item["issues"]
         ],
         "clips": results,
+        "hints": _build_hints(results),
     }
 
 
@@ -97,9 +98,14 @@ def _analyze_clip(index: int, clip: dict[str, Any], options: dict[str, Any]) -> 
         0.0,
         1.0,
     )
-    saliency = np.clip(0.45 * acceleration_score + 0.35 * pose_score + 0.20 * velocity_score, 0.0, 1.0)
-    keyframes = _select_signal_keyframes(saliency, fps, options)
-    issues = _select_issues(severity, continuity_score, acceleration_score, pose_score, invalid_score, fps)
+    keyframes = _select_representative_keyframes(quats, fps, options)
+    issues = _select_issues(severity, continuity_score, acceleration_score, pose_score, invalid_score, fps, options)
+    keyframe_options = options.get("keyframes", {})
+    if keyframe_options is True:
+        keyframe_options = {}
+    if not isinstance(keyframe_options, dict):
+        keyframe_options = {}
+    keyframe_budget = max(1, min(24, int(keyframe_options.get("max_count", 8)), frames))
     worst_count = max(1, int(np.ceil(frames * 0.1)))
     quality = 1.0 - float(np.mean(np.sort(severity)[-worst_count:]))
     return {
@@ -108,27 +114,77 @@ def _analyze_clip(index: int, clip: dict[str, Any], options: dict[str, Any]) -> 
         "quality_score": round(float(np.clip(quality, 0.0, 1.0)), 4),
         "keyframes": keyframes,
         "issues": issues,
+        "keyframe_budget_reached": len(keyframes) >= keyframe_budget and keyframe_budget < frames,
     }
 
 
-def _select_signal_keyframes(signal: np.ndarray, fps: float, options: dict[str, Any]) -> list[dict[str, Any]]:
-    frames = len(signal)
+def _build_hints(results: list[dict[str, Any]]) -> list[str]:
+    hints: list[str] = []
+    issues = [issue for result in results for issue in result["issues"]]
+    reasons = {reason for issue in issues for reason in issue["reasons"]}
+    if "continuity" in reasons or "pose" in reasons:
+        hints.append("motion discontinuity may exist; inspect the reported issue frames and nearby playback.")
+    if "acceleration" in reasons:
+        hints.append("abrupt root-motion acceleration may exist; inspect the reported issue frames and nearby playback.")
+    if "invalid_pose" in reasons:
+        hints.append("invalid pose data was detected; regenerate or repair the affected frames.")
+    if any(result["keyframe_budget_reached"] and result["frame_count"] > len(result["keyframes"]) for result in results):
+        hints.append("keyframe budget was reached; increase keyframes.max_count if the selected poses do not cover the motion.")
+    return hints
+
+
+def _select_representative_keyframes(
+    values: np.ndarray,
+    fps: float,
+    options: dict[str, Any],
+    root_index: int = 0,
+    quaternions: bool = True,
+) -> list[dict[str, Any]]:
+    """Select real frames greedily by their residual outside the selected pose span.
+
+    Root translation and the root joint rotation are deliberately excluded.  The
+    span therefore measures only non-root pose reconstruction, not locomotion.
+    """
+    frames = len(values)
     keyframe_options = options.get("keyframes", {})
     if keyframe_options is True:
         keyframe_options = {}
     if not isinstance(keyframe_options, dict):
         keyframe_options = {}
-    maximum = max(1, min(24, int(keyframe_options.get("max_count", 8)), frames))
-    min_gap = max(1, int(round(float(keyframe_options.get("min_interval_seconds", 0.35)) * fps)))
-    selected = {0, frames - 1}
-    while len(selected) < maximum:
-        candidates = [frame for frame in range(1, frames - 1) if frame not in selected and min(abs(frame - other) for other in selected) >= min_gap]
-        if not candidates:
+    maximum = max(1, min(24, int(keyframe_options.get("max_count", 4)), frames))
+    # q and -q represent the same rotation. Root translation is removed by
+    # callers; exclude the root joint so heading never affects the basis.
+    pose_values = np.delete(np.array(values, dtype=np.float64, copy=True), root_index, axis=1)
+    if pose_values.shape[1] == 0:
+        pose_values = np.array(values, dtype=np.float64, copy=True)
+    if quaternions:
+        pose_values *= np.where(pose_values[..., 3:4] < 0.0, -1.0, 1.0)
+    flattened = pose_values.reshape(frames, -1)
+    centered = flattened - np.mean(flattened, axis=0, keepdims=True)
+    residual = np.array(centered, copy=True)
+    selected: list[int] = []
+    for _ in range(maximum):
+        norms = np.einsum("ij,ij->i", residual, residual)
+        frame = int(np.argmax(norms))
+        if norms[frame] <= 1e-12:
             break
-        selected.add(max(candidates, key=lambda frame: float(signal[frame])))
+        selected.append(frame)
+        vector = residual[frame]
+        vector /= np.linalg.norm(vector)
+        residual -= np.outer(residual @ vector, vector)
+    if not selected:
+        selected = [0]
+    total_energy = float(np.einsum("ij,ij->", centered, centered))
+    residual_energy = float(np.einsum("ij,ij->", residual, residual))
+    explained = 1.0 if total_energy <= 1e-12 else np.clip(1.0 - residual_energy / total_energy, 0.0, 1.0)
     return [
-        {"frame": int(frame), "time": round(float(frame / fps), 6), "saliency": round(float(signal[frame]), 4)}
-        for frame in sorted(selected)
+        {
+            "frame": int(frame),
+            "time": round(float(frame / fps), 6),
+            "role": "representative_basis",
+            "non_root_subspace_explained_variance": round(float(explained), 4),
+        }
+        for frame in selected
     ]
 
 
@@ -139,16 +195,25 @@ def _select_issues(
     pose: np.ndarray,
     invalid: np.ndarray,
     fps: float,
+    options: dict[str, Any],
 ) -> list[dict[str, Any]]:
     minimum = 0.55
     min_gap = max(1, int(round(0.15 * fps)))
+    issue_options = options.get("issues", {})
+    if issue_options is True:
+        issue_options = {}
+    if not isinstance(issue_options, dict):
+        issue_options = {}
+    maximum = max(1, min(64, int(issue_options.get("max_count", 8))))
     candidates = sorted((int(frame) for frame in np.where(severity >= minimum)[0]), key=lambda frame: float(severity[frame]), reverse=True)
     selected: list[int] = []
     for frame in candidates:
         if all(abs(frame - other) >= min_gap for other in selected):
             selected.append(frame)
+        if len(selected) >= maximum:
+            break
     result: list[dict[str, Any]] = []
-    for frame in sorted(selected):
+    for rank, frame in enumerate(selected, start=1):
         reasons = []
         if invalid[frame] > 0.0:
             reasons.append("invalid_pose")
@@ -158,7 +223,13 @@ def _select_issues(
             reasons.append("acceleration")
         if pose[frame] >= 0.55:
             reasons.append("pose")
-        result.append({"frame": frame, "score": round(float(severity[frame]), 4), "reasons": reasons or ["motion_outlier"]})
+        result.append({
+            "rank": rank,
+            "from_frame": max(0, frame - 1),
+            "frame": frame,
+            "score": round(float(severity[frame]), 4),
+            "reasons": reasons or ["motion_outlier"],
+        })
     return result
 
 
@@ -178,79 +249,8 @@ def _select_keyframes(
     if root_index < 0 or root_index >= joints.shape[1]:
         root_index = 0
 
-    frames = int(joints.shape[0])
-    maximum = int(options.get("max_count", 8))
-    maximum = max(1, min(24, maximum, frames))
-    min_gap = max(1, int(round(float(options.get("min_interval_seconds", 0.35)) * fps)))
-
-    root = joints[:, root_index, :]
-    planar_velocity = np.diff(root[:, (0, 2)], axis=0, prepend=root[:1, (0, 2)]) * fps
-    root_speed = np.linalg.norm(planar_velocity, axis=1)
-    root_acceleration = np.abs(np.diff(root_speed, prepend=root_speed[:1])) * fps
-
-    heading_turn = np.zeros(frames, dtype=np.float32)
-    moving = root_speed[1:] > 1e-4
-    if np.any(moving):
-        heading = np.unwrap(np.arctan2(planar_velocity[1:, 1], planar_velocity[1:, 0]))
-        heading_delta = np.abs(np.diff(heading, prepend=heading[:1])) * fps
-        heading_turn[1:] = np.where(moving, heading_delta, 0.0)
-
-    relative = joints - root[:, None, :]
-    pose_velocity = np.linalg.norm(np.diff(relative, axis=0, prepend=relative[:1]), axis=2).mean(axis=1) * fps
-    pose_acceleration = np.abs(np.diff(pose_velocity, prepend=pose_velocity[:1])) * fps
-    contact_change = _foot_contact_changes(output, frames)
-
-    root_score = _normalize(root_acceleration)
-    turn_score = _normalize(heading_turn)
-    pose_score = _normalize(pose_acceleration)
-    contact_score = contact_change.astype(np.float32)
-    saliency = np.clip(
-        0.30 * root_score + 0.20 * turn_score + 0.40 * pose_score + 0.10 * contact_score,
-        0.0,
-        1.0,
-    )
-
-    selected = {0, frames - 1}
-    while len(selected) < maximum:
-        best_frame = None
-        best_value = -1.0
-        for frame in range(1, frames - 1):
-            if frame in selected or min(abs(frame - existing) for existing in selected) < min_gap:
-                continue
-            coverage = min(abs(frame - existing) for existing in selected) / max(1, frames - 1)
-            value = float(saliency[frame]) + 0.20 * coverage
-            if value > best_value:
-                best_frame, best_value = frame, value
-        if best_frame is None:
-            break
-        selected.add(best_frame)
-
-    keyframes: list[dict[str, Any]] = []
-    for frame in sorted(selected):
-        reasons = []
-        if frame == 0:
-            reasons.append("start")
-        if frame == frames - 1:
-            reasons.append("end")
-        if root_score[frame] >= 0.55:
-            reasons.append("root_acceleration")
-        if turn_score[frame] >= 0.55:
-            reasons.append("heading_turn")
-        if pose_score[frame] >= 0.55:
-            reasons.append("pose_transition")
-        if contact_change[frame]:
-            reasons.append("foot_contact_change")
-        if not reasons:
-            reasons.append("coverage")
-        keyframes.append(
-            {
-                "frame": int(frame),
-                "time": float(frame / fps),
-                "saliency": round(float(saliency[frame]), 4),
-                "reasons": reasons,
-            }
-        )
-    return keyframes
+    relative_joints = joints - joints[:, root_index:root_index + 1, :]
+    return _select_representative_keyframes(relative_joints, fps, options, root_index, quaternions=False)
 
 
 def _foot_contact_changes(output: dict[str, Any], frames: int) -> np.ndarray:

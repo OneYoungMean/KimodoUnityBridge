@@ -250,6 +250,8 @@ namespace KimodoBridge.Editor.Tests
                     KimodoRuntimeConstraints.LeftHandType,
                     "LeftHand",
                     Vector3.zero,
+                    Vector3.zero,
+                    Quaternion.identity,
                     1f,
                     out _,
                     out string error),
@@ -434,6 +436,51 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void RuntimeConstraints_MergesDifferentChannelsAtOneFrameAndReplacesOnlyTheirChannels()
+        {
+            var buffer = new KimodoRuntimeConstraints();
+            buffer.Stage(new KimodoMarkerSampleResult
+            {
+                constraintType = "left-hand",
+                sampleTime = 1.0
+            });
+            buffer.Stage(new KimodoMarkerSampleResult
+            {
+                constraintType = "right-foot",
+                sampleTime = 1.0
+            });
+            Assert.That(buffer.Commit(), Is.True);
+
+            List<KimodoMarkerSampleResult> merged = buffer.BuildForGeneration(
+                isArdy: false,
+                playbackTime: 0.0,
+                includeOverlap: false,
+                duration: 5f);
+            Assert.That(merged, Has.Count.EqualTo(1));
+            Assert.That(merged[0].mask.leftHand && merged[0].mask.rightFoot, Is.True);
+
+            buffer.Stage(new KimodoMarkerSampleResult
+            {
+                constraintType = "left-hand",
+                sampleTime = 2.0
+            });
+
+            Assert.That(buffer.Commit(), Is.True);
+            List<KimodoMarkerSampleResult> active = buffer.BuildForGeneration(
+                isArdy: false,
+                playbackTime: 0.0,
+                includeOverlap: false,
+                duration: 5f);
+
+            Assert.That(active, Has.Count.EqualTo(2));
+            KimodoMarkerSampleResult first = active.Single(item => Math.Abs(item.sampleTime - 1.0) <= 1e-6);
+            KimodoMarkerSampleResult second = active.Single(item => Math.Abs(item.sampleTime - 2.0) <= 1e-6);
+            Assert.That(first.mask.rightFoot, Is.True);
+            Assert.That(first.mask.leftHand, Is.False);
+            Assert.That(second.mask.leftHand, Is.True);
+        }
+
+        [Test]
         public void RuntimeConstraints_UsesArdyAbsoluteTimeAndNormalTargetTiming()
         {
             var buffer = new KimodoRuntimeConstraints();
@@ -521,7 +568,8 @@ namespace KimodoBridge.Editor.Tests
                 includeOverlap: true,
                 duration: 5f);
             Assert.That(normalActive, Has.Count.EqualTo(1));
-            Assert.That(normalActive[0].constraintType, Is.EqualTo("fullbody"));
+            Assert.That(normalActive[0].constraintType, Is.EqualTo("constraint"));
+            Assert.That(normalActive[0].mask.muscle, Is.True);
             Assert.That(normalActive[0].sampleTime, Is.Zero);
             Assert.That(normalActive[0].kimodoRootPosition, Is.EqualTo(new Vector3(0f, 3f, 0f)));
 

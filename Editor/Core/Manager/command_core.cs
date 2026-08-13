@@ -21,6 +21,44 @@ namespace CharacterAnimationCli.Unity.Command
     /// </summary>
     internal static partial class command_context
     {
+        private static Vector2 LoopBezier(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
+        {
+            t = Mathf.Clamp01(t); float u = 1f - t;
+            return u * u * u * p0 + 3f * u * u * t * p1 + 3f * u * t * t * p2 + t * t * t * p3;
+        }
+
+        private static void AddLoopBezierRootConstraints(JArray constraints, int sourceDuration, int padding)
+        {
+            JObject first = constraints.OfType<JObject>().OrderBy(x => x.Value<int?>("frame") ?? int.MaxValue).FirstOrDefault(x => x["root2d"] != null);
+            JObject last = constraints.OfType<JObject>().OrderByDescending(x => x.Value<int?>("frame") ?? int.MinValue).FirstOrDefault(x => x["root2d"] != null);
+            if (first == null || last == null) return;
+            Vector2 a = ReadLoopPosition(first["root2d"] as JObject);
+            Vector2 b = ReadLoopPosition(last["root2d"] as JObject);
+            Vector2 d = (b - a) / 3f;
+            for (int i = 0; i < padding; i++)
+            {
+                float t = (i + 1f) / (padding + 1f);
+                constraints.Add(CreateLoopRootConstraint(i, LoopBezier(b, b - d, a + d, a, t), a - b));
+                constraints.Add(CreateLoopRootConstraint(padding + sourceDuration + i, LoopBezier(b, b - d, a + d, a, t), a - b));
+            }
+        }
+
+        private static JObject CreateLoopRootConstraint(int frame, Vector2 position, Vector2 heading) => new JObject
+        {
+            ["frame"] = frame,
+            ["root2d"] = new JObject
+            {
+                ["position"] = new JObject { ["x"] = position.x, ["y"] = position.y },
+                ["heading"] = new JObject { ["x"] = heading.x, ["y"] = heading.y }
+            }
+        };
+
+        private static Vector2 ReadLoopPosition(JObject root)
+        {
+            JObject p = root?["position"] as JObject;
+            return new Vector2(p?.Value<float?>("x") ?? 0f, p?.Value<float?>("y") ?? 0f);
+        }
+
         public const string HelpCommand = "kimodo_help";
         public const string DebugInstallServerCommand = "kimodo_debug_install_server";
         public const string GenerateAnimationCommand = "kimodo_generate_animation";
@@ -30,7 +68,9 @@ namespace CharacterAnimationCli.Unity.Command
         public const string SessionTryAddCommand = "session_try_add";
         public const string SessionTryRemoveCommand = "session_try_remove";
         public const string KimodoAnalyzeCommand = "kimodo_analyze";
+        public const string KimodoRecordRangeCommand = "kimodo_record_range";
         public const string KimodoBakeRangeCommand = "kimodo_bake_range";
+        public const string KimodoRetargetAnimationCommand = "kimodo_retarget_animation";
         public const string QueryPictureCommand = "query_picture";
         public const string PoseCreateCommand = "pose_create";
         public const string PoseGetCommand = "pose_get";
@@ -93,6 +133,24 @@ namespace CharacterAnimationCli.Unity.Command
                             Optional("start_frame", "integer", "Inclusive Session frame at 60 FPS; requires end_frame."),
                             Optional("end_frame", "integer", "Exclusive Session frame at 60 FPS; requires start_frame."),
                             Optional("analysis_option", "object", "Optional QuickServer analysis configuration; analysis_only is forced true."))),
+                    CommandDefinition(KimodoRecordRangeCommand,
+                        "Record a Session time range into an AnimationClip and append it to the source character.",
+                        Properties(
+                            Required("start_frame", "integer", "Inclusive Session frame at 60 FPS."),
+                            Required("end_frame", "integer", "Exclusive Session frame at 60 FPS."),
+                            Required("character", "string", "Safe source character name in the current Session."),
+                            Optional("remove_root_motion", "boolean", "Keep vertical motion but remove horizontal root translation and yaw; defaults to false."),
+                            Optional("speed", "number", "Playback speed multiplier; defaults to 1.0."),
+                            Optional("name", "string", "Requested safe output animation name."),
+                            Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
+                    CommandDefinition(KimodoRetargetAnimationCommand,
+                        "Retarget one loaded animation to another current Session character and append the result.",
+                        Properties(
+                            Required("character", "string", "Safe source character name in the current Session."),
+                            Required("animation", "string", "Safe source animation name."),
+                            Required("target_character", "string", "Safe target character name in the current Session."),
+                            Optional("name", "string", "Requested safe output animation name."),
+                            Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
                     CommandDefinition(KimodoBakeRangeCommand,
                         "Bake a Session time range into an AnimationClip and append it to a character with a fixed 4-frame safezone; optionally retarget it to another current Session character. Overlap with a running generation on the source track returns generation_range_locked.",
                         Properties(
@@ -110,6 +168,7 @@ namespace CharacterAnimationCli.Unity.Command
                             Required("character", "string", "Safe scene or Session character name."),
                             Required("prompt", "string", "Motion prompt."),
                             Optional("duration_frames", "integer", "Duration in 60 FPS Session frames; defaults to 300."),
+                            Optional("loop", "boolean", "Enable bounded loop preprocessing; over-limit requests fall back to normal generation."),
                             Optional("model", "string", "Registered model name/configuration id; omitted uses the Project Settings default. Use kimodo_help({section:'models'}) to query models."),
                             Enum("text_encoder_model", "high_performance", "high_precision"),
                             Optional("seed", "integer", "Deterministic seed; omitted chooses a random seed."),
@@ -187,8 +246,12 @@ namespace CharacterAnimationCli.Unity.Command
                     return SessionTryRemove(argumentsJson);
                 case KimodoAnalyzeCommand:
                     return KimodoAnalyzeTimelineRange(argumentsJson);
+                case KimodoRecordRangeCommand:
+                    return KimodoRecordTimelineRange(argumentsJson);
                 case KimodoBakeRangeCommand:
                     return KimodoBakeTimelineRange(argumentsJson);
+                case KimodoRetargetAnimationCommand:
+                    return KimodoRetargetAnimation(argumentsJson);
                 case QueryPictureCommand:
                     return Capture(argumentsJson);
                 case PoseCreateCommand:
@@ -354,7 +417,7 @@ namespace CharacterAnimationCli.Unity.Command
                         Route("analyze existing motion", "kimodo_analyze", "then query_picture or pose_copy"),
                         Route("edit a sampled pose", "pose_copy", "then pose_get, pose_set, and query_picture"),
                         Route("create a mathematical root trajectory", "kimodo_build_root2d_path", "convert returned points to root2d constraints"),
-                        Route("bake or retarget a Session range", "kimodo_bake_range")
+                        Route("record or bake a Session range", "kimodo_record_range")
                     },
                     ["handles"] = new JObject
                     {
@@ -548,6 +611,34 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     throw new InvalidOperationException("duration_frames must be a positive integer at 60 FPS.");
                 }
+                bool loopRequested = arguments.Value<bool?>("loop") ??
+                    prompt.IndexOf("loop", StringComparison.OrdinalIgnoreCase) >= 0;
+                bool loopFallback = false;
+                string loopWarning = null;
+                int requestedDurationFrames = durationFrames;
+                if (loopRequested)
+                {
+                    long extended = (long)durationFrames * 2L;
+                    if (extended > 600L)
+                    {
+                        loopFallback = true;
+                        loopWarning = $"loop_requested_but_exceeds_max_duration: requested={durationFrames} frames, extended={extended} frames, max=600. Fallback to default generation.";
+                        Debug.LogWarning("[Kimodo][Command] " + loopWarning);
+                    }
+                    else
+                    {
+                        durationFrames = (int)extended;
+                        if (arguments["constraints"] is JArray loopConstraints)
+                        {
+                            int padding = requestedDurationFrames / 2;
+                            foreach (JObject item in loopConstraints.OfType<JObject>().ToList())
+                            {
+                                item["frame"] = (item.Value<int?>("frame") ?? 0) + padding;
+                            }
+                            AddLoopBezierRootConstraints(loopConstraints, requestedDurationFrames, padding);
+                        }
+                    }
+                }
                 float duration = (float)(durationFrames / SessionFrameRate);
                 string analysisOptionsJson = ParseAnalysisOptionsJson(arguments);
                 int frameCount = Math.Max(1, KimodoFrameTimeUtility.SecondsToFrameCount(duration, frameRate));
@@ -635,6 +726,17 @@ namespace CharacterAnimationCli.Unity.Command
                     startedResponse["temporary_session"] = trace.Session.IsAutomatic;
                     startedResponse["start_frame"] = Mathf.RoundToInt((float)(trace.StartSeconds * SessionFrameRate));
                     startedResponse["duration_frames"] = Mathf.RoundToInt((float)(trace.DurationSeconds * SessionFrameRate));
+                }
+                if (loopRequested && !loopFallback)
+                {
+                    startedResponse["loop"] = true;
+                    startedResponse["loop_source_duration_frames"] = requestedDurationFrames;
+                    startedResponse["loop_extended_duration_frames"] = durationFrames;
+                }
+                if (loopWarning != null)
+                {
+                    startedResponse["warnings"] = new JArray(loopWarning);
+                    startedResponse["loop_fallback"] = loopFallback;
                 }
                 return Started(generation, startedResponse);
             });
@@ -749,8 +851,13 @@ namespace CharacterAnimationCli.Unity.Command
                     {
                         throw new InvalidOperationException($"constraints[{i}].type is not supported.");
                     }
+                    constraintType = constraintType.Replace('_', '-');
                     double at = relativeFrame / SessionFrameRate;
-                    var cachedSample = new KimodoMarkerSampleResult { constraintType = constraintType };
+                    var cachedSample = new KimodoMarkerSampleResult
+                    {
+                        constraintType = constraintType,
+                        mask = KimodoConstraintMask.ForType(constraintType)
+                    };
                     CharacterPose characterPose = null;
                     if (constraint["pose"] is JObject pose)
                     {
@@ -759,10 +866,16 @@ namespace CharacterAnimationCli.Unity.Command
                         characterPose = CharacterPoseJson.Parse(poseResult["data"] as JObject
                             ?? throw new InvalidOperationException($"constraints[{i}].pose data is unavailable."));
                         cachedSample.characterPose = characterPose.Clone();
+                        cachedSample.humanScale = 1f;
                         if (constraintType == "root2d")
                         {
-                            Transform avatarRoot = ResolvePoseCharacter(locator).Animator.transform;
-                            Vector3 position = avatarRoot.TransformPoint(characterPose.root.t);
+                            Animator sourceAnimator = ResolvePoseCharacter(locator).Animator;
+                            Transform avatarRoot = sourceAnimator.transform;
+                            float sourceHumanScale = sourceAnimator != null &&
+                                KimodoRetargetCoreUtility.IsValidHumanoid(sourceAnimator.avatar)
+                                ? Mathf.Max(1e-6f, sourceAnimator.humanScale)
+                                : 1f;
+                            Vector3 position = avatarRoot.TransformPoint(characterPose.root.t * sourceHumanScale);
                             Vector3 forward = (avatarRoot.rotation * characterPose.root.q) * Vector3.forward;
                             Vector2 heading = new Vector2(forward.x, forward.z);
                             cachedSample.kimodoRootPosition = position;
@@ -805,13 +918,32 @@ namespace CharacterAnimationCli.Unity.Command
                         {
                             throw new InvalidOperationException($"Convert constraints[{i}] failed: {convertError}");
                         }
-                        converted.characterPose = characterPose.Clone();
                         converted.muscles = new List<float>(targetMuscleSample.pose.muscles);
                         converted.leftFootPosition = targetMuscleSample.leftFootPosition;
                         converted.leftFootRotation = targetMuscleSample.leftFootRotation;
                         converted.rightFootPosition = targetMuscleSample.rightFootPosition;
                         converted.rightFootRotation = targetMuscleSample.rightFootRotation;
                         cachedSample = converted;
+                    }
+                    if (constraintType == "root2d")
+                    {
+                        // Root2D command values are in protocol/model metres.
+                        // Store the same canonical root that export will use,
+                        // rather than retaining a character-local pose root.
+                        float canonicalScale = targetCache != null
+                            ? Mathf.Max(1e-6f, targetCache.humanScale)
+                            : 1f;
+                        cachedSample.characterPose = new CharacterPose
+                        {
+                            root = new CharacterPoseTransform
+                            {
+                                t = cachedSample.kimodoRootPosition / canonicalScale,
+                                q = Quaternion.LookRotation(
+                                    new Vector3(cachedSample.rootHeading.x, 0f, cachedSample.rootHeading.y),
+                                    Vector3.up)
+                            }
+                        };
+                        cachedSample.humanScale = canonicalScale;
                     }
                     cachedSample.sampleTime = at;
                     samples.Add(cachedSample);

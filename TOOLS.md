@@ -5,7 +5,7 @@ This is machine-facing operational context, not a human tutorial. The English se
 Current versions / 当前版本：
 
 - Unity package: `0.1.0` / Unity 包：`0.1.0`
-- QuickServer: `2.1.0` — project-local Kimodo and ARDY generation runtime. / QuickServer：`2.1.0`——项目级 Kimodo 与 ARDY 生成运行时。
+- QuickServer: `2.2.5` — project-local Kimodo and ARDY generation runtime with CUDA-safe constraint indexing. / QuickServer：`2.2.5`——项目级 Kimodo 与 ARDY 生成运行时，约束索引支持 CUDA 设备一致性。
 
 ## English
 
@@ -56,7 +56,9 @@ The returned schema is authoritative. Use only returned command names and parame
 | Analyze existing motion | `kimodo_analyze` | `query_picture` or `pose_copy` |
 | Edit a sampled pose | `pose_copy` | `pose_get`, `pose_set`, `query_picture` |
 | Build a mathematical root trajectory | `kimodo_build_root2d_path` | Convert returned points to `root2d` constraints |
+| Record a Session range | `kimodo_record_range` | Query the returned animation safe name |
 | Bake or retarget a Session range | `kimodo_bake_range` | Query the returned animation safe name |
+| Retarget a loaded animation | `kimodo_retarget_animation` | Query the returned animation safe name |
 
 Kimodo does not discover arbitrary scene objects, choose BlendTree branches, perform general Timeline layout, or prove visual playback. Use the surrounding Unity tool for those tasks. `kimodo_build_root2d_path` is mathematical path generation, not NavMesh sampling.
 
@@ -65,6 +67,7 @@ Kimodo does not discover arbitrary scene objects, choose BlendTree branches, per
 - Session time is fixed at 60 FPS. Public ranges use `[start_frame,end_frame)`; generation constraint frames are relative to the generated clip.
 - Treat every returned character/animation safe name, pose locator, `analysis_id`, and `request_id` as an opaque handle. Never reconstruct one from a display name.
 - Generation is asynchronous. Poll `kimodo_get_generation` until `status` is `completed`, `failed`, or `canceled`; acceptance or `running` is not completion.
+- `kimodo_generate_animation` accepts `loop:true`; Unity preprocesses bounded loop constraints and reports fallback when the extended duration would exceed 600 frames.
 - While generation is running, commands that sample or remove an overlapping range on the same character track fail immediately with `code: generation_range_locked`. Non-overlapping tracks/ranges continue normally; wait for the returned `request_id` to finish or cancel it before retrying.
 - Asset generation and server maintenance run in Unity Edit Mode and must wait while Unity is compiling or importing.
 - A current Session is the preferred workspace. `kimodo_generate_animation` can create and retain an automatic Session when none is open.
@@ -97,7 +100,7 @@ Inline generation constraints are anonymous values with `frame` and `type`. The 
 - `root2d`: constrains only the root bone position and heading on the ground plane. It does not constrain the rest of the body. It may use a pose locator or direct `position` and `heading`.
 - `left_hand`, `right_hand`, `left_foot`, `right_foot`: read the matching complete HandTQ or FootTQ from a pose locator.
 
-At the same frame, `fullbody` supplies the base pose, `root2d` overrides RootTQ, and hand/foot constraints override their matching HandTQ or FootTQ. No general mask or weight is applied outside ClipConstraint. Use the exact current schema and start with few constraints.
+Timeline authoring uses one unified Constraint Marker with `CharacterPose`, type, time, root-heading switch, and a visible channel mask. The solver order is Muscle → Foot IK → Hand IK → Root2D final transform. Export projects that final pose into the unchanged `fullbody`, `root2d`, and hand/foot protocol DTOs; an end-effector has its own `target_positions` but shares that final FK/root frame. External command union syntax remains compatible.
 
 Minimal pose-edit flow:
 
@@ -114,7 +117,7 @@ kimodo_get_generation -> poll to terminal state
 ### 8. Analysis, bake, retarget, and Animator
 
 - `kimodo_analyze` accepts either one named animation or a Session frame range. Save its `analysis_id` for `query_picture`.
-- `kimodo_bake_range` bakes a half-open Session range and can retarget to another current Session character. A valid Humanoid Avatar is required.
+- `kimodo_record_range` records a half-open Session range. `kimodo_bake_range` remains a compatibility alias and can retarget to another current Session character. `kimodo_retarget_animation` retargets a loaded clip to another current Session character. A valid Humanoid Avatar is required.
 - `session_try_add` imports a humanoid character, AnimationClip, or Animator content according to its current schema. Deterministic clip-to-clip transitions may be baked; BlendTree branch choice and unrelated Timeline placement belong to the surrounding Unity tool.
 - Query current Session state before mutation and use returned safe names rather than scene guesses.
 
@@ -220,7 +223,7 @@ Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 T
 - `root2d`：只约束根骨骼在地面平面上的位置与朝向，不约束其他身体关节。可以使用 Pose locator，也可以直接提供 `position` 和 `heading`。
 - `left_hand`、`right_hand`、`left_foot`、`right_foot`：从 Pose locator 读取对应的完整 HandTQ 或 FootTQ。
 
-同一帧中，`fullbody` 提供基础 Pose，`root2d` 覆盖 RootTQ，手脚约束覆盖对应的 HandTQ 或 FootTQ。除 ClipConstraint 外不应用通用 Mask 或 Weight。严格使用当前 schema，并从少量约束开始。
+Timeline 内部使用一种统一 Constraint Marker，包含 `CharacterPose`、类型、时间、Root heading 开关和可见通道 mask。求解顺序为 Muscle → Foot IK → Hand IK → Root2D 最终变换；导出边界再投影为协议不变的 `fullbody`、`root2d` 与手脚 DTO。EndEffector 独立携带 `target_positions`，但复用该最终 FK/root 帧；外部 command union 继续兼容。
 
 最小 Pose 编辑流程：
 

@@ -26,17 +26,28 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void MarkerMenu_HidesGenericEndEffectorOnly()
+        public void MarkerMenu_HidesLegacyConstraintMarkers()
         {
+            System.Type[] legacyTypes =
+            {
+                typeof(KimodoEndEffectorConstraintMarker),
+                typeof(KimodoFullBodyConstraintMarker),
+                typeof(KimodoRoot2DConstraintMarker),
+                typeof(KimodoLeftHandConstraintMarker),
+                typeof(KimodoRightHandConstraintMarker),
+                typeof(KimodoLeftFootConstraintMarker),
+                typeof(KimodoRightFootConstraintMarker),
+                typeof(KimodoUntypedConstraintMarker)
+            };
             Assert.That(
-                System.Attribute.IsDefined(
-                    typeof(KimodoEndEffectorConstraintMarker),
+                legacyTypes.All(type => System.Attribute.IsDefined(
+                    type,
                     typeof(HideInMenuAttribute),
-                    inherit: false),
+                    inherit: false)),
                 Is.True);
             Assert.That(
                 System.Attribute.IsDefined(
-                    typeof(KimodoLeftHandConstraintMarker),
+                    typeof(KimodoConstraintMarker),
                     typeof(HideInMenuAttribute),
                     inherit: false),
                 Is.False);

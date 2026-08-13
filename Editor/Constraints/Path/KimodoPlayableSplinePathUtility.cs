@@ -159,6 +159,7 @@ namespace KimodoBridge.Editor
                 {
                     constraintType = Root2DConstraintType,
                     sampleTime = timelineClip.start + (durationSeconds * t),
+                    mask = KimodoConstraintMask.ForType(Root2DConstraintType),
                     kimodoRootPosition = new Vector3(worldPosition.x, 0f, worldPosition.z) * rootPositionScale,
                     unityRootPos = worldPosition,
                     unityRootRot = Quaternion.LookRotation(worldForward, Vector3.up),

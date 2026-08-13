@@ -35,12 +35,63 @@ namespace TimelineInject
         Core27 = 4
     }
 
+    /// <summary>Channels owned by one canonical constraint pose.  The protocol
+    /// still receives its historical fullbody/root2d/end-effector records.</summary>
+    [Serializable]
+    public sealed class KimodoConstraintMask
+    {
+        public bool muscle;
+        public bool rootPosition;
+        public bool rootHeading;
+        public bool leftFoot;
+        public bool rightFoot;
+        public bool leftHand;
+        public bool rightHand;
+
+        public KimodoConstraintMask Clone() => (KimodoConstraintMask)MemberwiseClone();
+
+        public static KimodoConstraintMask ForType(string type)
+        {
+            var result = new KimodoConstraintMask();
+            switch ((type ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
+            {
+                case "fullbody": result.muscle = true; result.rootPosition = true; result.rootHeading = true; break;
+                case "root2d": result.rootPosition = true; result.rootHeading = true; break;
+                case "left-hand": result.leftHand = true; break;
+                case "right-hand": result.rightHand = true; break;
+                case "left-foot": result.leftFoot = true; break;
+                case "right-foot": result.rightFoot = true; break;
+            }
+            return result;
+        }
+
+        public bool AnyEndEffector => leftFoot || rightFoot || leftHand || rightHand;
+        public bool IsEmpty => !muscle && !rootPosition && !rootHeading && !AnyEndEffector;
+
+        public static KimodoConstraintMask Resolve(KimodoConstraintMask value, string type)
+        {
+            // Null means an asset written before masks existed.  An empty mask
+            // is intentional: users may disable every channel without that
+            // choice silently turning back into a full-body constraint.
+            return value ?? (string.Equals(type, "constraint", StringComparison.OrdinalIgnoreCase)
+                ? ForType("fullbody")
+                : ForType(type));
+        }
+    }
+
     [Serializable]
     public sealed class KimodoMarkerSampleResult
     {
         public CharacterPose characterPose;
         public string constraintType = string.Empty;
         public double sampleTime;
+        // HumanPose Root/Hand/Foot translations are normalized by this Avatar
+        // scale. Protocol positions are metres, so exporters multiply by it.
+        public float humanScale = 1f;
+        // Keep null for old Timeline assets. Resolve() supplies their historic
+        // type-derived channel mask; new markers receive an explicit mask on
+        // first enable.
+        public KimodoConstraintMask mask;
         public KimodoConstraintRigType rigType = KimodoConstraintRigType.Soma77;
         public bool hasRootHeading = true;
         public Vector3 kimodoRootPosition;
@@ -67,6 +118,8 @@ namespace TimelineInject
                 characterPose = characterPose?.Clone(),
                 constraintType = constraintType ?? string.Empty,
                 sampleTime = sampleTime,
+                humanScale = humanScale,
+                mask = mask?.Clone(),
                 rigType = rigType,
                 hasRootHeading = hasRootHeading,
                 kimodoRootPosition = kimodoRootPosition,

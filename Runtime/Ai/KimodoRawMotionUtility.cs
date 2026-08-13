@@ -1127,11 +1127,15 @@ namespace KimodoBridge
                 }
             }
 
+            string resolvedConstraintType = string.IsNullOrWhiteSpace(constraintType)
+                ? FullBodyConstraintType
+                : constraintType;
             sample = new KimodoMarkerSampleResult
             {
-                constraintType = string.IsNullOrWhiteSpace(constraintType) ? FullBodyConstraintType : constraintType,
+                constraintType = resolvedConstraintType,
                 sampleTime = sampleTime,
                 rigType = rigType,
+                mask = KimodoConstraintMask.ForType(resolvedConstraintType),
                 hasRootHeading = true,
                 kimodoRootPosition = rootPosition,
                 rootHeading = heading,

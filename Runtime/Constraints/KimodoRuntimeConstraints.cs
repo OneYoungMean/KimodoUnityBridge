@@ -97,6 +97,7 @@ namespace KimodoBridge
                 if (terminal != null)
                 {
                     terminal.constraintType = FullBodyType;
+                    terminal.mask = KimodoConstraintMask.ForType(FullBodyType);
                     terminal.sampleTime = 0.0;
                     terminal.kimodoRootPosition = new Vector3(0f, terminal.kimodoRootPosition.y, 0f);
                     terminal.unityRootPos = terminal.kimodoRootPosition;
@@ -114,7 +115,9 @@ namespace KimodoBridge
             }
 
             result.Sort((left, right) => left.sampleTime.CompareTo(right.sampleTime));
-            return result;
+            return KimodoConstraintSampleResolver.MergeAsUnifiedSamples(
+                result,
+                KimodoMotionModelProfiles.DefaultFrameRate);
         }
 
         internal void CompleteGeneration(bool isArdy) => CompleteGeneration(isArdy, PendingRevision);

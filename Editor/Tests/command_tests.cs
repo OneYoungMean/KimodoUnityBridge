@@ -35,7 +35,9 @@ namespace KimodoBridge.Editor.Tests
                 command_session.TryAddCommand,
                 command_session.TryRemoveCommand,
                 command_kimodo.AnalyzeCommand,
+                command_context.KimodoRecordRangeCommand,
                 command_kimodo.BakeRangeCommand,
+                command_context.KimodoRetargetAnimationCommand,
                 command_kimodo.GenerateAnimationCommand,
                 command_kimodo.QueryPictureCommand,
                 "pose_create",
@@ -148,6 +150,23 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void ConstraintSchema_UsesCanonicalRoot2DPositionAndHeading()
+        {
+            JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+            JObject generate = definitions["tools"]
+                .Values<JObject>()
+                .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationCommand);
+            JObject properties = (JObject)generate["inputSchema"]["properties"]["constraints"]["items"]["properties"];
+
+            JObject root2d = (JObject)properties["position"];
+            Assert.That(root2d, Is.Not.Null);
+            Assert.That(properties["heading"], Is.Not.Null);
+            Assert.That(properties.Property("forwardPos"), Is.Null);
+            Assert.That(properties.Property("rightwardPos"), Is.Null);
+            Assert.That(properties.Property("rotateY"), Is.Null);
+        }
+
+        [Test]
         public void DebugInstallServer_IsExplicitlyMarkedAndTakesNoArguments()
         {
             JObject definition = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson())["tools"]
@@ -236,6 +255,45 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(command_context.ClipSafeZoneSeconds, Is.EqualTo(4.0 / 60.0).Within(1e-9));
         }
 
+        [TestCase("line", 2)]
+        [TestCase("turn", 60)]
+        [TestCase("s", 60)]
+        [TestCase("circle", 60)]
+        public void BuildRoot2DPathCommand_ReturnsCanonicalConstraintPoints(string shape, int expectedCount)
+        {
+            JObject response = JObject.Parse(command_context.BuildRoot2DPath(
+                new JObject { ["shape"] = shape, ["duration_frames"] = 60 }.ToString()));
+
+            Assert.That(response.Value<bool>("ok"), Is.True, response.ToString());
+            Assert.That(response.Value<int>("fps"), Is.EqualTo(60));
+            Assert.That(response["points"], Has.Count.EqualTo(expectedCount));
+            foreach (JObject point in response["points"].Values<JObject>())
+            {
+                Assert.That(point["frame"], Is.Not.Null);
+                Assert.That(point["position"], Has.Count.EqualTo(2));
+                Assert.That(point["heading"], Has.Count.EqualTo(2));
+            }
+        }
+
+        [Test]
+        public void BuildRoot2DPathCommand_RejectsInvalidParameters()
+        {
+            JObject zeroDuration = JObject.Parse(command_context.BuildRoot2DPath(
+                "{\"shape\":\"line\",\"duration_frames\":1}"));
+            Assert.That(zeroDuration.Value<bool>("ok"), Is.False);
+            Assert.That(zeroDuration.Value<string>("error"), Does.Contain("duration_frames"));
+
+            JObject invalidDirection = JObject.Parse(command_context.BuildRoot2DPath(
+                "{\"shape\":\"line\",\"direction\":\"up\"}"));
+            Assert.That(invalidDirection.Value<bool>("ok"), Is.False);
+            Assert.That(invalidDirection.Value<string>("error"), Does.Contain("direction"));
+
+            JObject invalidTurn = JObject.Parse(command_context.BuildRoot2DPath(
+                "{\"shape\":\"turn\",\"turn_degrees\":30}"));
+            Assert.That(invalidTurn.Value<bool>("ok"), Is.False);
+            Assert.That(invalidTurn.Value<string>("error"), Does.Contain("turn_degrees"));
+        }
+
         [Test]
         public void GetGeneration_UnknownRequest_ReturnsStructuredError()
         {
@@ -257,7 +315,7 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(assetProperties["constraints"]["items"]["properties"]["type"]["enum"].Values<string>(),
                 Is.EqualTo(new[] { "fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot" }));
             Assert.That(assetProperties["analysis_option"].Value<string>("type"), Is.EqualTo("object"));
-            Assert.That(assetProperties.Property("loop"), Is.Null);
+            Assert.That(assetProperties["loop"].Value<string>("type"), Is.EqualTo("boolean"));
             Assert.That(assetProperties["model"].Value<string>("type"), Is.EqualTo("string"));
             Assert.That(assetProperties["text_encoder_model"]["enum"].Values<string>(),
                 Is.EqualTo(new[] { "high_performance", "high_precision" }));

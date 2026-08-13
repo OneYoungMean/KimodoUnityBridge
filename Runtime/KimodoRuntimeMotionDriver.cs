@@ -867,6 +867,8 @@ namespace KimodoBridge
                     constraintType,
                     jointName,
                     new Vector3(x, y, z),
+                    GetCurrentPositionInternal(),
+                    ResolveModelToWorldRotation(),
                     ClampConstraintTime(durationSeconds),
                     out KimodoMarkerSampleResult sample,
                     out string error))

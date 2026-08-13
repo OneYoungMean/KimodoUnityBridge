@@ -952,7 +952,7 @@ namespace KimodoBridge.Editor
         private readonly string[] sourceBonePaths;
         private readonly Transform[] sourceBoneTransforms;
         private readonly float sourceHumanScale;
-        private readonly double originalTime;
+        private readonly KimodoTimelineEvaluationScope evaluationScope;
         private readonly DirectorWrapMode originalWrapMode;
         private readonly Dictionary<int, MuscleSample> sampledMusclePoses = new Dictionary<int, MuscleSample>();
         private bool disposed;
@@ -964,7 +964,7 @@ namespace KimodoBridge.Editor
             Transform[] sourceBoneTransforms,
             float sourceHumanScale,
             SkeletonCache targetCache,
-            double originalTime,
+            KimodoTimelineEvaluationScope evaluationScope,
             DirectorWrapMode originalWrapMode)
         {
             this.context = context;
@@ -973,7 +973,7 @@ namespace KimodoBridge.Editor
             this.sourceBoneTransforms = sourceBoneTransforms;
             this.sourceHumanScale = sourceHumanScale;
             TargetCache = targetCache;
-            this.originalTime = originalTime;
+            this.evaluationScope = evaluationScope;
             this.originalWrapMode = originalWrapMode;
         }
 
@@ -1018,10 +1018,11 @@ namespace KimodoBridge.Editor
             SkeletonCache sourceSamplingCache = null;
             string[] sourceBonePaths = null;
             Transform[] sourceBoneTransforms = null;
-            double originalTime = context.Director.time;
             DirectorWrapMode originalWrapMode = context.Director.extrapolationMode;
+            KimodoTimelineEvaluationScope evaluationScope = null;
             try
             {
+                evaluationScope = KimodoTimelineEvaluationScope.Begin(context.Director);
                 if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
                         context.SourceAvatar,
                         "KimodoTimelineSamplingSession_SourcePose",
@@ -1052,13 +1053,13 @@ namespace KimodoBridge.Editor
                     sourceBoneTransforms,
                     sourceHumanScale,
                     targetCache,
-                    originalTime,
+                    evaluationScope,
                     originalWrapMode);
                 return true;
             }
             catch (Exception ex)
             {
-                RestoreSourceState(context, originalTime, originalWrapMode, logFailures: false);
+                evaluationScope?.Dispose();
                 sourceSamplingCache?.Dispose();
                 targetCache.Dispose();
                 error = ex.Message;
@@ -1155,8 +1156,7 @@ namespace KimodoBridge.Editor
                 {
                     int sampleFrame = missingFrames[i];
                     double timelineTime = missingTimes[i];
-                    context.Director.time = Math.Max(0.0, timelineTime);
-                    context.Director.Evaluate();
+                    evaluationScope.EvaluateAt(Math.Max(0.0, timelineTime));
                     if (!TryCaptureSourceBoneSample(
                             context.Animator.transform,
                             sourceSamplingCache,
@@ -1417,16 +1417,12 @@ namespace KimodoBridge.Editor
                 return;
             }
             disposed = true;
-            RestoreSourceState(context, originalTime, originalWrapMode, logFailures: true);
+            RestoreSourceState();
             sourceSamplingCache?.Dispose();
             TargetCache.Dispose();
         }
 
-        private static void RestoreSourceState(
-            KimodoTimelineInOutConstraintContext context,
-            double originalTime,
-            DirectorWrapMode originalWrapMode,
-            bool logFailures)
+        private void RestoreSourceState()
         {
             if (context?.Director == null)
             {
@@ -1436,15 +1432,11 @@ namespace KimodoBridge.Editor
             try
             {
                 context.Director.extrapolationMode = originalWrapMode;
-                context.Director.time = originalTime;
-                context.Director.Evaluate();
+                evaluationScope?.Dispose();
             }
             catch (Exception ex)
             {
-                if (logFailures)
-                {
-                    Debug.LogWarning($"[Kimodo][TimelineSample] Failed to restore Director state: {ex.Message}");
-                }
+                Debug.LogWarning($"[Kimodo][TimelineSample] Failed to restore Director state: {ex.Message}");
             }
         }
     }
@@ -1631,7 +1623,7 @@ namespace KimodoBridge.Editor
                                 targetSamples[markerSampleIndices[i]],
                                 sampler.TargetCache,
                                 context.ModelName,
-                                marker.ConstraintType,
+                                marker is KimodoConstraintMarker ? "fullbody" : marker.ConstraintType,
                                 marker.time,
                                 out KimodoMarkerSampleResult captured,
                                 out error) ||

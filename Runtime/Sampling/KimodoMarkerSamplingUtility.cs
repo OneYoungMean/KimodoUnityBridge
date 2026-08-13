@@ -19,6 +19,9 @@ namespace KimodoBridge
 
             KimodoMarkerSampleResult cloned = sample.Clone();
             cloned.sampleTime = marker.time;
+            cloned.mask = marker is KimodoConstraintMarker
+                ? KimodoConstraintMask.Resolve(marker.SampleData?.mask, marker.ConstraintType).Clone()
+                : KimodoConstraintMask.Resolve(cloned.mask, cloned.constraintType);
             if (cloned.jointNames == null)
             {
                 cloned.jointNames = new List<string>();
@@ -63,10 +66,23 @@ namespace KimodoBridge
             }
 
             cloned.constraintType = marker.ConstraintType;
-            cloned.hasRootHeading = marker is KimodoRoot2DConstraintMarker ? cloned.hasRootHeading : false;
-            cloned.localAxisAngles ??= new List<Vector3>();
-            cloned.sampledJointIndices ??= new List<int>();
-            cloned.jointNames ??= new List<string>();
+            if (marker is KimodoConstraintMarker)
+            {
+                // A unified marker keeps its enabled channels; protocol records
+                // are expanded only at export time.
+                cloned.constraintType = "constraint";
+            }
+            cloned.hasRootHeading = marker is KimodoConstraintMarker
+                ? cloned.mask.rootHeading && marker.SampleData.hasRootHeading
+                : marker is KimodoRoot2DConstraintMarker && cloned.hasRootHeading;
+            // These lists are retained only for legacy-marker migration.  New
+            // unified samples are exported from characterPose and need none.
+            if (marker is not KimodoConstraintMarker)
+            {
+                cloned.localAxisAngles ??= new List<Vector3>();
+                cloned.sampledJointIndices ??= new List<int>();
+                cloned.jointNames ??= new List<string>();
+            }
             return cloned;
         }
 
@@ -135,11 +151,13 @@ namespace KimodoBridge
                 }
             }
 
+            string resolvedConstraintType = string.IsNullOrWhiteSpace(constraintType) ? "fullbody" : constraintType;
             return new KimodoMarkerSampleResult
             {
-                constraintType = string.IsNullOrWhiteSpace(constraintType) ? "fullbody" : constraintType,
+                constraintType = resolvedConstraintType,
                 sampleTime = 0d,
                 rigType = resolvedRigType,
+                mask = KimodoConstraintMask.ForType(resolvedConstraintType),
                 hasRootHeading = true,
                 kimodoRootPosition = kimodoRootPosition,
                 rootHeading = Vector2.right,
@@ -155,79 +173,24 @@ namespace KimodoBridge
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double frameRate)
         {
-            if (samples == null || samples.Count < 2 || frameRate <= 0.0)
-            {
-                return;
-            }
-
-            var frames = new Dictionary<int, List<KimodoMarkerSampleResult>>();
-            for (int i = 0; i < samples.Count; i++)
-            {
-                KimodoMarkerSampleResult sample = samples[i];
-                if (sample?.characterPose == null || !sample.characterPose.TryValidate(out _))
-                {
-                    continue;
-                }
-
-                int frame = KimodoFrameTimeUtility.SecondsToFrameIndex(sample.sampleTime, frameRate);
-                if (!frames.TryGetValue(frame, out List<KimodoMarkerSampleResult> group))
-                {
-                    group = new List<KimodoMarkerSampleResult>();
-                    frames.Add(frame, group);
-                }
-                group.Add(sample);
-            }
-
-            foreach (List<KimodoMarkerSampleResult> group in frames.Values)
-            {
-                ComposeCharacterPoseGroup(group);
-            }
+            KimodoConstraintSampleResolver.ComposeCharacterPosesAtSameFrame(samples, frameRate);
         }
 
-        private static void ComposeCharacterPoseGroup(List<KimodoMarkerSampleResult> samples)
+        /// <summary>Expands the single-marker representation into the unchanged
+        /// QuickServer protocol families after all same-frame channels have been
+        /// resolved to one canonical pose.</summary>
+        public static List<KimodoMarkerSampleResult> ExpandUnifiedConstraintSamples(
+            IReadOnlyList<KimodoMarkerSampleResult> samples,
+            double frameRate)
         {
-            if (samples == null || samples.Count < 2)
-            {
-                return;
-            }
+            return KimodoConstraintSampleResolver.ExpandProtocolSamples(samples, frameRate);
+        }
 
-            CharacterAnimationCli.Unity.CharacterPose composed = null;
-            for (int i = 0; i < samples.Count; i++)
-            {
-                if (string.Equals(samples[i].constraintType, "fullbody", StringComparison.OrdinalIgnoreCase))
-                {
-                    composed = samples[i].characterPose.Clone();
-                }
-            }
-            composed ??= samples[0].characterPose.Clone();
-
-            for (int i = 0; i < samples.Count; i++)
-            {
-                CharacterAnimationCli.Unity.CharacterPose source = samples[i].characterPose;
-                switch ((samples[i].constraintType ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
-                {
-                    case "root2d":
-                        CopyTransform(source.root, composed.root);
-                        break;
-                    case "left-hand":
-                        CopyTransform(source.hands.left, composed.hands.left);
-                        break;
-                    case "right-hand":
-                        CopyTransform(source.hands.right, composed.hands.right);
-                        break;
-                    case "left-foot":
-                        CopyTransform(source.feet.left, composed.feet.left);
-                        break;
-                    case "right-foot":
-                        CopyTransform(source.feet.right, composed.feet.right);
-                        break;
-                }
-            }
-
-            for (int i = 0; i < samples.Count; i++)
-            {
-                samples[i].characterPose = composed.Clone();
-            }
+        public static List<KimodoMarkerSampleResult> MergeAsUnifiedConstraintSamples(
+            IReadOnlyList<KimodoMarkerSampleResult> samples,
+            double frameRate)
+        {
+            return KimodoConstraintSampleResolver.MergeAsUnifiedSamples(samples, frameRate);
         }
 
         private static void CopyTransform(
@@ -468,6 +431,7 @@ namespace KimodoBridge
                 constraintType = markerType ?? string.Empty,
                 sampleTime = globalTime,
                 rigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName),
+                mask = KimodoConstraintMask.ForType(markerType),
                 hasRootHeading = true,
                 kimodoRootPosition = kimodoRootPosition,
                 rootHeading = unityHeading,

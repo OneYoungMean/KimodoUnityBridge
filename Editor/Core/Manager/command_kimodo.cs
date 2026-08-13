@@ -18,7 +18,9 @@ namespace CharacterAnimationCli.Unity.Command
         public static string DebugInstallServer(string argumentsJson = "{}") => command_context.DebugInstallServer(argumentsJson);
         public static string GenerateAnimation(string argumentsJson) => command_context.GenerateAnimationAsset(argumentsJson);
         public static string Analyze(string argumentsJson) => command_context.KimodoAnalyzeTimelineRange(argumentsJson);
+        public static string RecordRange(string argumentsJson) => command_context.KimodoRecordTimelineRange(argumentsJson);
         public static string BakeRange(string argumentsJson) => command_context.KimodoBakeTimelineRange(argumentsJson);
+        public static string RetargetAnimation(string argumentsJson) => command_context.KimodoRetargetAnimation(argumentsJson);
         public static string QueryPicture(string argumentsJson) => command_context.Capture(argumentsJson);
         public static string GetGeneration(string argumentsJson) => command_context.QueryGeneration(argumentsJson);
         public static string CancelGeneration(string argumentsJson) => command_context.QueryCancelGeneration(argumentsJson);

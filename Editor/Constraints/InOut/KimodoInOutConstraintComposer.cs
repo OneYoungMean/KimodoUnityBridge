@@ -132,6 +132,7 @@ namespace KimodoBridge.Editor
             {
                 constraintType = Root2DConstraintType,
                 sampleTime = 0.0,
+                mask = KimodoConstraintMask.ForType(Root2DConstraintType),
                 kimodoRootPosition = kimodoPosition,
                 unityRootPos = worldPosition,
                 unityRootRot = worldPlanarRotation,

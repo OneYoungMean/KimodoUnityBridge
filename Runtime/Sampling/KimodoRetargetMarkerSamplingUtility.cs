@@ -104,6 +104,7 @@ namespace KimodoBridge
             }
 
             result.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(muscleSample);
+            result.humanScale = Mathf.Max(1e-6f, targetCache.humanScale);
             if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
