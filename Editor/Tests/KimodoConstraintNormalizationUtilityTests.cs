@@ -38,7 +38,6 @@ namespace KimodoBridge.Editor.Tests
                 {
                     constraintType = "root2d",
                     sampleTime = 1.0,
-                    kimodoRootPosition = new Vector3(5f, 0f, 5f)
                 };
 
                 Assert.That(

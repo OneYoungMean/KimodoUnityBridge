@@ -552,13 +552,11 @@ namespace KimodoBridge.Editor.Tests
                 {
                     constraintType = "left-hand",
                     sampleTime = 0.2,
-                    kimodoRootPosition = new Vector3(4f, 2f, 3f)
                 },
                 new KimodoMarkerSampleResult
                 {
                     constraintType = "right-hand",
                     sampleTime = 0.0,
-                    kimodoRootPosition = new Vector3(8f, 3f, 9f)
                 }
             });
 
@@ -571,7 +569,7 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(normalActive[0].constraintType, Is.EqualTo("constraint"));
             Assert.That(normalActive[0].mask.muscle, Is.True);
             Assert.That(normalActive[0].sampleTime, Is.Zero);
-            Assert.That(normalActive[0].kimodoRootPosition, Is.EqualTo(new Vector3(0f, 3f, 0f)));
+            Assert.That(normalActive[0].characterPose.root.t, Is.EqualTo(new Vector3(0f, 3f, 0f)));
 
             Assert.That(
                 buffer.BuildForGeneration(
@@ -654,7 +652,6 @@ namespace KimodoBridge.Editor.Tests
                 {
                     constraintType = "root2d",
                     sampleTime = 0.5,
-                    kimodoRootPosition = new Vector3(1f, 0f, 2f)
                 };
                 external.ConstraintSamples.Add(sample);
                 KimodoInOutConstraintResult composed = provider.BuildGenerationConstraintsOrThrow(
@@ -937,7 +934,6 @@ namespace KimodoBridge.Editor.Tests
             {
                 constraintType = "root2d",
                 sampleTime = 1.0,
-                kimodoRootPosition = new Vector3(2f, 0f, 3f)
             };
             KimodoInOutConstraintRequest request = KimodoInOutConstraintAdapter.BuildTimelineRequest(
                 new KimodoTimelineInOutConstraintContext
@@ -1015,11 +1011,11 @@ namespace KimodoBridge.Editor.Tests
                 sampleTime = KimodoInOutConstraintTools.ResolveConstraintEndSampleTimeSeconds(
                     request.GenerationFrames,
                     frameRate),
-                localAxisAngles = new List<Vector3> { Vector3.zero }
             };
 
             string json = KimodoConstraintJsonExporter.ToConstraintsJson(
                 new[] { sample },
+                new KimodoConstraintExportContext(),
                 clipStartSeconds: 0.0,
                 clipDurationSeconds: KimodoInOutConstraintTools.ResolveConstraintClipDurationSeconds(
                     request.GenerationFrames,
@@ -1154,13 +1150,13 @@ namespace KimodoBridge.Editor.Tests
             {
                 constraintType = "root2d",
                 sampleTime = 2.0,
-                kimodoRootPosition = new Vector3(3f, 0f, 4f),
                 hasRootHeading = false
             };
 
             JArray constraints = JArray.Parse(
                 KimodoConstraintJsonExporter.ToConstraintsJson(
                     new[] { sample },
+                    new KimodoConstraintExportContext(),
                     clipDurationSeconds: 8.0,
                     exportFps: 20.0,
                     denseRootPath: true));
@@ -1176,12 +1172,12 @@ namespace KimodoBridge.Editor.Tests
             {
                 constraintType = "root2d",
                 sampleTime = 5.00001,
-                kimodoRootPosition = Vector3.zero
             };
 
             JArray constraints = JArray.Parse(
                 KimodoConstraintJsonExporter.ToConstraintsJson(
                     new[] { sample },
+                    new KimodoConstraintExportContext(),
                     clipStartSeconds: 4.0,
                     clipDurationSeconds: 2.0,
                     exportFps: 30.0));
@@ -1189,31 +1185,7 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(constraints[0]["frame_indices"]?[0]?.Value<int>(), Is.EqualTo(30));
         }
 
-        [Test]
-        public void ConstraintJson_Root2DKeepsExplicitTimingAndHeading()
-        {
-            var sample = new KimodoMarkerSampleResult
-            {
-                constraintType = "root2d",
-                sampleTime = 4.0,
-                kimodoRootPosition = new Vector3(2f, 0f, 3f),
-                hasRootHeading = true,
-                rootHeading = new Vector2(0.6f, 0.8f)
-            };
 
-            JObject target = (JObject)JArray.Parse(
-                KimodoConstraintJsonExporter.ToConstraintsJson(
-                    new[] { sample },
-                    clipDurationSeconds: 8.0,
-                    exportFps: 20.0))[0];
-
-            Assert.That(target.Value<string>("type"), Is.EqualTo("root2d"));
-            Assert.That(target["smooth_root_2d"]?[0]?[0]?.Value<float>(), Is.EqualTo(-2f));
-            Assert.That(target["smooth_root_2d"]?[0]?[1]?.Value<float>(), Is.EqualTo(3f));
-            Assert.That(target["global_root_heading"]?[0]?[0]?.Value<float>(), Is.EqualTo(0.8f).Within(1e-6f));
-            Assert.That(target["global_root_heading"]?[0]?[1]?.Value<float>(), Is.EqualTo(-0.6f).Within(1e-6f));
-            Assert.That(target["frame_indices"]?[0]?.Value<int>(), Is.EqualTo(80));
-        }
 
         [Test]
         public void TimelineConnectedSelection_AcceptsKimodoModel()
@@ -1240,27 +1212,7 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
-        [Test]
-        public void ConstraintJson_RootHeadingUsesArdyCosSinFeatureOrder()
-        {
-            var sample = new KimodoMarkerSampleResult
-            {
-                constraintType = "root2d",
-                sampleTime = 1.0,
-                kimodoRootPosition = new Vector3(2f, 0f, 3f),
-                hasRootHeading = true,
-                rootHeading = new Vector2(0.6f, 0.8f)
-            };
 
-            JArray constraints = JArray.Parse(
-                KimodoConstraintJsonExporter.ToConstraintsJson(
-                    new[] { sample },
-                    clipDurationSeconds: 8.0,
-                    exportFps: 20.0));
-
-            Assert.That(constraints[0]["global_root_heading"]?[0]?[0]?.Value<float>(), Is.EqualTo(0.8f));
-            Assert.That(constraints[0]["global_root_heading"]?[0]?[1]?.Value<float>(), Is.EqualTo(-0.6f));
-        }
 
         [Test]
         public void FootIk_RequiresAnExplicitTargetBeforeSolvingTheLeg()
@@ -1277,10 +1229,6 @@ namespace KimodoBridge.Editor.Tests
             {
                 constraintType = "left-hand",
                 sampleTime = 1.0,
-                kimodoRootPosition = new Vector3(1f, 2f, 3f),
-                hasEndEffectorTargetPosition = true,
-                endEffectorTargetPositionRootLocal = new Vector3(1f, 0.5f, 0f),
-                localAxisAngles = new List<Vector3>
                 {
                     KimodoRuntimeUtility.QuaternionToAxisAngleVector(rootRotation)
                 }
@@ -1288,6 +1236,7 @@ namespace KimodoBridge.Editor.Tests
             JArray constraints = JArray.Parse(
                 KimodoConstraintJsonExporter.ToConstraintsJson(
                     new[] { targeted },
+                    new KimodoConstraintExportContext(),
                     clipDurationSeconds: 4.0,
                     exportFps: 30.0));
 

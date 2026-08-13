@@ -75,6 +75,7 @@ namespace KimodoBridge.Editor
             {
                 result.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                     result.CombinedSamples,
+                    ResolveExportContext(timelineClip),
                     0.0,
                     runtimeLengthSeconds,
                     frameRate,
@@ -139,6 +140,7 @@ namespace KimodoBridge.Editor
                 result.DenseRootPath = denseSplinePath;
                 result.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                     result.CombinedSamples,
+                    ResolveExportContext(sourceClip),
                     clipStartSeconds: 0.0,
                     clipDurationSeconds: KimodoInOutConstraintTools.ResolveConstraintClipDurationSeconds(generationFrames, frameRate),
                     exportFps: frameRate,
@@ -196,5 +198,17 @@ namespace KimodoBridge.Editor
 
             return null;
         }
-    }
+            private static KimodoConstraintExportContext ResolveExportContext(TimelineClip timelineClip)
+        {
+            if (timelineClip != null &&
+                KimodoInOutConstraintAdapter.TryResolveTimelineContext(timelineClip, out KimodoTimelineInOutConstraintContext context, out _) &&
+                context?.SourceAvatar != null)
+            {
+                return new KimodoConstraintExportContext(KimodoConstraintNormalizationUtility.ResolveHumanScale(context.SourceAvatar));
+            }
+            return new KimodoConstraintExportContext();
+        }
 }
+
+}
+//touch 7ec98321-518c-4133-8a2b-0e9dcc4436b4

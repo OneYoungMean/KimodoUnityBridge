@@ -435,7 +435,7 @@ namespace CharacterAnimationCli.Unity.Command
                 }
 
                 double localTime = Math.Max(0.0, Math.Min(lastSampleTime, sample.sampleTime));
-                KimodoConstraintMarkerBase marker = trace.Character.Track.CreateMarker<KimodoConstraintMarker>(trace.StartSeconds + localTime);
+                KimodoConstraintMarker marker = trace.Character.Track.CreateMarker<KimodoConstraintMarker>(trace.StartSeconds + localTime);
 
                 KimodoMarkerSampleResult markerSample = sample.Clone();
                 markerSample.mask = KimodoConstraintMask.Resolve(markerSample.mask, sample.constraintType);
@@ -453,7 +453,7 @@ namespace CharacterAnimationCli.Unity.Command
         private static string MakeUniqueConstraintPoseSource(TimelineSessionRecord session, string requestedName)
         {
             var names = new HashSet<string>(session.Characters
-                .SelectMany(character => character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>())
+                .SelectMany(character => character.Track.GetMarkers().OfType<KimodoConstraintMarker>())
                 .Select(marker => marker.name), StringComparer.OrdinalIgnoreCase);
             string name = requestedName;
             for (int suffix = 1; names.Contains(name); suffix++) name = $"{requestedName}_{suffix}";
@@ -465,8 +465,8 @@ namespace CharacterAnimationCli.Unity.Command
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             bool changed = false;
             foreach (TimelineCharacterRecord character in session.Characters)
-            foreach (KimodoConstraintMarkerBase marker in character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
-                .Where(item => item is not KimodoUntypedConstraintMarker))
+            foreach (KimodoConstraintMarker marker in character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
+                .Where(item => item.constraintEnabled))
             {
                 string prefix = $"{character.Name}.Constraint";
                 if (!string.IsNullOrWhiteSpace(marker.name) &&
@@ -654,8 +654,8 @@ namespace CharacterAnimationCli.Unity.Command
                     return Ok(new JObject
                     {
                         ["character"] = character.Name,
-                        ["constraints"] = new JArray(character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
-                            .Where(marker => marker is not KimodoUntypedConstraintMarker)
+                        ["constraints"] = new JArray(character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
+                            .Where(marker => marker.constraintEnabled)
                             .Select(marker => DescribeTimelineConstraint(marker, 0)))
                     });
                 }
@@ -691,8 +691,8 @@ namespace CharacterAnimationCli.Unity.Command
                     {
                         ["character"] = character.Name,
                         ["animation"] = animation.Name,
-                        ["constraints"] = new JArray(character.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
-                            .Where(marker => marker is not KimodoUntypedConstraintMarker)
+                        ["constraints"] = new JArray(character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
+                            .Where(marker => marker.constraintEnabled)
                             .Where(marker =>
                             {
                                 int frame = Mathf.RoundToInt((float)(marker.time * SessionFrameRate));
@@ -1515,7 +1515,7 @@ namespace CharacterAnimationCli.Unity.Command
             return result;
         }
 
-        private static JObject DescribeTimelineConstraint(KimodoConstraintMarkerBase marker, int relativeToFrame)
+        private static JObject DescribeTimelineConstraint(KimodoConstraintMarker marker, int relativeToFrame)
         {
             int globalFrame = Mathf.RoundToInt((float)(marker.time * SessionFrameRate));
             var result = new JObject
@@ -1537,12 +1537,6 @@ namespace CharacterAnimationCli.Unity.Command
                     marker.SampleData.characterPose.root.t.x,
                     marker.SampleData.characterPose.root.t.z);
                 result["heading"] = new JArray(forward.x, forward.z);
-            }
-            else if (marker.ConstraintType == "root2d" &&
-                (marker.SampleData.muscles == null || marker.SampleData.muscles.Count == 0))
-            {
-                result["position"] = new JArray(marker.SampleData.kimodoRootPosition.x, marker.SampleData.kimodoRootPosition.z);
-                result["heading"] = new JArray(marker.SampleData.rootHeading.x, marker.SampleData.rootHeading.y);
             }
             else
             {

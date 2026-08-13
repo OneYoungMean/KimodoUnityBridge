@@ -490,7 +490,7 @@ namespace KimodoBridge.Editor
         private void DrawConstraintReferenceList()
         {
             EditorGUILayout.LabelField("Constraint References", EditorStyles.miniBoldLabel);
-            List<KimodoConstraintMarkerBase> references = CollectConstraintReferences();
+            List<KimodoConstraintMarker> references = CollectConstraintReferences();
             if (references.Count == 0)
             {
                 EditorGUILayout.LabelField("(none)", EditorStyles.miniLabel);
@@ -499,7 +499,7 @@ namespace KimodoBridge.Editor
             {
                 for (int i = 0; i < references.Count; i++)
                 {
-                    KimodoConstraintMarkerBase marker = references[i];
+                    KimodoConstraintMarker marker = references[i];
                     if (marker == null)
                     {
                         continue;
@@ -510,19 +510,19 @@ namespace KimodoBridge.Editor
                         EditorGUILayout.ObjectField(
                             new GUIContent($"{marker.ConstraintType} @ {marker.time:F3}s"),
                             marker,
-                            typeof(KimodoConstraintMarkerBase),
+                            typeof(KimodoConstraintMarker),
                             true);
                     }
                 }
             }
         }
 
-        private List<KimodoConstraintMarkerBase> CollectConstraintReferences()
+        private List<KimodoConstraintMarker> CollectConstraintReferences()
         {
             TimelineClip timelineClip = KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
             TrackAsset track = timelineClip != null ? timelineClip.GetParentTrack() : null;
             return track == null
-                ? new List<KimodoConstraintMarkerBase>()
+                ? new List<KimodoConstraintMarker>()
                 : KimodoTimelineConstraintMarkerSampler.CollectMarkersForClip(track, timelineClip);
         }
 

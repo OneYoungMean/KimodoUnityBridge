@@ -90,9 +90,16 @@ namespace CharacterAnimationCli.Unity.Command
                             if (heading.sqrMagnitude < 1e-8f) throw new InvalidOperationException($"constraints[{i}].heading must be non-zero.");
                             var sample = new KimodoMarkerSampleResult
                             {
-                                constraintType = type,
-                                kimodoRootPosition = new Vector3(position.x, 0f, position.y),
-                                rootHeading = heading.normalized,
+                                characterPose = new CharacterAnimationCli.Unity.CharacterPose
+                                {
+                                    root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                                    {
+                                        t = new Vector3(position.x, 0f, position.y),
+                                        q = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up)
+                                    }
+                                },
+                                constraintType = "constraint",
+                                mask = KimodoConstraintMask.ForType("root2d"),
                                 hasRootHeading = true
                             };
                             requests.Add(new CaptureRequest(character, session.Director.time, annotation, sample, frame, true));
@@ -123,16 +130,16 @@ namespace CharacterAnimationCli.Unity.Command
             character = ResolvePoseCacheOwner(locator.Source);
             if (character != null)
             {
-                KimodoUntypedConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
+                KimodoConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
                     ?? throw new InvalidOperationException("Writable pose source does not contain a pose at the requested frame.");
                 return new CaptureRequest(character, session.Director.time, annotation, marker.SampleData.Clone(), locator.Frame);
             }
             TimelineCharacterRecord owner = session.Characters.FirstOrDefault(item => item.Track.GetMarkers()
-                .OfType<KimodoConstraintMarkerBase>().Any(marker => marker is not KimodoUntypedConstraintMarker &&
+                .OfType<KimodoConstraintMarker>().Any(marker =>
                     string.Equals(marker.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
                     Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame));
-            KimodoConstraintMarkerBase constraint = owner?.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>()
-                .FirstOrDefault(marker => marker is not KimodoUntypedConstraintMarker &&
+            KimodoConstraintMarker constraint = owner?.Track.GetMarkers().OfType<KimodoConstraintMarker>()
+                .FirstOrDefault(marker =>
                     string.Equals(marker.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
                     Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame)
                 ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
@@ -293,25 +300,13 @@ namespace CharacterAnimationCli.Unity.Command
             Animator animator = preview.GetComponentInChildren<Animator>(true)
                 ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
             animator.runtimeAnimatorController = null;
-            Vector3 position = root2DOnly ? sample.kimodoRootPosition : sample.unityRootPos;
-            Quaternion rotation = root2DOnly && sample.hasRootHeading
-                ? Quaternion.LookRotation(new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y), Vector3.up)
-                : sample.unityRootRot;
+            Vector3 position = sample.characterPose != null ? sample.characterPose.root.t : Vector3.zero;
+            Quaternion rotation = sample.characterPose != null ? sample.characterPose.root.q : Quaternion.identity;
             if (!root2DOnly && sample.characterPose != null && sample.characterPose.TryValidate(out _))
             {
                 HumanPose pose = CharacterPoseMuscleAdapter.ToMuscleSample(sample.characterPose).pose;
                 using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
                 {
-                    handler.SetHumanPose(ref pose);
-                }
-            }
-            else if (!root2DOnly && sample.muscles != null && sample.muscles.Count == HumanTrait.MuscleCount)
-            {
-                var pose = new HumanPose { muscles = sample.muscles.ToArray() };
-                using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
-                {
-                    handler.GetHumanPose(ref pose);
-                    pose.muscles = sample.muscles.ToArray();
                     handler.SetHumanPose(ref pose);
                 }
             }

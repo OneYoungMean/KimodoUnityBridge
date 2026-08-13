@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using TimelineInject;
 using UnityEngine;
 
@@ -33,7 +32,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            sample.constraintType = constraintType;
+            sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.ForType(constraintType);
             if (sample.characterPose != null &&
                 KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(constraintType, out HumanBodyBones bone))
@@ -42,13 +41,14 @@ namespace KimodoBridge
                 // The profile skeleton lives in model space, so retain its
                 // canonical body root and transform the scene-space delta into
                 // that space before storing the HumanPose IK goal.
-                Vector3 modelGoalPosition = sample.characterPose.root.t * sample.humanScale +
+                float humanScale = player.SourceHumanScale;
+                Vector3 modelGoalPosition = sample.characterPose.root.t * humanScale +
                     Quaternion.Inverse(modelToWorldRotation) *
                     (targetWorldPosition - currentWorldBodyPosition);
                 KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
                     sample.characterPose.root.t,
                     sample.characterPose.root.q,
-                    Mathf.Max(1e-6f, sample.humanScale),
+                    humanScale,
                     modelGoalPosition,
                     targetJoint.rotation,
                     out Vector3 goalPosition,
@@ -97,42 +97,32 @@ namespace KimodoBridge
                 ? Vector3.zero
                 : player.NextSegmentRootOrigin;
             Vector2 modelTarget = KimodoRoot2DPlanner.ToModelTarget(
-                sample.kimodoRootPosition,
+                sample.characterPose != null ? new Vector3(sample.characterPose.root.t.x, 0f, sample.characterPose.root.t.z) : Vector3.zero,
                 modelOrigin,
                 currentWorldPosition,
                 modelToWorldRotation,
                 new Vector3(targetWorldPosition.x, currentWorldPosition.y, targetWorldPosition.y),
                 player.SourceHumanScale,
                 targetHumanScale);
-            sample.kimodoRootPosition = new Vector3(
-                modelTarget.x,
-                sample.kimodoRootPosition.y,
-                modelTarget.y);
-            sample.unityRootPos = new Vector3(
-                targetWorldPosition.x,
-                sample.unityRootPos.y,
-                targetWorldPosition.y);
-            sample.constraintType = KimodoRuntimeConstraints.Root2DType;
+            sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.ForType(KimodoRuntimeConstraints.Root2DType);
             if (sample.characterPose != null)
             {
                 sample.characterPose.root.t = new Vector3(
-                    modelTarget.x / Mathf.Max(1e-6f, sample.humanScale),
+                    modelTarget.x / player.SourceHumanScale,
                     sample.characterPose.root.t.y,
-                    modelTarget.y / Mathf.Max(1e-6f, sample.humanScale));
+                    modelTarget.y / player.SourceHumanScale);
             }
-            sample.localAxisAngles = new List<Vector3>();
-            sample.sampledJointIndices = new List<int>();
             sample.hasRootHeading = worldHeading.HasValue;
             if (worldHeading.HasValue)
             {
-                sample.rootHeading = KimodoRoot2DPlanner.ToModelHeading(
+                Vector2 modelHeading = KimodoRoot2DPlanner.ToModelHeading(
                     modelToWorldRotation,
                     worldHeading.Value);
                 if (sample.characterPose != null)
                 {
                     sample.characterPose.root.q = Quaternion.LookRotation(
-                        new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y),
+                        new Vector3(modelHeading.x, 0f, modelHeading.y),
                         Vector3.up);
                 }
             }
@@ -186,7 +176,6 @@ namespace KimodoBridge
             }
 
             sample.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(muscleSample);
-            sample.humanScale = player.SourceHumanScale;
             return true;
         }
     }

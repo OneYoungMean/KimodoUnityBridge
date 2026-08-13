@@ -104,17 +104,10 @@ namespace KimodoBridge
             }
 
             result.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(muscleSample);
-            result.humanScale = Mathf.Max(1e-6f, targetCache.humanScale);
             if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
-
-            result.muscles = new List<float>(muscleSample.pose.muscles);
-            result.leftFootPosition = muscleSample.leftFootPosition;
-            result.leftFootRotation = muscleSample.leftFootRotation;
-            result.rightFootPosition = muscleSample.rightFootPosition;
-            result.rightFootRotation = muscleSample.rightFootRotation;
             return true;
         }
     }

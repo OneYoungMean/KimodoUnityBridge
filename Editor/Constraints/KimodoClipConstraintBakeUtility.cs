@@ -445,6 +445,7 @@ namespace KimodoBridge.Editor
 
             return KimodoConstraintJsonExporter.ToConstraintsJson(
                 samples,
+                ResolveExportContext(modelName),
                 0.0,
                 clipDurationSeconds ?? motion.DurationSeconds,
                 motion.FrameRate);
@@ -497,5 +498,12 @@ namespace KimodoBridge.Editor
             }
             throw new InvalidOperationException("Constraint JSON must be an array or object.");
         }
-    }
+            private static KimodoConstraintExportContext ResolveExportContext(string modelName)
+        {
+            return KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(null, modelName, out Avatar avatar, out _)
+                ? new KimodoConstraintExportContext(KimodoConstraintNormalizationUtility.ResolveHumanScale(avatar))
+                : new KimodoConstraintExportContext();
+        }
+}
+
 }

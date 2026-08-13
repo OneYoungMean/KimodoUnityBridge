@@ -855,7 +855,7 @@ namespace CharacterAnimationCli.Unity.Command
                     double at = relativeFrame / SessionFrameRate;
                     var cachedSample = new KimodoMarkerSampleResult
                     {
-                        constraintType = constraintType,
+                        constraintType = "constraint",
                         mask = KimodoConstraintMask.ForType(constraintType)
                     };
                     CharacterPose characterPose = null;
@@ -866,22 +866,6 @@ namespace CharacterAnimationCli.Unity.Command
                         characterPose = CharacterPoseJson.Parse(poseResult["data"] as JObject
                             ?? throw new InvalidOperationException($"constraints[{i}].pose data is unavailable."));
                         cachedSample.characterPose = characterPose.Clone();
-                        cachedSample.humanScale = 1f;
-                        if (constraintType == "root2d")
-                        {
-                            Animator sourceAnimator = ResolvePoseCharacter(locator).Animator;
-                            Transform avatarRoot = sourceAnimator.transform;
-                            float sourceHumanScale = sourceAnimator != null &&
-                                KimodoRetargetCoreUtility.IsValidHumanoid(sourceAnimator.avatar)
-                                ? Mathf.Max(1e-6f, sourceAnimator.humanScale)
-                                : 1f;
-                            Vector3 position = avatarRoot.TransformPoint(characterPose.root.t * sourceHumanScale);
-                            Vector3 forward = (avatarRoot.rotation * characterPose.root.q) * Vector3.forward;
-                            Vector2 heading = new Vector2(forward.x, forward.z);
-                            cachedSample.kimodoRootPosition = position;
-                            cachedSample.rootHeading = heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.right;
-                            cachedSample.hasRootHeading = true;
-                        }
                     }
                     else if (constraintType == "root2d")
                     {
@@ -891,8 +875,15 @@ namespace CharacterAnimationCli.Unity.Command
                         {
                             throw new InvalidOperationException($"constraints[{i}].heading must be non-zero.");
                         }
-                        cachedSample.kimodoRootPosition = new Vector3(position.x, 0f, position.y);
-                        cachedSample.rootHeading = heading.normalized;
+                        float humanScale = targetCache != null ? Mathf.Max(1e-6f, targetCache.humanScale) : 1f;
+                        cachedSample.characterPose = new CharacterPose
+                        {
+                            root = new CharacterPoseTransform
+                            {
+                                t = new Vector3(position.x, 0f, position.y) / humanScale,
+                                q = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up)
+                            }
+                        };
                         cachedSample.hasRootHeading = true;
                     }
                     else
@@ -918,11 +909,9 @@ namespace CharacterAnimationCli.Unity.Command
                         {
                             throw new InvalidOperationException($"Convert constraints[{i}] failed: {convertError}");
                         }
-                        converted.muscles = new List<float>(targetMuscleSample.pose.muscles);
-                        converted.leftFootPosition = targetMuscleSample.leftFootPosition;
-                        converted.leftFootRotation = targetMuscleSample.leftFootRotation;
-                        converted.rightFootPosition = targetMuscleSample.rightFootPosition;
-                        converted.rightFootRotation = targetMuscleSample.rightFootRotation;
+                        converted.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(targetMuscleSample);
+                        converted.constraintType = "constraint";
+                        converted.mask = KimodoConstraintMask.ForType(constraintType);
                         cachedSample = converted;
                     }
                     if (constraintType == "root2d")
@@ -933,17 +922,9 @@ namespace CharacterAnimationCli.Unity.Command
                         float canonicalScale = targetCache != null
                             ? Mathf.Max(1e-6f, targetCache.humanScale)
                             : 1f;
-                        cachedSample.characterPose = new CharacterPose
-                        {
-                            root = new CharacterPoseTransform
-                            {
-                                t = cachedSample.kimodoRootPosition / canonicalScale,
-                                q = Quaternion.LookRotation(
-                                    new Vector3(cachedSample.rootHeading.x, 0f, cachedSample.rootHeading.y),
-                                    Vector3.up)
-                            }
-                        };
-                        cachedSample.humanScale = canonicalScale;
+                        // Direct Root2D values were already converted to the
+                        // canonical normalized root above. Pose values retain
+                        // their canonical CharacterPose root unchanged.
                     }
                     cachedSample.sampleTime = at;
                     samples.Add(cachedSample);
@@ -1024,8 +1005,6 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 return false;
             }
-            sample.unityRootPos = source.Animator != null ? source.Animator.transform.position : source.Root.transform.position;
-            sample.unityRootRot = source.Animator != null ? source.Animator.transform.rotation : source.Root.transform.rotation;
             return true;
         }
 
@@ -1164,8 +1143,6 @@ namespace CharacterAnimationCli.Unity.Command
                     return false;
                 }
 
-                sample.unityRootPos = pose.Animator.transform.position;
-                sample.unityRootRot = pose.Animator.transform.rotation;
                 return true;
             }
             catch (Exception ex)

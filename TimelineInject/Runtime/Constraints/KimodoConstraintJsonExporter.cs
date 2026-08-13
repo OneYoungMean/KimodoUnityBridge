@@ -79,12 +79,23 @@ namespace TimelineInject
         }
     }
 
+    /// <summary>Avatar/retarget data used only while projecting canonical
+    /// normalized CharacterPose values into metre-based protocol positions.</summary>
+    public sealed class KimodoConstraintExportContext
+    {
+        public float humanScale = 1f;
+        public KimodoConstraintExportContext() { }
+        public KimodoConstraintExportContext(float humanScale) => this.humanScale = Mathf.Max(1e-6f, humanScale);
+        internal float HumanScale => Mathf.Max(1e-6f, humanScale);
+    }
+
     public static class KimodoConstraintJsonExporter
     {
         private const double DefaultExportFps = 30.0;
 
         public static string ToConstraintsJson(
             IReadOnlyList<KimodoMarkerSampleResult> samples,
+            KimodoConstraintExportContext exportContext,
             double clipStartSeconds = 0.0,
             double? clipDurationSeconds = null,
             double exportFps = DefaultExportFps,
@@ -92,6 +103,7 @@ namespace TimelineInject
         {
             List<KimodoConstraintJson> constraints = BuildConstraints(
                 samples,
+                exportContext,
                 mergeByType: true,
                 clipStartSeconds: clipStartSeconds,
                 clipDurationSeconds: clipDurationSeconds,
@@ -117,10 +129,13 @@ namespace TimelineInject
                 new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
         }
 
-        public static List<KimodoConstraintJson> BuildConstraints(IReadOnlyList<KimodoMarkerSampleResult> samples)
+        public static List<KimodoConstraintJson> BuildConstraints(
+            IReadOnlyList<KimodoMarkerSampleResult> samples,
+            KimodoConstraintExportContext exportContext)
         {
             return BuildConstraints(
                 KimodoConstraintSampleResolver.ExpandProtocolSamples(samples, DefaultExportFps),
+                exportContext ?? throw new ArgumentNullException(nameof(exportContext)),
                 0.0,
                 null,
                 DefaultExportFps);
@@ -128,6 +143,7 @@ namespace TimelineInject
 
         private static List<KimodoConstraintJson> BuildConstraints(
             IReadOnlyList<KimodoMarkerSampleResult> samples,
+            KimodoConstraintExportContext exportContext,
             double clipStartSeconds,
             double? clipDurationSeconds,
             double exportFps)
@@ -141,7 +157,7 @@ namespace TimelineInject
             for (int i = 0; i < samples.Count; i++)
             {
                 KimodoMarkerSampleResult sample = samples[i];
-                KimodoConstraintJson json = BuildConstraint(sample, clipStartSeconds, clipDurationSeconds, exportFps);
+                KimodoConstraintJson json = BuildConstraint(sample, exportContext, clipStartSeconds, clipDurationSeconds, exportFps);
                 if (json != null)
                 {
                     output.Add(json);
@@ -151,17 +167,9 @@ namespace TimelineInject
             return output;
         }
 
-        public static KimodoConstraintJson BuildConstraint(KimodoMarkerSampleResult sample)
-        {
-            if (sample != null && string.Equals(sample.constraintType, "constraint", StringComparison.OrdinalIgnoreCase))
-            {
-                return BuildConstraints(new[] { sample }).FirstOrDefault();
-            }
-            return BuildConstraint(sample, 0.0, null, DefaultExportFps);
-        }
-
         public static KimodoConstraintJson BuildConstraint(
             KimodoMarkerSampleResult sample,
+            KimodoConstraintExportContext exportContext,
             double clipStartSeconds,
             double? clipDurationSeconds,
             double exportFps = DefaultExportFps)
@@ -184,19 +192,20 @@ namespace TimelineInject
 
             if (string.Equals(type, "root2d", StringComparison.OrdinalIgnoreCase))
             {
-                return BuildRoot2D(sample, clipStartSeconds, clipDurationSeconds, exportFps);
+                return BuildRoot2D(sample, exportContext, clipStartSeconds, clipDurationSeconds, exportFps);
             }
 
             if (string.Equals(type, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
-                return BuildFullBody(sample, clipStartSeconds, clipDurationSeconds, exportFps);
+                return BuildFullBody(sample, exportContext, clipStartSeconds, clipDurationSeconds, exportFps);
             }
 
-            return BuildEndEffector(sample, clipStartSeconds, clipDurationSeconds, exportFps);
+            return BuildEndEffector(sample, exportContext, clipStartSeconds, clipDurationSeconds, exportFps);
         }
 
         public static List<KimodoConstraintJson> BuildConstraints(
             IReadOnlyList<KimodoMarkerSampleResult> samples,
+            KimodoConstraintExportContext exportContext,
             bool mergeByType,
             double clipStartSeconds = 0.0,
             double? clipDurationSeconds = null,
@@ -204,6 +213,7 @@ namespace TimelineInject
         {
             List<KimodoConstraintJson> constraints = BuildConstraints(
                 KimodoConstraintSampleResolver.ExpandProtocolSamples(samples, exportFps),
+                exportContext,
                 clipStartSeconds,
                 clipDurationSeconds,
                 exportFps);
@@ -212,13 +222,14 @@ namespace TimelineInject
 
         private static KimodoConstraintJson BuildRoot2D(
             KimodoMarkerSampleResult sample,
+            KimodoConstraintExportContext exportContext,
             double clipStartSeconds,
             double? clipDurationSeconds,
             double exportFps)
         {
             if (sample.characterPose != null && sample.characterPose.TryValidate(out _))
             {
-                Vector3 root = sample.characterPose.root.t * Mathf.Max(1e-6f, sample.humanScale);
+                Vector3 root = sample.characterPose.root.t * ((exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale);
                 Vector3 forward = sample.characterPose.root.q * Vector3.forward;
                 var canonical = new KimodoConstraintJson
                 {
@@ -239,7 +250,7 @@ namespace TimelineInject
                 frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
                 smooth_root_2d = new List<float[]>
                 {
-                    new[] { -sample.kimodoRootPosition.x, sample.kimodoRootPosition.z }
+                    new[] { -sample.characterPose.root.t.x, sample.characterPose.root.t.z }
                 }
             };
 
@@ -247,7 +258,7 @@ namespace TimelineInject
             {
                 json.global_root_heading = new List<float[]>
                 {
-                    new[] { sample.rootHeading.y, -sample.rootHeading.x }
+                    new[] { new Vector2((sample.characterPose.root.q * Vector3.forward).x, (sample.characterPose.root.q * Vector3.forward).z).y, -new Vector2((sample.characterPose.root.q * Vector3.forward).x, (sample.characterPose.root.q * Vector3.forward).z).x }
                 };
             }
 
@@ -256,15 +267,16 @@ namespace TimelineInject
 
         private static KimodoConstraintJson BuildFullBody(
             KimodoMarkerSampleResult sample,
+            KimodoConstraintExportContext exportContext,
             double clipStartSeconds,
             double? clipDurationSeconds,
             double exportFps)
         {
             if (!TryBuildProtocolPose(sample, out Vector3 unityRoot, out List<Vector3> localAxisAngles))
             {
-                return BuildLegacyFullBody(sample, clipStartSeconds, clipDurationSeconds, exportFps);
+                return null;
             }
-            unityRoot *= Mathf.Max(1e-6f, sample.humanScale);
+            unityRoot *= (exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale;
             Vector3 kimodoRoot = new Vector3(-unityRoot.x, unityRoot.y, unityRoot.z);
             var json = new KimodoConstraintJson
             {
@@ -289,15 +301,16 @@ namespace TimelineInject
 
         private static KimodoConstraintJson BuildEndEffector(
             KimodoMarkerSampleResult sample,
+            KimodoConstraintExportContext exportContext,
             double clipStartSeconds,
             double? clipDurationSeconds,
             double exportFps)
         {
             if (!TryBuildProtocolPose(sample, out Vector3 unityRoot, out List<Vector3> localAxisAngles))
             {
-                return BuildLegacyEndEffector(sample, clipStartSeconds, clipDurationSeconds, exportFps);
+                return null;
             }
-            float humanScale = Mathf.Max(1e-6f, sample.humanScale);
+            float humanScale = (exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale;
             Vector3 scaledRoot = unityRoot * humanScale;
             Vector3 kimodoRoot = new Vector3(-scaledRoot.x, scaledRoot.y, scaledRoot.z);
             var json = new KimodoConstraintJson
@@ -332,41 +345,6 @@ namespace TimelineInject
             return json;
         }
 
-        private static KimodoConstraintJson BuildLegacyFullBody(
-            KimodoMarkerSampleResult sample,
-            double clipStartSeconds,
-            double? clipDurationSeconds,
-            double exportFps)
-        {
-            Vector3 root = new Vector3(-sample.kimodoRootPosition.x, sample.kimodoRootPosition.y, sample.kimodoRootPosition.z);
-            return new KimodoConstraintJson
-            {
-                type = "fullbody",
-                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
-                smooth_root_2d = new List<float[]> { new[] { root.x, root.z } },
-                root_positions = new List<float[]> { new[] { root.x, root.y, root.z } },
-                local_joints_rot = new List<float[][]> { BuildLocalJointFrame(sample.localAxisAngles) }
-            };
-        }
-
-        private static KimodoConstraintJson BuildLegacyEndEffector(
-            KimodoMarkerSampleResult sample,
-            double clipStartSeconds,
-            double? clipDurationSeconds,
-            double exportFps)
-        {
-            Vector3 root = new Vector3(-sample.kimodoRootPosition.x, sample.kimodoRootPosition.y, sample.kimodoRootPosition.z);
-            return new KimodoConstraintJson
-            {
-                type = sample.constraintType,
-                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
-                joint_names = sample.jointNames != null ? new List<string>(sample.jointNames) : new List<string> { ResolveEndEffectorJointName(sample.constraintType) },
-                smooth_root_2d = new List<float[]> { new[] { root.x, root.z } },
-                root_positions = new List<float[]> { new[] { root.x, root.y, root.z } },
-                local_joints_rot = new List<float[][]> { BuildLocalJointFrame(sample.localAxisAngles) }
-            };
-        }
-
         private static string ResolveEndEffectorJointName(string type)
         {
             switch ((type ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
@@ -396,21 +374,15 @@ namespace TimelineInject
         {
             root = Vector3.zero;
             localAxisAngles = null;
-            if (sample?.characterPose == null || !sample.characterPose.TryValidate(out _)) return false;
-            root = sample.characterPose.root.t;
-            if (sample.localAxisAngles != null && sample.localAxisAngles.Count > 0)
+            if (sample?.characterPose == null || !sample.characterPose.TryValidate(out _))
             {
-                localAxisAngles = new List<Vector3>(sample.localAxisAngles);
-                // The canonical body root is the only root truth.  The remaining
-                // local rotations are the sampled FK projection for this rig.
-                localAxisAngles[0] = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(sample.characterPose.root.q);
-                return true;
+                return false;
             }
 
-            // Runtime-created unified constraints do not carry the historical
-            // profile joint arrays.  Keep the canonical root/FK context instead
-            // of falling back to stale legacy fields; a profile-aware editor
-            // projection can replace this minimal frame when available.
+            // The server's first FK joint is the canonical HumanPose body root.
+            // All authoring data remains in CharacterPose; no historical joint
+            // arrays are retained on the constraint DTO.
+            root = sample.characterPose.root.t;
             localAxisAngles = new List<Vector3>
             {
                 KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(sample.characterPose.root.q)

@@ -77,6 +77,7 @@ namespace KimodoBridge.Editor
                 generationFrameRate);
             built.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                 built.CombinedSamples,
+                new KimodoConstraintExportContext(KimodoConstraintNormalizationUtility.ResolveHumanScale(request.SourceAvatar)),
                 clipStartSeconds: 0.0,
                 clipDurationSeconds: clipDurationSeconds,
                 exportFps: generationFrameRate);
@@ -130,14 +131,15 @@ namespace KimodoBridge.Editor
 
             sample = new KimodoMarkerSampleResult
             {
-                constraintType = Root2DConstraintType,
+                characterPose = new CharacterAnimationCli.Unity.CharacterPose
+                {
+                    root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    { t = kimodoPosition / Mathf.Max(1e-6f, request.KimodoHumanScale), q = worldPlanarRotation }
+                },
+                constraintType = "constraint",
                 sampleTime = 0.0,
                 mask = KimodoConstraintMask.ForType(Root2DConstraintType),
-                kimodoRootPosition = kimodoPosition,
-                unityRootPos = worldPosition,
-                unityRootRot = worldPlanarRotation,
-                hasRootHeading = true,
-                rootHeading = new Vector2(forward.x, forward.z)
+                hasRootHeading = true
             };
             return true;
         }

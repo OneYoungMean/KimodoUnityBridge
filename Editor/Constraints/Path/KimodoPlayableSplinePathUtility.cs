@@ -130,7 +130,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            float rootPositionScale = ResolveKimodoRootPositionScale(context, clip.bridgeModelName);
+            float sourceHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(context.SourceAvatar);
             int lastFrame = Mathf.Max(0, generationFrames - 1);
             int sampleCount = lastFrame == 0 ? 1 : clip.SplineWaypointCount;
             double durationSeconds = lastFrame / Mathf.Max(1f, generationFrameRate);
@@ -159,12 +159,16 @@ namespace KimodoBridge.Editor
                 {
                     constraintType = Root2DConstraintType,
                     sampleTime = timelineClip.start + (durationSeconds * t),
+                    characterPose = new CharacterAnimationCli.Unity.CharacterPose
+                    {
+                        root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                        {
+                            t = new Vector3(worldPosition.x, 0f, worldPosition.z) / sourceHumanScale,
+                            q = Quaternion.LookRotation(worldForward, Vector3.up)
+                        }
+                    },
                     mask = KimodoConstraintMask.ForType(Root2DConstraintType),
-                    kimodoRootPosition = new Vector3(worldPosition.x, 0f, worldPosition.z) * rootPositionScale,
-                    unityRootPos = worldPosition,
-                    unityRootRot = Quaternion.LookRotation(worldForward, Vector3.up),
-                    hasRootHeading = clip.SplineIncludeHeading,
-                    rootHeading = new Vector2(worldForward.x, worldForward.z)
+                    hasRootHeading = clip.SplineIncludeHeading
                 });
             }
 
@@ -754,26 +758,6 @@ namespace KimodoBridge.Editor
                 timelineClip,
                 out context,
                 out error);
-        }
-
-        private static float ResolveKimodoRootPositionScale(
-            KimodoTimelineInOutConstraintContext context,
-            string modelName)
-        {
-            float sourceHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(context?.SourceAvatar);
-            float kimodoHumanScale = 1f;
-            if (KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
-                    null,
-                    modelName,
-                    out Avatar targetAvatar,
-                    out _) &&
-                KimodoRetargetCoreUtility.IsValidHumanoid(targetAvatar))
-            {
-                kimodoHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(targetAvatar);
-            }
-
-            return Mathf.Max(1e-6f, kimodoHumanScale) /
-                Mathf.Max(1e-6f, sourceHumanScale);
         }
 
         private static Vector3 ToVector3(float3 value)

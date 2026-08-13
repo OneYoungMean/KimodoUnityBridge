@@ -188,32 +188,12 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            bool canonical = sample.characterPose != null && sample.characterPose.TryValidate(out _);
-            // CharacterPose.root is a HumanPose body transform.  Applying it to
-            // the transient hierarchy root moves it a second time after the
-            // pose handler has already placed the pelvis, which was the source
-            // of the Root2D drag-back.  Legacy samples retain their old world
-            // root fallback only while old Timeline assets are being read.
-            Vector3 rootPosition = canonical ? previewRoot.position : sample.kimodoRootPosition;
-            Vector3 previewPosition = previewRoot.position;
-            if (!canonical)
-            {
-                previewPosition.x = rootPosition.x;
-                previewPosition.z = rootPosition.z;
-                previewRoot.position = previewPosition;
-            }
-            if (!sample.hasRootHeading || !KimodoConstraintMask.Resolve(sample.mask, sample.constraintType).rootHeading)
+            // CharacterPose is canonical: applying its root transform a second
+            // time after retargeting causes Root2D drag-back.
+            // There is no compatibility fallback.
+            if (sample.characterPose == null || !sample.characterPose.TryValidate(out _))
             {
                 return;
-            }
-
-            if (!canonical)
-            {
-                Vector3 forward = new Vector3(sample.rootHeading.x, 0f, sample.rootHeading.y);
-                if (forward.sqrMagnitude > 1e-8f)
-                {
-                    previewRoot.rotation = Quaternion.LookRotation(forward.normalized, Vector3.up);
-                }
             }
         }
 
@@ -416,10 +396,7 @@ namespace KimodoBridge.Editor
                     entry.BaseSample = item.SampleData.Clone();
                     if (!ApplySampleToRig(item.SampleData, context.ModelName, entry, out error))
                     {
-                        int localAxisCount = item.SampleData.localAxisAngles != null
-                            ? item.SampleData.localAxisAngles.Count
-                            : 0;
-                        error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}, localAxisAngles={localAxisCount}): {error}";
+                        error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
                         return false;
                     }
 
@@ -1575,10 +1552,9 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            List<string> names = item.HighlightJoints != null && item.HighlightJoints.Count > 0
-                ? item.HighlightJoints
-                : (item.SampleData != null ? item.SampleData.jointNames : null);
-            List<string> highlighted = KimodoMarkerSamplingUtility.BuildHighlightJointsForConstraint(item.ConstraintType, names, modelName);
+            List<string> highlighted = item.HighlightJoints != null && item.HighlightJoints.Count > 0
+                ? new List<string>(item.HighlightJoints)
+                : KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(null, modelName);
             for (int i = 0; i < highlighted.Count; i++)
             {
                 string name = highlighted[i];
@@ -1604,21 +1580,8 @@ namespace KimodoBridge.Editor
                     AddHash(ref hash, sample.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty);
                     AddHash(ref hash, sample.constraintType);
                     AddHash(ref hash, sample.sampleTime.GetHashCode());
-                    AddHash(ref hash, sample.humanScale.GetHashCode());
                     AddHash(ref hash, MaskSignature(sample.mask));
-                    AddHash(ref hash, (int)sample.rigType);
                     AddHash(ref hash, sample.hasRootHeading ? 1 : 0);
-                    AddHash(ref hash, sample.kimodoRootPosition.GetHashCode());
-                    AddHash(ref hash, sample.rootHeading.GetHashCode());
-                    AddHash(ref hash, sample.unityRootPos.GetHashCode());
-                    AddHash(ref hash, sample.unityRootRot.GetHashCode());
-                    AddHash(ref hash, sample.hasEndEffectorTargetPosition ? 1 : 0);
-                    AddHash(ref hash, sample.endEffectorTargetPositionRootLocal.GetHashCode());
-                    AddHash(ref hash, sample.hasEndEffectorTargetRotation ? 1 : 0);
-                    AddHash(ref hash, sample.endEffectorTargetRotationBodyRelative.GetHashCode());
-                    AddHash(ref hash, sample.jointNames);
-                    AddHash(ref hash, sample.localAxisAngles);
-                    AddHash(ref hash, sample.sampledJointIndices);
                 }
                 AddHash(ref hash, item?.HighlightJoints);
                 return hash;
@@ -1770,7 +1733,6 @@ namespace KimodoBridge.Editor
                 }
 
                 sample.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(targetSample);
-                sample.humanScale = Mathf.Max(1e-6f, entry.TargetCache.humanScale);
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase))
                 {
                     sample.mask = mask.Clone();
@@ -1855,8 +1817,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < FullBodyTargetBones.Length; i++)
             {
                 HumanBodyBones bone = FullBodyTargetBones[i];
-                bool legacyFullBody = string.Equals(sample?.constraintType, "fullbody", StringComparison.OrdinalIgnoreCase);
-                if (!IsTargetEnabled(mask, bone, legacyFullBody))
+                if (!IsTargetEnabled(mask, bone, false))
                 {
                     if (entry.FullBodyTargets.TryGetValue(bone, out GameObject disabled) && disabled != null)
                     {
@@ -2120,8 +2081,7 @@ namespace KimodoBridge.Editor
             for (int i = 1; i < FullBodyTargetBones.Length; i++)
             {
                 HumanBodyBones bone = FullBodyTargetBones[i];
-                bool legacyFullBody = string.Equals(entry.BaseSample?.constraintType, "fullbody", StringComparison.OrdinalIgnoreCase);
-                if (!IsTargetEnabled(mask, bone, legacyFullBody) ||
+                if (!IsTargetEnabled(mask, bone, false) ||
                     !entry.FullBodyTargets.TryGetValue(bone, out GameObject target) || target == null)
                 {
                     continue;
@@ -2262,19 +2222,9 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (sample == null ||
-                !sample.hasEndEffectorTargetPosition ||
-                !KimodoConstraintSpaceConverter.TryMapHumanBonePoint(
-                    entry?.ProfileCache,
-                    entry?.TargetCache,
-                    bone,
-                    sample.kimodoRootPosition +
-                        ResolveSampleRootRotation(sample) * sample.endEffectorTargetPositionRootLocal,
-                    out position))
-            {
-                return false;
-            }
-            return true;
+            // Canonical CharacterPose stores humanoid IK goals directly.
+            // Non-IK legacy target fields are intentionally unsupported.
+            return false;
         }
 
         private static CharacterPoseTransform ResolveCharacterPoseGoal(
@@ -2340,12 +2290,7 @@ namespace KimodoBridge.Editor
 
         private static Quaternion ResolveSampleRootRotation(KimodoMarkerSampleResult sample)
         {
-            if (sample?.localAxisAngles == null || sample.localAxisAngles.Count == 0)
-            {
-                return Quaternion.identity;
-            }
-
-            return KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0]);
+            return sample?.characterPose?.root?.q ?? Quaternion.identity;
         }
 
         private static HumanBodyBones ResolveEndEffectorBone(string constraintType)

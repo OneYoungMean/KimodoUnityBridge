@@ -502,6 +502,7 @@ namespace KimodoBridge.Editor
                 int totalFrameCount = entries[entries.Count - 1].StartFrame + entries[entries.Count - 1].FrameCount;
                 firstRequest.Constraints.json = KimodoConstraintJsonExporter.ToConstraintsJson(
                     allSamples,
+                    ResolveExportContext(entries[0].TimelineClip),
                     0.0,
                     totalFrameCount / profile.SourceFps,
                     profile.SourceFps);
@@ -618,6 +619,17 @@ namespace KimodoBridge.Editor
             return progress == null
                 ? null
                 : (stage, message) => progress(stage, $"[{index + 1}/{count}] {message}");
+        }
+
+        private static KimodoConstraintExportContext ResolveExportContext(TimelineClip timelineClip)
+        {
+            if (timelineClip != null &&
+                KimodoInOutConstraintAdapter.TryResolveTimelineContext(timelineClip, out KimodoTimelineInOutConstraintContext context, out _) &&
+                context?.SourceAvatar != null)
+            {
+                return new KimodoConstraintExportContext(KimodoConstraintNormalizationUtility.ResolveHumanScale(context.SourceAvatar));
+            }
+            return new KimodoConstraintExportContext();
         }
 
         internal static int CompareTimelineClips(TimelineClip left, TimelineClip right)

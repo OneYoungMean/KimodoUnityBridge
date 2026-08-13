@@ -96,11 +96,16 @@ namespace KimodoBridge
                 KimodoMarkerSampleResult terminal = FindEarliestOverlap();
                 if (terminal != null)
                 {
-                    terminal.constraintType = FullBodyType;
+                    terminal.constraintType = "constraint";
                     terminal.mask = KimodoConstraintMask.ForType(FullBodyType);
                     terminal.sampleTime = 0.0;
-                    terminal.kimodoRootPosition = new Vector3(0f, terminal.kimodoRootPosition.y, 0f);
-                    terminal.unityRootPos = terminal.kimodoRootPosition;
+                    if (terminal.characterPose?.root != null)
+                    {
+                        terminal.characterPose.root.t = new Vector3(
+                            0f,
+                            terminal.characterPose.root.t.y,
+                            0f);
+                    }
                     result.Add(terminal);
                 }
             }
@@ -148,21 +153,39 @@ namespace KimodoBridge
             List<KimodoMarkerSampleResult> samples,
             KimodoMarkerSampleResult sample)
         {
-            bool isWaypoint = string.Equals(sample.constraintType, Root2DType, StringComparison.OrdinalIgnoreCase);
+            bool isWaypoint = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType).rootPosition;
             for (int i = samples.Count - 1; i >= 0; i--)
             {
                 KimodoMarkerSampleResult existing = samples[i];
                 if (existing == null ||
                     (isWaypoint
-                        ? string.Equals(existing.constraintType, Root2DType, StringComparison.OrdinalIgnoreCase) &&
+                        ? KimodoConstraintMask.Resolve(existing.mask, existing.constraintType).rootPosition &&
                           Math.Abs(existing.sampleTime - sample.sampleTime) <= 1e-6
-                        : string.Equals(existing.constraintType, sample.constraintType, StringComparison.OrdinalIgnoreCase)))
+                        : SameChannels(existing, sample)))
                 {
                     samples.RemoveAt(i);
                 }
             }
 
             samples.Add(sample);
+        }
+
+        private static bool SameChannels(KimodoMarkerSampleResult left, KimodoMarkerSampleResult right)
+        {
+            if (left == null || right == null || Math.Abs(left.sampleTime - right.sampleTime) > 1e-6)
+            {
+                return false;
+            }
+
+            KimodoConstraintMask a = KimodoConstraintMask.Resolve(left.mask, left.constraintType);
+            KimodoConstraintMask b = KimodoConstraintMask.Resolve(right.mask, right.constraintType);
+            return a.muscle == b.muscle &&
+                   a.rootPosition == b.rootPosition &&
+                   a.rootHeading == b.rootHeading &&
+                   a.leftFoot == b.leftFoot &&
+                   a.rightFoot == b.rightFoot &&
+                   a.leftHand == b.leftHand &&
+                   a.rightHand == b.rightHand;
         }
     }
 

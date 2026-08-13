@@ -1081,7 +1081,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            KimodoRigProfileDatabase.ResolveProfile(modelName, out KimodoConstraintRigType rigType, out string[] profileJointNames, out _);
+            KimodoRigProfileDatabase.ResolveProfile(modelName, out _, out string[] profileJointNames, out _);
             if (!TryResolveMotionJointIndices(motion, profileJointNames, allowPartialJoints, out int[] motionJointIndices, out error))
             {
                 return false;
@@ -1089,42 +1089,16 @@ namespace KimodoBridge
 
             int frame = Mathf.Clamp(frameIndex, 0, Mathf.Max(0, motion.FrameCount - 1));
             int rotationJointCount = ResolveRotationJointCount(motion);
-            var localAxisAngles = new List<Vector3>(profileJointNames.Length);
-            var sampledJointIndices = new List<int>(profileJointNames.Length);
-            for (int i = 0; i < profileJointNames.Length; i++)
-            {
-                int motionJoint = motionJointIndices[i];
-                if (motionJoint >= 0 &&
-                    motion.TryReadUnityLocalRotation(frame, motionJoint, rotationJointCount, out Quaternion localRotation))
-                {
-                    localAxisAngles.Add(KimodoRuntimeUtility.QuaternionToAxisAngleVector(localRotation));
-                    sampledJointIndices.Add(i);
-                }
-                else
-                {
-                    localAxisAngles.Add(Vector3.zero);
-                }
-            }
-
             Vector3 rootPosition = Vector3.zero;
             _ = motion.TryReadUnityRootPosition(frame, out rootPosition);
 
-            Vector2 heading = Vector2.right;
+            Quaternion rootRotation = Quaternion.identity;
             int rootRotationJoint = motionJointIndices.Length > 0 && motionJointIndices[0] >= 0
                 ? motionJointIndices[0]
                 : motion.RootJointIndex;
-            if (motion.TryReadUnityLocalRotation(frame, rootRotationJoint, rotationJointCount, out Quaternion rootRotation))
+            if (motion.TryReadUnityLocalRotation(frame, rootRotationJoint, rotationJointCount, out Quaternion sampledRootRotation))
             {
-                Vector3 forward = rootRotation * Vector3.forward;
-                heading = new Vector2(forward.x, forward.z);
-                if (heading.sqrMagnitude <= 1e-8f)
-                {
-                    heading = Vector2.right;
-                }
-                else
-                {
-                    heading.Normalize();
-                }
+                rootRotation = sampledRootRotation;
             }
 
             string resolvedConstraintType = string.IsNullOrWhiteSpace(constraintType)
@@ -1132,18 +1106,14 @@ namespace KimodoBridge
                 : constraintType;
             sample = new KimodoMarkerSampleResult
             {
-                constraintType = resolvedConstraintType,
+                characterPose = new CharacterAnimationCli.Unity.CharacterPose
+                {
+                    root = new CharacterAnimationCli.Unity.CharacterPoseTransform { t = rootPosition, q = rootRotation }
+                },
+                constraintType = "constraint",
                 sampleTime = sampleTime,
-                rigType = rigType,
                 mask = KimodoConstraintMask.ForType(resolvedConstraintType),
-                hasRootHeading = true,
-                kimodoRootPosition = rootPosition,
-                rootHeading = heading,
-                unityRootPos = rootPosition,
-                unityRootRot = Quaternion.identity,
-                jointNames = new List<string>(profileJointNames),
-                localAxisAngles = localAxisAngles,
-                sampledJointIndices = sampledJointIndices
+                hasRootHeading = true
             };
             return true;
         }

@@ -127,7 +127,7 @@ namespace KimodoBridge.Editor.Tests
         [Test]
         public void WritablePoseMarker_HasAUnityScriptAsset()
         {
-            var marker = ScriptableObject.CreateInstance<KimodoUntypedConstraintMarker>();
+            var marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
             try
             {
                 Assert.That(MonoScript.FromScriptableObject(marker), Is.Not.Null);

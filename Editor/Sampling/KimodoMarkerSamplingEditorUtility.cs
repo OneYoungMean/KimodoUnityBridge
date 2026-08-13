@@ -8,7 +8,7 @@ namespace KimodoBridge.Editor
     internal static class KimodoMarkerSamplingEditorUtility
     {
         public static bool TryWriteConstraintMarkerSample(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             KimodoMarkerSampleResult sample,
             bool keepOverrideEnabled,
             out string error)
@@ -54,7 +54,7 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        private static void MarkConstraintMarkerDirty(KimodoConstraintMarkerBase marker)
+        private static void MarkConstraintMarkerDirty(KimodoConstraintMarker marker)
         {
             if (marker == null)
             {
@@ -90,22 +90,9 @@ namespace KimodoBridge.Editor
 
             return string.Equals(left.constraintType ?? string.Empty, right.constraintType ?? string.Empty, System.StringComparison.Ordinal) &&
                 System.Math.Abs(left.sampleTime - right.sampleTime) <= 1e-9 &&
-                Mathf.Approximately(left.humanScale, right.humanScale) &&
                 string.Equals(CharacterPoseSignature(left), CharacterPoseSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(MaskSignature(left.mask), MaskSignature(right.mask), System.StringComparison.Ordinal) &&
-                left.rigType == right.rigType &&
-                left.hasRootHeading == right.hasRootHeading &&
-                Approximately(left.kimodoRootPosition, right.kimodoRootPosition) &&
-                Approximately(left.rootHeading, right.rootHeading) &&
-                Approximately(left.unityRootPos, right.unityRootPos) &&
-                Approximately(left.unityRootRot, right.unityRootRot) &&
-                left.hasEndEffectorTargetPosition == right.hasEndEffectorTargetPosition &&
-                Approximately(left.endEffectorTargetPositionRootLocal, right.endEffectorTargetPositionRootLocal) &&
-                left.hasEndEffectorTargetRotation == right.hasEndEffectorTargetRotation &&
-                Approximately(left.endEffectorTargetRotationBodyRelative, right.endEffectorTargetRotationBodyRelative) &&
-                StringListsEqual(left.jointNames, right.jointNames) &&
-                Vector3ListsEqual(left.localAxisAngles, right.localAxisAngles) &&
-                IntListsEqual(left.sampledJointIndices, right.sampledJointIndices);
+                left.hasRootHeading == right.hasRootHeading;
         }
 
         private static string CharacterPoseSignature(KimodoMarkerSampleResult sample)

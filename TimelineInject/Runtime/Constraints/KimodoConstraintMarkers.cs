@@ -70,12 +70,9 @@ namespace TimelineInject
 
         public static KimodoConstraintMask Resolve(KimodoConstraintMask value, string type)
         {
-            // Null means an asset written before masks existed.  An empty mask
-            // is intentional: users may disable every channel without that
-            // choice silently turning back into a full-body constraint.
-            return value ?? (string.Equals(type, "constraint", StringComparison.OrdinalIgnoreCase)
-                ? ForType("fullbody")
-                : ForType(type));
+            // All authored markers now carry an explicit mask. A null mask is
+            // normalized once to the default unified full-body channel set.
+            return value ?? ForType("fullbody");
         }
     }
 
@@ -83,63 +80,19 @@ namespace TimelineInject
     public sealed class KimodoMarkerSampleResult
     {
         public CharacterPose characterPose;
-        public string constraintType = string.Empty;
+        public string constraintType = "constraint";
         public double sampleTime;
-        // HumanPose Root/Hand/Foot translations are normalized by this Avatar
-        // scale. Protocol positions are metres, so exporters multiply by it.
-        public float humanScale = 1f;
-        // Keep null for old Timeline assets. Resolve() supplies their historic
-        // type-derived channel mask; new markers receive an explicit mask on
-        // first enable.
-        public KimodoConstraintMask mask;
-        public KimodoConstraintRigType rigType = KimodoConstraintRigType.Soma77;
         public bool hasRootHeading = true;
-        public Vector3 kimodoRootPosition;
-        public Vector2 rootHeading = Vector2.right;
-        public Vector3 unityRootPos;
-        public Quaternion unityRootRot = Quaternion.identity;
-        public bool hasEndEffectorTargetPosition;
-        public Vector3 endEffectorTargetPositionRootLocal;
-        public bool hasEndEffectorTargetRotation;
-        public Quaternion endEffectorTargetRotationBodyRelative = Quaternion.identity;
-        public List<string> jointNames = new List<string>();
-        public List<Vector3> localAxisAngles = new List<Vector3>();
-        public List<int> sampledJointIndices = new List<int>();
-        public List<float> muscles = new List<float>();
-        public Vector3 leftFootPosition;
-        public Quaternion leftFootRotation = Quaternion.identity;
-        public Vector3 rightFootPosition;
-        public Quaternion rightFootRotation = Quaternion.identity;
+        public KimodoConstraintMask mask;
 
-        public KimodoMarkerSampleResult Clone()
+        public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
         {
-            return new KimodoMarkerSampleResult
-            {
-                characterPose = characterPose?.Clone(),
-                constraintType = constraintType ?? string.Empty,
-                sampleTime = sampleTime,
-                humanScale = humanScale,
-                mask = mask?.Clone(),
-                rigType = rigType,
-                hasRootHeading = hasRootHeading,
-                kimodoRootPosition = kimodoRootPosition,
-                rootHeading = rootHeading,
-                unityRootPos = unityRootPos,
-                unityRootRot = unityRootRot,
-                hasEndEffectorTargetPosition = hasEndEffectorTargetPosition,
-                endEffectorTargetPositionRootLocal = endEffectorTargetPositionRootLocal,
-                hasEndEffectorTargetRotation = hasEndEffectorTargetRotation,
-                endEffectorTargetRotationBodyRelative = endEffectorTargetRotationBodyRelative,
-                jointNames = jointNames != null ? new List<string>(jointNames) : new List<string>(),
-                localAxisAngles = localAxisAngles != null ? new List<Vector3>(localAxisAngles) : new List<Vector3>(),
-                sampledJointIndices = sampledJointIndices != null ? new List<int>(sampledJointIndices) : new List<int>(),
-                muscles = muscles != null ? new List<float>(muscles) : new List<float>(),
-                leftFootPosition = leftFootPosition,
-                leftFootRotation = leftFootRotation,
-                rightFootPosition = rightFootPosition,
-                rightFootRotation = rightFootRotation
-            };
-        }
+            characterPose = characterPose?.Clone(),
+            constraintType = "constraint",
+            sampleTime = sampleTime,
+            hasRootHeading = hasRootHeading,
+            mask = mask?.Clone()
+        };
     }
 
 }

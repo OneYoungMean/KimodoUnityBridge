@@ -80,31 +80,7 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(diff, Does.Contain($"maxName='{HumanTrait.MuscleName[1]}'"));
         }
 
-        [Test]
-        public void Root2DPreviewHeading_RotatesOnlyTheVirtualRoot()
-        {
-            var preview = new GameObject("Root2DPreviewHeadingTest");
-            try
-            {
-                Quaternion storedRotation = Quaternion.Euler(0f, 15f, 0f);
-                var sample = new KimodoMarkerSampleResult
-                {
-                    constraintType = "root2d",
-                    hasRootHeading = true,
-                    rootHeading = Vector2.right,
-                    unityRootRot = storedRotation
-                };
 
-                KimodoConstraintSpaceConverter.ApplyRoot2DHeadingToPreviewRoot(sample, preview.transform);
-
-                Assert.That(Vector3.Dot(preview.transform.forward, Vector3.right), Is.GreaterThan(0.999f));
-                Assert.That(Quaternion.Angle(sample.unityRootRot, storedRotation), Is.LessThan(0.001f));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(preview);
-            }
-        }
 
         [Test]
         public void Root2DPreviewPosition_UpdatesGroundPlaneAndPreservesHeightWithoutHeading()
@@ -119,7 +95,6 @@ namespace KimodoBridge.Editor.Tests
                 {
                     constraintType = "root2d",
                     hasRootHeading = false,
-                    kimodoRootPosition = new Vector3(2f, -4f, 3f)
                 };
 
                 KimodoConstraintSpaceConverter.ApplyRoot2DHeadingToPreviewRoot(sample, preview.transform);
@@ -1010,7 +985,6 @@ namespace KimodoBridge.Editor.Tests
         {
             Vector3 bodyPosition = new Vector3(1.5f, 0.25f, -2f);
             Quaternion bodyRotation = Quaternion.Euler(12f, 47f, -6f);
-            const float humanScale = 1.8f;
             Vector3 worldPosition = new Vector3(3f, 1.2f, -0.7f);
             Quaternion worldRotation = Quaternion.Euler(-15f, 81f, 22f);
 
@@ -1761,7 +1735,7 @@ namespace KimodoBridge.Editor.Tests
                 timelineClip.duration = 2.0;
 
                 int initial = KimodoTimelineConstraintClipCache.ComputeSamplingSourceSignature(track);
-                KimodoFullBodyConstraintMarker marker = track.CreateMarker<KimodoFullBodyConstraintMarker>(0.5);
+                KimodoConstraintMarker marker = track.CreateMarker<KimodoConstraintMarker>(0.5);
                 marker.time = 1.0;
                 EditorUtility.SetDirty(track);
 
@@ -1842,7 +1816,7 @@ namespace KimodoBridge.Editor.Tests
                         "m_PostExtrapolationMode",
                         BindingFlags.NonPublic | BindingFlags.Instance)
                     ?.SetValue(clip, TimelineClip.ClipExtrapolation.None);
-                KimodoFullBodyConstraintMarker marker = track.CreateMarker<KimodoFullBodyConstraintMarker>(2.0);
+                KimodoConstraintMarker marker = track.CreateMarker<KimodoConstraintMarker>(2.0);
 
                 Assert.That(KimodoConstraintMarkerEditorUtility.TryGetMarkerTrack(marker, out TrackAsset resolvedTrack), Is.True);
                 Assert.That(resolvedTrack, Is.SameAs(track));
@@ -1872,7 +1846,7 @@ namespace KimodoBridge.Editor.Tests
                         "SetPostExtrapolationTime",
                         BindingFlags.NonPublic | BindingFlags.Instance)
                     ?.Invoke(clip, new object[] { 2.0 });
-                KimodoFullBodyConstraintMarker marker = track.CreateMarker<KimodoFullBodyConstraintMarker>(2.0);
+                KimodoConstraintMarker marker = track.CreateMarker<KimodoConstraintMarker>(2.0);
 
                 Assert.That(KimodoConstraintMarkerEditorUtility.TryGetClipRangeForMarker(marker, out TimelineClip resolvedClip), Is.True);
                 Assert.That(resolvedClip, Is.SameAs(clip));
@@ -1897,7 +1871,7 @@ namespace KimodoBridge.Editor.Tests
                 TimelineClip next = track.CreateClip<AnimationPlayableAsset>();
                 next.start = 5.900000063578288;
                 next.duration = 1.0;
-                KimodoFullBodyConstraintMarker marker = track.CreateMarker<KimodoFullBodyConstraintMarker>(5.9);
+                KimodoConstraintMarker marker = track.CreateMarker<KimodoConstraintMarker>(5.9);
 
                 Assert.That(KimodoConstraintMarkerEditorUtility.IsTimeInClipFrameRange(marker.time, previous), Is.False);
                 Assert.That(KimodoConstraintMarkerEditorUtility.IsTimeInClipFrameRange(marker.time, next), Is.True);
@@ -1923,7 +1897,7 @@ namespace KimodoBridge.Editor.Tests
                 TimelineClip clip = track.CreateClip<KimodoPlayableClip>();
                 clip.start = 0.0;
                 clip.duration = 149.0 / 30.0;
-                KimodoFullBodyConstraintMarker marker = track.CreateMarker<KimodoFullBodyConstraintMarker>(4.9667);
+                KimodoConstraintMarker marker = track.CreateMarker<KimodoConstraintMarker>(4.9667);
 
                 Assert.That(
                     KimodoTimelineConstraintMarkerSampler.CollectMarkersForClip(track, clip),
@@ -2101,7 +2075,7 @@ namespace KimodoBridge.Editor.Tests
                         out error),
                     Is.True,
                     error);
-                Assert.That(result.hasEndEffectorTargetPosition, Is.True);
+                Assert.That(result.characterPose != null, Is.True);
                 Assert.That(result.characterPose, Is.Not.Null);
                 Assert.That(result.characterPose.TryValidate(out error), Is.True, error);
             }
@@ -2143,11 +2117,6 @@ namespace KimodoBridge.Editor.Tests
                 characterPose = new CharacterAnimationCli.Unity.CharacterPose(),
                 constraintType = "fullbody",
                 sampleTime = 1.0,
-                kimodoRootPosition = new Vector3(1f, 2f, 3f),
-                unityRootPos = new Vector3(4f, 5f, 6f),
-                unityRootRot = Quaternion.Euler(0f, 30f, 0f),
-                jointNames = new System.Collections.Generic.List<string> { "Hips" },
-                localAxisAngles = new System.Collections.Generic.List<Vector3> { new Vector3(0f, 0.2f, 0f) }
             };
             var item = new PoseCacheRenderItem
             {
@@ -2448,7 +2417,7 @@ namespace KimodoBridge.Editor.Tests
                 string positionDiagnostic =
                     $"sourceHips={sourceHips.position:F9} rebuiltHips={rebuiltPosition:F9} " +
                     $"delta={(rebuiltPosition - sourceHips.position):F9} sourceRoot={source.skeletonRoot.position:F9} " +
-                    $"sampleUnityRoot={sample.unityRootPos:F9} sampleKimodoRoot={sample.kimodoRootPosition:F9}";
+                    $"sampleUnityRoot={sample.characterPose.root.t:F9} sampleKimodoRoot={sample.characterPose.root.t:F9}";
                 Assert.That(Vector3.Distance(rebuiltPosition, sourceHips.position), Is.LessThan(1e-3f), positionDiagnostic);
                 Assert.That(Quaternion.Angle(rebuiltRotation, sourceHips.rotation), Is.LessThan(0.1f));
             }

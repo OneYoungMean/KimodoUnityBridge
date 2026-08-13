@@ -49,7 +49,7 @@ namespace CharacterAnimationCli.Unity.Command
             TimelineCharacterRecord character = ResolvePoseCacheOwner(locator.Source)
                 ?? throw new InvalidOperationException("pose_set requires a writable <character>.Poses source.");
             RequireWritablePoseAvatar(character);
-            KimodoUntypedConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
+            KimodoConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
                 ?? throw new InvalidOperationException("Writable pose was not found at the requested source/frame.");
             JObject update = arguments["data"] as JObject
                 ?? throw new InvalidOperationException("data must be a partial pose object.");
@@ -197,7 +197,7 @@ namespace CharacterAnimationCli.Unity.Command
             character = ResolvePoseCacheOwner(locator.Source);
             if (character != null)
             {
-                KimodoUntypedConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
+                KimodoConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
                     ?? throw new InvalidOperationException("Writable pose source does not contain a pose at the requested frame.");
                 return new JObject
                 {
@@ -206,9 +206,9 @@ namespace CharacterAnimationCli.Unity.Command
                 };
             }
             TimelineSessionRecord current = RequireCurrentTimelineSession();
-            KimodoConstraintMarkerBase constraint = current.Characters
-                .SelectMany(item => item.Track.GetMarkers().OfType<KimodoConstraintMarkerBase>())
-                .FirstOrDefault(item => item is not KimodoUntypedConstraintMarker &&
+            KimodoConstraintMarker constraint = current.Characters
+                .SelectMany(item => item.Track.GetMarkers().OfType<KimodoConstraintMarker>())
+                .FirstOrDefault(item =>
                     string.Equals(item.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
                     Mathf.RoundToInt((float)(item.time * SessionFrameRate)) == locator.Frame)
                 ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
@@ -274,7 +274,7 @@ namespace CharacterAnimationCli.Unity.Command
         private static JObject StoreWritablePose(TimelineCharacterRecord character, CharacterPose pose)
         {
             int frame = AllocatePoseFrame(character.PoseCacheTrack);
-            KimodoUntypedConstraintMarker marker = character.PoseCacheTrack.CreateMarker<KimodoUntypedConstraintMarker>(frame / SessionFrameRate);
+            KimodoConstraintMarker marker = character.PoseCacheTrack.CreateMarker<KimodoConstraintMarker>(frame / SessionFrameRate);
             marker.name = $"Pose_{frame}";
             marker.useOverride = true;
             marker.constraintEnabled = true;
@@ -288,15 +288,15 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static int AllocatePoseFrame(AnimationTrack track)
         {
-            var occupied = new HashSet<int>(track.GetMarkers().OfType<KimodoUntypedConstraintMarker>()
+            var occupied = new HashSet<int>(track.GetMarkers().OfType<KimodoConstraintMarker>()
                 .Select(marker => Mathf.RoundToInt((float)(marker.time * SessionFrameRate))));
             int frame = 0;
             while (occupied.Contains(frame)) frame++;
             return frame;
         }
 
-        private static KimodoUntypedConstraintMarker FindUntypedPose(AnimationTrack track, int frame) =>
-            track.GetMarkers().OfType<KimodoUntypedConstraintMarker>().FirstOrDefault(marker =>
+        private static KimodoConstraintMarker FindUntypedPose(AnimationTrack track, int frame) =>
+            track.GetMarkers().OfType<KimodoConstraintMarker>().FirstOrDefault(marker =>
                 Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == frame);
 
         private static TimelineCharacterRecord ResolvePoseCacheOwner(string source)
@@ -313,7 +313,7 @@ namespace CharacterAnimationCli.Unity.Command
                 string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase))
                 ?? ResolvePoseCacheOwner(locator.Source)
                 ?? session.Characters.FirstOrDefault(item => item.Track.GetMarkers()
-                    .OfType<KimodoConstraintMarkerBase>()
+                    .OfType<KimodoConstraintMarker>()
                     .Any(marker => string.Equals(marker.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
                         Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame));
             return character
@@ -358,18 +358,9 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new ArgumentNullException(nameof(sample));
             }
-            MuscleSample muscleSample = CharacterPoseMuscleAdapter.ToMuscleSample(pose);
             sample.characterPose = pose.Clone();
-            sample.muscles = new List<float>(muscleSample.pose.muscles);
-            sample.leftFootPosition = muscleSample.leftFootPosition;
-            sample.leftFootRotation = muscleSample.leftFootRotation;
-            sample.rightFootPosition = muscleSample.rightFootPosition;
-            sample.rightFootRotation = muscleSample.rightFootRotation;
-            if (character?.Animator != null)
-            {
-                sample.unityRootPos = character.Animator.transform.position;
-                sample.unityRootRot = character.Animator.transform.rotation;
-            }
+            sample.constraintType = "constraint";
+            sample.mask = KimodoConstraintMask.Resolve(sample.mask, "constraint");
         }
 
         private static Vector2 RequiredVector2(JObject value, string name)

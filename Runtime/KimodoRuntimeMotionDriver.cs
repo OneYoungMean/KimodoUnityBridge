@@ -735,6 +735,7 @@ namespace KimodoBridge
 
             string futureConstraints = KimodoConstraintJsonExporter.ToConstraintsJson(
                 activeConstraints,
+                new KimodoConstraintExportContext(motionPlayer != null ? motionPlayer.SourceHumanScale : 1f),
                 0.0,
                 generationDuration,
                 isArdy ? ardyProfile.SourceFps : KimodoMotionModelProfiles.DefaultFrameRate);

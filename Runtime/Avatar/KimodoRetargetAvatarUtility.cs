@@ -559,47 +559,21 @@ namespace KimodoBridge
                 return false;
             }
 
-            root.position = sample.unityRootPos;
-            root.rotation = sample.unityRootRot;
-            int count = sample.localAxisAngles != null ? sample.localAxisAngles.Count : 0;
-            if (TryGetProfileRootJointTransform(nameMap, modelName, out Transform profileRootJoint))
+            if (sample.characterPose == null || !sample.characterPose.TryValidate(out error))
             {
-                profileRootJoint.position = sample.kimodoRootPosition;
-                if (count > 0)
-                {
-                    profileRootJoint.rotation = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0]);
-                }
-            }
-
-            if (count == 0)
-            {
-                if (string.Equals(sample.constraintType, "root2d", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-
-                error = $"marker sample has no localAxisAngles for constraint '{sample.constraintType ?? string.Empty}' at time {sample.sampleTime:F3}";
                 return false;
             }
 
-            int applyCount = Mathf.Min(modelJointNames.Length, count);
-            for (int i = 0; i < applyCount; i++)
+            // This transform-map fallback has no HumanPoseHandler, hence it can
+            // apply only the canonical root. Full muscle/FK reconstruction uses
+            // the Avatar sampling path at its caller.
+            root.position = sample.characterPose.root.t;
+            root.rotation = sample.characterPose.root.q;
+            if (TryGetProfileRootJointTransform(nameMap, modelName, out Transform profileRootJoint))
             {
-                string jointName = modelJointNames[i];
-                if (!nameMap.TryGetValue(jointName, out Transform t) || t == null)
-                {
-                    error = $"joint '{jointName}' missing on pose rig";
-                    return false;
-                }
-                if(t== profileRootJoint)
-                {
-                    continue;
-                }
-                t.localRotation = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[i]);
+                profileRootJoint.position = sample.characterPose.root.t;
+                profileRootJoint.rotation = sample.characterPose.root.q;
             }
-
-
-
             return true;
         }
 

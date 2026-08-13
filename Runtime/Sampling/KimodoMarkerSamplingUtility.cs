@@ -9,7 +9,7 @@ namespace KimodoBridge
     public static class KimodoMarkerSamplingUtility
     {
         public static KimodoMarkerSampleResult NormalizeConstraintMarkerSample(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             KimodoMarkerSampleResult sample)
         {
             if (marker == null || !marker.constraintEnabled || sample == null)
@@ -19,70 +19,9 @@ namespace KimodoBridge
 
             KimodoMarkerSampleResult cloned = sample.Clone();
             cloned.sampleTime = marker.time;
-            cloned.mask = marker is KimodoConstraintMarker
-                ? KimodoConstraintMask.Resolve(marker.SampleData?.mask, marker.ConstraintType).Clone()
-                : KimodoConstraintMask.Resolve(cloned.mask, cloned.constraintType);
-            if (cloned.jointNames == null)
-            {
-                cloned.jointNames = new List<string>();
-            }
-
-            if (marker is KimodoRoot2DConstraintMarker)
-            {
-                bool hasHeading = marker.SampleData != null && marker.SampleData.hasRootHeading;
-                cloned.hasRootHeading = hasHeading;
-                if (!hasHeading)
-                {
-                    cloned.rootHeading = Vector2.right;
-                }
-
-                cloned.localAxisAngles = new List<Vector3>();
-                cloned.sampledJointIndices = new List<int>();
-            }
-            else if (marker is KimodoEndEffectorConstraintMarker)
-            {
-                string fixedJointName = ResolveFixedEndEffectorJointName(marker.ConstraintType);
-                if (!string.IsNullOrEmpty(fixedJointName))
-                {
-                    // Fixed marker classes map to backend constraint classes whose
-                    // canonical names are model-independent. Do not leak profile
-                    // skeleton names or stale custom names into the JSON payload.
-                    cloned.jointNames = new List<string> { fixedJointName };
-                }
-                else
-                {
-                    List<string> configured = sample.jointNames != null && sample.jointNames.Count > 0
-                        ? sample.jointNames
-                        : marker.SampleData != null && marker.SampleData.jointNames != null
-                            ? marker.SampleData.jointNames
-                            : null;
-                    if (configured == null || configured.Count == 0)
-                    {
-                        return null;
-                    }
-
-                    cloned.jointNames = new List<string>(configured);
-                }
-            }
-
-            cloned.constraintType = marker.ConstraintType;
-            if (marker is KimodoConstraintMarker)
-            {
-                // A unified marker keeps its enabled channels; protocol records
-                // are expanded only at export time.
-                cloned.constraintType = "constraint";
-            }
-            cloned.hasRootHeading = marker is KimodoConstraintMarker
-                ? cloned.mask.rootHeading && marker.SampleData.hasRootHeading
-                : marker is KimodoRoot2DConstraintMarker && cloned.hasRootHeading;
-            // These lists are retained only for legacy-marker migration.  New
-            // unified samples are exported from characterPose and need none.
-            if (marker is not KimodoConstraintMarker)
-            {
-                cloned.localAxisAngles ??= new List<Vector3>();
-                cloned.sampledJointIndices ??= new List<int>();
-                cloned.jointNames ??= new List<string>();
-            }
+            cloned.constraintType = "constraint";
+            cloned.mask = KimodoConstraintMask.Resolve(marker.SampleData?.mask, "constraint").Clone();
+            cloned.hasRootHeading = marker.SampleData != null && marker.SampleData.hasRootHeading;
             return cloned;
         }
 
@@ -104,7 +43,7 @@ namespace KimodoBridge
         }
 
         public static bool TryNormalizeConstraintMarkerSample(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             KimodoMarkerSampleResult sample,
             out KimodoMarkerSampleResult normalized,
             out string error)
@@ -116,9 +55,7 @@ namespace KimodoBridge
                 return true;
             }
 
-            error = marker is KimodoEndEffectorConstraintMarker
-                ? $"failed to normalize sample: end-effector marker '{marker.ConstraintType}' is missing jointNames"
-                : "failed to normalize sample";
+            error = "failed to normalize unified constraint sample";
             return false;
         }
 
@@ -127,45 +64,19 @@ namespace KimodoBridge
             Transform profileSkeletonRoot,
             string constraintType = "fullbody")
         {
-            KimodoConstraintRigType resolvedRigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName);
-            string[] resolvedJointNames = KimodoRigProfileDatabase.GetJointNamesForModel(modelName);
-            int jointCount = resolvedJointNames != null ? resolvedJointNames.Length : 0;
-
-            var localAxes = new List<Vector3>(jointCount);
-            var sampledIndices = new List<int>(jointCount);
-            for (int i = 0; i < jointCount; i++)
-            {
-                localAxes.Add(Vector3.zero);
-                sampledIndices.Add(i);
-            }
-
-            Vector3 kimodoRootPosition = Vector3.zero;
-            Vector3 unityRootPosition = profileSkeletonRoot != null ? profileSkeletonRoot.position : Vector3.zero;
+            var pose = new CharacterAnimationCli.Unity.CharacterPose();
             if (profileSkeletonRoot != null)
             {
-                string rootJointName = KimodoRigProfileDatabase.GetProfileRootJointNameForModel(modelName);
-                Transform rootJoint = KimodoRetargetAvatarUtility.FindTransformByName(profileSkeletonRoot, rootJointName);
-                if (rootJoint != null)
-                {
-                    kimodoRootPosition = rootJoint.position;
-                }
+                pose.root.t = profileSkeletonRoot.position;
+                pose.root.q = profileSkeletonRoot.rotation;
             }
-
-            string resolvedConstraintType = string.IsNullOrWhiteSpace(constraintType) ? "fullbody" : constraintType;
             return new KimodoMarkerSampleResult
             {
-                constraintType = resolvedConstraintType,
+                characterPose = pose,
+                constraintType = "constraint",
                 sampleTime = 0d,
-                rigType = resolvedRigType,
-                mask = KimodoConstraintMask.ForType(resolvedConstraintType),
-                hasRootHeading = true,
-                kimodoRootPosition = kimodoRootPosition,
-                rootHeading = Vector2.right,
-                unityRootPos = unityRootPosition,
-                unityRootRot = Quaternion.identity,
-                jointNames = resolvedJointNames != null ? new List<string>(resolvedJointNames) : new List<string>(),
-                localAxisAngles = localAxes,
-                sampledJointIndices = sampledIndices
+                mask = KimodoConstraintMask.Resolve(null, "constraint"),
+                hasRootHeading = true
             };
         }
 
@@ -253,7 +164,7 @@ namespace KimodoBridge
         }
 
         public static List<string> BuildHighlightJointsForMarker(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             string modelName)
         {
             if (marker == null)
@@ -261,8 +172,8 @@ namespace KimodoBridge
                 return new List<string>();
             }
 
-            List<string> names = marker.SampleData != null ? marker.SampleData.jointNames : null;
-            return BuildHighlightJointsForConstraint(marker.ConstraintType, names, modelName);
+            KimodoConstraintMask mask = KimodoConstraintMask.Resolve(marker.SampleData?.mask, "constraint");
+            return BuildHighlightJointsForConstraint(mask.muscle ? "fullbody" : "root2d", null, modelName);
         }
 
         public static bool TryResolveAnimationClipFromTimelineClip(
@@ -380,66 +291,20 @@ namespace KimodoBridge
                 return false;
             }
 
-            Vector3 kimodoRootPosition = profileRootJoint.position;
-            Vector3 unityRootPos = unityRoot.position;
-            Quaternion unityRootRot = unityRoot.rotation;
-
-            Vector3 forward = profileRootJoint.forward;
-            Vector2 unityHeading = new Vector2(forward.x, forward.z);
-            if (unityHeading.sqrMagnitude <= 1e-8f)
-            {
-                unityHeading = new Vector2(1f, 0f);
-            }
-            else
-            {
-                unityHeading.Normalize();
-            }
-
-            Quaternion[] worldRots = new Quaternion[joints.Length];
-            for (int i = 0; i < joints.Length; i++)
-            {
-                worldRots[i] = joints[i] != null ? joints[i].rotation : Quaternion.identity;
-            }
-
-            var unityLocalAxisAngles = new List<Vector3>(joints.Length);
-            var sampledJointIndices = new List<int>(joints.Length);
-            for (int i = 0; i < joints.Length; i++)
-            {
-                if (joints[i] == null)
-                {
-                    unityLocalAxisAngles.Add(Vector3.zero);
-                    continue;
-                }
-
-                int parent = parentIndices[i];
-                if (parent >= 0 && (parent >= joints.Length || joints[parent] == null))
-                {
-                    // Parent unresolved for this profile slot; skip this joint to avoid invalid local rotation.
-                    unityLocalAxisAngles.Add(Vector3.zero);
-                    continue;
-                }
-
-                Quaternion local = parent >= 0 && parent < worldRots.Length
-                    ? Quaternion.Inverse(worldRots[parent]) * worldRots[i]
-                    : worldRots[i];
-                unityLocalAxisAngles.Add(KimodoRuntimeUtility.QuaternionToAxisAngleVector(local));
-                sampledJointIndices.Add(i);
-            }
-
             result = new KimodoMarkerSampleResult
             {
-                constraintType = markerType ?? string.Empty,
+                characterPose = new CharacterAnimationCli.Unity.CharacterPose
+                {
+                    root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    {
+                        t = profileRootJoint.position,
+                        q = profileRootJoint.rotation
+                    }
+                },
+                constraintType = "constraint",
                 sampleTime = globalTime,
-                rigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName),
                 mask = KimodoConstraintMask.ForType(markerType),
-                hasRootHeading = true,
-                kimodoRootPosition = kimodoRootPosition,
-                rootHeading = unityHeading,
-                unityRootPos = unityRootPos,
-                unityRootRot = unityRootRot,
-                jointNames = jointNames != null ? new List<string>(jointNames) : new List<string>(),
-                localAxisAngles = unityLocalAxisAngles,
-                sampledJointIndices = sampledJointIndices
+                hasRootHeading = true
             };
 
             if (TryResolveEndEffectorBone(markerType, out HumanBodyBones endEffectorBone))
@@ -460,9 +325,20 @@ namespace KimodoBridge
                 }
                 if (endEffector != null)
                 {
-                    result.hasEndEffectorTargetPosition = true;
-                    result.endEffectorTargetPositionRootLocal = Quaternion.Inverse(profileRootJoint.rotation) *
-                        (endEffector.position - profileRootJoint.position);
+                    CharacterAnimationCli.Unity.CharacterPoseTransform goal = endEffectorBone switch
+                    {
+                        HumanBodyBones.LeftHand => result.characterPose.hands.left,
+                        HumanBodyBones.RightHand => result.characterPose.hands.right,
+                        HumanBodyBones.LeftFoot => result.characterPose.feet.left,
+                        HumanBodyBones.RightFoot => result.characterPose.feet.right,
+                        _ => null
+                    };
+                    if (goal != null)
+                    {
+                        goal.t = Quaternion.Inverse(profileRootJoint.rotation) *
+                            (endEffector.position - profileRootJoint.position);
+                        goal.q = Quaternion.Inverse(profileRootJoint.rotation) * endEffector.rotation;
+                    }
                 }
             }
             return true;

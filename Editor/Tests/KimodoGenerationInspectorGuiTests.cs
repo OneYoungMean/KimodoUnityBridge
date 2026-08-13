@@ -30,14 +30,14 @@ namespace KimodoBridge.Editor.Tests
         {
             System.Type[] legacyTypes =
             {
-                typeof(KimodoEndEffectorConstraintMarker),
-                typeof(KimodoFullBodyConstraintMarker),
-                typeof(KimodoRoot2DConstraintMarker),
-                typeof(KimodoLeftHandConstraintMarker),
-                typeof(KimodoRightHandConstraintMarker),
-                typeof(KimodoLeftFootConstraintMarker),
-                typeof(KimodoRightFootConstraintMarker),
-                typeof(KimodoUntypedConstraintMarker)
+                typeof(KimodoConstraintMarker),
+                typeof(KimodoConstraintMarker),
+                typeof(KimodoConstraintMarker),
+                typeof(KimodoConstraintMarker),
+                typeof(KimodoConstraintMarker),
+                typeof(KimodoConstraintMarker),
+                typeof(KimodoConstraintMarker),
+                typeof(KimodoConstraintMarker)
             };
             Assert.That(
                 legacyTypes.All(type => System.Attribute.IsDefined(
@@ -137,7 +137,7 @@ namespace KimodoBridge.Editor.Tests
         [Test]
         public void DisabledConstraint_IsIgnoredByNormalization()
         {
-            KimodoFullBodyConstraintMarker marker = ScriptableObject.CreateInstance<KimodoFullBodyConstraintMarker>();
+            KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
             try
             {
                 Assert.That(marker.constraintEnabled, Is.True);

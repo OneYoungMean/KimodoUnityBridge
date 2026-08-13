@@ -898,17 +898,12 @@ namespace KimodoBridge.Editor
 
             targetRootRotation.Normalize();
             Quaternion planarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(targetRootRotation);
-            Vector3 forward = planarRotation * Vector3.forward;
-
-            sample.kimodoRootPosition = targetRootPosition;
-            sample.unityRootPos = targetRootPosition;
-            sample.unityRootRot = planarRotation;
-            sample.rootHeading = new Vector2(forward.x, forward.z);
+            sample.characterPose ??= new CharacterAnimationCli.Unity.CharacterPose();
+            sample.characterPose.root ??= new CharacterAnimationCli.Unity.CharacterPoseTransform();
+            sample.characterPose.root.t = targetRootPosition;
+            sample.characterPose.root.q = planarRotation;
             sample.hasRootHeading = true;
-            if (sample.localAxisAngles != null && sample.localAxisAngles.Count > 0)
-            {
-                sample.localAxisAngles[0] = KimodoRuntimeUtility.QuaternionToAxisAngleVector(targetRootRotation);
-            }
+            sample.constraintType = "constraint";
             sample.sampleTime = exportedSampleTime;
         }
 
@@ -1530,7 +1525,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            List<KimodoConstraintMarkerBase> markers = CollectMarkersForClip(context.Track, context.SourceClip);
+            List<KimodoConstraintMarker> markers = CollectMarkersForClip(context.Track, context.SourceClip);
             if (markers.Count == 0)
             {
                 return true;
@@ -1552,7 +1547,7 @@ namespace KimodoBridge.Editor
             var sampledMarkerIndices = new List<int>();
             for (int i = 0; i < markers.Count; i++)
             {
-                KimodoConstraintMarkerBase marker = markers[i];
+                KimodoConstraintMarker marker = markers[i];
                 if (marker == null)
                 {
                     error = "Marker is null.";
@@ -1618,12 +1613,12 @@ namespace KimodoBridge.Editor
                     for (int i = 0; i < sampledMarkerIndices.Count; i++)
                     {
                         int markerIndex = sampledMarkerIndices[i];
-                        KimodoConstraintMarkerBase marker = markers[markerIndex];
+                        KimodoConstraintMarker marker = markers[markerIndex];
                         if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
                                 targetSamples[markerSampleIndices[i]],
                                 sampler.TargetCache,
                                 context.ModelName,
-                                marker is KimodoConstraintMarker ? "fullbody" : marker.ConstraintType,
+                                "fullbody",
                                 marker.time,
                                 out KimodoMarkerSampleResult captured,
                                 out error) ||
@@ -1648,7 +1643,7 @@ namespace KimodoBridge.Editor
         }
 
         private static bool TryNormalizeMarkerSample(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             KimodoMarkerSampleResult captured,
             string mode,
             out KimodoMarkerSampleResult sample,
@@ -1662,29 +1657,28 @@ namespace KimodoBridge.Editor
             }
             KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][ConstraintExport] marker='{marker.ConstraintType}' time={marker.time:F3} mode={mode} " +
-                $"jointNames=[{string.Join(", ", sample.jointNames ?? new List<string>())}] hasHeading={sample.hasRootHeading}");
+                $"mask={sample.mask?.muscle}:{sample.mask?.rootPosition}:{sample.mask?.AnyEndEffector} hasHeading={sample.hasRootHeading}");
             return true;
         }
 
-        private static bool CanUseOverrideWithoutTimelineSampling(KimodoConstraintMarkerBase marker)
+        private static bool CanUseOverrideWithoutTimelineSampling(KimodoConstraintMarker marker)
         {
             if (marker == null || !marker.useOverride)
             {
                 return false;
             }
 
-            return marker is not KimodoEndEffectorConstraintMarker ee ||
-                !string.Equals(ee.ConstraintType, "end-effector", StringComparison.OrdinalIgnoreCase);
+            return true;
         }
 
-        internal static List<KimodoConstraintMarkerBase> CollectMarkersForClip(
+        internal static List<KimodoConstraintMarker> CollectMarkersForClip(
             TrackAsset track,
             TimelineClip clipRange)
         {
-            var markers = new List<KimodoConstraintMarkerBase>();
+            var markers = new List<KimodoConstraintMarker>();
             foreach (IMarker marker in track.GetMarkers())
             {
-                if (marker is KimodoConstraintMarkerBase kimodoMarker)
+                if (marker is KimodoConstraintMarker kimodoMarker)
                 {
                     if (!kimodoMarker.constraintEnabled)
                     {

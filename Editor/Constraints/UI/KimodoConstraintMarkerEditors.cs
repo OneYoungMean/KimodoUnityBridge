@@ -29,25 +29,6 @@ namespace KimodoBridge.Editor
 
         internal static void Draw(SerializedObject serializedObject)
         {
-            SerializedProperty positionProp = serializedObject.FindProperty("sampleData.kimodoRootPosition");
-            if (positionProp != null)
-            {
-                Vector3 position = positionProp.vector3Value;
-                EditorGUI.BeginChangeCheck();
-                float forward = EditorGUILayout.FloatField(
-                    new GUIContent("Forward", "Signed ground-plane position along canonical Unity +Z."),
-                    position.z);
-                float rightward = EditorGUILayout.FloatField(
-                    new GUIContent("Rightward", "Signed ground-plane position along canonical Unity +X."),
-                    position.x);
-                if (EditorGUI.EndChangeCheck())
-                {
-                    position.x = rightward;
-                    position.z = forward;
-                    positionProp.vector3Value = position;
-                }
-            }
-
             SerializedProperty includeHeadingProp = serializedObject.FindProperty("sampleData.hasRootHeading");
             if (includeHeadingProp == null)
             {
@@ -62,22 +43,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            SerializedProperty headingProp = serializedObject.FindProperty("sampleData.rootHeading");
-            if (headingProp == null)
-            {
-                return;
-            }
-
-            EditorGUI.BeginChangeCheck();
-            float rotationY = EditorGUILayout.FloatField(
-                new GUIContent("Rotation Y", "Absolute world yaw in degrees around Unity Y."),
-                ResolveRotationY(headingProp.vector2Value));
-            if (EditorGUI.EndChangeCheck())
-            {
-                headingProp.vector2Value = ResolveHeading(rotationY);
-            }
-
-            KimodoConstraintHeadingPreviewGUI.Draw(headingProp.vector2Value, enabled: true);
+            EditorGUILayout.HelpBox("Root position and heading are edited through CharacterPose.", MessageType.Info);
         }
     }
 
@@ -210,7 +176,7 @@ namespace KimodoBridge.Editor
             var selectedMarkerIds = new HashSet<int>();
             for (int i = 0; i < sources.Count; i++)
             {
-                if (sources[i].Object is KimodoConstraintMarkerBase marker)
+                if (sources[i].Object is KimodoConstraintMarker marker)
                 {
                     selectedMarkerIds.Add(KimodoUnityObjectIdUtility.IdHash(marker));
                 }
@@ -221,7 +187,7 @@ namespace KimodoBridge.Editor
             {
                 PreviewSource source = sources[i];
                 Color color = ResolvePreviewColor(i);
-                if (source.Object is KimodoConstraintMarkerBase marker)
+                if (source.Object is KimodoConstraintMarker marker)
                 {
                     AddMarkerPreview(groups, marker, color);
                 }
@@ -288,7 +254,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < selectedObjects.Length; i++)
             {
                 UnityEngine.Object selected = selectedObjects[i];
-                if (selected is KimodoConstraintMarkerBase marker)
+                if (selected is KimodoConstraintMarker marker)
                 {
                     AddSource(result, keys, marker, null, "marker:" + KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker));
                 }
@@ -321,7 +287,7 @@ namespace KimodoBridge.Editor
                 Selectable = selectable,
                 Object = sourceObject,
                 TimelineClip = timelineClip,
-                Time = sourceObject is KimodoConstraintMarkerBase marker
+                Time = sourceObject is KimodoConstraintMarker marker
                     ? marker.time
                     : timelineClip?.start ?? 0.0
             });
@@ -341,7 +307,7 @@ namespace KimodoBridge.Editor
 
         private static void AddMarkerPreview(
             Dictionary<string, PreviewGroup> groups,
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             Color color)
         {
             if (marker == null || KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker))
@@ -409,10 +375,10 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            List<KimodoConstraintMarkerBase> references =
+            List<KimodoConstraintMarker> references =
                 KimodoTimelineConstraintMarkerSampler.CollectMarkersForClip(track, timelineClip);
             string clipKey = GetTimelineClipKey(timelineClip);
-            foreach (KimodoConstraintMarkerBase marker in references)
+            foreach (KimodoConstraintMarker marker in references)
             {
                 if (selectedMarkerIds.Contains(KimodoUnityObjectIdUtility.IdHash(marker)))
                 {
@@ -631,12 +597,12 @@ namespace KimodoBridge.Editor
 
         private void OnDisable()
         {
-            KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(target as KimodoConstraintMarkerBase, keepIfOverrideWindowOpen: true);
+            KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(target as KimodoConstraintMarker, keepIfOverrideWindowOpen: true);
         }
 
         public override void OnInspectorGUI()
         {
-            KimodoConstraintMarkerEditorUtility.HandleDeleteCommand(target as KimodoConstraintMarkerBase);
+            KimodoConstraintMarkerEditorUtility.HandleDeleteCommand(target as KimodoConstraintMarker);
             serializedObject.Update();
 
             EditorGUILayout.HelpBox(TipText, MessageType.Info);
@@ -645,7 +611,7 @@ namespace KimodoBridge.Editor
             DrawCommonHeader(TypeLabel);
             DrawMarkerTime();
 
-            KimodoConstraintMarkerBase markerTarget = target as KimodoConstraintMarkerBase;
+            KimodoConstraintMarker markerTarget = target as KimodoConstraintMarker;
             SerializedProperty overrideProp = serializedObject.FindProperty("useOverride");
             bool useOverride = overrideProp != null && overrideProp.boolValue;
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(markerTarget);
@@ -663,7 +629,7 @@ namespace KimodoBridge.Editor
             bool changed = serializedObject.ApplyModifiedProperties();
             if (changed)
             {
-                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(target as KimodoConstraintMarkerBase);
+                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(target as KimodoConstraintMarker);
             }
 
             KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
@@ -674,7 +640,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField($"Kimodo Constraint Marker ({type})", EditorStyles.boldLabel);
             KimodoConstraintMarkerEditorUtility.DrawEnabledField(serializedObject);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("useOverride"));
-            KimodoConstraintMarkerEditorUtility.DrawOverrideEditButton(serializedObject, target as KimodoConstraintMarkerBase);
+            KimodoConstraintMarkerEditorUtility.DrawOverrideEditButton(serializedObject, target as KimodoConstraintMarker);
             EditorGUILayout.Space(4f);
         }
 
@@ -746,158 +712,6 @@ namespace KimodoBridge.Editor
         }
     }
 
-    [CustomEditor(typeof(KimodoFullBodyConstraintMarker))]
-    internal sealed class KimodoFullBodyConstraintMarkerEditor : KimodoConstraintStandardMarkerEditorBase
-    {
-        protected override string TypeLabel => "FullBody";
-        protected override string TipText =>
-            "Purpose: apply a strong full-body pose constraint at a key frame (root position + local joint rotations).\n" +
-            "Recommended when you need the generated motion to match a specific target pose at that frame.";
-
-        protected override void DrawFields(bool readOnly)
-        {
-            if (readOnly)
-            {
-                EditorGUILayout.HelpBox("Override disabled. Showing sampled result (read-only).", MessageType.Info);
-            }
-
-            EditorGUI.BeginDisabledGroup(readOnly);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.kimodoRootPosition"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.localAxisAngles"), true);
-            EditorGUI.EndDisabledGroup();
-        }
-    }
-
-    [CustomEditor(typeof(KimodoRoot2DConstraintMarker))]
-    internal sealed class KimodoRoot2DConstraintMarkerEditor : KimodoConstraintStandardMarkerEditorBase
-    {
-        protected override string TypeLabel => "Root2D";
-        protected override string TipText =>
-            "Purpose: constrain forward (+Z), rightward (+X), and optional absolute Rotation Y at a key frame.\n" +
-            "Recommended for path following, locomotion route control, and turn direction control.";
-
-        protected override void DrawFields(bool readOnly)
-        {
-            if (readOnly)
-            {
-                EditorGUILayout.HelpBox("Override disabled. Showing sampled result (read-only).", MessageType.Info);
-            }
-
-            EditorGUI.BeginDisabledGroup(readOnly);
-            KimodoRoot2DConstraintEditorGUI.Draw(serializedObject);
-            EditorGUI.EndDisabledGroup();
-        }
-    }
-
-    [CustomEditor(typeof(KimodoEndEffectorConstraintMarker), true)]
-    internal sealed class KimodoEndEffectorConstraintMarkerEditor : UnityEditor.Editor
-    {
-        private void OnDisable()
-        {
-            KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(target as KimodoConstraintMarkerBase, keepIfOverrideWindowOpen: true);
-        }
-
-        public override void OnInspectorGUI()
-        {
-            KimodoConstraintMarkerEditorUtility.HandleDeleteCommand(target as KimodoConstraintMarkerBase);
-            serializedObject.Update();
-
-            string typeName = (target as KimodoEndEffectorConstraintMarker)?.ConstraintType ?? "end-effector";
-            bool isCustomEndEffector = string.Equals(typeName, "end-effector", StringComparison.OrdinalIgnoreCase);
-            EditorGUILayout.HelpBox(GetTipByType(typeName), MessageType.Info);
-            EditorGUILayout.Space(4f);
-            EditorGUILayout.LabelField($"Kimodo Constraint Marker ({typeName})", EditorStyles.boldLabel);
-            KimodoConstraintMarkerEditorUtility.DrawEnabledField(serializedObject);
-
-            SerializedProperty overrideProp = serializedObject.FindProperty("useOverride");
-            if (isCustomEndEffector)
-            {
-                overrideProp.boolValue = false;
-                EditorGUILayout.Toggle(new GUIContent("useOverride", "Disabled for custom end-effector marker; values are sampled from timeline pose."), false);
-            }
-            else
-            {
-                EditorGUILayout.PropertyField(overrideProp);
-                KimodoConstraintMarkerEditorUtility.DrawOverrideEditButton(serializedObject, target as KimodoConstraintMarkerBase);
-            }
-
-            DrawMarkerTime();
-            bool useOverride = !isCustomEndEffector && overrideProp != null && overrideProp.boolValue;
-            KimodoConstraintMarkerBase markerTarget = target as KimodoConstraintMarkerBase;
-            bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(markerTarget);
-
-            if (!useOverride && !windowOpen)
-            {
-                if (!KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(markerTarget, forceRefresh: false, out string error))
-                {
-                    EditorGUILayout.HelpBox($"Auto preview unavailable: {error}", MessageType.Warning);
-                }
-            }
-
-            if (isCustomEndEffector)
-            {
-                EditorGUILayout.HelpBox("end-effector has no override mode; sampling from timeline pose.", MessageType.Info);
-            }
-            else
-            {
-                EditorGUILayout.HelpBox(useOverride
-                    ? "Override enabled. Editing marker values."
-                    : "Override disabled. Showing sampled result (read-only).", MessageType.Info);
-            }
-            DrawEEFields(typeName, !useOverride);
-
-            bool changed = serializedObject.ApplyModifiedProperties();
-            if (changed)
-            {
-                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(target as KimodoConstraintMarkerBase);
-            }
-
-            KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
-        }
-
-        private void DrawMarkerTime()
-        {
-            KimodoConstraintMarkerEditorUtility.DrawSampleTimeField(serializedObject, target as IMarker);
-        }
-
-        private static string GetTipByType(string typeName)
-        {
-            switch (typeName)
-            {
-                case "left-hand":
-                    return "Purpose: constrain the left-hand end-effector chain position/orientation at a key frame.\nRecommended for grab, wave, and pointing control.";
-                case "right-hand":
-                    return "Purpose: constrain the right-hand end-effector chain position/orientation at a key frame.\nRecommended for grab, wave, and pointing control.";
-                case "left-foot":
-                    return "Purpose: constrain the left-foot end-effector chain position/orientation at a key frame.\nRecommended for foot placement, stepping targets, and anti-sliding control.";
-                case "right-foot":
-                    return "Purpose: constrain the right-foot end-effector chain position/orientation at a key frame.\nRecommended for foot placement, stepping targets, and anti-sliding control.";
-                default:
-                    return "Purpose: custom end-effector constraint (joint_names can include LeftHand/RightHand/LeftFoot/RightFoot/Hips).\n" +
-                           "Recommended for mixed multi-target constraints (for example, hand and foot targets at the same time).";
-            }
-        }
-
-        private void DrawEEFields(string typeName, bool readOnly)
-        {
-            EditorGUI.BeginDisabledGroup(readOnly);
-            SerializedProperty jointNamesProp = serializedObject.FindProperty("sampleData.jointNames");
-            if (jointNamesProp != null && typeName == "end-effector")
-            {
-                EditorGUILayout.PropertyField(jointNamesProp, true);
-            }
-            else if (typeName != "end-effector")
-            {
-                EditorGUILayout.HelpBox("Fixed joint group marker type; joint_names is determined by marker class.", MessageType.None);
-            }
-
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.kimodoRootPosition"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("sampleData.localAxisAngles"), true);
-            EditorGUI.EndDisabledGroup();
-        }
-
-    }
-
     internal static class KimodoConstraintMarkerEditorUtility
     {
         public const double KimodoFps = 30.0;
@@ -951,14 +765,6 @@ namespace KimodoBridge.Editor
             public Vector3 TrackOffsetPosition;
             public Quaternion TrackOffsetRotation;
             public bool HasRootHeading;
-            public Vector3 KimodoRootPosition;
-            public bool HasEndEffectorTargetPosition;
-            public Vector3 EndEffectorTargetPositionRootLocal;
-            public bool HasEndEffectorTargetRotation;
-            public Quaternion EndEffectorTargetRotationBodyRelative;
-            public Vector3 UnityRootPos;
-            public Quaternion UnityRootRot;
-            public string[] JointNames;
         }
 
         private struct PoseRenderSignatureSnapshot
@@ -973,17 +779,6 @@ namespace KimodoBridge.Editor
             public string ModelName;
             public KimodoConstraintRigType RigType;
             public bool HasRootHeading;
-            public Vector3 KimodoRootPosition;
-            public Vector2 RootHeading;
-            public bool HasEndEffectorTargetPosition;
-            public Vector3 EndEffectorTargetPositionRootLocal;
-            public bool HasEndEffectorTargetRotation;
-            public Quaternion EndEffectorTargetRotationBodyRelative;
-            public Vector3 UnityRootPos;
-            public Quaternion UnityRootRot;
-            public string[] JointNames;
-            public Vector3[] LocalAxisAngles;
-            public int[] SampledJointIndices;
         }
 
         internal static string GetCachedIntString(int value)
@@ -1038,7 +833,7 @@ namespace KimodoBridge.Editor
             return timeFrame >= startFrame && timeFrame < endFrame;
         }
 
-        public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarkerBase marker, bool forceRefresh, out string error)
+        public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, bool forceRefresh, out string error)
         {
             error = string.Empty;
             if (marker == null)
@@ -1111,7 +906,7 @@ namespace KimodoBridge.Editor
                 SourceAvatar = sourceAvatar,
                 ModelName = context.ModelName
             };
-            string samplingType = marker is KimodoConstraintMarker ? "fullbody" : marker.ConstraintType;
+            string samplingType = "fullbody";
             if (!KimodoTimelineConstraintClipCache.TrySampleMarker(
                     timelineContext,
                     sampleTime,
@@ -1184,7 +979,7 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        public static bool TryRefreshMarkerCache(KimodoConstraintMarkerBase marker, out string error)
+        public static bool TryRefreshMarkerCache(KimodoConstraintMarker marker, out string error)
         {
             error = string.Empty;
             if (!TryUpdateAutoSampleMarkerData(marker, forceRefresh: true, out error))
@@ -1220,7 +1015,7 @@ namespace KimodoBridge.Editor
         }
 
         private static AutoSampleSignatureSnapshot BuildAutoSampleSnapshot(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             MarkerSamplingContext context,
             KimodoMarkerSampleResult sample = null)
         {
@@ -1244,20 +1039,12 @@ namespace KimodoBridge.Editor
                 CacheTimeFrames = context.CacheTimeFrames,
                 TrackOffsetPosition = trackOffsetPosition,
                 TrackOffsetRotation = trackOffsetRotation,
-                HasRootHeading = source != null && source.hasRootHeading,
-                KimodoRootPosition = source != null ? source.kimodoRootPosition : default,
-                HasEndEffectorTargetPosition = source != null && source.hasEndEffectorTargetPosition,
-                EndEffectorTargetPositionRootLocal = source != null ? source.endEffectorTargetPositionRootLocal : default,
-                HasEndEffectorTargetRotation = source != null && source.hasEndEffectorTargetRotation,
-                EndEffectorTargetRotationBodyRelative = source != null ? source.endEffectorTargetRotationBodyRelative : Quaternion.identity,
-                UnityRootPos = source != null ? source.unityRootPos : default,
-                UnityRootRot = source != null ? source.unityRootRot : default,
-                JointNames = CopyStringArray(source != null ? source.jointNames : null)
+                HasRootHeading = source != null && source.hasRootHeading
             };
         }
 
         private static bool AutoSampleSnapshotMatches(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             MarkerSamplingContext context,
             AutoSampleSignatureSnapshot snapshot)
         {
@@ -1279,15 +1066,7 @@ namespace KimodoBridge.Editor
                 snapshot.CacheTimeFrames == context.CacheTimeFrames &&
                 Vector3Approximately(snapshot.TrackOffsetPosition, trackOffsetPosition) &&
                 QuaternionApproximately(snapshot.TrackOffsetRotation, trackOffsetRotation) &&
-                snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&
-                Vector3Approximately(snapshot.KimodoRootPosition, sample != null ? sample.kimodoRootPosition : default) &&
-                snapshot.HasEndEffectorTargetPosition == (sample != null && sample.hasEndEffectorTargetPosition) &&
-                Vector3Approximately(snapshot.EndEffectorTargetPositionRootLocal, sample != null ? sample.endEffectorTargetPositionRootLocal : default) &&
-                snapshot.HasEndEffectorTargetRotation == (sample != null && sample.hasEndEffectorTargetRotation) &&
-                QuaternionApproximately(snapshot.EndEffectorTargetRotationBodyRelative, sample != null ? sample.endEffectorTargetRotationBodyRelative : Quaternion.identity) &&
-                Vector3Approximately(snapshot.UnityRootPos, sample != null ? sample.unityRootPos : default) &&
-                QuaternionApproximately(snapshot.UnityRootRot, sample != null ? sample.unityRootRot : default) &&
-                StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null);
+                snapshot.HasRootHeading == (sample != null && sample.hasRootHeading);
         }
 
         private static string ResolveModelName(TimelineClip clipRange)
@@ -1350,7 +1129,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (marker is KimodoConstraintMarkerBase kimodoMarker)
+            if (marker is KimodoConstraintMarker kimodoMarker)
             {
                 ClearMarkerEditorCaches(kimodoMarker);
                 KimodoConstraintPoseCache.DestroyEntriesForItemId(GetMarkerEntryId(kimodoMarker));
@@ -1441,7 +1220,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        public static void NotifyInspectorChanged(KimodoConstraintMarkerBase marker)
+        public static void NotifyInspectorChanged(KimodoConstraintMarker marker)
         {
             if (marker != null)
             {
@@ -1459,7 +1238,7 @@ namespace KimodoBridge.Editor
             SceneView.RepaintAll();
         }
 
-        public static void ClearMarkerPoseCachePreview(KimodoConstraintMarkerBase marker, bool keepIfOverrideWindowOpen)
+        public static void ClearMarkerPoseCachePreview(KimodoConstraintMarker marker, bool keepIfOverrideWindowOpen)
         {
             if (marker == null)
             {
@@ -1477,7 +1256,7 @@ namespace KimodoBridge.Editor
             SceneView.RepaintAll();
         }
 
-        public static bool TryBuildRenderContextForMarker(KimodoConstraintMarkerBase marker, out PoseCacheRenderContext context, out string error)
+        public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker, out PoseCacheRenderContext context, out string error)
         {
             context = default;
             error = string.Empty;
@@ -1536,7 +1315,7 @@ namespace KimodoBridge.Editor
         }
 
         internal static void LogDragMuscleSnapshot(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             PoseCacheRenderContext renderContext,
             string entryId)
         {
@@ -1585,7 +1364,7 @@ namespace KimodoBridge.Editor
         }
 
         private static bool TryCaptureDragMuscleSnapshot(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             PoseCacheRenderContext renderContext,
             string entryId,
             out MuscleSample timelinePose,
@@ -1742,7 +1521,7 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        public static bool TryRenderMarkerToPoseCache(KimodoConstraintMarkerBase marker, out string error)
+        public static bool TryRenderMarkerToPoseCache(KimodoConstraintMarker marker, out string error)
         {
             error = string.Empty;
             if (marker == null)
@@ -1766,7 +1545,7 @@ namespace KimodoBridge.Editor
         }
 
         internal static bool TryRenderMarkerToPoseCache(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
             out string error)
         {
@@ -1774,7 +1553,7 @@ namespace KimodoBridge.Editor
         }
 
         private static bool TryRenderMarkerToPoseCache(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
             out KimodoMarkerSampleResult sample,
             out string error)
@@ -1816,7 +1595,7 @@ namespace KimodoBridge.Editor
 
         public static bool TryRenderMarkersBatchToPoseCache(
             PoseCacheRenderContext context,
-            IReadOnlyList<KimodoConstraintMarkerBase> markers,
+            IReadOnlyList<KimodoConstraintMarker> markers,
             out string error)
         {
             error = string.Empty;
@@ -1829,7 +1608,7 @@ namespace KimodoBridge.Editor
             var items = new List<PoseCacheRenderItem>(markers.Count);
             for (int i = 0; i < markers.Count; i++)
             {
-                KimodoConstraintMarkerBase marker = markers[i];
+                KimodoConstraintMarker marker = markers[i];
                 if (marker == null || !marker.constraintEnabled)
                 {
                     continue;
@@ -1857,7 +1636,7 @@ namespace KimodoBridge.Editor
             return KimodoConstraintPoseCache.RenderBatch(context, items, out error);
         }
 
-        public static void DrawOverrideEditButton(SerializedObject so, KimodoConstraintMarkerBase marker)
+        public static void DrawOverrideEditButton(SerializedObject so, KimodoConstraintMarker marker)
         {
             if (so == null || marker == null)
             {
@@ -1879,7 +1658,7 @@ namespace KimodoBridge.Editor
                 string label = windowOpen ? "Reopen Edit" : "Edit";
                 if (GUILayout.Button(new GUIContent(label, "Open pose edit window. Override is enabled only after the preview pose is changed."), GUILayout.Height(22f)))
                 {
-                    KimodoConstraintMarkerBase markerToOpen = marker;
+                    KimodoConstraintMarker markerToOpen = marker;
                     EditorApplication.delayCall += () =>
                     {
                         if (markerToOpen != null && markerToOpen.constraintEnabled)
@@ -1891,7 +1670,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static void ClearMarkerEditorCaches(KimodoConstraintMarkerBase marker)
+        private static void ClearMarkerEditorCaches(KimodoConstraintMarker marker)
         {
             if (marker == null)
             {
@@ -1903,7 +1682,7 @@ namespace KimodoBridge.Editor
             PoseRenderSignatures.Remove(id);
         }
 
-        public static void HandleDeleteCommand(KimodoConstraintMarkerBase marker)
+        public static void HandleDeleteCommand(KimodoConstraintMarker marker)
         {
             if (marker == null)
             {
@@ -1945,7 +1724,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        public static bool TryDeleteMarkerWithUndo(KimodoConstraintMarkerBase marker, out string error)
+        public static bool TryDeleteMarkerWithUndo(KimodoConstraintMarker marker, out string error)
         {
             error = string.Empty;
             if (marker == null)
@@ -1995,13 +1774,13 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        internal static string GetMarkerEntryId(KimodoConstraintMarkerBase marker)
+        internal static string GetMarkerEntryId(KimodoConstraintMarker marker)
         {
             return marker == null ? string.Empty : GetCachedIntString(KimodoUnityObjectIdUtility.IdHash(marker));
         }
 
         private static PoseRenderSignatureSnapshot BuildRenderSnapshot(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
             KimodoMarkerSampleResult sample)
         {
@@ -2017,23 +1796,12 @@ namespace KimodoBridge.Editor
                 SourceAvatarId = KimodoUnityObjectIdUtility.IdHash(context.SourceAvatar),
                 ModelName = context.ModelName ?? string.Empty,
                 RigType = context.RigType,
-                HasRootHeading = source != null && source.hasRootHeading,
-                KimodoRootPosition = source != null ? source.kimodoRootPosition : default,
-                RootHeading = source != null ? source.rootHeading : default,
-                HasEndEffectorTargetPosition = source != null && source.hasEndEffectorTargetPosition,
-                EndEffectorTargetPositionRootLocal = source != null ? source.endEffectorTargetPositionRootLocal : default,
-                HasEndEffectorTargetRotation = source != null && source.hasEndEffectorTargetRotation,
-                EndEffectorTargetRotationBodyRelative = source != null ? source.endEffectorTargetRotationBodyRelative : Quaternion.identity,
-                UnityRootPos = source != null ? source.unityRootPos : default,
-                UnityRootRot = source != null ? source.unityRootRot : default,
-                JointNames = CopyStringArray(source != null ? source.jointNames : null),
-                LocalAxisAngles = CopyVector3Array(source != null ? source.localAxisAngles : null),
-                SampledJointIndices = CopyIntArray(source != null ? source.sampledJointIndices : null)
+                HasRootHeading = source != null && source.hasRootHeading
             };
         }
 
         private static bool RenderSnapshotMatches(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
             PoseRenderSignatureSnapshot snapshot)
         {
@@ -2047,18 +1815,7 @@ namespace KimodoBridge.Editor
                 snapshot.SourceAvatarId == KimodoUnityObjectIdUtility.IdHash(context.SourceAvatar) &&
                 string.Equals(snapshot.ModelName ?? string.Empty, context.ModelName ?? string.Empty, StringComparison.Ordinal) &&
                 snapshot.RigType == context.RigType &&
-                snapshot.HasRootHeading == (sample != null && sample.hasRootHeading) &&
-                Vector3Approximately(snapshot.KimodoRootPosition, sample != null ? sample.kimodoRootPosition : default) &&
-                Vector2Approximately(snapshot.RootHeading, sample != null ? sample.rootHeading : default) &&
-                snapshot.HasEndEffectorTargetPosition == (sample != null && sample.hasEndEffectorTargetPosition) &&
-                Vector3Approximately(snapshot.EndEffectorTargetPositionRootLocal, sample != null ? sample.endEffectorTargetPositionRootLocal : default) &&
-                snapshot.HasEndEffectorTargetRotation == (sample != null && sample.hasEndEffectorTargetRotation) &&
-                QuaternionApproximately(snapshot.EndEffectorTargetRotationBodyRelative, sample != null ? sample.endEffectorTargetRotationBodyRelative : Quaternion.identity) &&
-                Vector3Approximately(snapshot.UnityRootPos, sample != null ? sample.unityRootPos : default) &&
-                QuaternionApproximately(snapshot.UnityRootRot, sample != null ? sample.unityRootRot : default) &&
-                StringArrayEquals(snapshot.JointNames, sample != null ? sample.jointNames : null) &&
-                Vector3ArrayEquals(snapshot.LocalAxisAngles, sample != null ? sample.localAxisAngles : null) &&
-                IntArrayEquals(snapshot.SampledJointIndices, sample != null ? sample.sampledJointIndices : null);
+                snapshot.HasRootHeading == (sample != null && sample.hasRootHeading);
         }
 
         private static string BuildSampleSignature(KimodoMarkerSampleResult sample)
@@ -2072,19 +1829,8 @@ namespace KimodoBridge.Editor
                 sample.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty,
                 sample.constraintType ?? string.Empty,
                 FormatDouble(sample.sampleTime),
-                FormatDouble(sample.humanScale),
                 BuildMaskSignature(sample.mask),
-                sample.rigType.ToString(),
-                sample.hasRootHeading ? "1" : "0",
-                FormatVector3(sample.kimodoRootPosition),
-                FormatVector2(sample.rootHeading),
-                sample.hasEndEffectorTargetPosition ? "1" : "0",
-                FormatVector3(sample.endEffectorTargetPositionRootLocal),
-                sample.hasEndEffectorTargetRotation ? "1" : "0",
-                FormatQuaternion(sample.endEffectorTargetRotationBodyRelative),
-                BuildStringListSignature(sample.jointNames),
-                BuildVector3ListSignature(sample.localAxisAngles),
-                BuildIntListSignature(sample.sampledJointIndices));
+                sample.hasRootHeading ? "1" : "0");
         }
 
         private static string BuildMaskSignature(KimodoConstraintMask mask) => mask == null

@@ -8,9 +8,9 @@ namespace KimodoBridge.Editor
     internal sealed class KimodoConstraintOverrideEditWindow : EditorWindow
     {
         private static KimodoConstraintOverrideEditWindow currentWindow;
-        private static KimodoConstraintMarkerBase lastKnownMarker;
+        private static KimodoConstraintMarker lastKnownMarker;
         private static UnityEngine.Object selectionBeforeOpen;
-        private KimodoConstraintMarkerBase marker;
+        private KimodoConstraintMarker marker;
         private PoseCacheRenderContext editContext;
         private bool hasEditContext;
         private string editEntryId;
@@ -23,9 +23,9 @@ namespace KimodoBridge.Editor
         private string lastError;
         private static readonly HumanBodyBones[] MuscleEulerBones = BuildMuscleEulerBones();
 
-        internal KimodoConstraintMarkerBase TargetMarker => marker;
+        internal KimodoConstraintMarker TargetMarker => marker;
 
-        internal static void ShowWindow(KimodoConstraintMarkerBase marker)
+        internal static void ShowWindow(KimodoConstraintMarker marker)
         {
             if (marker == null || !marker.constraintEnabled)
             {
@@ -75,7 +75,7 @@ namespace KimodoBridge.Editor
             return null;
         }
 
-        internal static bool IsOpenForMarker(KimodoConstraintMarkerBase marker)
+        internal static bool IsOpenForMarker(KimodoConstraintMarker marker)
         {
             if (marker == null)
             {
@@ -124,7 +124,7 @@ namespace KimodoBridge.Editor
 
         private void OnDisable()
         {
-            KimodoConstraintMarkerBase restoreMarker = marker != null ? marker : lastKnownMarker;
+            KimodoConstraintMarker restoreMarker = marker != null ? marker : lastKnownMarker;
             UnityEngine.Object restoreSelection = selectionBeforeOpen != null ? selectionBeforeOpen : restoreMarker as UnityEngine.Object;
 
             CommitPoseChangesFromCache();
@@ -355,29 +355,6 @@ namespace KimodoBridge.Editor
                     DrawPropertyIfExists(so, "sampleData.mask");
                     DrawCanonicalPoseEuler(so);
                 }
-                else if (marker is KimodoRoot2DConstraintMarker)
-                {
-                    KimodoRoot2DConstraintEditorGUI.Draw(so);
-                }
-                else
-                {
-                    DrawPropertyIfExists(so, "sampleData.kimodoRootPosition");
-                    DrawPropertyIfExists(so, "sampleData.localAxisAngles");
-                    SerializedProperty includeHeadingProp = so.FindProperty("sampleData.hasRootHeading");
-                    if (includeHeadingProp != null)
-                    {
-                        EditorGUILayout.PropertyField(includeHeadingProp);
-                        if (includeHeadingProp.boolValue)
-                        {
-                            SerializedProperty headingProp = so.FindProperty("sampleData.rootHeading");
-                            EditorGUILayout.PropertyField(headingProp, true);
-                            if (headingProp != null)
-                            {
-                                KimodoConstraintHeadingPreviewGUI.Draw(headingProp.vector2Value, enabled: true);
-                            }
-                        }
-                    }
-                }
             }
 
             if (so.ApplyModifiedProperties())
@@ -488,7 +465,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private void ConfigureEditSession(KimodoConstraintMarkerBase target)
+        private void ConfigureEditSession(KimodoConstraintMarker target)
         {
             hasEditContext = false;
             editEntryId = string.Empty;
@@ -641,11 +618,11 @@ namespace KimodoBridge.Editor
         }
 
         private static void FocusSelectionOnEditTarget(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
             string entryId)
         {
-            if ((marker is KimodoFullBodyConstraintMarker || marker is KimodoConstraintMarker) &&
+            if ((marker is KimodoConstraintMarker || marker is KimodoConstraintMarker) &&
                 KimodoConstraintPoseCache.TryGetFullBodyTarget(
                     context,
                     entryId,
@@ -660,7 +637,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (marker is KimodoEndEffectorConstraintMarker &&
+            if (marker is KimodoConstraintMarker &&
                 KimodoConstraintPoseCache.TryGetEndEffectorTarget(
                     context,
                     entryId,
@@ -686,11 +663,11 @@ namespace KimodoBridge.Editor
         }
 
         private static void RestoreEndEffectorTargetSelection(
-            KimodoConstraintMarkerBase marker,
+            KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
             string entryId)
         {
-            if (marker is KimodoEndEffectorConstraintMarker &&
+            if (marker is KimodoConstraintMarker &&
                 KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject target) &&
                 target != null)
             {

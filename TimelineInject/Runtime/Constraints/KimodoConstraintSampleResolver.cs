@@ -85,8 +85,8 @@ namespace TimelineInject
             return output;
         }
 
-        /// <summary>Converts all same-frame inputs to the one Marker format used
-        /// by new Timeline authoring.  Legacy marker classes remain readers only.</summary>
+        /// <summary>Composes same-frame samples into the one Marker format used
+        /// by Timeline authoring.</summary>
         public static List<KimodoMarkerSampleResult> MergeAsUnifiedSamples(
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double frameRate)
@@ -178,7 +178,6 @@ namespace TimelineInject
             bool hasPose = sample.characterPose != null && sample.characterPose.TryValidate(out _);
             KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
             if (hasPose && mask.muscle) return 3;
-            if (hasPose && sample.localAxisAngles != null && sample.localAxisAngles.Count > 0) return 2;
             return hasPose ? 1 : 0;
         }
 

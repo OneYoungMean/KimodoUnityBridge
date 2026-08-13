@@ -183,11 +183,10 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 constraintType = "constraint",
                 sampleTime = 1.0,
                 characterPose = pose,
-                localAxisAngles = new System.Collections.Generic.List<Vector3> { Vector3.zero },
                 mask = new KimodoConstraintMask { muscle = true, rootPosition = true, rootHeading = true, leftHand = true }
             };
 
-            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(new[] { sample }, exportFps: 30.0));
+            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(new[] { sample }, new KimodoConstraintExportContext(), exportFps: 30.0));
             JObject fullBody = (JObject)json.First(item => item.Value<string>("type") == "fullbody");
             JObject endEffector = (JObject)json.First(item => item.Value<string>("type") == "left-hand");
             JObject root2d = (JObject)json.First(item => item.Value<string>("type") == "root2d");
@@ -207,12 +206,12 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 constraintType = "constraint",
                 sampleTime = time,
                 characterPose = BuildPose(x),
-                localAxisAngles = new System.Collections.Generic.List<Vector3> { Vector3.zero },
                 mask = new KimodoConstraintMask { leftHand = true }
             };
 
             JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(
                 new[] { At(0.0, 1f), At(1.0, 2f) },
+                new KimodoConstraintExportContext(),
                 exportFps: 30.0));
             JObject hand = (JObject)json.Single(item => item.Value<string>("type") == "left-hand");
 
@@ -230,13 +229,11 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             var sample = new KimodoMarkerSampleResult
             {
                 constraintType = "constraint",
-                humanScale = 2f,
                 characterPose = pose,
-                localAxisAngles = new System.Collections.Generic.List<Vector3> { Vector3.zero },
                 mask = new KimodoConstraintMask { muscle = true, rootPosition = true, leftHand = true }
             };
 
-            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(new[] { sample }));
+            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(new[] { sample }, new KimodoConstraintExportContext(2f)));
             JObject body = (JObject)json.Single(item => item.Value<string>("type") == "fullbody");
             JObject hand = (JObject)json.Single(item => item.Value<string>("type") == "left-hand");
             JObject root = (JObject)json.Single(item => item.Value<string>("type") == "root2d");
@@ -315,7 +312,6 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                         constraintType = "fullbody",
                         sampleTime = 0.0,
                         characterPose = fullBody,
-                        localAxisAngles = new System.Collections.Generic.List<Vector3> { Vector3.one, Vector3.right }
                     }
                 },
                 60.0);
@@ -325,7 +321,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             Assert.That(merged[0].mask.muscle && merged[0].mask.leftHand && merged[0].mask.rootPosition, Is.True);
             Assert.That(merged[0].characterPose.hands.left.t, Is.EqualTo(leftHand.hands.left.t));
             Assert.That(merged[0].characterPose.root.t, Is.EqualTo(root.root.t));
-            Assert.That(merged[0].localAxisAngles, Has.Count.EqualTo(2));
+            Assert.That(merged[0].characterPose.muscles, Has.Length.EqualTo(CharacterPose.MuscleCount));
         }
 
         [Test]
