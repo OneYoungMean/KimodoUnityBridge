@@ -158,9 +158,10 @@ namespace KimodoBridge.Editor.Tests
                 .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationCommand);
             JObject properties = (JObject)generate["inputSchema"]["properties"]["constraints"]["items"]["properties"];
 
-            JObject root2d = (JObject)properties["position"];
+            JObject root2d = (JObject)properties["root2d"];
             Assert.That(root2d, Is.Not.Null);
-            Assert.That(properties["heading"], Is.Not.Null);
+            Assert.That(root2d["properties"]["position"], Is.Not.Null);
+            Assert.That(root2d["properties"]["heading"], Is.Not.Null);
             Assert.That(properties.Property("forwardPos"), Is.Null);
             Assert.That(properties.Property("rightwardPos"), Is.Null);
             Assert.That(properties.Property("rotateY"), Is.Null);
@@ -310,10 +311,14 @@ namespace KimodoBridge.Editor.Tests
             JObject assetProperties = (JObject)definitions["tools"]
                 .Values<JObject>()
                 .Single(tool => tool.Value<string>("name") == command_kimodo.GenerateAnimationCommand)["inputSchema"]["properties"];
-            Assert.That(assetProperties["constraints"]["items"]["required"].Values<string>(),
-                Is.EqualTo(new[] { "frame", "type" }));
-            Assert.That(assetProperties["constraints"]["items"]["properties"]["type"]["enum"].Values<string>(),
-                Is.EqualTo(new[] { "fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot" }));
+            JArray constraintVariants = (JArray)assetProperties["constraints"]["items"]["oneOf"];
+            JObject sparseItems = (JObject)constraintVariants[0];
+            Assert.That(sparseItems["required"].Values<string>(), Is.EqualTo(new[] { "frame" }));
+            Assert.That(((JObject)sparseItems["properties"]).Properties().Select(property => property.Name),
+                Is.EqualTo(new[] { "frame", "fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot" }));
+            Assert.That(sparseItems["properties"]["type"], Is.Null);
+            Assert.That(sparseItems["anyOf"].Values<JObject>(), Has.Count.EqualTo(6));
+            Assert.That(constraintVariants[1]["required"].Values<string>(), Is.EqualTo(new[] { "frame", "type" }));
             Assert.That(assetProperties["analysis_option"].Value<string>("type"), Is.EqualTo("object"));
             Assert.That(assetProperties["loop"].Value<string>("type"), Is.EqualTo("boolean"));
             Assert.That(assetProperties["model"].Value<string>("type"), Is.EqualTo("string"));
@@ -366,7 +371,33 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(picture["inputSchema"]["properties"]["poses"]["items"]["required"].Values<string>(),
                 Is.EqualTo(new[] { "source", "frame" }));
             Assert.That(picture["inputSchema"]["properties"]["constraints"]["items"]["required"].Values<string>(),
-                Is.EqualTo(new[] { "frame", "type" }));
+                Is.EqualTo(new[] { "frame" }));
+        }
+
+        [Test]
+        public void NormalizeConstraintObjects_ConvertsLegacyAndPreservesSparseInput()
+        {
+            JArray constraints = JArray.Parse("[{\"frame\":2,\"type\":\"root2d\",\"position\":[1,2],\"heading\":[0,1]}, {\"frame\":3,\"type\":\"fullbody\",\"pose\":{\"source\":\"Walk\",\"frame\":4}}, {\"frame\":5,\"left_hand\":{\"pose\":{\"source\":\"Walk\",\"frame\":6}}}]");
+
+            command_context.NormalizeConstraintObjects(constraints);
+
+            Assert.That(constraints[0]["type"], Is.Null);
+            Assert.That(constraints[0]["root2d"]["position"].Values<float>(), Is.EqualTo(new[] { 1f, 2f }));
+            Assert.That(constraints[1]["fullbody"]["pose"]["source"], Is.EqualTo("Walk"));
+            Assert.That(constraints[2]["left_hand"]["pose"]["frame"], Is.EqualTo(6));
+
+            JArray sparse = JArray.Parse("[{\"frame\":0,\"fullbody\":{\"pose\":{\"source\":\"Walk\",\"frame\":0}},\"root2d\":{\"position\":[0,1],\"heading\":[1,0]}}]");
+            command_context.NormalizeConstraintObjects(sparse);
+            Assert.That(sparse[0]["fullbody"], Is.Not.Null);
+            Assert.That(sparse[0]["root2d"], Is.Not.Null);
+        }
+
+        [Test]
+        public void NormalizeConstraintObjects_RejectsMixedLegacyAndSparseInput()
+        {
+            JArray constraints = JArray.Parse("[{\"frame\":0,\"type\":\"root2d\",\"root2d\":{\"position\":[0,1],\"heading\":[1,0]}}]");
+
+            Assert.Throws<InvalidOperationException>(() => command_context.NormalizeConstraintObjects(constraints));
         }
 
         [Test]

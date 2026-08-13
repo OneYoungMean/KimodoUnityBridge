@@ -44,7 +44,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 | 生成进度、范围锁与取消 | 按 `request_id` 查询终态或取消任务；同角色 Track 的重叠采样/删除立即返回 `generation_range_locked` | `kimodo_get_generation`, `kimodo_cancel_generation` | 完整 | accepted/running 不算完成；不阻塞 Unity 主线程 |
 | 多片段连接生成 | Timeline Inspector 可对同一轨道选中的多个 Clips 一次连接生成 | 无 | 未覆盖 | 没有多片段 command/schema |
 | Pose 采样与编辑 | 原生读取 MuscleClip 同义的 49 Muscle + Root/Hand/Foot TQ，并支持局部 Patch | `pose_create`, `pose_get`, `pose_set`, `pose_copy` | 完整 | 可写 Pose 由 Session 管理；四元数为 `[x,y,z,w]`，位移单位米，Muscle 不 Clamp |
-| Unified Constraint（mask） | 一个 Marker 保存 CharacterPose、类型、时间、Root heading 开关和通道 mask；导出前按 Muscle→Foot IK→Hand IK→Root2D 合成 | `kimodo_generate_animation.constraints`（外部 union 兼容） | 完整 | 新建只有一种 Constraint；QuickServer 仍接收原协议 DTO |
+| Unified Constraint（mask） | 一个 Marker 保存 CharacterPose、类型、时间、Root heading 开关和通道 mask；导出前按 Muscle→Foot IK→Hand IK→Root2D 合成 | `kimodo_generate_animation.constraints`（同帧 sparse 对象；旧 flat union 兼容解析） | 完整 | 新建只有一种 Constraint；QuickServer 仍接收原协议 DTO |
 | FullBody / Root2D / Hand/Foot 协议桥接 | 从同一帧最终骨架分别投影为既有协议记录；EndEffector 保留 FK/root 上下文并发送 `target_positions` | `kimodo_generate_animation.constraints` | 完整 | 同帧记录共享 root/FK，协议不变 |
 | Constraint 场景编辑 | Inspector 显示 mask 与 Root/Hand/Foot TQ；Override Edit 显示 49 Muscle 所依赖的去重 Humanoid 骨骼本地 Euler；Root2D 拖拽只回写 canonical root，避免重复根变换 | 无 | 部分 | Scene 与 Override Euler 编辑均经 transient Avatar 反算回 Muscle；旧 Marker 资产继续兼容 |
 | Loop generation 预处理 | `kimodo_generate_animation(loop:true)` | 部分 | Unity 层扩展约束并生成闭环前后 Bezier Root2D；超出 600 帧回退默认流程 |
@@ -64,7 +64,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 
 ## Constraint 数据结构
 
-外部 command 仍兼容原有 union；Timeline 内部统一为一个 Constraint Marker：
+外部 command 使用同帧 sparse 对象，旧 flat union 仍兼容解析；Timeline 内部统一为一个 Constraint Marker：
 
 ```json
 {

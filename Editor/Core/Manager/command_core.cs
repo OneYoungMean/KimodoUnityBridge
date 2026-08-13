@@ -29,17 +29,21 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static void AddLoopBezierRootConstraints(JArray constraints, int sourceDuration, int padding)
         {
-            JObject first = constraints.OfType<JObject>().OrderBy(x => x.Value<int?>("frame") ?? int.MaxValue).FirstOrDefault(x => x["root2d"] != null);
-            JObject last = constraints.OfType<JObject>().OrderByDescending(x => x.Value<int?>("frame") ?? int.MinValue).FirstOrDefault(x => x["root2d"] != null);
+            JObject first = constraints.OfType<JObject>().OrderBy(x => x.Value<int?>("frame") ?? int.MaxValue)
+                .FirstOrDefault(x => x["root2d"]?["position"] != null);
+            JObject last = constraints.OfType<JObject>().OrderByDescending(x => x.Value<int?>("frame") ?? int.MinValue)
+                .FirstOrDefault(x => x["root2d"]?["position"] != null);
             if (first == null || last == null) return;
             Vector2 a = ReadLoopPosition(first["root2d"] as JObject);
             Vector2 b = ReadLoopPosition(last["root2d"] as JObject);
             Vector2 d = (b - a) / 3f;
+            Vector2 heading = a - b;
+            if (heading.sqrMagnitude <= 1e-8f) heading = Vector2.right;
             for (int i = 0; i < padding; i++)
             {
                 float t = (i + 1f) / (padding + 1f);
-                constraints.Add(CreateLoopRootConstraint(i, LoopBezier(b, b - d, a + d, a, t), a - b));
-                constraints.Add(CreateLoopRootConstraint(padding + sourceDuration + i, LoopBezier(b, b - d, a + d, a, t), a - b));
+                constraints.Add(CreateLoopRootConstraint(i, LoopBezier(b, b - d, a + d, a, t), heading));
+                constraints.Add(CreateLoopRootConstraint(padding + sourceDuration + i, LoopBezier(b, b - d, a + d, a, t), heading));
             }
         }
 
@@ -48,16 +52,12 @@ namespace CharacterAnimationCli.Unity.Command
             ["frame"] = frame,
             ["root2d"] = new JObject
             {
-                ["position"] = new JObject { ["x"] = position.x, ["y"] = position.y },
-                ["heading"] = new JObject { ["x"] = heading.x, ["y"] = heading.y }
+                ["position"] = new JArray(position.x, position.y),
+                ["heading"] = new JArray(heading.x, heading.y)
             }
         };
 
-        private static Vector2 ReadLoopPosition(JObject root)
-        {
-            JObject p = root?["position"] as JObject;
-            return new Vector2(p?.Value<float?>("x") ?? 0f, p?.Value<float?>("y") ?? 0f);
-        }
+        private static Vector2 ReadLoopPosition(JObject root) => RequiredVector2(root, "position");
 
         public const string HelpCommand = "kimodo_help";
         public const string DebugInstallServerCommand = "kimodo_debug_install_server";
@@ -177,7 +177,7 @@ namespace CharacterAnimationCli.Unity.Command
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."),
                             Optional("name", "string", "Requested safe animation name; defaults to the prompt."),
                             Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
-                            OptionalConstraints("constraints", "Inline constraints {frame,type,pose}; root2d may use position and heading instead of pose."))),
+                            OptionalConstraints("constraints", "One sparse constraint object per frame; combine fullbody, root2d, and pose-based hand/foot constraints in the same object."))),
                     CommandDefinition(QueryPictureCommand,
                         "Render explicit poses, a cached analysis, or inline constraints together in one four-view square image.",
                         Properties(
@@ -491,8 +491,7 @@ namespace CharacterAnimationCli.Unity.Command
                         ["shape"] = new JObject
                         {
                             ["frame"] = "Relative frame in the generated clip.",
-                            ["type"] = "fullbody",
-                            ["pose"] = "{source,frame} pose locator"
+                            ["fullbody"] = new JObject { ["pose"] = "{source,frame} pose locator" }
                         }
                     },
                     new JObject
@@ -502,10 +501,12 @@ namespace CharacterAnimationCli.Unity.Command
                         ["shape"] = new JObject
                         {
                             ["frame"] = "Relative frame in the generated clip.",
-                            ["type"] = "root2d",
-                            ["pose"] = "{source,frame} pose locator, or direct position + heading",
-                            ["position"] = "[x,z]",
-                            ["heading"] = "[x,z] forward direction"
+                            ["root2d"] = new JObject
+                            {
+                                ["pose"] = "{source,frame} pose locator, or direct position + heading",
+                                ["position"] = "[x,z]",
+                                ["heading"] = "[x,z] forward direction"
+                            }
                         }
                     }
                 },
@@ -605,6 +606,10 @@ namespace CharacterAnimationCli.Unity.Command
                 if (durationFrames <= 0)
                 {
                     throw new InvalidOperationException("duration_frames must be a positive integer at 60 FPS.");
+                }
+                if (arguments["constraints"] is JArray suppliedConstraints)
+                {
+                    NormalizeConstraintObjects(suppliedConstraints);
                 }
                 bool loopRequested = arguments.Value<bool?>("loop") ??
                     prompt.IndexOf("loop", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -812,7 +817,8 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new InvalidOperationException("constraints must be an array.");
             }
-            var samples = new List<KimodoMarkerSampleResult>(constraints.Count);
+            NormalizeConstraintObjects(constraints);
+            var samples = new List<KimodoMarkerSampleResult>(constraints.Count * 3);
             SkeletonCache targetCache = null;
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             double originalSessionTime = session.Director.time;
@@ -844,78 +850,41 @@ namespace CharacterAnimationCli.Unity.Command
                     {
                         throw new InvalidOperationException($"constraints[{i}].frame must be within [0,{durationFrames}).");
                     }
-                    string constraintType = RequiredStringValue(constraint, "type").ToLowerInvariant();
-                    if (constraintType != "fullbody" && constraintType != "root2d" &&
-                        constraintType != "left_hand" && constraintType != "right_hand" &&
-                        constraintType != "left_foot" && constraintType != "right_foot")
-                    {
-                        throw new InvalidOperationException($"constraints[{i}].type is not supported.");
-                    }
-                    constraintType = constraintType.Replace('_', '-');
                     double at = relativeFrame / SessionFrameRate;
-                    var cachedSample = new KimodoMarkerSampleResult
+                    JObject fullBody = constraint["fullbody"] as JObject;
+                    JObject root2D = constraint["root2d"] as JObject;
+                    JObject[] endEffectors =
                     {
-                        constraintType = "constraint",
-                        mask = KimodoConstraintMask.ForType(constraintType)
+                        constraint["left_hand"] as JObject,
+                        constraint["right_hand"] as JObject,
+                        constraint["left_foot"] as JObject,
+                        constraint["right_foot"] as JObject
                     };
-                    CharacterPose characterPose = null;
-                    if (constraint["pose"] is JObject pose)
+                    string[] endEffectorTypes = { "left-hand", "right-hand", "left-foot", "right-foot" };
+                    if (fullBody == null && root2D == null && endEffectors.All(value => value == null))
                     {
-                        PoseLocator locator = RequirePoseLocator(pose);
-                        JObject poseResult = ReadPose(locator);
-                        characterPose = CharacterPoseJson.Parse(poseResult["data"] as JObject
-                            ?? throw new InvalidOperationException($"constraints[{i}].pose data is unavailable."));
-                        cachedSample.characterPose = characterPose.Clone();
+                        throw new InvalidOperationException($"constraints[{i}] must contain at least one constraint field.");
                     }
-                    else if (constraintType == "root2d")
+
+                    if (fullBody != null)
                     {
-                        Vector2 position = RequiredVector2(constraint, "position");
-                        Vector2 heading = RequiredVector2(constraint, "heading");
-                        if (heading.sqrMagnitude < 1e-8f)
+                        samples.Add(BuildProfilePoseConstraint(
+                            fullBody, "fullbody", targetCache, modelName, frameRate, at, i));
+                    }
+                    if (root2D != null)
+                    {
+                        samples.Add(BuildRoot2DConstraint(root2D, targetRootHeight, targetCache, at, i));
+                    }
+
+                    for (int part = 0; part < endEffectors.Length; part++)
+                    {
+                        if (endEffectors[part] == null)
                         {
-                            throw new InvalidOperationException($"constraints[{i}].heading must be non-zero.");
+                            continue;
                         }
-                        float humanScale = targetCache != null ? Mathf.Max(1e-6f, targetCache.humanScale) : 1f;
-                        cachedSample.characterPose = new CharacterPose
-                        {
-                            root = new CharacterPoseTransform
-                            {
-                                t = new Vector3(position.x, targetRootHeight, position.y) / humanScale,
-                                q = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up)
-                            }
-                        };
-                        cachedSample.hasRootHeading = true;
+                        samples.Add(BuildProfilePoseConstraint(
+                            endEffectors[part], endEffectorTypes[part], targetCache, modelName, frameRate, at, i));
                     }
-                    else
-                    {
-                        throw new InvalidOperationException($"constraints[{i}].pose is required unless type is root2d with position and heading.");
-                    }
-                    if (characterPose != null && constraintType != "root2d")
-                    {
-                        MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToMuscleSample(characterPose);
-                        if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                                sourceSample,
-                                frameRate,
-                                targetCache,
-                                out BoneSample boneSample,
-                                out MuscleSample targetMuscleSample,
-                                out string retargetError))
-                        {
-                            throw new InvalidOperationException($"Retarget constraints[{i}] failed: {retargetError}");
-                        }
-                        if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
-                                boneSample, targetCache, modelName, constraintType, at,
-                                out KimodoMarkerSampleResult converted, out string convertError))
-                        {
-                            throw new InvalidOperationException($"Convert constraints[{i}] failed: {convertError}");
-                        }
-                        converted.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(targetMuscleSample);
-                        converted.constraintType = "constraint";
-                        converted.mask = KimodoConstraintMask.ForType(constraintType);
-                        cachedSample = converted;
-                    }
-                    cachedSample.sampleTime = at;
-                    samples.Add(cachedSample);
                 }
             }
             finally
@@ -926,6 +895,136 @@ namespace CharacterAnimationCli.Unity.Command
             }
             KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(samples, SessionFrameRate);
             return samples;
+        }
+
+        private static KimodoMarkerSampleResult BuildRoot2DConstraint(
+            JObject value,
+            float targetRootHeight,
+            SkeletonCache targetCache,
+            double sampleTime,
+            int constraintIndex)
+        {
+            CharacterPose pose = value?["pose"] is JObject locator
+                ? ReadCharacterPose(locator, $"constraints[{constraintIndex}].root2d")
+                : new CharacterPose();
+            bool hasPosition = value?["position"] != null;
+            bool hasHeading = value?["heading"] != null;
+            if (hasPosition != hasHeading)
+            {
+                throw new InvalidOperationException($"constraints[{constraintIndex}].root2d requires position and heading together.");
+            }
+            if (hasPosition)
+            {
+                Vector2 position = RequiredVector2(value, "position");
+                Vector2 heading = RequiredVector2(value, "heading");
+                if (heading.sqrMagnitude <= 1e-8f)
+                {
+                    throw new InvalidOperationException($"constraints[{constraintIndex}].root2d.heading must be non-zero.");
+                }
+                float humanScale = targetCache != null ? Mathf.Max(1e-6f, targetCache.humanScale) : 1f;
+                pose.root.t = new Vector3(position.x, targetRootHeight, position.y) / humanScale;
+                pose.root.q = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up);
+            }
+            else if (value?["pose"] == null)
+            {
+                throw new InvalidOperationException($"constraints[{constraintIndex}].root2d requires pose or position plus heading.");
+            }
+
+            return new KimodoMarkerSampleResult
+            {
+                constraintType = "root2d",
+                mask = KimodoConstraintMask.ForType("root2d"),
+                characterPose = pose,
+                hasRootHeading = true,
+                sampleTime = sampleTime
+            };
+        }
+
+        private static KimodoMarkerSampleResult BuildProfilePoseConstraint(
+            JObject value,
+            string constraintType,
+            SkeletonCache targetCache,
+            string modelName,
+            float frameRate,
+            double sampleTime,
+            int constraintIndex)
+        {
+            CharacterPose sourcePose = ReadCharacterPose(value?["pose"] as JObject,
+                $"constraints[{constraintIndex}].{constraintType.Replace('-', '_')}");
+            MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToMuscleSample(sourcePose);
+            if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                    sourceSample, frameRate, targetCache,
+                    out BoneSample boneSample, out MuscleSample targetMuscleSample, out string retargetError))
+            {
+                throw new InvalidOperationException($"Retarget constraints[{constraintIndex}] failed: {retargetError}");
+            }
+            if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                    boneSample, targetCache, modelName, constraintType, sampleTime,
+                    out KimodoMarkerSampleResult converted, out string convertError))
+            {
+                throw new InvalidOperationException($"Convert constraints[{constraintIndex}] failed: {convertError}");
+            }
+            converted.constraintType = constraintType;
+            converted.mask = KimodoConstraintMask.ForType(constraintType);
+            converted.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(targetMuscleSample);
+            converted.sampleTime = sampleTime;
+            return converted;
+        }
+
+        private static CharacterPose ReadCharacterPose(JObject value, string path)
+        {
+            if (value == null)
+            {
+                throw new InvalidOperationException($"{path}.pose is required.");
+            }
+            PoseLocator locator = RequirePoseLocator(value);
+            JObject poseResult = ReadPose(locator);
+            return CharacterPoseJson.Parse(poseResult["data"] as JObject
+                ?? throw new InvalidOperationException($"{path}.pose data is unavailable."));
+        }
+
+        internal static void NormalizeConstraintObjects(JArray constraints)
+        {
+            if (constraints == null) return;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                if (constraints[i] is not JObject constraint)
+                {
+                    throw new InvalidOperationException($"constraints[{i}] must be an object.");
+                }
+                if (constraint["type"] == null) continue;
+
+                string type = RequiredStringValue(constraint, "type").Trim().ToLowerInvariant();
+                if (type != "fullbody" && type != "root2d" &&
+                    type != "left_hand" && type != "right_hand" &&
+                    type != "left_foot" && type != "right_foot")
+                {
+                    throw new InvalidOperationException($"constraints[{i}].type is not supported.");
+                }
+                if (constraint.Properties().Any(property =>
+                        property.Name != "frame" && property.Name != "type" &&
+                        property.Name != "pose" && property.Name != "position" && property.Name != "heading"))
+                {
+                    throw new InvalidOperationException($"constraints[{i}] mixes legacy constraint fields with unsupported properties.");
+                }
+                if (constraint[type] != null)
+                {
+                    throw new InvalidOperationException($"constraints[{i}] cannot mix legacy type with sparse constraint fields.");
+                }
+
+                var value = new JObject();
+                if (constraint["pose"] != null) value["pose"] = constraint["pose"].DeepClone();
+                if (type == "root2d")
+                {
+                    if (constraint["position"] != null) value["position"] = constraint["position"].DeepClone();
+                    if (constraint["heading"] != null) value["heading"] = constraint["heading"].DeepClone();
+                }
+                constraint.Remove("type");
+                constraint.Remove("pose");
+                constraint.Remove("position");
+                constraint.Remove("heading");
+                constraint[type] = value;
+            }
         }
 
         internal static float ResolveTargetRootHeight(SkeletonCache targetCache, string modelName)
@@ -1719,40 +1818,98 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static PropertyDefinition OptionalConstraints(string name, string description)
         {
+            var poseLocator = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["source"] = new JObject { ["type"] = "string" },
+                    ["frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 }
+                },
+                ["required"] = new JArray("source", "frame")
+            };
+            var vector2 = new JObject
+            {
+                ["type"] = "array",
+                ["items"] = new JObject { ["type"] = "number" },
+                ["minItems"] = 2,
+                ["maxItems"] = 2
+            };
+            var fullBody = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject { ["pose"] = poseLocator.DeepClone() },
+                ["required"] = new JArray("pose")
+            };
+            var root2D = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["pose"] = poseLocator.DeepClone(),
+                    ["position"] = vector2.DeepClone(),
+                    ["heading"] = vector2.DeepClone()
+                },
+                ["anyOf"] = new JArray(
+                    new JObject { ["required"] = new JArray("pose") },
+                    new JObject { ["required"] = new JArray("position", "heading") })
+            };
+            var endEffector = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject { ["pose"] = poseLocator.DeepClone() },
+                ["required"] = new JArray("pose")
+            };
+            var sparseItem = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["frame"] = new JObject { ["type"] = "integer", ["description"] = "Relative frame in the generated clip at 60 FPS." },
+                    ["fullbody"] = fullBody,
+                    ["root2d"] = root2D,
+                    ["left_hand"] = endEffector.DeepClone(),
+                    ["right_hand"] = endEffector.DeepClone(),
+                    ["left_foot"] = endEffector.DeepClone(),
+                    ["right_foot"] = endEffector.DeepClone()
+                },
+                ["required"] = new JArray("frame"),
+                ["anyOf"] = new JArray(
+                    new JObject { ["required"] = new JArray("fullbody") },
+                    new JObject { ["required"] = new JArray("root2d") },
+                    new JObject { ["required"] = new JArray("left_hand") },
+                    new JObject { ["required"] = new JArray("right_hand") },
+                    new JObject { ["required"] = new JArray("left_foot") },
+                    new JObject { ["required"] = new JArray("right_foot") })
+            };
+            var legacyItem = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 },
+                    ["type"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["enum"] = new JArray("fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot")
+                    },
+                    ["pose"] = poseLocator.DeepClone(),
+                    ["position"] = vector2.DeepClone(),
+                    ["heading"] = vector2.DeepClone()
+                },
+                ["required"] = new JArray("frame", "type")
+            };
             return new PropertyDefinition(name, new JObject
             {
                 ["type"] = "array",
-                ["description"] = description + " fullbody is a complete body pose plus root position/heading; root2d constrains only the root position/heading.",
-                ["items"] = new JObject
-                {
-                    ["type"] = "object",
-                    ["additionalProperties"] = false,
-                    ["properties"] = new JObject
-                    {
-                        ["frame"] = new JObject { ["type"] = "integer", ["description"] = "Relative frame in the generated clip at 60 FPS." },
-                        ["type"] = new JObject
-                        {
-                            ["type"] = "string",
-                            ["description"] = "fullbody constrains the full body and root; root2d constrains only the root on the ground plane.",
-                            ["enum"] = new JArray("fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot")
-                        },
-                        ["pose"] = new JObject
-                        {
-                            ["type"] = "object",
-                            ["description"] = "Pose locator for fullbody, hand/foot, or root2d when deriving root position and heading from a pose.",
-                            ["additionalProperties"] = false,
-                            ["properties"] = new JObject
-                            {
-                                ["source"] = new JObject { ["type"] = "string" },
-                                ["frame"] = new JObject { ["type"] = "integer" }
-                            },
-                            ["required"] = new JArray("source", "frame")
-                        },
-                        ["position"] = new JObject { ["type"] = "array", ["description"] = "Direct root2d root position [x,z].", ["items"] = new JObject { ["type"] = "number" }, ["minItems"] = 2, ["maxItems"] = 2 },
-                        ["heading"] = new JObject { ["type"] = "array", ["description"] = "Direct root2d root heading [x,z].", ["items"] = new JObject { ["type"] = "number" }, ["minItems"] = 2, ["maxItems"] = 2 }
-                    },
-                    ["required"] = new JArray("frame", "type")
-                }
+                ["description"] = description + " The sparse same-frame form is authoritative; the legacy {frame,type,pose} form remains accepted for compatibility.",
+                ["items"] = new JObject { ["oneOf"] = new JArray(sparseItem, legacyItem) }
             }, false);
         }
 

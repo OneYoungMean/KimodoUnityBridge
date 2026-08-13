@@ -59,6 +59,7 @@ namespace CharacterAnimationCli.Unity.Command
                 }
                 else if (arguments["constraints"] is JArray constraints)
                 {
+                    NormalizeConstraintObjects(constraints);
                     for (int i = 0; i < constraints.Count; i++)
                     {
                         if (constraints[i] is not JObject item)
@@ -66,47 +67,89 @@ namespace CharacterAnimationCli.Unity.Command
                             throw new InvalidOperationException($"constraints[{i}] must be an object.");
                         }
                         int frame = RequiredNonNegativeFrame(item, "frame");
-                        string type = RequiredStringValue(item, "type").ToLowerInvariant();
-                        if (type != "fullbody" && type != "root2d" && type != "left_hand" &&
-                            type != "right_hand" && type != "left_foot" && type != "right_foot")
+                        JObject fullBody = item["fullbody"] as JObject;
+                        JObject root2D = item["root2d"] as JObject;
+                        string[] endEffectorFields = { "left_hand", "right_hand", "left_foot", "right_foot" };
+                        if (fullBody == null && root2D == null &&
+                            endEffectorFields.All(field => item[field] is not JObject))
                         {
-                            throw new InvalidOperationException($"constraints[{i}].type is not supported.");
+                            throw new InvalidOperationException($"constraints[{i}] must contain at least one constraint field.");
                         }
-                        JObject annotation = new JObject { ["constraint_type"] = type, ["frame"] = frame };
-                        if (item["pose"] is JObject pose)
+
+                        if (fullBody != null)
                         {
-                            requests.Add(BuildCaptureRequest(RequirePoseLocator(pose), annotation));
-                        }
-                        else if (type == "root2d")
-                        {
-                            string characterRef = arguments.Value<string>("character")?.Trim();
-                            TimelineCharacterRecord character = !string.IsNullOrWhiteSpace(characterRef)
-                                ? ResolveSessionCharacterByReference(session, characterRef, false)
-                                : session.Characters.Count == 1
-                                    ? session.Characters[0]
-                                    : throw new InvalidOperationException("character is required to picture a position-only root2d constraint when the Session has multiple characters.");
-                            Vector2 position = RequiredVector2(item, "position");
-                            Vector2 heading = RequiredVector2(item, "heading");
-                            if (heading.sqrMagnitude < 1e-8f) throw new InvalidOperationException($"constraints[{i}].heading must be non-zero.");
-                            var sample = new KimodoMarkerSampleResult
+                            if (fullBody["pose"] is not JObject fullBodyPose)
                             {
-                                characterPose = new CharacterAnimationCli.Unity.CharacterPose
-                                {
-                                    root = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                                    {
-                                        t = new Vector3(position.x, 0f, position.y),
-                                        q = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up)
-                                    }
-                                },
-                                constraintType = "constraint",
-                                mask = KimodoConstraintMask.ForType("root2d"),
-                                hasRootHeading = true
-                            };
-                            requests.Add(new CaptureRequest(character, session.Director.time, annotation, sample, frame, true));
+                                throw new InvalidOperationException($"constraints[{i}].fullbody.pose is required.");
+                            }
+                            requests.Add(BuildCaptureRequest(
+                                RequirePoseLocator(fullBodyPose),
+                                new JObject { ["constraint_type"] = "fullbody", ["frame"] = frame }));
                         }
-                        else
+                        if (root2D != null)
                         {
-                            throw new InvalidOperationException($"constraints[{i}].pose is required unless type is root2d with position and heading.");
+                            bool hasPosition = root2D["position"] != null;
+                            bool hasHeading = root2D["heading"] != null;
+                            if (hasPosition != hasHeading)
+                            {
+                                throw new InvalidOperationException($"constraints[{i}].root2d requires position and heading together.");
+                            }
+                            if (root2D["pose"] is JObject rootPose && !hasPosition)
+                            {
+                                requests.Add(BuildCaptureRequest(
+                                    RequirePoseLocator(rootPose),
+                                    new JObject { ["constraint_type"] = "root2d", ["frame"] = frame }));
+                            }
+                            else if (hasPosition)
+                            {
+                                string characterRef = arguments.Value<string>("character")?.Trim();
+                                TimelineCharacterRecord character = !string.IsNullOrWhiteSpace(characterRef)
+                                    ? ResolveSessionCharacterByReference(session, characterRef, false)
+                                    : session.Characters.Count == 1
+                                        ? session.Characters[0]
+                                        : throw new InvalidOperationException("character is required to picture a position-only root2d constraint when the Session has multiple characters.");
+                                Vector2 position = RequiredVector2(root2D, "position");
+                                Vector2 heading = RequiredVector2(root2D, "heading");
+                                if (heading.sqrMagnitude <= 1e-8f)
+                                {
+                                    throw new InvalidOperationException($"constraints[{i}].root2d.heading must be non-zero.");
+                                }
+                                var sample = new KimodoMarkerSampleResult
+                                {
+                                    characterPose = new CharacterAnimationCli.Unity.CharacterPose
+                                    {
+                                        root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                                        {
+                                            t = new Vector3(position.x, 0f, position.y),
+                                            q = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up)
+                                        }
+                                    },
+                                    constraintType = "constraint",
+                                    mask = KimodoConstraintMask.ForType("root2d"),
+                                    hasRootHeading = true
+                                };
+                                requests.Add(new CaptureRequest(character, session.Director.time,
+                                    new JObject { ["constraint_type"] = "root2d", ["frame"] = frame }, sample, frame, true));
+                            }
+                            else
+                            {
+                                throw new InvalidOperationException($"constraints[{i}].root2d requires pose or position plus heading.");
+                            }
+                        }
+
+                        foreach (string field in endEffectorFields)
+                        {
+                            if (item[field] is not JObject value)
+                            {
+                                continue;
+                            }
+                            if (value["pose"] is not JObject endEffectorPose)
+                            {
+                                throw new InvalidOperationException($"constraints[{i}].{field}.pose is required.");
+                            }
+                            requests.Add(BuildCaptureRequest(
+                                RequirePoseLocator(endEffectorPose),
+                                new JObject { ["constraint_type"] = field, ["frame"] = frame }));
                         }
                     }
                 }

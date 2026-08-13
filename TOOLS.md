@@ -94,13 +94,24 @@ A new Session is empty; `query_current_session` cannot discover scene characters
 
 A pose locator is `{"source":"<source>","frame":<integer>}`. A character source samples a read-only Timeline pose. A `<character>.Poses` source is writable. Use `pose_copy` before modifying a read-only pose, then use `pose_get`/`pose_set`. Pose data is one nested object containing `muscles` (49 values in Unity Muscle index order `0-14,21-54`) plus `root`, `hands.left/right`, and `feet.left/right`; every transform is `{t:[x,y,z],q:[x,y,z,w]}` with translation in meters. These channels have the same semantics as MuscleClip RootTQ, HandTQ, and FootTQ. `pose_set` is a partial patch and does not clamp finite Muscle values. Root2D converts RootTQ through the Avatar on the pose's owning track.
 
-Inline generation constraints are anonymous values with `frame` and `type`. The two core types are:
+Inline generation constraints are sparse same-frame objects. Each item has a `frame` and one or more constraint fields, so FullBody, Root2D, and end-effector constraints can share a frame:
+
+```json
+{
+  "frame": 0,
+  "fullbody": { "pose": { "source": "Walk", "frame": 0 } },
+  "root2d": { "position": [0, 1], "heading": [0, 1] },
+  "left_hand": { "pose": { "source": "Walk", "frame": 0 } }
+}
+```
+
+The two core types are:
 
 - `fullbody`: reads a pose locator as a complete body pose. It constrains the full-body joints and also includes the root bone position and heading.
 - `root2d`: constrains only the root bone position and heading on the ground plane. It does not constrain the rest of the body. It may use a pose locator or direct `position` and `heading`.
-- `left_hand`, `right_hand`, `left_foot`, `right_foot`: read the matching complete HandTQ or FootTQ from a pose locator.
+- `left_hand`, `right_hand`, `left_foot`, `right_foot`: read the matching complete HandTQ or FootTQ from a pose locator. Direct end-effector position/rotation targets are not part of the CLI schema yet.
 
-Timeline authoring uses one unified Constraint Marker with `CharacterPose`, type, time, root-heading switch, and a visible channel mask. The solver order is Muscle → Foot IK → Hand IK → Root2D final transform. Export projects that final pose into the unchanged `fullbody`, `root2d`, and hand/foot protocol DTOs; an end-effector has its own `target_positions` but shares that final FK/root frame. External command union syntax remains compatible.
+Timeline authoring uses one unified Constraint Marker with `CharacterPose`, type, time, root-heading switch, and a visible channel mask. The solver order is Muscle → Foot IK → Hand IK → Root2D final transform. Export projects that final pose into the unchanged `fullbody`, `root2d`, and hand/foot protocol DTOs; an end-effector has its own `target_positions` but shares that final FK/root frame. The old `{ "frame": ..., "type": ..., ... }` union is accepted for compatibility and normalized internally; new callers should use the sparse form.
 
 Minimal pose-edit flow:
 
@@ -217,13 +228,24 @@ session_close {}
 
 Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 Timeline 上的只读采样 Pose；`<角色>.Poses` 来源可写。修改只读 Pose 前先调用 `pose_copy`，之后使用 `pose_get`/`pose_set`。Pose 数据是一个嵌套对象：`muscles`（49 个值，Unity Muscle 索引顺序为 `0-14,21-54`），以及 `root`、`hands.left/right`、`feet.left/right`；每个变换均为 `{t:[x,y,z],q:[x,y,z,w]}`，位移单位为米。这些通道分别与 MuscleClip 的 RootTQ、HandTQ、FootTQ 语义一致。`pose_set` 是局部 Patch，不会 Clamp 有限的 Muscle 值。Root2D 通过该 Pose 所在轨道的 Avatar 转换 RootTQ。
 
-生成内联 Constraint 是包含 `frame` 和 `type` 的匿名值。本节先明确两个核心类型：
+生成内联 Constraint 使用同帧稀疏对象。每项包含 `frame` 和一个或多个 Constraint 字段，因此 FullBody、Root2D 与手脚约束可以共用同一帧：
+
+```json
+{
+  "frame": 0,
+  "fullbody": { "pose": { "source": "Walk", "frame": 0 } },
+  "root2d": { "position": [0, 1], "heading": [0, 1] },
+  "left_hand": { "pose": { "source": "Walk", "frame": 0 } }
+}
+```
+
+本节先明确两个核心类型：
 
 - `fullbody`：从 Pose locator 读取完整人体姿态，约束全身关节位置，并同时包含根骨骼的位置与朝向。
 - `root2d`：只约束根骨骼在地面平面上的位置与朝向，不约束其他身体关节。可以使用 Pose locator，也可以直接提供 `position` 和 `heading`。
-- `left_hand`、`right_hand`、`left_foot`、`right_foot`：从 Pose locator 读取对应的完整 HandTQ 或 FootTQ。
+- `left_hand`、`right_hand`、`left_foot`、`right_foot`：从 Pose locator 读取对应的完整 HandTQ 或 FootTQ。CLI schema 暂不支持直接的手脚 position/rotation 目标。
 
-Timeline 内部使用一种统一 Constraint Marker，包含 `CharacterPose`、类型、时间、Root heading 开关和可见通道 mask。求解顺序为 Muscle → Foot IK → Hand IK → Root2D 最终变换；导出边界再投影为协议不变的 `fullbody`、`root2d` 与手脚 DTO。EndEffector 独立携带 `target_positions`，但复用该最终 FK/root 帧；外部 command union 继续兼容。
+Timeline 内部使用一种统一 Constraint Marker，包含 `CharacterPose`、类型、时间、Root heading 开关和可见通道 mask。求解顺序为 Muscle → Foot IK → Hand IK → Root2D 最终变换；导出边界再投影为协议不变的 `fullbody`、`root2d` 与手脚 DTO。EndEffector 独立携带 `target_positions`，但复用该最终 FK/root 帧。旧的 `{ "frame": ..., "type": ..., ... }` union 为兼容仍可传入，内部会先规范化；新调用方应使用稀疏格式。
 
 最小 Pose 编辑流程：
 
