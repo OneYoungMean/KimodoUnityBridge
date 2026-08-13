@@ -830,6 +830,35 @@ namespace CharacterAnimationCli.Unity.Command
             });
         }
 
+        public static string AnalyzeSessionTransitions(string argumentsJson)
+        {
+            return Execute(argumentsJson, arguments =>
+            {
+                RequireCurrentTimelineSession();
+                TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
+                string requested = arguments.Value<string>("animator")?.Trim();
+                IEnumerable<AnimatorImportRecord> imports = character.AnimatorImports;
+                if (!string.IsNullOrWhiteSpace(requested))
+                {
+                    imports = imports.Where(item => string.Equals(item.Name, requested, StringComparison.OrdinalIgnoreCase));
+                }
+                List<AnimatorImportRecord> selected = imports.ToList();
+                if (selected.Count == 0) throw new InvalidOperationException("No imported Animator transition analysis was found for this character.");
+                if (string.IsNullOrWhiteSpace(requested) && selected.Count != 1)
+                    throw new InvalidOperationException("animator is required when the character has multiple imported Animators.");
+                return Ok(new JObject
+                {
+                    ["character"] = character.Name,
+                    ["animators"] = new JArray(selected.Select(item => new JObject
+                    {
+                        ["animator"] = item.Name,
+                        ["source"] = item.SourceAnimatorRef,
+                        ["transitions"] = item.TransitionAnalysis.DeepClone()
+                    }))
+                });
+            });
+        }
+
         public static string KimodoAnalyzeTimelineRange(string argumentsJson)
         {
             return Execute(argumentsJson, arguments =>
@@ -1853,6 +1882,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
             public string SourceAnimatorRef { get; }
             public string Name { get; }
+            public JArray TransitionAnalysis { get; } = new JArray();
         }
 
         private sealed class TimelineGenerationTrace

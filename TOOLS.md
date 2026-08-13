@@ -129,7 +129,7 @@ kimodo_get_generation -> poll to terminal state
 
 - `kimodo_analyze` accepts either one named animation or a Session frame range. Save its `analysis_id` for `query_picture`.
 - `kimodo_record_range` records a half-open Session range. `kimodo_bake_range` remains a compatibility alias and can retarget to another current Session character. `kimodo_retarget_animation` retargets a loaded clip to another current Session character. A valid Humanoid Avatar is required.
-- `session_try_add` imports a humanoid character, AnimationClip, or Animator content according to its current schema. Deterministic clip-to-clip transitions may be baked; BlendTree branch choice and unrelated Timeline placement belong to the surrounding Unity tool.
+- `session_try_add` imports a humanoid character, AnimationClip, or Animator content according to its current schema. Animator import also records a read-only transition analysis plan for every supported direct state transition. The plan identifies source/target motion kind, concrete clip candidates, `has_exit_time`, exit time, duration, offset, conditions, and candidate case count. A Clip-to-Clip transition may still be baked for compatibility; a BlendTree is never branch-selected or materialized during import. Call `session_analyze_transitions` to read the plan. When `has_exit_time:true`, the plan uses the Exit Time boundary; when false, it reserves four source boundary-keyframe cases. Counts multiply across source candidates, target candidates, and boundary cases (for example, 4×4×4=64). The plan is metadata only: it does not create transition clips, call generation, or start server work.
 - Query current Session state before mutation and use returned safe names rather than scene guesses.
 
 ### 9. Project-owned runtime and diagnosis
@@ -263,7 +263,7 @@ kimodo_get_generation -> 轮询到终态
 
 - `kimodo_analyze` 接受一个命名动画或一段 Session 帧区间；保存返回的 `analysis_id` 供 `query_picture` 使用。
 - `kimodo_bake_range` Bake 半开 Session 区间，并可 Retarget 到当前 Session 的另一角色；角色必须具有有效 Humanoid Avatar。
-- `session_try_add` 按当前 schema 导入 Humanoid 角色、AnimationClip 或 Animator 内容。确定性的 Clip-to-Clip 过渡可以 Bake；BlendTree 分支选择和无关 Timeline 摆放由外围 Unity 工具负责。
+- `session_try_add` 按当前 schema 导入 Humanoid 角色、AnimationClip 或 Animator 内容。使用 `kind:"animator"` 导入时，还会为每条受支持的直接 State 过渡记录只读的过渡分析计划。计划包含源/目标 Motion 类型、具体 Clip 候选、`has_exit_time`、Exit Time、Duration、Offset、Conditions 和候选案例数量。为兼容现有流程，Clip→Clip 过渡仍可 Bake；导入期间不会选择或物化 BlendTree 分支。使用 `session_analyze_transitions` 读取计划。`has_exit_time:true` 使用 Exit Time 边界；为 false 时预留源动画边缘四个关键帧案例。案例数按源候选、目标候选和边缘案例相乘（例如 4×4×4=64）。计划只写入元数据，不创建过渡 Clip、不调用生成，也不启动服务器任务。
 - 修改前先查询当前 Session 状态，使用返回的安全名称，不猜测场景名称。
 
 ### 9. 项目级运行时与诊断

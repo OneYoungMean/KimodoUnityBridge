@@ -66,6 +66,7 @@ namespace CharacterAnimationCli.Unity.Command
         public const string SessionCloseCommand = "session_close";
         public const string QueryCurrentSessionCommand = "query_current_session";
         public const string SessionTryAddCommand = "session_try_add";
+        public const string SessionAnalyzeTransitionsCommand = "session_analyze_transitions";
         public const string SessionTryRemoveCommand = "session_try_remove";
         public const string KimodoAnalyzeCommand = "kimodo_analyze";
         public const string KimodoRecordRangeCommand = "kimodo_record_range";
@@ -113,12 +114,17 @@ namespace CharacterAnimationCli.Unity.Command
                             Optional("character", "string", "Safe character name in the current Session."),
                             Optional("animation", "string", "Safe animation name in the selected character."))),
                     CommandDefinition(SessionTryAddCommand,
-                        "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator; kind=clip appends one project AnimationClip to a Session character; kind=animator imports a scene AnimatorController into a Session character. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
+                        "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator; kind=clip appends one project AnimationClip to a Session character; kind=animator imports a scene AnimatorController into a Session character and records read-only transition analysis plans. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
                         Properties(
                             RequiredEnum("kind", "character", "clip", "animator"),
                             Required("character", "string", "Scene character name/path for kind=character, or target Session character name otherwise."),
                             Optional("clip", "string", "Project AnimationClip name for kind=clip."),
                             Optional("animator", "string", "Scene Animator name/path for kind=animator."))),
+                    CommandDefinition(SessionAnalyzeTransitionsCommand,
+                        "Read the transition analysis plans recorded for an imported Animator in the current Session. This is read-only and does not create transition clips or generation requests.",
+                        Properties(
+                            Required("character", "string", "Safe target character name in the current Session."),
+                            Optional("animator", "string", "Imported Animator safe name; omitted when the character has exactly one imported Animator."))),
                     CommandDefinition(SessionTryRemoveCommand,
                         "TryRemove a character track or one clip. Removing a clip does not move other clips or reuse its virtual time address.",
                         Properties(
@@ -242,6 +248,8 @@ namespace CharacterAnimationCli.Unity.Command
                     return QueryCurrentSession(argumentsJson);
                 case SessionTryAddCommand:
                     return SessionTryAdd(argumentsJson);
+                case SessionAnalyzeTransitionsCommand:
+                    return AnalyzeSessionTransitions(argumentsJson);
                 case SessionTryRemoveCommand:
                     return SessionTryRemove(argumentsJson);
                 case KimodoAnalyzeCommand:

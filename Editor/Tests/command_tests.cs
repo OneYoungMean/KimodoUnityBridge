@@ -33,6 +33,7 @@ namespace KimodoBridge.Editor.Tests
                 command_session.CloseCommand,
                 command_query.CurrentSessionCommand,
                 command_session.TryAddCommand,
+                command_session.AnalyzeTransitionsCommand,
                 command_session.TryRemoveCommand,
                 command_kimodo.AnalyzeCommand,
                 command_context.KimodoRecordRangeCommand,
