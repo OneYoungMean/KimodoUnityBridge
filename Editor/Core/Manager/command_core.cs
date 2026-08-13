@@ -828,6 +828,11 @@ namespace CharacterAnimationCli.Unity.Command
                     throw new InvalidOperationException($"Build pose constraint target failed: {cacheError}");
                 }
 
+                // Fullbody FK sampling mutates the shared cache pose. Capture the
+                // profile root height once so later root2d constraints do not
+                // inherit the previous fullbody pose's transient hips height.
+                float targetRootHeight = ResolveTargetRootHeight(targetCache, modelName);
+
                 for (int i = 0; i < constraints.Count; i++)
                 {
                     if (constraints[i] is not JObject constraint)
@@ -875,7 +880,7 @@ namespace CharacterAnimationCli.Unity.Command
                         {
                             root = new CharacterPoseTransform
                             {
-                                t = new Vector3(position.x, 0f, position.y) / humanScale,
+                                t = new Vector3(position.x, targetRootHeight, position.y) / humanScale,
                                 q = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up)
                             }
                         };
@@ -909,18 +914,6 @@ namespace CharacterAnimationCli.Unity.Command
                         converted.mask = KimodoConstraintMask.ForType(constraintType);
                         cachedSample = converted;
                     }
-                    if (constraintType == "root2d")
-                    {
-                        // Root2D command values are in protocol/model metres.
-                        // Store the same canonical root that export will use,
-                        // rather than retaining a character-local pose root.
-                        float canonicalScale = targetCache != null
-                            ? Mathf.Max(1e-6f, targetCache.humanScale)
-                            : 1f;
-                        // Direct Root2D values were already converted to the
-                        // canonical normalized root above. Pose values retain
-                        // their canonical CharacterPose root unchanged.
-                    }
                     cachedSample.sampleTime = at;
                     samples.Add(cachedSample);
                 }
@@ -933,6 +926,21 @@ namespace CharacterAnimationCli.Unity.Command
             }
             KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(samples, SessionFrameRate);
             return samples;
+        }
+
+        internal static float ResolveTargetRootHeight(SkeletonCache targetCache, string modelName)
+        {
+            if (targetCache != null &&
+                KimodoRetargetAvatarUtility.TryGetProfileRootJointTransform(
+                    targetCache.uniqueNameMap,
+                    modelName,
+                    out Transform profileRootJoint) &&
+                profileRootJoint != null)
+            {
+                return profileRootJoint.position.y;
+            }
+
+            return 0f;
         }
 
         private static JObject Route(string intent, string command, string next = null)
