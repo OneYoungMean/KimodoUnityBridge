@@ -590,11 +590,6 @@ namespace CharacterAnimationCli.Unity.Command
                 string prompt = RequiredStringValue(arguments, "prompt");
                 TimelineSessionRecord session = EnsureGenerationTimelineSession();
                 ResolvedCharacter character = ResolveCharacter(RequiredStringValue(arguments, "character"));
-                if (command_generation_runner.TryGet(character.Target, out command_generation_session activeGeneration) &&
-                    activeGeneration != null && activeGeneration.IsRunning)
-                {
-                    throw new InvalidOperationException($"A generation session is already running for '{character.Name}'.");
-                }
                 string outputMode = ParseOutputMode(arguments.Value<string>("output_mode"));
                 string requestedModel = arguments.Value<string>("model")?.Trim();
                 string requestedTextEncoder = arguments.Value<string>("text_encoder_model")?.Trim();

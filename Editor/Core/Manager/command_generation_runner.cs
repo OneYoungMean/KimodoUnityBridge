@@ -1,5 +1,6 @@
 using System;
-using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using KimodoBridge;
@@ -40,12 +41,8 @@ namespace CharacterAnimationCli.Unity.Command
     [InitializeOnLoad]
     internal static class command_generation_runner
     {
-        private static readonly object Sync = new object();
-        private static readonly Dictionary<UnityEngine.Object, RunningSessionState> SessionsByTarget =
-            new Dictionary<UnityEngine.Object, RunningSessionState>();
-        private static readonly Dictionary<Guid, RunningSessionState> SessionsByRequest =
-            new Dictionary<Guid, RunningSessionState>();
-        private static int reloadLockCount;
+        private static readonly ConcurrentDictionary<Guid, RunningSessionState> SessionsByRequest =
+            new ConcurrentDictionary<Guid, RunningSessionState>();
 
         static command_generation_runner()
         {
@@ -78,25 +75,14 @@ namespace CharacterAnimationCli.Unity.Command
                 return false;
             }
 
-            RunningSessionState state;
-            lock (Sync)
+            RunningSessionState state = new RunningSessionState(target, targetKey, kind);
+            if (!SessionsByRequest.TryAdd(state.Session.RequestId, state))
             {
-                if (SessionsByTarget.TryGetValue(target, out RunningSessionState existing) &&
-                    existing != null &&
-                    existing.Session != null &&
-                    existing.Session.IsRunning)
-                {
-                    error = $"A generation session is already running for '{targetKey ?? target.name}'.";
-                    session = existing.Session;
-                    return false;
-                }
-
-                state = new RunningSessionState(target, targetKey, kind);
-                SessionsByTarget[target] = state;
-                SessionsByRequest[state.Session.RequestId] = state;
-                AcquireReloadLock();
-                session = state.Session;
+                state.Dispose();
+                error = "Could not register the generation request.";
+                return false;
             }
+            session = state.Session;
 
             _ = ExecuteAsync(state, executeAsync);
             return true;
@@ -109,34 +95,22 @@ namespace CharacterAnimationCli.Unity.Command
                 return false;
             }
 
-            RunningSessionState state;
-            lock (Sync)
-            {
-                if (!SessionsByTarget.TryGetValue(target, out state) ||
-                    state == null ||
-                    state.Session == null ||
-                    !state.Session.IsRunning)
-                {
-                    return false;
-                }
-            }
+            RunningSessionState[] states = SnapshotForTarget(target)
+                .Where(state => state?.Session != null && state.Session.IsRunning)
+                .ToArray();
 
-            CancelState(state, reason);
-            return true;
+            for (int i = 0; i < states.Length; i++) CancelState(states[i], reason);
+            return states.Length > 0;
         }
 
         public static bool Cancel(Guid requestId, string reason = "Generation canceled.")
         {
-            RunningSessionState state;
-            lock (Sync)
+            if (!SessionsByRequest.TryGetValue(requestId, out RunningSessionState state) ||
+                state == null ||
+                state.Session == null ||
+                !state.Session.IsRunning)
             {
-                if (!SessionsByRequest.TryGetValue(requestId, out state) ||
-                    state == null ||
-                    state.Session == null ||
-                    !state.Session.IsRunning)
-                {
-                    return false;
-                }
+                return false;
             }
 
             CancelState(state, reason);
@@ -145,20 +119,9 @@ namespace CharacterAnimationCli.Unity.Command
 
         public static void CancelAll(string reason = "Generation canceled.")
         {
-            RunningSessionState[] snapshot;
-            lock (Sync)
-            {
-                var states = new List<RunningSessionState>(SessionsByTarget.Count);
-                foreach (KeyValuePair<UnityEngine.Object, RunningSessionState> pair in SessionsByTarget)
-                {
-                    if (pair.Value?.Session != null && pair.Value.Session.IsRunning)
-                    {
-                        states.Add(pair.Value);
-                    }
-                }
-
-                snapshot = states.ToArray();
-            }
+            RunningSessionState[] snapshot = SessionsByRequest.Values
+                .Where(state => state?.Session != null && state.Session.IsRunning)
+                .ToArray();
 
             for (int i = 0; i < snapshot.Length; i++)
             {
@@ -174,17 +137,17 @@ namespace CharacterAnimationCli.Unity.Command
                 return false;
             }
 
-            lock (Sync)
-            {
-                if (!SessionsByTarget.TryGetValue(target, out RunningSessionState state) ||
-                    state == null)
-                {
-                    return false;
-                }
-
-                session = state.Session;
-                return session != null;
-            }
+            RunningSessionState[] states = SnapshotForTarget(target);
+            RunningSessionState state = states
+                .Where(item => item?.Session != null && item.Session.IsRunning)
+                .OrderByDescending(item => item.Session.StartedAtUtc)
+                .FirstOrDefault()
+                ?? states
+                    .Where(item => item?.Session != null)
+                    .OrderByDescending(item => item.Session.StartedAtUtc)
+                    .FirstOrDefault();
+            session = state?.Session;
+            return session != null;
         }
 
         public static void Clear(UnityEngine.Object target)
@@ -194,27 +157,20 @@ namespace CharacterAnimationCli.Unity.Command
                 return;
             }
 
-            RunningSessionState removed = null;
-            lock (Sync)
+            RunningSessionState[] removed = SnapshotForTarget(target);
+            foreach (RunningSessionState state in removed)
             {
-                if (!SessionsByTarget.TryGetValue(target, out removed) || removed == null)
+                if (state?.Session != null && state.Session.IsRunning)
                 {
-                    return;
+                    state.Session.Status = command_status.Canceled;
+                    state.Session.Message = "Generation canceled.";
+                    state.Session.Error = string.Empty;
+                    state.RequestCancel();
                 }
-
-                if (removed.Session != null && removed.Session.IsRunning)
-                {
-                    removed.Session.Status = command_status.Canceled;
-                    removed.Session.Message = "Generation canceled.";
-                    removed.Session.Error = string.Empty;
-                    removed.RequestCancel();
-                }
-
-                SessionsByTarget.Remove(target);
-                SessionsByRequest.Remove(removed.Session.RequestId);
+                if (state?.Session != null) SessionsByRequest.TryRemove(state.Session.RequestId, out _);
             }
 
-            removed.Dispose();
+            foreach (RunningSessionState state in removed) state?.Dispose();
         }
 
         public static void UpdateProgress(
@@ -310,16 +266,14 @@ namespace CharacterAnimationCli.Unity.Command
             }
             finally
             {
-                command_context.PersistGenerationJobStatus(state.Session);
-                lock (Sync)
+                try
                 {
-                    SessionsByRequest.Remove(state.Session.RequestId);
+                    command_context.PersistGenerationJobStatus(state.Session);
                 }
-
-                state.Dispose();
-                lock (Sync)
+                finally
                 {
-                    ReleaseReloadLock();
+                    SessionsByRequest.TryRemove(state.Session.RequestId, out _);
+                    state.Dispose();
                 }
             }
         }
@@ -334,42 +288,29 @@ namespace CharacterAnimationCli.Unity.Command
                 return;
             }
 
-            command_generation_session changed = null;
-            lock (Sync)
+            if (!SessionsByRequest.TryGetValue(requestId, out RunningSessionState state) ||
+                state == null ||
+                state.Target != target ||
+                state.Session == null)
             {
-                if (!SessionsByTarget.TryGetValue(target, out RunningSessionState state) ||
-                    state == null ||
-                    state.Session == null ||
-                    state.Session.RequestId != requestId)
-                {
-                    return;
-                }
-
-                mutate(state.Session);
-                changed = state.Session;
+                return;
             }
+
+            mutate(state.Session);
+            command_generation_session changed = state.Session;
             command_context.PersistGenerationJobStatus(changed);
         }
 
-        private static void AcquireReloadLock()
+        private static RunningSessionState[] SnapshotForTarget(UnityEngine.Object target)
         {
-            if (reloadLockCount++ == 0)
+            if (target == null)
             {
-                EditorApplication.LockReloadAssemblies();
+                return Array.Empty<RunningSessionState>();
             }
-        }
 
-        private static void ReleaseReloadLock()
-        {
-            if (reloadLockCount <= 0)
-            {
-                reloadLockCount = 0;
-                return;
-            }
-            if (--reloadLockCount == 0)
-            {
-                EditorApplication.UnlockReloadAssemblies();
-            }
+            return SessionsByRequest.Values
+                .Where(state => state != null && state.Target == target)
+                .ToArray();
         }
 
         private static void CancelState(RunningSessionState state, string reason)
