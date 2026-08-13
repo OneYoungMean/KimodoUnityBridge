@@ -9,9 +9,11 @@ import numpy as np
 import torch
 
 from .constraints import (
+    ClipConstraintSet,
     EndEffectorConstraintSet,
     FullBodyConstraintSet,
     Root2DConstraintSet,
+    compute_global_heading,
 )
 from .geometry import matrix_to_quaternion, quaternion_to_matrix
 from .skeleton import (
@@ -22,6 +24,222 @@ from .skeleton import (
     SOMASkeleton77,
     fk,
 )
+
+
+_CONSTRAINT_PRIORITY = {
+    # Composition order: FullBody base -> Root2D root override -> end-effectors.
+    # Higher values win per channel; end-effectors are world-space targets.
+    "clip": 1,
+    "fullbody": 2,
+    "root2d": 3,
+    "end-effector": 4,
+    "left-hand": 4,
+    "right-hand": 4,
+    "left-foot": 4,
+    "right-foot": 4,
+}
+
+
+def _constraint_priority(constraint) -> int:
+    return _CONSTRAINT_PRIORITY.get(getattr(constraint, "name", ""), 0)
+
+
+def _constraint_rows_without_frames(constraint, covered_frames: torch.Tensor):
+    """Drop rows already represented by a merged FullBody constraint."""
+    frame_indices = constraint.frame_indices
+    if not isinstance(frame_indices, torch.Tensor):
+        frame_indices = torch.as_tensor(frame_indices, dtype=torch.long)
+    keep = ~torch.isin(frame_indices, covered_frames.to(frame_indices.device))
+    if bool(keep.all()):
+        return constraint
+    if not bool(keep.any()):
+        return None
+
+    frame_indices = frame_indices[keep]
+    if isinstance(constraint, Root2DConstraintSet):
+        heading = constraint.global_root_heading
+        if heading is not None:
+            heading = heading[keep]
+        return Root2DConstraintSet(
+            constraint.skeleton,
+            frame_indices,
+            constraint.smooth_root_2d[keep],
+            global_root_heading=heading,
+        )
+    if isinstance(constraint, EndEffectorConstraintSet):
+        args = (
+            constraint.skeleton,
+            frame_indices,
+            constraint.global_joints_positions[keep],
+            constraint.global_joints_rots[keep],
+            constraint.smooth_root_2d[keep],
+        )
+        if type(constraint) is EndEffectorConstraintSet:
+            return type(constraint)(*args, joint_names=list(constraint.joint_names))
+        return type(constraint)(*args)
+    if isinstance(constraint, ClipConstraintSet):
+        return ClipConstraintSet(
+            constraint.skeleton,
+            frame_indices,
+            constraint.global_joints_positions[keep],
+            constraint.global_joints_rots[keep],
+            constraint.position_axis_mask,
+            constraint.rot_indices,
+            root_position_axes=constraint.root_position_axes,
+            root_heading=constraint.root_heading,
+        )
+    return constraint
+
+
+def _merge_fullbody_constraint(
+    constraint_lst: List,
+    skeleton: SkeletonBase,
+    baseline_global_rots: torch.Tensor,
+    baseline_positions: torch.Tensor,
+    num_frames: int,
+) -> List:
+    """Resolve overlapping constraints into one FullBody target per FullBody frame.
+
+    MotionCorrection exposes one full-body mask and cannot represent per-channel
+    priority. Merge higher-priority targets into the FullBody sample first.
+    """
+    if not constraint_lst:
+        return []
+
+    fullbody_frames = sorted(
+        {
+            int(frame)
+            for constraint in constraint_lst
+            if isinstance(constraint, FullBodyConstraintSet)
+            for frame in constraint.frame_indices.detach().cpu().tolist()
+            if 0 <= int(frame) < num_frames
+        }
+    )
+    if not fullbody_frames:
+        return list(constraint_lst)
+
+    device = baseline_positions.device
+    frames = torch.tensor(fullbody_frames, dtype=torch.long, device=device)
+    frame_to_row = {frame: row for row, frame in enumerate(fullbody_frames)}
+    positions = baseline_positions[frames].clone()
+    global_rots = baseline_global_rots[frames].clone()
+    position_priority = torch.zeros(positions.shape, dtype=torch.int16, device=device)
+    rotation_priority = torch.zeros(
+        (len(frames), positions.shape[1]), dtype=torch.int16, device=device
+    )
+    heading_priority = torch.zeros(len(frames), dtype=torch.int16, device=device)
+    desired_heading = torch.zeros((len(frames), 2), dtype=positions.dtype, device=device)
+
+    def row_for(frame: int):
+        return frame_to_row.get(frame)
+
+    def assign_position(row: int, joint: int, value: torch.Tensor, rank: int, axes=None):
+        axes = (0, 1, 2) if axes is None else axes
+        for axis in axes:
+            if rank > int(position_priority[row, joint, axis]):
+                positions[row, joint, axis] = value[axis]
+                position_priority[row, joint, axis] = rank
+
+    def assign_rotation(row: int, joint: int, value: torch.Tensor, rank: int):
+        if rank > int(rotation_priority[row, joint]):
+            global_rots[row, joint] = value
+            rotation_priority[row, joint] = rank
+
+    deferred_end_effectors = []
+    for constraint in constraint_lst:
+        if isinstance(constraint, EndEffectorConstraintSet):
+            deferred_end_effectors.append(constraint)
+            continue
+
+        rank = _constraint_priority(constraint)
+        if rank <= 0:
+            continue
+        rows = constraint.frame_indices.detach().cpu().tolist()
+        for source_row, frame in enumerate(rows):
+            row = row_for(int(frame))
+            if row is None:
+                continue
+            if isinstance(constraint, FullBodyConstraintSet):
+                source_positions = constraint.global_joints_positions[source_row].to(device=device)
+                source_rots = constraint.global_joints_rots[source_row].to(device=device)
+                for joint in range(positions.shape[1]):
+                    assign_position(row, joint, source_positions[joint], rank)
+                    assign_rotation(row, joint, source_rots[joint], rank)
+                if rank > int(heading_priority[row]):
+                    desired_heading[row] = constraint.global_root_heading[source_row].to(device=device)
+                    heading_priority[row] = rank
+            elif isinstance(constraint, Root2DConstraintSet):
+                root = skeleton.root_idx
+                source_root = constraint.smooth_root_2d[source_row].to(device=device)
+                assign_position(
+                    row,
+                    root,
+                    torch.stack((source_root[0], positions[row, root, 1], source_root[1])),
+                    rank,
+                    axes=(0, 2),
+                )
+                if constraint.global_root_heading is not None and rank > int(heading_priority[row]):
+                    desired_heading[row] = constraint.global_root_heading[source_row].to(device=device)
+                    heading_priority[row] = rank
+            elif isinstance(constraint, ClipConstraintSet):
+                source_positions = constraint.global_joints_positions[source_row].to(device=device)
+                source_rots = constraint.global_joints_rots[source_row].to(device=device)
+                for axis, enabled in enumerate(constraint.root_position_axes.detach().cpu().tolist()):
+                    if enabled:
+                        assign_position(row, skeleton.root_idx, source_positions[skeleton.root_idx], rank, axes=(axis,))
+                for joint, axis in constraint.position_axis_mask.nonzero(as_tuple=False).detach().cpu().tolist():
+                    assign_position(row, int(joint), source_positions[int(joint)], rank, axes=(int(axis),))
+                for joint in constraint.rot_indices.detach().cpu().tolist():
+                    assign_rotation(row, int(joint), source_rots[int(joint)], rank)
+                if constraint.root_heading and rank > int(heading_priority[row]):
+                    desired_heading[row] = constraint.global_root_heading[source_row].to(device=device)
+                    heading_priority[row] = rank
+
+    # Heading is global orientation. Apply it before end-effector world targets.
+    for row in range(len(frames)):
+        if int(heading_priority[row]) <= 0:
+            continue
+        current_heading = compute_global_heading(positions[row : row + 1], skeleton)[0]
+        current_yaw = torch.atan2(current_heading[1], current_heading[0])
+        target_yaw = torch.atan2(desired_heading[row, 1], desired_heading[row, 0])
+        delta = target_yaw - current_yaw
+        cos_delta, sin_delta = torch.cos(delta), torch.sin(delta)
+        rotation = torch.stack(
+            (
+                torch.stack((cos_delta, torch.zeros_like(delta), sin_delta)),
+                torch.stack((torch.zeros_like(delta), torch.ones_like(delta), torch.zeros_like(delta))),
+                torch.stack((-sin_delta, torch.zeros_like(delta), cos_delta)),
+            )
+        )
+        root = positions[row, skeleton.root_idx].clone()
+        positions[row] = (positions[row] - root) @ rotation.T + root
+        global_rots[row] = rotation @ global_rots[row]
+
+    # End-effectors are the final layer and retain exact world-space targets.
+    for constraint in deferred_end_effectors:
+        rank = _constraint_priority(constraint)
+        rows = constraint.frame_indices.detach().cpu().tolist()
+        for source_row, frame in enumerate(rows):
+            row = row_for(int(frame))
+            if row is None:
+                continue
+            source_positions = constraint.global_joints_positions[source_row].to(device=device)
+            source_rots = constraint.global_joints_rots[source_row].to(device=device)
+            for joint in constraint.pos_indices.detach().cpu().tolist():
+                assign_position(row, int(joint), source_positions[int(joint)], rank)
+            for joint in constraint.rot_indices.detach().cpu().tolist():
+                assign_rotation(row, int(joint), source_rots[int(joint)], rank)
+
+    merged = FullBodyConstraintSet(skeleton, frames, positions, global_rots)
+    output = [merged]
+    covered = frames.detach().cpu()
+    for constraint in constraint_lst:
+        if isinstance(constraint, FullBodyConstraintSet):
+            continue
+        filtered = _constraint_rows_without_frames(constraint, covered)
+        if filtered is not None:
+            output.append(filtered)
+    return output
 
 
 def extract_input_motion_from_constraints(
@@ -57,9 +275,9 @@ def extract_input_motion_from_constraints(
     if not constraint_lst:
         return hip_translations_input, rotations_input
 
-    # Sort constraints to ensure FullBodyConstraintSet is processed last
-    #   This ensures it will get the last say on whether hip translations need to be exact root or smoothed root
-    sorted_constraints = sorted(constraint_lst, key=lambda c: isinstance(c, FullBodyConstraintSet))
+    # Apply layers in order: FullBody -> Root2D -> end-effectors.
+    sorted_constraints = sorted(constraint_lst, key=_constraint_priority)
+    root_written = torch.zeros(num_frames, dtype=torch.bool)
     for constraint in sorted_constraints:
         frame_indices = constraint.frame_indices
         if isinstance(frame_indices, torch.Tensor):
@@ -83,6 +301,7 @@ def extract_input_motion_from_constraints(
             smooth_root_2d = _match_hip_dtype(smooth_root_2d)
             hip_translations_input[frame_indices, 0] = smooth_root_2d[:, 0]  # x
             hip_translations_input[frame_indices, 2] = smooth_root_2d[:, 1]  # z
+            root_written[frame_indices] = True
             continue
         elif isinstance(constraint, FullBodyConstraintSet) or isinstance(constraint, EndEffectorConstraintSet):
             global_rots = constraint.global_joints_rots  # (K, J, 3, 3) where K = len(frame_indices)
@@ -96,20 +315,30 @@ def extract_input_motion_from_constraints(
                 global_positions = global_positions[valid_positions]
                 smooth_root_2d = constraint.smooth_root_2d[valid_positions]
 
-            root_positions = global_positions[:, skeleton.root_idx]  # (K, 3)
-            # replace xz with smooth_root_2d values for EE constraints that do not include Hips
-            #    since the hips themselves are not actually constrained in the model conditioning
+            root_positions = global_positions[:, skeleton.root_idx].clone()  # (K, 3)
+            # A limb target is world-space and must not restore its embedded root2d.
+            # Preserve the root already written by FullBody/Root2D for those frames.
             if isinstance(constraint, EndEffectorConstraintSet) and "Hips" not in constraint.joint_names:
-                root_positions[:, 0] = smooth_root_2d[:, 0]  # x
-                root_positions[:, 2] = smooth_root_2d[:, 1]  # z
+                for i, frame in enumerate(
+                    frame_indices.detach().cpu().tolist()
+                    if isinstance(frame_indices, torch.Tensor)
+                    else frame_indices
+                ):
+                    if bool(root_written[int(frame)]):
+                        root_positions[i] = hip_translations_input[int(frame)]
+                    else:
+                        root_positions[i, 0] = smooth_root_2d[i, 0]
+                        root_positions[i, 2] = smooth_root_2d[i, 1]
 
             local_rot_mats = skeleton.global_rots_to_local_rots(global_rots)  # (K, J, 3, 3)
             local_rot_quats = matrix_to_quaternion(local_rot_mats)  # (K, J, 4)
 
             hip_translations_input[frame_indices] = _match_hip_dtype(root_positions)
             rotations_input[frame_indices] = _match_rot_dtype(local_rot_quats)
+            if not isinstance(constraint, EndEffectorConstraintSet) or "Hips" in constraint.joint_names:
+                root_written[frame_indices] = True
         else:
-            NotImplementedError(f"Constraint {constraint.name} is not supported")
+            raise NotImplementedError(f"Constraint {constraint.name} is not supported")
 
     return hip_translations_input, rotations_input
 
@@ -215,6 +444,36 @@ def post_process_motion(
 
     batch_size, num_frames, num_joints = local_rot_mats.shape[:3]
 
+    batched_constraints = bool(constraint_lst) and isinstance(constraint_lst[0], list)
+    effective_constraint_lst = []
+    if constraint_lst:
+        baseline_global_rots, baseline_positions, _ = fk(
+            local_rot_mats.detach(),
+            root_positions.detach(),
+            skeleton,
+        )
+        baseline_global_rots = baseline_global_rots.cpu()
+        baseline_positions = baseline_positions.cpu()
+        if batched_constraints:
+            effective_constraint_lst = [
+                _merge_fullbody_constraint(
+                    constraint_lst[b],
+                    skeleton,
+                    baseline_global_rots[b],
+                    baseline_positions[b],
+                    num_frames,
+                )
+                for b in range(batch_size)
+            ]
+        else:
+            effective_constraint_lst = _merge_fullbody_constraint(
+                constraint_lst,
+                skeleton,
+                baseline_global_rots[0],
+                baseline_positions[0],
+                num_frames,
+            )
+
     def _build_constraint_masks_dict(constraints: List) -> Dict[str, torch.Tensor]:
         out = {
             key: torch.zeros(num_frames, dtype=torch.float32)
@@ -251,14 +510,16 @@ def post_process_motion(
                 out["Root"][frame_indices] = 1.0
         return out
 
-    # Create constraint masks from constraint_lst (one dict per batch item when batched)
-    batched_constraints = bool(constraint_lst) and isinstance(constraint_lst[0], list)
+    # Create constraint masks from the priority-resolved constraints.
     if batched_constraints:
-        constraint_masks_dict_lst = [_build_constraint_masks_dict(constraint_lst[b]) for b in range(batch_size)]
+        constraint_masks_dict_lst = [
+            _build_constraint_masks_dict(effective_constraint_lst[b])
+            for b in range(batch_size)
+        ]
     else:
         constraint_masks_dict = (
-            _build_constraint_masks_dict(constraint_lst)
-            if constraint_lst
+            _build_constraint_masks_dict(effective_constraint_lst)
+            if effective_constraint_lst
             else {
                 key: torch.zeros(num_frames, dtype=torch.float32)
                 for key in [
@@ -279,7 +540,6 @@ def post_process_motion(
     has_double_ankle_joints = isinstance(skeleton, G1Skeleton34)
 
     # Prepare input tensors. The generated motion will be modified in place. Clone first.
-    neutral_joints_pelvis_offset = skeleton.neutral_joints[0].cpu().clone()
     hip_translations_corrected = root_positions.cpu().clone()
     rotations_corrected = matrix_to_quaternion(local_rot_mats).cpu().clone()  # (B, T, J, 4)
     contacts = contacts.cpu()
@@ -291,15 +551,12 @@ def post_process_motion(
     rotations_input = torch.zeros(batch_size, num_frames, num_joints, 4)
     rotations_input[..., 0] = 1.0  # Initialize as identity quaternions (w=1, x=y=z=0)
 
-    if constraint_lst:
+    if effective_constraint_lst:
         for b in range(batch_size):
-            # Get constraints for this batch item (if batched) or use the same list
             constraints_lst_el = (
-                constraint_lst[b]
-                if isinstance(
-                    constraint_lst[0], list
-                )  # when the constraint_list is in batch format, each item in a list is a constraintlist for one sample
-                else constraint_lst  # single constraint list shared for all samples in the batch
+                effective_constraint_lst[b]
+                if batched_constraints
+                else effective_constraint_lst
             )
             hip_translations_input[b], rotations_input[b] = extract_input_motion_from_constraints(
                 constraints_lst_el,

@@ -110,20 +110,20 @@ def transform_constraints_to_origin(constraints_lst: list, transform) -> None:
 def normalize_constraints_to_anchor(constraints_lst: list):
     """Move Kimodo or ARDY constraints into one planar anchor space.
 
-    The earliest constrained frame wins. At that frame the priority is fullbody,
-    end/foot, then root2d; input order breaks ties. Y is intentionally preserved.
+    The earliest constrained frame wins. At that frame the composition order is
+    FullBody, Root2D, then end-effectors; input order breaks ties. Y is preserved.
     Returns the planar ``(x, z)`` translation and yaw needed to restore output.
     """
     candidates = []
     priority = {
-        "fullbody": 3,
-        "end-effector": 2,
-        "left-hand": 2,
-        "right-hand": 2,
-        "left-foot": 2,
-        "right-foot": 2,
-        "root2d": 1,
-        "clip": 3,
+        "clip": 1,
+        "fullbody": 2,
+        "root2d": 3,
+        "end-effector": 4,
+        "left-hand": 4,
+        "right-hand": 4,
+        "left-foot": 4,
+        "right-foot": 4,
     }
     for order, constraint in enumerate(constraints_lst or []):
         if len(constraint.frame_indices) == 0:
@@ -349,16 +349,14 @@ class FullBodyConstraintSet:
 
         # global rotations are not used here
 
-        # as we use smooth root, also constraint the smooth root to get the same full body
-        # maybe keep storing the hips offset, if we smooth it ourselves
+        # FullBody establishes the base root. Root2D is sorted later and wins
+        # duplicate root samples in the sparse conditioning tensor.
         data_dict["smooth_root_2d"].append(self.smooth_root_2d)
         index_dict["smooth_root_2d"].append(self.frame_indices)
 
-        # constraint the y pos of the root
         data_dict["root_y_pos"].append(self.root_y_pos)
         index_dict["root_y_pos"].append(self.frame_indices)
 
-        # constraint the global heading
         data_dict["global_root_heading"].append(self.global_root_heading)
         index_dict["global_root_heading"].append(self.frame_indices)
 
@@ -666,18 +664,9 @@ class EndEffectorConstraintSet:
         data_dict["global_joints_rots"].append(self.global_joints_rots[tuple(rot_indices_crop.T)])
         index_dict["global_joints_rots"].append(rot_indices_real)
 
-        # as we use smooth root, also constraint the smooth root to get the same full body
-        # maybe keep storing the hips offset, if we smooth it ourselves
-        data_dict["smooth_root_2d"].append(self.smooth_root_2d)
-        index_dict["smooth_root_2d"].append(self.frame_indices)
-
-        # constraint the y pos of the root
-        data_dict["root_y_pos"].append(self.root_y_pos)
-        index_dict["root_y_pos"].append(self.frame_indices)
-
-        # constraint the global heading
-        data_dict["global_root_heading"].append(self.global_root_heading)
-        index_dict["global_root_heading"].append(self.frame_indices)
+        # Limb constraints are world-space targets. Their embedded root pose is
+        # reference data only; conditioning adds it as a fallback after
+        # FullBody/Root2D channels have been emitted.
 
     def crop_move(self, start: int, end: int) -> "EndEffectorConstraintSet":
         """Return a new EndEffectorConstraintSet for the cropped frame range [start, end)."""
