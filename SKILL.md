@@ -52,9 +52,7 @@ Do not close the Session while generation is running. A terminal status is `comp
 ## Tool groups
 
 - Discovery: `kimodo_help`.
-- Session: `session_open`, `session_close`, `query_current_session`, `session_try_add`, `session_analyze_transitions`, `session_try_remove`.
-
-Animator transition analysis: after `session_try_add({"kind":"animator",...})`, save the returned `transition_analysis` and use `session_analyze_transitions` when the plan must be read later. This is a planning pass: it scans supported direct State transitions, expands source and destination BlendTree leaves into candidate clips, and reports the Cartesian case count. `has_exit_time:true` uses the Exit Time boundary; `has_exit_time:false` reserves four source edge-keyframe cases. Do not claim those variants were generated or recorded: import does not materialize them.
+- Session: `session_open`, `session_close`, `query_current_session`, `session_try_add`, `session_try_remove`.
 - Pose and constraints: `pose_create`, `pose_get`, `pose_set`, `pose_copy`, `kimodo_build_root2d_path`.
 - Animation: `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation`, `kimodo_analyze`, `query_picture`, `kimodo_bake_range`.
 - Debug maintenance: `kimodo_debug_install_server`; use only when explicitly diagnosing the local QuickServer installation.

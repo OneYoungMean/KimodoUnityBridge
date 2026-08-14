@@ -25,7 +25,6 @@ namespace CharacterAnimationCli.Unity.Command
             AnimatorImportRecord imported = character.AnimatorImports.FirstOrDefault(item =>
                 string.Equals(item.SourceAnimatorRef, sourceRef, StringComparison.Ordinal));
             bool refreshed = imported != null;
-            if (imported != null) imported.TransitionAnalysis.Clear();
             if (imported == null)
             {
                 string baseName = KimodoRuntimeUtility.SanitizeName(sourceAnimator.gameObject.name, "Animator");
@@ -61,8 +60,6 @@ namespace CharacterAnimationCli.Unity.Command
                             "Only direct state-to-state transitions are imported."));
                         continue;
                     }
-                    JObject transitionPlan = BuildTransitionAnalysisPlan(from, to, transition, ordinal);
-                    imported.TransitionAnalysis.Add(transitionPlan);
                     if (from.Animations.Count != 1 || to.Animations.Count != 1 ||
                         sourceState.motion is not AnimationClip || transition.destinationState.motion is not AnimationClip)
                     {
@@ -74,14 +71,7 @@ namespace CharacterAnimationCli.Unity.Command
                         continue;
                     }
                     string key = $"{sourceRef}|transition|{from.Key}|{ordinal}|{to.Key}";
-                    TimelineAnimationRecord existing = character.Animations.FirstOrDefault(item =>
-                        string.Equals(item.ImportKey, key, StringComparison.Ordinal));
-                    if (existing != null)
-                    {
-                        transitionPlan["materialized"] = true;
-                        transitionPlan["materialized_animation"] = existing.Name;
-                        continue;
-                    }
+                    if (character.Animations.Any(item => string.Equals(item.ImportKey, key, StringComparison.Ordinal))) continue;
                     string requestedName = $"{from.Animations[0].Name}__to__{to.Animations[0].Name}";
                     AnimationClip baked = BakeAnimatorTransition(character, from.Animations[0].Clip,
                         to.Animations[0].Clip, transition, requestedName);
@@ -91,9 +81,6 @@ namespace CharacterAnimationCli.Unity.Command
                     animation.ImportKey = key;
                     animation.FromAnimation = from.Animations[0].Name;
                     animation.ToAnimation = to.Animations[0].Name;
-                    transitionPlan["materialized"] = true;
-                    transitionPlan["materialized_animation"] = animation.Name;
-                    transitionPlan["materialized_case_id"] = transition.hasExitTime ? "case_0_0_0" : "case_0_0_3";
                     addedTransitions.Add(animation);
                 }
             }
@@ -107,93 +94,8 @@ namespace CharacterAnimationCli.Unity.Command
                 ["animator"] = imported.Name,
                 ["animations"] = new JArray(addedAnimations.Select(DescribeAnimation)),
                 ["transitions"] = new JArray(addedTransitions.Select(DescribeTransition)),
-                ["transition_analysis"] = imported.TransitionAnalysis.DeepClone(),
                 ["skipped"] = warnings
             };
-        }
-
-        private static JObject BuildTransitionAnalysisPlan(
-            ImportedState from,
-            ImportedState to,
-            AnimatorStateTransition transition,
-            int ordinal)
-        {
-            int sourceCount = from.Animations.Count;
-            int targetCount = to.Animations.Count;
-            bool sampleBoundary = !transition.hasExitTime;
-            int boundaryCount = sampleBoundary ? 4 : 1;
-            long candidateCaseCount = (long)sourceCount * targetCount * boundaryCount;
-            var cases = new JArray();
-            for (int sourceIndex = 0; sourceIndex < from.Animations.Count; sourceIndex++)
-            for (int targetIndex = 0; targetIndex < to.Animations.Count; targetIndex++)
-            for (int boundaryIndex = 0; boundaryIndex < boundaryCount; boundaryIndex++)
-            {
-                cases.Add(new JObject
-                {
-                    ["id"] = $"case_{sourceIndex}_{targetIndex}_{boundaryIndex}",
-                    ["source_candidate"] = from.Animations[sourceIndex].Name,
-                    ["target_candidate"] = to.Animations[targetIndex].Name,
-                    ["boundary_index"] = boundaryIndex,
-                    ["source_sample_role"] = sampleBoundary
-                        ? $"source_edge_keyframe_{boundaryIndex + 1}_of_4"
-                        : "source_exit_time_boundary",
-                    ["source_sample_frame"] = SourceBoundaryFrame(
-                        from.Animations[sourceIndex].Clip,
-                        transition,
-                        boundaryIndex,
-                        boundaryCount),
-                    ["target_sample_frame"] = TargetEntryFrame(to.Animations[targetIndex].Clip, transition),
-                    ["target_sample_role"] = "target_entry_boundary",
-                    ["materialized"] = false
-                });
-            }
-            return new JObject
-            {
-                ["id"] = $"{from.Key}|transition|{ordinal}|{to.Key}",
-                ["from_state"] = from.Path,
-                ["to_state"] = to.Path,
-                ["from_motion"] = from.MotionKind,
-                ["to_motion"] = to.MotionKind,
-                ["from_candidates"] = new JArray(from.Animations.Select(item => item.Name)),
-                ["to_candidates"] = new JArray(to.Animations.Select(item => item.Name)),
-                ["has_exit_time"] = transition.hasExitTime,
-                ["exit_time"] = transition.exitTime,
-                ["duration"] = transition.duration,
-                ["has_fixed_duration"] = transition.hasFixedDuration,
-                ["offset"] = transition.offset,
-                ["conditions"] = new JArray((transition.conditions ?? Array.Empty<AnimatorCondition>()).Select(condition => new JObject
-                {
-                    ["mode"] = condition.mode.ToString(),
-                    ["parameter"] = condition.parameter,
-                    ["threshold"] = condition.threshold
-                })),
-                ["sample_strategy"] = sampleBoundary ? "four_boundary_keyframes" : "exit_time_boundary",
-                ["boundary_sample_count"] = boundaryCount,
-                ["candidate_case_count"] = candidateCaseCount,
-                ["case_descriptors"] = cases,
-                ["materialized"] = false,
-                ["note"] = "Analysis plan only. Use a future materialization step to create transition clips or generation requests."
-            };
-        }
-
-        private static int SourceBoundaryFrame(
-            AnimationClip clip,
-            AnimatorStateTransition transition,
-            int boundaryIndex,
-            int boundaryCount)
-        {
-            int lastFrame = Math.Max(0, Mathf.CeilToInt(Mathf.Max(0f, clip?.length ?? 0f) * 60f) - 1);
-            if (transition.hasExitTime)
-            {
-                return Mathf.Clamp(Mathf.RoundToInt(lastFrame * Mathf.Clamp01(transition.exitTime)), 0, lastFrame);
-            }
-            return Mathf.Clamp(lastFrame - (boundaryCount - 1 - boundaryIndex), 0, lastFrame);
-        }
-
-        private static int TargetEntryFrame(AnimationClip clip, AnimatorStateTransition transition)
-        {
-            int lastFrame = Math.Max(0, Mathf.CeilToInt(Mathf.Max(0f, clip?.length ?? 0f) * 60f) - 1);
-            return Mathf.Clamp(Mathf.RoundToInt(lastFrame * Mathf.Clamp01(transition.offset)), 0, lastFrame);
         }
 
         private static void CollectAnimatorStates(
@@ -213,7 +115,6 @@ namespace CharacterAnimationCli.Unity.Command
                 string statePath = $"{path}.{state.name}";
                 string stateKey = $"{imported.SourceAnimatorRef}|state|{layerIndex}|{statePath}";
                 var record = new ImportedState(stateKey, statePath);
-                record.MotionKind = MotionKind(state.motion);
                 AnimationClip[] clips = StateClips(state.motion).ToArray();
                 if (clips.Length == 0)
                 {
@@ -253,18 +154,6 @@ namespace CharacterAnimationCli.Unity.Command
                 foreach (ChildMotion child in tree.children)
                 foreach (AnimationClip candidate in StateClips(child.motion)) yield return candidate;
             }
-        }
-
-        private static string MotionKind(Motion motion)
-        {
-            if (motion is AnimationClip) return "clip";
-            if (motion is BlendTree tree)
-            {
-                return tree.children.Any(child => child.motion is BlendTree)
-                    ? "blend_tree_nested"
-                    : "blend_tree";
-            }
-            return motion == null ? "none" : motion.GetType().Name;
         }
 
         private static JObject TransitionWarning(string kind, ImportedState from, ImportedState to, string reason) => new JObject
@@ -344,7 +233,6 @@ namespace CharacterAnimationCli.Unity.Command
             public ImportedState(string key, string path) { Key = key; Path = path; }
             public string Key { get; }
             public string Path { get; }
-            public string MotionKind { get; set; } = "none";
             public List<TimelineAnimationRecord> Animations { get; } = new List<TimelineAnimationRecord>();
         }
     }

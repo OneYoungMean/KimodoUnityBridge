@@ -52,9 +52,7 @@ session_close({})
 ## 工具分组
 
 - 发现：`kimodo_help`。
-- Session：`session_open`、`session_close`、`query_current_session`、`session_try_add`、`session_analyze_transitions`、`session_try_remove`。
-
-Animator 过渡分析：`session_try_add({"kind":"animator",...})` 后保存返回的 `transition_analysis`；需要稍后读取时调用 `session_analyze_transitions`。这一步只是规划：扫描当前支持的直接 State 过渡，将源/目标 BlendTree 叶节点展开为 Clip 候选，并报告笛卡尔积案例数。`has_exit_time:true` 使用 Exit Time 边界；`has_exit_time:false` 预留源动画边缘四个关键帧案例。不要把这些变体报告为已生成或已录制；导入不会物化它们。
+- Session：`session_open`、`session_close`、`query_current_session`、`session_try_add`、`session_try_remove`。
 - Pose/约束：`pose_create`、`pose_get`、`pose_set`、`pose_copy`、`kimodo_build_root2d_path`。
 - 动画：`kimodo_generate_animation`、`kimodo_get_generation`、`kimodo_cancel_generation`、`kimodo_analyze`、`query_picture`、`kimodo_bake_range`。
 - Debug 维护：`kimodo_debug_install_server`；只在明确诊断本地 QuickServer 安装时使用。

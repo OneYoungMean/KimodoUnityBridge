@@ -315,18 +315,6 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(imported["animations"], Has.Count.EqualTo(3));
             Assert.That(imported["transitions"], Is.Empty);
             Assert.That(imported["skipped"].Values<string>("kind"), Does.Contain("blend_tree_transition"));
-            Assert.That(imported["transition_analysis"], Has.Count.EqualTo(1));
-            JObject plan = (JObject)imported["transition_analysis"][0];
-            Assert.That(plan.Value<string>("from_motion"), Is.EqualTo("blend_tree"));
-            Assert.That(plan.Value<string>("to_motion"), Is.EqualTo("clip"));
-            Assert.That(plan.Value<long>("candidate_case_count"), Is.EqualTo(2));
-            JObject analysis = Invoke(command_session.AnalyzeTransitionsCommand, new JObject
-            {
-                ["character"] = safeName,
-                ["animator"] = imported.Value<string>("animator")
-            });
-            Assert.That(analysis.Value<bool>("ok"), Is.True, analysis.ToString());
-            Assert.That(analysis["animators"][0]["transitions"], Has.Count.EqualTo(1));
             Assert.That(QueryAnimations(safeName), Has.Length.GreaterThanOrEqualTo(3));
         }
 

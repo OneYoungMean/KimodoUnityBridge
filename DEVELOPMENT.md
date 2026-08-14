@@ -20,13 +20,13 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 | --- | --- |
 | 发现 | `kimodo_help` |
 | Runtime 诊断 | `kimodo_debug_install_server` |
-| Session | `session_open`, `session_close`, `query_current_session`, `session_try_add`, `session_analyze_transitions`, `session_try_remove` |
+| Session | `session_open`, `session_close`, `query_current_session`, `session_try_add`, `session_try_remove` |
 | 生成与任务 | `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation` |
 | 分析与图片 | `kimodo_analyze`, `query_picture` |
 | Pose | `pose_create`, `pose_get`, `pose_set`, `pose_copy` |
 | Record、Bake、Retarget 与路径 | `kimodo_record_range`, `kimodo_bake_range`, `kimodo_retarget_animation`, `kimodo_build_root2d_path` |
 
-合计：21 个 command。每次开发以 `GetCommandDefinitionsJson()` 和 `kimodo_help` 的实际返回为准。
+合计：18 个 command。每次开发以 `GetCommandDefinitionsJson()` 和 `kimodo_help` 的实际返回为准。
 
 ## 能力覆盖矩阵
 
@@ -39,7 +39,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 | Session 状态查询 | 查询角色、动画、约束和 Animator transition | `query_current_session` | 完整 | 支持 7 种 query |
 | 角色加入与移除 | 将场景 Humanoid Animator 加入/移出 Session | `session_try_add`, `session_try_remove` | 完整 | 使用安全名称或场景路径 |
 | AnimationClip 加入与移除 | 将项目 Clip 加入角色轨道并维护虚拟时间地址 | `session_try_add`, `session_try_remove` | 完整 | 非 Muscle Clip 会尝试 Retarget |
-| AnimatorController 导入 | 展开 State/Clip，记录过渡分析计划，并 Bake 确定性 Clip-to-Clip transition | `session_try_add(kind:"animator")`, `session_analyze_transitions` | 部分 | 仅建立 BlendTree/Exit Time 候选清单，不物化分支；Timeline 摆放由外部工具完成 |
+| AnimatorController 导入 | 展开 State/Clip，并 Bake 确定性 Clip-to-Clip transition | `session_try_add(kind:"animator")` | 部分 | BlendTree 分支选择和 Timeline 摆放由外部工具完成 |
 | 单段动画生成 | 创建 `KimodoPlayableClip`、生成、写入资产并加入 Session | `kimodo_generate_animation` | 完整 | 支持模型、seed、steps、输出模式、约束和 analysis option |
 | 生成进度、范围锁与取消 | 按 `request_id` 查询终态或取消任务；同角色 Track 的重叠采样/删除立即返回 `generation_range_locked` | `kimodo_get_generation`, `kimodo_cancel_generation` | 完整 | accepted/running 不算完成；不阻塞 Unity 主线程 |
 | 多片段连接生成 | Timeline Inspector 可对同一轨道选中的多个 Clips 一次连接生成 | 无 | 未覆盖 | 没有多片段 command/schema |

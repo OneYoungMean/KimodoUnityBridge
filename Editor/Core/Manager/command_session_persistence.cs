@@ -1,4 +1,3 @@
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -57,7 +56,6 @@ namespace CharacterAnimationCli.Unity.Command
         public string characterRef;
         public string sourceAnimatorRef;
         public string name;
-        public string transitionAnalysisJson;
     }
 
     internal static partial class command_context
@@ -92,8 +90,7 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     characterRef = character.CharacterRef,
                     sourceAnimatorRef = imported.SourceAnimatorRef,
-                    name = imported.Name,
-                    transitionAnalysisJson = imported.TransitionAnalysis.ToString(Formatting.None)
+                    name = imported.Name
                 })).ToList();
             foreach (TimelineCharacterRecord character in session.Characters)
             foreach (TimelineAnimationRecord animation in character.Animations)
@@ -185,20 +182,7 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
                         string.Equals(item.CharacterRef, imported.characterRef, StringComparison.Ordinal));
-                    if (character != null)
-                    {
-                        var restoredImport = new AnimatorImportRecord(imported.sourceAnimatorRef, imported.name);
-                        if (!string.IsNullOrWhiteSpace(imported.transitionAnalysisJson))
-                        {
-                            try
-                            {
-                                JArray plans = JArray.Parse(imported.transitionAnalysisJson);
-                                foreach (JToken plan in plans) restoredImport.TransitionAnalysis.Add(plan.DeepClone());
-                            }
-                            catch (Exception) { /* stale metadata is ignored; the Animator can be re-imported. */ }
-                        }
-                        character.AnimatorImports.Add(restoredImport);
-                    }
+                    if (character != null) character.AnimatorImports.Add(new AnimatorImportRecord(imported.sourceAnimatorRef, imported.name));
                 }
                 foreach (KimodoCommandAnimationMetadata saved in metadata.animations ?? new List<KimodoCommandAnimationMetadata>())
                 {
