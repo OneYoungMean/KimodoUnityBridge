@@ -429,7 +429,7 @@ namespace KimodoBridge.Editor
                     deferConstraintNormalization: true,
                     enableAutoBeginAnchor: i == 0,
                     timelineClipOverride: entry.TimelineClip);
-                AppendConnectedBoundarySamples(entry, i, entries.Count);
+                AppendConnectedBoundarySamples(entry, i, entries.Count, profile);
                 entry.Request.Progress = PrefixProgress(progress, i, entries.Count);
                 if (string.IsNullOrWhiteSpace(entry.Request.Prompt))
                 {
@@ -540,7 +540,8 @@ namespace KimodoBridge.Editor
         private static void AppendConnectedBoundarySamples(
             ConnectedClipEntry entry,
             int index,
-            int count)
+            int count,
+            KimodoMotionModelProfile profile)
         {
             KimodoPlayableClip clip = entry.Clip;
             if (clip == null || clip.inOutConstraintMode == KimodoInOutConstraintMode.None)
@@ -601,7 +602,24 @@ namespace KimodoBridge.Editor
             }
             if (endSample != null)
             {
-                entry.Request.ConstraintSamples.Add(endSample);
+                if (profile.IsArdy)
+                {
+                    if (!ArdyMarkerClipConstraintEncoder.TryConvert(
+                            new[] { endSample },
+                            profile,
+                            entry.Request.Constraints.clips,
+                            out List<KimodoMarkerSampleResult> root2dSamples,
+                            out string conversionError,
+                            entry.Request.Token))
+                    {
+                        throw new InvalidOperationException($"Build connected ARDY clip constraints failed: {conversionError}");
+                    }
+                    entry.Request.ConstraintSamples.AddRange(root2dSamples);
+                }
+                else
+                {
+                    entry.Request.ConstraintSamples.Add(endSample);
+                }
             }
         }
 

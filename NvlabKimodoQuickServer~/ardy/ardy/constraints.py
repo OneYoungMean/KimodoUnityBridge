@@ -29,6 +29,20 @@ def compute_global_heading(global_joints_positions: Tensor, skeleton: SkeletonBa
     return global_root_heading
 
 
+def validate_constraint_joint_count(skeleton: SkeletonBase, dico: dict) -> None:
+    rotations = dico.get("local_joints_rot")
+    if not isinstance(rotations, (list, tuple)):
+        raise ValueError("Constraint local_joints_rot must be an array.")
+    expected = skeleton.nbjoints
+    for frame, joints in enumerate(rotations):
+        if not isinstance(joints, (list, tuple)) or len(joints) != expected:
+            received = len(joints) if isinstance(joints, (list, tuple)) else 0
+            raise ValueError(
+                f"ARDY constraint joint count mismatch: model {skeleton.name} requires {expected} joints, "
+                f"received {received} at frame {frame}. Send a profile-skeleton KMB ClipConstraint."
+            )
+
+
 class Root2DConstraintSet:
     name = "root2d"
 
@@ -213,6 +227,7 @@ class FullBodyConstraintSet:
 
     @classmethod
     def from_dict(cls, skeleton: SkeletonBase, dico: dict):
+        validate_constraint_joint_count(skeleton, dico)
         frame_indices = torch.tensor(dico["frame_indices"])
         device = skeleton.device
         global_joints_rots, global_joints_positions, _ = skeleton.fk(
@@ -374,6 +389,7 @@ class EndEffectorConstraintSet:
 
     @classmethod
     def from_dict(cls, skeleton: SkeletonBase, dico: dict):
+        validate_constraint_joint_count(skeleton, dico)
         frame_indices = torch.tensor(dico["frame_indices"])
         device = skeleton.device
         global_joints_rots, global_joints_positions, _ = skeleton.fk(

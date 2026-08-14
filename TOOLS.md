@@ -5,7 +5,7 @@ This is machine-facing operational context, not a human tutorial. The English se
 Current versions / 当前版本：
 
 - Unity package: `3.0.0` / Unity 包：`3.0.0`
-- QuickServer: `2.2.6` — project-local Kimodo and ARDY generation runtime with representative non-root pose analysis. / QuickServer：`2.2.6`——带代表性非 Root 姿势分析的项目级 Kimodo 与 ARDY 生成运行时。
+- QuickServer: `2.2.7` — project-local Kimodo and ARDY generation runtime with representative non-root pose analysis. / QuickServer：`2.2.7`——带代表性非 Root 姿势分析的项目级 Kimodo 与 ARDY 生成运行时。
 
 ## English
 

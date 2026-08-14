@@ -356,9 +356,27 @@ namespace KimodoUnityBridge.Command
                 ? KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(sample.localAxisAngles[0])
                 : Quaternion.identity;
             var muscles = new JObject();
+            var groupedMuscles = new Dictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < HumanTrait.MuscleCount; i++)
             {
-                muscles[HumanTrait.MuscleName[i]] = i < (sample.muscles?.Count ?? 0) ? sample.muscles[i] : 0f;
+                float value = i < (sample.muscles?.Count ?? 0) ? sample.muscles[i] : 0f;
+                if (TryResolveMuscleGroupAndAxis(HumanTrait.MuscleName[i], out string group, out string axis))
+                {
+                    if (!groupedMuscles.TryGetValue(group, out JObject values))
+                    {
+                        values = new JObject();
+                        groupedMuscles[group] = values;
+                    }
+                    values[axis] = value;
+                }
+                else
+                {
+                    muscles[HumanTrait.MuscleName[i]] = value;
+                }
+            }
+            foreach (KeyValuePair<string, JObject> group in groupedMuscles)
+            {
+                muscles[group.Key] = group.Value;
             }
             return new JObject
             {
@@ -380,23 +398,19 @@ namespace KimodoUnityBridge.Command
         private static void ApplyPoseJson(KimodoMarkerSampleResult sample, JObject data)
         {
             JObject root = data["root"] as JObject;
-            if (root == null)
-            {
-                return;
-            }
-            if (root["position"] != null || root["rotation_y"] != null)
+            if (root != null && (root["position"] != null || root["rotation_y"] != null))
             {
                 throw new InvalidOperationException("root.position/root.rotation_y were removed; use root.forwardPos, root.rightwardPos, and root.rotateY.");
             }
-            if (root["forwardPos"] != null)
+            if (root != null && root["forwardPos"] != null)
             {
                 sample.kimodoRootPosition.z = RequiredFiniteScalar(root, "forwardPos");
             }
-            if (root["rightwardPos"] != null)
+            if (root != null && root["rightwardPos"] != null)
             {
                 sample.kimodoRootPosition.x = RequiredFiniteScalar(root, "rightwardPos");
             }
-            if (root["rotateY"] != null)
+            if (root != null && root["rotateY"] != null)
             {
                 float rotationY = RequiredFiniteScalar(root, "rotateY");
                 sample.localAxisAngles ??= new List<Vector3>();
@@ -416,7 +430,18 @@ namespace KimodoUnityBridge.Command
                 for (int i = 0; i < HumanTrait.MuscleCount; i++)
                 {
                     JToken token = muscles[HumanTrait.MuscleName[i]];
-                    if (token != null) sample.muscles[i] = Mathf.Clamp(token.Value<float>(), -1f, 1f);
+                    if (token != null && token.Type != JTokenType.Object)
+                    {
+                        sample.muscles[i] = Mathf.Clamp(token.Value<float>(), -1f, 1f);
+                        continue;
+                    }
+
+                    if (TryResolveMuscleGroupAndAxis(HumanTrait.MuscleName[i], out string group, out string axis) &&
+                        muscles[group] is JObject values &&
+                        values[axis] != null)
+                    {
+                        sample.muscles[i] = Mathf.Clamp(values[axis].Value<float>(), -1f, 1f);
+                    }
                 }
             }
             if (data["foot_ik"] is JObject foot)
@@ -424,6 +449,52 @@ namespace KimodoUnityBridge.Command
                 ApplyFoot(foot["left"] as JObject, ref sample.leftFootPosition, ref sample.leftFootRotation);
                 ApplyFoot(foot["right"] as JObject, ref sample.rightFootPosition, ref sample.rightFootRotation);
             }
+        }
+
+        private static bool TryResolveMuscleGroupAndAxis(
+            string muscleName,
+            out string group,
+            out string axis)
+        {
+            group = string.Empty;
+            axis = string.Empty;
+            if (string.IsNullOrWhiteSpace(muscleName))
+            {
+                return false;
+            }
+
+            string[,] suffixes =
+            {
+                { " Twist Left-Right", "z" },
+                { " Twist In-Out", "z" },
+                { " Nod Down-Up", "x" },
+                { " Tilt Left-Right", "y" },
+                { " Turn Left-Right", "z" },
+                { " Front-Back", "x" },
+                { " Left-Right", "y" },
+                { " In-Out", "y" },
+                { " Down-Up", "x" },
+                { " Up-Down", "x" },
+                { " Stretched", "x" },
+                { " Stretch", "x" },
+                { " Close", "x" },
+                { " Spread", "y" }
+            };
+
+            for (int i = 0; i < suffixes.GetLength(0); i++)
+            {
+                string suffix = suffixes[i, 0];
+                if (!muscleName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                group = muscleName.Substring(0, muscleName.Length - suffix.Length).TrimEnd();
+                axis = suffixes[i, 1];
+                return !string.IsNullOrWhiteSpace(group);
+            }
+
+            return false;
         }
 
         internal static float ResolvePoseRootYaw(Quaternion rotation)

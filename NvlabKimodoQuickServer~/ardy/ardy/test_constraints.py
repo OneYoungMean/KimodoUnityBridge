@@ -2,8 +2,8 @@ import unittest
 
 import torch
 
-from ardy.constraints import LeftHandConstraintSet
-from ardy.skeleton import SOMASkeleton77
+from ardy.constraints import LeftHandConstraintSet, load_constraints_lst
+from ardy.skeleton import CoreSkeleton27, SOMASkeleton77
 
 
 class EndEffectorTargetPositionTests(unittest.TestCase):
@@ -29,6 +29,18 @@ class EndEffectorTargetPositionTests(unittest.TestCase):
                 torch.tensor(target, dtype=constraint.global_joints_positions.dtype),
             )
         )
+
+
+class ConstraintValidationTests(unittest.TestCase):
+    def test_mismatched_joint_count_fails_before_fk(self):
+        payload = [{
+            "type": "fullbody",
+            "frame_indices": [0],
+            "local_joints_rot": [[[0.0, 0.0, 0.0]] * 77],
+            "root_positions": [[0.0, 0.0, 0.0]],
+        }]
+        with self.assertRaisesRegex(ValueError, "requires 27 joints, received 77"):
+            load_constraints_lst(payload, CoreSkeleton27(load=False))
 
 
 if __name__ == "__main__":

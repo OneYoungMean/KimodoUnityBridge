@@ -10,6 +10,22 @@ from kimodo.skeleton import SOMASkeleton77
 
 
 class EndEffectorTargetPositionTests(unittest.TestCase):
+    def test_crop_move_keeps_end_effector_indices_on_frame_device(self):
+        skeleton = SOMASkeleton77(load=False)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        joints = torch.zeros(1, skeleton.nbjoints, 3, device=device)
+        rotations = torch.eye(3, device=device).repeat(1, skeleton.nbjoints, 1, 1)
+        constraint = LeftHandConstraintSet(
+            skeleton,
+            frame_indices=torch.tensor([0], device=device),
+            global_joints_positions=joints,
+            global_joints_rots=rotations,
+            smooth_root_2d=torch.zeros(1, 2, device=device),
+        ).crop_move(0, 1)
+
+        self.assertEqual(constraint.pos_indices.device, constraint.frame_indices.device)
+        self.assertEqual(constraint.rot_indices.device, constraint.frame_indices.device)
+
     def test_direct_target_position_overrides_fk_hand_position(self):
         skeleton = SOMASkeleton77()
         target = [1.25, 2.5, -0.75]

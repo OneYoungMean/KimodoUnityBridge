@@ -194,6 +194,32 @@ namespace KimodoBridge.Editor
                     (externalConstraint?.Enabled != true || externalConstraint.IncludeTimelineConstraints),
                 enableClipConstraintOverride,
                 token);
+            if (isArdy && constraintSamples.Count > 0)
+            {
+                if (!ArdyMarkerClipConstraintEncoder.TryConvert(
+                        constraintSamples,
+                        ardyProfile,
+                        clipConstraints,
+                        out List<KimodoMarkerSampleResult> root2dSamples,
+                        out string conversionError,
+                        token))
+                {
+                    throw new InvalidOperationException(conversionError);
+                }
+
+                constraintSamples = root2dSamples;
+                constraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
+                    constraintSamples,
+                    0.0,
+                    runtimeLengthSeconds,
+                    ardyProfile.SourceFps,
+                    denseRootPath);
+                hasSyntheticAutoBeginConstraint = false;
+            }
+            if (isArdy)
+            {
+                ValidateArdyJsonConstraints(constraintsJson, ardyProfile);
+            }
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             return new KimodoEditorGenerateRequest
             {
@@ -258,6 +284,57 @@ namespace KimodoBridge.Editor
                 (externalConstraint?.Enabled != true || externalConstraint.IncludeTimelineConstraints) &&
                 clip.inOutConstraintMode == KimodoInOutConstraintMode.Outside &&
                 clip.enableInConstraint;
+        }
+
+        private static void ValidateArdyJsonConstraints(
+            string constraintsJson,
+            KimodoMotionModelProfile profile)
+        {
+            if (string.IsNullOrWhiteSpace(constraintsJson))
+            {
+                return;
+            }
+
+            JToken parsed;
+            try
+            {
+                parsed = JToken.Parse(constraintsJson);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException($"ARDY constraints JSON is invalid: {exception.Message}", exception);
+            }
+
+            if (!(parsed is JArray constraints))
+            {
+                throw new InvalidOperationException("ARDY constraints JSON must be an array.");
+            }
+
+            foreach (JToken item in constraints)
+            {
+                if (!(item is JObject constraint))
+                {
+                    continue;
+                }
+
+                JToken rotations = constraint["local_joints_rot"];
+                if (!(rotations is JArray frames))
+                {
+                    continue;
+                }
+
+                for (int frame = 0; frame < frames.Count; frame++)
+                {
+                    if (!(frames[frame] is JArray joints) || joints.Count != profile.JointCount)
+                    {
+                        int received = frames[frame] is JArray array ? array.Count : 0;
+                        string type = constraint.Value<string>("type") ?? "unknown";
+                        throw new InvalidOperationException(
+                            $"ARDY raw JSON constraint '{type}' has {received} joints at frame {frame}; " +
+                            $"model {profile.ModelName} requires {profile.JointCount}. Provide ConstraintSamples so Unity can retarget them to a profile-skeleton KMB ClipConstraint.");
+                    }
+                }
+            }
         }
 
         public static void FinalizeGeneration(
