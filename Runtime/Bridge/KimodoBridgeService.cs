@@ -71,12 +71,15 @@ namespace KimodoBridge
                 LazyThreadSafetyMode.ExecutionAndPublication);
         private static readonly Lazy<KimodoBridgeService> SharedInstance =
             new Lazy<KimodoBridgeService>(() => new KimodoBridgeService(true), LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly object LogPumpLock = new object();
+        private static readonly Dictionary<string, List<ActiveLogPump>> SharedLogPumps =
+            new Dictionary<string, List<ActiveLogPump>>(StringComparer.OrdinalIgnoreCase);
+        private static SynchronizationContext sharedLogPumpContext;
 
         private readonly BridgeProtocolClient protocolClient;
         private readonly BridgeProcessManager processManager;
         private readonly SemaphoreSlim lifecycleGate = new SemaphoreSlim(1, 1);
         private readonly SynchronizationContext creationContext;
-        private readonly List<ActiveLogPump> logPumps = new List<ActiveLogPump>(4);
         private readonly bool isDefaultSession;
 
         private string currentHost = DefaultHost;
@@ -412,7 +415,7 @@ namespace KimodoBridge
                 if (isDefaultSession)
                 {
                     await DetachOwnedConnectionsAsync().ConfigureAwait(false);
-                    await StopLogPumpsAsync(token).ConfigureAwait(false);
+                    await StopLogPumpsAsync(currentRuntimeRoot, token).ConfigureAwait(false);
                     if (hasEndpoint)
                     {
                         await BridgeProcessManager.WaitUntilStoppedAsync(
@@ -460,8 +463,9 @@ namespace KimodoBridge
 
                 if (isDefaultSession)
                 {
-                    await StopLogPumpsAsync(token).ConfigureAwait(false);
+                    await StopLogPumpsAsync(currentRuntimeRoot, token).ConfigureAwait(false);
                 }
+                StartLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
 
                 if (TryReadRuntimeEndpoint(context.RuntimeRoot, out string host, out int port))
                 {
@@ -473,8 +477,7 @@ namespace KimodoBridge
                     if (probe1 == ExistingServerProbeResult.Compatible)
                     {
                         await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
-                        StartLogPumpsIfNeeded();
-                        StartRuntimeLogPumpsIfNeeded();
+                        StartRuntimeLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
                         ReportProgress(progress, $"Bridge attached to {host}:{port}.");
                         return;
                     }
@@ -505,7 +508,6 @@ namespace KimodoBridge
                     ReportProgress(progress, "Bridge process already exists. Waiting for QuickServer...");
                 }
 
-                StartLogPumpsIfNeeded();
                 ReportProgress(progress, "Waiting for QuickServer...");
 
                 await processManager.WaitUntilReadyAsync(
@@ -538,7 +540,7 @@ namespace KimodoBridge
                     throw new InvalidOperationException("QuickServer started but failed its health probe.");
                 }
                 await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
-                StartRuntimeLogPumpsIfNeeded();
+                StartRuntimeLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
                 ReportProgress(progress, $"Bridge attached to {host}:{port}.");
             }
             finally
@@ -830,44 +832,49 @@ namespace KimodoBridge
             return header;
         }
 
-        private void StartLogPumpsIfNeeded()
+        private static void StartLogPumpsIfNeeded(string runtimeRoot, SynchronizationContext logContext)
         {
-            if (!isDefaultSession)
+            if (string.IsNullOrWhiteSpace(runtimeRoot))
             {
                 return;
             }
-            if (string.IsNullOrWhiteSpace(currentRuntimeRoot))
+            string root = NormalizePathOrEmpty(runtimeRoot);
+            if (string.IsNullOrWhiteSpace(root)) return;
+            lock (LogPumpLock)
             {
-                return;
+                if (sharedLogPumpContext == null && logContext != null)
+                {
+                    sharedLogPumpContext = logContext;
+                }
+                if (!SharedLogPumps.TryGetValue(root, out List<ActiveLogPump> pumps))
+                {
+                    pumps = new List<ActiveLogPump>(5);
+                    SharedLogPumps[root] = pumps;
+                }
+                StartLogPumpForPath(pumps, Path.Combine(root, "log", "bridge_message.log"), "[BridgeMessage]",
+                    BridgeRuntimeDefaults.LogPumpWaitFileTimeoutMs * 3,
+                    BridgeRuntimeDefaults.LogPumpMissingFilePollMinMs,
+                    BridgeRuntimeDefaults.LogPumpMissingFilePollMinMs);
+                StartLogPumpForPath(pumps, Path.Combine(root, "log", "run_server.log"), "[RunServer]");
+                StartLogPumpForPath(pumps, Path.Combine(root, "log", "setup.log"), "[Setup]");
             }
-
-            if (logPumps.Count > 0)
-            {
-                return;
-            }
-
-            StartLogPumpForPath(
-                Path.Combine(currentRuntimeRoot, "log", "bridge_message.log"),
-                "[BridgeMessage]",
-                BridgeRuntimeDefaults.LogPumpWaitFileTimeoutMs * 3,
-                BridgeRuntimeDefaults.LogPumpMissingFilePollMinMs,
-                BridgeRuntimeDefaults.LogPumpMissingFilePollMinMs);
-            StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "run_server.log"), "[RunServer]");
-            StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "setup.log"), "[Setup]");
         }
 
-        private void StartRuntimeLogPumpsIfNeeded()
+        private static void StartRuntimeLogPumpsIfNeeded(string runtimeRoot, SynchronizationContext logContext)
         {
-            if (!isDefaultSession || string.IsNullOrWhiteSpace(currentRuntimeRoot))
+            StartLogPumpsIfNeeded(runtimeRoot, logContext);
+            string root = NormalizePathOrEmpty(runtimeRoot);
+            if (string.IsNullOrWhiteSpace(root)) return;
+            lock (LogPumpLock)
             {
-                return;
+                if (!SharedLogPumps.TryGetValue(root, out List<ActiveLogPump> pumps)) return;
+                StartLogPumpForPath(pumps, Path.Combine(root, "log", "bridge_server.log"), "[BridgeServer]");
+                StartLogPumpForPath(pumps, BridgeEndpointResolver.ResolveAttachLogPath(root), "[Bridge]");
             }
-
-            StartLogPumpForPath(Path.Combine(currentRuntimeRoot, "log", "bridge_server.log"), "[BridgeServer]");
-            StartLogPumpForPath(BridgeEndpointResolver.ResolveAttachLogPath(currentRuntimeRoot), "[Bridge]");
         }
 
-        private void StartLogPumpForPath(
+        private static void StartLogPumpForPath(
+            List<ActiveLogPump> pumps,
             string logPath,
             string tag,
             int? waitFileTimeoutMsOverride = null,
@@ -885,37 +892,39 @@ namespace KimodoBridge
                 return;
             }
 
-            for (int i = 0; i < logPumps.Count; i++)
+            for (int i = 0; i < pumps.Count; i++)
             {
-                if (string.Equals(logPumps[i].Path, normalizedPath, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(pumps[i].Path, normalizedPath, StringComparison.OrdinalIgnoreCase))
                 {
                     return;
                 }
             }
 
             var pump = new BridgeLogPump();
-            logPumps.Add(new ActiveLogPump
+            pumps.Add(new ActiveLogPump
             {
                 Path = normalizedPath,
                 Pump = pump
             });
             pump.Start(
                 normalizedPath,
-                line => OnLogLine($"{tag} {line}"),
+                line => EmitSharedLogLine($"{tag} {line}"),
                 waitFileTimeoutMsOverride,
                 missingFilePollMinMsOverride,
                 missingFilePollMaxMsOverride);
         }
 
-        private async Task StopLogPumpsAsync(CancellationToken token)
+        private static async Task StopLogPumpsAsync(string runtimeRoot, CancellationToken token)
         {
-            if (logPumps.Count == 0)
+            string root = NormalizePathOrEmpty(runtimeRoot);
+            if (string.IsNullOrWhiteSpace(root)) return;
+            ActiveLogPump[] pumps;
+            lock (LogPumpLock)
             {
-                return;
+                if (!SharedLogPumps.TryGetValue(root, out List<ActiveLogPump> active)) return;
+                pumps = active.ToArray();
+                SharedLogPumps.Remove(root);
             }
-
-            ActiveLogPump[] pumps = logPumps.ToArray();
-            logPumps.Clear();
 
             for (int i = 0; i < pumps.Length; i++)
             {
@@ -934,14 +943,24 @@ namespace KimodoBridge
             }
         }
 
-        private void OnLogLine(string message)
+        private static void EmitSharedLogLine(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
             {
                 return;
             }
 
-            EmitDebugLog(message);
+            SynchronizationContext context;
+            lock (LogPumpLock)
+            {
+                context = sharedLogPumpContext;
+            }
+            if (context != null)
+            {
+                context.Post(_ => Debug.Log(message), null);
+                return;
+            }
+            Debug.Log(message);
         }
 
         private static void SafeInvokeProgress(Action<string> callback, string message)
