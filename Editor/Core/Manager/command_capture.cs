@@ -154,7 +154,7 @@ namespace CharacterAnimationCli.Unity.Command
                     }
                 }
                 if (requests.Count == 0) throw new InvalidOperationException("The selected capture source contains no poses.");
-                JObject result = RenderContactSheet(session, requests, arguments);
+                JObject result = RenderMotionEvidence(session, requests, arguments);
                 if (arguments["analysis_id"] != null) result["analysis_id"] = arguments.Value<string>("analysis_id");
                 return Ok(result);
             });
@@ -237,7 +237,7 @@ namespace CharacterAnimationCli.Unity.Command
             return id;
         }
 
-        private static JObject RenderContactSheet(
+        private static JObject RenderMotionEvidence(
             TimelineSessionRecord session,
             IReadOnlyList<CaptureRequest> requests,
             JObject arguments)
@@ -248,25 +248,22 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new InvalidOperationException("scale must be between 0.25 and 4.0.");
             }
-            int cellSize = resolution / 2;
-            var sheet = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false);
-            Color background = new Color(0.12f, 0.12f, 0.12f, 1f);
-            Color[] clear = Enumerable.Repeat(background, resolution * resolution).ToArray();
-            sheet.SetPixels(clear);
+            List<CaptureRequest> selected = SelectEvidenceRequests(requests, 5);
             double originalTime = session.Director.time;
             var metadata = new JArray();
-            var previews = new List<GameObject>(requests.Count);
+            var previews = new List<GameObject>(selected.Count);
+            var environment = new List<GameObject>();
+            var images = new JArray();
             try
             {
-                for (int index = 0; index < requests.Count; index++)
+                for (int index = 0; index < selected.Count; index++)
                 {
-                    CaptureRequest request = requests[index];
+                    CaptureRequest request = selected[index];
                     KimodoMarkerSampleResult pose = request.PoseData?.Clone() ?? SampleCapturePose(request);
                     previews.Add(CreatePosePreview(request.Character, pose, request.Root2DOnly));
-                    string label = (index + 1).ToString(CultureInfo.InvariantCulture);
                     var item = new JObject
                     {
-                        ["label"] = label,
+                        ["index"] = index,
                         ["character"] = request.Character.Name,
                         ["frame"] = request.Frame >= 0
                             ? request.Frame
@@ -279,33 +276,55 @@ namespace CharacterAnimationCli.Unity.Command
                     metadata.Add(item);
                 }
 
-                Bounds bounds = CalculateBounds(previews);
-                Vector3[] directions = { Vector3.right, Vector3.up, Vector3.back, new Vector3(1f, 0.65f, -1f).normalized };
-                for (int index = 0; index < directions.Length; index++)
+                Bounds motionBounds = CalculateMotionBounds(previews, CalculateBounds(previews));
+                CreateEvidenceEnvironment(environment, motionBounds, previews);
+                Directory.CreateDirectory(CommandCacheFolder);
+                (string kind, Vector3 direction)[] views =
                 {
-                    Texture2D image = CapturePreviewView(previews, bounds, directions[index], cellSize, scale);
-                    int x = index % 2 * cellSize;
-                    int y = (1 - index / 2) * cellSize;
-                    sheet.SetPixels(x, y, cellSize, cellSize, image.GetPixels());
+                    ("motion_overlay_front", Vector3.forward),
+                    ("motion_overlay_back", Vector3.back),
+                    ("motion_overlay_left", Vector3.left),
+                    ("motion_overlay_right", Vector3.right)
+                };
+                foreach (var view in views)
+                {
+                    Texture2D image = RenderGhostComposite(
+                        previews, environment, motionBounds, view.direction, resolution, scale,
+                        orthographic: true, renderPoses: true);
+                    images.Add(WriteEvidenceImage(view.kind, image));
                     UnityEngine.Object.DestroyImmediate(image);
                 }
-                sheet.Apply(false, false);
-                Directory.CreateDirectory(CommandCacheFolder);
-                string path = Path.Combine(CommandCacheFolder, $"contact_sheet_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.png");
-                File.WriteAllBytes(path, sheet.EncodeToPNG());
+
+                for (int index = 1; index <= 3; index++)
+                {
+                    Texture2D image = RenderSinglePose(
+                        previews, environment, index, CalculateBounds(previews[index]), resolution, scale);
+                    images.Add(WriteEvidenceImage("key_pose_" + index.ToString(CultureInfo.InvariantCulture), image));
+                    UnityEngine.Object.DestroyImmediate(image);
+                }
+
+                Texture2D trajectory = RenderGhostComposite(
+                    previews, environment, motionBounds, new Vector3(1f, .75f, -1f).normalized,
+                    resolution, scale, orthographic: false, renderPoses: false);
+                images.Add(WriteEvidenceImage("trajectory_3d", trajectory));
+                UnityEngine.Object.DestroyImmediate(trajectory);
+
                 return new JObject
                 {
-                    ["image_path"] = path.Replace('\\', '/'),
+                    ["image_path"] = ((JObject)images[images.Count - 1])["path"],
+                    ["format"] = "motion_evidence_v2",
+                    ["images"] = images,
                     ["resolution"] = new JArray(resolution, resolution),
-                    ["views"] = new JArray("right", "top", "front", "3d"),
-                    ["grid"] = new JArray(2, 2),
-                    ["cell_size"] = cellSize,
                     ["scale"] = scale,
                     ["frames"] = metadata
                 };
             }
             finally
             {
+                foreach (GameObject item in environment)
+                {
+                    if (item != null) UnityEngine.Object.DestroyImmediate(item);
+                }
                 foreach (GameObject preview in previews)
                 {
                     if (preview != null) UnityEngine.Object.DestroyImmediate(preview);
@@ -313,8 +332,27 @@ namespace CharacterAnimationCli.Unity.Command
                 session.Director.time = originalTime;
                 session.Director.Evaluate();
                 TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
-                UnityEngine.Object.DestroyImmediate(sheet);
             }
+        }
+
+        private static List<CaptureRequest> SelectEvidenceRequests(
+            IReadOnlyList<CaptureRequest> requests,
+            int count)
+        {
+            var result = new List<CaptureRequest>(count);
+            for (int index = 0; index < count; index++)
+            {
+                result.Add(requests[Mathf.RoundToInt(index * (requests.Count - 1f) / (count - 1f))]);
+            }
+            return result;
+        }
+
+        private static JObject WriteEvidenceImage(string kind, Texture2D image)
+        {
+            string path = Path.Combine(CommandCacheFolder,
+                $"picture_{kind}_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.png");
+            File.WriteAllBytes(path, image.EncodeToPNG());
+            return new JObject { ["kind"] = kind, ["path"] = path.Replace('\\', '/') };
         }
 
         private static KimodoMarkerSampleResult SampleCapturePose(CaptureRequest request)
@@ -357,61 +395,272 @@ namespace CharacterAnimationCli.Unity.Command
             return preview;
         }
 
-        private static Texture2D CapturePreviewView(
-            IReadOnlyList<GameObject> previews,
-            Bounds bounds,
-            Vector3 direction,
-            int size,
-            float scale)
-        {
-            const int captureLayer = 31;
-            GameObject cameraObject = new GameObject("Kimodo Pose Preview Camera") { hideFlags = HideFlags.HideAndDontSave };
-            RenderTexture renderTexture = null;
-            RenderTexture previous = RenderTexture.active;
-            try
-            {
-                Camera camera = cameraObject.AddComponent<Camera>();
-                camera.cullingMask = 1 << captureLayer;
-                camera.orthographic = true;
-                camera.orthographicSize = Mathf.Max(0.25f, bounds.extents.magnitude * 1.15f / scale);
-                camera.nearClipPlane = 0.01f;
-                camera.farClipPlane = Mathf.Max(10f, bounds.extents.magnitude * 6f);
-                camera.clearFlags = CameraClearFlags.SolidColor;
-                camera.backgroundColor = new Color(0.18f, 0.18f, 0.18f, 1f);
-                camera.transform.position = bounds.center + direction * Mathf.Max(5f, bounds.extents.magnitude * 3f);
-                camera.transform.LookAt(bounds.center, direction == Vector3.up ? Vector3.forward : Vector3.up);
-                renderTexture = RenderTexture.GetTemporary(size, size, 24, RenderTextureFormat.ARGB32);
-                camera.targetTexture = renderTexture;
-                camera.Render();
-                RenderTexture.active = renderTexture;
-                var result = new Texture2D(size, size, TextureFormat.RGBA32, false);
-                result.ReadPixels(new Rect(0, 0, size, size), 0, 0);
-                for (int index = 1; index < previews.Count; index++)
-                {
-                    Vector3 from = camera.WorldToScreenPoint(PreviewRootPosition(previews[index - 1]));
-                    Vector3 to = camera.WorldToScreenPoint(PreviewRootPosition(previews[index]));
-                    DrawLine(result, Mathf.RoundToInt(from.x), Mathf.RoundToInt(from.y), Mathf.RoundToInt(to.x), Mathf.RoundToInt(to.y), new Color(0.1f, 0.85f, 1f, 1f));
-                }
-                for (int index = 0; index < previews.Count; index++)
-                {
-                    Vector3 point = camera.WorldToScreenPoint(PreviewRootPosition(previews[index]));
-                    DrawGridLabel(result, Mathf.RoundToInt(point.x) + 12, Mathf.RoundToInt(point.y) - 4, (index + 1).ToString(CultureInfo.InvariantCulture));
-                }
-                result.Apply(false, false);
-                return result;
-            }
-            finally
-            {
-                RenderTexture.active = previous;
-                if (renderTexture != null) RenderTexture.ReleaseTemporary(renderTexture);
-                UnityEngine.Object.DestroyImmediate(cameraObject);
-            }
-        }
-
         private static Vector3 PreviewRootPosition(GameObject preview)
         {
             Animator animator = preview.GetComponentInChildren<Animator>(true);
             return animator != null ? animator.transform.position : preview.transform.position;
+        }
+
+        private static Bounds CalculateMotionBounds(IReadOnlyList<GameObject> previews, Bounds characterBounds)
+        {
+            Bounds result = characterBounds;
+            foreach (GameObject preview in previews) result.Encapsulate(PreviewRootPosition(preview));
+            result.Expand(new Vector3(6f, 1f, 6f));
+            if (result.size.x < 6f) result.Expand(new Vector3(6f - result.size.x, 0f, 0f));
+            if (result.size.z < 6f) result.Expand(new Vector3(0f, 0f, 6f - result.size.z));
+            return result;
+        }
+
+        private static void CreateEvidenceEnvironment(
+            List<GameObject> objects,
+            Bounds bounds,
+            IReadOnlyList<GameObject> previews)
+        {
+            const int captureLayer = 31;
+            float size = Mathf.Ceil(Mathf.Max(bounds.size.x, bounds.size.z) * .5f) * 2f;
+            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            floor.name = "Kimodo Evidence Floor";
+            floor.hideFlags = HideFlags.HideAndDontSave;
+            floor.transform.position = new Vector3(bounds.center.x, 0f, bounds.center.z);
+            floor.transform.localScale = Vector3.one * (size / 10f);
+            SetLayerRecursively(floor, captureLayer);
+            floor.GetComponent<Renderer>().sharedMaterial = MakeMaterial(new Color(.31f, .31f, .31f, 1f));
+            objects.Add(floor);
+            for (float x = bounds.min.x; x <= bounds.max.x; x += .25f)
+            {
+                CreateWorldLine(objects, new Vector3(x, .006f, bounds.min.z), new Vector3(x, .006f, bounds.max.z),
+                    Mathf.Abs(x % 1f) < .01f ? .010f : .003f, new Color(.65f, .65f, .65f, .25f));
+            }
+            for (float z = bounds.min.z; z <= bounds.max.z; z += .25f)
+            {
+                CreateWorldLine(objects, new Vector3(bounds.min.x, .006f, z), new Vector3(bounds.max.x, .006f, z),
+                    Mathf.Abs(z % 1f) < .01f ? .010f : .003f, new Color(.65f, .65f, .65f, .25f));
+            }
+            Vector3[] roots = previews.Select(PreviewRootPosition).ToArray();
+            CreateTrajectory(objects, roots, new Color(.1f, .85f, 1f, 1f), .045f, speedColor: false);
+            CreateMarker(objects, roots[0], Color.green);
+            CreateMarker(objects, roots[roots.Length - 1], Color.red);
+            CreateBoneTrajectories(objects, previews);
+            CreateEvidenceLights(objects, bounds.center);
+        }
+
+        private static void CreateEvidenceLights(List<GameObject> objects, Vector3 center)
+        {
+            foreach (var setup in new[]
+            {
+                (position: new Vector3(-4f, 6f, -4f), intensity: 1.1f),
+                (position: new Vector3(4f, 3f, -2f), intensity: .55f),
+                (position: new Vector3(0f, 5f, 5f), intensity: .35f)
+            })
+            {
+                GameObject lightObject = new GameObject("Kimodo Evidence Light") { hideFlags = HideFlags.HideAndDontSave };
+                Light light = lightObject.AddComponent<Light>();
+                light.type = LightType.Directional;
+                light.intensity = setup.intensity;
+                lightObject.transform.position = center + setup.position;
+                lightObject.transform.LookAt(center);
+                objects.Add(lightObject);
+            }
+        }
+
+        private static void CreateBoneTrajectories(List<GameObject> objects, IReadOnlyList<GameObject> previews)
+        {
+            HumanBodyBones[] bones =
+            {
+                HumanBodyBones.Hips,
+                HumanBodyBones.LeftHand,
+                HumanBodyBones.RightHand,
+                HumanBodyBones.LeftFoot,
+                HumanBodyBones.RightFoot
+            };
+            foreach (HumanBodyBones bone in bones)
+            {
+                Vector3[] points = previews.Select(preview =>
+                {
+                    Animator animator = preview.GetComponentInChildren<Animator>(true);
+                    Transform transform = animator != null ? animator.GetBoneTransform(bone) : null;
+                    return transform != null ? transform.position : PreviewRootPosition(preview);
+                }).ToArray();
+                CreateTrajectory(objects, points, Color.white, .025f, speedColor: true);
+            }
+        }
+
+        private static void CreateTrajectory(
+            List<GameObject> objects,
+            Vector3[] points,
+            Color color,
+            float width,
+            bool speedColor)
+        {
+            for (int index = 1; index < points.Length; index++)
+            {
+                float speed = (points[index] - points[index - 1]).magnitude;
+                Color segment = speedColor
+                    ? Color.Lerp(Color.red, Color.green, Mathf.Clamp01(speed / .4f))
+                    : color;
+                CreateWorldLine(objects, points[index - 1] + Vector3.up * .02f,
+                    points[index] + Vector3.up * .02f, width, segment);
+            }
+        }
+
+        private static void CreateWorldLine(List<GameObject> objects, Vector3 from, Vector3 to, float width, Color color)
+        {
+            GameObject lineObject = new GameObject("Kimodo Evidence Line") { hideFlags = HideFlags.HideAndDontSave };
+            SetLayerRecursively(lineObject, 31);
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.positionCount = 2;
+            line.SetPositions(new[] { from, to });
+            line.startWidth = line.endWidth = width;
+            line.useWorldSpace = true;
+            line.sharedMaterial = MakeMaterial(color);
+            line.startColor = line.endColor = color;
+            objects.Add(lineObject);
+        }
+
+        private static void CreateMarker(List<GameObject> objects, Vector3 point, Color color)
+        {
+            GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            marker.hideFlags = HideFlags.HideAndDontSave;
+            marker.transform.position = point + Vector3.up * .1f;
+            marker.transform.localScale = Vector3.one * .18f;
+            SetLayerRecursively(marker, 31);
+            marker.GetComponent<Renderer>().sharedMaterial = MakeMaterial(color);
+            objects.Add(marker);
+        }
+
+        private static Material MakeMaterial(Color color)
+        {
+            Shader shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
+            return new Material(shader) { hideFlags = HideFlags.HideAndDontSave, color = color };
+        }
+
+        private static void SetLayerRecursively(GameObject root, int layer)
+        {
+            foreach (Transform transform in root.GetComponentsInChildren<Transform>(true)) transform.gameObject.layer = layer;
+        }
+
+        private static Texture2D RenderGhostComposite(
+            IReadOnlyList<GameObject> previews,
+            IReadOnlyList<GameObject> environment,
+            Bounds bounds,
+            Vector3 direction,
+            int size,
+            float scale,
+            bool orthographic,
+            bool renderPoses)
+        {
+            Camera camera = CreateEvidenceCamera(bounds, direction, scale, orthographic);
+            try
+            {
+                foreach (GameObject preview in previews) preview.SetActive(false);
+                Texture2D result = RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
+                if (!renderPoses) return result;
+
+                SetEvidenceVisualsEnabled(environment, false);
+                float[] alpha = { .30f, .48f, .65f, .82f, 1f };
+                for (int index = 0; index < previews.Count; index++)
+                {
+                    previews[index].SetActive(true);
+                    Texture2D pose = RenderCamera(camera, size, new Color(0f, 0f, 0f, 0f));
+                    Composite(result, pose, alpha[index]);
+                    UnityEngine.Object.DestroyImmediate(pose);
+                    previews[index].SetActive(false);
+                }
+                return result;
+            }
+            finally
+            {
+                SetEvidenceVisualsEnabled(environment, true);
+                foreach (GameObject preview in previews) preview.SetActive(true);
+                UnityEngine.Object.DestroyImmediate(camera.gameObject);
+            }
+        }
+
+        private static Texture2D RenderSinglePose(
+            IReadOnlyList<GameObject> previews,
+            IReadOnlyList<GameObject> environment,
+            int selected,
+            Bounds bounds,
+            int size,
+            float scale)
+        {
+            for (int index = 0; index < previews.Count; index++) previews[index].SetActive(index == selected);
+            SetEvidenceVisualsEnabled(environment, false);
+            Camera camera = CreateEvidenceCamera(bounds, new Vector3(1f, .65f, -1f).normalized, scale, orthographic: false);
+            try
+            {
+                return RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(camera.gameObject);
+                SetEvidenceVisualsEnabled(environment, true);
+                foreach (GameObject preview in previews) preview.SetActive(true);
+            }
+        }
+
+        private static Camera CreateEvidenceCamera(Bounds bounds, Vector3 direction, float scale, bool orthographic)
+        {
+            GameObject cameraObject = new GameObject("Kimodo Evidence Camera") { hideFlags = HideFlags.HideAndDontSave };
+            Camera camera = cameraObject.AddComponent<Camera>();
+            camera.cullingMask = 1 << 31;
+            camera.orthographic = orthographic;
+            camera.nearClipPlane = .01f;
+            camera.farClipPlane = 100f;
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.orthographicSize = Mathf.Max(2.5f, bounds.extents.magnitude * 1.05f / scale);
+            camera.fieldOfView = 35f;
+            camera.transform.position = bounds.center + direction * Mathf.Max(7f, bounds.extents.magnitude * 3.2f);
+            camera.transform.LookAt(bounds.center + Vector3.up, Vector3.up);
+            return camera;
+        }
+
+        private static Texture2D RenderCamera(Camera camera, int size, Color background)
+        {
+            RenderTexture renderTexture = RenderTexture.GetTemporary(size, size, 24, RenderTextureFormat.ARGB32);
+            RenderTexture previous = RenderTexture.active;
+            try
+            {
+                camera.backgroundColor = background;
+                camera.targetTexture = renderTexture;
+                camera.Render();
+                RenderTexture.active = renderTexture;
+                var image = new Texture2D(size, size, TextureFormat.RGBA32, false);
+                image.ReadPixels(new Rect(0, 0, size, size), 0, 0);
+                image.Apply(false, false);
+                return image;
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                camera.targetTexture = null;
+                RenderTexture.ReleaseTemporary(renderTexture);
+            }
+        }
+
+        private static void Composite(Texture2D destination, Texture2D source, float alpha)
+        {
+            Color[] destinationPixels = destination.GetPixels();
+            Color[] sourcePixels = source.GetPixels();
+            for (int index = 0; index < destinationPixels.Length; index++)
+            {
+                if (sourcePixels[index].a > .01f)
+                {
+                    destinationPixels[index] = Color.Lerp(
+                        destinationPixels[index], sourcePixels[index], alpha * sourcePixels[index].a);
+                }
+            }
+            destination.SetPixels(destinationPixels);
+            destination.Apply(false, false);
+        }
+
+        private static void SetEvidenceVisualsEnabled(IReadOnlyList<GameObject> objects, bool enabled)
+        {
+            foreach (GameObject item in objects)
+            {
+                if (item == null) continue;
+                foreach (Renderer renderer in item.GetComponentsInChildren<Renderer>(true)) renderer.enabled = enabled;
+            }
         }
 
         private static Bounds CalculateBounds(IReadOnlyList<GameObject> roots)
@@ -424,21 +673,6 @@ namespace CharacterAnimationCli.Unity.Command
                 foreach (Renderer renderer in renderers) bounds.Encapsulate(renderer.bounds);
             }
             return bounds;
-        }
-
-        private static void DrawLine(Texture2D texture, int x0, int y0, int x1, int y1, Color color)
-        {
-            int dx = Math.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-            int dy = -Math.Abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-            int error = dx + dy;
-            while (true)
-            {
-                FillRect(texture, x0 - 1, y0 - 1, 3, 3, color);
-                if (x0 == x1 && y0 == y1) break;
-                int twice = 2 * error;
-                if (twice >= dy) { error += dy; x0 += sx; }
-                if (twice <= dx) { error += dx; y0 += sy; }
-            }
         }
 
         private static Bounds CalculateBounds(GameObject root)
@@ -454,49 +688,6 @@ namespace CharacterAnimationCli.Unity.Command
                 bounds.Encapsulate(renderers[i].bounds);
             }
             return bounds;
-        }
-
-        private static void DrawGridLabel(Texture2D texture, int right, int top, string label)
-        {
-            const int pixel = 3;
-            int width = label.Length * 4 * pixel + 4;
-            int height = 5 * pixel + 4;
-            int startX = right - width;
-            int startY = top - height;
-            FillRect(texture, startX, startY, width, height, new Color(0f, 0f, 0f, 0.75f));
-            for (int i = 0; i < label.Length; i++)
-            {
-                string glyph = Glyph(label[i]);
-                for (int gy = 0; gy < 5; gy++)
-                for (int gx = 0; gx < 3; gx++)
-                {
-                    if (glyph[gy * 3 + gx] == '1')
-                    {
-                        FillRect(texture, startX + 2 + (i * 4 + gx) * pixel,
-                            startY + 2 + (4 - gy) * pixel, pixel, pixel, Color.white);
-                    }
-                }
-            }
-        }
-
-        private static string Glyph(char value)
-        {
-            return value switch
-            {
-                '0' => "111101101101111", '1' => "010110010010111", '2' => "111001111100111",
-                '3' => "111001111001111", '4' => "101101111001001", '5' => "111100111001111",
-                '6' => "111100111101111", '7' => "111001001001001", '8' => "111101111101111",
-                '9' => "111101111001111", '.' => "000000000000010", _ => "000000000000000"
-            };
-        }
-
-        private static void FillRect(Texture2D texture, int x, int y, int width, int height, Color color)
-        {
-            for (int py = Mathf.Max(0, y); py < Mathf.Min(texture.height, y + height); py++)
-            for (int px = Mathf.Max(0, x); px < Mathf.Min(texture.width, x + width); px++)
-            {
-                texture.SetPixel(px, py, color);
-            }
         }
 
         private static AnalysisCacheRecord GetCachedAnalysis(string id)

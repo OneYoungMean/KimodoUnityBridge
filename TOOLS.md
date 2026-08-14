@@ -76,6 +76,8 @@ Kimodo does not discover arbitrary scene objects, choose BlendTree branches, per
 
 Handle routing is fixed: character/animation safe names go to Session commands; `request_id` goes to `kimodo_get_generation` or `kimodo_cancel_generation`; `analysis_id` goes to `query_picture`; a pose `{source,frame}` goes to pose commands or generation constraints.
 
+When deriving a generation prompt from a dataset animation file name, rewrite it as natural language. Retain motion, phase, path/direction, speed, body state, object/contact, and intended ending state; remove take, actor, mirror, and internal variant markers such as `001`, `__A494`, `_M`, and `_R` unless they encode motion semantics.
+
 ### 6. Minimal generation workflow
 
 ```text
@@ -120,7 +122,7 @@ kimodo_analyze -> save analysis_id/keyframes
 pose_copy -> save writable pose locator
 pose_get -> inspect current data
 pose_set -> change only required fields
-query_picture -> inspect a four-view diagnostic image
+query_picture -> inspect motion_evidence_v2 images
 kimodo_generate_animation -> pass the locator in constraints
 kimodo_get_generation -> poll to terminal state
 ```
@@ -210,6 +212,8 @@ Kimodo 不负责发现任意场景对象、选择 BlendTree 分支、一般 Time
 
 句柄路由固定：角色/动画安全名称传给 Session 命令；`request_id` 只传给 `kimodo_get_generation` 或 `kimodo_cancel_generation`；`analysis_id` 传给 `query_picture`；Pose `{source,frame}` 传给 Pose 命令或生成约束。
 
+从数据集动画文件名生成 Prompt 时，应改写为自然语言。保留动作、阶段、路径/方向、速度、身体状态、对象/接触和预期结束状态；删除 take、演员、镜像及内部变体标记，例如 `001`、`__A494`、`_M`、`_R`，除非它们表达动作语义。
+
 ### 6. 最小生成工作流
 
 ```text
@@ -254,7 +258,7 @@ kimodo_analyze -> 保存 analysis_id/关键帧
 pose_copy -> 保存可写 Pose locator
 pose_get -> 检查当前数据
 pose_set -> 只修改必要字段
-query_picture -> 检查四视图诊断图
+query_picture -> 检查 motion_evidence_v2 图像证据
 kimodo_generate_animation -> 在 constraints 中传入 locator
 kimodo_get_generation -> 轮询到终态
 ```

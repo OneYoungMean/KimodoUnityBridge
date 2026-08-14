@@ -49,6 +49,10 @@ Do not close the Session while generation is running. A terminal status is `comp
 - `kimodo_generate_animation` may create and close a retained `__KimodoAuto__` Session when no current Session exists, but explicit Session use is preferred for multi-step AI work.
 - Never send `timeline_session_id`, external model paths, or parameters absent from the live schema.
 
+## Prompt wording for dataset animations
+
+When turning a dataset animation file name into a generation prompt, rewrite it as concise natural language instead of copying the internal file name. Preserve the motion, phase, path or direction, speed, body state, object/contact, and intended ending state when they are present. Remove take numbers, actor identifiers, mirror flags, and internal variant suffixes such as `001`, `__A494`, `_M`, and `_R` unless they carry motion semantics.
+
 ## Tool groups
 
 - Discovery: `kimodo_help`.

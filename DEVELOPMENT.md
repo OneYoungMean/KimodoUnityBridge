@@ -51,7 +51,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 | 数学 Root2D 路径 | 生成 line、turn、s、circle 路径点 | `kimodo_build_root2d_path` | 完整 | 输出可直接转换为 Root2D constraints |
 | Spline 路径创作 | Scene 编辑与 Spline 采样 | 无 | 未覆盖 | 当前仅为 Editor 交互能力；CLI 使用数学 Root2D 路径 |
 | 动画分析 | 分析命名动画或半开 Session 帧区间并缓存 `analysis_id` | `kimodo_analyze` | 完整 | 支持 `analysis_option` |
-| 四视图图片 | 渲染 Pose、Analysis 或 Constraints 的诊断拼图 | `query_picture` | 完整 | 返回图片结果用于视觉检查 |
+| 动作图像证据 | 渲染 Pose、Analysis 或 Constraints 的 motion_evidence_v2 八图证据 | `query_picture` | 完整 | 返回四个 Ghost 叠加视图、三个关键姿势和一个 3D 轨迹图，用于视觉检查 |
 | Range Record | 将 Session 半开区间录制为 AnimationClip | `kimodo_record_range` | 完整 | 支持速度、Root Motion 处理和输出目录 |
 | Range Bake（兼容） | 将 Session 半开区间 Bake 为 AnimationClip | `kimodo_bake_range` | 完整 | 保留兼容入口；支持 Retarget 参数 |
 | 独立 Retarget | 将已加载动画转换到另一 current Session 角色 | `kimodo_retarget_animation` | 完整 | 需要有效 Humanoid Avatar |

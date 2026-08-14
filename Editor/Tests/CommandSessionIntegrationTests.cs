@@ -195,6 +195,45 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void QueryPicture_ReturnsOrderedMotionEvidenceV2()
+        {
+            string safeName = AddCharacter()["character"].Value<string>("name");
+            var poses = new JArray();
+            for (int index = 0; index < 5; index++)
+            {
+                CharacterPose pose = new CharacterPose();
+                pose.root.t = new Vector3(index * .2f, 0f, 0f);
+                JObject created = Invoke(command_context.PoseCreateCommand, new JObject
+                {
+                    ["character"] = safeName,
+                    ["pose"] = CharacterPoseJson.ToJson(pose)
+                });
+                Assert.That(created.Value<bool>("ok"), Is.True, created.ToString());
+                poses.Add(created["pose"].DeepClone());
+            }
+
+            JObject response = Invoke(command_context.QueryPictureCommand, new JObject
+            {
+                ["poses"] = poses,
+                ["resolution"] = 128
+            });
+
+            Assert.That(response.Value<bool>("ok"), Is.True, response.ToString());
+            Assert.That(response.Value<string>("format"), Is.EqualTo("motion_evidence_v2"));
+            Assert.That(response["images"].Values<JObject>().Select(image => image.Value<string>("kind")), Is.EqualTo(new[]
+            {
+                "motion_overlay_front", "motion_overlay_back", "motion_overlay_left", "motion_overlay_right",
+                "key_pose_1", "key_pose_2", "key_pose_3", "trajectory_3d"
+            }));
+            Assert.That(response["frames"], Has.Count.EqualTo(5));
+            Assert.That(response["frames"].Values<JObject>().Select(frame => frame.Value<int>("frame")),
+                Is.EqualTo(new[] { 0, 1, 2, 3, 4 }));
+            Assert.That(File.Exists(response.Value<string>("image_path")), Is.True);
+            Assert.That(response["images"].Values<JObject>().Select(image => image.Value<string>("path")),
+                Has.All.Matches<string>(File.Exists));
+        }
+
+        [Test]
         public void HistoricalBakeWorkflow_BakesQueriesAndRemovesAnimation()
         {
             string safeName = AddCharacter()["character"].Value<string>("name");

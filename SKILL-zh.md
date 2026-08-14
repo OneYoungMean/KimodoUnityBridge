@@ -49,6 +49,10 @@ session_close({})
 - 无当前 Session 时，`kimodo_generate_animation` 可创建并在完成后关闭保留的 `__KimodoAuto__` Session；多步骤 AI 工作流应显式使用 Session。
 - 不要传 `timeline_session_id`、外部模型路径或实时 Schema 中不存在的参数。
 
+## 数据集动画的 Prompt 命名
+
+将数据集动画文件名写成生成 Prompt 时，应改写为简洁自然语言，不要照搬内部文件名。保留其中的动作、阶段、路径或方向、速度、身体状态、对象或接触关系，以及预期结束状态。删除 take 编号、演员标识、镜像标记和内部变体后缀；例如 `001`、`__A494`、`_M`、`_R`，除非它们本身承载动作语义。
+
 ## 工具分组
 
 - 发现：`kimodo_help`。

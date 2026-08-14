@@ -179,7 +179,7 @@ namespace CharacterAnimationCli.Unity.Command
                             Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
                             OptionalConstraints("constraints", "One sparse constraint object per frame; combine fullbody, root2d, and pose-based hand/foot constraints in the same object."))),
                     CommandDefinition(QueryPictureCommand,
-                        "Render explicit poses, a cached analysis, or inline constraints together in one four-view square image.",
+                        "Render explicit poses, a cached analysis, or inline constraints as motion_evidence_v2: four ghost-overlay views, three key poses, and a 3D trajectory image.",
                         Properties(
                             OptionalPoseLocators("poses", "Pose locators {source,frame}."),
                             Optional("analysis_id", "string", "Stable id returned by kimodo_analyze."),
