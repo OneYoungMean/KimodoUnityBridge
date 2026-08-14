@@ -84,9 +84,37 @@ namespace TimelineInject
     public sealed class KimodoConstraintExportContext
     {
         public float humanScale = 1f;
+        public Func<CharacterAnimationCli.Unity.CharacterPose, List<Vector3>> localJointAngleProjector;
+
         public KimodoConstraintExportContext() { }
-        public KimodoConstraintExportContext(float humanScale) => this.humanScale = Mathf.Max(1e-6f, humanScale);
+        public KimodoConstraintExportContext(float humanScale,
+            Func<CharacterAnimationCli.Unity.CharacterPose, List<Vector3>> localJointAngleProjector = null)
+        {
+            this.humanScale = Mathf.Max(1e-6f, humanScale);
+            this.localJointAngleProjector = localJointAngleProjector;
+        }
         internal float HumanScale => Mathf.Max(1e-6f, humanScale);
+
+        internal bool TryBuildLocalJointAngles(CharacterAnimationCli.Unity.CharacterPose pose, out List<Vector3> localAngles, out string error)
+        {
+            localAngles = null;
+            error = string.Empty;
+            if (localJointAngleProjector == null)
+            {
+                localAngles = new List<Vector3>
+                {
+                    KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(pose.root.q)
+                };
+                return true;
+            }
+            localAngles = localJointAngleProjector(pose);
+            if (localAngles == null || localAngles.Count == 0)
+            {
+                error = "Model skeleton projector returned no joints.";
+                return false;
+            }
+            return true;
+        }
     }
 
     public static class KimodoConstraintJsonExporter
@@ -272,9 +300,9 @@ namespace TimelineInject
             double? clipDurationSeconds,
             double exportFps)
         {
-            if (!TryBuildProtocolPose(sample, out Vector3 unityRoot, out List<Vector3> localAxisAngles))
+            if (!TryBuildProtocolPose(sample, exportContext, out Vector3 unityRoot, out List<Vector3> localAxisAngles, out string error))
             {
-                return null;
+                throw new InvalidOperationException($"FullBody constraint pose projection failed: {error}");
             }
             unityRoot *= (exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale;
             Vector3 kimodoRoot = new Vector3(-unityRoot.x, unityRoot.y, unityRoot.z);
@@ -306,9 +334,9 @@ namespace TimelineInject
             double? clipDurationSeconds,
             double exportFps)
         {
-            if (!TryBuildProtocolPose(sample, out Vector3 unityRoot, out List<Vector3> localAxisAngles))
+            if (!TryBuildProtocolPose(sample, exportContext, out Vector3 unityRoot, out List<Vector3> localAxisAngles, out string error))
             {
-                return null;
+                throw new InvalidOperationException($"End-effector constraint pose projection failed: {error}");
             }
             float humanScale = (exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale;
             Vector3 scaledRoot = unityRoot * humanScale;
@@ -370,11 +398,17 @@ namespace TimelineInject
             }
         }
 
-        private static bool TryBuildProtocolPose(KimodoMarkerSampleResult sample, out Vector3 root, out List<Vector3> localAxisAngles)
+        private static bool TryBuildProtocolPose(
+            KimodoMarkerSampleResult sample,
+            KimodoConstraintExportContext exportContext,
+            out Vector3 root,
+            out List<Vector3> localAxisAngles,
+            out string error)
         {
             root = Vector3.zero;
             localAxisAngles = null;
-            if (sample?.characterPose == null || !sample.characterPose.TryValidate(out _))
+            error = string.Empty;
+            if (sample?.characterPose == null || !sample.characterPose.TryValidate(out error))
             {
                 return false;
             }
@@ -383,11 +417,10 @@ namespace TimelineInject
             // All authoring data remains in CharacterPose; no historical joint
             // arrays are retained on the constraint DTO.
             root = sample.characterPose.root.t;
-            localAxisAngles = new List<Vector3>
-            {
-                KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(sample.characterPose.root.q)
-            };
-            return true;
+            return exportContext != null && exportContext.TryBuildLocalJointAngles(
+                sample.characterPose,
+                out localAxisAngles,
+                out error);
         }
 
         private static List<int> BuildFrameIndices(double sampleTime, double? clipDurationSeconds, double exportFps)

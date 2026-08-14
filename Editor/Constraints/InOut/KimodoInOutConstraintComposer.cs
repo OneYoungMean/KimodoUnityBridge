@@ -77,7 +77,9 @@ namespace KimodoBridge.Editor
                 generationFrameRate);
             built.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                 built.CombinedSamples,
-                new KimodoConstraintExportContext(KimodoConstraintNormalizationUtility.ResolveHumanScale(request.SourceAvatar)),
+                new KimodoConstraintExportContext(
+                    KimodoConstraintNormalizationUtility.ResolveHumanScale(request.SourceAvatar),
+                    KimodoConstraintExportProjector.Create(request.ModelName)),
                 clipStartSeconds: 0.0,
                 clipDurationSeconds: clipDurationSeconds,
                 exportFps: generationFrameRate);

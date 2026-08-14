@@ -199,6 +199,29 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
         }
 
         [Test]
+        public void ConstraintExporter_UsesCompleteProjectedJointFrame()
+        {
+            var pose = BuildPose(1f);
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintType = "fullbody",
+                characterPose = pose,
+                sampleTime = 0.0
+            };
+            var context = new KimodoConstraintExportContext(
+                1f,
+                _ => Enumerable.Repeat(Vector3.zero, 30).ToList());
+
+            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(
+                new[] { sample },
+                context,
+                exportFps: 30.0));
+
+            JObject fullBody = (JObject)json.Single(item => item.Value<string>("type") == "fullbody");
+            Assert.That(fullBody["local_joints_rot"]?[0], Has.Count.EqualTo(30));
+        }
+
+        [Test]
         public void UnifiedConstraint_MergedEndEffectorTargetsKeepEveryFrame()
         {
             KimodoMarkerSampleResult At(double time, float x) => new KimodoMarkerSampleResult

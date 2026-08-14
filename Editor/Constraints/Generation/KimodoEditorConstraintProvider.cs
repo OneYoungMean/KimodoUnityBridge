@@ -204,7 +204,9 @@ namespace KimodoBridge.Editor
                 KimodoInOutConstraintAdapter.TryResolveTimelineContext(timelineClip, out KimodoTimelineInOutConstraintContext context, out _) &&
                 context?.SourceAvatar != null)
             {
-                return new KimodoConstraintExportContext(KimodoConstraintNormalizationUtility.ResolveHumanScale(context.SourceAvatar));
+                return new KimodoConstraintExportContext(
+                    KimodoConstraintNormalizationUtility.ResolveHumanScale(context.SourceAvatar),
+                    KimodoConstraintExportProjector.Create(context.ModelName));
             }
             return new KimodoConstraintExportContext();
         }

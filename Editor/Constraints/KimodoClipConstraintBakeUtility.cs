@@ -501,7 +501,9 @@ namespace KimodoBridge.Editor
             private static KimodoConstraintExportContext ResolveExportContext(string modelName)
         {
             return KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(null, modelName, out Avatar avatar, out _)
-                ? new KimodoConstraintExportContext(KimodoConstraintNormalizationUtility.ResolveHumanScale(avatar))
+                ? new KimodoConstraintExportContext(
+                    KimodoConstraintNormalizationUtility.ResolveHumanScale(avatar),
+                    KimodoConstraintExportProjector.Create(modelName))
                 : new KimodoConstraintExportContext();
         }
 }
