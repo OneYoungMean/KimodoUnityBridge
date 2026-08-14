@@ -276,7 +276,8 @@ namespace CharacterAnimationCli.Unity.Command
             int frame = AllocatePoseFrame(character.PoseCacheTrack);
             KimodoConstraintMarker marker = character.PoseCacheTrack.CreateMarker<KimodoConstraintMarker>(frame / SessionFrameRate);
             marker.name = $"Pose_{frame}";
-            marker.useOverride = true;
+            marker.autoSampleFullBody = false;
+            marker.autoSampleRoot2D = false;
             marker.constraintEnabled = true;
             SetCanonicalPose(marker.SampleData, pose, character);
             marker.SampleData.sampleTime = frame / SessionFrameRate;

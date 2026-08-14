@@ -10,7 +10,8 @@ namespace KimodoBridge.Editor
         public static bool TryWriteConstraintMarkerSample(
             KimodoConstraintMarker marker,
             KimodoMarkerSampleResult sample,
-            bool keepOverrideEnabled,
+            bool disableFullBodyAutoSample,
+            bool disableRoot2DAutoSample,
             out string error)
         {
             error = string.Empty;
@@ -37,7 +38,8 @@ namespace KimodoBridge.Editor
 
             bool changed = !AreSamplesEquivalent(marker.SampleData, normalized) ||
                 System.Math.Abs(marker.time - normalized.sampleTime) > 1e-9 ||
-                (keepOverrideEnabled && !marker.useOverride);
+                (disableFullBodyAutoSample && marker.autoSampleFullBody) ||
+                (disableRoot2DAutoSample && marker.autoSampleRoot2D);
             if (!changed)
             {
                 return true;
@@ -45,10 +47,8 @@ namespace KimodoBridge.Editor
 
             marker.SampleData = normalized;
             marker.time = normalized.sampleTime;
-            if (keepOverrideEnabled)
-            {
-                marker.useOverride = true;
-            }
+            if (disableFullBodyAutoSample) marker.autoSampleFullBody = false;
+            if (disableRoot2DAutoSample) marker.autoSampleRoot2D = false;
 
             MarkConstraintMarkerDirty(marker);
             return true;
@@ -91,13 +91,22 @@ namespace KimodoBridge.Editor
             return string.Equals(left.constraintType ?? string.Empty, right.constraintType ?? string.Empty, System.StringComparison.Ordinal) &&
                 System.Math.Abs(left.sampleTime - right.sampleTime) <= 1e-9 &&
                 string.Equals(CharacterPoseSignature(left), CharacterPoseSignature(right), System.StringComparison.Ordinal) &&
+                string.Equals(Root2DOverrideSignature(left), Root2DOverrideSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(MaskSignature(left.mask), MaskSignature(right.mask), System.StringComparison.Ordinal) &&
-                left.hasRootHeading == right.hasRootHeading;
+                left.hasRootHeading == right.hasRootHeading &&
+                left.hasRoot2DOverride == right.hasRoot2DOverride;
         }
 
         private static string CharacterPoseSignature(KimodoMarkerSampleResult sample)
         {
             return sample?.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty;
+        }
+
+        private static string Root2DOverrideSignature(KimodoMarkerSampleResult sample)
+        {
+            return sample?.hasRoot2DOverride == true && sample.root2DOverride != null
+                ? JsonUtility.ToJson(sample.root2DOverride)
+                : string.Empty;
         }
 
         private static string MaskSignature(KimodoConstraintMask mask)

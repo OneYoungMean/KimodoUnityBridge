@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using CharacterAnimationCli.Unity;
+using UnityEngine;
 
 namespace TimelineInject
 {
@@ -8,6 +9,16 @@ namespace TimelineInject
     /// and runtime convert this result to a rig only at their respective edges.</summary>
     public static class KimodoConstraintSampleResolver
     {
+        /// <summary>Returns the effective pose for one unified marker without
+        /// mutating its authored FullBody and Root2D data.</summary>
+        public static KimodoMarkerSampleResult ResolveUnifiedSample(KimodoMarkerSampleResult sample)
+        {
+            if (sample == null) return null;
+            KimodoMarkerSampleResult resolved = sample.Clone();
+            resolved.characterPose = ComposePose(new List<KimodoMarkerSampleResult> { sample });
+            return resolved;
+        }
+
         public static void ComposeCharacterPosesAtSameFrame(
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double frameRate)
@@ -23,7 +34,16 @@ namespace TimelineInject
                 }
                 if (!hasPose) continue;
                 CharacterPose pose = ComposePose(group);
-                for (int i = 0; i < group.Count; i++) group[i].characterPose = pose.Clone();
+                for (int i = 0; i < group.Count; i++)
+                {
+                    // A unified marker owns separate authored FullBody and
+                    // Root2D data.  Writing the resolved pose back here
+                    // would bake Root2D into that source data.
+                    if (!string.Equals(group[i].constraintType, "constraint", StringComparison.OrdinalIgnoreCase))
+                    {
+                        group[i].characterPose = pose.Clone();
+                    }
+                }
             }
         }
 
@@ -168,8 +188,64 @@ namespace TimelineInject
             merged.constraintType = "constraint";
             merged.mask = mask;
             merged.hasRootHeading = hasHeading;
-            merged.characterPose = hasCanonicalPose ? canonical.Clone() : null;
+            CopyRoot2DOverride(group, merged);
+            merged.characterPose = hasCanonicalPose
+                ? BuildUnifiedAuthoredPose(group, canonical)
+                : null;
             return merged;
+        }
+
+        private static CharacterPose BuildUnifiedAuthoredPose(
+            List<KimodoMarkerSampleResult> samples,
+            CharacterPose canonical)
+        {
+            CharacterPose authored = canonical?.Clone();
+            if (authored == null || samples == null) return authored;
+            // The FullBody root is authored independently from the resolved
+            // Root2D result. Keep it intact when importing legacy records.
+            for (int i = 0; i < samples.Count; i++)
+            {
+                KimodoMarkerSampleResult source = samples[i];
+                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source?.mask, source?.constraintType);
+                if (source?.characterPose?.root != null && mask.muscle)
+                {
+                    authored.root.t = source.characterPose.root.t;
+                    authored.root.q = source.characterPose.root.q;
+                    break;
+                }
+            }
+            // Preserve the authored IK values as well. `canonical` has already
+            // re-expressed them relative to the resolved Root2D transform;
+            // storing those values on the unified marker would make the next
+            // resolve shift the targets a second time.
+            for (int i = 0; i < samples.Count; i++)
+            {
+                KimodoMarkerSampleResult source = samples[i];
+                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source?.mask, source?.constraintType);
+                CharacterPose pose = source?.characterPose;
+                if (pose == null) continue;
+                if (mask.leftFoot) CopyTransform(pose.feet.left, authored.feet.left);
+                if (mask.rightFoot) CopyTransform(pose.feet.right, authored.feet.right);
+                if (mask.leftHand) CopyTransform(pose.hands.left, authored.hands.left);
+                if (mask.rightHand) CopyTransform(pose.hands.right, authored.hands.right);
+            }
+            return authored;
+        }
+
+        private static void CopyRoot2DOverride(
+            List<KimodoMarkerSampleResult> samples,
+            KimodoMarkerSampleResult destination)
+        {
+            if (samples == null || destination == null) return;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                KimodoMarkerSampleResult source = samples[i];
+                if (source == null || (!IsRoot2D(source) && !source.hasRoot2DOverride)) continue;
+                CharacterPoseTransform root = ResolveRoot2DOverride(source);
+                if (root == null) continue;
+                destination.root2DOverride = new CharacterPoseTransform { t = root.t, q = root.q };
+                destination.hasRoot2DOverride = true;
+            }
         }
 
         private static int SeedPriority(KimodoMarkerSampleResult sample)
@@ -204,12 +280,52 @@ namespace TimelineInject
             CharacterPose composed = seed?.characterPose?.Clone();
             if (composed == null) return new CharacterPose();
 
-            // Muscle → Foot IK → Hand IK → Root2D. T/Q are Humanoid IK goals;
-            // Root2D is intentionally last so it moves the solved body as one.
+            // FullBody → Root2D → Foot IK → Hand IK. Root2D only changes X/Z
+            // and yaw; enabled limb goals remain fixed in world space.
             CopyFootGoals(samples, composed);
             CopyHandGoals(samples, composed);
-            CopyRoot2D(samples, composed);
+            Vector3[] worldPositions = CaptureWorldGoalPositions(composed);
+            Quaternion[] worldRotations = CaptureWorldGoalRotations(composed);
+            if (CopyRoot2D(samples, composed))
+            {
+                RestoreWorldGoalTransforms(composed, worldPositions, worldRotations);
+            }
             return composed;
+        }
+
+        private static Vector3[] CaptureWorldGoalPositions(CharacterPose pose)
+        {
+            Quaternion rootRotation = pose.root.q.normalized;
+            return new[]
+            {
+                pose.root.t + rootRotation * pose.hands.left.t,
+                pose.root.t + rootRotation * pose.hands.right.t,
+                pose.root.t + rootRotation * pose.feet.left.t,
+                pose.root.t + rootRotation * pose.feet.right.t
+            };
+        }
+
+        private static Quaternion[] CaptureWorldGoalRotations(CharacterPose pose)
+        {
+            Quaternion rootRotation = pose.root.q.normalized;
+            return new[]
+            {
+                rootRotation * pose.hands.left.q,
+                rootRotation * pose.hands.right.q,
+                rootRotation * pose.feet.left.q,
+                rootRotation * pose.feet.right.q
+            };
+        }
+
+        private static void RestoreWorldGoalTransforms(CharacterPose pose, Vector3[] positions, Quaternion[] rotations)
+        {
+            Quaternion inverseRoot = Quaternion.Inverse(pose.root.q.normalized);
+            CharacterPoseTransform[] goals = { pose.hands.left, pose.hands.right, pose.feet.left, pose.feet.right };
+            for (int i = 0; i < goals.Length; i++)
+            {
+                goals[i].t = inverseRoot * (positions[i] - pose.root.t);
+                goals[i].q = inverseRoot * rotations[i];
+            }
         }
 
         private static void CopyFootGoals(List<KimodoMarkerSampleResult> samples, CharacterPose target)
@@ -238,28 +354,45 @@ namespace TimelineInject
             }
         }
 
-        private static void CopyRoot2D(List<KimodoMarkerSampleResult> samples, CharacterPose target)
+        private static bool CopyRoot2D(List<KimodoMarkerSampleResult> samples, CharacterPose target)
         {
-            // FullBody establishes the base root; explicit Root2D is the final
-            // whole-character transform regardless of marker enumeration order.
+            bool changed = false;
+            // The seed pose is the FullBody base. A unified marker's separate
+            // Root2D values (or a legacy root2d record) override only X/Z+yaw.
             for (int i = 0; i < samples.Count; i++)
             {
                 KimodoMarkerSampleResult source = samples[i];
                 if (source == null) continue;
                 KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source.mask, source.constraintType);
-                if (source.characterPose == null || IsRoot2D(source)) continue;
-                if (mask.rootPosition) target.root.t = source.characterPose.root.t;
-                if (mask.rootHeading && source.hasRootHeading) target.root.q = source.characterPose.root.q;
+                if (!IsRoot2D(source) && !source.hasRoot2DOverride) continue;
+                CharacterPoseTransform root = ResolveRoot2DOverride(source);
+                if (root == null) continue;
+                if (mask.rootPosition)
+                {
+                    target.root.t.x = root.t.x;
+                    target.root.t.z = root.t.z;
+                    changed = true;
+                }
+                if (mask.rootHeading && source.hasRootHeading)
+                {
+                    Vector3 currentForward = Vector3.ProjectOnPlane(target.root.q * Vector3.forward, Vector3.up);
+                    Vector3 desiredForward = Vector3.ProjectOnPlane(root.q * Vector3.forward, Vector3.up);
+                    if (currentForward.sqrMagnitude > 1e-8f && desiredForward.sqrMagnitude > 1e-8f)
+                    {
+                        float deltaYaw = Vector3.SignedAngle(currentForward, desiredForward, Vector3.up);
+                        target.root.q = Quaternion.AngleAxis(deltaYaw, Vector3.up) * target.root.q;
+                        changed = true;
+                    }
+                }
             }
-            for (int i = 0; i < samples.Count; i++)
-            {
-                KimodoMarkerSampleResult source = samples[i];
-                if (source == null) continue;
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source.mask, source.constraintType);
-                if (source.characterPose == null || !IsRoot2D(source)) continue;
-                if (mask.rootPosition) target.root.t = source.characterPose.root.t;
-                if (mask.rootHeading && source.hasRootHeading) target.root.q = source.characterPose.root.q;
-            }
+            return changed;
+        }
+
+        private static CharacterPoseTransform ResolveRoot2DOverride(KimodoMarkerSampleResult sample)
+        {
+            if (sample == null) return null;
+            if (sample.hasRoot2DOverride && sample.root2DOverride != null) return sample.root2DOverride;
+            return sample.characterPose?.root; // Legacy root2d records.
         }
 
         private static bool IsRoot2D(KimodoMarkerSampleResult sample) =>
@@ -294,6 +427,12 @@ namespace TimelineInject
             KimodoMarkerSampleResult sample = source.Clone();
             sample.constraintType = type;
             sample.characterPose = hasCanonicalPose ? canonical.Clone() : null;
+            if (string.Equals(type, "root2d", StringComparison.OrdinalIgnoreCase) &&
+                source.hasRoot2DOverride && source.root2DOverride != null && sample.characterPose != null)
+            {
+                sample.characterPose.root.t = source.root2DOverride.t;
+                sample.characterPose.root.q = source.root2DOverride.q;
+            }
             sample.mask = KimodoConstraintMask.ForType(type);
             output.Add(sample);
             return sample;

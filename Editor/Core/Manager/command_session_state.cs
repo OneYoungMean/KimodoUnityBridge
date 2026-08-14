@@ -435,15 +435,34 @@ namespace CharacterAnimationCli.Unity.Command
                 }
 
                 double localTime = Math.Max(0.0, Math.Min(lastSampleTime, sample.sampleTime));
-                KimodoConstraintMarker marker = trace.Character.Track.CreateMarker<KimodoConstraintMarker>(trace.StartSeconds + localTime);
+                double markerTime = trace.StartSeconds + localTime;
+                int markerFrame = Mathf.RoundToInt((float)(markerTime * frameRate));
+                KimodoConstraintMarker marker = trace.Character.Track.GetMarkers()
+                    .OfType<KimodoConstraintMarker>()
+                    .FirstOrDefault(existing =>
+                        Mathf.RoundToInt((float)(existing.time * frameRate)) == markerFrame);
+                bool createdMarker = marker == null;
+                if (marker != null)
+                {
+                    Debug.LogWarning($"[Kimodo] Constraint already exists at frame {markerFrame}; updating the existing marker.");
+                    Selection.activeObject = marker;
+                }
+                else
+                {
+                    marker = trace.Character.Track.CreateMarker<KimodoConstraintMarker>(markerTime);
+                }
 
                 KimodoMarkerSampleResult markerSample = sample.Clone();
                 markerSample.mask = KimodoConstraintMask.Resolve(markerSample.mask, sample.constraintType);
                 markerSample.constraintType = "constraint";
-                markerSample.sampleTime = trace.StartSeconds + localTime;
+                markerSample.sampleTime = markerTime;
                 marker.SampleData = markerSample;
-                marker.name = MakeUniqueConstraintPoseSource(trace.Session, $"{trace.Character.Name}.Constraint");
-                marker.useOverride = true;
+                if (createdMarker)
+                {
+                    marker.name = MakeUniqueConstraintPoseSource(trace.Session, $"{trace.Character.Name}.Constraint");
+                }
+                marker.autoSampleFullBody = false;
+                marker.autoSampleRoot2D = false;
                 marker.constraintEnabled = true;
             }
 

@@ -26,6 +26,9 @@ namespace KimodoBridge
 
         private struct HumanoidHandIkSolveJob : IAnimationJob
         {
+            public bool solveLeftHand;
+            public bool solveRightHand;
+
             public void ProcessRootMotion(AnimationStream stream)
             {
             }
@@ -38,10 +41,10 @@ namespace KimodoBridge
                 }
 
                 AnimationHumanStream human = stream.AsHuman();
-                human.SetGoalWeightPosition(AvatarIKGoal.LeftHand, 1f);
-                human.SetGoalWeightRotation(AvatarIKGoal.LeftHand, 1f);
-                human.SetGoalWeightPosition(AvatarIKGoal.RightHand, 1f);
-                human.SetGoalWeightRotation(AvatarIKGoal.RightHand, 1f);
+                human.SetGoalWeightPosition(AvatarIKGoal.LeftHand, solveLeftHand ? 1f : 0f);
+                human.SetGoalWeightRotation(AvatarIKGoal.LeftHand, solveLeftHand ? 1f : 0f);
+                human.SetGoalWeightPosition(AvatarIKGoal.RightHand, solveRightHand ? 1f : 0f);
+                human.SetGoalWeightRotation(AvatarIKGoal.RightHand, solveRightHand ? 1f : 0f);
                 human.SolveIK();
             }
         }
@@ -262,7 +265,10 @@ namespace KimodoBridge
             out ClipSamplingContext context,
             out string error,
             bool applyMotionXToDelta = true,
-            bool solveHandIk = false)
+            bool applyFootIk = true,
+            bool solveHandIk = false,
+            bool solveLeftHandIk = true,
+            bool solveRightHandIk = true)
         {
             context = null;
             error = string.Empty;
@@ -291,7 +297,7 @@ namespace KimodoBridge
                 graph = PlayableGraph.Create(rootName + "Graph");
                 graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
-                clipPlayable.SetApplyFootIK(RetargetSamplingDefaultFootIk);
+                clipPlayable.SetApplyFootIK(applyFootIk && RetargetSamplingDefaultFootIk);
                 clipPlayable.SetApplyPlayableIK(RetargetSamplingDefaultPlayableIk);
                 Playable sourcePlayable = clipPlayable;
                 if (applyMotionXToDelta)
@@ -304,7 +310,11 @@ namespace KimodoBridge
                 {
                     AnimationScriptPlayable handIkPlayable = AnimationScriptPlayable.Create(
                         graph,
-                        new HumanoidHandIkSolveJob(),
+                        new HumanoidHandIkSolveJob
+                        {
+                            solveLeftHand = solveLeftHandIk,
+                            solveRightHand = solveRightHandIk
+                        },
                         1);
                     graph.Connect(sourcePlayable, 0, handIkPlayable, 0);
                     handIkPlayable.SetInputWeight(0, 1f);
@@ -608,7 +618,10 @@ namespace KimodoBridge
             SkeletonCache targetCache,
             out BoneSample targetSample,
             out MuscleSample targetMuscleSample,
-            out string error)
+            out string error,
+            bool solveLeftHandIk = true,
+            bool solveRightHandIk = true,
+            bool applyFootIk = true)
         {
             targetSample = null;
             targetMuscleSample = null;
@@ -629,7 +642,10 @@ namespace KimodoBridge
                     frameRate,
                     targetCache,
                     out BoneSample[] targetSamples,
-                    out error) ||
+                    out error,
+                    solveLeftHandIk: solveLeftHandIk,
+                    solveRightHandIk: solveRightHandIk,
+                    applyFootIk: applyFootIk) ||
                 targetSamples == null ||
                 targetSamples.Length == 0)
             {
@@ -652,7 +668,10 @@ namespace KimodoBridge
             SkeletonCache targetCache,
             out BoneSample[] targetSamples,
             out string error,
-            Func<AnimationClip, string, string> writebackClip = null)
+            Func<AnimationClip, string, string> writebackClip = null,
+            bool solveLeftHandIk = true,
+            bool solveRightHandIk = true,
+            bool applyFootIk = true)
         {
             targetSamples = null;
             error = string.Empty;
@@ -705,7 +724,10 @@ namespace KimodoBridge
                         out context,
                         out error,
                         applyMotionXToDelta: true,
-                        solveHandIk: true))
+                        applyFootIk: applyFootIk,
+                        solveHandIk: solveLeftHandIk || solveRightHandIk,
+                        solveLeftHandIk: solveLeftHandIk,
+                        solveRightHandIk: solveRightHandIk))
                 {
                     return false;
                 }

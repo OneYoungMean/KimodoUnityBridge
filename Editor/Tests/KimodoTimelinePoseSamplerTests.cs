@@ -833,10 +833,10 @@ namespace KimodoBridge.Editor.Tests
                     KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject target),
                     Is.True);
                 Assert.That(target, Is.Not.Null);
-                Assert.That(target.GetComponent<MeshFilter>()?.sharedMesh?.name, Is.EqualTo("Cube"));
-                Assert.That(target.transform.lossyScale.x, Is.EqualTo(0.1f).Within(1e-4f));
-                Assert.That(target.transform.lossyScale.y, Is.EqualTo(0.1f).Within(1e-4f));
-                Assert.That(target.transform.lossyScale.z, Is.EqualTo(0.1f).Within(1e-4f));
+                Assert.That(target.GetComponent<MeshFilter>()?.sharedMesh?.name, Is.EqualTo("Sphere"));
+                Assert.That(target.transform.lossyScale.x, Is.EqualTo(0.05f).Within(1e-4f));
+                Assert.That(target.transform.lossyScale.y, Is.EqualTo(0.05f).Within(1e-4f));
+                Assert.That(target.transform.lossyScale.z, Is.EqualTo(0.05f).Within(1e-4f));
                 Assert.That((target.hideFlags & HideFlags.NotEditable) != 0, Is.True);
                 Assert.That(target.transform.parent, Is.Null);
 
@@ -920,7 +920,11 @@ namespace KimodoBridge.Editor.Tests
                             out GameObject target),
                         Is.True,
                         $"Missing FullBody target for {bones[i]}.");
-                    Assert.That(target.GetComponent<MeshFilter>()?.sharedMesh?.name, Is.EqualTo("Cube"));
+                    string expectedMesh = bones[i] == HumanBodyBones.Hips ||
+                        bones[i] == HumanBodyBones.LeftHand || bones[i] == HumanBodyBones.RightHand
+                        ? "Sphere"
+                        : "Cube";
+                    Assert.That(target.GetComponent<MeshFilter>()?.sharedMesh?.name, Is.EqualTo(expectedMesh));
                 }
 
                 Assert.That(

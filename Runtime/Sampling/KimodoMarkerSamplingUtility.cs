@@ -17,12 +17,87 @@ namespace KimodoBridge
                 return null;
             }
 
-            KimodoMarkerSampleResult cloned = sample.Clone();
-            cloned.sampleTime = marker.time;
-            cloned.constraintType = "constraint";
-            cloned.mask = KimodoConstraintMask.Resolve(marker.SampleData?.mask, "constraint").Clone();
-            cloned.hasRootHeading = marker.SampleData != null && marker.SampleData.hasRootHeading;
-            return cloned;
+            KimodoMarkerSampleResult authored = marker.SampleData;
+            KimodoMarkerSampleResult normalized = authored?.Clone() ?? new KimodoMarkerSampleResult();
+            normalized.sampleTime = marker.time;
+            normalized.constraintType = "constraint";
+            normalized.mask = KimodoConstraintMask.Resolve(authored?.mask, "constraint").Clone();
+            normalized.hasRootHeading = authored != null && authored.hasRootHeading;
+
+            if (marker.autoSampleFullBody && sample.characterPose != null)
+            {
+                normalized.characterPose ??= sample.characterPose.Clone();
+                normalized.characterPose.hands ??= new CharacterAnimationCli.Unity.CharacterPoseSides();
+                normalized.characterPose.feet ??= new CharacterAnimationCli.Unity.CharacterPoseSides();
+                normalized.characterPose.muscles = sample.characterPose.muscles != null
+                    ? (float[])sample.characterPose.muscles.Clone()
+                    : normalized.characterPose.muscles;
+                if (sample.characterPose.root != null)
+                {
+                    normalized.characterPose.root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    {
+                        t = sample.characterPose.root.t,
+                        q = sample.characterPose.root.q
+                    };
+                }
+                if (!normalized.mask.leftHand && sample.characterPose.hands?.left != null)
+                {
+                    normalized.characterPose.hands.left = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    {
+                        t = sample.characterPose.hands.left.t,
+                        q = sample.characterPose.hands.left.q
+                    };
+                }
+                if (!normalized.mask.rightHand && sample.characterPose.hands?.right != null)
+                {
+                    normalized.characterPose.hands.right = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    {
+                        t = sample.characterPose.hands.right.t,
+                        q = sample.characterPose.hands.right.q
+                    };
+                }
+                if (!normalized.mask.leftFoot && sample.characterPose.feet?.left != null)
+                {
+                    normalized.characterPose.feet.left = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    {
+                        t = sample.characterPose.feet.left.t,
+                        q = sample.characterPose.feet.left.q
+                    };
+                }
+                if (!normalized.mask.rightFoot && sample.characterPose.feet?.right != null)
+                {
+                    normalized.characterPose.feet.right = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    {
+                        t = sample.characterPose.feet.right.t,
+                        q = sample.characterPose.feet.right.q
+                    };
+                }
+            }
+
+            if (marker.autoSampleRoot2D && sample.hasRoot2DOverride && sample.root2DOverride != null)
+            {
+                normalized.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                {
+                    t = sample.root2DOverride.t,
+                    q = sample.root2DOverride.q
+                };
+                normalized.hasRoot2DOverride = true;
+            }
+            else if (marker.autoSampleRoot2D && sample.characterPose?.root != null)
+            {
+                Vector3 forward = Vector3.ProjectOnPlane(
+                    sample.characterPose.root.q * Vector3.forward,
+                    Vector3.up);
+                normalized.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                {
+                    t = new Vector3(sample.characterPose.root.t.x, 0f, sample.characterPose.root.t.z),
+                    q = forward.sqrMagnitude > 1e-8f
+                        ? Quaternion.LookRotation(forward, Vector3.up)
+                        : Quaternion.identity
+                };
+                normalized.hasRoot2DOverride = true;
+            }
+            return normalized;
         }
 
         private static string ResolveFixedEndEffectorJointName(string constraintType)

@@ -79,12 +79,22 @@ namespace TimelineInject
         }
     }
 
+    /// <summary>Result of projecting a canonical pose through the profile
+    /// humanoid. RootPositionMeters is the position of the profile Hips joint
+    /// after the muscle clip has been evaluated.</summary>
+    public sealed class KimodoConstraintProjectedPose
+    {
+        public Vector3 rootPositionMeters;
+        public List<Vector3> localJointAngles;
+    }
+
     /// <summary>Avatar/retarget data used only while projecting canonical
     /// normalized CharacterPose values into metre-based protocol positions.</summary>
     public sealed class KimodoConstraintExportContext
     {
         public float humanScale = 1f;
         public Func<CharacterAnimationCli.Unity.CharacterPose, List<Vector3>> localJointAngleProjector;
+        public Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> projectedPoseProjector;
 
         public KimodoConstraintExportContext() { }
         public KimodoConstraintExportContext(float humanScale,
@@ -93,7 +103,42 @@ namespace TimelineInject
             this.humanScale = Mathf.Max(1e-6f, humanScale);
             this.localJointAngleProjector = localJointAngleProjector;
         }
+
+        public KimodoConstraintExportContext(float humanScale,
+            Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> projectedPoseProjector)
+        {
+            this.humanScale = Mathf.Max(1e-6f, humanScale);
+            this.projectedPoseProjector = projectedPoseProjector;
+        }
         internal float HumanScale => Mathf.Max(1e-6f, humanScale);
+
+        internal bool TryBuildProjectedPose(
+            KimodoMarkerSampleResult sample,
+            out Vector3 rootPositionMeters,
+            out List<Vector3> localAngles,
+            out string error)
+        {
+            rootPositionMeters = Vector3.zero;
+            localAngles = null;
+            error = string.Empty;
+
+            if (projectedPoseProjector != null)
+            {
+                KimodoConstraintProjectedPose projected = projectedPoseProjector(sample);
+                if (projected == null || projected.localJointAngles == null || projected.localJointAngles.Count == 0)
+                {
+                    error = "Model skeleton projector returned no projected pose.";
+                    return false;
+                }
+
+                rootPositionMeters = projected.rootPositionMeters;
+                localAngles = projected.localJointAngles;
+                return true;
+            }
+
+            rootPositionMeters = sample.characterPose.root.t * HumanScale;
+            return TryBuildLocalJointAngles(sample.characterPose, out localAngles, out error);
+        }
 
         internal bool TryBuildLocalJointAngles(CharacterAnimationCli.Unity.CharacterPose pose, out List<Vector3> localAngles, out string error)
         {
@@ -300,12 +345,11 @@ namespace TimelineInject
             double? clipDurationSeconds,
             double exportFps)
         {
-            if (!TryBuildProtocolPose(sample, exportContext, out Vector3 unityRoot, out List<Vector3> localAxisAngles, out string error))
+            if (!TryBuildProjectedProtocolPose(sample, exportContext, out Vector3 rootPositionMeters, out List<Vector3> localAxisAngles, out string error))
             {
                 throw new InvalidOperationException($"FullBody constraint pose projection failed: {error}");
             }
-            unityRoot *= (exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale;
-            Vector3 kimodoRoot = new Vector3(-unityRoot.x, unityRoot.y, unityRoot.z);
+            Vector3 kimodoRoot = new Vector3(-rootPositionMeters.x, rootPositionMeters.y, rootPositionMeters.z);
             var json = new KimodoConstraintJson
             {
                 type = "fullbody",
@@ -334,13 +378,12 @@ namespace TimelineInject
             double? clipDurationSeconds,
             double exportFps)
         {
-            if (!TryBuildProtocolPose(sample, exportContext, out Vector3 unityRoot, out List<Vector3> localAxisAngles, out string error))
+            if (!TryBuildProjectedProtocolPose(sample, exportContext, out Vector3 rootPositionMeters, out List<Vector3> localAxisAngles, out string error))
             {
                 throw new InvalidOperationException($"End-effector constraint pose projection failed: {error}");
             }
             float humanScale = (exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale;
-            Vector3 scaledRoot = unityRoot * humanScale;
-            Vector3 kimodoRoot = new Vector3(-scaledRoot.x, scaledRoot.y, scaledRoot.z);
+            Vector3 kimodoRoot = new Vector3(-rootPositionMeters.x, rootPositionMeters.y, rootPositionMeters.z);
             var json = new KimodoConstraintJson
             {
                 type = sample.constraintType,
@@ -366,7 +409,7 @@ namespace TimelineInject
                 // Hand/Foot T/Q use Unity's HumanPose body-relative IK-goal
                 // convention. Unity stores body position and IK goals in units
                 // normalized by humanScale; model protocol space uses metres.
-                Vector3 worldTarget = (unityRoot + sample.characterPose.root.q * goal.t) * humanScale;
+                Vector3 worldTarget = (sample.characterPose.root.t + sample.characterPose.root.q * goal.t) * humanScale;
                 json.target_positions = new List<float[]> { new[] { -worldTarget.x, worldTarget.y, worldTarget.z } };
             }
 
@@ -419,6 +462,28 @@ namespace TimelineInject
             root = sample.characterPose.root.t;
             return exportContext != null && exportContext.TryBuildLocalJointAngles(
                 sample.characterPose,
+                out localAxisAngles,
+                out error);
+        }
+
+        private static bool TryBuildProjectedProtocolPose(
+            KimodoMarkerSampleResult sample,
+            KimodoConstraintExportContext exportContext,
+            out Vector3 rootPositionMeters,
+            out List<Vector3> localAxisAngles,
+            out string error)
+        {
+            rootPositionMeters = Vector3.zero;
+            localAxisAngles = null;
+            error = string.Empty;
+            if (sample?.characterPose == null || !sample.characterPose.TryValidate(out error))
+            {
+                return false;
+            }
+
+            return exportContext != null && exportContext.TryBuildProjectedPose(
+                sample,
+                out rootPositionMeters,
                 out localAxisAngles,
                 out error);
         }

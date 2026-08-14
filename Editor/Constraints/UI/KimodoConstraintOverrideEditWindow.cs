@@ -19,11 +19,26 @@ namespace KimodoBridge.Editor
         private bool sceneDragActive;
         private bool pendingEndEffectorWriteback;
         private bool pendingRootWriteback;
+        private int sceneDragUndoGroup = -1;
+        private bool collapseSceneDragUndo;
+        private bool refreshSceneAfterDrag;
         private Vector2 scroll;
         private string lastError;
-        private static readonly HumanBodyBones[] MuscleEulerBones = BuildMuscleEulerBones();
 
         internal KimodoConstraintMarker TargetMarker => marker;
+
+        // Kept for existing editor tests and callers during the UI migration.
+        // Constraint authoring no longer displays or edits these Euler values.
+        internal static HumanBodyBones[] BuildMuscleEulerBones()
+        {
+            return CharacterPoseMuscleAdapter.UnityBodyMuscleIndices
+                .Select(HumanTrait.BoneFromMuscle)
+                .Where(index => index >= 0 && index < (int)HumanBodyBones.LastBone)
+                .Select(index => (HumanBodyBones)index)
+                .Where(bone => bone != HumanBodyBones.Hips)
+                .Distinct()
+                .ToArray();
+        }
 
         internal static void ShowWindow(KimodoConstraintMarker marker)
         {
@@ -37,7 +52,7 @@ namespace KimodoBridge.Editor
                 selectionBeforeOpen = Selection.activeObject;
             }
 
-            var window = GetWindow<KimodoConstraintOverrideEditWindow>(true, "Kimodo Constraint Override Edit");
+            var window = GetWindow<KimodoConstraintOverrideEditWindow>(true, "Kimodo Constraint Edit");
             window.minSize = new Vector2(420f, 260f);
             window.marker = marker;
             window.lastError = string.Empty;
@@ -194,6 +209,7 @@ namespace KimodoBridge.Editor
             else if (current.type == EventType.MouseUp || current.type == EventType.Ignore)
             {
                 sceneDragActive = false;
+                collapseSceneDragUndo = true;
             }
         }
 
@@ -226,17 +242,12 @@ namespace KimodoBridge.Editor
                             : previewError;
                     }
 
-                    KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
-                    Repaint();
-                    return;
                 }
 
                 if (sceneDragActive &&
                     KimodoConstraintPoseCache.HasRootTargetTransformChanges(context, editEntryId))
                 {
                     pendingRootWriteback = true;
-                    Repaint();
-                    return;
                 }
 
                 if (!sceneDragActive &&
@@ -252,52 +263,27 @@ namespace KimodoBridge.Editor
                 if (pendingEndEffectorWriteback || pendingRootWriteback ||
                     KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
                 {
-                    if (sceneDragActive)
-                    {
-                        Repaint();
-                        return;
-                    }
+                    WriteBackPoseChanges(context);
+                }
 
-                    KimodoConstraintPoseCache.RestoreNonRootBoneTranslations(context, editEntryId);
-                    KimodoConstraintMarkerEditorUtility.LogDragMuscleSnapshot(
-                        marker,
-                        context,
-                        editEntryId);
-                    if (!KimodoConstraintPoseCache.TryBuildSampleFromContext(
-                            context,
-                            editEntryId,
-                            marker.ConstraintType,
-                            marker.time,
-                            out KimodoMarkerSampleResult sample,
-                            out string sampleError))
-                    {
-                        lastError = string.IsNullOrWhiteSpace(sampleError) ? "sample writeback failed." : sampleError;
-                    }
-                    else if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
-                                 marker,
-                                 sample,
-                                 keepOverrideEnabled: true,
-                                 out string writeError))
-                    {
-                        lastError = string.IsNullOrWhiteSpace(writeError) ? "marker writeback failed." : writeError;
-                    }
-                    else if (!KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(
-                                 marker,
-                                 context,
-                                 out string poseError))
-                    {
-                        lastError = string.IsNullOrWhiteSpace(poseError) ? "pose cache update failed." : poseError;
-                    }
-                    else
+                if (!sceneDragActive && refreshSceneAfterDrag)
+                {
+                    if (KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out string poseError))
                     {
                         KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
                         RestoreEndEffectorTargetSelection(marker, context, editEntryId);
                         lastError = string.Empty;
                     }
+                    else
+                    {
+                        lastError = string.IsNullOrWhiteSpace(poseError) ? "pose cache update failed." : poseError;
+                    }
+                    refreshSceneAfterDrag = false;
+                }
 
-                    KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
-                    pendingEndEffectorWriteback = false;
-                    pendingRootWriteback = false;
+                if (collapseSceneDragUndo)
+                {
+                    CollapseSceneDragUndo();
                 }
             }
 
@@ -329,33 +315,20 @@ namespace KimodoBridge.Editor
 
         private void DrawHeader()
         {
-            EditorGUILayout.LabelField("Constraint Override Edit", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox("Edit the pose or the red IK target cube. Marker data updates immediately.", MessageType.Info);
+            EditorGUILayout.LabelField("Constraint Edit", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox("Edit raw Muscle values or Scene targets. Marker data updates immediately; bone Euler angles are intentionally not editable.", MessageType.Info);
             EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField("Marker", marker != null ? marker.name : "(null)");
-            EditorGUILayout.LabelField("Override", marker.useOverride ? "Enabled" : "Disabled");
             EditorGUILayout.Space(6f);
         }
 
         private void DrawMarkerPayload()
         {
-            if (!marker.useOverride)
-            {
-                EditorGUILayout.HelpBox("Override is disabled. Move a preview bone to enable it.", MessageType.Info);
-            }
-
             var so = new SerializedObject(marker);
             so.Update();
 
-            using (new EditorGUI.DisabledScope(!marker.useOverride))
-            {
-                DrawPropertyIfExists(so, "sampleData.sampleTime");
-                if (marker is KimodoConstraintMarker)
-                {
-                    DrawPropertyIfExists(so, "sampleData.mask");
-                    DrawCanonicalPoseEuler(so);
-                }
-            }
+            DrawPropertyIfExists(so, "sampleData.sampleTime");
+            KimodoConstraintEditorState.DrawConstraintPanels(so);
 
             if (so.ApplyModifiedProperties())
             {
@@ -375,80 +348,10 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.HelpBox(
-                "Pose writes back when a Scene drag ends. FullBody pelvis and limb targets support Move/Transform; other non-root bones support rotation only.",
+                "Muscle values are the authoritative body-pose data. Scene target drags write back to the same canonical pose when the drag completes.",
                 MessageType.None);
         }
 
-        private void DrawCanonicalPoseEuler(SerializedObject so)
-        {
-            SerializedProperty pose = so.FindProperty("sampleData.characterPose");
-            if (pose == null) return;
-            DrawMuscleBoneEulers();
-            DrawEulerTransform(pose.FindPropertyRelative("root"), "Root");
-            DrawEulerTransform(pose.FindPropertyRelative("hands.left"), "Left Hand");
-            DrawEulerTransform(pose.FindPropertyRelative("hands.right"), "Right Hand");
-            DrawEulerTransform(pose.FindPropertyRelative("feet.left"), "Left Foot");
-            DrawEulerTransform(pose.FindPropertyRelative("feet.right"), "Right Foot");
-        }
-
-        private void DrawMuscleBoneEulers()
-        {
-            EditorGUILayout.LabelField("Muscle Dependency Bones (Euler)", EditorStyles.boldLabel);
-            if (!TryGetEditContext(out PoseCacheRenderContext context, out _) ||
-                string.IsNullOrWhiteSpace(editEntryId))
-            {
-                EditorGUILayout.HelpBox("Pose preview is unavailable.", MessageType.None);
-                return;
-            }
-
-            for (int i = 0; i < MuscleEulerBones.Length; i++)
-            {
-                HumanBodyBones bone = MuscleEulerBones[i];
-                if (!KimodoConstraintPoseCache.TryGetHumanoidBoneLocalEuler(
-                        context,
-                        editEntryId,
-                        bone,
-                        out Vector3 euler))
-                {
-                    continue;
-                }
-
-                EditorGUI.BeginChangeCheck();
-                Vector3 changed = EditorGUILayout.Vector3Field(ObjectNames.NicifyVariableName(bone.ToString()), euler);
-                if (EditorGUI.EndChangeCheck())
-                {
-                    KimodoConstraintPoseCache.TrySetHumanoidBoneLocalEuler(context, editEntryId, bone, changed);
-                }
-            }
-        }
-
-        internal static HumanBodyBones[] BuildMuscleEulerBones()
-        {
-            return CharacterPoseMuscleAdapter.UnityBodyMuscleIndices
-                .Select(HumanTrait.BoneFromMuscle)
-                .Where(index => index >= 0 && index < (int)HumanBodyBones.LastBone)
-                .Select(index => (HumanBodyBones)index)
-                .Where(bone => bone != HumanBodyBones.Hips)
-                .Distinct()
-                .ToArray();
-        }
-
-        private static void DrawEulerTransform(SerializedProperty transform, string label)
-        {
-            if (transform == null) return;
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
-            SerializedProperty position = transform.FindPropertyRelative("t");
-            SerializedProperty rotation = transform.FindPropertyRelative("q");
-            if (position != null) EditorGUILayout.PropertyField(position, new GUIContent("Position"));
-            if (rotation != null)
-            {
-                EditorGUI.BeginChangeCheck();
-                Vector3 euler = EditorGUILayout.Vector3Field("Euler", rotation.quaternionValue.eulerAngles);
-                if (EditorGUI.EndChangeCheck()) rotation.quaternionValue = Quaternion.Euler(euler);
-            }
-            EditorGUILayout.EndVertical();
-        }
 
         private void DrawFooter()
         {
@@ -528,6 +431,14 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            WriteBackPoseChanges(context);
+            CollapseSceneDragUndo();
+        }
+
+        private void WriteBackPoseChanges(PoseCacheRenderContext context)
+        {
+            if (marker == null) return;
+            EnsureSceneDragUndo();
             KimodoConstraintPoseCache.RestoreNonRootBoneTranslations(context, editEntryId);
             KimodoConstraintMarkerEditorUtility.LogDragMuscleSnapshot(
                 marker,
@@ -542,17 +453,35 @@ namespace KimodoBridge.Editor
                     out KimodoMarkerSampleResult sample,
                     out sampleError))
             {
+                KimodoConstraintPoseCache.GetChangedAutoSampleChannels(
+                    context, editEntryId, out bool fullBodyChanged, out bool root2DChanged);
+                KimodoConstraintPoseCache.EnableChangedConstraintChannels(context, editEntryId, sample);
                 if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
                         marker,
                         sample,
-                        keepOverrideEnabled: true,
+                        disableFullBodyAutoSample: fullBodyChanged,
+                        disableRoot2DAutoSample: root2DChanged,
                         out string writeError))
                 {
                     lastError = string.IsNullOrWhiteSpace(writeError) ? "marker writeback failed." : writeError;
                 }
                 else
                 {
-                    lastError = string.Empty;
+                    // Rebuilding the cache during an active Scene drag would
+                    // recreate the target and reset the handle mid-drag.
+                    string poseError = string.Empty;
+                    if (sceneDragActive ||
+                        KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out poseError))
+                    {
+                        KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
+                        RestoreEndEffectorTargetSelection(marker, context, editEntryId);
+                        lastError = string.Empty;
+                        refreshSceneAfterDrag |= sceneDragActive;
+                    }
+                    else
+                    {
+                        lastError = string.IsNullOrWhiteSpace(poseError) ? "pose cache update failed." : poseError;
+                    }
                 }
             }
             else if (!string.IsNullOrWhiteSpace(sampleError))
@@ -561,8 +490,25 @@ namespace KimodoBridge.Editor
             }
 
             EditorUtility.SetDirty(marker);
+            KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
             pendingEndEffectorWriteback = false;
             pendingRootWriteback = false;
+        }
+
+        private void EnsureSceneDragUndo()
+        {
+            if (sceneDragUndoGroup >= 0 || marker == null) return;
+            Undo.IncrementCurrentGroup();
+            sceneDragUndoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Edit Kimodo Constraint");
+            Undo.RecordObject(marker, "Edit Kimodo Constraint");
+        }
+
+        private void CollapseSceneDragUndo()
+        {
+            if (sceneDragUndoGroup >= 0) Undo.CollapseUndoOperations(sceneDragUndoGroup);
+            sceneDragUndoGroup = -1;
+            collapseSceneDragUndo = false;
         }
 
         private void LockTimelineWindow()

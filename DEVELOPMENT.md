@@ -68,7 +68,8 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 
 ```json
 {
-  "characterPose": "<canonical pose>",
+  "characterPose": "<FullBody canonical pose>",
+  "root2DOverride": "<optional XZ/yaw override>",
   "constraintType": "constraint",
   "sampleTime": 0.0,
   "hasRootHeading": true,
@@ -76,8 +77,8 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 }
 ```
 
-- mask 控制 Muscle、Root position/heading、左右 HandTQ 和 FootTQ 通道；同一 Constraint 可同时启用多个通道。
-- 求解顺序固定为 Muscle → Foot IK → Hand IK → Root2D（最后整体移动/旋转已完成的 FK/IK 骨架）。
+- mask 控制 Muscle、Root2D position/heading、左右 HandTQ 和 FootTQ 通道；同一 Constraint 可同时启用多个通道。`characterPose.root` 始终属于 FullBody，`root2DOverride` 只保存 Root2D 的 X/Z 与 yaw，不能覆盖 FullBody 的 Y、pitch、roll。
+- 求解顺序固定为 FullBody（raw 49 Muscle + 完整 Root T/Q）→ Root2D（仅 X/Z、yaw）→ Foot IK → Hand IK。Root2D 生效时，已启用的四肢世界目标保持不动，再反解为新的 body-relative T/Q。
 - 导出边界再投影成既有 `fullbody`、`root2d` 与手脚协议记录；EndEffector 单独发送 `target_positions`，但复用同一帧最终 FK/root；QuickServer 协议本身不变。
 - `humanScale` 是 HumanPose 归一化坐标与协议米单位之间的内部投影元数据，不是可创作通道。
 

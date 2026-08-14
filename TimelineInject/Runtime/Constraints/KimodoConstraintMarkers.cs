@@ -80,6 +80,10 @@ namespace TimelineInject
     public sealed class KimodoMarkerSampleResult
     {
         public CharacterPose characterPose;
+        // FullBody owns characterPose.root. Root2D is kept separately so its
+        // X/Z and heading override cannot destroy FullBody Y, pitch or roll.
+        public CharacterPoseTransform root2DOverride = new CharacterPoseTransform();
+        public bool hasRoot2DOverride;
         public string constraintType = "constraint";
         public double sampleTime;
         public bool hasRootHeading = true;
@@ -88,7 +92,11 @@ namespace TimelineInject
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
         {
             characterPose = characterPose?.Clone(),
-            constraintType = "constraint",
+            root2DOverride = root2DOverride != null
+                ? new CharacterPoseTransform { t = root2DOverride.t, q = root2DOverride.q }
+                : null,
+            hasRoot2DOverride = hasRoot2DOverride,
+            constraintType = this.constraintType,
             sampleTime = sampleTime,
             hasRootHeading = hasRootHeading,
             mask = mask?.Clone()

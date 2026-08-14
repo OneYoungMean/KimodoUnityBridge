@@ -7,16 +7,17 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoConstraintExportProjector
     {
-        internal static Func<CharacterAnimationCli.Unity.CharacterPose, List<Vector3>> Create(string modelName)
+        internal static Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> Create(string modelName)
         {
             string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
-            return pose => Project(pose, resolvedModelName);
+            return sample => Project(sample, resolvedModelName);
         }
 
-        private static List<Vector3> Project(
-            CharacterAnimationCli.Unity.CharacterPose pose,
+        private static KimodoConstraintProjectedPose Project(
+            KimodoMarkerSampleResult sample,
             string modelName)
         {
+            CharacterAnimationCli.Unity.CharacterPose pose = sample?.characterPose;
             string poseError = null;
             if (pose == null || !pose.TryValidate(out poseError))
             {
@@ -40,13 +41,17 @@ namespace KimodoBridge.Editor
 
             try
             {
+                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
                 if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                         CharacterPoseMuscleAdapter.ToMuscleSample(pose),
                         KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
                         cache,
                         out _,
-                        out _,
-                        out error))
+                        out MuscleSample projectedMuscleSample,
+                        out error,
+                        solveLeftHandIk: mask.leftHand,
+                        solveRightHandIk: mask.rightHand,
+                        applyFootIk: mask.leftFoot || mask.rightFoot))
                 {
                     throw new InvalidOperationException($"Constraint pose projection failed: {error}");
                 }
@@ -62,6 +67,11 @@ namespace KimodoBridge.Editor
                     throw new InvalidOperationException($"Constraint profile skeleton failed: {error}");
                 }
 
+                if (joints == null || joints.Length == 0 || joints[0] == null || projectedMuscleSample == null)
+                {
+                    throw new InvalidOperationException("Constraint profile skeleton has no Hips joint after projection.");
+                }
+
                 var result = new List<Vector3>(joints.Length);
                 for (int i = 0; i < joints.Length; i++)
                 {
@@ -69,7 +79,15 @@ namespace KimodoBridge.Editor
                     Quaternion rotation = i == 0 ? joint.rotation : joint.localRotation;
                     result.Add(KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(rotation));
                 }
-                return result;
+                return new KimodoConstraintProjectedPose
+                {
+                    // The profile cache is created at the model's real Unity
+                    // scale. Use the evaluated Hips transform directly so
+                    // root position follows the same Humanoid playback that
+                    // produced the joint rotations.
+                    rootPositionMeters = joints[0].position,
+                    localJointAngles = result
+                };
             }
             finally
             {

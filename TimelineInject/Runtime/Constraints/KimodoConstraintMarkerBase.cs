@@ -1,6 +1,7 @@
 using System;
 using TimelineInject;
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.Timeline;
 
 [Serializable]
@@ -8,8 +9,14 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
 {
     [Tooltip("If disabled, this marker is ignored by preview, sampling, and generation.")]
     public bool constraintEnabled = true;
-    [Tooltip("If enabled, use manually edited marker values. If disabled, values are sampled from timeline pose at this marker time.")]
-    public bool useOverride;
+    [Tooltip("When enabled, FullBody muscle and root values follow the Timeline pose at this marker time.")]
+    public bool autoSampleFullBody = true;
+    [Tooltip("When enabled, Root2D X/Z and heading follow the Timeline pose at this marker time.")]
+    public bool autoSampleRoot2D = true;
+    // Migration-only: preserves old manual marker data without exposing the
+    // retired Override concept in the authoring UI.
+    [FormerlySerializedAs("useOverride")]
+    [SerializeField] private bool legacyManualValues;
     [SerializeField] private KimodoMarkerSampleResult sampleData = new KimodoMarkerSampleResult();
 
     public string ConstraintType => "constraint";
@@ -29,5 +36,14 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         sampleData.mask = KimodoConstraintMask.Resolve(sampleData.mask, "constraint");
     }
 
-    private void OnEnable() => EnsureSampleData();
+    private void OnEnable()
+    {
+        if (legacyManualValues)
+        {
+            autoSampleFullBody = false;
+            autoSampleRoot2D = false;
+            legacyManualValues = false;
+        }
+        EnsureSampleData();
+    }
 }

@@ -144,7 +144,15 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
         }
 
         [Test]
-        public void SameFrameComposition_UsesFullBodyThenRootAndEndEffectors()
+        public void MarkerClone_PreservesConstraintType()
+        {
+            var sample = new KimodoMarkerSampleResult { constraintType = "left-hand" };
+
+            Assert.That(sample.Clone().constraintType, Is.EqualTo("left-hand"));
+        }
+
+        [Test]
+        public void SameFrameComposition_UsesFullBodyThenRoot2DAndEndEffectors()
         {
             var fullBody = new CharacterPose();
             fullBody.muscles[0] = 0.5f;
@@ -165,10 +173,10 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(samples, 60.0);
 
             Assert.That(samples[0].characterPose.muscles[0], Is.EqualTo(0.5f));
-            Assert.That(samples[0].characterPose.root.t, Is.EqualTo(root.root.t));
-            Assert.That(samples[0].characterPose.hands.left.t, Is.EqualTo(leftHand.hands.left.t));
-            Assert.That(samples[0].characterPose.feet.right.t, Is.EqualTo(rightFoot.feet.right.t));
-            Assert.That(samples[1].characterPose.root.t, Is.EqualTo(root.root.t));
+            Assert.That(samples[0].characterPose.root.t, Is.EqualTo(new Vector3(1f, 0f, 3f)));
+            Assert.That(samples[0].characterPose.hands.left.t, Is.Not.EqualTo(leftHand.hands.left.t));
+            Assert.That(samples[0].characterPose.feet.right.t, Is.Not.EqualTo(rightFoot.feet.right.t));
+            Assert.That(samples[1].characterPose.root.t, Is.EqualTo(new Vector3(1f, 0f, 3f)));
         }
 
         [Test]
@@ -286,6 +294,34 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
         }
 
         [Test]
+        public void SameFrameComposition_DoesNotOverwriteUnifiedConstraintAuthoredPose()
+        {
+            var authored = new CharacterPose();
+            authored.root.t = new Vector3(1f, 2f, 3f);
+            authored.root.q = Quaternion.Euler(10f, 20f, 30f);
+            authored.hands.left.t = new Vector3(4f, 5f, 6f);
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintType = "constraint",
+                sampleTime = 1.0,
+                characterPose = authored,
+                hasRoot2DOverride = true,
+                root2DOverride = new CharacterPoseTransform
+                {
+                    t = new Vector3(7f, 0f, 8f),
+                    q = Quaternion.Euler(0f, 90f, 0f)
+                },
+                mask = new KimodoConstraintMask { muscle = true, rootPosition = true, rootHeading = true, leftHand = true }
+            };
+
+            KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(new[] { sample, sample.Clone() }, 60.0);
+
+            Assert.That(sample.characterPose.root.t, Is.EqualTo(new Vector3(1f, 2f, 3f)));
+            Assert.That(Quaternion.Angle(sample.characterPose.root.q, Quaternion.Euler(10f, 20f, 30f)), Is.LessThan(1e-4f));
+            Assert.That(sample.characterPose.hands.left.t, Is.EqualTo(new Vector3(4f, 5f, 6f)));
+        }
+
+        [Test]
         public void Root2DWithoutHeading_ChangesPositionButKeepsTheSolvedFkHeading()
         {
             var fullBody = new CharacterPose();
@@ -308,11 +344,45 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
 
             KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(samples, 60.0);
 
-            Assert.That(samples[0].characterPose.root.t, Is.EqualTo(root2D.root.t));
+            Assert.That(samples[0].characterPose.root.t, Is.EqualTo(new Vector3(8f, 0f, 9f)));
             Assert.That(Quaternion.Angle(samples[0].characterPose.root.q, fullBody.root.q), Is.LessThan(1e-4f));
 
             var merged = KimodoMarkerSamplingUtility.MergeAsUnifiedConstraintSamples(samples, 60.0);
             Assert.That(merged[0].hasRootHeading, Is.False);
+            Assert.That(merged[0].hasRoot2DOverride, Is.True);
+        }
+
+        [Test]
+        public void UnifiedRoot2D_PreservesFullBodyVerticalAndTiltAndKeepsGoalsInWorldSpace()
+        {
+            var pose = new CharacterPose();
+            pose.root.t = new Vector3(1f, 2f, 3f);
+            pose.root.q = Quaternion.Euler(20f, 30f, 10f);
+            pose.hands.left.t = new Vector3(2f, 1f, -1f);
+            pose.hands.left.q = Quaternion.Euler(5f, 10f, 15f);
+            Vector3 worldPosition = pose.root.t + pose.root.q * pose.hands.left.t;
+            Quaternion worldRotation = pose.root.q * pose.hands.left.q;
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintType = "constraint",
+                characterPose = pose,
+                hasRoot2DOverride = true,
+                root2DOverride = new CharacterPoseTransform
+                {
+                    t = new Vector3(8f, 99f, 9f),
+                    q = Quaternion.Euler(0f, 140f, 0f)
+                },
+                mask = new KimodoConstraintMask { muscle = true, rootPosition = true, rootHeading = true, leftHand = true }
+            };
+
+            KimodoMarkerSampleResult resolved = KimodoConstraintSampleResolver.ResolveUnifiedSample(sample);
+            Assert.That(resolved.characterPose.root.t, Is.EqualTo(new Vector3(8f, 2f, 9f)));
+            Vector3 forward = resolved.characterPose.root.q * Vector3.forward;
+            Assert.That(Vector3.Angle(Vector3.ProjectOnPlane(forward, Vector3.up), Quaternion.Euler(0f, 140f, 0f) * Vector3.forward), Is.LessThan(1e-4f));
+            Vector3 resolvedWorldPosition = resolved.characterPose.root.t + resolved.characterPose.root.q * resolved.characterPose.hands.left.t;
+            Quaternion resolvedWorldRotation = resolved.characterPose.root.q * resolved.characterPose.hands.left.q;
+            Assert.That(Vector3.Distance(resolvedWorldPosition, worldPosition), Is.LessThan(1e-5f));
+            Assert.That(Quaternion.Angle(resolvedWorldRotation, worldRotation), Is.LessThan(1e-4f));
         }
 
         [Test]
@@ -343,7 +413,14 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             Assert.That(merged[0].constraintType, Is.EqualTo("constraint"));
             Assert.That(merged[0].mask.muscle && merged[0].mask.leftHand && merged[0].mask.rootPosition, Is.True);
             Assert.That(merged[0].characterPose.hands.left.t, Is.EqualTo(leftHand.hands.left.t));
-            Assert.That(merged[0].characterPose.root.t, Is.EqualTo(root.root.t));
+            Assert.That(merged[0].characterPose.root.t, Is.EqualTo(fullBody.root.t));
+            Assert.That(merged[0].root2DOverride.t, Is.EqualTo(new Vector3(4f, 0f, 5f)));
+            Assert.That(merged[0].hasRoot2DOverride, Is.True);
+            KimodoMarkerSampleResult resolved = KimodoConstraintSampleResolver.ResolveUnifiedSample(merged[0]);
+            Vector3 expectedWorldHand = fullBody.root.t + fullBody.root.q * leftHand.hands.left.t;
+            Vector3 resolvedWorldHand = resolved.characterPose.root.t +
+                resolved.characterPose.root.q * resolved.characterPose.hands.left.t;
+            Assert.That(Vector3.Distance(resolvedWorldHand, expectedWorldHand), Is.LessThan(1e-5f));
             Assert.That(merged[0].characterPose.muscles, Has.Length.EqualTo(CharacterPose.MuscleCount));
         }
 
@@ -363,7 +440,8 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
             try
             {
-                marker.useOverride = false;
+                marker.autoSampleFullBody = true;
+                marker.autoSampleRoot2D = true;
                 marker.SampleData = new KimodoMarkerSampleResult
                 {
                     constraintType = "constraint",
@@ -386,6 +464,66 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 Assert.That(normalized.mask.leftHand, Is.True);
                 Assert.That(normalized.mask.muscle, Is.False);
                 Assert.That(normalized.hasRootHeading, Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(marker);
+            }
+        }
+
+        [Test]
+        public void AutoSampleChannels_MergeIndependentlyAndKeepHandAuthored()
+        {
+            KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
+            try
+            {
+                var authored = new CharacterPose();
+                authored.muscles[0] = 2f;
+                authored.root.t = new Vector3(1f, 2f, 3f);
+                authored.hands.left.t = new Vector3(4f, 5f, 6f);
+                authored.hands.right.t = new Vector3(-4f, -5f, -6f);
+                authored.feet.left.t = new Vector3(14f, 15f, 16f);
+                authored.feet.right.t = new Vector3(-14f, -15f, -16f);
+                marker.SampleData = new KimodoMarkerSampleResult
+                {
+                    characterPose = authored,
+                    hasRoot2DOverride = true,
+                    root2DOverride = new CharacterPoseTransform
+                    {
+                        t = new Vector3(7f, 0f, 8f),
+                        q = Quaternion.Euler(0f, 30f, 0f)
+                    },
+                    mask = new KimodoConstraintMask { muscle = true, rootPosition = true, rootHeading = true, leftHand = true }
+                };
+                var sampledPose = new CharacterPose();
+                sampledPose.muscles[0] = 9f;
+                sampledPose.root.t = new Vector3(10f, 11f, 12f);
+                sampledPose.root.q = Quaternion.Euler(0f, 90f, 0f);
+                sampledPose.hands.left.t = new Vector3(40f, 50f, 60f);
+                sampledPose.hands.right.t = new Vector3(41f, 51f, 61f);
+                sampledPose.feet.left.t = new Vector3(42f, 52f, 62f);
+                sampledPose.feet.right.t = new Vector3(43f, 53f, 63f);
+                var sampled = new KimodoMarkerSampleResult { characterPose = sampledPose };
+
+                marker.autoSampleFullBody = false;
+                marker.autoSampleRoot2D = true;
+                KimodoMarkerSampleResult root2dOnly = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sampled);
+                Assert.That(root2dOnly.characterPose.muscles[0], Is.EqualTo(2f));
+                Assert.That(root2dOnly.characterPose.root.t, Is.EqualTo(new Vector3(1f, 2f, 3f)));
+                Assert.That(root2dOnly.root2DOverride.t, Is.EqualTo(new Vector3(10f, 0f, 12f)));
+                Assert.That(root2dOnly.characterPose.hands.left.t, Is.EqualTo(new Vector3(4f, 5f, 6f)));
+                Assert.That(root2dOnly.characterPose.hands.right.t, Is.EqualTo(new Vector3(-4f, -5f, -6f)));
+
+                marker.autoSampleFullBody = true;
+                marker.autoSampleRoot2D = false;
+                KimodoMarkerSampleResult fullBodyOnly = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sampled);
+                Assert.That(fullBodyOnly.characterPose.muscles[0], Is.EqualTo(9f));
+                Assert.That(fullBodyOnly.characterPose.root.t, Is.EqualTo(new Vector3(10f, 11f, 12f)));
+                Assert.That(fullBodyOnly.root2DOverride.t, Is.EqualTo(new Vector3(7f, 0f, 8f)));
+                Assert.That(fullBodyOnly.characterPose.hands.left.t, Is.EqualTo(new Vector3(4f, 5f, 6f)));
+                Assert.That(fullBodyOnly.characterPose.hands.right.t, Is.EqualTo(new Vector3(41f, 51f, 61f)));
+                Assert.That(fullBodyOnly.characterPose.feet.left.t, Is.EqualTo(new Vector3(42f, 52f, 62f)));
+                Assert.That(fullBodyOnly.characterPose.feet.right.t, Is.EqualTo(new Vector3(43f, 53f, 63f)));
             }
             finally
             {

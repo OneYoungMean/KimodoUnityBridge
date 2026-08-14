@@ -1554,9 +1554,9 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (CanUseOverrideWithoutTimelineSampling(marker))
+                if (CanUseAuthoredValuesWithoutTimelineSampling(marker))
                 {
-                    if (!TryNormalizeMarkerSample(marker, marker.SampleData, "override", out resolvedSamples[i], out error))
+                    if (!TryNormalizeMarkerSample(marker, marker.SampleData, "authored", out resolvedSamples[i], out error))
                     {
                         return false;
                     }
@@ -1661,9 +1661,9 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        private static bool CanUseOverrideWithoutTimelineSampling(KimodoConstraintMarker marker)
+        private static bool CanUseAuthoredValuesWithoutTimelineSampling(KimodoConstraintMarker marker)
         {
-            if (marker == null || !marker.useOverride)
+            if (marker == null || marker.autoSampleFullBody || marker.autoSampleRoot2D)
             {
                 return false;
             }
