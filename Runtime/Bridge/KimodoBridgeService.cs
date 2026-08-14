@@ -486,6 +486,22 @@ namespace KimodoBridge
                         currentRuntimeRoot = context.RuntimeRoot;
 
                     }
+                    else if (probe1 == ExistingServerProbeResult.NotResponding &&
+                             isDefaultSession &&
+                             BridgeEndpointResolver.TryReadServerProcessId(context.RuntimeRoot, out int serverProcessId) &&
+                             BridgeProcessManager.TryTerminateQuickServer(serverProcessId, out string processName))
+                    {
+                        ReportProgress(progress, $"QuickServer process '{processName}' ({serverProcessId}) did not respond; restarting it.");
+                        if (processManager.IsRunning)
+                        {
+                            await processManager.WaitUntilProcessStoppedAsync(
+                                BridgeRuntimeDefaults.ShutdownTimeoutMs,
+                                BridgeRuntimeDefaults.PollIntervalMs,
+                                token).ConfigureAwait(false);
+                        }
+                        processManager.DetachProcess();
+                        DeleteServerPortFile();
+                    }
                 }
 
                 if (IsConnected && currentPort > 0 && (isDefaultSession || explicitSessionOpened))

@@ -158,6 +158,58 @@ namespace KimodoBridge
             }
         }
 
+        public async Task WaitUntilProcessStoppedAsync(
+            int timeoutMs,
+            int pollIntervalMs,
+            CancellationToken token)
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(Math.Max(1000, timeoutMs));
+            CancellationToken waitToken = timeoutCts.Token;
+
+            try
+            {
+                while (IsRunning)
+                {
+                    await Task.Delay(Math.Max(100, pollIntervalMs), waitToken).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                throw new TimeoutException($"Bridge launcher did not exit within {timeoutMs}ms.");
+            }
+        }
+
+        public static bool TryTerminateQuickServer(int processId, out string processName)
+        {
+            processName = string.Empty;
+            if (processId <= 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                using Process target = Process.GetProcessById(processId);
+                processName = target.ProcessName ?? string.Empty;
+                if (!IsQuickServerProcessName(processName))
+                {
+                    return false;
+                }
+
+                if (!target.HasExited)
+                {
+                    target.Kill();
+                    target.WaitForExit(5000);
+                }
+                return target.HasExited;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public void Dispose()
         {
             if (disposed)
@@ -264,6 +316,15 @@ namespace KimodoBridge
             {
                 return false;
             }
+        }
+
+        private static bool IsQuickServerProcessName(string processName)
+        {
+            return string.Equals(processName, "python", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(processName, "pythonw", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(processName, "python3", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(processName, "quickserver", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(processName, "quickserver_cli", StringComparison.OrdinalIgnoreCase);
         }
     }
 }
