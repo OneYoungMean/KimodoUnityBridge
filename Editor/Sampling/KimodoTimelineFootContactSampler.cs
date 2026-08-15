@@ -51,7 +51,7 @@ namespace KimodoBridge.Editor
             {
                 if (candidate == null ||
                     (time < candidate.start &&
-                        !KimodoTimelinePreviewRefreshUtility.ApproximatelyTimelineTime(time, candidate.start)) ||
+                        !TimelineInject.KimodoTimelinePreviewRefreshUtility.ApproximatelyTimelineTime(time, candidate.start)) ||
                     time >= candidate.end)
                 {
                     continue;
