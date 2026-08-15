@@ -242,7 +242,6 @@ namespace KimodoBridge
                     : request.text_encoder_mode;
                 payload["models_root"] = request.models_root ?? string.Empty;
                 payload["force_hf_download"] = request.force_hf_download;
-                payload["owner_pid"] = request.owner_pid;
                 if (request.timeline_segments != null && request.timeline_segments.Count > 0)
                 {
                     var timelineSegments = new JArray();
@@ -385,10 +384,6 @@ namespace KimodoBridge
             request["request_id"] = requestId;
             string taskId = request.Value<string>("task_id") ?? string.Empty;
             var item = new PendingRequest(requestId, taskId, progress, modelLoadingTimeoutMs);
-            if (!pending.TryAdd(requestId, item))
-            {
-                throw new InvalidOperationException("Bridge request id collision.");
-            }
 
             try
             {
@@ -403,6 +398,10 @@ namespace KimodoBridge
                     else if (!IsConnected || !string.Equals(sharedHost, host, StringComparison.OrdinalIgnoreCase) || sharedPort != port)
                     {
                         throw new IOException("Bridge persistent connection is not available.");
+                    }
+                    if (!pending.TryAdd(requestId, item))
+                    {
+                        throw new InvalidOperationException("Bridge request id collision.");
                     }
                     await WriteJsonLineAsync(sharedStream, request, token).ConfigureAwait(false);
                     if (binaryPayload != null && binaryPayload.Length > 0)

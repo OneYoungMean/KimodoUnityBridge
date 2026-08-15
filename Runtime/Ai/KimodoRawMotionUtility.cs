@@ -1118,6 +1118,74 @@ namespace KimodoBridge
             return true;
         }
 
+        public static bool TryBuildConstraintRawData(
+            KimodoRawMotionData motion,
+            string modelName,
+            int frameIndex,
+            out KimodoConstraintRawData rawData,
+            out string error)
+        {
+            rawData = null;
+            error = string.Empty;
+            if (motion == null)
+            {
+                error = "Motion data is null.";
+                return false;
+            }
+
+            KimodoRigProfileDatabase.ResolveProfile(modelName, out _, out string[] profileJointNames, out _);
+            if (!TryResolveMotionJointIndices(
+                    motion,
+                    profileJointNames,
+                    allowPartialJoints: false,
+                    out int[] motionJointIndices,
+                    out error,
+                    allowPositionalFallback: false))
+            {
+                return false;
+            }
+
+            int frame = Mathf.Clamp(frameIndex, 0, Mathf.Max(0, motion.FrameCount - 1));
+            if (!motion.TryReadUnityRootPosition(frame, out Vector3 rootPosition))
+            {
+                error = $"Raw motion root position is invalid at frame {frame}.";
+                return false;
+            }
+
+            int rotationJointCount = ResolveRotationJointCount(motion);
+            if (rotationJointCount <= 0)
+            {
+                error = "Raw motion local rotations are empty.";
+                return false;
+            }
+
+            var localJointAxisAngles = new List<Vector3>(motionJointIndices.Length);
+            for (int i = 0; i < motionJointIndices.Length; i++)
+            {
+                int motionJointIndex = motionJointIndices[i];
+                if (!motion.TryReadUnityLocalRotation(
+                        frame,
+                        motionJointIndex,
+                        rotationJointCount,
+                        out Quaternion localRotation))
+                {
+                    error = $"Raw motion local rotation is invalid at frame {frame}, " +
+                            $"profile joint '{profileJointNames[i]}'.";
+                    return false;
+                }
+
+                localJointAxisAngles.Add(
+                    KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(localRotation));
+            }
+
+            rawData = new KimodoConstraintRawData
+            {
+                rootPosition = rootPosition,
+                localJointAxisAngles = localJointAxisAngles
+            };
+            return true;
+        }
+
         private static bool ValidateBinding(KimodoRawMotionPlaybackBinding binding, out string error)
         {
             error = string.Empty;
@@ -1250,7 +1318,8 @@ namespace KimodoBridge
             string[] profileJointNames,
             bool allowPartialJoints,
             out int[] motionJointIndices,
-            out string error)
+            out string error,
+            bool allowPositionalFallback = true)
         {
             motionJointIndices = Array.Empty<int>();
             error = string.Empty;
@@ -1291,7 +1360,7 @@ namespace KimodoBridge
                     continue;
                 }
 
-                if (sameJointCount && i < motion.JointCount)
+                if (allowPositionalFallback && sameJointCount && i < motion.JointCount)
                 {
                     motionJointIndices[i] = i;
                     continue;

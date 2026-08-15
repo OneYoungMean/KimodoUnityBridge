@@ -76,10 +76,32 @@ namespace TimelineInject
         }
     }
 
+    /// <summary>
+    /// Canonical raw pose data used by generation paths that already have
+    /// profile joint rotations. Values are kept in Unity canonical space until
+    /// the constraint JSON exporter applies the protocol conversion.
+    /// </summary>
+    [Serializable]
+    public sealed class KimodoConstraintRawData
+    {
+        public Vector3 rootPosition;
+        public List<Vector3> localJointAxisAngles = new List<Vector3>();
+
+        public KimodoConstraintRawData Clone() => new KimodoConstraintRawData
+        {
+            rootPosition = rootPosition,
+            localJointAxisAngles = localJointAxisAngles != null
+                ? new List<Vector3>(localJointAxisAngles)
+                : null
+        };
+    }
+
     [Serializable]
     public sealed class KimodoMarkerSampleResult
     {
         public CharacterPose characterPose;
+        [NonSerialized]
+        public KimodoConstraintRawData rawData;
         // FullBody owns characterPose.root. Root2D is kept separately so its
         // X/Z and heading override cannot destroy FullBody Y, pitch or roll.
         public CharacterPoseTransform root2DOverride = new CharacterPoseTransform();
@@ -92,6 +114,7 @@ namespace TimelineInject
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
         {
             characterPose = characterPose?.Clone(),
+            rawData = rawData?.Clone(),
             root2DOverride = root2DOverride != null
                 ? new CharacterPoseTransform { t = root2DOverride.t, q = root2DOverride.q }
                 : null,

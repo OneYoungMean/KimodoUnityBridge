@@ -29,7 +29,6 @@ namespace KimodoBridge
         public int? simulate_free_vram_gb;
         public string models_root;
         public bool force_hf_download;
-        public int owner_pid;
         public double? ardy_history_weight;
         public double? ardy_max_speed;
         public double? ardy_max_acceleration;

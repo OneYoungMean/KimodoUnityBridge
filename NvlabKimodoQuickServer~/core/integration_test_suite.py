@@ -330,10 +330,14 @@ class TestContext:
     def bridge_log_path(self) -> Path:
         return self.workspace_runtime / "log" / "bridge_server.log"
 
-    def launcher_command(self) -> list[str]:
+    def launcher_command(self, *, watch_pid: int = 0) -> list[str]:
         if os.name == "nt":
-            return ["cmd.exe", "/d", "/c", "call", str(self.workspace_runtime / "run_server.bat")]
-        return ["bash", str(self.workspace_runtime / "run_server.sh")]
+            command = ["cmd.exe", "/d", "/c", "call", str(self.workspace_runtime / "run_server.bat")]
+        else:
+            command = ["bash", str(self.workspace_runtime / "run_server.sh")]
+        if watch_pid > 0:
+            command.extend(["--watchpid", str(int(watch_pid))])
+        return command
 
     def start_owner(self) -> int:
         self.owner_proc = subprocess.Popen([self.python_host, "-c", "import time; time.sleep(3600)"])
@@ -413,6 +417,7 @@ def _start_launcher(
     force_download_uv: bool = False,
     bootstrap_hold_sec: int | None = None,
     idle_timeout_sec: int | None = None,
+    watch_pid: int = 0,
 ) -> None:
     env = _build_launcher_env(
         ctx,
@@ -427,7 +432,7 @@ def _start_launcher(
     stdout_stream = stdout_path.open("w", encoding="utf-8", newline="\n")
     stderr_stream = stderr_path.open("w", encoding="utf-8", newline="\n")
     ctx.launcher_proc = subprocess.Popen(
-        ctx.launcher_command(),
+        ctx.launcher_command(watch_pid=watch_pid),
         cwd=str(ctx.workspace_runtime),
         env=env,
         stdout=stdout_stream,
@@ -522,13 +527,12 @@ def _wait_for_server_shutdown(ctx: TestContext, timeout_sec: float = 60.0) -> No
     _wait_for(_stopped, timeout_sec, "server shutdown")
 
 
-def _start_runtime(ctx: TestContext, *, text_encoder_mode: str = "high_performance", force_hf_download: bool = False, simulate_free_vram_gb: int | None = None, reuse_existing_models: bool = True, owner_pid: int = 0) -> tuple[str, int]:
+def _start_runtime(ctx: TestContext, *, text_encoder_mode: str = "high_performance", force_hf_download: bool = False, simulate_free_vram_gb: int | None = None, reuse_existing_models: bool = True) -> tuple[str, int]:
     host, port = _wait_for_server(ctx)
     ctx.runtime_request_defaults = {
         "model": "Kimodo-SOMA-RP-v1",
         "text_encoder_mode": text_encoder_mode,
         "force_hf_download": bool(force_hf_download),
-        "owner_pid": int(owner_pid),
     }
     if reuse_existing_models and ctx.reusable_models_path:
         ctx.runtime_request_defaults["models_root"] = ctx.reusable_models_path
@@ -719,7 +723,6 @@ def _run_prepare(ctx: TestContext) -> dict[str, Any]:
                 "model": "Kimodo-SOMA-RP-v1",
                 "text_encoder_mode": "high_performance",
                 "force_hf_download": False,
-                "owner_pid": 0,
             },
             read_binary=True,
             timeout_sec=TEST_TIMEOUT_SEC * 2,
@@ -762,8 +765,6 @@ def _run_prepare(ctx: TestContext) -> dict[str, Any]:
 def _start_phase_driver(
     ctx: TestContext,
     phase: str,
-    *,
-    owner_pid: int = 0,
 ) -> tuple[Any, list[str]]:
     phase_errors: list[str] = []
     phase_thread = None
@@ -777,7 +778,6 @@ def _start_phase_driver(
             host, port = _start_runtime(
                 ctx,
                 reuse_existing_models=(phase != "download"),
-                owner_pid=owner_pid,
             )
             _generate_tpose(ctx, host, port, task_id=f"{ctx.case.case_id}_phase_driver", duration=20.0)
         except Exception as exc:
@@ -1048,11 +1048,16 @@ def _run_abort_phase(ctx: TestContext, phase: str, delay_sec: int) -> dict[str, 
 
 
 def _run_owner_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
-    owner_pid = ctx.start_owner()
+    watch_pid = ctx.start_owner()
     params = _resolved_case_params(ctx.case)
     reuse_existing_env = params.get("reuse_existing_env", phase not in {"boot", "setting_up_env"})
-    _start_launcher(ctx, reuse_existing_env=reuse_existing_env, idle_timeout_sec=params.get("idle_timeout_sec"))
-    phase_thread, phase_errors = _start_phase_driver(ctx, phase, owner_pid=owner_pid)
+    _start_launcher(
+        ctx,
+        reuse_existing_env=reuse_existing_env,
+        idle_timeout_sec=params.get("idle_timeout_sec"),
+        watch_pid=watch_pid,
+    )
+    phase_thread, phase_errors = _start_phase_driver(ctx, phase)
     _wait_for_bootstrap_phase(ctx, phase)
     if ctx.owner_proc is None:
         raise RuntimeError("Owner process missing.")
@@ -1062,7 +1067,7 @@ def _run_owner_kill(ctx: TestContext, phase: str) -> dict[str, Any]:
     if phase_thread is not None:
         phase_thread.join(timeout=30)
     _post_recovery_generate(ctx, params)
-    return {"status": "passed", "owner_pid": owner_pid, "phase": phase, "phase_errors": phase_errors}
+    return {"status": "passed", "watch_pid": watch_pid, "phase": phase, "phase_errors": phase_errors}
 
 
 def _run_owner_kill_recovery(ctx: TestContext) -> dict[str, Any]:

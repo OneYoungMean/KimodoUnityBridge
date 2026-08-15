@@ -140,6 +140,8 @@ Normal generation prepares and starts the project-local runtime as needed. `kimo
 
 The default runtime root is the Unity project's `NvlabKimodoQuickServer~`, with its Python environment at root `.venv`. Auto Sync Server runs only on a cold server start after Unity has confirmed that no healthy server or startup process exists; an active server is reused and an in-progress startup is awaited. When the installed runtime is older than the packaged version, major sync clears everything, minor sync keeps `models`, and patch sync keeps `models` plus root `.venv`. Relevant logs are `log/setup.log` and `log/bridge_server.log`. On failure, capture the command JSON/result, Unity version, `Editor.log`, runtime logs, Session state, and whether the failure occurred during package resolution, setup, model provisioning, generation, bake, or playback.
 
+One-shot commands use the shared Bridge connection. Only stateful `KimodoRuntimeMotionDriver` sessions use owned Bridge connections. QuickServer lifetime is controlled only by the launch-time `--watchpid`; TCP Generate requests do not carry an `owner_pid`.
+
 Runtime `SetRoot2DTarget` treats a target inside `arrivalThresholdMeters` as already reached and does not stage a constraint.
 
 ### 10. Backend developer seam
@@ -276,6 +278,8 @@ kimodo_get_generation -> 轮询到终态
 普通生成会按需准备并启动项目级运行时。`kimodo_debug_install_server` 仅用于调试式增量修复/安装，使用前先读取当前 help；不得把它暴露成全局安装器。
 
 默认运行根目录是 Unity 项目下的 `NvlabKimodoQuickServer~`，Python 环境位于该根目录的 `.venv`。Auto Sync Server 只在 Unity 确认不存在健康服务器或正在进行的启动流程后，于冷启动阶段执行；活动服务器直接复用，正在启动的服务器只等待。项目运行时版本低于包内版本时按 major/minor/patch 层级同步：major 清空全部内容，minor 保留 `models`，patch 保留 `models` 和根目录 `.venv`。相关日志为 `log/setup.log` 和 `log/bridge_server.log`。失败时保存命令 JSON/返回、Unity 版本、`Editor.log`、运行时日志、Session 状态，并标明问题发生在包解析、setup、模型准备、生成、Bake 还是播放阶段。
+
+一次性命令复用 Shared Bridge 连接；只有有状态的 `KimodoRuntimeMotionDriver` Session 使用 Owned Bridge 连接。QuickServer 生命周期只由启动时的 `--watchpid` 控制，TCP Generate 请求不再传输 `owner_pid`。
 
 运行时 `SetRoot2DTarget` 会把 `arrivalThresholdMeters` 范围内的目标视为已经到达，不会暂存约束。
 

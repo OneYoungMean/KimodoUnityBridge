@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -202,11 +203,6 @@ namespace KimodoBridge
                 if (string.IsNullOrWhiteSpace(request.task_id))
                 {
                     request.task_id = Guid.NewGuid().ToString("N");
-                }
-
-                if (request.owner_pid <= 0)
-                {
-                    request.owner_pid = Process.GetCurrentProcess().Id;
                 }
 
                 taskId = request.task_id;
@@ -605,12 +601,35 @@ namespace KimodoBridge
             }
             catch (Exception exception)
             {
-                EmitDebugLog($"[KimodoBridge] QuickServer probe failed at {host}:{port}: {exception.Message}");
+                if (IsNetworkConnectionFailure(exception))
+                {
+                    EmitDebugLog(
+                        $"[KimodoBridge] Network connection failed at {host}:{port}. " +
+                        "Retrying QuickServer connection...");
+                }
+                else
+                {
+                    EmitDebugLog($"[KimodoBridge] QuickServer probe failed at {host}:{port}: {exception.Message}");
+                }
+
                 await protocolClient.DetachAsync().ConfigureAwait(false);
                 currentHost = DefaultHost;
                 currentPort = -1;
                 return ExistingServerProbeResult.NotResponding;
             }
+        }
+
+        private static bool IsNetworkConnectionFailure(Exception exception)
+        {
+            for (Exception current = exception; current != null; current = current.InnerException)
+            {
+                if (current is SocketException || current is IOException)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private async Task<BridgeProtocolResponse> AwaitGenerateCompletionAsync(

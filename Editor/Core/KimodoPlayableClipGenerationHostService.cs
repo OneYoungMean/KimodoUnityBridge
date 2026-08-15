@@ -73,15 +73,6 @@ namespace KimodoBridge.Editor
                     enableAutoBeginAnchor,
                     runtimeSampleOffsetSeconds,
                     timelineClip);
-            if (isLoopGeneration)
-            {
-                ConstraintProvider.ApplyLoopGeneration(
-                    constraintResult,
-                    targetFrameCount,
-                    targetFrameRate,
-                    runtimeLengthSeconds,
-                    timelineClip);
-            }
             string constraintsJson = constraintResult.ConstraintsJson;
             List<KimodoMarkerSampleResult> constraintSamples = constraintResult.CombinedSamples;
             bool hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;

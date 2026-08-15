@@ -1459,7 +1459,9 @@ namespace KimodoBridge.Editor
 
             if (track == null)
             {
-                return markerTime >= clipRange.start && markerTime < clipRange.end;
+                return (markerTime >= clipRange.start ||
+                        KimodoTimelinePreviewRefreshUtility.ApproximatelyTimelineTime(markerTime, clipRange.start)) &&
+                    markerTime < clipRange.end;
             }
 
             if (ReferenceEquals(FindOwningClip(track, markerTime), clipRange))
@@ -1488,7 +1490,8 @@ namespace KimodoBridge.Editor
             foreach (TimelineClip clip in track.GetClips())
             {
                 if (clip?.asset is not KimodoPlayableClip ||
-                    markerTime < clip.start ||
+                    (markerTime < clip.start &&
+                        !KimodoTimelinePreviewRefreshUtility.ApproximatelyTimelineTime(markerTime, clip.start)) ||
                     markerTime >= clip.end)
                 {
                     continue;

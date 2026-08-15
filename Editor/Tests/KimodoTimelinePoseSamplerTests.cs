@@ -1891,6 +1891,36 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void ConstraintMarkerAtApproximatePlayableClipStart_IsCollected()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                timeline.editorSettings.frameRate = 60.0;
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip clip = track.CreateClip<KimodoPlayableClip>();
+                double frame827Time = 827.0 / 60.0;
+                clip.start = frame827Time + 1e-6;
+                clip.duration = 1.0;
+                KimodoConstraintMarker marker = track.CreateMarker<KimodoConstraintMarker>(frame827Time);
+
+                Assert.That(
+                    KimodoTimelinePreviewRefreshUtility.ApproximatelyTimelineTime(marker.time, clip.start),
+                    Is.True);
+                Assert.That(
+                    KimodoConstraintMarkerEditorUtility.IsTimeInClipFrameRange(marker.time, clip),
+                    Is.True);
+                Assert.That(
+                    KimodoTimelineConstraintMarkerSampler.CollectMarkersForClip(track, clip),
+                    Does.Contain(marker));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void ConstraintMarkerAtRoundedClipEnd_IsCollectedByEndingClip()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();

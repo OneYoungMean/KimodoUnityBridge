@@ -694,7 +694,6 @@ namespace KimodoBridge.Editor.Tests
                     " ").GenerationRequest;
 
             Assert.That(generation.model, Is.EqualTo(KimodoMotionModelProfiles.DefaultModelName));
-            Assert.That(generation.owner_pid, Is.Zero);
             Assert.That(generation.force_hf_download, Is.False);
         }
 

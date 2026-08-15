@@ -70,19 +70,10 @@ namespace KimodoBridge
         {
             progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Invoking generation backend...");
 
-            KimodoBridgeGenerationResult bridgeResult;
-            KimodoBridgeService bridgeService = KimodoBridgeService.CreateOwned();
-            try
-            {
-                bridgeResult = await bridgeService.GenerateAsync(
-                    request.GenerationRequest,
-                    message => progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, message ?? string.Empty),
-                    token);
-            }
-            finally
-            {
-                await bridgeService.DisposeAsync();
-            }
+            KimodoBridgeGenerationResult bridgeResult = await KimodoBridgeService.Shared.GenerateAsync(
+                request.GenerationRequest,
+                message => progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, message ?? string.Empty),
+                token);
 
             return new KimodoGenerationResultDto
             {

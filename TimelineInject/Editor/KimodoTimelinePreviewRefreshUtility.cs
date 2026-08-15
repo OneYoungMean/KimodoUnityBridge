@@ -103,6 +103,11 @@ namespace TimelineInject
             return TimeUtility.FromFrames(frame, frameRate);
         }
 
+        public static bool ApproximatelyTimelineTime(double left, double right)
+        {
+            return Mathf.Approximately((float)left, (float)right);
+        }
+
         public static bool GetTImelineWindowLockState()
         {
             return TimelineEditor.window.locked;

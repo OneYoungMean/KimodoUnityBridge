@@ -225,8 +225,12 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new InvalidOperationException($"Character '{character.Name}' requires a valid humanoid Avatar for pose sampling.");
             }
+            double sampleTime = frame / SessionFrameRate;
             TimelineClip sourceClip = character.Track.GetClips()
-                .FirstOrDefault(item => frame / SessionFrameRate >= item.start && frame / SessionFrameRate <= item.end)
+                .FirstOrDefault(item =>
+                    (sampleTime >= item.start ||
+                        KimodoTimelinePreviewRefreshUtility.ApproximatelyTimelineTime(sampleTime, item.start)) &&
+                    sampleTime <= item.end)
                 ?? character.Track.GetClips().FirstOrDefault();
             string contextError = string.Empty;
             if (sourceClip == null || !KimodoInOutConstraintAdapter.TryResolveTimelineContext(
@@ -237,7 +241,6 @@ namespace CharacterAnimationCli.Unity.Command
                 throw new InvalidOperationException($"Character '{character.Name}' has no retargetable Timeline clip: {contextError}");
             }
 
-            double sampleTime = frame / SessionFrameRate;
             string modelName = KimodoMotionModelProfiles.NormalizeName(context.ModelName);
             if (!KimodoTimelineSamplingSession.TryCreate(
                     context,

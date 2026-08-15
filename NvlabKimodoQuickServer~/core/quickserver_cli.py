@@ -1156,7 +1156,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
 
     state: dict[str, Any] = {
         "shutdown": False,
-        "owner_pid": max(0, int(args.watchpid or 0)),
+        "watch_pid": max(0, int(args.watchpid or 0)),
         "last_activity": time.time(),
         "active_runtime": {},
         "ardy_runtimes": {},
@@ -1402,7 +1402,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             with state_lock:
                 if state["shutdown"]:
                     return
-                owner_pid = int(state.get("owner_pid") or 0)
+                watch_pid = int(state.get("watch_pid") or 0)
                 idle_seconds = time.time() - float(state.get("last_activity") or 0.0)
                 runtime_loaded = state["active_runtime"].get("model") is not None or any(
                     runtime.get("model") is not None for runtime in state["ardy_runtimes"].values()
@@ -1414,8 +1414,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     for session in state["sessions"].values()
                 ) or int(state.get("active_command_count") or 0) > 0
 
-            if owner_pid > 0 and not _pid_is_running(owner_pid):
-                request_shutdown(f"owner pid {owner_pid} exited")
+            if watch_pid > 0 and not _pid_is_running(watch_pid):
+                request_shutdown(f"watch pid {watch_pid} exited")
                 return
 
             if idle_timeout_seconds > 0 and not work_in_flight and idle_seconds >= idle_timeout_seconds:
@@ -1918,9 +1918,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                 session["default_config"] = dict(active_config)
                                 if is_ardy_request:
                                     register_ardy_session_locked(session)
-                                owner_pid = int(request.get("owner_pid") or 0)
-                                if owner_pid > 0:
-                                    state["owner_pid"] = owner_pid
                                 if is_ardy_request and "duration" not in request:
                                     while session["queue"]:
                                         superseded = session["queue"].popleft()

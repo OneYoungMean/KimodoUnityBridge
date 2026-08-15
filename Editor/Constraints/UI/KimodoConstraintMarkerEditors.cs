@@ -70,7 +70,8 @@ namespace KimodoBridge.Editor
             int timeFrame = KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(time, frameRate);
             int startFrame = KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(clip.start, frameRate);
             int endFrame = KimodoTimelinePreviewRefreshUtility.TimelineTimeToFrame(clip.end, frameRate);
-            return timeFrame >= startFrame && timeFrame < endFrame;
+            return KimodoTimelinePreviewRefreshUtility.ApproximatelyTimelineTime(time, clip.start) ||
+                timeFrame >= startFrame && timeFrame < endFrame;
         }
 
         public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, bool forceRefresh, out string error)

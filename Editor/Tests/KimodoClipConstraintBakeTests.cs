@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using CharacterAnimationCli.Unity;
+using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using TimelineInject;
 using UnityEngine;
@@ -123,10 +124,238 @@ namespace KimodoBridge.Editor.Tests
                 Quaternion.Angle(result.characterPose.root.q, first.characterPose.root.q),
                 Is.LessThan(0.001f));
             Assert.That(result.hasRoot2DOverride, Is.True);
-            Assert.That(result.root2DOverride.t, Is.EqualTo(first.characterPose.root.t));
+            Assert.That(result.root2DOverride.t, Is.EqualTo(tail.characterPose.root.t));
             Assert.That(
                 Quaternion.Angle(result.root2DOverride.q, Quaternion.Euler(0f, 75f, 0f)),
                 Is.LessThan(0.001f));
+        }
+
+        [Test]
+        public void LoopConstraintSamplesExtrapolateSparseRootAnchors()
+        {
+            var first = new KimodoMarkerSampleResult
+            {
+                characterPose = new CharacterPose
+                {
+                    root = new CharacterPoseTransform
+                    {
+                        t = new Vector3(1f, 2f, 3f),
+                        q = Quaternion.Euler(0f, 10f, 0f)
+                    }
+                },
+                mask = KimodoConstraintMask.ForType("fullbody")
+            };
+            var tail = new KimodoMarkerSampleResult
+            {
+                characterPose = new CharacterPose
+                {
+                    root = new CharacterPoseTransform
+                    {
+                        t = new Vector3(5f, 4f, 11f),
+                        q = Quaternion.Euler(0f, 50f, 0f)
+                    }
+                },
+                mask = KimodoConstraintMask.ForType("root2d")
+            };
+
+            List<KimodoMarkerSampleResult> samples =
+                KimodoClipConstraintBakeUtility.BuildLoopConstraintSamples(
+                    first,
+                    tail,
+                    runtimeTrimStartFrame: 34,
+                    targetFrameCount: 68,
+                    runtimeFrameCount: 136,
+                    frameRate: 30f);
+
+            float ratio = 34f / 67f;
+            Assert.That(samples, Has.Count.EqualTo(3));
+            Assert.That(samples[0].sampleTime, Is.Zero);
+            Assert.That(samples[1].sampleTime, Is.EqualTo(101.0 / 30.0).Within(1e-8));
+            Assert.That(samples[2].sampleTime, Is.EqualTo(135.0 / 30.0).Within(1e-8));
+            Assert.That(
+                Vector3.Distance(
+                    samples[0].root2DOverride.t,
+                    new Vector3(1f - 4f * ratio, 2f, 3f - 8f * ratio)),
+                Is.LessThan(1e-5f));
+            Assert.That(samples[1].root2DOverride.t, Is.EqualTo(tail.characterPose.root.t));
+            Assert.That(
+                Vector3.Distance(
+                    samples[2].root2DOverride.t,
+                    new Vector3(5f + 4f * ratio, 4f, 11f + 8f * ratio)),
+                Is.LessThan(1e-5f));
+            Assert.That(
+                Quaternion.Angle(samples[0].root2DOverride.q, Quaternion.Euler(0f, 10f - 40f * ratio, 0f)),
+                Is.LessThan(0.001f));
+            Assert.That(
+                Quaternion.Angle(samples[2].root2DOverride.q, Quaternion.Euler(0f, 50f + 40f * ratio, 0f)),
+                Is.LessThan(0.001f));
+        }
+
+        [Test]
+        public void LoopConstraintJsonContainsOneThreeFrameRoot2DRecord()
+        {
+            string modelName = KimodoMotionModelProfiles.DefaultModelName;
+            int jointCount = KimodoRigProfileDatabase.GetJointNamesForModel(modelName).Length;
+            var localAxisAngles = new List<Vector3>(jointCount);
+            for (int joint = 0; joint < jointCount; joint++)
+            {
+                localAxisAngles.Add(Vector3.zero);
+            }
+
+            var first = new KimodoMarkerSampleResult
+            {
+                characterPose = new CharacterPose
+                {
+                    root = new CharacterPoseTransform
+                    {
+                        t = new Vector3(0.25f, 0.9f, -0.5f),
+                        q = Quaternion.Euler(0f, 10f, 0f)
+                    }
+                },
+                rawData = new KimodoConstraintRawData
+                {
+                    rootPosition = new Vector3(0.25f, 0.9f, -0.5f),
+                    localJointAxisAngles = localAxisAngles
+                },
+                mask = KimodoConstraintMask.ForType("fullbody")
+            };
+            var tail = new KimodoMarkerSampleResult
+            {
+                characterPose = new CharacterPose
+                {
+                    root = new CharacterPoseTransform
+                    {
+                        t = new Vector3(0.5f, 0.9f, 1.7f),
+                        q = Quaternion.Euler(0f, 20f, 0f)
+                    }
+                },
+                mask = KimodoConstraintMask.ForType("root2d")
+            };
+
+            JArray constraints = JArray.Parse(KimodoClipConstraintBakeUtility.BuildLoopConstraintJson(
+                first,
+                tail,
+                modelName,
+                runtimeTrimStartFrame: 34,
+                targetFrameCount: 68,
+                runtimeFrameCount: 136,
+                frameRate: 30f));
+            JObject root2D = null;
+            JObject fullBody = null;
+            foreach (JObject constraint in constraints)
+            {
+                string type = constraint.Value<string>("type");
+                if (type == "root2d") root2D = constraint;
+                if (type == "fullbody") fullBody = constraint;
+            }
+
+            Assert.That(root2D, Is.Not.Null);
+            Assert.That(fullBody, Is.Not.Null);
+            Assert.That(root2D["frame_indices"].Values<int>(), Is.EqualTo(new[] { 0, 101, 135 }));
+            Assert.That(root2D["smooth_root_2d"], Has.Count.EqualTo(3));
+            Assert.That(root2D["global_root_heading"], Has.Count.EqualTo(3));
+            Assert.That(root2D["dense_path"], Is.Null);
+            Assert.That(fullBody["frame_indices"].Values<int>(), Is.EqualTo(new[] { 101 }));
+        }
+
+        [Test]
+        public void RawLoopSamplesPreserveRootTrajectory()
+        {
+            var roots = new[]
+            {
+                new Vector3(0.25f, 0f, -0.5f),
+                new Vector3(0.5f, 0f, 1.7f)
+            };
+            var rotations = new List<float>();
+            AppendWireQuaternion(rotations, Quaternion.Euler(0f, 10f, 0f));
+            AppendWireQuaternion(rotations, Quaternion.identity);
+            AppendWireQuaternion(rotations, Quaternion.Euler(0f, 75f, 0f));
+            AppendWireQuaternion(rotations, Quaternion.identity);
+            var motion = new KimodoRawMotionData(
+                roots.Length,
+                2,
+                30f,
+                new[] { "Hips", "Spine" },
+                new[] { -1, 0 },
+                roots,
+                rotations,
+                0);
+
+            Assert.That(
+                KimodoRawMotionUtility.TryExtractMarkerSample(
+                    motion,
+                    KimodoMotionModelProfiles.DefaultModelName,
+                    0,
+                    out KimodoMarkerSampleResult first,
+                    out string firstError,
+                    "fullbody",
+                    allowPartialJoints: true),
+                Is.True,
+                firstError);
+            Assert.That(
+                KimodoRawMotionUtility.TryExtractMarkerSample(
+                    motion,
+                    KimodoMotionModelProfiles.DefaultModelName,
+                    motion.FrameCount - 1,
+                    out KimodoMarkerSampleResult tail,
+                    out string tailError,
+                    "root2d",
+                    allowPartialJoints: true),
+                Is.True,
+                tailError);
+
+            Assert.That(first.characterPose.root.t, Is.EqualTo(roots[0]));
+            Assert.That(tail.characterPose.root.t, Is.EqualTo(roots[1]));
+            KimodoMarkerSampleResult terminal =
+                KimodoClipConstraintBakeUtility.BuildLoopTerminalConstraintSample(first, tail, 3.0);
+            Assert.That(terminal.root2DOverride.t, Is.EqualTo(roots[1]));
+            Assert.That(
+                Quaternion.Angle(terminal.root2DOverride.q, Quaternion.Euler(0f, 75f, 0f)),
+                Is.LessThan(0.001f));
+        }
+
+        [Test]
+        public void RawConstraintData_UsesProfileOrderAndPreservesLocalPose()
+        {
+            string modelName = KimodoMotionModelProfiles.DefaultModelName;
+            string[] profileJointNames = KimodoRigProfileDatabase.GetJointNamesForModel(modelName);
+            var motionJointNames = new string[profileJointNames.Length];
+            for (int i = 0; i < motionJointNames.Length; i++)
+            {
+                motionJointNames[i] = profileJointNames[motionJointNames.Length - 1 - i];
+            }
+            var rotations = new List<float>(profileJointNames.Length * 4);
+            for (int joint = 0; joint < motionJointNames.Length; joint++)
+            {
+                AppendWireQuaternion(
+                    rotations,
+                    motionJointNames[joint] == profileJointNames[1]
+                        ? Quaternion.Euler(0f, 25f, 0f)
+                        : Quaternion.identity);
+            }
+
+            var motion = new KimodoRawMotionData(
+                1,
+                profileJointNames.Length,
+                30f,
+                motionJointNames,
+                KimodoRigProfileDatabase.GetParentIndicesForModel(modelName),
+                new[] { new Vector3(0.25f, 0.5f, 1.7f) },
+                rotations,
+                0);
+
+            Assert.That(
+                KimodoRawMotionUtility.TryBuildConstraintRawData(
+                    motion,
+                    modelName,
+                    0,
+                    out KimodoConstraintRawData rawData,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(rawData.rootPosition, Is.EqualTo(new Vector3(0.25f, 0.5f, 1.7f)));
+            Assert.That(rawData.localJointAxisAngles, Has.Count.EqualTo(profileJointNames.Length));
+            Assert.That(rawData.localJointAxisAngles[1].magnitude, Is.GreaterThan(0.1f));
         }
 
         private static KimodoRawMotionData CreateMotion(

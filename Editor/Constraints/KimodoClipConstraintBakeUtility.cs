@@ -451,23 +451,96 @@ namespace KimodoBridge.Editor
                 motion.FrameRate);
         }
 
-        internal static string BuildLoopTerminalConstraintJson(
+        internal static string BuildLoopConstraintJson(
             KimodoMarkerSampleResult firstFrame,
             KimodoMarkerSampleResult tailFrame,
             string modelName,
-            double sampleTimeSeconds,
-            double clipDurationSeconds)
+            int runtimeTrimStartFrame,
+            int targetFrameCount,
+            int runtimeFrameCount,
+            float frameRate)
         {
-            KimodoMarkerSampleResult sample = BuildLoopTerminalConstraintSample(
+            List<KimodoMarkerSampleResult> samples = BuildLoopConstraintSamples(
                 firstFrame,
                 tailFrame,
-                sampleTimeSeconds);
+                runtimeTrimStartFrame,
+                targetFrameCount,
+                runtimeFrameCount,
+                frameRate);
+            KimodoMarkerSampleResult head = samples[0];
+            KimodoMarkerSampleResult terminal = samples[1];
+            KimodoMarkerSampleResult tail = samples[2];
+            int terminalFrame = runtimeTrimStartFrame + targetFrameCount - 1;
+            Debug.Log(
+                $"[Kimodo][GenerateLoop] sparse Root2D anchors: " +
+                $"head frame=0 posXZ=({head.root2DOverride.t.x:F4}, {head.root2DOverride.t.z:F4}) " +
+                $"rotationY={head.root2DOverride.q.eulerAngles.y:F3}°, " +
+                $"terminal frame={terminalFrame} posXZ=({terminal.root2DOverride.t.x:F4}, {terminal.root2DOverride.t.z:F4}) " +
+                $"rotationY={terminal.root2DOverride.q.eulerAngles.y:F3}°, " +
+                $"tail frame={runtimeFrameCount - 1} posXZ=({tail.root2DOverride.t.x:F4}, {tail.root2DOverride.t.z:F4}) " +
+                $"rotationY={tail.root2DOverride.q.eulerAngles.y:F3}°.");
             return KimodoConstraintJsonExporter.ToConstraintsJson(
-                new[] { sample },
+                samples,
                 ResolveExportContext(modelName),
                 0.0,
-                clipDurationSeconds,
-                KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName));
+                runtimeFrameCount / (double)frameRate,
+                frameRate);
+        }
+
+        internal static List<KimodoMarkerSampleResult> BuildLoopConstraintSamples(
+            KimodoMarkerSampleResult firstFrame,
+            KimodoMarkerSampleResult tailFrame,
+            int runtimeTrimStartFrame,
+            int targetFrameCount,
+            int runtimeFrameCount,
+            float frameRate)
+        {
+            if (firstFrame?.characterPose?.root == null || tailFrame?.characterPose?.root == null)
+            {
+                throw new InvalidOperationException("Loop constraint requires valid first and tail poses.");
+            }
+            if (runtimeTrimStartFrame < 0 || targetFrameCount <= 1 || runtimeFrameCount <= 0 || frameRate <= 0f)
+            {
+                throw new InvalidOperationException("Loop constraint frame range is invalid.");
+            }
+
+            int terminalFrame = runtimeTrimStartFrame + targetFrameCount - 1;
+            int virtualTailFrame = runtimeFrameCount - 1;
+            if (terminalFrame >= runtimeFrameCount)
+            {
+                throw new InvalidOperationException("Loop terminal frame is outside the runtime range.");
+            }
+
+            var firstRoot = firstFrame.characterPose.root;
+            var tailRoot = tailFrame.hasRoot2DOverride && tailFrame.root2DOverride != null
+                ? tailFrame.root2DOverride
+                : tailFrame.characterPose.root;
+            Vector3 planarDelta = tailRoot.t - firstRoot.t;
+            planarDelta.y = 0f;
+            float sourceSpanFrames = targetFrameCount - 1f;
+            float headRatio = runtimeTrimStartFrame / sourceSpanFrames;
+            float tailRatio = (virtualTailFrame - terminalFrame) / sourceSpanFrames;
+            Vector3 virtualHeadPosition = firstRoot.t - planarDelta * headRatio;
+            Vector3 virtualTailPosition = tailRoot.t + planarDelta * tailRatio;
+            virtualHeadPosition.y = firstRoot.t.y;
+            virtualTailPosition.y = tailRoot.t.y;
+
+            float firstYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(firstRoot.q).eulerAngles.y;
+            float tailYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(tailRoot.q).eulerAngles.y;
+            float yawDelta = Mathf.DeltaAngle(firstYaw, tailYaw);
+            Quaternion virtualHeadHeading = Quaternion.Euler(0f, firstYaw - yawDelta * headRatio, 0f);
+            Quaternion virtualTailHeading = Quaternion.Euler(0f, tailYaw + yawDelta * tailRatio, 0f);
+
+            return new List<KimodoMarkerSampleResult>
+            {
+                BuildLoopRoot2DConstraintSample(firstFrame, virtualHeadPosition, virtualHeadHeading, 0.0),
+                BuildLoopTerminalConstraintSample(firstFrame, tailFrame, terminalFrame / (double)frameRate),
+                BuildLoopRoot2DConstraintSample(
+                    tailFrame,
+                    virtualTailPosition,
+                    virtualTailHeading,
+                    virtualTailFrame / (double)frameRate)
+            };
         }
 
         internal static KimodoMarkerSampleResult BuildLoopTerminalConstraintSample(
@@ -481,16 +554,39 @@ namespace KimodoBridge.Editor
             }
 
             KimodoMarkerSampleResult sample = firstFrame.Clone();
-            Quaternion tailHeading = tailFrame.hasRoot2DOverride && tailFrame.root2DOverride != null
-                ? tailFrame.root2DOverride.q
-                : tailFrame.characterPose.root.q;
+            var tailRoot = tailFrame.hasRoot2DOverride && tailFrame.root2DOverride != null
+                ? tailFrame.root2DOverride
+                : tailFrame.characterPose.root;
             sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.ForType("fullbody");
             sample.sampleTime = sampleTimeSeconds;
             sample.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
             {
-                t = sample.characterPose.root.t,
-                q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(tailHeading)
+                t = tailRoot.t,
+                q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(tailRoot.q)
+            };
+            sample.hasRoot2DOverride = true;
+            sample.hasRootHeading = true;
+            return sample;
+        }
+
+        private static KimodoMarkerSampleResult BuildLoopRoot2DConstraintSample(
+            KimodoMarkerSampleResult source,
+            Vector3 position,
+            Quaternion heading,
+            double sampleTimeSeconds)
+        {
+            KimodoMarkerSampleResult sample = source.Clone();
+            sample.rawData = null;
+            sample.constraintType = "root2d";
+            sample.mask = KimodoConstraintMask.ForType("root2d");
+            sample.sampleTime = sampleTimeSeconds;
+            sample.characterPose.root.t = position;
+            sample.characterPose.root.q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(heading);
+            sample.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+            {
+                t = position,
+                q = sample.characterPose.root.q
             };
             sample.hasRoot2DOverride = true;
             sample.hasRootHeading = true;

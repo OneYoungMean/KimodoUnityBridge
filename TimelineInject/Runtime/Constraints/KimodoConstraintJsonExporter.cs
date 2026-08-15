@@ -345,9 +345,33 @@ namespace TimelineInject
             double? clipDurationSeconds,
             double exportFps)
         {
-            if (!TryBuildProjectedProtocolPose(sample, exportContext, out Vector3 rootPositionMeters, out List<Vector3> localAxisAngles, out string error))
+            bool useRawData = sample.rawData != null;
+            Vector3 rootPositionMeters;
+            List<Vector3> localAxisAngles;
+            string error;
+            bool built;
+            if (useRawData)
             {
-                throw new InvalidOperationException($"FullBody constraint pose projection failed: {error}");
+                built = TryBuildRawProtocolPose(
+                    sample.rawData,
+                    exportContext,
+                    out rootPositionMeters,
+                    out localAxisAngles,
+                    out error);
+            }
+            else
+            {
+                built = TryBuildProjectedProtocolPose(
+                    sample,
+                    exportContext,
+                    out rootPositionMeters,
+                    out localAxisAngles,
+                    out error);
+            }
+            if (!built)
+            {
+                string source = useRawData ? "raw pose" : "pose projection";
+                throw new InvalidOperationException($"FullBody constraint {source} failed: {error}");
             }
             Vector3 kimodoRoot = new Vector3(-rootPositionMeters.x, rootPositionMeters.y, rootPositionMeters.z);
             var json = new KimodoConstraintJson
@@ -369,6 +393,61 @@ namespace TimelineInject
             };
 
             return json;
+        }
+
+        private static bool TryBuildRawProtocolPose(
+            KimodoConstraintRawData rawData,
+            KimodoConstraintExportContext exportContext,
+            out Vector3 rootPositionMeters,
+            out List<Vector3> localAxisAngles,
+            out string error)
+        {
+            rootPositionMeters = Vector3.zero;
+            localAxisAngles = null;
+            error = string.Empty;
+            if (rawData == null)
+            {
+                error = "Raw constraint data is null.";
+                return false;
+            }
+            if (exportContext == null)
+            {
+                error = "Constraint export context is required for raw pose scaling.";
+                return false;
+            }
+            if (!IsFinite(rawData.rootPosition))
+            {
+                error = "Raw constraint root position is not finite.";
+                return false;
+            }
+            if (rawData.localJointAxisAngles == null || rawData.localJointAxisAngles.Count == 0)
+            {
+                error = "Raw constraint local joint axis-angle data is empty.";
+                return false;
+            }
+
+            for (int i = 0; i < rawData.localJointAxisAngles.Count; i++)
+            {
+                if (!IsFinite(rawData.localJointAxisAngles[i]))
+                {
+                    error = $"Raw constraint local joint axis-angle at index {i} is not finite.";
+                    return false;
+                }
+            }
+
+            rootPositionMeters = rawData.rootPosition * exportContext.HumanScale;
+            localAxisAngles = new List<Vector3>(rawData.localJointAxisAngles);
+            return true;
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         private static KimodoConstraintJson BuildEndEffector(

@@ -49,7 +49,10 @@ namespace KimodoBridge.Editor
 
             foreach (TimelineClip candidate in track.GetClips())
             {
-                if (candidate == null || time < candidate.start || time >= candidate.end)
+                if (candidate == null ||
+                    (time < candidate.start &&
+                        !KimodoTimelinePreviewRefreshUtility.ApproximatelyTimelineTime(time, candidate.start)) ||
+                    time >= candidate.end)
                 {
                     continue;
                 }

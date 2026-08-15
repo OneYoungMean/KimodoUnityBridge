@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using CharacterAnimationCli.Unity;
 using KimodoBridge;
@@ -227,6 +228,48 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
 
             JObject fullBody = (JObject)json.Single(item => item.Value<string>("type") == "fullbody");
             Assert.That(fullBody["local_joints_rot"]?[0], Has.Count.EqualTo(30));
+        }
+
+        [Test]
+        public void ConstraintExporter_UsesRawAxisAngleWithoutMuscleProjection()
+        {
+            Quaternion unityRotation = Quaternion.Euler(0f, 30f, 0f);
+            Vector3 unityAxisAngle = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(unityRotation);
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintType = "fullbody",
+                sampleTime = 0.0,
+                characterPose = new CharacterPose(),
+                rawData = new KimodoConstraintRawData
+                {
+                    rootPosition = new Vector3(1f, 2f, 3f),
+                    localJointAxisAngles = new List<Vector3> { unityAxisAngle }
+                }
+            };
+            var context = new KimodoConstraintExportContext(
+                2f,
+                new Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose>(_ =>
+                    throw new AssertionException("Raw FullBody export must not invoke the pose projector.")));
+
+            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(
+                new[] { sample },
+                context,
+                exportFps: 30.0));
+
+            JObject fullBody = (JObject)json.Single(item => item.Value<string>("type") == "fullbody");
+            Assert.That(fullBody["root_positions"]?[0]?[0]?.Value<float>(), Is.EqualTo(-2f).Within(1e-5f));
+            Assert.That(fullBody["root_positions"]?[0]?[1]?.Value<float>(), Is.EqualTo(4f).Within(1e-5f));
+            Assert.That(fullBody["root_positions"]?[0]?[2]?.Value<float>(), Is.EqualTo(6f).Within(1e-5f));
+
+            Quaternion kimodoRotation = new Quaternion(
+                unityRotation.x,
+                -unityRotation.y,
+                -unityRotation.z,
+                unityRotation.w);
+            Vector3 expectedAxisAngle = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(kimodoRotation);
+            Assert.That(fullBody["local_joints_rot"]?[0]?[0]?.Value<float>(), Is.EqualTo(expectedAxisAngle.x).Within(1e-5f));
+            Assert.That(fullBody["local_joints_rot"]?[0]?[1]?.Value<float>(), Is.EqualTo(expectedAxisAngle.y).Within(1e-5f));
+            Assert.That(fullBody["local_joints_rot"]?[0]?[2]?.Value<float>(), Is.EqualTo(expectedAxisAngle.z).Within(1e-5f));
         }
 
         [Test]

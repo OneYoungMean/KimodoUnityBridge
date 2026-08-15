@@ -769,14 +769,14 @@ namespace KimodoBridge.Editor
                     timelineClipOverride: timelineClipOverride,
                     enableClipConstraintOverride: false,
                     generateLoopOverride: true);
-                string terminalConstraintJson = BuildLoopTerminalConstraintJson(
+                string loopConstraintJson = BuildLoopConstraintJson(
                     firstRequest,
                     firstResult,
                     finalRequest,
                     modelName);
                 finalRequest.Constraints.json = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
-                    finalRequest.Constraints.json,
-                    terminalConstraintJson);
+                    loopConstraintJson,
+                    finalRequest.Constraints.json);
                 firstRequest.CleanupGeneratedClips();
                 firstRequest = null;
 
@@ -795,69 +795,93 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static string BuildLoopTerminalConstraintJson(
+        private static string BuildLoopConstraintJson(
             KimodoEditorGenerateRequest firstRequest,
             command_generate_result firstResult,
             KimodoEditorGenerateRequest finalRequest,
             string modelName)
         {
-            if (firstResult?.GeneratedClip == null)
+            if (firstResult == null)
             {
-                throw new InvalidOperationException("Loop pass 1 did not produce an AnimationClip.");
+                throw new InvalidOperationException("Loop pass 1 did not produce a result.");
             }
 
-            KimodoEditorGenerateOutputPlan outputPlan = firstRequest.OutputPlan;
-            Avatar sourceAvatar = outputPlan?.SkipRetarget == true
-                ? outputPlan.OriginRetargetAvatar
-                : outputPlan?.TargetRetargetAvatar;
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
+            KimodoRawMotionData motion;
+            string motionError;
+            if (firstResult.MotionBytes != null && firstResult.MotionBytes.Length > 0)
             {
-                sourceAvatar = outputPlan?.OriginRetargetAvatar;
+                if (!KimodoRawMotionUtility.TryParseFlatBuffer(firstResult.MotionBytes, out motion, out motionError))
+                {
+                    throw new InvalidOperationException($"Loop pass 1 raw motion parsing failed: {motionError}");
+                }
             }
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
+            else if (!KimodoRawMotionUtility.TryParse(firstResult.MotionJsonCompact, out motion, out motionError))
             {
-                throw new InvalidOperationException("Loop pass 1 requires a valid generated-clip sampling Avatar.");
+                throw new InvalidOperationException($"Loop pass 1 raw motion parsing failed: {motionError}");
             }
 
-            double tailTime = Math.Max(
-                0.0,
-                (firstRequest.TargetFrameCount - 1) / (double)firstRequest.TargetFrameRate);
-            if (!KimodoRetargetToolsEditor.TrySampleMarkerForClip(
-                    firstResult.GeneratedClip,
-                    "fullbody",
-                    0.0,
-                    sourceAvatar,
-                    null,
+            if (motion.FrameCount != firstRequest.TargetFrameCount || motion.FrameRate <= 0f)
+            {
+                throw new InvalidOperationException(
+                    $"Loop pass 1 raw motion is invalid: frames={motion.FrameCount}, " +
+                    $"expected={firstRequest.TargetFrameCount}, frameRate={motion.FrameRate}.");
+            }
+
+            int tailFrameIndex = motion.FrameCount - 1;
+            if (!KimodoRawMotionUtility.TryExtractMarkerSample(
+                    motion,
                     modelName,
-                    forceRefresh: false,
+                    0,
                     out KimodoMarkerSampleResult firstFrame,
-                    out string firstError))
+                    out string firstError,
+                    "fullbody",
+                    sampleTime: 0.0) ||
+                firstFrame == null)
             {
-                throw new InvalidOperationException($"Loop pass 1 first-frame sampling failed: {firstError}");
+                throw new InvalidOperationException($"Loop pass 1 raw first-frame sampling failed: {firstError}");
             }
-            if (!KimodoRetargetToolsEditor.TrySampleMarkerForClip(
-                    firstResult.GeneratedClip,
-                    "root2d",
-                    tailTime,
-                    sourceAvatar,
-                    null,
+            if (!KimodoRawMotionUtility.TryBuildConstraintRawData(
+                    motion,
                     modelName,
-                    forceRefresh: false,
-                    out KimodoMarkerSampleResult tailFrame,
-                    out string tailError))
+                    0,
+                    out KimodoConstraintRawData firstRawData,
+                    out string firstRawDataError))
             {
-                throw new InvalidOperationException($"Loop pass 1 tail-frame sampling failed: {tailError}");
+                throw new InvalidOperationException(
+                    $"Loop pass 1 raw first-frame FullBody construction failed: {firstRawDataError}");
+            }
+            firstFrame.rawData = firstRawData;
+            if (!KimodoRawMotionUtility.TryExtractMarkerSample(
+                    motion,
+                    modelName,
+                    tailFrameIndex,
+                    out KimodoMarkerSampleResult tailFrame,
+                    out string tailError,
+                    "root2d",
+                    sampleTime: tailFrameIndex / (double)motion.FrameRate) ||
+                tailFrame == null)
+            {
+                throw new InvalidOperationException($"Loop pass 1 raw tail-frame sampling failed: {tailError}");
             }
 
-            double terminalTime =
-                (finalRequest.RuntimeTrimStartFrame + finalRequest.TargetFrameCount - 1) /
-                (double)finalRequest.TargetFrameRate;
-            return KimodoClipConstraintBakeUtility.BuildLoopTerminalConstraintJson(
+            Vector3 firstPosition = firstFrame.characterPose.root.t;
+            Vector3 tailPosition = tailFrame.characterPose.root.t;
+            float tailRotationY = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(
+                tailFrame.characterPose.root.q).eulerAngles.y;
+            Debug.Log(
+                $"[Kimodo][GenerateLoop] raw pass-1 root: " +
+                $"firstPosXZ=({firstPosition.x:F4}, {firstPosition.z:F4}), " +
+                $"tailPosXZ=({tailPosition.x:F4}, {tailPosition.z:F4}), " +
+                $"tailRotationY={tailRotationY:F3}°.");
+
+            return KimodoClipConstraintBakeUtility.BuildLoopConstraintJson(
                 firstFrame,
                 tailFrame,
                 modelName,
-                terminalTime,
-                finalRequest.EffectiveRuntimeDurationSeconds);
+                finalRequest.RuntimeTrimStartFrame,
+                finalRequest.TargetFrameCount,
+                finalRequest.EffectiveRuntimeFrameCount,
+                finalRequest.TargetFrameRate);
         }
 
         private static async Task<command_generate_result> GenerateClipConstraintBakedAsync(
