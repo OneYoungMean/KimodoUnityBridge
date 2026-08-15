@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using CharacterAnimationCli.Unity.Command;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -14,7 +13,7 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoEditorGeneratePipeline
     {
-        public static async Task<command_generate_result> ExecuteAsync(KimodoEditorGenerateRequest request)
+        public static async Task<KimodoEditorGenerationResult> ExecuteAsync(KimodoEditorGenerateRequest request)
         {
             if (request == null)
             {
@@ -35,7 +34,7 @@ namespace KimodoBridge.Editor
             return BakeRuntimeResult(request, prompt, modelName, runtimeResult);
         }
 
-        internal static command_generate_result BakeRuntimeResult(
+        internal static KimodoEditorGenerationResult BakeRuntimeResult(
             KimodoEditorGenerateRequest request,
             string prompt,
             string modelName,
@@ -331,7 +330,7 @@ namespace KimodoBridge.Editor
             return result;
         }
 
-        private static command_generate_result CompleteBakedOutput(
+        private static KimodoEditorGenerationResult CompleteBakedOutput(
             KimodoEditorGenerateRequest request,
             string prompt,
             string modelName,
@@ -744,7 +743,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static command_generate_result Complete(
+        private static KimodoEditorGenerationResult Complete(
             KimodoEditorGenerateRequest request,
             string prompt,
             string motionJson,
@@ -759,7 +758,7 @@ namespace KimodoBridge.Editor
             request.Progress?.Invoke(KimodoBridgeCommandStage.Finalize, "Finalizing generated assets...");
             request.Progress?.Invoke(KimodoBridgeCommandStage.Completed, "Generation complete.");
 
-            return new command_generate_result
+            return new KimodoEditorGenerationResult
             {
                 ConstraintsPath = string.Empty,
                 Prompt = prompt,

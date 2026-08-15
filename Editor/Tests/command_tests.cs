@@ -218,14 +218,30 @@ namespace KimodoBridge.Editor.Tests
         [TestCase("Assets/My Clips", "Assets/My Clips")]
         public void NormalizeOutputFolder_StaysUnderAssets(string input, string expected)
         {
-            Assert.That(command_context.NormalizeOutputFolder(input), Is.EqualTo(expected));
+            Assert.That(KimodoEditorOutputPathUtility.NormalizeOutputFolder(input), Is.EqualTo(expected));
         }
 
         [TestCase("C:/outside", TestName = "RejectsOutsideAssets")]
         [TestCase("Assets/../Library", TestName = "RejectsTraversal")]
         public void NormalizeOutputFolder_RejectsUnsafePath(string input)
         {
-            Assert.Throws<System.InvalidOperationException>(() => command_context.NormalizeOutputFolder(input));
+            Assert.Throws<System.InvalidOperationException>(() => KimodoEditorOutputPathUtility.NormalizeOutputFolder(input));
+        }
+
+        [Test]
+        public void Analysis_RejectsMissingMotionData()
+        {
+            bool analyzed = KimodoPlayableClipGenerationExecutionService.Analysis(
+                new KimodoEditorAnalysisInput
+                {
+                    StartFrame = 0,
+                    EndFrameExclusive = 1
+                },
+                out _,
+                out string error);
+
+            Assert.That(analyzed, Is.False);
+            Assert.That(error, Is.EqualTo("Analysis motion data is empty."));
         }
 
         [Test]

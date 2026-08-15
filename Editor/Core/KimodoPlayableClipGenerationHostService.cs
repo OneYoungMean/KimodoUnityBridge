@@ -2,7 +2,6 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using CharacterAnimationCli.Unity.Command;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
@@ -204,7 +203,7 @@ namespace KimodoBridge.Editor
         public static void FinalizeGeneration(
             KimodoPlayableClip clip,
             KimodoEditorGenerateRequest request,
-            command_generate_result result)
+            KimodoEditorGenerationResult result)
         {
             if (clip == null || request == null || result == null || result.GeneratedClip == null)
             {

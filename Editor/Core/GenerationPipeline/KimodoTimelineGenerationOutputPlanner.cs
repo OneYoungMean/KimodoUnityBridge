@@ -1,5 +1,4 @@
 using System;
-using CharacterAnimationCli.Unity.Command;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
@@ -11,7 +10,7 @@ namespace KimodoBridge.Editor
             if (clip == null) throw new InvalidOperationException("Playable clip is null.");
             string outputFolder = string.IsNullOrWhiteSpace(clip.generatedOutputFolder)
                 ? KimodoEditorClipWritebackService.GeneratedClipFolder
-                : command_context.NormalizeOutputFolder(clip.generatedOutputFolder);
+                : KimodoEditorOutputPathUtility.NormalizeOutputFolder(clip.generatedOutputFolder);
             string assetName = string.IsNullOrWhiteSpace(clip.generatedAssetName)
                 ? BuildTargetClipName(clip.bridgeModelName, DateTime.Now)
                 : clip.generatedAssetName.Trim();

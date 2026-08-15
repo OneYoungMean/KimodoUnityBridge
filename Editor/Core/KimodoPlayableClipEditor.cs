@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using CharacterAnimationCli.Unity.Command;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
@@ -370,7 +369,7 @@ namespace KimodoBridge.Editor
             GUI.enabled = isGenerating;
             if (GUILayout.Button(new GUIContent("Cancel", "Cancel the current generation command for this clip."), GUILayout.Height(24)))
             {
-                command_generation_runner.Cancel(clip);
+                KimodoEditorGenerationJobService.Cancel(clip);
             }
             GUI.enabled = true;
 
@@ -680,7 +679,7 @@ namespace KimodoBridge.Editor
 
         private void SyncRequestHandleState()
         {
-            if (clip == null || !command_generation_runner.TryGet(clip, out command_generation_session handle) || handle == null)
+            if (clip == null || !KimodoEditorGenerationJobService.TryGet(clip, out KimodoEditorGenerationJobSession handle) || handle == null)
             {
                 isGenerating = false;
                 return;
@@ -689,25 +688,25 @@ namespace KimodoBridge.Editor
             isGenerating = handle.IsRunning;
             switch (handle.Status)
             {
-                case command_status.Running:
+                case KimodoEditorGenerationJobStatus.Running:
                     lastStatus = string.IsNullOrWhiteSpace(handle.Message) ? "Generating and baking..." : handle.Message;
                     lastError = string.Empty;
                     break;
-                case command_status.Completed:
+                case KimodoEditorGenerationJobStatus.Completed:
                     lastStatus = string.IsNullOrWhiteSpace(handle.Message) ? "Generation complete." : handle.Message;
                     lastError = string.Empty;
-                    if (handle.Payload is command_generate_result generateResult &&
+                    if (handle.Payload is KimodoEditorGenerationResult generateResult &&
                         !string.IsNullOrWhiteSpace(generateResult.ConstraintsPath))
                     {
                         lastConstraintsPath = generateResult.ConstraintsPath;
                     }
 
                     break;
-                case command_status.Failed:
+                case KimodoEditorGenerationJobStatus.Failed:
                     lastStatus = "Generation failed.";
                     lastError = handle.Error;
                     break;
-                case command_status.Canceled:
+                case KimodoEditorGenerationJobStatus.Canceled:
                     lastStatus = string.IsNullOrWhiteSpace(handle.Message) ? "Generation canceled." : handle.Message;
                     lastError = string.Empty;
                     break;
@@ -850,7 +849,7 @@ namespace KimodoBridge.Editor
                 Undo.RecordObject(clip, "Reset Kimodo Clip");
                 clip.ResetGeneration();
                 EditorUtility.SetDirty(clip);
-                command_generation_runner.Clear(clip);
+                KimodoEditorGenerationJobService.Clear(clip);
                 lastStatus = string.Empty;
                 lastError = string.Empty;
             }

@@ -535,7 +535,7 @@ namespace CharacterAnimationCli.Unity.Command
                     return Ok(persisted);
                 }
                 string reason = arguments.Value<string>("reason")?.Trim();
-                bool canceled = command_generation_runner.Cancel(
+                bool canceled = KimodoEditorGenerationJobService.Cancel(
                     requestId,
                     string.IsNullOrWhiteSpace(reason) ? "Generation canceled by command." : reason);
                 JObject status = BuildStatus(record);
@@ -589,7 +589,7 @@ namespace CharacterAnimationCli.Unity.Command
                 int frameCount = Math.Max(1, KimodoFrameTimeUtility.SecondsToFrameCount(duration, frameRate));
                 int seed = arguments.Value<int?>("seed") ?? (Guid.NewGuid().GetHashCode() & int.MaxValue);
                 int steps = ResolveDiffusionSteps(arguments, modelName, modelConfiguration);
-                string outputFolder = NormalizeOutputFolder(arguments.Value<string>("output_folder"));
+                string outputFolder = KimodoEditorOutputPathUtility.NormalizeOutputFolder(arguments.Value<string>("output_folder"));
                 string requestedAnimationName = string.IsNullOrWhiteSpace(arguments.Value<string>("name"))
                     ? prompt
                     : arguments.Value<string>("name").Trim();
@@ -632,10 +632,10 @@ namespace CharacterAnimationCli.Unity.Command
                 ReserveGenerationTimelineRange(trace);
                 SaveTimelineSession(session);
 
-                bool started = command_generation_runner.Start(
+                bool started = KimodoEditorGenerationJobService.Start(
                     character.Target,
                     $"command-asset:{KimodoUnityObjectIdUtility.NameKey(character.Target)}",
-                    command_kind.GenerateAnimationAsset,
+                    KimodoEditorGenerationJobKind.GenerateAnimationAsset,
                     async (generationSession, token) =>
                     {
                         try
@@ -652,7 +652,8 @@ namespace CharacterAnimationCli.Unity.Command
                             FinishAutomaticTimelineSession(trace, generationSession.RequestId);
                         }
                     },
-                    out command_generation_session generation,
+                    PersistGenerationJobStatus,
+                    out KimodoEditorGenerationJobSession generation,
                     out string error);
                 if (!started)
                 {
@@ -691,17 +692,17 @@ namespace CharacterAnimationCli.Unity.Command
             });
         }
 
-        private static async Task<command_generate_result> ExecutePlayableClipGenerationAsync(
+        private static async Task<KimodoEditorGenerationResult> ExecutePlayableClipGenerationAsync(
             KimodoPlayableClip playableClip,
             TimelineGenerationTrace trace,
             UnityEngine.Object target,
-            command_generation_session session,
+            KimodoEditorGenerationJobSession session,
             CancellationToken token)
         {
-            command_generate_result result = await KimodoPlayableClipGenerationExecutionService.GenerateAndFinalizeAsync(
+            KimodoEditorGenerationResult result = await KimodoPlayableClipGenerationExecutionService.GenerateAndFinalizeAsync(
                 playableClip,
                 externalConstraint: null,
-                (stage, message) => command_generation_runner.UpdateProgress(target, session.RequestId, stage, message),
+                (stage, message) => KimodoEditorGenerationJobService.UpdateProgress(target, session.RequestId, stage, message),
                 token,
                 trace.TimelineClip);
             FinalizePlayableClipTrace(trace, result);
@@ -719,24 +720,6 @@ namespace CharacterAnimationCli.Unity.Command
                 default:
                     return KimodoGenerationOutputMode.HumanoidMuscle;
             }
-        }
-
-        internal static string NormalizeOutputFolder(string value)
-        {
-            string folder = string.IsNullOrWhiteSpace(value)
-                ? KimodoEditorClipWritebackService.GeneratedClipFolder
-                : value.Trim().Replace('\\', '/').TrimEnd('/');
-            if (!folder.Equals("Assets", StringComparison.OrdinalIgnoreCase) &&
-                !folder.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException("output_folder must be under Assets.");
-            }
-            if (folder.Split('/').Any(part => part == ".." || part == "." || string.IsNullOrWhiteSpace(part)))
-            {
-                throw new InvalidOperationException("output_folder contains an invalid path segment.");
-            }
-
-            return folder;
         }
 
         internal static string ParseOutputMode(string value)
@@ -1336,7 +1319,7 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static void Remember(
             UnityEngine.Object target,
-            command_generation_session session,
+            KimodoEditorGenerationJobSession session,
             TimelineGenerationTrace timelineGenerationTrace = null)
         {
             lock (JobsLock)
@@ -1373,7 +1356,7 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static JObject BuildStatus(JobRecord record)
         {
-            command_generation_session session = record.Session;
+            KimodoEditorGenerationJobSession session = record.Session;
             var result = new JObject
             {
                 ["request_id"] = session.RequestId.ToString("D"),
@@ -1383,7 +1366,7 @@ namespace CharacterAnimationCli.Unity.Command
                 ["error"] = session.Error ?? string.Empty,
                 ["started_at_utc"] = session.StartedAtUtc.ToString("O", CultureInfo.InvariantCulture)
             };
-            if (session.Payload is command_generate_result generated)
+            if (session.Payload is KimodoEditorGenerationResult generated)
             {
                 result["seed"] = generated.Seed;
                 result["prompt"] = generated.Prompt ?? string.Empty;
@@ -1435,7 +1418,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        private static string Started(command_generation_session session, JObject extra)
+        private static string Started(KimodoEditorGenerationJobSession session, JObject extra)
         {
             extra["request_id"] = session.RequestId.ToString("D");
             extra["status"] = "running";
@@ -1517,7 +1500,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        internal static void PersistGenerationJobStatus(command_generation_session session)
+        internal static void PersistGenerationJobStatus(KimodoEditorGenerationJobSession session)
         {
             if (session == null)
             {
@@ -2038,7 +2021,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             public JobRecord(
                 UnityEngine.Object target,
-                command_generation_session session,
+                KimodoEditorGenerationJobSession session,
                 TimelineGenerationTrace timelineGenerationTrace)
             {
                 Target = target;
@@ -2047,7 +2030,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
 
             public UnityEngine.Object Target { get; }
-            public command_generation_session Session { get; }
+            public KimodoEditorGenerationJobSession Session { get; }
             public TimelineGenerationTrace TimelineGenerationTrace { get; }
         }
 

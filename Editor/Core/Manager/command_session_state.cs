@@ -516,7 +516,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        private static void FinalizePlayableClipTrace(TimelineGenerationTrace trace, command_generate_result result)
+        private static void FinalizePlayableClipTrace(TimelineGenerationTrace trace, KimodoEditorGenerationResult result)
         {
             if (trace?.Session == null || trace.Character == null || trace.TimelineClip == null || trace.Animation == null)
             {
@@ -889,7 +889,7 @@ namespace CharacterAnimationCli.Unity.Command
                         animation = BakeTransientAnalysisRange(session, character, startFrame, endFrame, out transientClip, out transientTimelineClip);
                     }
 
-                    JObject analysis = AnalyzeClipWithServer(arguments, session, animation);
+                    JObject analysis = AnalyzeAnimation(arguments, session, animation);
                     JArray poses = BuildAnalysisPoses(character, startFrame, endFrame, analysis);
                     analysis.Remove("keyframes");
                     string analysisId = CacheAnalysisResult(session, character, startFrame / SessionFrameRate, endFrame / SessionFrameRate, poses, analysis);
@@ -945,7 +945,7 @@ namespace CharacterAnimationCli.Unity.Command
             return poses;
         }
 
-        private static JObject AnalyzeClipWithServer(
+        private static JObject AnalyzeAnimation(
             JObject arguments,
             TimelineSessionRecord session,
             TimelineAnimationRecord animation)
@@ -969,29 +969,25 @@ namespace CharacterAnimationCli.Unity.Command
                 startFrame = Mathf.Clamp(startFrame, 0, motion.FrameCount - 1);
                 frameCount = Mathf.Clamp(frameCount, 1, motion.FrameCount - startFrame);
             }
-            var constraints = new List<KimodoKmbClipConstraint>
-            {
-                new KimodoKmbClipConstraint { motionBytes = motionBytes, startFrame = startFrame, endFrameExclusive = startFrame + frameCount }
-            };
-
             JObject options = arguments["analysis_option"] is JObject supplied
                 ? (JObject)supplied.DeepClone()
                 : new JObject();
-            options["analysis_only"] = true;
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
-            KimodoBridgeGenerationResult result = KimodoBridgeService.Shared.GenerateAsync(
-                new KimodoGenerationRequestDto
-                {
-                    prompt = string.Empty,
-                    model = ResolveModelName(null),
-                    text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(settings.DefaultTextEncoderMode),
-                    models_root = settings.LocalModelsPath?.Trim() ?? string.Empty,
-                    output_format = "kmb_attachments_v1",
-                    analysis_option_json = options.ToString(Formatting.None),
-                    analysis_clip_constraints = constraints
-                },
-                System.Threading.CancellationToken.None).GetAwaiter().GetResult();
-            JObject analysis = ParseAnalysisObject(result?.AnalysisJson);
+            var input = new KimodoEditorAnalysisInput
+            {
+                MotionBytes = motionBytes,
+                StartFrame = startFrame,
+                EndFrameExclusive = startFrame + frameCount,
+                ModelName = ResolveModelName(null),
+                TextEncoderMode = settings.DefaultTextEncoderMode,
+                ModelsRoot = settings.LocalModelsPath?.Trim() ?? string.Empty,
+                AnalysisOptionsJson = options.ToString(Formatting.None)
+            };
+            if (!KimodoPlayableClipGenerationExecutionService.Analysis(input, out KimodoEditorAnalysisResult result, out string error))
+            {
+                throw new InvalidOperationException(error);
+            }
+            JObject analysis = ParseAnalysisObject(result.AnalysisJson);
             analysis["source"] = "quickserver_analysis_only";
             return analysis;
         }
@@ -1110,7 +1106,7 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     assetName = $"{source.Name}_Record_{DateTime.Now:yyyyMMdd_HHmmss_fff}";
                 }
-                string folder = NormalizeOutputFolder(arguments.Value<string>("output_folder"));
+                string folder = KimodoEditorOutputPathUtility.NormalizeOutputFolder(arguments.Value<string>("output_folder"));
                 output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(assetName, folder);
                 output.frameRate = frameRate;
                 WriteRecordedBoneCurves(output, transforms, paths, boneFrames, frameRate);
@@ -1168,7 +1164,7 @@ namespace CharacterAnimationCli.Unity.Command
                     }
                     output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
                         assetName,
-                        NormalizeOutputFolder(arguments.Value<string>("output_folder")));
+                        KimodoEditorOutputPathUtility.NormalizeOutputFolder(arguments.Value<string>("output_folder")));
                     KimodoEditorClipUtility.CopyClipData(sourceAnimation.Clip, output);
                     AnimationClip providedHumanoidClip = sourceAnimation.Clip.isHumanMotion
                         ? sourceAnimation.Clip
@@ -1294,7 +1290,7 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     assetName = $"{source.Name}_Bake_{DateTime.Now:yyyyMMdd_HHmmss_fff}";
                 }
-                string folder = NormalizeOutputFolder(arguments.Value<string>("output_folder"));
+                string folder = KimodoEditorOutputPathUtility.NormalizeOutputFolder(arguments.Value<string>("output_folder"));
                 output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(assetName, folder);
                 output.frameRate = frameRate;
                 if (target != source)
