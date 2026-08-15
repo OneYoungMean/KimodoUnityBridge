@@ -297,6 +297,52 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [Test]
+        public void LoopRequest_ExtendsRuntimeAndKeepsTimelineDuration()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            GameObject directorRoot = new GameObject("KimodoLoopGenerationRequestTest");
+            SkeletonCache skeleton = null;
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                timelineClip.duration = 2.0;
+                PlayableDirector director = directorRoot.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                skeleton = BindTestSkeleton(director, track, "KimodoLoopGenerationRequestSkeleton");
+                var clip = (KimodoPlayableClip)timelineClip.asset;
+                clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
+                clip.autoBeginAnchor = false;
+                clip.generateLoop = true;
+
+                KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    "walk",
+                    externalConstraint: null,
+                    default);
+
+                Assert.That(request.RuntimeFrameCount, Is.EqualTo(request.TargetFrameCount * 2));
+                Assert.That(request.RuntimeTrimStartFrame, Is.EqualTo(request.TargetFrameCount / 2));
+                Assert.That(timelineClip.duration, Is.EqualTo(2.0));
+
+                KimodoEditorGenerateRequest firstPass = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    "walk",
+                    externalConstraint: null,
+                    default,
+                    generateLoopOverride: false);
+                Assert.That(firstPass.RuntimeFrameCount, Is.EqualTo(firstPass.TargetFrameCount));
+                Assert.That(firstPass.RuntimeTrimStartFrame, Is.Zero);
+            }
+            finally
+            {
+                skeleton?.Dispose();
+                Object.DestroyImmediate(directorRoot);
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
         private static SkeletonCache BindTestSkeleton(
             PlayableDirector director,
             AnimationTrack track,

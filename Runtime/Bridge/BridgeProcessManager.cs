@@ -249,7 +249,7 @@ namespace KimodoBridge
             }
         }
 
-        private static bool IsProcessRunning(int processId)
+        internal static bool IsProcessRunning(int processId)
         {
             if (processId <= 0)
             {

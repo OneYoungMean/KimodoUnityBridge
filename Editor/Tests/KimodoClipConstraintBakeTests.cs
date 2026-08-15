@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using CharacterAnimationCli.Unity;
 using NUnit.Framework;
+using TimelineInject;
 using UnityEngine;
 
 namespace KimodoBridge.Editor.Tests
@@ -82,6 +84,49 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(aligned.TryReadUnityRootPosition(1, out Vector3 second), Is.True);
             Assert.That(first, Is.EqualTo(new Vector3(10f, 0f, 0f)));
             Assert.That(second, Is.EqualTo(new Vector3(20f, 0f, 0f)));
+        }
+
+        [Test]
+        public void LoopTerminalConstraintUsesFirstPoseAndTailHeading()
+        {
+            var first = new KimodoMarkerSampleResult
+            {
+                characterPose = new CharacterPose
+                {
+                    root = new CharacterPoseTransform
+                    {
+                        t = new Vector3(1f, 2f, 3f),
+                        q = Quaternion.Euler(0f, 10f, 0f)
+                    }
+                },
+                mask = KimodoConstraintMask.ForType("fullbody")
+            };
+            var tail = new KimodoMarkerSampleResult
+            {
+                characterPose = new CharacterPose
+                {
+                    root = new CharacterPoseTransform
+                    {
+                        t = new Vector3(9f, 2f, 8f),
+                        q = Quaternion.Euler(0f, 75f, 0f)
+                    }
+                },
+                mask = KimodoConstraintMask.ForType("root2d")
+            };
+
+            KimodoMarkerSampleResult result =
+                KimodoClipConstraintBakeUtility.BuildLoopTerminalConstraintSample(first, tail, 3.0);
+
+            Assert.That(result.sampleTime, Is.EqualTo(3.0));
+            Assert.That(result.characterPose.root.t, Is.EqualTo(first.characterPose.root.t));
+            Assert.That(
+                Quaternion.Angle(result.characterPose.root.q, first.characterPose.root.q),
+                Is.LessThan(0.001f));
+            Assert.That(result.hasRoot2DOverride, Is.True);
+            Assert.That(result.root2DOverride.t, Is.EqualTo(first.characterPose.root.t));
+            Assert.That(
+                Quaternion.Angle(result.root2DOverride.q, Quaternion.Euler(0f, 75f, 0f)),
+                Is.LessThan(0.001f));
         }
 
         private static KimodoRawMotionData CreateMotion(

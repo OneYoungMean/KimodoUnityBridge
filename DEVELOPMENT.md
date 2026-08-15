@@ -34,7 +34,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 | --- | --- | --- | --- | --- |
 | 命令、路由与模型发现 | 返回 command schema、按意图路由、句柄流向、约束语义和可用模型配置 | `kimodo_help` | 完整 | schema 是参数真相；新 Session 明确为空 |
 | Package 安装 | 通过 UPM Git、embedded 或 `file:` 安装 | 分发 skill 修改 `manifest.json` | 部分 | 安装发生在 command 可用之前 |
-| 项目级 QuickServer 准备 | 生成时按需准备、启动和连接项目运行时 | `kimodo_debug_install_server` | 调试 | 常规生成不要求显式安装命令 |
+| 项目级 QuickServer 准备 | 冷启动时先探活；活动实例复用、启动中实例等待，仅确认未启动后按包内/项目版本同步并拉起项目运行时 | `kimodo_debug_install_server` | 调试 | Auto Sync 不在已连接的普通生成中执行；常规生成不要求显式安装命令 |
 | Session 创建、加载与关闭 | 创建/加载可保留的 60 FPS Timeline Session | `session_open`, `session_close` | 完整 | 同时只维护一个 current Session |
 | Session 状态查询 | 查询角色、动画、约束和 Animator transition | `query_current_session` | 完整 | 支持 7 种 query |
 | 角色加入与移除 | 将场景 Humanoid Animator 加入/移出 Session | `session_try_add`, `session_try_remove` | 完整 | 使用安全名称或场景路径 |
@@ -47,7 +47,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 | Unified Constraint（mask） | 一个 Marker 保存 CharacterPose、类型、时间、Root heading 开关和通道 mask；导出前按 Muscle→Foot IK→Hand IK→Root2D 合成 | `kimodo_generate_animation.constraints`（同帧 sparse 对象；旧 flat union 兼容解析） | 完整 | 新建只有一种 Constraint；QuickServer 仍接收原协议 DTO |
 | FullBody / Root2D / Hand/Foot 协议桥接 | 从同一帧最终骨架分别投影为既有协议记录；EndEffector 保留 FK/root 上下文并发送 `target_positions` | `kimodo_generate_animation.constraints` | 完整 | 同帧记录共享 root/FK，协议不变 |
 | Constraint 场景编辑 | Inspector 显示 mask 与 Root/Hand/Foot TQ；Override Edit 显示 49 Muscle 所依赖的去重 Humanoid 骨骼本地 Euler；Root2D 拖拽只回写 canonical root，避免重复根变换 | 无 | 部分 | Scene 与 Override Euler 编辑均经 transient Avatar 反算回 Muscle；旧 Marker 资产继续兼容 |
-| Loop generation 预处理 | `kimodo_generate_animation(loop:true)` | 部分 | Unity 层扩展约束并生成闭环前后 Bezier Root2D；超出 600 帧回退默认流程 |
+| Loop generation 预处理 | `kimodo_generate_animation(loop:true)`、KimodoPlayableClip Inspector 的 `Generate Loop` | 完整 | 第一轮按目标时长普通生成；第二轮将首帧 FullBody（Root2D yaw 使用第一轮尾帧）约束到目标尾帧，再生成前后缓冲并裁剪中段；超过 600 个 Session 帧回退默认流程 |
 | 数学 Root2D 路径 | 生成 line、turn、s、circle 路径点 | `kimodo_build_root2d_path` | 完整 | 输出可直接转换为 Root2D constraints |
 | Spline 路径创作 | Scene 编辑与 Spline 采样 | 无 | 未覆盖 | 当前仅为 Editor 交互能力；CLI 使用数学 Root2D 路径 |
 | 动画分析 | 分析命名动画或半开 Session 帧区间并缓存 `analysis_id` | `kimodo_analyze` | 完整 | 支持 `analysis_option` |

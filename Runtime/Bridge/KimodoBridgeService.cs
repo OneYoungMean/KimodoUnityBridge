@@ -59,8 +59,7 @@ namespace KimodoBridge
         private enum ExistingServerProbeResult
         {
             NotResponding,
-            Compatible,
-            VersionMismatch
+            Healthy
         }
 
         private static readonly object RegistryLock = new object();
@@ -71,6 +70,7 @@ namespace KimodoBridge
                 LazyThreadSafetyMode.ExecutionAndPublication);
         private static readonly Lazy<KimodoBridgeService> SharedInstance =
             new Lazy<KimodoBridgeService>(() => new KimodoBridgeService(true), LazyThreadSafetyMode.ExecutionAndPublication);
+        private static readonly SemaphoreSlim ServerStartupGate = new SemaphoreSlim(1, 1);
         private static readonly object LogPumpLock = new object();
         private static readonly Dictionary<string, List<ActiveLogPump>> SharedLogPumps =
             new Dictionary<string, List<ActiveLogPump>>(StringComparer.OrdinalIgnoreCase);
@@ -350,7 +350,15 @@ namespace KimodoBridge
             await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
+                await ServerStartupGate.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    ServerStartupGate.Release();
+                }
             }
             finally
             {
@@ -442,106 +450,115 @@ namespace KimodoBridge
             await lifecycleGate.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                ResolvedRuntimeContext context = ResolveRuntimeContext();
-                currentRuntimeRoot = context.RuntimeRoot;
-
-#if UNITY_EDITOR
-                if (isDefaultSession && IsEditorRuntimeSyncRequired(context.RuntimeRoot))
-                {
-                    ReportProgress(progress, "Synchronizing QuickServer runtime...");
-                    await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
-                    if (!TrySyncEditorRuntimeRoot(context.RuntimeRoot, out string syncMessage))
-                    {
-                        throw new InvalidOperationException(syncMessage);
-                    }
-
-                    context = ResolveRuntimeContext();
-                    currentRuntimeRoot = context.RuntimeRoot;
-                    ReportProgress(progress, syncMessage);
-                }
-#endif
-
-                if (isDefaultSession)
-                {
-                    await StopLogPumpsAsync(currentRuntimeRoot, token).ConfigureAwait(false);
-                }
-                StartLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
-
-                if (TryReadRuntimeEndpoint(context.RuntimeRoot, out string host, out int port))
-                {
-                    ExistingServerProbeResult probe1 = await ProbeExistingServerAsync(
-                        context.RuntimeRoot,
-                        host,
-                        port,
-                        token).ConfigureAwait(false);
-                    if (probe1 == ExistingServerProbeResult.Compatible)
-                    {
-                        await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
-                        StartRuntimeLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
-                        ReportProgress(progress, $"Bridge attached to {host}:{port}.");
-                        return;
-                    }
-                    if (probe1 == ExistingServerProbeResult.VersionMismatch)
-                    {
-                        ReportProgress(progress, "QuickServer version mismatch; closing the old server.");
-                        await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
-                        currentRuntimeRoot = context.RuntimeRoot;
-
-                    }
-                }
-
                 if (IsConnected && currentPort > 0 && (isDefaultSession || explicitSessionOpened))
                 {
                     return;
                 }
 
-                if (!processManager.IsRunning)
+                await ServerStartupGate.WaitAsync(token).ConfigureAwait(false);
+                try
                 {
-                    processManager.Start(
-                        context.LauncherPath,
-                        ownerProcessId: Process.GetCurrentProcess().Id,
-                        enableKimodoStaticGraph: context.EnableKimodoStaticGraph);
-                    ReportProgress(progress, "Bridge process launched.");
-                }
-                else
-                {
-                    ReportProgress(progress, "Bridge process already exists. Waiting for QuickServer...");
-                }
+                    if (IsConnected && currentPort > 0 && (isDefaultSession || explicitSessionOpened))
+                    {
+                        return;
+                    }
 
-                ReportProgress(progress, "Waiting for QuickServer...");
+                    ResolvedRuntimeContext context = ResolveRuntimeContext();
+                    currentRuntimeRoot = context.RuntimeRoot;
 
-                await processManager.WaitUntilReadyAsync(
-                    context.RuntimeRoot,
-                    DefaultHost,
-                    BridgeRuntimeDefaults.StartupTimeoutMs,
-                    BridgeRuntimeDefaults.PollIntervalMs,
-                    token).ConfigureAwait(false);
+                    if (isDefaultSession)
+                    {
+                        await StopLogPumpsAsync(currentRuntimeRoot, token).ConfigureAwait(false);
+                    }
 
-                if (!TryReadRuntimeEndpoint(context.RuntimeRoot, out host, out port))
-                {
-                    throw new Exception($"QuickServer started but serverport is missing under '{context.RuntimeRoot}'.");
-                }
+                    if (TryReadRuntimeEndpoint(context.RuntimeRoot, out string host, out int port))
+                    {
+                        ExistingServerProbeResult existingProbe = await ProbeExistingServerAsync(
+                            host,
+                            port,
+                            token).ConfigureAwait(false);
+                        if (existingProbe == ExistingServerProbeResult.Healthy)
+                        {
+                            await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
+                            StartLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
+                            StartRuntimeLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
+                            ReportProgress(progress, $"Bridge attached to {host}:{port}.");
+                            return;
+                        }
+                    }
 
-                await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
-                currentHost = host;
-                currentPort = port;
-                ExistingServerProbeResult probeAfterStart = await ProbeExistingServerAsync(
-                    context.RuntimeRoot,
-                    host,
-                    port,
-                    token).ConfigureAwait(false);
-                if (probeAfterStart == ExistingServerProbeResult.VersionMismatch)
-                {
-                    await StopCurrentRuntimeCoreAsync(token).ConfigureAwait(false);
-                    throw new InvalidOperationException("QuickServer started with an unexpected version.");
+                    bool runtimeProcessRunning =
+                        BridgeEndpointResolver.TryReadServerProcessId(context.RuntimeRoot, out int runtimeProcessId) &&
+                        BridgeProcessManager.IsProcessRunning(runtimeProcessId);
+                    bool startupInProgress =
+                        processManager.IsRunning ||
+                        runtimeProcessRunning ||
+                        File.Exists(Path.Combine(context.RuntimeRoot, ".bootstrap.lock"));
+
+                    if (!startupInProgress)
+                    {
+
+#if UNITY_EDITOR
+                        if (IsEditorRuntimeSyncRequired(context.RuntimeRoot))
+                        {
+                            ReportProgress(progress, "Synchronizing QuickServer runtime...");
+                            if (!TrySyncEditorRuntimeRoot(context.RuntimeRoot, out string syncMessage))
+                            {
+                                throw new InvalidOperationException(syncMessage);
+                            }
+
+                            context = ResolveRuntimeContext();
+                            currentRuntimeRoot = context.RuntimeRoot;
+                            ReportProgress(progress, syncMessage);
+                        }
+#endif
+
+                        StartLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
+                        processManager.Start(
+                            context.LauncherPath,
+                            ownerProcessId: Process.GetCurrentProcess().Id,
+                            enableKimodoStaticGraph: context.EnableKimodoStaticGraph);
+                        ReportProgress(progress, "Bridge process launched.");
+                    }
+                    else
+                    {
+                        StartLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
+                        ReportProgress(progress, "Bridge process already exists. Waiting for QuickServer...");
+                    }
+
+                    ReportProgress(progress, "Waiting for QuickServer...");
+
+                    await processManager.WaitUntilReadyAsync(
+                        context.RuntimeRoot,
+                        DefaultHost,
+                        BridgeRuntimeDefaults.StartupTimeoutMs,
+                        BridgeRuntimeDefaults.PollIntervalMs,
+                        token).ConfigureAwait(false);
+
+                    if (!TryReadRuntimeEndpoint(context.RuntimeRoot, out host, out port))
+                    {
+                        throw new Exception($"QuickServer started but serverport is missing under '{context.RuntimeRoot}'.");
+                    }
+
+                    await protocolClient.ConnectAsync(host, port, token).ConfigureAwait(false);
+                    currentHost = host;
+                    currentPort = port;
+                    ExistingServerProbeResult probeAfterStart = await ProbeExistingServerAsync(
+                        host,
+                        port,
+                        token).ConfigureAwait(false);
+                    if (probeAfterStart != ExistingServerProbeResult.Healthy)
+                    {
+                        throw new InvalidOperationException("QuickServer started but failed its health probe.");
+                    }
+                    await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
+                    StartRuntimeLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
+                    ReportProgress(progress, $"Bridge attached to {host}:{port}.");
                 }
-                if (probeAfterStart != ExistingServerProbeResult.Compatible)
+                finally
                 {
-                    throw new InvalidOperationException("QuickServer started but failed its health probe.");
+                    ServerStartupGate.Release();
                 }
-                await EnsureProtocolSessionAsync(host, port, token).ConfigureAwait(false);
-                StartRuntimeLogPumpsIfNeeded(currentRuntimeRoot, creationContext);
-                ReportProgress(progress, $"Bridge attached to {host}:{port}.");
             }
             finally
             {
@@ -564,7 +581,6 @@ namespace KimodoBridge
         }
 
         private async Task<ExistingServerProbeResult> ProbeExistingServerAsync(
-            string runtimeRoot,
             string host,
             int port,
             CancellationToken token)
@@ -576,18 +592,12 @@ namespace KimodoBridge
                 currentHost = host;
                 currentPort = port;
 
-                string expectedVersion = ReadRuntimePackageVersion(runtimeRoot);
                 string runningVersion = header.Value<string>("server_version") ?? string.Empty;
                 EmitDebugLog(
                     $"[KimodoBridge] QuickServer probe: endpoint={host}:{port}, " +
-                    $"runningVersion='{runningVersion}', expectedVersion='{expectedVersion}'.");
-                if (!string.Equals(expectedVersion, "unknown", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(runningVersion, expectedVersion, StringComparison.OrdinalIgnoreCase))
-                {
-                    return ExistingServerProbeResult.VersionMismatch;
-                }
+                    $"runningVersion='{runningVersion}'.");
 
-                return ExistingServerProbeResult.Compatible;
+                return ExistingServerProbeResult.Healthy;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -671,20 +681,6 @@ namespace KimodoBridge
         private bool TryReadRuntimeEndpoint(string runtimeRoot, out string host, out int port)
         {
             return BridgeEndpointResolver.TryReadServerEndpoint(runtimeRoot, DefaultHost, out host, out port, out _);
-        }
-
-        private static string ReadRuntimePackageVersion(string runtimeRoot)
-        {
-            try
-            {
-                string packagePath = Path.Combine(runtimeRoot ?? string.Empty, "package.json");
-                string version = JObject.Parse(File.ReadAllText(packagePath)).Value<string>("version");
-                return string.IsNullOrWhiteSpace(version) ? "unknown" : version.Trim();
-            }
-            catch
-            {
-                return "unknown";
-            }
         }
 
         private static bool IsLoopbackHost(string host)

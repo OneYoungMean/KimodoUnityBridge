@@ -26,7 +26,8 @@ namespace KimodoBridge.Editor
             bool deferConstraintNormalization = false,
             bool enableAutoBeginAnchor = true,
             TimelineClip timelineClipOverride = null,
-            bool? enableClipConstraintOverride = null)
+            bool? enableClipConstraintOverride = null,
+            bool? generateLoopOverride = null)
         {
             if (clip == null)
             {
@@ -46,13 +47,18 @@ namespace KimodoBridge.Editor
             int targetFrameCount = Mathf.Max(
                 KimodoMotionModelProfiles.MinGenerationFrames,
                 KimodoFrameTimeUtility.SecondsToFrameCount(timelineClip.duration, targetFrameRate));
+            int sourceSessionFrameCount = Mathf.Max(1, Mathf.RoundToInt((float)(timelineClip.duration * 60.0)));
+            bool isLoopGeneration = (generateLoopOverride ?? clip.generateLoop) && sourceSessionFrameCount <= 300;
+            int loopPaddingFrames = isLoopGeneration ? targetFrameCount / 2 : 0;
             bool useOutsideGuardFrame = ShouldUseOutsideGuardFrame(
                 clip,
                 externalConstraint,
                 disableTimelineInOut);
-            int runtimeFrameCount = targetFrameCount + (useOutsideGuardFrame ? 1 : 0);
-            int runtimeTrimStartFrame = useOutsideGuardFrame ? 1 : 0;
+            int runtimeFrameCount = (isLoopGeneration ? targetFrameCount * 2 : targetFrameCount) +
+                (useOutsideGuardFrame ? 1 : 0);
+            int runtimeTrimStartFrame = loopPaddingFrames + (useOutsideGuardFrame ? 1 : 0);
             double runtimeSampleOffsetSeconds = useOutsideGuardFrame ? 1.0 / targetFrameRate : 0.0;
+            runtimeSampleOffsetSeconds += loopPaddingFrames / (double)targetFrameRate;
             float runtimeLengthSeconds = runtimeFrameCount / targetFrameRate;
 
             KimodoInOutConstraintResult constraintResult =
@@ -67,6 +73,15 @@ namespace KimodoBridge.Editor
                     enableAutoBeginAnchor,
                     runtimeSampleOffsetSeconds,
                     timelineClip);
+            if (isLoopGeneration)
+            {
+                ConstraintProvider.ApplyLoopGeneration(
+                    constraintResult,
+                    targetFrameCount,
+                    targetFrameRate,
+                    runtimeLengthSeconds,
+                    timelineClip);
+            }
             string constraintsJson = constraintResult.ConstraintsJson;
             List<KimodoMarkerSampleResult> constraintSamples = constraintResult.CombinedSamples;
             bool hasSyntheticAutoBeginConstraint = constraintResult.HasSyntheticAutoBeginConstraint;
@@ -178,6 +193,21 @@ namespace KimodoBridge.Editor
                 (externalConstraint?.Enabled != true || externalConstraint.IncludeTimelineConstraints) &&
                 clip.inOutConstraintMode == KimodoInOutConstraintMode.Outside &&
                 clip.enableInConstraint;
+        }
+
+        internal static bool IsLoopGenerationEnabled(
+            KimodoPlayableClip clip,
+            TimelineClip timelineClip = null)
+        {
+            if (clip == null || !clip.generateLoop)
+            {
+                return false;
+            }
+
+            TimelineClip resolved = timelineClip ?? KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
+            return resolved != null &&
+                resolved.duration > 0.0 &&
+                Mathf.RoundToInt((float)(resolved.duration * 60.0)) <= 300;
         }
 
         public static void FinalizeGeneration(

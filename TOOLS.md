@@ -67,7 +67,7 @@ Kimodo does not discover arbitrary scene objects, choose BlendTree branches, per
 - Session time is fixed at 60 FPS. Public ranges use `[start_frame,end_frame)`; generation constraint frames are relative to the generated clip.
 - Treat every returned character/animation safe name, pose locator, `analysis_id`, and `request_id` as an opaque handle. Never reconstruct one from a display name.
 - Generation is asynchronous. Poll `kimodo_get_generation` until `status` is `completed`, `failed`, or `canceled`; acceptance or `running` is not completion.
-- `kimodo_generate_animation` accepts `loop:true`; Unity preprocesses bounded loop constraints and reports fallback when the extended duration would exceed 600 frames.
+- `kimodo_generate_animation` accepts `loop:true`. Unity first performs one normal-length generation, copies its first-frame FullBody pose to the final target frame while preserving the first pass tail Root2D yaw, then performs the bounded extended generation and keeps the middle requested duration. It reports fallback when the extended duration would exceed 600 Session frames. The KimodoPlayableClip Inspector exposes the same behavior as `Generate Loop`.
 - While generation is running, commands that sample or remove an overlapping range on the same character track fail immediately with `code: generation_range_locked`. Non-overlapping tracks/ranges continue normally; wait for the returned `request_id` to finish or cancel it before retrying.
 - Asset generation and server maintenance run in Unity Edit Mode and must wait while Unity is compiling or importing.
 - A current Session is the preferred workspace. `kimodo_generate_animation` can create and retain an automatic Session when none is open.
@@ -138,7 +138,7 @@ kimodo_get_generation -> poll to terminal state
 
 Normal generation prepares and starts the project-local runtime as needed. `kimodo_debug_install_server` is debug-only incremental repair/setup; inspect its current help before use. Do not expose it as a global installer.
 
-The default runtime root is the Unity project's `NvlabKimodoQuickServer~`, with its Python environment at root `.venv`. When Auto Sync Server is enabled and the installed runtime is older than the packaged version, major sync clears everything, minor sync keeps `models`, and patch sync keeps `models` plus root `.venv`. Relevant logs are `log/setup.log` and `log/bridge_server.log`. On failure, capture the command JSON/result, Unity version, `Editor.log`, runtime logs, Session state, and whether the failure occurred during package resolution, setup, model provisioning, generation, bake, or playback.
+The default runtime root is the Unity project's `NvlabKimodoQuickServer~`, with its Python environment at root `.venv`. Auto Sync Server runs only on a cold server start after Unity has confirmed that no healthy server or startup process exists; an active server is reused and an in-progress startup is awaited. When the installed runtime is older than the packaged version, major sync clears everything, minor sync keeps `models`, and patch sync keeps `models` plus root `.venv`. Relevant logs are `log/setup.log` and `log/bridge_server.log`. On failure, capture the command JSON/result, Unity version, `Editor.log`, runtime logs, Session state, and whether the failure occurred during package resolution, setup, model provisioning, generation, bake, or playback.
 
 Runtime `SetRoot2DTarget` treats a target inside `arrivalThresholdMeters` as already reached and does not stage a constraint.
 
@@ -204,6 +204,7 @@ Kimodo 不负责发现任意场景对象、选择 BlendTree 分支、一般 Time
 - Session 时间固定为 60 FPS。公开区间使用 `[start_frame,end_frame)`；生成约束帧是生成 Clip 内的相对帧。
 - 将所有返回的角色/动画安全名称、Pose locator、`analysis_id` 和 `request_id` 视为不透明句柄；禁止根据显示名称自行重建。
 - 生成是异步任务。反复调用 `kimodo_get_generation`，直到 `status` 为 `completed`、`failed` 或 `canceled`；accepted 或 `running` 不代表完成。
+- `kimodo_generate_animation` 支持 `loop:true`。Unity 先进行一次目标时长的普通生成，将其首帧 FullBody 复制到目标尾帧，并用第一轮尾帧的 Root2D yaw 覆盖朝向；随后进行带前后缓冲的扩展生成，只保留中间请求时长。扩展后超过 600 个 Session 帧时报告回退。KimodoPlayableClip Inspector 的 `Generate Loop` 使用相同逻辑。
 - 生成运行期间，若命令要采样或删除同一角色 Track 上与生成区间重叠的范围，会立即返回 `code: generation_range_locked`。不重叠的 Track/区间仍可正常执行；应等待返回的 `request_id` 结束，或取消后重试。
 - 动画资产生成与服务器维护只在 Unity Edit Mode 执行；Unity 编译或导入期间必须等待。
 - 优先在当前 Session 中工作。没有 Session 时，`kimodo_generate_animation` 可以创建并保留自动 Session。
@@ -274,7 +275,7 @@ kimodo_get_generation -> 轮询到终态
 
 普通生成会按需准备并启动项目级运行时。`kimodo_debug_install_server` 仅用于调试式增量修复/安装，使用前先读取当前 help；不得把它暴露成全局安装器。
 
-默认运行根目录是 Unity 项目下的 `NvlabKimodoQuickServer~`，Python 环境位于该根目录的 `.venv`。启用 Auto Sync Server 后，运行时版本低于包内版本时会按 major/minor/patch 层级同步：major 清空全部内容，minor 保留 `models`，patch 保留 `models` 和根目录 `.venv`。相关日志为 `log/setup.log` 和 `log/bridge_server.log`。失败时保存命令 JSON/返回、Unity 版本、`Editor.log`、运行时日志、Session 状态，并标明问题发生在包解析、setup、模型准备、生成、Bake 还是播放阶段。
+默认运行根目录是 Unity 项目下的 `NvlabKimodoQuickServer~`，Python 环境位于该根目录的 `.venv`。Auto Sync Server 只在 Unity 确认不存在健康服务器或正在进行的启动流程后，于冷启动阶段执行；活动服务器直接复用，正在启动的服务器只等待。项目运行时版本低于包内版本时按 major/minor/patch 层级同步：major 清空全部内容，minor 保留 `models`，patch 保留 `models` 和根目录 `.venv`。相关日志为 `log/setup.log` 和 `log/bridge_server.log`。失败时保存命令 JSON/返回、Unity 版本、`Editor.log`、运行时日志、Session 状态，并标明问题发生在包解析、setup、模型准备、生成、Bake 还是播放阶段。
 
 运行时 `SetRoot2DTarget` 会把 `arrivalThresholdMeters` 范围内的目标视为已经到达，不会暂存约束。
 

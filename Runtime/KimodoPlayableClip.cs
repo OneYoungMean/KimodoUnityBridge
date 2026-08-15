@@ -67,6 +67,8 @@ namespace KimodoBridge
         public int diffusionSteps = 100;
         public bool randomSeed = false;
         public int seed = 42;
+        [Tooltip("Generate a baseline motion, constrain its first pose at the end, then generate an extended motion and keep its middle section.")]
+        public bool generateLoop;
         [Header("Clip Constraint")]
         [Tooltip("Sample this playable clip's current animation as a per-frame pose condition before regenerating it.")]
         public bool enableClipConstraint;

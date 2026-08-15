@@ -451,6 +451,52 @@ namespace KimodoBridge.Editor
                 motion.FrameRate);
         }
 
+        internal static string BuildLoopTerminalConstraintJson(
+            KimodoMarkerSampleResult firstFrame,
+            KimodoMarkerSampleResult tailFrame,
+            string modelName,
+            double sampleTimeSeconds,
+            double clipDurationSeconds)
+        {
+            KimodoMarkerSampleResult sample = BuildLoopTerminalConstraintSample(
+                firstFrame,
+                tailFrame,
+                sampleTimeSeconds);
+            return KimodoConstraintJsonExporter.ToConstraintsJson(
+                new[] { sample },
+                ResolveExportContext(modelName),
+                0.0,
+                clipDurationSeconds,
+                KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName));
+        }
+
+        internal static KimodoMarkerSampleResult BuildLoopTerminalConstraintSample(
+            KimodoMarkerSampleResult firstFrame,
+            KimodoMarkerSampleResult tailFrame,
+            double sampleTimeSeconds)
+        {
+            if (firstFrame?.characterPose?.root == null || tailFrame?.characterPose?.root == null)
+            {
+                throw new InvalidOperationException("Loop terminal constraint requires valid first and tail poses.");
+            }
+
+            KimodoMarkerSampleResult sample = firstFrame.Clone();
+            Quaternion tailHeading = tailFrame.hasRoot2DOverride && tailFrame.root2DOverride != null
+                ? tailFrame.root2DOverride.q
+                : tailFrame.characterPose.root.q;
+            sample.constraintType = "constraint";
+            sample.mask = KimodoConstraintMask.ForType("fullbody");
+            sample.sampleTime = sampleTimeSeconds;
+            sample.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+            {
+                t = sample.characterPose.root.t,
+                q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(tailHeading)
+            };
+            sample.hasRoot2DOverride = true;
+            sample.hasRootHeading = true;
+            return sample;
+        }
+
         internal static string AppendConstraintsJson(string baseJson, string additionalJson)
         {
             var output = new JArray();

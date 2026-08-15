@@ -267,6 +267,10 @@ namespace KimodoBridge.Editor
                 {
                     AddDifference(differences, $"'{playable.name}' has a different Text Encoder mode");
                 }
+                if (playable.generateLoop)
+                {
+                    AddDifference(differences, $"'{playable.name}' uses Generate Loop and must be generated separately");
+                }
                 int frameCount = KimodoFrameTimeUtility.SecondsToFrameCount(
                     timelineClip.duration,
                     profile.SourceFps);
@@ -684,6 +688,16 @@ namespace KimodoBridge.Editor
             }
 
             string prompt = clip.motionPrompt ?? string.Empty;
+            if (KimodoPlayableClipGenerationHostService.IsLoopGenerationEnabled(clip, timelineClipOverride))
+            {
+                return await GenerateLoopAndFinalizeAsync(
+                    clip,
+                    prompt,
+                    externalConstraint,
+                    progress,
+                    token,
+                    timelineClipOverride);
+            }
             if (clip.enableClipConstraint &&
                 !KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _))
             {
@@ -716,6 +730,134 @@ namespace KimodoBridge.Editor
                 request.CleanupGeneratedClips();
                 throw;
             }
+        }
+
+        private static async Task<command_generate_result> GenerateLoopAndFinalizeAsync(
+            KimodoPlayableClip clip,
+            string prompt,
+            KimodoExternalConstraintRequest externalConstraint,
+            Action<KimodoBridgeCommandStage, string> progress,
+            CancellationToken token,
+            TimelineClip timelineClipOverride)
+        {
+            KimodoEditorGenerateRequest firstRequest = null;
+            KimodoEditorGenerateRequest finalRequest = null;
+            string modelName = KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
+            try
+            {
+                firstRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    prompt,
+                    externalConstraint,
+                    token,
+                    timelineClipOverride: timelineClipOverride,
+                    enableClipConstraintOverride: false,
+                    generateLoopOverride: false);
+                firstRequest.AnalysisOptionsJson = string.Empty;
+                firstRequest.Progress = (stage, message) =>
+                    progress?.Invoke(stage, $"Loop pass 1/2: {message}");
+                command_generate_result firstResult = await KimodoEditorGeneratePipeline.ExecuteAsync(firstRequest);
+                token.ThrowIfCancellationRequested();
+
+                int effectiveSeed = firstRequest.EffectiveSeed;
+                finalRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    prompt,
+                    externalConstraint,
+                    token,
+                    effectiveSeedOverride: effectiveSeed,
+                    timelineClipOverride: timelineClipOverride,
+                    enableClipConstraintOverride: false,
+                    generateLoopOverride: true);
+                string terminalConstraintJson = BuildLoopTerminalConstraintJson(
+                    firstRequest,
+                    firstResult,
+                    finalRequest,
+                    modelName);
+                finalRequest.Constraints.json = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
+                    finalRequest.Constraints.json,
+                    terminalConstraintJson);
+                firstRequest.CleanupGeneratedClips();
+                firstRequest = null;
+
+                finalRequest.Progress = (stage, message) =>
+                    progress?.Invoke(stage, $"Loop pass 2/2: {message}");
+                command_generate_result result = await KimodoEditorGeneratePipeline.ExecuteAsync(finalRequest);
+                token.ThrowIfCancellationRequested();
+                KimodoPlayableClipGenerationHostService.FinalizeGeneration(clip, finalRequest, result);
+                return result;
+            }
+            catch
+            {
+                finalRequest?.CleanupGeneratedClips();
+                firstRequest?.CleanupGeneratedClips();
+                throw;
+            }
+        }
+
+        private static string BuildLoopTerminalConstraintJson(
+            KimodoEditorGenerateRequest firstRequest,
+            command_generate_result firstResult,
+            KimodoEditorGenerateRequest finalRequest,
+            string modelName)
+        {
+            if (firstResult?.GeneratedClip == null)
+            {
+                throw new InvalidOperationException("Loop pass 1 did not produce an AnimationClip.");
+            }
+
+            KimodoEditorGenerateOutputPlan outputPlan = firstRequest.OutputPlan;
+            Avatar sourceAvatar = outputPlan?.SkipRetarget == true
+                ? outputPlan.OriginRetargetAvatar
+                : outputPlan?.TargetRetargetAvatar;
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
+            {
+                sourceAvatar = outputPlan?.OriginRetargetAvatar;
+            }
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
+            {
+                throw new InvalidOperationException("Loop pass 1 requires a valid generated-clip sampling Avatar.");
+            }
+
+            double tailTime = Math.Max(
+                0.0,
+                (firstRequest.TargetFrameCount - 1) / (double)firstRequest.TargetFrameRate);
+            if (!KimodoRetargetToolsEditor.TrySampleMarkerForClip(
+                    firstResult.GeneratedClip,
+                    "fullbody",
+                    0.0,
+                    sourceAvatar,
+                    null,
+                    modelName,
+                    forceRefresh: false,
+                    out KimodoMarkerSampleResult firstFrame,
+                    out string firstError))
+            {
+                throw new InvalidOperationException($"Loop pass 1 first-frame sampling failed: {firstError}");
+            }
+            if (!KimodoRetargetToolsEditor.TrySampleMarkerForClip(
+                    firstResult.GeneratedClip,
+                    "root2d",
+                    tailTime,
+                    sourceAvatar,
+                    null,
+                    modelName,
+                    forceRefresh: false,
+                    out KimodoMarkerSampleResult tailFrame,
+                    out string tailError))
+            {
+                throw new InvalidOperationException($"Loop pass 1 tail-frame sampling failed: {tailError}");
+            }
+
+            double terminalTime =
+                (finalRequest.RuntimeTrimStartFrame + finalRequest.TargetFrameCount - 1) /
+                (double)finalRequest.TargetFrameRate;
+            return KimodoClipConstraintBakeUtility.BuildLoopTerminalConstraintJson(
+                firstFrame,
+                tailFrame,
+                modelName,
+                terminalTime,
+                finalRequest.EffectiveRuntimeDurationSeconds);
         }
 
         private static async Task<command_generate_result> GenerateClipConstraintBakedAsync(

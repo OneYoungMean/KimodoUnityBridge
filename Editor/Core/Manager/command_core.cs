@@ -21,44 +21,6 @@ namespace CharacterAnimationCli.Unity.Command
     /// </summary>
     internal static partial class command_context
     {
-        private static Vector2 LoopBezier(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
-        {
-            t = Mathf.Clamp01(t); float u = 1f - t;
-            return u * u * u * p0 + 3f * u * u * t * p1 + 3f * u * t * t * p2 + t * t * t * p3;
-        }
-
-        private static void AddLoopBezierRootConstraints(JArray constraints, int sourceDuration, int padding)
-        {
-            JObject first = constraints.OfType<JObject>().OrderBy(x => x.Value<int?>("frame") ?? int.MaxValue)
-                .FirstOrDefault(x => x["root2d"]?["position"] != null);
-            JObject last = constraints.OfType<JObject>().OrderByDescending(x => x.Value<int?>("frame") ?? int.MinValue)
-                .FirstOrDefault(x => x["root2d"]?["position"] != null);
-            if (first == null || last == null) return;
-            Vector2 a = ReadLoopPosition(first["root2d"] as JObject);
-            Vector2 b = ReadLoopPosition(last["root2d"] as JObject);
-            Vector2 d = (b - a) / 3f;
-            Vector2 heading = a - b;
-            if (heading.sqrMagnitude <= 1e-8f) heading = Vector2.right;
-            for (int i = 0; i < padding; i++)
-            {
-                float t = (i + 1f) / (padding + 1f);
-                constraints.Add(CreateLoopRootConstraint(i, LoopBezier(b, b - d, a + d, a, t), heading));
-                constraints.Add(CreateLoopRootConstraint(padding + sourceDuration + i, LoopBezier(b, b - d, a + d, a, t), heading));
-            }
-        }
-
-        private static JObject CreateLoopRootConstraint(int frame, Vector2 position, Vector2 heading) => new JObject
-        {
-            ["frame"] = frame,
-            ["root2d"] = new JObject
-            {
-                ["position"] = new JArray(position.x, position.y),
-                ["heading"] = new JArray(heading.x, heading.y)
-            }
-        };
-
-        private static Vector2 ReadLoopPosition(JObject root) => RequiredVector2(root, "position");
-
         public const string HelpCommand = "kimodo_help";
         public const string DebugInstallServerCommand = "kimodo_debug_install_server";
         public const string GenerateAnimationCommand = "kimodo_generate_animation";
@@ -613,31 +575,14 @@ namespace CharacterAnimationCli.Unity.Command
                 }
                 bool loopRequested = arguments.Value<bool?>("loop") ??
                     prompt.IndexOf("loop", StringComparison.OrdinalIgnoreCase) >= 0;
-                bool loopFallback = false;
-                string loopWarning = null;
-                int requestedDurationFrames = durationFrames;
-                if (loopRequested)
+                bool loopFallback = loopRequested && durationFrames > 300;
+                string loopWarning = loopFallback
+                    ? $"loop_requested_but_exceeds_max_duration: requested={durationFrames} frames, extended={durationFrames * 2} frames, max=600. Fallback to default generation."
+                    : null;
+                if (loopFallback)
                 {
-                    long extended = (long)durationFrames * 2L;
-                    if (extended > 600L)
-                    {
-                        loopFallback = true;
-                        loopWarning = $"loop_requested_but_exceeds_max_duration: requested={durationFrames} frames, extended={extended} frames, max=600. Fallback to default generation.";
-                        Debug.LogWarning("[Kimodo][Command] " + loopWarning);
-                    }
-                    else
-                    {
-                        durationFrames = (int)extended;
-                        if (arguments["constraints"] is JArray loopConstraints)
-                        {
-                            int padding = requestedDurationFrames / 2;
-                            foreach (JObject item in loopConstraints.OfType<JObject>().ToList())
-                            {
-                                item["frame"] = (item.Value<int?>("frame") ?? 0) + padding;
-                            }
-                            AddLoopBezierRootConstraints(loopConstraints, requestedDurationFrames, padding);
-                        }
-                    }
+                    Debug.LogWarning("[Kimodo][Command] " + loopWarning);
+                    loopRequested = false;
                 }
                 float duration = (float)(durationFrames / SessionFrameRate);
                 string analysisOptionsJson = ParseAnalysisOptionsJson(arguments);
@@ -675,6 +620,10 @@ namespace CharacterAnimationCli.Unity.Command
                 playableClip.diffusionSteps = steps;
                 playableClip.randomSeed = false;
                 playableClip.seed = seed;
+                playableClip.generateLoop = loopRequested;
+                playableClip.loop = loopRequested
+                    ? UnityEngine.Timeline.AnimationPlayableAsset.LoopMode.On
+                    : UnityEngine.Timeline.AnimationPlayableAsset.LoopMode.Off;
                 playableClip.analysisOptionsJson = analysisOptionsJson;
                 playableClip.generatedAssetName = trace.Animation.Name;
                 playableClip.generatedOutputFolder = outputFolder;
@@ -727,11 +676,11 @@ namespace CharacterAnimationCli.Unity.Command
                     startedResponse["start_frame"] = Mathf.RoundToInt((float)(trace.StartSeconds * SessionFrameRate));
                     startedResponse["duration_frames"] = Mathf.RoundToInt((float)(trace.DurationSeconds * SessionFrameRate));
                 }
-                if (loopRequested && !loopFallback)
+                if (loopRequested)
                 {
                     startedResponse["loop"] = true;
-                    startedResponse["loop_source_duration_frames"] = requestedDurationFrames;
-                    startedResponse["loop_extended_duration_frames"] = durationFrames;
+                    startedResponse["loop_source_duration_frames"] = durationFrames;
+                    startedResponse["loop_extended_duration_frames"] = durationFrames * 2;
                 }
                 if (loopWarning != null)
                 {

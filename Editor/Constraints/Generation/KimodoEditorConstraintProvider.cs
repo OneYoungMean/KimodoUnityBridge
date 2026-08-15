@@ -84,6 +84,119 @@ namespace KimodoBridge.Editor
             return result;
         }
 
+        internal void ApplyLoopGeneration(
+            KimodoInOutConstraintResult result,
+            int sourceFrameCount,
+            float frameRate,
+            double runtimeLengthSeconds,
+            TimelineClip timelineClip)
+        {
+            if (result == null || result.CombinedSamples == null || result.CombinedSamples.Count == 0 ||
+                sourceFrameCount <= 1 || frameRate <= 0f)
+            {
+                return;
+            }
+
+            int paddingFrames = sourceFrameCount / 2;
+            int trailingPaddingFrames = sourceFrameCount - paddingFrames;
+            double paddingSeconds = paddingFrames / (double)frameRate;
+            double sourceDurationSeconds = sourceFrameCount / (double)frameRate;
+            KimodoMarkerSampleResult first = null;
+            KimodoMarkerSampleResult last = null;
+            for (int i = 0; i < result.CombinedSamples.Count; i++)
+            {
+                KimodoMarkerSampleResult sample = result.CombinedSamples[i];
+                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample?.mask, sample?.constraintType);
+                if (sample?.characterPose?.root == null || (!mask.rootPosition && !mask.rootHeading))
+                {
+                    continue;
+                }
+
+                if (first == null || sample.sampleTime < first.sampleTime)
+                {
+                    first = sample;
+                }
+                if (last == null || sample.sampleTime > last.sampleTime)
+                {
+                    last = sample;
+                }
+            }
+
+            if (first != null && last != null)
+            {
+                Vector3 start = ResolveRootPosition(first);
+                Vector3 end = ResolveRootPosition(last);
+                Vector3 delta = (end - start) / 3f;
+                Vector3 heading = new Vector3(start.x - end.x, 0f, start.z - end.z);
+                if (heading.sqrMagnitude <= 1e-8f)
+                {
+                    heading = Vector3.forward;
+                }
+
+                for (int i = 0; i < paddingFrames; i++)
+                {
+                    float t = (i + 1f) / (paddingFrames + 1f);
+                    Vector3 position = LoopBezier(end, end - delta, start + delta, start, t);
+                    KimodoMarkerSampleResult bridge = CreateLoopRootSample(last, position, heading);
+                    bridge.sampleTime = i / (double)frameRate;
+                    result.CombinedSamples.Add(bridge);
+                }
+                for (int i = 0; i < trailingPaddingFrames; i++)
+                {
+                    float t = (i + 1f) / (trailingPaddingFrames + 1f);
+                    Vector3 position = LoopBezier(end, end - delta, start + delta, start, t);
+                    KimodoMarkerSampleResult bridge = CreateLoopRootSample(last, position, heading);
+                    bridge.sampleTime = paddingSeconds + sourceDurationSeconds + i / (double)frameRate;
+                    result.CombinedSamples.Add(bridge);
+                }
+            }
+
+            result.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
+                result.CombinedSamples,
+                ResolveExportContext(timelineClip),
+                0.0,
+                runtimeLengthSeconds,
+                frameRate,
+                result.DenseRootPath);
+        }
+
+        private static Vector3 ResolveRootPosition(KimodoMarkerSampleResult sample)
+        {
+            if (sample.hasRoot2DOverride && sample.root2DOverride != null)
+            {
+                return sample.root2DOverride.t;
+            }
+
+            return sample.characterPose.root.t;
+        }
+
+        private static KimodoMarkerSampleResult CreateLoopRootSample(
+            KimodoMarkerSampleResult source,
+            Vector3 position,
+            Vector3 heading)
+        {
+            KimodoMarkerSampleResult result = source.Clone();
+            result.constraintType = "root2d";
+            result.mask = KimodoConstraintMask.ForType("root2d");
+            result.characterPose.root.t = position;
+            result.characterPose.root.q = Quaternion.LookRotation(heading, Vector3.up);
+            result.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+            {
+                t = position,
+                q = result.characterPose.root.q
+            };
+            result.hasRoot2DOverride = true;
+            result.hasRootHeading = true;
+            return result;
+        }
+
+        private static Vector3 LoopBezier(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, float t)
+        {
+            t = Mathf.Clamp01(t);
+            float u = 1f - t;
+            return u * u * u * p0 + 3f * u * u * t * p1 + 3f * u * t * t * p2 + t * t * t * p3;
+        }
+
         public KimodoInOutConstraintResult BuildConstraintDataOrThrow(
             KimodoPlayableClip clip,
             int? generationFramesOverride = null,

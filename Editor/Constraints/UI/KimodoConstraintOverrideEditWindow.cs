@@ -63,6 +63,7 @@ namespace KimodoBridge.Editor
             }
             window.Show();
             window.Focus();
+            KimodoConstraintSelectionPreviewTool.ForceRefresh();
             if (marker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out _))
             {
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
@@ -166,6 +167,7 @@ namespace KimodoBridge.Editor
                 KimodoConstraintPoseCache.DestroyContext(restoreContext);
             }
             RestoreTimelineWindowLock();
+            KimodoConstraintSelectionPreviewTool.ForceRefresh();
             SceneView.RepaintAll();
 
             if (restoreSelection != null)

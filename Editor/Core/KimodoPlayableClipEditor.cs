@@ -21,11 +21,10 @@ namespace KimodoBridge.Editor
         private SerializedProperty diffusionSteps;
         private SerializedProperty randomProp;
         private SerializedProperty seed;
+        private SerializedProperty generateLoopProp;
         private SerializedProperty inOutConstraintModeProp;
         private SerializedProperty enableInConstraint;
         private SerializedProperty enableOutConstraint;
-        private SerializedProperty enableClipConstraint;
-        private SerializedProperty clipConstraintAvatarMask;
         private SerializedProperty ardyAutoHistory;
         private SerializedProperty ardyHistoryWeight;
         private SerializedProperty ardyTargetMaxSpeed;
@@ -109,11 +108,10 @@ namespace KimodoBridge.Editor
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
             randomProp = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("seed");
+            generateLoopProp = serializedObject.FindProperty("generateLoop");
             inOutConstraintModeProp = serializedObject.FindProperty("inOutConstraintMode");
             enableInConstraint = serializedObject.FindProperty("enableInConstraint");
             enableOutConstraint = serializedObject.FindProperty("enableOutConstraint");
-            enableClipConstraint = serializedObject.FindProperty("enableClipConstraint");
-            clipConstraintAvatarMask = serializedObject.FindProperty("clipConstraintAvatarMask");
             ardyAutoHistory = serializedObject.FindProperty("ardyAutoHistory");
             ardyHistoryWeight = serializedObject.FindProperty("ardyHistoryWeight");
             ardyTargetMaxSpeed = serializedObject.FindProperty("ardyTargetMaxSpeed");
@@ -183,6 +181,7 @@ namespace KimodoBridge.Editor
             }
         }
 
+        // TODO: Re-enable Clip Constraint Inspector controls once the authoring workflow is mature.
         private void DrawGenerationSection()
         {
             EditorGUILayout.LabelField("Generate Motion", EditorStyles.boldLabel);
@@ -247,19 +246,19 @@ namespace KimodoBridge.Editor
                     }
                 }
             }
-            if (enableClipConstraint != null)
+            if (generateLoopProp != null)
             {
-                EditorGUILayout.Space(2f);
                 EditorGUILayout.PropertyField(
-                    enableClipConstraint,
-                    new GUIContent("Clip Constraint", "Use this clip's current animation as a per-frame masked pose condition while regenerating it."));
-                if (enableClipConstraint.boolValue && clipConstraintAvatarMask != null)
+                    generateLoopProp,
+                    new GUIContent("Generate Loop", "Generate a normal baseline, constrain its first pose at the end, then generate an extended motion and keep its middle section."));
+                if (!generateLoopProp.hasMultipleDifferentValues &&
+                    generateLoopProp.boolValue &&
+                    hasTimelineDuration &&
+                    timelineClip.duration * 2.0 > 10.0)
                 {
-                    EditorGUI.indentLevel++;
-                    EditorGUILayout.PropertyField(
-                        clipConstraintAvatarMask,
-                        new GUIContent("Avatar Mask", "Selected bones retain position and rotation. Hips also retains root position and orientation."));
-                    EditorGUI.indentLevel--;
+                    EditorGUILayout.HelpBox(
+                        "Loop generation exceeds the 600-frame limit and will fall back to normal generation.",
+                        MessageType.Warning);
                 }
             }
             if (showConstraint != null)
@@ -304,12 +303,15 @@ namespace KimodoBridge.Editor
                 EditorCompilationStateGate.IsCompilingOrReloading;
             GUI.enabled = !disableGenerate;
             int selectedGenerateClipCount = KimodoPlayableClipGenerationExecutionService.GetSelectedPlayableClipCount(clip);
+            bool generateLoop = generateLoopProp != null && generateLoopProp.boolValue;
             string generateLabel = selectedGenerateClipCount > 1
-                ? $"Generate {selectedGenerateClipCount} Clips & Bake"
-                : "Generate & Bake";
+                ? $"Generate {selectedGenerateClipCount} {(generateLoop ? "Loop " : string.Empty)}Clips & Bake"
+                : generateLoop ? "Generate Loop & Bake" : "Generate & Bake";
             string generateTooltip = selectedGenerateClipCount > 1
                 ? "Generate the selected Timeline clips one at a time in Timeline order."
-                : "Generate only this Timeline clip.";
+                : generateLoop
+                    ? "Generate a baseline motion, then regenerate with an automatic terminal FullBody constraint and keep the middle section."
+                    : "Generate only this Timeline clip.";
             if (GUILayout.Button(new GUIContent(generateLabel, generateTooltip), GUILayout.Height(32)))
             {
                 serializedObject.ApplyModifiedProperties();
@@ -573,7 +575,7 @@ namespace KimodoBridge.Editor
 
             if (loopProp != null)
             {
-                EditorGUILayout.PropertyField(loopProp, new GUIContent("Loop", "Loop this clip when timeline playback exceeds clip duration."));
+                EditorGUILayout.PropertyField(loopProp, new GUIContent("Is Loop", "Loop this clip when timeline playback exceeds clip duration."));
             }
 
             KimodoTimelinePreviewRefreshUtility.DrawAnimationPlayableAssetClipOffsetSettings(
