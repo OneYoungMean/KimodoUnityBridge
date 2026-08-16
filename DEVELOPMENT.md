@@ -46,9 +46,9 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 | 多片段连接生成 | Timeline Inspector 可对同一轨道选中的多个 Clips 一次连接生成 | 无 | 未覆盖 | 没有多片段 command/schema |
 | Pose 采样与编辑 | 原生读取 MuscleClip 同义的 49 Muscle + Root/Hand/Foot TQ，并支持局部 Patch | `pose_create`, `pose_get`, `pose_set`, `pose_copy` | 完整 | 可写 Pose 由 Session 管理；四元数为 `[x,y,z,w]`，位移单位米，Muscle 不 Clamp |
 | Unified Constraint（mask） | 一个 Marker 保存 CharacterPose、类型、时间、Root heading 开关和通道 mask；导出前按 Muscle→Foot IK→Hand IK→Root2D 合成 | `kimodo_generate_animation.constraints`（同帧 sparse 对象；旧 flat union 兼容解析） | 完整 | 新建只有一种 Constraint；QuickServer 仍接收原协议 DTO |
-| FullBody / Root2D / Hand/Foot 协议桥接 | 从同一帧最终骨架分别投影为既有协议记录；EndEffector 保留 FK/root 上下文并发送 `target_positions` | `kimodo_generate_animation.constraints` | 完整 | 同帧记录共享 root/FK，协议不变 |
+| FullBody / Root2D / Hand/Foot 协议桥接 | 从同一帧最终骨架分别投影为既有协议记录；发送前将同帧 Root2D 并入 FullBody，EndEffector 保留 FK/root 上下文并发送 `target_positions` | `kimodo_generate_animation.constraints` | 完整 | 输出协议中同帧 Root2D 与 FullBody 不共存 |
 | Constraint 场景编辑 | Inspector 显示 mask 与 Root/Hand/Foot TQ；Override Edit 显示 49 Muscle 所依赖的去重 Humanoid 骨骼本地 Euler；Root2D 拖拽只回写 canonical root，避免重复根变换 | 无 | 部分 | Scene 与 Override Euler 编辑均经 transient Avatar 反算回 Muscle；旧 Marker 资产继续兼容 |
-| Loop generation 预处理 | `kimodo_generate_animation(loop:true)`、KimodoPlayableClip Inspector 的 `Generate Loop` | 完整 | 第一轮按目标时长普通生成；第二轮将首帧 FullBody（Root2D yaw 使用第一轮尾帧）约束到目标尾帧，再生成前后缓冲并裁剪中段；超过 600 个 Session 帧回退默认流程 |
+| Loop generation 预处理 | `kimodo_generate_animation(loop:true)`、KimodoPlayableClip Inspector 的 `Generate Loop` | 完整 | 第一轮按目标时长普通生成；第二轮使用虚拟头/尾两个 Root2D 锚点，并将首帧原始 FullBody 与第一轮尾帧的 Root2D XZ/yaw 融合为可见尾帧 FullBody，再生成前后缓冲并裁剪中段；超过 600 个 Session 帧回退默认流程 |
 | 数学 Root2D 路径 | 生成 line、turn、s、circle 路径点 | `kimodo_build_root2d_path` | 完整 | 输出可直接转换为 Root2D constraints |
 | Spline 路径创作 | Scene 编辑与 Spline 采样 | 无 | 未覆盖 | 当前仅为 Editor 交互能力；CLI 使用数学 Root2D 路径 |
 | 动画分析 | 分析命名动画或半开 Session 帧区间并缓存 `analysis_id` | `kimodo_analyze` | 完整 | 支持 `analysis_option` |
@@ -80,7 +80,7 @@ Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未�
 
 - mask 控制 Muscle、Root2D position/heading、左右 HandTQ 和 FootTQ 通道；同一 Constraint 可同时启用多个通道。`characterPose.root` 始终属于 FullBody，`root2DOverride` 只保存 Root2D 的 X/Z 与 yaw，不能覆盖 FullBody 的 Y、pitch、roll。
 - 求解顺序固定为 FullBody（raw 49 Muscle + 完整 Root T/Q）→ Root2D（仅 X/Z、yaw）→ Foot IK → Hand IK。Root2D 生效时，已启用的四肢世界目标保持不动，再反解为新的 body-relative T/Q。
-- 导出边界再投影成既有 `fullbody`、`root2d` 与手脚协议记录；EndEffector 单独发送 `target_positions`，但复用同一帧最终 FK/root；QuickServer 协议本身不变。
+- 导出边界再投影成既有 `fullbody`、`root2d` 与手脚协议记录；若同帧存在 Root2D 与 FullBody 或 EndEffector，则发送前把 Root2D 的 X/Z 与 heading 合并到该根上下文，保留 Y、pitch、roll，并删除该 Root2D 行。旋转顺序固定为先移除 Root6D yaw，再左乘 Root2D yaw。EndEffector 的 `target_positions` 保持世界目标不变；QuickServer 协议本身不变。
 - `humanScale` 是 HumanPose 归一化坐标与协议米单位之间的内部投影元数据，不是可创作通道。
 
 ## 维护要求

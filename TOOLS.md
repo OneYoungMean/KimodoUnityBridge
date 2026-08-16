@@ -67,7 +67,7 @@ Kimodo does not discover arbitrary scene objects, choose BlendTree branches, per
 - Session time is fixed at 60 FPS. Public ranges use `[start_frame,end_frame)`; generation constraint frames are relative to the generated clip.
 - Treat every returned character/animation safe name, pose locator, `analysis_id`, and `request_id` as an opaque handle. Never reconstruct one from a display name.
 - Generation is asynchronous. Poll `kimodo_get_generation` until `status` is `completed`, `failed`, or `canceled`; acceptance or `running` is not completion.
-- `kimodo_generate_animation` accepts `loop:true`. Unity first performs one normal-length generation, copies its first-frame FullBody pose to the final target frame while preserving the first pass tail Root2D yaw, then performs the bounded extended generation and keeps the middle requested duration. It reports fallback when the extended duration would exceed 600 Session frames. The KimodoPlayableClip Inspector exposes the same behavior as `Generate Loop`.
+- `kimodo_generate_animation` accepts `loop:true`. Unity first performs one normal-length generation, then uses two virtual Root2D anchors plus a final FullBody built from the first-frame raw pose and the first pass tail Root2D XZ/yaw. It performs the bounded extended generation and keeps the middle requested duration. It reports fallback when the extended duration would exceed 600 Session frames. The KimodoPlayableClip Inspector exposes the same behavior as `Generate Loop`.
 - While generation is running, commands that sample or remove an overlapping range on the same character track fail immediately with `code: generation_range_locked`. Non-overlapping tracks/ranges continue normally; wait for the returned `request_id` to finish or cancel it before retrying.
 - Asset generation and server maintenance run in Unity Edit Mode and must wait while Unity is compiling or importing.
 - A current Session is the preferred workspace. `kimodo_generate_animation` can create and retain an automatic Session when none is open.
@@ -113,7 +113,7 @@ The two core types are:
 - `root2d`: constrains only the root bone position and heading on the ground plane. It does not constrain the rest of the body. It may use a pose locator or direct `position` and `heading`.
 - `left_hand`, `right_hand`, `left_foot`, `right_foot`: read the matching complete HandTQ or FootTQ from a pose locator. Direct end-effector position/rotation targets are not part of the CLI schema yet.
 
-Timeline authoring uses one unified Constraint Marker with `CharacterPose`, type, time, root-heading switch, and a visible channel mask. The solver order is Muscle → Foot IK → Hand IK → Root2D final transform. Export projects that final pose into the unchanged `fullbody`, `root2d`, and hand/foot protocol DTOs; an end-effector has its own `target_positions` but shares that final FK/root frame. The old `{ "frame": ..., "type": ..., ... }` union is accepted for compatibility and normalized internally; new callers should use the sparse form.
+Timeline authoring uses one unified Constraint Marker with `CharacterPose`, type, time, root-heading switch, and a visible channel mask. The solver order is Muscle → Foot IK → Hand IK → Root2D final transform. Export projects that final pose into `fullbody`, `root2d`, and hand/foot protocol DTOs; before every Generate request, any same-frame Root2D is folded into FullBody and EndEffector root context (Root2D X/Z + yaw, existing Y + pitch/roll) and then removed. EndEffector `target_positions` remain world-space targets. The old `{ "frame": ..., "type": ..., ... }` union is accepted for compatibility and normalized internally; new callers should use the sparse form.
 
 Minimal pose-edit flow:
 
@@ -206,7 +206,7 @@ Kimodo 不负责发现任意场景对象、选择 BlendTree 分支、一般 Time
 - Session 时间固定为 60 FPS。公开区间使用 `[start_frame,end_frame)`；生成约束帧是生成 Clip 内的相对帧。
 - 将所有返回的角色/动画安全名称、Pose locator、`analysis_id` 和 `request_id` 视为不透明句柄；禁止根据显示名称自行重建。
 - 生成是异步任务。反复调用 `kimodo_get_generation`，直到 `status` 为 `completed`、`failed` 或 `canceled`；accepted 或 `running` 不代表完成。
-- `kimodo_generate_animation` 支持 `loop:true`。Unity 先进行一次目标时长的普通生成，将其首帧 FullBody 复制到目标尾帧，并用第一轮尾帧的 Root2D yaw 覆盖朝向；随后进行带前后缓冲的扩展生成，只保留中间请求时长。扩展后超过 600 个 Session 帧时报告回退。KimodoPlayableClip Inspector 的 `Generate Loop` 使用相同逻辑。
+- `kimodo_generate_animation` 支持 `loop:true`。Unity 先进行一次目标时长的普通生成；第二轮使用两个虚拟 Root2D 锚点，并将首帧原始 FullBody 与第一轮尾帧的 Root2D XZ/yaw 融合为可见尾帧 FullBody；随后进行带前后缓冲的扩展生成，只保留中间请求时长。扩展后超过 600 个 Session 帧时报告回退。KimodoPlayableClip Inspector 的 `Generate Loop` 使用相同逻辑。
 - 生成运行期间，若命令要采样或删除同一角色 Track 上与生成区间重叠的范围，会立即返回 `code: generation_range_locked`。不重叠的 Track/区间仍可正常执行；应等待返回的 `request_id` 结束，或取消后重试。
 - 动画资产生成与服务器维护只在 Unity Edit Mode 执行；Unity 编译或导入期间必须等待。
 - 优先在当前 Session 中工作。没有 Session 时，`kimodo_generate_animation` 可以创建并保留自动 Session。
@@ -252,7 +252,7 @@ Pose locator 是 `{"source":"<source>","frame":<整数>}`。角色来源表示 T
 - `root2d`：只约束根骨骼在地面平面上的位置与朝向，不约束其他身体关节。可以使用 Pose locator，也可以直接提供 `position` 和 `heading`。
 - `left_hand`、`right_hand`、`left_foot`、`right_foot`：从 Pose locator 读取对应的完整 HandTQ 或 FootTQ。CLI schema 暂不支持直接的手脚 position/rotation 目标。
 
-Timeline 内部使用一种统一 Constraint Marker，包含 `CharacterPose`、类型、时间、Root heading 开关和可见通道 mask。求解顺序为 Muscle → Foot IK → Hand IK → Root2D 最终变换；导出边界再投影为协议不变的 `fullbody`、`root2d` 与手脚 DTO。EndEffector 独立携带 `target_positions`，但复用该最终 FK/root 帧。旧的 `{ "frame": ..., "type": ..., ... }` union 为兼容仍可传入，内部会先规范化；新调用方应使用稀疏格式。
+Timeline 内部使用一种统一 Constraint Marker，包含 `CharacterPose`、类型、时间、Root heading 开关和可见通道 mask。求解顺序为 Muscle → Foot IK → Hand IK → Root2D 最终变换；导出边界再投影为 `fullbody`、`root2d` 与手脚 DTO。每次 Generate 发送前都会把同帧 Root2D 并入 FullBody 与 Hand/Foot EndEffector 的根上下文（Root2D 的 X/Z、yaw；原约束的 Y、pitch、roll）并删除该 Root2D 行。EndEffector 的 `target_positions` 仍是世界目标，不会被改写。旧的 `{ "frame": ..., "type": ..., ... }` union 为兼容仍可传入，内部会先规范化；新调用方应使用稀疏格式。
 
 最小 Pose 编辑流程：
 

@@ -768,6 +768,7 @@ namespace KimodoBridge.Editor
                     effectiveSeedOverride: effectiveSeed,
                     timelineClipOverride: timelineClipOverride,
                     enableClipConstraintOverride: false,
+                    enableAutoBeginAnchor: false,
                     generateLoopOverride: true);
                 string loopConstraintJson = BuildLoopConstraintJson(
                     firstRequest,
@@ -868,7 +869,7 @@ namespace KimodoBridge.Editor
             Vector3 tailPosition = tailFrame.characterPose.root.t;
             float tailRotationY = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(
                 tailFrame.characterPose.root.q).eulerAngles.y;
-            Debug.Log(
+            KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][GenerateLoop] raw pass-1 root: " +
                 $"firstPosXZ=({firstPosition.x:F4}, {firstPosition.z:F4}), " +
                 $"tailPosXZ=({tailPosition.x:F4}, {tailPosition.z:F4}), " +

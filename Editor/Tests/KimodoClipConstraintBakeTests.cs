@@ -119,15 +119,12 @@ namespace KimodoBridge.Editor.Tests
                 KimodoClipConstraintBakeUtility.BuildLoopTerminalConstraintSample(first, tail, 3.0);
 
             Assert.That(result.sampleTime, Is.EqualTo(3.0));
-            Assert.That(result.characterPose.root.t, Is.EqualTo(first.characterPose.root.t));
+            Assert.That(result.constraintType, Is.EqualTo("fullbody"));
+            Assert.That(result.characterPose.root.t, Is.EqualTo(new Vector3(9f, 2f, 8f)));
             Assert.That(
-                Quaternion.Angle(result.characterPose.root.q, first.characterPose.root.q),
+                Quaternion.Angle(result.characterPose.root.q, Quaternion.Euler(0f, 75f, 0f)),
                 Is.LessThan(0.001f));
-            Assert.That(result.hasRoot2DOverride, Is.True);
-            Assert.That(result.root2DOverride.t, Is.EqualTo(tail.characterPose.root.t));
-            Assert.That(
-                Quaternion.Angle(result.root2DOverride.q, Quaternion.Euler(0f, 75f, 0f)),
-                Is.LessThan(0.001f));
+            Assert.That(result.hasRoot2DOverride, Is.False);
         }
 
         [Test]
@@ -168,31 +165,43 @@ namespace KimodoBridge.Editor.Tests
                     frameRate: 30f);
 
             float ratio = 34f / 67f;
-            Assert.That(samples, Has.Count.EqualTo(3));
+            Assert.That(samples, Has.Count.EqualTo(4));
             Assert.That(samples[0].sampleTime, Is.Zero);
-            Assert.That(samples[1].sampleTime, Is.EqualTo(101.0 / 30.0).Within(1e-8));
-            Assert.That(samples[2].sampleTime, Is.EqualTo(135.0 / 30.0).Within(1e-8));
+            Assert.That(samples[1].sampleTime, Is.EqualTo(34.0 / 30.0).Within(1e-8));
+            Assert.That(samples[2].sampleTime, Is.EqualTo(101.0 / 30.0).Within(1e-8));
+            Assert.That(samples[3].sampleTime, Is.EqualTo(135.0 / 30.0).Within(1e-8));
             Assert.That(
                 Vector3.Distance(
                     samples[0].root2DOverride.t,
                     new Vector3(1f - 4f * ratio, 2f, 3f - 8f * ratio)),
                 Is.LessThan(1e-5f));
-            Assert.That(samples[1].root2DOverride.t, Is.EqualTo(tail.characterPose.root.t));
+            Assert.That(samples[1].constraintType, Is.EqualTo("fullbody"));
+            Assert.That(samples[1].hasRoot2DOverride, Is.False);
+            Assert.That(samples[1].characterPose.root.t, Is.EqualTo(first.characterPose.root.t));
+            Assert.That(
+                Quaternion.Angle(samples[1].characterPose.root.q, first.characterPose.root.q),
+                Is.LessThan(0.001f));
+            Assert.That(samples[2].constraintType, Is.EqualTo("fullbody"));
+            Assert.That(samples[2].hasRoot2DOverride, Is.False);
+            Assert.That(samples[2].characterPose.root.t, Is.EqualTo(new Vector3(5f, 2f, 11f)));
+            Assert.That(
+                Quaternion.Angle(samples[2].characterPose.root.q, Quaternion.Euler(0f, 50f, 0f)),
+                Is.LessThan(0.001f));
             Assert.That(
                 Vector3.Distance(
-                    samples[2].root2DOverride.t,
+                    samples[3].root2DOverride.t,
                     new Vector3(5f + 4f * ratio, 4f, 11f + 8f * ratio)),
                 Is.LessThan(1e-5f));
             Assert.That(
                 Quaternion.Angle(samples[0].root2DOverride.q, Quaternion.Euler(0f, 10f - 40f * ratio, 0f)),
                 Is.LessThan(0.001f));
             Assert.That(
-                Quaternion.Angle(samples[2].root2DOverride.q, Quaternion.Euler(0f, 50f + 40f * ratio, 0f)),
+                Quaternion.Angle(samples[3].root2DOverride.q, Quaternion.Euler(0f, 50f + 40f * ratio, 0f)),
                 Is.LessThan(0.001f));
         }
 
         [Test]
-        public void LoopConstraintJsonContainsOneThreeFrameRoot2DRecord()
+        public void LoopConstraintJsonContainsSparseRootAndVisibleFullBodyBoundaries()
         {
             string modelName = KimodoMotionModelProfiles.DefaultModelName;
             int jointCount = KimodoRigProfileDatabase.GetJointNamesForModel(modelName).Length;
@@ -201,6 +210,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 localAxisAngles.Add(Vector3.zero);
             }
+            localAxisAngles[1] = new Vector3(0.1f, 0.2f, 0.3f);
 
             var first = new KimodoMarkerSampleResult
             {
@@ -251,11 +261,32 @@ namespace KimodoBridge.Editor.Tests
 
             Assert.That(root2D, Is.Not.Null);
             Assert.That(fullBody, Is.Not.Null);
-            Assert.That(root2D["frame_indices"].Values<int>(), Is.EqualTo(new[] { 0, 101, 135 }));
-            Assert.That(root2D["smooth_root_2d"], Has.Count.EqualTo(3));
-            Assert.That(root2D["global_root_heading"], Has.Count.EqualTo(3));
+            Assert.That(root2D["frame_indices"].Values<int>(), Is.EqualTo(new[] { 0, 135 }));
+            Assert.That(root2D["smooth_root_2d"], Has.Count.EqualTo(2));
+            Assert.That(root2D["global_root_heading"], Has.Count.EqualTo(2));
             Assert.That(root2D["dense_path"], Is.Null);
-            Assert.That(fullBody["frame_indices"].Values<int>(), Is.EqualTo(new[] { 101 }));
+            Assert.That(fullBody["frame_indices"].Values<int>(), Is.EqualTo(new[] { 34, 101 }));
+            Assert.That(fullBody["root_positions"][0][0].Value<float>(), Is.EqualTo(-0.25f).Within(1e-5f));
+            Assert.That(fullBody["root_positions"][0][1].Value<float>(), Is.EqualTo(0.9f).Within(1e-5f));
+            Assert.That(fullBody["root_positions"][0][2].Value<float>(), Is.EqualTo(-0.5f).Within(1e-5f));
+            Assert.That(fullBody["root_positions"][1][0].Value<float>(), Is.EqualTo(-0.5f).Within(1e-5f));
+            Assert.That(fullBody["root_positions"][1][1].Value<float>(), Is.EqualTo(0.9f).Within(1e-5f));
+            Assert.That(fullBody["root_positions"][1][2].Value<float>(), Is.EqualTo(1.7f).Within(1e-5f));
+            Quaternion tailRoot = Quaternion.Euler(0f, 20f, 0f);
+            Vector3 expectedRootAxisAngle = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(
+                new Quaternion(tailRoot.x, -tailRoot.y, -tailRoot.z, tailRoot.w));
+            Assert.That(fullBody["local_joints_rot"][1][0][0].Value<float>(), Is.EqualTo(expectedRootAxisAngle.x).Within(1e-5f));
+            Assert.That(fullBody["local_joints_rot"][1][0][1].Value<float>(), Is.EqualTo(expectedRootAxisAngle.y).Within(1e-5f));
+            Assert.That(fullBody["local_joints_rot"][1][0][2].Value<float>(), Is.EqualTo(expectedRootAxisAngle.z).Within(1e-5f));
+            for (int joint = 1; joint < jointCount; joint++)
+            {
+                Assert.That(
+                    JToken.DeepEquals(
+                        fullBody["local_joints_rot"][0][joint],
+                        fullBody["local_joints_rot"][1][joint]),
+                    Is.True,
+                    $"Joint {joint} changed between loop boundaries.");
+            }
         }
 
         [Test]
@@ -308,9 +339,11 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(tail.characterPose.root.t, Is.EqualTo(roots[1]));
             KimodoMarkerSampleResult terminal =
                 KimodoClipConstraintBakeUtility.BuildLoopTerminalConstraintSample(first, tail, 3.0);
-            Assert.That(terminal.root2DOverride.t, Is.EqualTo(roots[1]));
+            Assert.That(terminal.constraintType, Is.EqualTo("fullbody"));
+            Assert.That(terminal.hasRoot2DOverride, Is.False);
+            Assert.That(terminal.characterPose.root.t, Is.EqualTo(new Vector3(roots[1].x, roots[0].y, roots[1].z)));
             Assert.That(
-                Quaternion.Angle(terminal.root2DOverride.q, Quaternion.Euler(0f, 75f, 0f)),
+                Quaternion.Angle(terminal.characterPose.root.q, Quaternion.Euler(0f, 75f, 0f)),
                 Is.LessThan(0.001f));
         }
 
