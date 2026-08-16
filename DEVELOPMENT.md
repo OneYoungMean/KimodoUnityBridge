@@ -2,7 +2,7 @@
 
 当前版本：Unity package `0.1.0`，QuickServer `2.2.6`。
 
-`Editor/Core/Manager/command_dispatcher.cs` 是唯一公开 command 入口；`GetCommandDefinitionsJson()` 和 `kimodo_help` 是参数真相。
+`Command/command_dispatcher.cs` 是唯一公开 command 入口；`GetCommandDefinitionsJson()` 和 `kimodo_help` 是参数真相。
 
 ## vNext command surface
 
@@ -25,7 +25,7 @@
 | Schema、模型与约束发现 | `kimodo_help` | 完整 | 命令参数以实时 schema 为准。 |
 | 项目级 QuickServer 修复 | `kimodo_install_server` | 调试 | 仅用于用户明确要求或启动/安装诊断。 |
 | 稳定 Session 生命周期 | `session_get_or_create`、`session_add`、`session_close` | 完整 | 名称大小写不敏感；新 Session 为空；切换或关闭会取消本 Session 的生成任务。 |
-| Session JSON | 所有 Session 变更命令 | 完整 | `Assets/KimodoGeneratedClips/Sessions/<safe name>/session.json` 原子更新，记录轨道、动画、约束、Pose、analysis 与 generation history。 |
+| Session JSON | 所有 Session 变更命令 | 完整 | `Assets/KimodoGeneratedClips/Sessions/<safe name>/session.json` 原子更新；只存稀疏索引，详细 analysis/KMB 按路径读取。每个已完成并写入 Session 的 Clip 不可变，后续结果只能追加新 Clip。 |
 | 单段生成与任务查询 | `kimodo_generate_animation`、`kimodo_get_generation`、`kimodo_cancel_generation` | 完整 | 生成异步，使用 `request_id` 轮询。 |
 | 动画分析 | `animation_analyze` | 完整 | 底层同步调用 `KimodoPlayableClipGenerationExecutionService.Analysis(...)`；返回按 saliency 降序的代表性关键帧、按持续帧数升序的左右脚接触切换帧，以及含四通道稠密 foot contacts 的 KMB `motion_path`。不返回质量、loop seam 或 trajectory 指标。 |
 | 动画比较 | `animation_compare` | 部分 | 目前比较根、姿势和末端差异；详细接触与轨迹指标待后端实现。 |

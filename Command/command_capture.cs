@@ -308,7 +308,9 @@ namespace CharacterAnimationCli.Unity.Command
             double end,
             JArray poses,
             JObject analysis,
-            byte[] motionBytes)
+            byte[] motionBytes,
+            TimelineAnimationRecord animation = null,
+            string inputSignature = null)
         {
             if (motionBytes == null || motionBytes.Length == 0)
             {
@@ -331,7 +333,10 @@ namespace CharacterAnimationCli.Unity.Command
                 CreatedAtUtc = DateTime.UtcNow,
                 Poses = poses != null ? (JArray)poses.DeepClone() : new JArray(),
                 Analysis = analysis != null ? (JObject)analysis.DeepClone() : new JObject(),
-                MotionPath = ToProjectRelativePath(motionPath)
+                MotionPath = ToProjectRelativePath(motionPath),
+                AnimationId = animation?.Id.ToString("D") ?? string.Empty,
+                AnimationName = animation?.Name ?? string.Empty,
+                InputSignature = inputSignature ?? string.Empty
             };
             AnalysisCache[id] = record;
             WriteJsonAtomically(AnalysisCachePath(session, id), record.ToJson());
@@ -835,6 +840,156 @@ namespace CharacterAnimationCli.Unity.Command
             return cached;
         }
 
+        private static bool TryFindCachedAnimationAnalysis(
+            TimelineSessionRecord session,
+            TimelineCharacterRecord character,
+            TimelineAnimationRecord animation,
+            string inputSignature,
+            out AnalysisCacheRecord cached)
+        {
+            cached = null;
+            if (session == null || character == null || animation == null || string.IsNullOrWhiteSpace(inputSignature))
+            {
+                return false;
+            }
+
+            string animationId = animation.Id.ToString("D");
+            IEnumerable<AnalysisCacheRecord> records = AnalysisCache.Values
+                .Concat(EnumerateAnalysisCacheRecords(session))
+                .GroupBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First());
+            cached = records
+                .Where(record => record != null &&
+                    string.Equals(record.SessionId, session.Id.ToString("D"), StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(record.CharacterRef, character.CharacterRef, StringComparison.Ordinal) &&
+                    string.Equals(record.AnimationId, animationId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(record.InputSignature, inputSignature, StringComparison.Ordinal) &&
+                    !string.IsNullOrWhiteSpace(record.MotionPath) &&
+                    File.Exists(ProjectRelativePathToAbsolute(record.MotionPath)))
+                .OrderByDescending(record => record.CreatedAtUtc)
+                .FirstOrDefault();
+            if (cached == null)
+            {
+                return false;
+            }
+
+            AnalysisCache[cached.Id] = cached;
+            return true;
+        }
+
+        private static IEnumerable<AnalysisCacheRecord> EnumerateAnalysisCacheRecords(TimelineSessionRecord session)
+        {
+            string folder = Path.Combine(GetSessionGeneratedFolder(session), "Analyses");
+            if (!Directory.Exists(folder))
+            {
+                yield break;
+            }
+            foreach (string path in Directory.GetFiles(folder, "analysis_*.json"))
+            {
+                AnalysisCacheRecord record = null;
+                try
+                {
+                    record = AnalysisCacheRecord.FromJson(JObject.Parse(File.ReadAllText(path)));
+                }
+                catch
+                {
+                    // A malformed cache entry is not a valid analysis result and must never be reused.
+                }
+                if (record != null)
+                {
+                    yield return record;
+                }
+            }
+        }
+
+        private static string BuildAnimationAnalysisSignature(
+            TimelineCharacterRecord character,
+            TimelineAnimationRecord animation,
+            JObject effectiveOptions)
+        {
+            var signature = new JObject
+            {
+                ["contract"] = "animation_analysis_v1",
+                ["character_ref"] = character?.CharacterRef ?? string.Empty,
+                ["animation_id"] = animation?.Id.ToString("D") ?? string.Empty,
+                ["start_frame"] = animation?.StartFrame ?? 0,
+                ["end_frame_exclusive"] = animation?.EndFrameExclusive ?? 0,
+                ["options"] = CanonicalizeJson(effectiveOptions ?? new JObject())
+            };
+            return signature.ToString(Formatting.None);
+        }
+
+        private static JToken CanonicalizeJson(JToken value)
+        {
+            if (value is JObject source)
+            {
+                var result = new JObject();
+                foreach (JProperty property in source.Properties().OrderBy(property => property.Name, StringComparer.Ordinal))
+                {
+                    result[property.Name] = CanonicalizeJson(property.Value);
+                }
+                return result;
+            }
+            if (value is JArray array)
+            {
+                return new JArray(array.Select(CanonicalizeJson));
+            }
+            return value?.DeepClone() ?? JValue.CreateNull();
+        }
+
+        private static JObject BuildAnimationAnalysisResponse(
+            TimelineSessionRecord session,
+            AnalysisCacheRecord record,
+            TimelineCharacterRecord character,
+            TimelineAnimationRecord animation,
+            bool cached,
+            int? startFrame = null,
+            int? endFrame = null)
+        {
+            if (record == null)
+            {
+                throw new InvalidOperationException("Analysis cache record is required.");
+            }
+            if (session == null)
+            {
+                throw new InvalidOperationException("Analysis Session is required.");
+            }
+            var response = new JObject
+            {
+                ["analysis_id"] = record.Id,
+                ["analysis_path"] = ToProjectRelativePath(AnalysisCachePath(session, record.Id)),
+                ["motion_path"] = record.MotionPath ?? string.Empty,
+                ["character"] = character?.Name ?? record.CharacterName ?? string.Empty,
+                ["pose_refs"] = record.Poses?.DeepClone() ?? new JArray(),
+                ["keyframes"] = record.Analysis?["keyframes"]?.DeepClone() ?? new JArray(),
+                ["foot_contact_changes"] = record.Analysis?["foot_contact_changes"]?.DeepClone() ?? new JArray(),
+                ["cached"] = cached
+            };
+            if (animation != null)
+            {
+                response["animation"] = animation.Name;
+            }
+            else
+            {
+                response["start_frame"] = startFrame ?? 0;
+                response["end_frame"] = endFrame ?? 0;
+            }
+            return response;
+        }
+
+        private static string ProjectRelativePathToAbsolute(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+            if (Path.IsPathRooted(path))
+            {
+                return Path.GetFullPath(path);
+            }
+            return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), path.Replace('/', Path.DirectorySeparatorChar)));
+        }
+
         private sealed class CaptureRequest
         {
             public CaptureRequest(
@@ -874,6 +1029,9 @@ namespace CharacterAnimationCli.Unity.Command
             public JObject Analysis;
             public JArray Poses;
             public string MotionPath;
+            public string AnimationId;
+            public string AnimationName;
+            public string InputSignature;
 
             public JObject ToJson() => new JObject
             {
@@ -882,6 +1040,9 @@ namespace CharacterAnimationCli.Unity.Command
                 ["character_ref"] = CharacterRef, ["character"] = CharacterName,
                 ["start"] = Start, ["end"] = End, ["created_at_utc"] = CreatedAtUtc,
                 ["motion_path"] = MotionPath ?? string.Empty,
+                ["animation_id"] = AnimationId ?? string.Empty,
+                ["animation_name"] = AnimationName ?? string.Empty,
+                ["input_signature"] = InputSignature ?? string.Empty,
                 ["poses"] = Poses?.DeepClone() ?? new JArray(),
                 ["analysis"] = Analysis?.DeepClone() ?? new JObject()
             };
@@ -894,6 +1055,9 @@ namespace CharacterAnimationCli.Unity.Command
                 CharacterName = json.Value<string>("character"), Start = json.Value<double>("start"),
                 End = json.Value<double>("end"), CreatedAtUtc = json.Value<DateTime>("created_at_utc"),
                 MotionPath = json.Value<string>("motion_path"),
+                AnimationId = json.Value<string>("animation_id"),
+                AnimationName = json.Value<string>("animation_name"),
+                InputSignature = json.Value<string>("input_signature"),
                 Poses = json["poses"] as JArray ?? json["analysis"]?["poses"] as JArray ?? new JArray(),
                 Analysis = json["analysis"] as JObject ?? new JObject()
             };

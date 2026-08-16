@@ -20,11 +20,11 @@ Expose exactly the live `schema.tools` entries as tools. Results always use the 
 1. `kimodo_help({})`, then `session_get_or_create({"name":"<stable name>"})`.
 2. `session_add({"kind":"character","character":"<scene name or hierarchy path>"})`; save the returned safe character name.
 3. Generate with `kimodo_generate_animation`; save `request_id`; poll `kimodo_get_generation` to a terminal status.
-4. Call `animation_analyze` for the completed animation; save `analysis_id`, then read `analysis_path` and its dense-KMB `motion_path`.
+4. Call `animation_analyze` for the completed animation. A matching immutable Clip and effective analysis options return the existing result; save `analysis_id` and read its `analysis_path` only when that sparse detail is needed. Its `motion_path` remains the dense-KMB attachment.
 5. Call all three picture commands with that `analysis_id`: motion overlay, key poses, and 3D trajectory.
 6. Compare the visual evidence with the prompt. Revise sparse constraints, endpoint poses, or the prompt and iterate.
 
-Read the returned `session_json_path` whenever the complete Session state is required. A new Session is empty. `session_add` explicitly adds the scene humanoid, clip, or Animator content.
+Read the returned `session_json_path` as a compact Session index, then read a referenced analysis path only when necessary. Every completed Clip appended to a Session is immutable: never overwrite, retime, or replace it; create a new appended Clip for a generated, recorded, retargeted, or corrected result. A new Session is empty. `session_add` explicitly adds the scene humanoid, clip, or Animator content.
 
 ## Visual acceptance
 

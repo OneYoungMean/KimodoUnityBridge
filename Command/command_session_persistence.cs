@@ -302,8 +302,20 @@ namespace CharacterAnimationCli.Unity.Command
                 try
                 {
                     JObject record = JObject.Parse(File.ReadAllText(path));
-                    record["analysis_path"] = ToProjectRelativePath(path);
-                    records.Add(record);
+                    // session.json is an AI navigation index, never a duplicate store for large analysis payloads.
+                    // Read the returned analysis_path only when the selected result needs its sparse details.
+                    records.Add(new JObject
+                    {
+                        ["analysis_id"] = record.Value<string>("analysis_id") ?? string.Empty,
+                        ["analysis_path"] = ToProjectRelativePath(path),
+                        ["motion_path"] = record.Value<string>("motion_path") ?? string.Empty,
+                        ["character"] = record.Value<string>("character") ?? string.Empty,
+                        ["character_ref"] = record.Value<string>("character_ref") ?? string.Empty,
+                        ["animation_id"] = record.Value<string>("animation_id") ?? string.Empty,
+                        ["animation_name"] = record.Value<string>("animation_name") ?? string.Empty,
+                        ["input_signature"] = record.Value<string>("input_signature") ?? string.Empty,
+                        ["created_at_utc"] = record.Value<string>("created_at_utc") ?? string.Empty
+                    });
                 }
                 catch (Exception exception)
                 {
