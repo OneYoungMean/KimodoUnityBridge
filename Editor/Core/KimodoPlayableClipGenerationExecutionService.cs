@@ -23,11 +23,6 @@ namespace KimodoBridge.Editor
         public string AnalysisOptionsJson;
     }
 
-    internal sealed class KimodoEditorAnalysisResult
-    {
-        public string AnalysisJson;
-    }
-
     internal static class KimodoPlayableClipGenerationExecutionService
     {
         private sealed class ConnectedClipEntry
@@ -85,8 +80,6 @@ namespace KimodoBridge.Editor
 
             return KimodoEditorGenerationJobService.Start(
                 clip,
-                $"clip-selected:{KimodoUnityObjectIdUtility.NameKey(clip)}",
-                KimodoEditorGenerationJobKind.GeneratePlayableClip,
                 async (handle, token) => await GenerateSelectedAndFinalizeAsync(
                     selectedClips,
                     selectedTimelineClips,
@@ -103,10 +96,10 @@ namespace KimodoBridge.Editor
 
         internal static bool Analysis(
             KimodoEditorAnalysisInput input,
-            out KimodoEditorAnalysisResult result,
+            out string analysisJson,
             out string error)
         {
-            result = null;
+            analysisJson = string.Empty;
             error = string.Empty;
             try
             {
@@ -152,7 +145,7 @@ namespace KimodoBridge.Editor
                     throw new InvalidOperationException("Analysis returned no data.");
                 }
 
-                result = new KimodoEditorAnalysisResult { AnalysisJson = response.AnalysisJson };
+                analysisJson = response.AnalysisJson;
                 return true;
             }
             catch (Exception ex)
@@ -203,8 +196,6 @@ namespace KimodoBridge.Editor
 
             return KimodoEditorGenerationJobService.Start(
                 clip,
-                $"clip-connected:{KimodoUnityObjectIdUtility.NameKey(clip)}",
-                KimodoEditorGenerationJobKind.GeneratePlayableClip,
                 async (handle, token) => await GenerateConnectedAsync(
                     entries,
                     profile,
@@ -226,8 +217,6 @@ namespace KimodoBridge.Editor
         {
             return KimodoEditorGenerationJobService.Start(
                 clip,
-                $"clip:{KimodoUnityObjectIdUtility.NameKey(clip)}",
-                KimodoEditorGenerationJobKind.GeneratePlayableClip,
                 async (handle, token) => await GenerateAndFinalizeAsync(
                     clip,
                     externalConstraint: null,

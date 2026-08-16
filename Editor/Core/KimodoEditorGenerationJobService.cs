@@ -9,13 +9,6 @@ using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
-    internal enum KimodoEditorGenerationJobKind
-    {
-        Unknown = 0,
-        GeneratePlayableClip = 1,
-        GenerateAnimationAsset = 4
-    }
-
     internal enum KimodoEditorGenerationJobStatus
     {
         None = 0,
@@ -28,8 +21,6 @@ namespace KimodoBridge.Editor
     internal sealed class KimodoEditorGenerationJobSession
     {
         public Guid RequestId;
-        public string TargetKey = string.Empty;
-        public KimodoEditorGenerationJobKind Kind;
         public KimodoBridgeCommandStage Stage;
         public string Message = string.Empty;
         public string Error = string.Empty;
@@ -38,9 +29,6 @@ namespace KimodoBridge.Editor
         public DateTime StartedAtUtc;
 
         public bool IsRunning => Status == KimodoEditorGenerationJobStatus.Running;
-        public bool IsCompleted => Status == KimodoEditorGenerationJobStatus.Completed;
-        public bool IsFailed => Status == KimodoEditorGenerationJobStatus.Failed;
-        public bool IsCanceled => Status == KimodoEditorGenerationJobStatus.Canceled;
     }
 
     [InitializeOnLoad]
@@ -59,8 +47,6 @@ namespace KimodoBridge.Editor
 
         internal static bool Start(
             UnityEngine.Object target,
-            string targetKey,
-            KimodoEditorGenerationJobKind kind,
             Func<KimodoEditorGenerationJobSession, CancellationToken, Task<KimodoEditorGenerationResult>> executeAsync,
             Action<KimodoEditorGenerationJobSession> statusChanged,
             out KimodoEditorGenerationJobSession session,
@@ -79,7 +65,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            var state = new RunningSessionState(target, targetKey, kind, statusChanged);
+            var state = new RunningSessionState(target, statusChanged);
             if (!SessionsByRequest.TryAdd(state.Session.RequestId, state))
             {
                 state.Dispose();
@@ -281,8 +267,6 @@ namespace KimodoBridge.Editor
 
             public RunningSessionState(
                 UnityEngine.Object target,
-                string targetKey,
-                KimodoEditorGenerationJobKind kind,
                 Action<KimodoEditorGenerationJobSession> statusChanged)
             {
                 Target = target;
@@ -291,8 +275,6 @@ namespace KimodoBridge.Editor
                 Session = new KimodoEditorGenerationJobSession
                 {
                     RequestId = Guid.NewGuid(),
-                    TargetKey = string.IsNullOrWhiteSpace(targetKey) ? "global" : targetKey,
-                    Kind = kind,
                     Stage = KimodoBridgeCommandStage.None,
                     Message = "Queued.",
                     Error = string.Empty,

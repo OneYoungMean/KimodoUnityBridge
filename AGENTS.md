@@ -27,5 +27,5 @@
 
 - `NvlabKimodoQuickServer~/core` owns TCP routing, sessions, setup, protocol serialization, model provisioning, and ARDY integration. `NvlabKimodoQuickServer~/kimodo` owns Kimodo model and motion code.
 - The bundled LLM2Vec copies target the repository-pinned Transformers behavior. Preserve their compatibility code and attribution.
-- Editor generation routes through `command_generation_runner` and `KimodoEditorGeneratePipeline`; runtime playback remains separate from Editor asset bake/writeback.
+- Editor generation is scheduled by `KimodoEditorGenerationJobService` and executed by `KimodoEditorGeneratePipeline`; runtime playback remains separate from Editor asset bake/writeback.
 - Run the smallest relevant backend tests after server changes. Validate Unity-facing changes in an appropriate Unity project and report static/build evidence separately from live Editor or visual evidence.

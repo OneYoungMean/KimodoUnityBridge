@@ -983,11 +983,11 @@ namespace CharacterAnimationCli.Unity.Command
                 ModelsRoot = settings.LocalModelsPath?.Trim() ?? string.Empty,
                 AnalysisOptionsJson = options.ToString(Formatting.None)
             };
-            if (!KimodoPlayableClipGenerationExecutionService.Analysis(input, out KimodoEditorAnalysisResult result, out string error))
+            if (!KimodoPlayableClipGenerationExecutionService.Analysis(input, out string analysisJson, out string error))
             {
                 throw new InvalidOperationException(error);
             }
-            JObject analysis = ParseAnalysisObject(result.AnalysisJson);
+            JObject analysis = ParseAnalysisObject(analysisJson);
             analysis["source"] = "quickserver_analysis_only";
             return analysis;
         }

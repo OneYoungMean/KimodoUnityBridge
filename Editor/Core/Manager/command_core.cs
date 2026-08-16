@@ -634,8 +634,6 @@ namespace CharacterAnimationCli.Unity.Command
 
                 bool started = KimodoEditorGenerationJobService.Start(
                     character.Target,
-                    $"command-asset:{KimodoUnityObjectIdUtility.NameKey(character.Target)}",
-                    KimodoEditorGenerationJobKind.GenerateAnimationAsset,
                     async (generationSession, token) =>
                     {
                         try
