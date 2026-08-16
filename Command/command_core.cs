@@ -31,9 +31,6 @@ namespace CharacterAnimationCli.Unity.Command
         public const string AnimationCompareCommand = "animation_compare";
         public const string RecordRangeCommand = "kimodo_record_range";
         public const string RetargetAnimationCommand = "kimodo_retarget_animation";
-        public const string PictureMotionOverlayCommand = "picture_motion_overlay";
-        public const string PictureKeyPosesCommand = "picture_key_poses";
-        public const string PictureTrajectory3DCommand = "picture_trajectory_3d";
         public const string PoseGetCommand = "pose_get";
         public const string PoseContractCommand = "pose_contract";
         public const string PoseSetRootTransformCommand = "pose_set_root_transform";
@@ -77,15 +74,11 @@ namespace CharacterAnimationCli.Unity.Command
                              Optional("animator", "string", "Scene Animator name/path for kind=animator."),
                              Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),
                     CommandDefinition(AnimationAnalyzeCommand,
-                        "Analyze one Session animation synchronously. Keyframes are returned by descending saliency, contact changes by ascending duration; motion_path points to dense KMB foot contacts.",
+                        "Analyze one or two immutable Session clips and render their visual evidence synchronously. Each clip explicitly names its Session character. Returns sparse keyframes, foot contacts, and self-describing picture tiles; completed Clips are never modified.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Required("character", "string", "Safe character name in the selected Session."),
-                            Optional("animation", "string", "Safe animation name; mutually exclusive with start_frame/end_frame."),
-                            Optional("start_frame", "integer", "Inclusive Session frame at 60 FPS; requires end_frame."),
-                            Optional("end_frame", "integer", "Exclusive Session frame at 60 FPS; requires start_frame."),
-                            Optional("keyframe_count", "integer", "Requested keyframe count when supported by the server."),
-                            Optional("analysis_option", "object", "Optional QuickServer analysis configuration; analysis_only is forced true."))),
+                            Required("clips", "array", "One or two {character,clip,role?} objects. role defaults to source then target."),
+                            Enum("level", "low", "middle", "high"))),
                     CommandDefinition(AnimationCompareCommand,
                         "Compare two animation ranges or transition-like clip ranges without modifying the Session.",
                         Properties(
@@ -130,34 +123,6 @@ namespace CharacterAnimationCli.Unity.Command
                             Optional("name", "string", "Requested safe animation name; defaults to the prompt."),
                             Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
                             OptionalConstraints("constraints", "One sparse constraint object per frame; combine fullbody, root2d, and pose-based hand/foot constraints in the same object."))),
-                    CommandDefinition(PictureMotionOverlayCommand,
-                        "Render four orthographic Root-motion overlay views.",
-                        Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Optional("analysis_id", "string", "Analysis id returned by animation_analyze."),
-                            Optional("animation", "string", "Animation name when analysis_id is omitted."),
-                            OptionalPoseLocators("poses", "Explicit pose locators when analysis_id and animation are omitted."),
-                            Optional("ghost_frames", "integer", "Number of overlay ghosts; defaults to 5."),
-                            Optional("resolution", "integer", "Square output size in pixels; defaults to 512."),
-                            Optional("scale", "number", "Camera framing scale; defaults to 1.0."))),
-                    CommandDefinition(PictureKeyPosesCommand,
-                        "Render three independent key-pose images.",
-                        Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Optional("analysis_id", "string", "Analysis id returned by animation_analyze."),
-                            Optional("animation", "string", "Animation name when analysis_id is omitted."),
-                            OptionalPoseLocators("poses", "Explicit pose locators when analysis_id and animation are omitted."),
-                            OptionalArray("frames", "integer", "Animation-local frames with animation, or selected analysis keyframe numbers with analysis_id."),
-                            Optional("resolution", "integer", "Square output size in pixels; defaults to 512."))),
-                    CommandDefinition(PictureTrajectory3DCommand,
-                        "Render the 3D trajectory image for root, hips, hands, and feet.",
-                        Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Optional("analysis_id", "string", "Analysis id returned by animation_analyze."),
-                            Optional("animation", "string", "Animation name when analysis_id is omitted."),
-                            OptionalPoseLocators("poses", "Explicit pose locators when analysis_id and animation are omitted."),
-                            OptionalArray("bones", "string", "Bones to include; defaults to root, hips, hands, and feet."),
-                            Optional("resolution", "integer", "Square output size in pixels; defaults to 512."))),
                     CommandDefinition(PoseGetCommand,
                         "Read a canonical pose from a source locator, creating or reusing a Pose Cache marker. full_data=true returns all muscles and TQ channels.",
                         Properties(
@@ -223,12 +188,6 @@ namespace CharacterAnimationCli.Unity.Command
                     return RecordRange(argumentsJson);
                 case RetargetAnimationCommand:
                     return RetargetAnimation(argumentsJson);
-                case PictureMotionOverlayCommand:
-                    return PictureMotionOverlay(argumentsJson);
-                case PictureKeyPosesCommand:
-                    return PictureKeyPoses(argumentsJson);
-                case PictureTrajectory3DCommand:
-                    return PictureTrajectory3D(argumentsJson);
                 case PoseGetCommand:
                     return PoseGet(argumentsJson);
                 case PoseContractCommand:

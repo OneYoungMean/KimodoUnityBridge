@@ -5,12 +5,15 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using CharacterAnimationCli.Unity;
 using KimodoBridge;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace CharacterAnimationCli.Unity.Command
 {
@@ -18,121 +21,6 @@ namespace CharacterAnimationCli.Unity.Command
     {
         private static readonly Dictionary<string, AnalysisCacheRecord> AnalysisCache =
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
-
-        public static string PictureMotionOverlay(string argumentsJson) => RenderPicture(argumentsJson, "motion_overlay");
-
-        public static string PictureKeyPoses(string argumentsJson) => RenderPicture(argumentsJson, "key_poses");
-
-        public static string PictureTrajectory3D(string argumentsJson) => RenderPicture(argumentsJson, "trajectory_3d");
-
-        private static string RenderPicture(string argumentsJson, string mode)
-        {
-            return Execute(argumentsJson, arguments =>
-            {
-                TimelineSessionRecord session = RequireTimelineSession(arguments);
-                JObject captureArguments = (JObject)arguments.DeepClone();
-                captureArguments.Remove("session_id");
-                if (mode != "trajectory_3d") captureArguments["bones"] = new JArray();
-                if (mode == "key_poses" && captureArguments["frames"] is JArray requestedFrames)
-                {
-                    if (requestedFrames.Count == 0 || requestedFrames.Any(item => item.Type != JTokenType.Integer))
-                        throw new InvalidOperationException("frames must be a non-empty integer array.");
-                    if (captureArguments["analysis_id"] != null)
-                    {
-                        AnalysisCacheRecord cached = GetCachedAnalysis(session, RequiredStringValue(captureArguments, "analysis_id"));
-                        var selectedPoses = new JArray();
-                        foreach (JToken requestedFrame in requestedFrames)
-                        {
-                            int frame = requestedFrame.Value<int>();
-                            JObject match = (cached.Poses ?? new JArray()).OfType<JObject>().FirstOrDefault(item =>
-                                item["analysis"]?.Value<int?>("frame") == frame);
-                            if (match?["pose"] is not JObject pose)
-                            {
-                                throw new InvalidOperationException($"analysis_id does not contain keyframe {frame}.");
-                            }
-                            selectedPoses.Add(pose.DeepClone());
-                        }
-                        captureArguments["poses"] = selectedPoses;
-                    }
-                    else if (captureArguments["animation"] != null)
-                    {
-                        string name = RequiredStringValue(captureArguments, "animation");
-                        TimelineAnimationRecord animation = session.Characters.SelectMany(character => character.Animations)
-                            .SingleOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))
-                            ?? throw new InvalidOperationException($"Animation '{name}' is not loaded in the selected Session.");
-                        int duration = animation.TimelineClip != null
-                            ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)))
-                            : Math.Max(1, animation.EndFrameExclusive - animation.StartFrame);
-                        if (requestedFrames.Any(item => item.Value<int>() < 0 || item.Value<int>() >= duration))
-                        {
-                            throw new InvalidOperationException($"frames must be within animation '{name}' local range [0,{duration}).");
-                        }
-                        captureArguments["poses"] = new JArray(requestedFrames.Select(frame => PoseLocatorJson(name, frame.Value<int>())));
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException("picture_key_poses frames require analysis_id or animation.");
-                    }
-                    captureArguments.Remove("analysis_id");
-                    captureArguments.Remove("animation");
-                }
-                captureArguments.Remove("frames");
-                if (captureArguments["analysis_id"] == null && captureArguments["animation"] != null)
-                {
-                    string animationName = RequiredStringValue(captureArguments, "animation");
-                    TimelineAnimationRecord animation = session.Characters.SelectMany(item => item.Animations)
-                        .SingleOrDefault(item => string.Equals(item.Name, animationName, StringComparison.OrdinalIgnoreCase));
-                    if (animation == null)
-                    {
-                        throw new InvalidOperationException($"Animation '{animationName}' is not loaded in the current Session.");
-                    }
-                    int duration = animation.TimelineClip != null
-                        ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)))
-                        : Math.Max(1, animation.EndFrameExclusive - animation.StartFrame);
-                    int[] frames = SelectFrames(0, duration, 5);
-                    captureArguments.Remove("animation");
-                    captureArguments["poses"] = new JArray(frames.Select(frame => PoseLocatorJson(animation.Name, frame)));
-                }
-                if (captureArguments["analysis_id"] == null && captureArguments["poses"] == null)
-                {
-                    throw new InvalidOperationException("Provide analysis_id, animation, or poses.");
-                }
-
-                JObject raw = JObject.Parse(RenderEvidence(session, captureArguments));
-                if (raw.Value<bool?>("ok") != true)
-                {
-                    string message = raw["error"]?["message"]?.Value<string>() ?? "Picture rendering failed.";
-                    throw new InvalidOperationException(message);
-                }
-                JArray allImages = raw["images"] as JArray ?? new JArray();
-                IEnumerable<JObject> images = mode switch
-                {
-                    "motion_overlay" => allImages.OfType<JObject>().Where(item =>
-                        (item.Value<string>("kind") ?? string.Empty).StartsWith("motion_overlay_", StringComparison.Ordinal)),
-                    "key_poses" => allImages.OfType<JObject>().Where(item =>
-                        (item.Value<string>("kind") ?? string.Empty).StartsWith("key_pose_", StringComparison.Ordinal)),
-                    "trajectory_3d" => allImages.OfType<JObject>().Where(item =>
-                        string.Equals(item.Value<string>("kind"), "trajectory_3d", StringComparison.Ordinal)),
-                    _ => throw new InvalidOperationException("Unknown picture mode.")
-                };
-                return OkForSession(session, new JObject
-                {
-                    ["images"] = new JArray(images.Select(item => item.DeepClone())),
-                    ["resolution"] = raw["resolution"]?.DeepClone(),
-                    ["format"] = "motion_evidence_vNext"
-                });
-            });
-        }
-
-        private static int[] SelectFrames(int startFrame, int endFrameExclusive, int count)
-        {
-            int start = Math.Max(0, startFrame);
-            int end = Math.Max(start + 1, endFrameExclusive);
-            return Enumerable.Range(0, Math.Max(1, count))
-                .Select(index => Mathf.RoundToInt(Mathf.Lerp(start, end - 1, count <= 1 ? 0f : index / (float)(count - 1))))
-                .Distinct()
-                .ToArray();
-        }
 
         private static string RenderEvidence(TimelineSessionRecord session, JObject arguments)
         {
@@ -279,7 +167,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             if (TryResolveAnimationPoseSource(session, locator, out TimelineCharacterRecord animationCharacter, out int absoluteFrame))
             {
-                ThrowIfGenerationRangeLocked(session, animationCharacter, absoluteFrame, absoluteFrame + 1, PictureMotionOverlayCommand);
+                ThrowIfGenerationRangeLocked(session, animationCharacter, absoluteFrame, absoluteFrame + 1, AnimationAnalyzeCommand);
                 return new CaptureRequest(animationCharacter, absoluteFrame / SessionFrameRate, annotation, null, locator.Frame);
             }
             TimelineCharacterRecord cacheOwner = ResolvePoseCacheOwner(locator.Source);
@@ -299,6 +187,531 @@ namespace CharacterAnimationCli.Unity.Command
                     Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame)
                 ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
             return new CaptureRequest(owner, session.Director.time, annotation, constraint.SampleData.Clone(), locator.Frame);
+        }
+
+        private const string AnalysisPictureRenderVersion = "2";
+
+        private static JObject RenderAnalysisPictures(
+            TimelineSessionRecord session,
+            IReadOnlyList<AnalysisSubject> subjects,
+            string level)
+        {
+            PictureLayout layout = PictureLayout.ForLevel(level);
+            var data = subjects.Select(subject => BuildSubjectPictureData(session, subject)).ToList();
+            TrajectoryScale trajectoryScale = BuildTrajectoryScale(data);
+            var tiles = new List<PictureTile>();
+            foreach (SubjectPictureData subject in data)
+            {
+                tiles.AddRange(BuildPictureTiles(subject, level));
+            }
+
+            string signature = BuildPictureSignature(data, level);
+            string imagePath = Path.Combine(EvidenceFolder(session), $"analysis_picture_{signature}.png");
+            bool cached = File.Exists(imagePath);
+            if (!cached)
+            {
+                Directory.CreateDirectory(EvidenceFolder(session));
+                Texture2D canvas = RenderPictureCanvas(data, tiles, layout, trajectoryScale);
+                try
+                {
+                    File.WriteAllBytes(imagePath, canvas.EncodeToPNG());
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(canvas);
+                }
+            }
+
+            string projectPath = ToProjectRelativePath(imagePath);
+            var descriptions = new JArray();
+            for (int index = 0; index < tiles.Count; index++)
+            {
+                PictureTile tile = tiles[index];
+                int panel = data.FindIndex(item => ReferenceEquals(item, tile.Subject));
+                int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tile.Subject));
+                int x = (localIndex % layout.Columns) * layout.CellSize;
+                int y = (data.Count - panel - 1) * layout.Height +
+                    (layout.Rows - 1 - localIndex / layout.Columns) * layout.CellSize;
+                JObject description = (JObject)tile.Description.DeepClone();
+                description["subject"] = tile.Subject.Subject.Role;
+                descriptions.Add(new JObject
+                {
+                    ["id"] = tile.Subject.Subject.Role + "." + (localIndex + 1).ToString(CultureInfo.InvariantCulture),
+                    ["rect"] = new JObject { ["x"] = x, ["y"] = y, ["width"] = layout.CellSize, ["height"] = layout.CellSize },
+                    ["description"] = description
+                });
+            }
+
+            var result = new JObject
+            {
+                ["level"] = level,
+                ["image_path"] = projectPath,
+                ["width"] = layout.Width,
+                ["height"] = layout.Height * data.Count,
+                ["images"] = descriptions,
+                ["cached"] = cached
+            };
+            PersistPictureSummary(session, subjects[0].Record, result);
+            return result;
+        }
+
+        private static void PersistPictureSummary(TimelineSessionRecord session, AnalysisCacheRecord record, JObject pictures)
+        {
+            if (record == null || session == null) return;
+            record.Pictures = pictures != null ? (JObject)pictures.DeepClone() : new JObject();
+            AnalysisCache[record.Id] = record;
+            WriteJsonAtomically(AnalysisCachePath(session, record.Id), record.ToJson());
+        }
+
+        private static string BuildPictureSignature(IReadOnlyList<SubjectPictureData> subjects, string level)
+        {
+            string source = AnalysisPictureRenderVersion + "|" + level + "|" + string.Join("|", subjects.Select(item => item.Subject.Record.Id));
+            using (SHA256 hash = SHA256.Create())
+            {
+                return BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(source))).Replace("-", string.Empty).Substring(0, 16).ToLowerInvariant();
+            }
+        }
+
+        private static SubjectPictureData BuildSubjectPictureData(TimelineSessionRecord session, AnalysisSubject subject)
+        {
+            int frameCount = Math.Max(1, subject.EndFrameExclusive - subject.StartFrame);
+            var pelvis = new Vector3[frameCount];
+            Bounds firstBounds = default;
+            Bounds lastBounds = default;
+            double originalTime = session.Director.time;
+            try
+            {
+                for (int localFrame = 0; localFrame < frameCount; localFrame++)
+                {
+                    session.Director.time = (subject.StartFrame + localFrame) / SessionFrameRate;
+                    session.Director.Evaluate();
+                    Transform hips = subject.Character.Animator != null
+                        ? subject.Character.Animator.GetBoneTransform(HumanBodyBones.Hips)
+                        : null;
+                    if (hips == null)
+                    {
+                        throw new InvalidOperationException($"Character '{subject.Character.Name}' has no Humanoid Hips transform.");
+                    }
+                    pelvis[localFrame] = hips.position;
+                    if (localFrame == 0) firstBounds = CalculateSkinnedBounds(subject.Character.Root);
+                    if (localFrame == frameCount - 1) lastBounds = CalculateSkinnedBounds(subject.Character.Root);
+                }
+            }
+            finally
+            {
+                session.Director.time = originalTime;
+                session.Director.Evaluate();
+            }
+
+            bool[] leftContacts = new bool[frameCount];
+            bool[] rightContacts = new bool[frameCount];
+            string motionPath = ProjectRelativePathToAbsolute(subject.Record.MotionPath);
+            if (File.Exists(motionPath) && KimodoRawMotionUtility.TryParseFlatBuffer(File.ReadAllBytes(motionPath), out KimodoRawMotionData motion, out _))
+            {
+                int count = Math.Min(frameCount, motion.FrameCount);
+                for (int frame = 0; frame < count; frame++)
+                {
+                    motion.TryReadFootContact(frame, 0, out float leftHeel);
+                    motion.TryReadFootContact(frame, 1, out float leftToe);
+                    motion.TryReadFootContact(frame, 2, out float rightHeel);
+                    motion.TryReadFootContact(frame, 3, out float rightToe);
+                    leftContacts[frame] = leftHeel >= .5f || leftToe >= .5f;
+                    rightContacts[frame] = rightHeel >= .5f || rightToe >= .5f;
+                }
+            }
+
+            Bounds bounds = firstBounds;
+            foreach (Vector3 point in pelvis) bounds.Encapsulate(point);
+            bounds.Encapsulate(lastBounds);
+            bounds.Expand(new Vector3(6f, 1f, 6f));
+            if (bounds.size.x < 6f) bounds.Expand(new Vector3(6f - bounds.size.x, 0f, 0f));
+            if (bounds.size.z < 6f) bounds.Expand(new Vector3(0f, 0f, 6f - bounds.size.z));
+            return new SubjectPictureData(subject, pelvis, leftContacts, rightContacts, firstBounds, lastBounds, bounds);
+        }
+
+        private static Bounds CalculateSkinnedBounds(GameObject root)
+        {
+            SkinnedMeshRenderer[] renderers = root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            if (renderers.Length == 0) return CalculateBounds(root);
+            Bounds result = renderers[0].bounds;
+            for (int index = 1; index < renderers.Length; index++) result.Encapsulate(renderers[index].bounds);
+            return result;
+        }
+
+        private static List<PictureTile> BuildPictureTiles(SubjectPictureData subject, string level)
+        {
+            int keyCount = level == "high" ? 5 : level == "middle" ? 3 : 0;
+            var result = new List<PictureTile>();
+            if (level != "low")
+            {
+                result.Add(PictureTile.Ghost(subject, "three_quarter", new Vector3(1f, .75f, -1f), false));
+                result.Add(PictureTile.Ghost(subject, "front", Vector3.forward, true));
+                result.Add(PictureTile.Ghost(subject, "left", Vector3.left, true));
+                result.Add(PictureTile.Ghost(subject, "bottom", Vector3.down, true));
+            }
+            else
+            {
+                result.Add(PictureTile.Ghost(subject, "three_quarter", new Vector3(1f, .75f, -1f), false));
+            }
+
+            List<int> keyFrames = SelectKeyFrames(subject, Math.Max(keyCount, 6));
+            for (int index = 0; index < keyCount; index++)
+            {
+                result.Add(PictureTile.Key(subject, keyFrames[index % keyFrames.Count]));
+            }
+            if (level == "high")
+            {
+                List<JObject> contacts = (subject.Subject.Record.Analysis?["foot_contacts"] as JArray ?? new JArray())
+                    .OfType<JObject>()
+                    .OrderBy(item => item.Value<int?>("duration_frames") ?? int.MaxValue)
+                    .Take(6)
+                    .Select(item => (JObject)item.DeepClone())
+                    .ToList();
+                for (int index = 0; index < 6; index++)
+                {
+                    if (index < contacts.Count)
+                    {
+                        int frame = Mathf.Clamp(contacts[index].Value<int?>("frame") ?? 0, 0, subject.Pelvis.Length - 1);
+                        result.Add(PictureTile.FootContact(subject, frame, contacts[index]));
+                    }
+                    else
+                    {
+                        result.Add(PictureTile.FootFallback(subject, keyFrames[index % keyFrames.Count]));
+                    }
+                }
+            }
+            result.Add(PictureTile.Trajectory(subject, keyFrames));
+            return result;
+        }
+
+        private static List<int> SelectKeyFrames(SubjectPictureData subject, int count)
+        {
+            var frames = (subject.Subject.Record.Analysis?["keyframes"] as JArray ?? new JArray())
+                .OfType<JObject>()
+                .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, subject.Pelvis.Length - 1))
+                .Distinct()
+                .ToList();
+            for (int index = 0; frames.Count < count && index < count; index++)
+            {
+                frames.Add(Mathf.RoundToInt(Mathf.Lerp(0, subject.Pelvis.Length - 1, count <= 1 ? 0f : index / (float)(count - 1))));
+                frames = frames.Distinct().ToList();
+            }
+            return frames.Count > 0 ? frames : new List<int> { 0 };
+        }
+
+        private static Texture2D RenderPictureCanvas(
+            IReadOnlyList<SubjectPictureData> subjects,
+            IReadOnlyList<PictureTile> tiles,
+            PictureLayout layout,
+            TrajectoryScale trajectoryScale)
+        {
+            var canvas = new Texture2D(layout.Width, layout.Height * subjects.Count, TextureFormat.RGBA32, false);
+            Fill(canvas, Color.white);
+            for (int index = 0; index < tiles.Count; index++)
+            {
+                PictureTile tile = tiles[index];
+                int panel = subjects.ToList().FindIndex(item => ReferenceEquals(item, tile.Subject));
+                int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tile.Subject));
+                Texture2D image = RenderPictureTile(tile, layout.CellSize, trajectoryScale);
+                try
+                {
+                    DrawTileNumber(image, localIndex + 1);
+                    int x = (localIndex % layout.Columns) * layout.CellSize;
+                    int y = (subjects.Count - panel - 1) * layout.Height +
+                        (layout.Rows - 1 - localIndex / layout.Columns) * layout.CellSize;
+                    canvas.SetPixels(x, y, layout.CellSize, layout.CellSize, image.GetPixels());
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(image);
+                }
+            }
+            DrawInternalGrid(canvas, layout, subjects.Count);
+            canvas.Apply(false, false);
+            return canvas;
+        }
+
+        private static Texture2D RenderPictureTile(PictureTile tile, int size, TrajectoryScale trajectoryScale)
+        {
+            var environment = new List<GameObject>();
+            CreatePictureEnvironment(environment, tile.Subject.Bounds);
+            if (tile.Presentation == "trajectory")
+            {
+                CreatePelvisTrajectory(environment, tile.Subject.Pelvis, trajectoryScale);
+            }
+            Camera camera = CreateAnalysisPictureCamera(tile.Subject.Bounds, tile.Direction, tile.Orthographic);
+            try
+            {
+                Texture2D result = RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
+                if (tile.Presentation == "ghost")
+                {
+                    List<int> frames = BuildGhostFrames(tile.Subject);
+                    bool separated = !tile.Subject.FirstBounds.Intersects(tile.Subject.LastBounds);
+                    for (int index = 0; index < frames.Count; index++)
+                    {
+                        int frame = frames[index];
+                        bool key = tile.Subject.KeyFrameSet.Contains(frame);
+                        float alpha = GhostAlpha(index, frames.Count, separated);
+                        RenderPoseOnto(result, camera, environment, tile.Subject, frame, key ? Color.yellow : FootTint(tile.Subject, frame), alpha);
+                    }
+                }
+                else if (tile.Presentation == "key" || tile.Presentation == "foot_contact" || tile.Presentation == "foot_fallback")
+                {
+                    Color tint = tile.Presentation == "key" ? Color.yellow : FootTint(tile.Subject, tile.Frame);
+                    RenderPoseOnto(result, camera, environment, tile.Subject, tile.Frame, tint, 1f);
+                }
+                else if (tile.Presentation == "trajectory")
+                {
+                    foreach (int frame in tile.TrajectoryFrames)
+                    {
+                        bool key = tile.Subject.KeyFrameSet.Contains(frame);
+                        RenderPoseOnto(result, camera, environment, tile.Subject, frame, key ? Color.yellow : Color.gray, 1f);
+                    }
+                }
+                return result;
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(camera.gameObject);
+                foreach (GameObject item in environment)
+                {
+                    if (item != null) UnityEngine.Object.DestroyImmediate(item);
+                }
+            }
+        }
+
+        private static void RenderPoseOnto(
+            Texture2D destination,
+            Camera camera,
+            IReadOnlyList<GameObject> environment,
+            SubjectPictureData subject,
+            int localFrame,
+            Color tint,
+            float alpha)
+        {
+            CharacterPose pose = CaptureCharacterPose(subject.Subject.Character, subject.Subject.StartFrame + localFrame);
+            var sample = new KimodoMarkerSampleResult { sampleTime = (subject.Subject.StartFrame + localFrame) / SessionFrameRate };
+            SetCanonicalPose(sample, pose, subject.Subject.Character);
+            GameObject preview = CreatePosePreview(subject.Subject.Character, sample, false);
+            try
+            {
+                TintPreview(preview, tint);
+                SetEvidenceVisualsEnabled(environment, false);
+                Texture2D layer = RenderCamera(camera, destination.width, new Color(0f, 0f, 0f, 0f));
+                try
+                {
+                    Composite(destination, layer, alpha);
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(layer);
+                    SetEvidenceVisualsEnabled(environment, true);
+                }
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(preview);
+            }
+        }
+
+        private static void TintPreview(GameObject preview, Color tint)
+        {
+            foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
+            {
+                foreach (Material material in renderer.materials)
+                {
+                    if (material != null && material.HasProperty("_Color"))
+                    {
+                        material.color = Color.Lerp(material.color, tint, .8f);
+                    }
+                }
+            }
+        }
+
+        private static List<int> BuildGhostFrames(SubjectPictureData subject)
+        {
+            var frames = new SortedSet<int>();
+            for (int frame = 0; frame < subject.Pelvis.Length; frame += 5) frames.Add(frame);
+            frames.Add(subject.Pelvis.Length - 1);
+            foreach (int key in subject.KeyFrameSet) frames.Add(key);
+            return frames.ToList();
+        }
+
+        private static float GhostAlpha(int index, int count, bool separated)
+        {
+            if (count <= 1) return 1f;
+            if (index == 0) return separated ? 1f : .3f;
+            if (index == count - 2) return .7f;
+            if (index == count - 1) return 1f;
+            return Mathf.Lerp(separated ? 1f : .3f, 1f, index / (float)(count - 1));
+        }
+
+        private static Color FootTint(SubjectPictureData subject, int frame)
+        {
+            bool left = subject.LeftContacts[Mathf.Clamp(frame, 0, subject.LeftContacts.Length - 1)];
+            bool right = subject.RightContacts[Mathf.Clamp(frame, 0, subject.RightContacts.Length - 1)];
+            return left == right ? Color.gray : left ? new Color(.2f, .45f, 1f) : new Color(1f, .2f, .2f);
+        }
+
+        private static void CreatePictureEnvironment(List<GameObject> objects, Bounds bounds)
+        {
+            const int captureLayer = 31;
+            float size = Mathf.Ceil(Mathf.Max(bounds.size.x, bounds.size.z) * .5f) * 2f;
+            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            floor.hideFlags = HideFlags.HideAndDontSave;
+            floor.transform.position = new Vector3(bounds.center.x, 0f, bounds.center.z);
+            floor.transform.localScale = Vector3.one * (size / 10f);
+            SetLayerRecursively(floor, captureLayer);
+            floor.GetComponent<Renderer>().sharedMaterial = MakeMaterial(new Color(.31f, .31f, .31f, 1f));
+            objects.Add(floor);
+            for (float x = bounds.min.x; x <= bounds.max.x; x += .25f)
+            {
+                CreateWorldLine(objects, new Vector3(x, .006f, bounds.min.z), new Vector3(x, .006f, bounds.max.z),
+                    Mathf.Abs(x % 1f) < .01f ? .010f : .003f, new Color(.65f, .65f, .65f, .25f));
+            }
+            for (float z = bounds.min.z; z <= bounds.max.z; z += .25f)
+            {
+                CreateWorldLine(objects, new Vector3(bounds.min.x, .006f, z), new Vector3(bounds.max.x, .006f, z),
+                    Mathf.Abs(z % 1f) < .01f ? .010f : .003f, new Color(.65f, .65f, .65f, .25f));
+            }
+            CreateEvidenceLights(objects, bounds.center);
+        }
+
+        private static Camera CreateAnalysisPictureCamera(Bounds bounds, Vector3 direction, bool orthographic)
+        {
+            GameObject cameraObject = new GameObject("Kimodo Analysis Picture Camera") { hideFlags = HideFlags.HideAndDontSave };
+            Camera camera = cameraObject.AddComponent<Camera>();
+            camera.cullingMask = 1 << 31;
+            camera.orthographic = orthographic;
+            camera.nearClipPlane = .01f;
+            camera.farClipPlane = 100f;
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.orthographicSize = Mathf.Max(2.5f, bounds.extents.magnitude * 1.05f);
+            camera.fieldOfView = 35f;
+            camera.transform.position = bounds.center + direction.normalized * Mathf.Max(7f, bounds.extents.magnitude * 3.2f);
+            Vector3 up = Mathf.Abs(Vector3.Dot(direction.normalized, Vector3.up)) > .95f ? Vector3.forward : Vector3.up;
+            camera.transform.LookAt(bounds.center + Vector3.up, up);
+            return camera;
+        }
+
+        private static TrajectoryScale BuildTrajectoryScale(IReadOnlyList<SubjectPictureData> subjects)
+        {
+            var speeds = new List<float>();
+            var accelerations = new List<float>();
+            foreach (SubjectPictureData subject in subjects)
+            {
+                float previousSpeed = 0f;
+                for (int index = 1; index < subject.Pelvis.Length; index++)
+                {
+                    float speed = (subject.Pelvis[index] - subject.Pelvis[index - 1]).magnitude * (float)SessionFrameRate;
+                    speeds.Add(speed);
+                    accelerations.Add(Mathf.Abs(speed - previousSpeed) * (float)SessionFrameRate);
+                    previousSpeed = speed;
+                }
+            }
+            return new TrajectoryScale(Percentile(speeds, .05f), Percentile(speeds, .95f), Percentile(accelerations, .05f), Percentile(accelerations, .95f));
+        }
+
+        private static float Percentile(List<float> values, float percent)
+        {
+            if (values == null || values.Count == 0) return 0f;
+            values.Sort();
+            return values[Mathf.Clamp(Mathf.RoundToInt((values.Count - 1) * percent), 0, values.Count - 1)];
+        }
+
+        private static void CreatePelvisTrajectory(List<GameObject> objects, Vector3[] points, TrajectoryScale scale)
+        {
+            float previousSpeed = 0f;
+            for (int index = 1; index < points.Length; index++)
+            {
+                float speed = (points[index] - points[index - 1]).magnitude * (float)SessionFrameRate;
+                float acceleration = Mathf.Abs(speed - previousSpeed) * (float)SessionFrameRate;
+                previousSpeed = speed;
+                float speedWeight = Mathf.InverseLerp(scale.MinSpeed, Mathf.Max(scale.MinSpeed + .0001f, scale.MaxSpeed), speed);
+                float accelerationWeight = Mathf.InverseLerp(scale.MinAcceleration, Mathf.Max(scale.MinAcceleration + .0001f, scale.MaxAcceleration), acceleration);
+                Color color = Color.Lerp(Color.red, Color.green, speedWeight);
+                color.a = Mathf.Lerp(1f, .2f, accelerationWeight);
+                CreateWorldLine(objects, points[index - 1] + Vector3.up * .02f, points[index] + Vector3.up * .02f, .045f, color);
+            }
+        }
+
+        private static void Fill(Texture2D texture, Color color)
+        {
+            var pixels = new Color[texture.width * texture.height];
+            for (int index = 0; index < pixels.Length; index++) pixels[index] = color;
+            texture.SetPixels(pixels);
+        }
+
+        private static void DrawInternalGrid(Texture2D texture, PictureLayout layout, int panels)
+        {
+            for (int column = 1; column < layout.Columns; column++)
+            {
+                int x = column * layout.CellSize - 2;
+                FillRect(texture, x, 0, 4, texture.height, Color.white);
+            }
+            for (int panel = 0; panel < panels; panel++)
+            {
+                int originY = panel * layout.Height;
+                for (int row = 1; row < layout.Rows; row++)
+                {
+                    int y = originY + row * layout.CellSize - 2;
+                    FillRect(texture, 0, y, texture.width, 4, Color.white);
+                }
+            }
+        }
+
+        private static void DrawTileNumber(Texture2D texture, int value)
+        {
+            string text = value.ToString(CultureInfo.InvariantCulture);
+            int size = texture.width >= 256 ? 4 : 2;
+            int width = (size * 4 + size) * text.Length;
+            int x = texture.width - width - size * 2;
+            int y = texture.height - size * 8;
+            foreach (char digit in text)
+            {
+                DrawSevenSegmentDigit(texture, x, y, digit, size, Color.white);
+                x += size * 5;
+            }
+            texture.Apply(false, false);
+        }
+
+        private static void DrawSevenSegmentDigit(Texture2D texture, int x, int y, char digit, int size, Color color)
+        {
+            bool[] map = digit switch
+            {
+                '0' => new[] { true, true, true, true, true, true, false },
+                '1' => new[] { false, true, true, false, false, false, false },
+                '2' => new[] { true, true, false, true, true, false, true },
+                '3' => new[] { true, true, true, true, false, false, true },
+                '4' => new[] { false, true, true, false, false, true, true },
+                '5' => new[] { true, false, true, true, false, true, true },
+                '6' => new[] { true, false, true, true, true, true, true },
+                '7' => new[] { true, true, true, false, false, false, false },
+                '8' => new[] { true, true, true, true, true, true, true },
+                '9' => new[] { true, true, true, true, false, true, true },
+                _ => new bool[7]
+            };
+            int w = size * 3;
+            int h = size * 6;
+            if (map[0]) FillRect(texture, x + size, y + h - size, w, size, color);
+            if (map[1]) FillRect(texture, x + w + size, y + h / 2, size, h / 2, color);
+            if (map[2]) FillRect(texture, x + w + size, y, size, h / 2, color);
+            if (map[3]) FillRect(texture, x + size, y, w, size, color);
+            if (map[4]) FillRect(texture, x, y, size, h / 2, color);
+            if (map[5]) FillRect(texture, x, y + h / 2, size, h / 2, color);
+            if (map[6]) FillRect(texture, x + size, y + h / 2 - size / 2, w, size, color);
+        }
+
+        private static void FillRect(Texture2D texture, int x, int y, int width, int height, Color color)
+        {
+            int minX = Mathf.Clamp(x, 0, texture.width);
+            int maxX = Mathf.Clamp(x + width, 0, texture.width);
+            int minY = Mathf.Clamp(y, 0, texture.height);
+            int maxY = Mathf.Clamp(y + height, 0, texture.height);
+            for (int row = minY; row < maxY; row++)
+            {
+                for (int column = minX; column < maxX; column++) texture.SetPixel(column, row, color);
+            }
         }
 
         private static string CacheAnalysisResult(
@@ -909,7 +1322,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             var signature = new JObject
             {
-                ["contract"] = "animation_analysis_v1",
+                ["contract"] = "animation_analysis_picture_v2",
                 ["character_ref"] = character?.CharacterRef ?? string.Empty,
                 ["animation_id"] = animation?.Id.ToString("D") ?? string.Empty,
                 ["start_frame"] = animation?.StartFrame ?? 0,
@@ -962,7 +1375,7 @@ namespace CharacterAnimationCli.Unity.Command
                 ["character"] = character?.Name ?? record.CharacterName ?? string.Empty,
                 ["pose_refs"] = record.Poses?.DeepClone() ?? new JArray(),
                 ["keyframes"] = record.Analysis?["keyframes"]?.DeepClone() ?? new JArray(),
-                ["foot_contact_changes"] = record.Analysis?["foot_contact_changes"]?.DeepClone() ?? new JArray(),
+                ["foot_contacts"] = record.Analysis?["foot_contacts"]?.DeepClone() ?? new JArray(),
                 ["cached"] = cached
             };
             if (animation != null)
@@ -988,6 +1401,155 @@ namespace CharacterAnimationCli.Unity.Command
                 return Path.GetFullPath(path);
             }
             return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), path.Replace('/', Path.DirectorySeparatorChar)));
+        }
+
+        private sealed class AnalysisSubject
+        {
+            public AnalysisSubject(
+                string role,
+                TimelineCharacterRecord character,
+                TimelineAnimationRecord animation,
+                AnalysisCacheRecord record,
+                int startFrame,
+                int endFrameExclusive)
+            {
+                Role = role;
+                Character = character;
+                Animation = animation;
+                Record = record;
+                StartFrame = startFrame;
+                EndFrameExclusive = endFrameExclusive;
+            }
+            public string Role { get; }
+            public TimelineCharacterRecord Character { get; }
+            public TimelineAnimationRecord Animation { get; }
+            public AnalysisCacheRecord Record { get; }
+            public int StartFrame { get; }
+            public int EndFrameExclusive { get; }
+        }
+
+        private sealed class SubjectPictureData
+        {
+            public SubjectPictureData(
+                AnalysisSubject subject,
+                Vector3[] pelvis,
+                bool[] leftContacts,
+                bool[] rightContacts,
+                Bounds firstBounds,
+                Bounds lastBounds,
+                Bounds bounds)
+            {
+                Subject = subject;
+                Pelvis = pelvis;
+                LeftContacts = leftContacts;
+                RightContacts = rightContacts;
+                FirstBounds = firstBounds;
+                LastBounds = lastBounds;
+                Bounds = bounds;
+                KeyFrameSet = new HashSet<int>((subject.Record.Analysis?["keyframes"] as JArray ?? new JArray())
+                    .OfType<JObject>()
+                    .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, Math.Max(0, pelvis.Length - 1))));
+            }
+            public AnalysisSubject Subject { get; }
+            public Vector3[] Pelvis { get; }
+            public bool[] LeftContacts { get; }
+            public bool[] RightContacts { get; }
+            public Bounds FirstBounds { get; }
+            public Bounds LastBounds { get; }
+            public Bounds Bounds { get; }
+            public HashSet<int> KeyFrameSet { get; }
+        }
+
+        private sealed class PictureTile
+        {
+            private PictureTile(SubjectPictureData subject, string presentation, JObject description)
+            {
+                Subject = subject;
+                Presentation = presentation;
+                Description = description;
+                Direction = new Vector3(1f, .75f, -1f);
+            }
+            public SubjectPictureData Subject { get; }
+            public string Presentation { get; }
+            public JObject Description { get; }
+            public Vector3 Direction { get; private set; }
+            public bool Orthographic { get; private set; }
+            public int Frame { get; private set; }
+            public List<int> TrajectoryFrames { get; private set; } = new List<int>();
+
+            public static PictureTile Ghost(SubjectPictureData subject, string view, Vector3 direction, bool orthographic)
+            {
+                return new PictureTile(subject, "ghost", new JObject { ["presentation"] = "ghost", ["view"] = view })
+                {
+                    Direction = direction,
+                    Orthographic = orthographic
+                };
+            }
+
+            public static PictureTile Key(SubjectPictureData subject, int frame) =>
+                new PictureTile(subject, "key", new JObject { ["presentation"] = "key_pose", ["frame"] = frame }) { Frame = frame };
+
+            public static PictureTile FootContact(SubjectPictureData subject, int frame, JObject contact) =>
+                new PictureTile(subject, "foot_contact", new JObject
+                {
+                    ["presentation"] = "foot_contact",
+                    ["frame"] = frame,
+                    ["foot_contact"] = contact.DeepClone()
+                }) { Frame = frame };
+
+            public static PictureTile FootFallback(SubjectPictureData subject, int frame) =>
+                new PictureTile(subject, "foot_fallback", new JObject
+                {
+                    ["presentation"] = "key_pose_fallback_for_foot_contact",
+                    ["frame"] = frame
+                }) { Frame = frame };
+
+            public static PictureTile Trajectory(SubjectPictureData subject, IEnumerable<int> keyFrames)
+            {
+                var frames = new SortedSet<int> { 0, Math.Max(0, subject.Pelvis.Length - 1) };
+                foreach (int frame in keyFrames) frames.Add(frame);
+                return new PictureTile(subject, "trajectory", new JObject
+                {
+                    ["presentation"] = "pelvis_trajectory",
+                    ["bone"] = "hips",
+                    ["frames"] = new JArray(frames)
+                }) { TrajectoryFrames = frames.ToList() };
+            }
+        }
+
+        private readonly struct PictureLayout
+        {
+            private PictureLayout(int columns, int rows, int cellSize)
+            {
+                Columns = columns;
+                Rows = rows;
+                CellSize = cellSize;
+            }
+            public int Columns { get; }
+            public int Rows { get; }
+            public int CellSize { get; }
+            public int Width => Columns * CellSize;
+            public int Height => Rows * CellSize;
+            public static PictureLayout ForLevel(string level) => level == "high"
+                ? new PictureLayout(8, 2, 256)
+                : level == "middle"
+                    ? new PictureLayout(4, 2, 256)
+                    : new PictureLayout(2, 1, 128);
+        }
+
+        private readonly struct TrajectoryScale
+        {
+            public TrajectoryScale(float minSpeed, float maxSpeed, float minAcceleration, float maxAcceleration)
+            {
+                MinSpeed = minSpeed;
+                MaxSpeed = maxSpeed;
+                MinAcceleration = minAcceleration;
+                MaxAcceleration = maxAcceleration;
+            }
+            public float MinSpeed { get; }
+            public float MaxSpeed { get; }
+            public float MinAcceleration { get; }
+            public float MaxAcceleration { get; }
         }
 
         private sealed class CaptureRequest

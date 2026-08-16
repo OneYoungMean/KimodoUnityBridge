@@ -911,84 +911,84 @@ namespace CharacterAnimationCli.Unity.Command
             return Execute(argumentsJson, arguments =>
             {
                 TimelineSessionRecord session = RequireTimelineSession(arguments);
-                TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
-                bool animationMode = arguments["animation"] != null;
-                bool rangeMode = arguments["start_frame"] != null || arguments["end_frame"] != null;
-                if (animationMode == rangeMode)
+                JArray requestedClips = arguments["clips"] as JArray;
+                if (requestedClips == null || requestedClips.Count < 1 || requestedClips.Count > 2)
                 {
-                    throw new InvalidOperationException("Provide exactly one analysis source: animation, or start_frame with end_frame.");
-                }
-                int startFrame;
-                int endFrame;
-                TimelineAnimationRecord animation = null;
-                if (animationMode)
-                {
-                    animation = ResolveAnimation(arguments, character);
-                    startFrame = Mathf.RoundToInt((float)(animation.TimelineStartSeconds * SessionFrameRate));
-                    endFrame = startFrame + Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)));
-                }
-                else
-                {
-                    startFrame = RequiredNonNegativeFrame(arguments, "start_frame");
-                    endFrame = RequiredNonNegativeFrame(arguments, "end_frame");
-                    if (endFrame <= startFrame)
-                        throw new InvalidOperationException("The analysis range must satisfy 0 <= start_frame < end_frame.");
+                    throw new InvalidOperationException("clips must contain one or two {character,clip,role?} objects.");
                 }
 
-                ThrowIfGenerationRangeLocked(session, character, startFrame, endFrame, AnimationAnalyzeCommand);
-                AnimationClip transientClip = null;
-                TimelineClip transientTimelineClip = null;
-                try
+                string level = NormalizeAnalysisPictureLevel(arguments.Value<string>("level"));
+                JObject analysisOptions = BuildEffectiveAnalysisOptions(level);
+                var subjects = new List<AnalysisSubject>(requestedClips.Count);
+                var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int index = 0; index < requestedClips.Count; index++)
                 {
-                    if (!animationMode)
+                    if (requestedClips[index] is not JObject requested)
                     {
-                        animation = BakeTransientAnalysisRange(session, character, startFrame, endFrame, out transientClip, out transientTimelineClip);
+                        throw new InvalidOperationException($"clips[{index}] must be an object.");
                     }
 
-                    JObject analysisOptions = BuildEffectiveAnalysisOptions(arguments);
-                    string inputSignature = animationMode
-                        ? BuildAnimationAnalysisSignature(character, animation, analysisOptions)
-                        : string.Empty;
-                    if (animationMode && TryFindCachedAnimationAnalysis(
-                            session, character, animation, inputSignature, out AnalysisCacheRecord cached))
+                    string role = (requested.Value<string>("role") ?? (index == 0 ? "source" : "target")).Trim();
+                    if (string.IsNullOrWhiteSpace(role) || !roles.Add(role))
                     {
-                        return Ok(BuildAnimationAnalysisResponse(
-                            session, cached, character, animation, cached: true));
+                        throw new InvalidOperationException("Each clips item requires a unique non-empty role.");
                     }
 
-                    JObject analysis = AnalyzeAnimation(session, animation, analysisOptions, out byte[] analysisMotionBytes);
-                    string poseSource = animationMode ? animation.Name : character.Name;
-                    int poseSourceStartFrame = animationMode ? startFrame : 0;
-                    JArray poses = BuildAnalysisPoses(character, startFrame, endFrame, analysis, poseSource, poseSourceStartFrame);
-                    NormalizeAnalysisContract(analysis, poses);
-                    string analysisId = CacheAnalysisResult(
-                        session,
-                        character,
-                        startFrame / SessionFrameRate,
-                        endFrame / SessionFrameRate,
-                        poses,
-                        analysis,
-                        analysisMotionBytes,
-                        animationMode ? animation : null,
-                        inputSignature);
-                    SaveTimelineSession(session);
-                    return Ok(BuildAnimationAnalysisResponse(
-                        session,
-                        GetCachedAnalysis(session, analysisId),
-                        character,
-                        animationMode ? animation : null,
-                        cached: false,
-                        animationMode ? null : (int?)startFrame,
-                        animationMode ? null : (int?)endFrame));
+                    string characterName = RequiredStringValue(requested, "character");
+                    TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
+                        string.Equals(item.Name, characterName, StringComparison.OrdinalIgnoreCase));
+                    if (character == null)
+                    {
+                        throw new InvalidOperationException($"Character '{characterName}' is not in the current Timeline Session.");
+                    }
+
+                    string clipName = RequiredStringValue(requested, "clip");
+                    TimelineAnimationRecord animation = ResolveAnimation(new JObject { ["animation"] = clipName }, character);
+                    int startFrame = Mathf.RoundToInt((float)(animation.TimelineStartSeconds * SessionFrameRate));
+                    int endFrame = startFrame + Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)));
+                    ThrowIfGenerationRangeLocked(session, character, startFrame, endFrame, AnimationAnalyzeCommand);
+
+                    string inputSignature = BuildAnimationAnalysisSignature(character, animation, analysisOptions);
+                    AnalysisCacheRecord record;
+                    if (!TryFindCachedAnimationAnalysis(session, character, animation, inputSignature, out record))
+                    {
+                        JObject analysis = AnalyzeAnimation(session, animation, analysisOptions, out byte[] analysisMotionBytes);
+                        JArray poses = BuildAnalysisPoses(character, startFrame, endFrame, analysis, animation.Name, startFrame);
+                        NormalizeAnalysisContract(analysis, poses);
+                        string id = CacheAnalysisResult(
+                            session, character, startFrame / SessionFrameRate, endFrame / SessionFrameRate,
+                            poses, analysis, analysisMotionBytes, animation, inputSignature);
+                        record = GetCachedAnalysis(session, id);
+                    }
+                    subjects.Add(new AnalysisSubject(role, character, animation, record, startFrame, endFrame));
                 }
-                finally
+
+                JObject pictures = RenderAnalysisPictures(session, subjects, level);
+                SaveTimelineSession(session);
+                return Ok(new JObject
                 {
-                    if (transientTimelineClip != null) character.Track.DeleteClip(transientTimelineClip);
-                    if (transientClip != null) UnityEngine.Object.DestroyImmediate(transientClip);
-                    session.Director.Evaluate();
-                    KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsModified);
-                }
+                    ["level"] = level,
+                    ["clips"] = new JArray(subjects.Select(subject => new JObject
+                    {
+                        ["role"] = subject.Role,
+                        ["character"] = subject.Character.Name,
+                        ["clip"] = subject.Animation.Name,
+                        ["keyframes"] = subject.Record.Analysis?["keyframes"]?.DeepClone() ?? new JArray(),
+                        ["foot_contacts"] = subject.Record.Analysis?["foot_contacts"]?.DeepClone() ?? new JArray()
+                    })),
+                    ["pictures"] = pictures
+                });
             });
+        }
+
+        private static string NormalizeAnalysisPictureLevel(string level)
+        {
+            string normalized = (level ?? "middle").Trim().ToLowerInvariant();
+            if (normalized != "low" && normalized != "middle" && normalized != "high")
+            {
+                throw new InvalidOperationException("level must be low, middle, or high.");
+            }
+            return normalized;
         }
 
         private static JArray BuildAnalysisPoses(
@@ -1031,19 +1031,35 @@ namespace CharacterAnimationCli.Unity.Command
                 keyframe["frame"] = item["pose"]?.Value<int?>("frame") ?? 0;
                 keyframes.Add(keyframe);
             }
+            JArray contacts = analysis["foot_contacts"] as JArray
+                ?? analysis["foot_contact_changes"] as JArray
+                ?? new JArray();
+            var normalizedContacts = new JArray();
+            foreach (JObject contact in contacts.OfType<JObject>())
+            {
+                normalizedContacts.Add(new JObject
+                {
+                    ["clip_index"] = contact.Value<int?>("clip_index") ?? 0,
+                    ["foot"] = contact.Value<string>("foot") ?? string.Empty,
+                    ["frame"] = contact.Value<int?>("frame") ?? 0,
+                    ["contact"] = contact.Value<bool?>("contact") ?? false,
+                    ["duration_frames"] = contact.Value<int?>("duration_frames") ?? 0
+                });
+            }
+            analysis.RemoveAll();
             analysis["keyframes"] = keyframes;
+            analysis["foot_contacts"] = normalizedContacts;
+            analysis["source"] = "quickserver_analysis_only";
         }
 
-        private static JObject BuildEffectiveAnalysisOptions(JObject arguments)
+        private static JObject BuildEffectiveAnalysisOptions(string level)
         {
-            JObject options = arguments["analysis_option"] is JObject supplied
-                ? (JObject)supplied.DeepClone()
-                : new JObject();
-            if (arguments["keyframe_count"] is JValue keyframeCount && keyframeCount.Type == JTokenType.Integer)
+            int keyframeCount = level == "high" ? 12 : level == "middle" ? 8 : 4;
+            return new JObject
             {
-                options["keyframe_count"] = keyframeCount.ToObject<int>();
-            }
-            return options;
+                ["keyframe_count"] = keyframeCount,
+                ["keyframes"] = new JObject { ["enabled"] = true, ["max_count"] = keyframeCount }
+            };
         }
 
         private static JObject AnalyzeAnimation(
