@@ -1,64 +1,41 @@
 ---
 name: kimodo-unity-animation-zh
-description: 在当前 Unity Editor 中发现并执行 Kimodo 人形动画命令。
+description: 在当前 Unity Editor 中通过 Kimodo 命令发现、生成、检查并迭代人形动画。
 ---
 
-# Kimodo Unity 动画命令
+# Kimodo Unity 动画
 
-英文原文：[SKILL.md](SKILL.md)。
-
-使用包内公开 Editor 入口：
+使用公开 Editor 入口：
 
 ```csharp
 using CharacterAnimationCli.Unity.Command;
-
 string schema = command_dispatcher.GetCommandDefinitionsJson();
 string result = command_dispatcher.Invoke(commandName, argumentsJson);
 ```
 
-把 `schema.tools` 的每一项暴露为 AI 工具，工具实现用其名称和 JSON 对象调用 `Invoke`。实时 Schema 与命令错误是最终依据。每个结果都有 `ok`；失败格式为 `{"ok":false,"error":"..."}`。可选键应省略，不要传 `null`。
+只把实时 `schema.tools` 中的条目暴露为工具。结果始终使用 vNext 的 `ok` envelope。命令定义、返回的 ID、名称、路径和缓存 locator 都是权威的不透明句柄。
 
-## 从发现开始验证
+## 标准工作流
 
-1. 调用 `kimodo_help({})`，严格执行返回的 `workflow` 数组，不猜测调用顺序或参数。
-2. 首次使用某命令前调用 `kimodo_help({"command":"<name>"})` 查看完整 Schema。
-3. 只有需要改变默认模型或 Text Encoder 时，才调用 `kimodo_help({"section":"models"})`。
+1. `kimodo_help({})`，然后 `session_get_or_create({"name":"<稳定名称>"})`。
+2. `session_add({"kind":"character","character":"<场景名称或层级路径>"})`；保存返回的安全角色名。
+3. 通过 `kimodo_generate_animation` 生成；保存 `request_id`；轮询 `kimodo_get_generation` 直到终态。
+4. 对完成动画调用 `animation_analyze`；保存 `analysis_id`，然后读取 `analysis_path` 及其中稠密 KMB 的 `motion_path`。
+5. 使用该 `analysis_id` 调用三个图片命令：根运动叠加图、关键姿势图和 3D 轨迹图。
+6. 将视觉证据与 prompt 比较。修正稀疏约束、端点姿势或 prompt，然后迭代。
 
-Help 返回的最小生成自检为：
+需要完整 Session 状态时读取返回的 `session_json_path`。新 Session 为空；通过 `session_add` 显式加入场景 Humanoid、Clip 或 Animator 内容。
 
-```text
-session_open({})
-query_current_session({"query":"characters"})
-kimodo_generate_animation({"character":"<返回的角色名>","prompt":"stand still and breathe naturally","duration_frames":60})
-kimodo_get_generation({"request_id":"<返回的 request_id>"})，轮询到终态
-session_close({})
-```
+## 视觉验收
 
-生成运行期间不要关闭 Session。终态是 `completed`、`failed` 或 `canceled`。成功后查询 `character_animations`，确认生成动画已追加：
+- 关键姿势图必须表达请求的动作、方向、身体状态、接触/对象关系和结束状态。
+- 按返回的 `keyframes` 的 saliency 降序检查关键帧；按 `foot_contact_changes` 的持续时间从短到长检查脚接触切换，然后核对稠密 KMB 接触轨道。
+- 根运动叠加图必须符合预期根路径、位移、朝向，且没有无法解释的漂移。
+- 轨迹图必须展示合理的 root、骨盆、手和脚轨迹。
+- 循环动画需要检查首末姿势、根朝向与位置、脚接触相位和速度连续性。出现可见接缝时，继续生成或修正。
 
-```json
-{"query":"character_animations","character":"<返回的角色名>"}
-```
+## Pose 工作
 
-## 当前契约
+使用 `pose_get` 取得来源姿势和可写 Pose Cache marker。保存返回 marker locator，供 `pose_set_root_transform`、`pose_set_muscle` 使用。需要完整 muscle 时使用 `full_data:true`。使用 `pose_contract` 对齐一个或多个手脚目标，并将多末端拟合返回的 residual 纳入判断。
 
-- 命令在当前 Unity Editor 的 Edit Mode 中执行。
-- 所有公开时间值都是 60 FPS 整数帧，区间使用 `[start_frame,end_frame)`。
-- 角色参数是安全的场景/Session 名称。场景有重名时，先用层级路径调用 `session_try_add`，再执行其他角色命令。
-- `session_open` 创建或重开当前保留的 Session；`session_close` 保存并关闭编辑环境，不删除生成动画资产。
-- 无当前 Session 时，`kimodo_generate_animation` 可创建并在完成后关闭保留的 `__KimodoAuto__` Session；多步骤 AI 工作流应显式使用 Session。
-- 不要传 `timeline_session_id`、外部模型路径或实时 Schema 中不存在的参数。
-
-## 数据集动画的 Prompt 命名
-
-将数据集动画文件名写成生成 Prompt 时，应改写为简洁自然语言，不要照搬内部文件名。保留其中的动作、阶段、路径或方向、速度、身体状态、对象或接触关系，以及预期结束状态。删除 take 编号、演员标识、镜像标记和内部变体后缀；例如 `001`、`__A494`、`_M`、`_R`，除非它们本身承载动作语义。
-
-## 工具分组
-
-- 发现：`kimodo_help`。
-- Session：`session_open`、`session_close`、`query_current_session`、`session_try_add`、`session_try_remove`。
-- Pose/约束：`pose_create`、`pose_get`、`pose_set`、`pose_copy`、`kimodo_build_root2d_path`。
-- 动画：`kimodo_generate_animation`、`kimodo_get_generation`、`kimodo_cancel_generation`、`kimodo_analyze`、`query_picture`、`kimodo_bake_range`。
-- Debug 维护：`kimodo_debug_install_server`；只在明确诊断本地 QuickServer 安装时使用。
-
-Pose/Constraint 示例见 [Manual/AI 工作流示例与 Constraint API 设计](Manual/AI%20工作流示例与%20Constraint%20API%20设计.md)。复制示例前始终检查命令的实时 Schema。
+数据集动画名称应改写为简洁自然语言 prompt：保留动作、阶段、方向/路径、速度、接触/对象和结束状态；移除不承载动作语义的 take ID、演员 ID 和内部变体后缀。

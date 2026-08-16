@@ -1,3 +1,4 @@
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -15,13 +16,17 @@ namespace CharacterAnimationCli.Unity.Command
 {
     internal sealed class KimodoCommandSessionMetadata : ScriptableObject
     {
+        public string schemaVersion = "vNext";
         public string sessionId;
         public string sessionName;
+        public int sessionRevision;
+        public string sessionJsonPath;
         public bool isAutomatic;
         public bool isCurrent;
         public string updatedAtUtc;
         public List<KimodoCommandCharacterMetadata> characters = new List<KimodoCommandCharacterMetadata>();
         public List<KimodoCommandAnimationMetadata> animations = new List<KimodoCommandAnimationMetadata>();
+        public List<KimodoCommandGenerationMetadata> generations = new List<KimodoCommandGenerationMetadata>();
         public List<KimodoCommandAnimatorImportMetadata> animatorImports = new List<KimodoCommandAnimatorImportMetadata>();
     }
 
@@ -46,8 +51,20 @@ namespace CharacterAnimationCli.Unity.Command
         public int endFrameExclusive;
         public string animatorImportName;
         public string importKey;
-        public string fromAnimation;
-        public string toAnimation;
+    }
+
+    [Serializable]
+    internal sealed class KimodoCommandGenerationMetadata
+    {
+        public string requestId;
+        public string character;
+        public string animation;
+        public string status;
+        public string stage;
+        public string message;
+        public string error;
+        public string startedAtUtc;
+        public string updatedAtUtc;
     }
 
     [Serializable]
@@ -60,6 +77,9 @@ namespace CharacterAnimationCli.Unity.Command
 
     internal static partial class command_context
     {
+        private const string SessionJsonSchemaVersion = "vNext";
+        private const string GeneratedSessionsFolder = KimodoEditorClipWritebackService.GeneratedClipFolder + "/Sessions";
+
         // Rebuilt lazily after every editor domain reload.
         private static bool timelineSessionsRestored;
 
@@ -70,11 +90,18 @@ namespace CharacterAnimationCli.Unity.Command
                 return;
             }
 
-            string cacheFolder = Path.Combine(Directory.GetCurrentDirectory(), "Library", "KimodoCache", "Commands");
-            Directory.CreateDirectory(cacheFolder);
+            string sessionFolder = GetSessionGeneratedFolder(session);
+            string analysisFolder = Path.Combine(sessionFolder, "Analyses");
+            string motionFolder = Path.Combine(sessionFolder, "Motion");
+            Directory.CreateDirectory(sessionFolder);
+            Directory.CreateDirectory(analysisFolder);
+            Directory.CreateDirectory(motionFolder);
             KimodoCommandSessionMetadata metadata = session.Metadata;
+            metadata.schemaVersion = SessionJsonSchemaVersion;
             metadata.sessionId = session.Id.ToString("D");
             metadata.sessionName = session.Name;
+            metadata.sessionRevision = Math.Max(0, metadata.sessionRevision) + 1;
+            metadata.sessionJsonPath = ToProjectRelativePath(GetSessionJsonAbsolutePath(session));
             metadata.isAutomatic = session.IsAutomatic;
             metadata.isCurrent = ReferenceEquals(currentTimelineSession, session);
             metadata.updatedAtUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
@@ -99,13 +126,15 @@ namespace CharacterAnimationCli.Unity.Command
                 string kmbPath = string.Empty;
                 if (animation.Analysis != null)
                 {
-                    analysisPath = Path.Combine(cacheFolder, $"animation_{animation.Id:D}_analysis.json");
+                    analysisPath = Path.Combine(analysisFolder, $"animation_{animation.Id:D}_analysis.json");
                     File.WriteAllText(analysisPath, animation.Analysis.ToString());
+                    analysisPath = ToProjectRelativePath(analysisPath);
                 }
                 if (animation.KmbBytes != null && animation.KmbBytes.Length > 0)
                 {
-                    kmbPath = Path.Combine(cacheFolder, $"motion_{animation.Id:D}.kmb");
+                    kmbPath = Path.Combine(motionFolder, $"motion_{animation.Id:D}.kmb");
                     File.WriteAllBytes(kmbPath, animation.KmbBytes);
+                    kmbPath = ToProjectRelativePath(kmbPath);
                 }
                 metadata.animations.Add(new KimodoCommandAnimationMetadata
                 {
@@ -119,13 +148,187 @@ namespace CharacterAnimationCli.Unity.Command
                     endFrameExclusive = animation.EndFrameExclusive,
                     animatorImportName = animation.AnimatorImportName,
                     importKey = animation.ImportKey,
-                    fromAnimation = animation.FromAnimation,
-                    toAnimation = animation.ToAnimation
                 });
             }
+            PersistSessionJson(session, metadata);
             EditorUtility.SetDirty(metadata);
             EditorUtility.SetDirty(session.TimelineAsset);
         }
+
+        private static string GetSessionGeneratedFolder(TimelineSessionRecord session)
+        {
+            if (session == null)
+            {
+                throw new InvalidOperationException("Session is required to resolve its generated folder.");
+            }
+            string safeName = KimodoRuntimeUtility.SanitizeName(session.Name, "Session");
+            return Path.Combine(Directory.GetCurrentDirectory(), GeneratedSessionsFolder.Replace('/', Path.DirectorySeparatorChar), safeName);
+        }
+
+        private static string GetSessionJsonAbsolutePath(TimelineSessionRecord session) =>
+            Path.Combine(GetSessionGeneratedFolder(session), "session.json");
+
+        private static string ToProjectRelativePath(string absolutePath)
+        {
+            string root = Directory.GetCurrentDirectory().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string normalizedRoot = root.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+            string normalizedPath = Path.GetFullPath(absolutePath).Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+            return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase)
+                ? normalizedPath.Substring(normalizedRoot.Length).Replace('\\', '/')
+                : normalizedPath.Replace('\\', '/');
+        }
+
+        private static void PersistSessionJson(TimelineSessionRecord session, KimodoCommandSessionMetadata metadata)
+        {
+            JObject json = new JObject
+            {
+                ["schema_version"] = SessionJsonSchemaVersion,
+                ["session_id"] = metadata.sessionId,
+                ["name"] = metadata.sessionName,
+                ["session_revision"] = metadata.sessionRevision,
+                ["session_json_path"] = metadata.sessionJsonPath,
+                ["timeline_asset_path"] = session.TimelineAssetPath ?? string.Empty,
+                ["is_current"] = metadata.isCurrent,
+                ["is_automatic"] = metadata.isAutomatic,
+                ["characters"] = new JArray(),
+                ["animations"] = new JArray(),
+                ["poses"] = new JArray(),
+                ["analyses"] = GetPersistedAnalysisRecords(session),
+                ["generations"] = new JArray((metadata.generations ?? new List<KimodoCommandGenerationMetadata>()).Select(DescribeGeneration))
+            };
+
+            JArray characters = (JArray)json["characters"];
+            JArray animations = (JArray)json["animations"];
+            JArray poses = (JArray)json["poses"];
+            foreach (TimelineCharacterRecord character in session.Characters)
+            {
+                var characterJson = new JObject
+                {
+                    ["character_ref"] = character.CharacterRef ?? string.Empty,
+                    ["name"] = character.Name,
+                    ["track_name"] = character.Track != null ? character.Track.name : string.Empty,
+                    ["pose_cache_track_name"] = character.PoseCacheTrack != null ? character.PoseCacheTrack.name : string.Empty,
+                    ["animations"] = new JArray(),
+                    ["constraints"] = new JArray()
+                };
+                foreach (TimelineAnimationRecord animation in character.Animations)
+                {
+                    JObject animationJson = DescribeAnimation(animation);
+                    animationJson["animation_id"] = animation.Id.ToString("D");
+                    animationJson["source"] = animation.Source;
+                    KimodoCommandAnimationMetadata persisted = metadata.animations.FirstOrDefault(item =>
+                        string.Equals(item.animationId, animation.Id.ToString("D"), StringComparison.OrdinalIgnoreCase));
+                    animationJson["analysis_path"] = persisted?.analysisPath ?? string.Empty;
+                    animationJson["motion_path"] = persisted?.kmbPath ?? string.Empty;
+                    animationJson["start_frame"] = animation.StartFrame;
+                    animationJson["end_frame_exclusive"] = animation.EndFrameExclusive;
+                    animationJson["animator_import_name"] = animation.AnimatorImportName ?? string.Empty;
+                    animations.Add(animationJson);
+                    ((JArray)characterJson["animations"]).Add(animationJson.DeepClone());
+                }
+                if (character.Track != null)
+                {
+                    foreach (KimodoConstraintMarker marker in character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
+                        .Where(item => item.constraintEnabled))
+                    {
+                        ((JArray)characterJson["constraints"]).Add(DescribeTimelineConstraint(marker, 0));
+                    }
+                }
+                if (character.PoseCacheTrack != null)
+                {
+                    foreach (KimodoConstraintMarker marker in character.PoseCacheTrack.GetMarkers().OfType<KimodoConstraintMarker>())
+                    {
+                        poses.Add(new JObject
+                        {
+                            ["character"] = character.Name,
+                            ["track"] = character.PoseCacheTrack.name,
+                            ["marker_id"] = marker.name ?? string.Empty,
+                            ["frame"] = Mathf.RoundToInt((float)(marker.time * SessionFrameRate)),
+                            ["data"] = marker.SampleData?.characterPose != null
+                                ? CharacterPoseJson.ToJson(marker.SampleData.characterPose)
+                                : new JObject()
+                        });
+                    }
+                }
+                characters.Add(characterJson);
+            }
+
+            WriteJsonAtomically(GetSessionJsonAbsolutePath(session), json);
+        }
+
+        internal static void WriteJsonAtomically(string path, JObject json)
+        {
+            if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("A JSON output path is required.", nameof(path));
+            string tempPath = path + ".tmp_" + Guid.NewGuid().ToString("N");
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(tempPath, (json ?? new JObject()).ToString(Formatting.Indented));
+            try
+            {
+                if (File.Exists(path))
+                {
+                    try
+                    {
+                        File.Replace(tempPath, path, null);
+                    }
+                    catch (PlatformNotSupportedException)
+                    {
+                        File.Copy(tempPath, path, overwrite: true);
+                        File.Delete(tempPath);
+                    }
+                    catch (IOException)
+                    {
+                        File.Copy(tempPath, path, overwrite: true);
+                        File.Delete(tempPath);
+                    }
+                }
+                else
+                {
+                    File.Move(tempPath, path);
+                }
+            }
+            finally
+            {
+                if (File.Exists(tempPath)) File.Delete(tempPath);
+            }
+        }
+
+        private static JArray GetPersistedAnalysisRecords(TimelineSessionRecord session)
+        {
+            string folder = Path.Combine(GetSessionGeneratedFolder(session), "Analyses");
+            if (!Directory.Exists(folder)) return new JArray();
+            var records = new JArray();
+            foreach (string path in Directory.GetFiles(folder, "analysis_*.json").OrderBy(item => item, StringComparer.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    JObject record = JObject.Parse(File.ReadAllText(path));
+                    record["analysis_path"] = ToProjectRelativePath(path);
+                    records.Add(record);
+                }
+                catch (Exception exception)
+                {
+                    records.Add(new JObject
+                    {
+                        ["analysis_path"] = ToProjectRelativePath(path),
+                        ["error"] = exception.Message
+                    });
+                }
+            }
+            return records;
+        }
+
+        private static JObject DescribeGeneration(KimodoCommandGenerationMetadata value) => new JObject
+        {
+            ["request_id"] = value.requestId ?? string.Empty,
+            ["character"] = value.character ?? string.Empty,
+            ["animation"] = value.animation ?? string.Empty,
+            ["status"] = value.status ?? string.Empty,
+            ["stage"] = value.stage ?? string.Empty,
+            ["message"] = value.message ?? string.Empty,
+            ["error"] = value.error ?? string.Empty,
+            ["started_at_utc"] = value.startedAtUtc ?? string.Empty,
+            ["updated_at_utc"] = value.updatedAtUtc ?? string.Empty
+        };
 
         private static void EnsureTimelineSessionsRestored()
         {
@@ -202,9 +405,7 @@ namespace CharacterAnimationCli.Unity.Command
                     var restoredAnimation = new TimelineAnimationRecord(animationId, clip.displayName, saved.source, animationClip, clip, analysis, kmb, saved.startFrame, saved.endFrameExclusive)
                     {
                         AnimatorImportName = saved.animatorImportName ?? string.Empty,
-                        ImportKey = saved.importKey ?? string.Empty,
-                        FromAnimation = saved.fromAnimation ?? string.Empty,
-                        ToAnimation = saved.toAnimation ?? string.Empty
+                        ImportKey = saved.importKey ?? string.Empty
                     };
                     character.Animations.Add(restoredAnimation);
                     character.NextStartSeconds = Math.Max(

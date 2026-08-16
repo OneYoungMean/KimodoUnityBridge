@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -784,7 +785,7 @@ namespace KimodoBridge.Editor
             float frameRate,
             int frameCount)
         {
-            if (string.IsNullOrWhiteSpace(analysisJson) || trimStartFrame <= 0 || frameRate <= 0f)
+            if (string.IsNullOrWhiteSpace(analysisJson) || trimStartFrame <= 0)
             {
                 return analysisJson;
             }
@@ -792,31 +793,69 @@ namespace KimodoBridge.Editor
             try
             {
                 var analysis = JObject.Parse(analysisJson);
-                if (analysis["keyframes"] is not JArray keyframes)
-                {
-                    return analysisJson;
-                }
-
-                var trimmed = new JArray();
-                foreach (JToken keyframe in keyframes)
-                {
-                    int frame = keyframe.Value<int?>("frame") ?? 0;
-                    frame -= trimStartFrame;
-                    if (frame < 0 || frame >= frameCount)
-                    {
-                        continue;
-                    }
-                    keyframe["frame"] = frame;
-                    keyframe["time"] = frame / (double)frameRate;
-                    trimmed.Add(keyframe);
-                }
-                analysis["keyframes"] = trimmed;
+                TrimKeyframeMarkers(analysis, trimStartFrame, frameRate, frameCount);
+                TrimFootContactChanges(analysis, trimStartFrame, frameCount);
                 return analysis.ToString(Formatting.None);
             }
             catch
             {
                 return analysisJson;
             }
+        }
+
+        private static void TrimKeyframeMarkers(JObject analysis, int trimStartFrame, float frameRate, int frameCount)
+        {
+            if (analysis["keyframes"] is not JArray source)
+            {
+                return;
+            }
+
+            var trimmed = new JArray();
+            foreach (JObject item in source.OfType<JObject>())
+            {
+                int frame = item.Value<int?>("frame") ?? 0;
+                frame -= trimStartFrame;
+                if (frame < 0 || frame >= frameCount)
+                {
+                    continue;
+                }
+                item["frame"] = frame;
+                if (frameRate > 0f)
+                {
+                    item["time"] = frame / (double)frameRate;
+                }
+                trimmed.Add(item);
+            }
+            analysis["keyframes"] = trimmed;
+        }
+
+        private static void TrimFootContactChanges(JObject analysis, int trimStartFrame, int frameCount)
+        {
+            if (analysis["foot_contact_changes"] is not JArray source)
+            {
+                return;
+            }
+
+            analysis["foot_contact_changes"] = new JArray(source.OfType<JObject>()
+                .Select(item =>
+                {
+                    int frame = item.Value<int?>("frame") ?? 0;
+                    frame -= trimStartFrame;
+                    if (frame < 0 || frame >= frameCount)
+                    {
+                        return null;
+                    }
+                    JObject trimmed = (JObject)item.DeepClone();
+                    trimmed["frame"] = frame;
+                    trimmed["duration_frames"] = Math.Min(
+                        Math.Max(0, trimmed.Value<int?>("duration_frames") ?? 0),
+                        frameCount - frame);
+                    return trimmed;
+                })
+                .Where(item => item != null)
+                .OrderBy(item => item.Value<int?>("duration_frames") ?? 0)
+                .ThenBy(item => item.Value<string>("foot") ?? string.Empty, StringComparer.Ordinal)
+                .ThenBy(item => item.Value<int?>("frame") ?? 0));
         }
 
         private static void TryFilterGeneratedBoneClip(

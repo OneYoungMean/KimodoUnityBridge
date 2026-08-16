@@ -1,92 +1,43 @@
-# 开发能力与 CLI 覆盖表
+# 开发能力与命令覆盖
 
-本文记录当前 package 能力与 CLI 覆盖范围，供功能开发和 API 补齐时核对。
+当前版本：Unity package `0.1.0`，QuickServer `2.2.6`。
 
-当前版本：Unity package `0.1.0`，QuickServer `2.2.5`。
+`Editor/Core/Manager/command_dispatcher.cs` 是唯一公开 command 入口；`GetCommandDefinitionsJson()` 和 `kimodo_help` 是参数真相。
 
-## 覆盖口径
-
-- **完整**：`command_dispatcher` 可以完成该能力的主要工作流。
-- **部分**：只覆盖能力的一部分，或仍需外围 Unity 工具完成关键步骤。
-- **调试**：仅提供开发或诊断入口，不作为常规动画工作流。
-- **未覆盖**：package 已有该能力，但 `command_dispatcher` 没有对应命令。
-- **外部工具**：明确由项目现有的 Unity 自动化工具负责。
-
-Editor CLI 的权威入口是 `Editor/Core/Manager/command_dispatcher.cs`。未注册到该入口的 Runtime 或 Editor 实现不计入 CLI 能力。
-
-## 当前 Editor command
+## vNext command surface
 
 | 分组 | Commands |
 | --- | --- |
-| 发现 | `kimodo_help` |
-| Runtime 诊断 | `kimodo_debug_install_server` |
-| Session | `session_open`, `session_close`, `query_current_session`, `session_try_add`, `session_try_remove` |
-| 生成与任务 | `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation` |
-| 分析与图片 | `kimodo_analyze`, `query_picture` |
-| Pose | `pose_create`, `pose_get`, `pose_set`, `pose_copy` |
-| Record、Bake、Retarget 与路径 | `kimodo_record_range`, `kimodo_bake_range`, `kimodo_retarget_animation`, `kimodo_build_root2d_path` |
+| 发现与运行时维护 | `kimodo_help`、`kimodo_install_server` |
+| Session | `session_get_or_create`、`session_add`、`session_close` |
+| 生成任务 | `kimodo_generate_animation`、`kimodo_get_generation`、`kimodo_cancel_generation` |
+| 分析 | `animation_analyze`、`animation_compare` |
+| Pose | `pose_get`、`pose_contract`、`pose_set_root_transform`、`pose_set_muscle` |
+| 图片 | `picture_motion_overlay`、`picture_key_poses`、`picture_trajectory_3d` |
+| 资产 | `kimodo_record_range`、`kimodo_retarget_animation` |
 
-合计：18 个 command。每次开发以 `GetCommandDefinitionsJson()` 和 `kimodo_help` 的实际返回为准。
+合计：19 个 command。旧命令名、旧别名、旧 schema 和旧测试不保留兼容入口。
 
-## 能力覆盖矩阵
+## 能力矩阵
 
-| 能力 | Package 当前能力 | CLI 入口 | 覆盖 | 开发备注 |
-| --- | --- | --- | --- | --- |
-| 命令、路由与模型发现 | 返回 command schema、按意图路由、句柄流向、约束语义和可用模型配置 | `kimodo_help` | 完整 | schema 是参数真相；新 Session 明确为空 |
-| Package 安装 | 通过 UPM Git、embedded 或 `file:` 安装 | 分发 skill 修改 `manifest.json` | 部分 | 安装发生在 command 可用之前 |
-| 项目级 QuickServer 准备 | 冷启动时先探活；活动实例复用、启动中实例等待，仅确认未启动后按包内/项目版本同步并拉起项目运行时 | `kimodo_debug_install_server` | 调试 | Auto Sync 不在已连接的普通生成中执行；常规生成不要求显式安装命令 |
-| Bridge 会话归属 | 一次性命令复用 Shared Bridge；只有持续状态的 Runtime Motion Driver 使用 Owned Bridge | 无 | 完整 | QuickServer 生命周期只由启动时 `--watchpid` 管理；TCP Generate 不传输 `owner_pid` |
-| Session 创建、加载与关闭 | 创建/加载可保留的 60 FPS Timeline Session | `session_open`, `session_close` | 完整 | 同时只维护一个 current Session |
-| Session 状态查询 | 查询角色、动画、约束和 Animator transition | `query_current_session` | 完整 | 支持 7 种 query |
-| 角色加入与移除 | 将场景 Humanoid Animator 加入/移出 Session | `session_try_add`, `session_try_remove` | 完整 | 使用安全名称或场景路径 |
-| AnimationClip 加入与移除 | 将项目 Clip 加入角色轨道并维护虚拟时间地址 | `session_try_add`, `session_try_remove` | 完整 | 非 Muscle Clip 会尝试 Retarget |
-| AnimatorController 导入 | 展开 State/Clip，并 Bake 确定性 Clip-to-Clip transition | `session_try_add(kind:"animator")` | 部分 | BlendTree 分支选择和 Timeline 摆放由外部工具完成 |
-| 单段动画生成 | 创建 `KimodoPlayableClip`、生成、写入资产并加入 Session | `kimodo_generate_animation` | 完整 | 支持模型、seed、steps、输出模式、约束和 analysis option |
-| 生成进度、范围锁与取消 | 按 `request_id` 查询终态或取消任务；同角色 Track 的重叠采样/删除立即返回 `generation_range_locked` | `kimodo_get_generation`, `kimodo_cancel_generation` | 完整 | accepted/running 不算完成；不阻塞 Unity 主线程 |
-| 多片段连接生成 | Timeline Inspector 可对同一轨道选中的多个 Clips 一次连接生成 | 无 | 未覆盖 | 没有多片段 command/schema |
-| Pose 采样与编辑 | 原生读取 MuscleClip 同义的 49 Muscle + Root/Hand/Foot TQ，并支持局部 Patch | `pose_create`, `pose_get`, `pose_set`, `pose_copy` | 完整 | 可写 Pose 由 Session 管理；四元数为 `[x,y,z,w]`，位移单位米，Muscle 不 Clamp |
-| Unified Constraint（mask） | 一个 Marker 保存 CharacterPose、类型、时间、Root heading 开关和通道 mask；导出前按 Muscle→Foot IK→Hand IK→Root2D 合成 | `kimodo_generate_animation.constraints`（同帧 sparse 对象；旧 flat union 兼容解析） | 完整 | 新建只有一种 Constraint；QuickServer 仍接收原协议 DTO |
-| FullBody / Root2D / Hand/Foot 协议桥接 | 从同一帧最终骨架分别投影为既有协议记录；发送前将同帧 Root2D 并入 FullBody，EndEffector 保留 FK/root 上下文并发送 `target_positions` | `kimodo_generate_animation.constraints` | 完整 | 输出协议中同帧 Root2D 与 FullBody 不共存 |
-| Constraint 场景编辑 | Inspector 显示 mask 与 Root/Hand/Foot TQ；Override Edit 显示 49 Muscle 所依赖的去重 Humanoid 骨骼本地 Euler；Root2D 拖拽只回写 canonical root，避免重复根变换 | 无 | 部分 | Scene 与 Override Euler 编辑均经 transient Avatar 反算回 Muscle；旧 Marker 资产继续兼容 |
-| Loop generation 预处理 | `kimodo_generate_animation(loop:true)`、KimodoPlayableClip Inspector 的 `Generate Loop` | 完整 | 第一轮按目标时长普通生成；第二轮使用虚拟头/尾两个 Root2D 锚点，并将首帧原始 FullBody 与第一轮尾帧的 Root2D XZ/yaw 融合为可见尾帧 FullBody，再生成前后缓冲并裁剪中段；超过 600 个 Session 帧回退默认流程 |
-| 数学 Root2D 路径 | 生成 line、turn、s、circle 路径点 | `kimodo_build_root2d_path` | 完整 | 输出可直接转换为 Root2D constraints |
-| Spline 路径创作 | Scene 编辑与 Spline 采样 | 无 | 未覆盖 | 当前仅为 Editor 交互能力；CLI 使用数学 Root2D 路径 |
-| 动画分析 | 分析命名动画或半开 Session 帧区间并缓存 `analysis_id` | `kimodo_analyze` | 完整 | 支持 `analysis_option` |
-| 动作图像证据 | 渲染 Pose、Analysis 或 Constraints 的 motion_evidence_v2 八图证据 | `query_picture` | 完整 | 返回四个 Ghost 叠加视图、三个关键姿势和一个 3D 轨迹图，用于视觉检查 |
-| Range Record | 将 Session 半开区间录制为 AnimationClip | `kimodo_record_range` | 完整 | 支持速度、Root Motion 处理和输出目录 |
-| Range Bake（兼容） | 将 Session 半开区间 Bake 为 AnimationClip | `kimodo_bake_range` | 完整 | 保留兼容入口；支持 Retarget 参数 |
-| 独立 Retarget | 将已加载动画转换到另一 current Session 角色 | `kimodo_retarget_animation` | 完整 | 需要有效 Humanoid Avatar |
-| Bake Retarget | Bake 时重定向到另一 current Session 角色 | `kimodo_bake_range(retarget_character)` | 完整 | 需要有效 Humanoid Avatar |
-| 任意 Clip 独立 Retarget | Editor Retarget 工具可进行 Bone/Muscle 转换和写回 | 无 | 部分 | CLI 仅覆盖 Bake 内的 Retarget |
-| 一般 Timeline 编排 | Clip 放置、重叠、Ease、Track/Binding 编辑 | 外围 Unity 自动化 | 外部工具 | Kimodo command 只维护自身 Session 工作流 |
-| Runtime Motion Driver | 连续生成、提示词、Root2D、Hand/Foot Pose 约束和实时播放 | 无 Editor command | 部分 | 公共 C# API 位于 `KimodoRuntimeMotionDriver`；Root2D 到达阈值内不再暂存约束；末端约束导出时携带所在 canonical FK/root 与 `target_positions` |
-| Runtime 发布安装 | 将运行时复制到 `StreamingAssets` | 无 | 未覆盖 | 当前入口为 Unity 菜单命令 |
-| Server Manager | 项目运行时路径、状态、模型、缓存和维护操作 | `kimodo_help(section:"models")`、调试安装 | 部分 | 其余维护能力保留在 Project Settings UI |
+| 能力 | Command 覆盖 | 状态 | 开发说明 |
+| --- | --- | --- | --- |
+| Schema、模型与约束发现 | `kimodo_help` | 完整 | 命令参数以实时 schema 为准。 |
+| 项目级 QuickServer 修复 | `kimodo_install_server` | 调试 | 仅用于用户明确要求或启动/安装诊断。 |
+| 稳定 Session 生命周期 | `session_get_or_create`、`session_add`、`session_close` | 完整 | 名称大小写不敏感；新 Session 为空；切换或关闭会取消本 Session 的生成任务。 |
+| Session JSON | 所有 Session 变更命令 | 完整 | `Assets/KimodoGeneratedClips/Sessions/<safe name>/session.json` 原子更新，记录轨道、动画、约束、Pose、analysis 与 generation history。 |
+| 单段生成与任务查询 | `kimodo_generate_animation`、`kimodo_get_generation`、`kimodo_cancel_generation` | 完整 | 生成异步，使用 `request_id` 轮询。 |
+| 动画分析 | `animation_analyze` | 完整 | 底层同步调用 `KimodoPlayableClipGenerationExecutionService.Analysis(...)`；返回按 saliency 降序的代表性关键帧、按持续帧数升序的左右脚接触切换帧，以及含四通道稠密 foot contacts 的 KMB `motion_path`。不返回质量、loop seam 或 trajectory 指标。 |
+| 动画比较 | `animation_compare` | 部分 | 目前比较根、姿势和末端差异；详细接触与轨迹指标待后端实现。 |
+| Pose Cache 与拟合 | `pose_get`、`pose_contract`、`pose_set_root_transform`、`pose_set_muscle` | 完整 | marker ID 为 Session、角色、来源和帧的 SHA-256；`full_data` 返回 49 muscles 和 T/Q。 |
+| 生成约束 | `kimodo_generate_animation.constraints` | 完整 | 同帧 sparse fullbody/root2d/hand/foot 组合；内部 clip in/out 约束不属于 command 改造范围。 |
+| 图片证据 | 三个 `picture_*` command | 完整 | 输出根运动四视图、关键姿势、3D 轨迹；光照、网格和固定取景由渲染实现提供。 |
+| Record 与 Retarget | `kimodo_record_range`、`kimodo_retarget_animation` | 完整 | 使用 Session 角色与返回安全动画名。 |
+| Animator 导入 | `session_add(kind:"animator")` | 部分 | 导入 State Clip 和 BlendTree 候选 Clip；不 materialize Transition。 |
+| Transition / authored trajectory | 无 | 未实现 | 记录在后续 todo；本版本不生成 transition 变种或 trajectory command。 |
 
-## Constraint 数据结构
+## 维护规则
 
-外部 command 使用同帧 sparse 对象，旧 flat union 仍兼容解析；Timeline 内部统一为一个 Constraint Marker：
-
-```json
-{
-  "characterPose": "<FullBody canonical pose>",
-  "root2DOverride": "<optional XZ/yaw override>",
-  "constraintType": "constraint",
-  "sampleTime": 0.0,
-  "hasRootHeading": true,
-  "mask": { "muscle": true, "rootPosition": true, "leftHand": false }
-}
-```
-
-- mask 控制 Muscle、Root2D position/heading、左右 HandTQ 和 FootTQ 通道；同一 Constraint 可同时启用多个通道。`characterPose.root` 始终属于 FullBody，`root2DOverride` 只保存 Root2D 的 X/Z 与 yaw，不能覆盖 FullBody 的 Y、pitch、roll。
-- 求解顺序固定为 FullBody（raw 49 Muscle + 完整 Root T/Q）→ Root2D（仅 X/Z、yaw）→ Foot IK → Hand IK。Root2D 生效时，已启用的四肢世界目标保持不动，再反解为新的 body-relative T/Q。
-- 导出边界再投影成既有 `fullbody`、`root2d` 与手脚协议记录；若同帧存在 Root2D 与 FullBody 或 EndEffector，则发送前把 Root2D 的 X/Z 与 heading 合并到该根上下文，保留 Y、pitch、roll，并删除该 Root2D 行。旋转顺序固定为先移除 Root6D yaw，再左乘 Root2D yaw。EndEffector 的 `target_positions` 保持世界目标不变；QuickServer 协议本身不变。
-- `humanScale` 是 HumanPose 归一化坐标与协议米单位之间的内部投影元数据，不是可创作通道。
-
-## 维护要求
-
-1. 新增、删除或改名 command 时，同步更新 command 清单、矩阵和 `TOOLS.md` 中英文区。
-2. 已有 package 能力获得 command 后，将状态改为“完整”或“部分”，并写明仍未覆盖的边界。
-3. Runtime 公共 C# API 只有在注册到 `command_dispatcher` 后，才能记为 Editor CLI 覆盖。
-4. 覆盖结论必须来自当前源码和可执行 schema；测试替身或计划不计为已覆盖。
-5. Unity package 或 QuickServer 版本变化时，同步更新本文顶部的当前版本。
+1. command 的新增、删除或改名必须同一变更同步 `TOOLS.md` 的中英文区域、`SKILL.md`、`SKILL-zh.md` 和本文件。
+2. QuickServer 代码、测试或文档变更每个完整变更集只增加一次 patch 版本，并同步 `TOOLS.md` 和本文件的版本行。
+3. Unity 验证应区分 command 程序集结果与不相关测试程序集的既有错误；后端修改至少运行最小相关单元测试。

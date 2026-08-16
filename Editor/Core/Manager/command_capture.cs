@@ -16,20 +16,128 @@ namespace CharacterAnimationCli.Unity.Command
 {
     internal static partial class command_context
     {
-        private const int MaxCachedAnalyses = 128;
         private static readonly Dictionary<string, AnalysisCacheRecord> AnalysisCache =
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
-        private static readonly Queue<string> AnalysisCacheOrder = new Queue<string>();
 
-        private static string CommandCacheFolder => Path.Combine(
-            Directory.GetParent(Application.dataPath)?.FullName ?? Application.temporaryCachePath,
-            "Library", "KimodoCache", "Commands");
+        public static string PictureMotionOverlay(string argumentsJson) => RenderPicture(argumentsJson, "motion_overlay");
 
-        public static string Capture(string argumentsJson)
+        public static string PictureKeyPoses(string argumentsJson) => RenderPicture(argumentsJson, "key_poses");
+
+        public static string PictureTrajectory3D(string argumentsJson) => RenderPicture(argumentsJson, "trajectory_3d");
+
+        private static string RenderPicture(string argumentsJson, string mode)
         {
             return Execute(argumentsJson, arguments =>
             {
-                TimelineSessionRecord session = RequireCurrentTimelineSession();
+                TimelineSessionRecord session = RequireTimelineSession(arguments);
+                JObject captureArguments = (JObject)arguments.DeepClone();
+                captureArguments.Remove("session_id");
+                if (mode != "trajectory_3d") captureArguments["bones"] = new JArray();
+                if (mode == "key_poses" && captureArguments["frames"] is JArray requestedFrames)
+                {
+                    if (requestedFrames.Count == 0 || requestedFrames.Any(item => item.Type != JTokenType.Integer))
+                        throw new InvalidOperationException("frames must be a non-empty integer array.");
+                    if (captureArguments["analysis_id"] != null)
+                    {
+                        AnalysisCacheRecord cached = GetCachedAnalysis(session, RequiredStringValue(captureArguments, "analysis_id"));
+                        var selectedPoses = new JArray();
+                        foreach (JToken requestedFrame in requestedFrames)
+                        {
+                            int frame = requestedFrame.Value<int>();
+                            JObject match = (cached.Poses ?? new JArray()).OfType<JObject>().FirstOrDefault(item =>
+                                item["analysis"]?.Value<int?>("frame") == frame);
+                            if (match?["pose"] is not JObject pose)
+                            {
+                                throw new InvalidOperationException($"analysis_id does not contain keyframe {frame}.");
+                            }
+                            selectedPoses.Add(pose.DeepClone());
+                        }
+                        captureArguments["poses"] = selectedPoses;
+                    }
+                    else if (captureArguments["animation"] != null)
+                    {
+                        string name = RequiredStringValue(captureArguments, "animation");
+                        TimelineAnimationRecord animation = session.Characters.SelectMany(character => character.Animations)
+                            .SingleOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))
+                            ?? throw new InvalidOperationException($"Animation '{name}' is not loaded in the selected Session.");
+                        int duration = animation.TimelineClip != null
+                            ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)))
+                            : Math.Max(1, animation.EndFrameExclusive - animation.StartFrame);
+                        if (requestedFrames.Any(item => item.Value<int>() < 0 || item.Value<int>() >= duration))
+                        {
+                            throw new InvalidOperationException($"frames must be within animation '{name}' local range [0,{duration}).");
+                        }
+                        captureArguments["poses"] = new JArray(requestedFrames.Select(frame => PoseLocatorJson(name, frame.Value<int>())));
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException("picture_key_poses frames require analysis_id or animation.");
+                    }
+                    captureArguments.Remove("analysis_id");
+                    captureArguments.Remove("animation");
+                }
+                captureArguments.Remove("frames");
+                if (captureArguments["analysis_id"] == null && captureArguments["animation"] != null)
+                {
+                    string animationName = RequiredStringValue(captureArguments, "animation");
+                    TimelineAnimationRecord animation = session.Characters.SelectMany(item => item.Animations)
+                        .SingleOrDefault(item => string.Equals(item.Name, animationName, StringComparison.OrdinalIgnoreCase));
+                    if (animation == null)
+                    {
+                        throw new InvalidOperationException($"Animation '{animationName}' is not loaded in the current Session.");
+                    }
+                    int duration = animation.TimelineClip != null
+                        ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)))
+                        : Math.Max(1, animation.EndFrameExclusive - animation.StartFrame);
+                    int[] frames = SelectFrames(0, duration, 5);
+                    captureArguments.Remove("animation");
+                    captureArguments["poses"] = new JArray(frames.Select(frame => PoseLocatorJson(animation.Name, frame)));
+                }
+                if (captureArguments["analysis_id"] == null && captureArguments["poses"] == null)
+                {
+                    throw new InvalidOperationException("Provide analysis_id, animation, or poses.");
+                }
+
+                JObject raw = JObject.Parse(RenderEvidence(session, captureArguments));
+                if (raw.Value<bool?>("ok") != true)
+                {
+                    string message = raw["error"]?["message"]?.Value<string>() ?? "Picture rendering failed.";
+                    throw new InvalidOperationException(message);
+                }
+                JArray allImages = raw["images"] as JArray ?? new JArray();
+                IEnumerable<JObject> images = mode switch
+                {
+                    "motion_overlay" => allImages.OfType<JObject>().Where(item =>
+                        (item.Value<string>("kind") ?? string.Empty).StartsWith("motion_overlay_", StringComparison.Ordinal)),
+                    "key_poses" => allImages.OfType<JObject>().Where(item =>
+                        (item.Value<string>("kind") ?? string.Empty).StartsWith("key_pose_", StringComparison.Ordinal)),
+                    "trajectory_3d" => allImages.OfType<JObject>().Where(item =>
+                        string.Equals(item.Value<string>("kind"), "trajectory_3d", StringComparison.Ordinal)),
+                    _ => throw new InvalidOperationException("Unknown picture mode.")
+                };
+                return OkForSession(session, new JObject
+                {
+                    ["images"] = new JArray(images.Select(item => item.DeepClone())),
+                    ["resolution"] = raw["resolution"]?.DeepClone(),
+                    ["format"] = "motion_evidence_vNext"
+                });
+            });
+        }
+
+        private static int[] SelectFrames(int startFrame, int endFrameExclusive, int count)
+        {
+            int start = Math.Max(0, startFrame);
+            int end = Math.Max(start + 1, endFrameExclusive);
+            return Enumerable.Range(0, Math.Max(1, count))
+                .Select(index => Mathf.RoundToInt(Mathf.Lerp(start, end - 1, count <= 1 ? 0f : index / (float)(count - 1))))
+                .Distinct()
+                .ToArray();
+        }
+
+        private static string RenderEvidence(TimelineSessionRecord session, JObject arguments)
+        {
+            try
+            {
                 var requests = new List<CaptureRequest>();
                 int selected = (arguments["poses"] != null ? 1 : 0) +
                     (arguments["analysis_id"] != null ? 1 : 0) +
@@ -40,13 +148,13 @@ namespace CharacterAnimationCli.Unity.Command
                 }
                 if (arguments["poses"] is JArray poses)
                 {
-                    foreach (JObject pose in poses.OfType<JObject>()) requests.Add(BuildCaptureRequest(RequirePoseLocator(pose), null));
+                    foreach (JObject pose in poses.OfType<JObject>()) requests.Add(BuildCaptureRequest(session, RequirePoseLocator(pose), null));
                     if (requests.Count != poses.Count) throw new InvalidOperationException("Every poses item must be a {source,frame} object.");
                 }
                 else if (arguments["analysis_id"] != null)
                 {
                     string id = RequiredStringValue(arguments, "analysis_id");
-                    AnalysisCacheRecord cached = GetCachedAnalysis(id);
+                    AnalysisCacheRecord cached = GetCachedAnalysis(session, id);
                     string timelineGuid = AssetDatabase.AssetPathToGUID(session.TimelineAssetPath);
                     bool sameTimeline = !string.IsNullOrWhiteSpace(cached.TimelineAssetGuid)
                         ? string.Equals(cached.TimelineAssetGuid, timelineGuid, StringComparison.OrdinalIgnoreCase)
@@ -55,7 +163,7 @@ namespace CharacterAnimationCli.Unity.Command
                         throw new InvalidOperationException("analysis_source_expired: the analysis belongs to a different Session.");
                     JArray analyzedPoses = cached.Poses ?? new JArray();
                     foreach (JObject item in analyzedPoses.OfType<JObject>())
-                        requests.Add(BuildCaptureRequest(RequirePoseLocator(item["pose"] as JObject), item["analysis"] as JObject));
+                        requests.Add(BuildCaptureRequest(session, RequirePoseLocator(item["pose"] as JObject), item["analysis"] as JObject));
                 }
                 else if (arguments["constraints"] is JArray constraints)
                 {
@@ -82,7 +190,7 @@ namespace CharacterAnimationCli.Unity.Command
                             {
                                 throw new InvalidOperationException($"constraints[{i}].fullbody.pose is required.");
                             }
-                            requests.Add(BuildCaptureRequest(
+                            requests.Add(BuildCaptureRequest(session,
                                 RequirePoseLocator(fullBodyPose),
                                 new JObject { ["constraint_type"] = "fullbody", ["frame"] = frame }));
                         }
@@ -96,7 +204,7 @@ namespace CharacterAnimationCli.Unity.Command
                             }
                             if (root2D["pose"] is JObject rootPose && !hasPosition)
                             {
-                                requests.Add(BuildCaptureRequest(
+                                requests.Add(BuildCaptureRequest(session,
                                     RequirePoseLocator(rootPose),
                                     new JObject { ["constraint_type"] = "root2d", ["frame"] = frame }));
                             }
@@ -147,7 +255,7 @@ namespace CharacterAnimationCli.Unity.Command
                             {
                                 throw new InvalidOperationException($"constraints[{i}].{field}.pose is required.");
                             }
-                            requests.Add(BuildCaptureRequest(
+                            requests.Add(BuildCaptureRequest(session,
                                 RequirePoseLocator(endEffectorPose),
                                 new JObject { ["constraint_type"] = field, ["frame"] = frame }));
                         }
@@ -156,26 +264,30 @@ namespace CharacterAnimationCli.Unity.Command
                 if (requests.Count == 0) throw new InvalidOperationException("The selected capture source contains no poses.");
                 JObject result = RenderMotionEvidence(session, requests, arguments);
                 if (arguments["analysis_id"] != null) result["analysis_id"] = arguments.Value<string>("analysis_id");
-                return Ok(result);
-            });
+                return OkForSession(session, result);
+            }
+            catch (Exception ex)
+            {
+                return Error(ex is CommandException command ? command.Code : "invalid_argument", ex.Message);
+            }
         }
 
-        private static CaptureRequest BuildCaptureRequest(PoseLocator locator, JObject annotation)
+        private static CaptureRequest BuildCaptureRequest(
+            TimelineSessionRecord session,
+            PoseLocator locator,
+            JObject annotation)
         {
-            TimelineSessionRecord session = RequireCurrentTimelineSession();
-            TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
-                string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase));
-            if (character != null)
+            if (TryResolveAnimationPoseSource(session, locator, out TimelineCharacterRecord animationCharacter, out int absoluteFrame))
             {
-                ThrowIfGenerationRangeLocked(session, character, locator.Frame, locator.Frame + 1, QueryPictureCommand);
-                return new CaptureRequest(character, locator.Frame / SessionFrameRate, annotation, null, locator.Frame);
+                ThrowIfGenerationRangeLocked(session, animationCharacter, absoluteFrame, absoluteFrame + 1, PictureMotionOverlayCommand);
+                return new CaptureRequest(animationCharacter, absoluteFrame / SessionFrameRate, annotation, null, locator.Frame);
             }
-            character = ResolvePoseCacheOwner(locator.Source);
-            if (character != null)
+            TimelineCharacterRecord cacheOwner = ResolvePoseCacheOwner(locator.Source);
+            if (cacheOwner != null)
             {
-                KimodoConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
+                KimodoConstraintMarker marker = FindUntypedPose(cacheOwner.PoseCacheTrack, locator.Frame)
                     ?? throw new InvalidOperationException("Writable pose source does not contain a pose at the requested frame.");
-                return new CaptureRequest(character, session.Director.time, annotation, marker.SampleData.Clone(), locator.Frame);
+                return new CaptureRequest(cacheOwner, session.Director.time, annotation, marker.SampleData.Clone(), locator.Frame);
             }
             TimelineCharacterRecord owner = session.Characters.FirstOrDefault(item => item.Track.GetMarkers()
                 .OfType<KimodoConstraintMarker>().Any(marker =>
@@ -195,9 +307,17 @@ namespace CharacterAnimationCli.Unity.Command
             double start,
             double end,
             JArray poses,
-            JObject analysis)
+            JObject analysis,
+            byte[] motionBytes)
         {
+            if (motionBytes == null || motionBytes.Length == 0)
+            {
+                throw new InvalidOperationException("Analysis cannot be cached without dense KMB motion.");
+            }
             string id = Guid.NewGuid().ToString("D");
+            string motionPath = AnalysisMotionCachePath(session, id);
+            Directory.CreateDirectory(Path.GetDirectoryName(motionPath));
+            File.WriteAllBytes(motionPath, motionBytes);
             var record = new AnalysisCacheRecord
             {
                 Id = id,
@@ -210,32 +330,22 @@ namespace CharacterAnimationCli.Unity.Command
                 End = end,
                 CreatedAtUtc = DateTime.UtcNow,
                 Poses = poses != null ? (JArray)poses.DeepClone() : new JArray(),
-                Analysis = analysis != null ? (JObject)analysis.DeepClone() : new JObject()
+                Analysis = analysis != null ? (JObject)analysis.DeepClone() : new JObject(),
+                MotionPath = ToProjectRelativePath(motionPath)
             };
             AnalysisCache[id] = record;
-            AnalysisCacheOrder.Enqueue(id);
-            Directory.CreateDirectory(CommandCacheFolder);
-            File.WriteAllText(AnalysisCachePath(id), record.ToJson().ToString(Formatting.Indented));
-            while (AnalysisCacheOrder.Count > MaxCachedAnalyses)
-            {
-                string expired = AnalysisCacheOrder.Dequeue();
-                AnalysisCache.Remove(expired);
-                string path = AnalysisCachePath(expired);
-                if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
-            }
-            foreach (FileInfo expired in new DirectoryInfo(CommandCacheFolder)
-                .GetFiles("analysis_*.json")
-                .OrderByDescending(file => file.LastWriteTimeUtc)
-                .Skip(MaxCachedAnalyses))
-            {
-                AnalysisCache.Remove(Path.GetFileNameWithoutExtension(expired.Name).Substring("analysis_".Length));
-                expired.Delete();
-            }
+            WriteJsonAtomically(AnalysisCachePath(session, id), record.ToJson());
             return id;
         }
+
+        private static string AnalysisCachePath(TimelineSessionRecord session, string id) =>
+            Path.Combine(GetSessionGeneratedFolder(session), "Analyses", $"analysis_{id}.json");
+
+        private static string AnalysisMotionCachePath(TimelineSessionRecord session, string id) =>
+            Path.Combine(GetSessionGeneratedFolder(session), "Analyses", $"analysis_{id}.kmb");
+
+        private static string EvidenceFolder(TimelineSessionRecord session) =>
+            Path.Combine(GetSessionGeneratedFolder(session), "Pictures");
 
         private static JObject RenderMotionEvidence(
             TimelineSessionRecord session,
@@ -248,7 +358,8 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new InvalidOperationException("scale must be between 0.25 and 4.0.");
             }
-            List<CaptureRequest> selected = SelectEvidenceRequests(requests, 5);
+            int ghostFrames = Mathf.Clamp(arguments.Value<int?>("ghost_frames") ?? 5, 2, 8);
+            List<CaptureRequest> selected = SelectEvidenceRequests(requests, ghostFrames);
             double originalTime = session.Director.time;
             var metadata = new JArray();
             var previews = new List<GameObject>(selected.Count);
@@ -277,8 +388,8 @@ namespace CharacterAnimationCli.Unity.Command
                 }
 
                 Bounds motionBounds = CalculateMotionBounds(previews, CalculateBounds(previews));
-                CreateEvidenceEnvironment(environment, motionBounds, previews);
-                Directory.CreateDirectory(CommandCacheFolder);
+                CreateEvidenceEnvironment(environment, motionBounds, previews, arguments["bones"] as JArray);
+                Directory.CreateDirectory(EvidenceFolder(session));
                 (string kind, Vector3 direction)[] views =
                 {
                     ("motion_overlay_front", Vector3.forward),
@@ -291,7 +402,7 @@ namespace CharacterAnimationCli.Unity.Command
                     Texture2D image = RenderGhostComposite(
                         previews, environment, motionBounds, view.direction, resolution, scale,
                         orthographic: true, renderPoses: true);
-                    images.Add(WriteEvidenceImage(view.kind, image));
+                    images.Add(WriteEvidenceImage(session, view.kind, image));
                     UnityEngine.Object.DestroyImmediate(image);
                 }
 
@@ -299,14 +410,14 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     Texture2D image = RenderSinglePose(
                         previews, environment, index, CalculateBounds(previews[index]), resolution, scale);
-                    images.Add(WriteEvidenceImage("key_pose_" + index.ToString(CultureInfo.InvariantCulture), image));
+                    images.Add(WriteEvidenceImage(session, "key_pose_" + index.ToString(CultureInfo.InvariantCulture), image));
                     UnityEngine.Object.DestroyImmediate(image);
                 }
 
                 Texture2D trajectory = RenderGhostComposite(
                     previews, environment, motionBounds, new Vector3(1f, .75f, -1f).normalized,
                     resolution, scale, orthographic: false, renderPoses: false);
-                images.Add(WriteEvidenceImage("trajectory_3d", trajectory));
+                images.Add(WriteEvidenceImage(session, "trajectory_3d", trajectory));
                 UnityEngine.Object.DestroyImmediate(trajectory);
 
                 return new JObject
@@ -347,9 +458,9 @@ namespace CharacterAnimationCli.Unity.Command
             return result;
         }
 
-        private static JObject WriteEvidenceImage(string kind, Texture2D image)
+        private static JObject WriteEvidenceImage(TimelineSessionRecord session, string kind, Texture2D image)
         {
-            string path = Path.Combine(CommandCacheFolder,
+            string path = Path.Combine(EvidenceFolder(session),
                 $"picture_{kind}_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.png");
             File.WriteAllBytes(path, image.EncodeToPNG());
             return new JObject { ["kind"] = kind, ["path"] = path.Replace('\\', '/') };
@@ -414,7 +525,8 @@ namespace CharacterAnimationCli.Unity.Command
         private static void CreateEvidenceEnvironment(
             List<GameObject> objects,
             Bounds bounds,
-            IReadOnlyList<GameObject> previews)
+            IReadOnlyList<GameObject> previews,
+            JArray requestedBones)
         {
             const int captureLayer = 31;
             float size = Mathf.Ceil(Mathf.Max(bounds.size.x, bounds.size.z) * .5f) * 2f;
@@ -440,7 +552,7 @@ namespace CharacterAnimationCli.Unity.Command
             CreateTrajectory(objects, roots, new Color(.1f, .85f, 1f, 1f), .045f, speedColor: false);
             CreateMarker(objects, roots[0], Color.green);
             CreateMarker(objects, roots[roots.Length - 1], Color.red);
-            CreateBoneTrajectories(objects, previews);
+            CreateBoneTrajectories(objects, previews, requestedBones);
             CreateEvidenceLights(objects, bounds.center);
         }
 
@@ -463,18 +575,26 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        private static void CreateBoneTrajectories(List<GameObject> objects, IReadOnlyList<GameObject> previews)
+        private static void CreateBoneTrajectories(
+            List<GameObject> objects,
+            IReadOnlyList<GameObject> previews,
+            JArray requestedBones)
         {
-            HumanBodyBones[] bones =
+            var bones = new[]
             {
-                HumanBodyBones.Hips,
-                HumanBodyBones.LeftHand,
-                HumanBodyBones.RightHand,
-                HumanBodyBones.LeftFoot,
-                HumanBodyBones.RightFoot
+                (name: "hips", bone: HumanBodyBones.Hips),
+                (name: "left_hand", bone: HumanBodyBones.LeftHand),
+                (name: "right_hand", bone: HumanBodyBones.RightHand),
+                (name: "left_foot", bone: HumanBodyBones.LeftFoot),
+                (name: "right_foot", bone: HumanBodyBones.RightFoot)
             };
-            foreach (HumanBodyBones bone in bones)
+            var selected = requestedBones == null
+                ? new HashSet<string>(bones.Select(item => item.name), StringComparer.Ordinal)
+                : new HashSet<string>(requestedBones.Values<string>(), StringComparer.Ordinal);
+            foreach (var entry in bones)
             {
+                if (!selected.Contains(entry.name)) continue;
+                HumanBodyBones bone = entry.bone;
                 Vector3[] points = previews.Select(preview =>
                 {
                     Animator animator = preview.GetComponentInChildren<Animator>(true);
@@ -690,23 +810,30 @@ namespace CharacterAnimationCli.Unity.Command
             return bounds;
         }
 
-        private static AnalysisCacheRecord GetCachedAnalysis(string id)
+        private static AnalysisCacheRecord GetCachedAnalysis(TimelineSessionRecord session, string id)
         {
+            if (!Guid.TryParse(id, out _))
+            {
+                throw new InvalidOperationException("analysis_id is not a valid GUID.");
+            }
             if (AnalysisCache.TryGetValue(id, out AnalysisCacheRecord cached))
             {
-                return cached;
+                if (string.Equals(cached.SessionId, session.Id.ToString("D"), StringComparison.OrdinalIgnoreCase)) return cached;
+                throw new InvalidOperationException("analysis_id belongs to a different Session.");
             }
-            string path = AnalysisCachePath(id);
+            string path = AnalysisCachePath(session, id);
             if (!File.Exists(path))
             {
-                throw new InvalidOperationException($"Unknown or expired analysis_id '{id}'.");
+                throw new InvalidOperationException($"Unknown analysis_id '{id}' in the selected Session.");
             }
             cached = AnalysisCacheRecord.FromJson(JObject.Parse(File.ReadAllText(path)));
+            if (!string.Equals(cached.SessionId, session.Id.ToString("D"), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("analysis_id belongs to a different Session.");
+            }
             AnalysisCache[id] = cached;
             return cached;
         }
-
-        private static string AnalysisCachePath(string id) => Path.Combine(CommandCacheFolder, $"analysis_{id}.json");
 
         private sealed class CaptureRequest
         {
@@ -746,6 +873,7 @@ namespace CharacterAnimationCli.Unity.Command
             public DateTime CreatedAtUtc;
             public JObject Analysis;
             public JArray Poses;
+            public string MotionPath;
 
             public JObject ToJson() => new JObject
             {
@@ -753,6 +881,7 @@ namespace CharacterAnimationCli.Unity.Command
                 ["session_name"] = SessionName,
                 ["character_ref"] = CharacterRef, ["character"] = CharacterName,
                 ["start"] = Start, ["end"] = End, ["created_at_utc"] = CreatedAtUtc,
+                ["motion_path"] = MotionPath ?? string.Empty,
                 ["poses"] = Poses?.DeepClone() ?? new JArray(),
                 ["analysis"] = Analysis?.DeepClone() ?? new JObject()
             };
@@ -764,6 +893,7 @@ namespace CharacterAnimationCli.Unity.Command
                 SessionName = json.Value<string>("session_name"), CharacterRef = json.Value<string>("character_ref"),
                 CharacterName = json.Value<string>("character"), Start = json.Value<double>("start"),
                 End = json.Value<double>("end"), CreatedAtUtc = json.Value<DateTime>("created_at_utc"),
+                MotionPath = json.Value<string>("motion_path"),
                 Poses = json["poses"] as JArray ?? json["analysis"]?["poses"] as JArray ?? new JArray(),
                 Analysis = json["analysis"] as JObject ?? new JObject()
             };

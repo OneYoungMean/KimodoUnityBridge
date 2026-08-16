@@ -16,7 +16,7 @@ import torch
 from core import ardy_backend
 from core import kimodo_runtime
 from core import quickserver_cli
-from core.protocol.kmb_motion import parse_clip_mask
+from core.protocol.kmb_motion import parse_clip_mask, parse_kmb1 as parse_kmb1_payload
 from core.protocol.timeline_segments import TimelineSegment, parse_timeline_segments
 from kimodo.frame_time import seconds_to_frame_count, seconds_to_protocol_frame_index
 from kimodo.model import kimodo_model
@@ -719,6 +719,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         roots = np.asarray([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32)
         quats = np.zeros((2, 1, 4), dtype=np.float32)
         quats[..., 3] = 1.0
+        contacts = np.asarray([[1, 0, 0, 0], [0, 0, 1, 0]], dtype=np.float32)
 
         def parse(payload, _error_type=ValueError):
             return ardy_backend.KmbMotion(
@@ -729,7 +730,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 joint_parents=(-1,),
                 root_positions=roots,
                 local_rot_quats=quats,
-                foot_contacts=None,
+                foot_contacts=contacts,
             )
 
         request = {
@@ -743,10 +744,27 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             response, payload = quickserver_cli._execute_analysis_only(request, (b"first", b"second"))
 
         self.assertEqual(response["output_format"], "kmb_attachments_v1")
-        self.assertEqual(payload, b"firstsecond")
         self.assertEqual([item["index"] for item in response["kmb_attachments"]], [0, 1])
         self.assertEqual([item["start_frame"] for item in response["kmb_attachments"]], [0, 0])
-        self.assertEqual(response["analysis"]["clips"][0]["frame_count"], 2)
+        self.assertEqual([item["end_frame_exclusive"] for item in response["kmb_attachments"]], [2, 2])
+        self.assertEqual(4, len(response["analysis"]["keyframes"]))
+        self.assertEqual(
+            [
+                (0, 0), (0, 1),
+                (1, 0), (1, 1),
+            ],
+            sorted((item["clip_index"], item["frame"]) for item in response["analysis"]["keyframes"]),
+        )
+        self.assertTrue(all("saliency" in item for item in response["analysis"]["keyframes"]))
+        self.assertEqual(
+            [1, 1, 1, 1],
+            [item["duration_frames"] for item in response["analysis"]["foot_contact_changes"]],
+        )
+        for item in response["kmb_attachments"]:
+            clip_payload = payload[item["offset"] : item["offset"] + item["byte_length"]]
+            dense = parse_kmb1_payload(clip_payload)
+            self.assertEqual(2, dense.num_frames)
+            self.assertTrue(np.array_equal(contacts, dense.foot_contacts))
 
     def test_history_weight_maps_to_token_aligned_window(self):
         profile = SimpleNamespace(

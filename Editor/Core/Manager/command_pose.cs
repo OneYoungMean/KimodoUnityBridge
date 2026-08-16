@@ -2,6 +2,8 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using CharacterAnimationCli.Unity;
 using KimodoBridge;
 using KimodoBridge.Editor;
@@ -18,198 +20,185 @@ namespace CharacterAnimationCli.Unity.Command
         private const double SessionFrameRate = 60.0;
 
         public static string PoseGet(string argumentsJson) => Execute(argumentsJson, arguments =>
-            Ok(ReadPose(RequirePoseLocator(arguments["pose"] as JObject), PoseGetCommand)));
-
-        public static string PoseCreate(string argumentsJson) => Execute(argumentsJson, arguments =>
         {
-            TimelineSessionRecord session = RequireCurrentTimelineSession();
-            TimelineCharacterRecord character = ResolveSessionCharacterByReference(
-                session, RequiredStringValue(arguments, "character"), false);
-            RequireWritablePoseAvatar(character);
-            CharacterPose pose = CharacterPoseJson.Parse(arguments["pose"] as JObject
-                ?? throw new InvalidOperationException("pose must be an object."));
-            return Ok(new JObject { ["pose"] = StoreWritablePose(character, pose) });
+            TimelineSessionRecord session = RequireTimelineSession(arguments);
+            var source = new PoseLocator(
+                RequiredStringValue(arguments, "source"),
+                RequiredNonNegativeFrame(arguments, "frame"));
+            bool fullData = arguments.Value<bool?>("full_data") ?? false;
+            JObject sourceResult = ReadPose(source, PoseGetCommand);
+            CharacterPose pose = CharacterPoseJson.Parse(sourceResult["data"] as JObject
+                ?? throw new InvalidOperationException("Source pose data is unavailable."));
+            TimelineCharacterRecord character = ResolvePoseCharacter(source);
+            KimodoConstraintMarker marker = GetOrCreateCachedPose(character, source, pose);
+            SaveTimelineSession(session);
+            JObject result = new JObject
+            {
+                ["source_pose"] = PoseLocatorJson(source.Source, source.Frame),
+                ["cache_pose"] = PoseCacheLocatorJson(session, character, marker, source.Frame)
+            };
+            result["pose"] = fullData ? CharacterPoseJson.ToJson(RequireCanonicalPose(marker.SampleData)) : BuildCompactPose(RequireCanonicalPose(marker.SampleData));
+            return Ok(result);
         });
 
-        public static string PoseCopy(string argumentsJson) => Execute(argumentsJson, arguments =>
+        public static string PoseSetRootTransform(string argumentsJson) => Execute(argumentsJson, arguments =>
         {
-            TimelineSessionRecord session = RequireCurrentTimelineSession();
-            TimelineCharacterRecord character = ResolveSessionCharacterByReference(
-                session, RequiredStringValue(arguments, "character"), false);
-            RequireWritablePoseAvatar(character);
-            JObject result = ReadPose(RequirePoseLocator(arguments["pose"] as JObject), PoseCopyCommand);
-            JObject data = result["data"] as JObject
-                ?? throw new InvalidOperationException("Source pose data is unavailable.");
-            return Ok(new JObject { ["pose"] = StoreWritablePose(character, CharacterPoseJson.Parse(data)) });
-        });
-
-        public static string PoseSet(string argumentsJson) => Execute(argumentsJson, arguments =>
-        {
-            PoseLocator locator = RequirePoseLocator(arguments["pose"] as JObject);
-            TimelineCharacterRecord character = ResolvePoseCacheOwner(locator.Source)
-                ?? throw new InvalidOperationException("pose_set requires a writable <character>.Poses source.");
-            RequireWritablePoseAvatar(character);
-            KimodoConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
-                ?? throw new InvalidOperationException("Writable pose was not found at the requested source/frame.");
-            JObject update = arguments["data"] as JObject
-                ?? throw new InvalidOperationException("data must be a partial pose object.");
-            CharacterPose pose = CharacterPoseJson.ApplyPatch(RequireCanonicalPose(marker.SampleData), update);
+            TimelineSessionRecord session = RequireTimelineSession(arguments);
+            KimodoConstraintMarker marker = RequirePoseCacheMarker(arguments["pose"] as JObject, out TimelineCharacterRecord character, out int frame);
+            JObject root = arguments["root"] as JObject ?? throw new InvalidOperationException("root must be an object.");
+            CharacterPose pose = RequireCanonicalPose(marker.SampleData).Clone();
+            if (root["position"] is JArray position)
+            {
+                pose.root.t = ReadVector3(position, "root.position");
+            }
+            if (root["rotation"] is JArray rotation)
+            {
+                pose.root.q = ReadQuaternion(rotation, "root.rotation");
+            }
+            if (root["position"] == null && root["rotation"] == null)
+            {
+                throw new InvalidOperationException("root must contain position and/or rotation.");
+            }
             SetCanonicalPose(marker.SampleData, pose, character);
             EditorUtility.SetDirty(marker);
-            EditorUtility.SetDirty(character.PoseCacheTrack);
-            SaveTimelineSession(RequireCurrentTimelineSession());
+            SaveTimelineSession(session);
             return Ok(new JObject
             {
-                ["pose"] = PoseLocatorJson(character.PoseCacheTrack.name, locator.Frame),
-                ["data"] = CharacterPoseJson.ToJson(pose)
+                ["cache_pose"] = PoseCacheLocatorJson(session, character, marker, frame),
+                ["pose"] = CharacterPoseJson.ToJson(pose)
             });
         });
 
-        public static string BuildRoot2DPath(string argumentsJson) => Execute(argumentsJson, arguments =>
+        public static string PoseSetMuscle(string argumentsJson) => Execute(argumentsJson, arguments =>
         {
-            string shape = RequiredStringValue(arguments, "shape").ToLowerInvariant();
-            int durationFrames = arguments.Value<int?>("duration_frames") ?? 300;
-            float maxSpeed = arguments.Value<float?>("max_speed") ?? 2.5f;
-            float acceleration = arguments.Value<float?>("acceleration") ?? 2.5f;
-            if (durationFrames < 2 || maxSpeed <= 0f || acceleration <= 0f ||
-                float.IsNaN(maxSpeed) || float.IsInfinity(maxSpeed) ||
-                float.IsNaN(acceleration) || float.IsInfinity(acceleration))
-                throw new InvalidOperationException("duration_frames must be at least 2; max_speed and acceleration must be positive finite values.");
-            string direction = (arguments.Value<string>("direction") ?? "left").Trim().ToLowerInvariant();
-            if (direction != "left" && direction != "right") throw new InvalidOperationException("direction must be left or right.");
-            int degrees = arguments.Value<int?>("turn_degrees") ?? 90;
-            if (shape == "turn" && degrees != 0 && degrees != 45 && degrees != 90 && degrees != 135 && degrees != 180)
-                throw new InvalidOperationException("turn_degrees must be 0, 45, 90, 135, or 180.");
-            if (shape != "line" && shape != "turn" && shape != "s" && shape != "circle")
-                throw new InvalidOperationException("shape must be line, turn, s, or circle.");
-
-            float duration = (durationFrames - 1) / (float)SessionFrameRate;
-            float accelerateTime = Mathf.Min(maxSpeed / acceleration, duration * 0.5f);
-            float cruiseTime = Mathf.Max(0f, duration - 2f * accelerateTime);
-            float peakSpeed = acceleration * accelerateTime;
-            float distance = acceleration * accelerateTime * accelerateTime + peakSpeed * cruiseTime;
-            int count = (shape == "line" || (shape == "turn" && (degrees == 0 || degrees == 180)))
-                ? 2
-                : durationFrames;
-            var points = new JArray();
-            float sign = direction == "left" ? 1f : -1f;
-            for (int index = 0; index < count; index++)
+            TimelineSessionRecord session = RequireTimelineSession(arguments);
+            KimodoConstraintMarker marker = RequirePoseCacheMarker(arguments["pose"] as JObject, out TimelineCharacterRecord character, out int frame);
+            JObject muscles = arguments["muscles"] as JObject ?? throw new InvalidOperationException("muscles must be an object.");
+            if (!muscles.Properties().Any())
             {
-                int frame = count == 2 ? (index == 0 ? 0 : durationFrames - 1) : index;
-                float elapsed = frame / (float)SessionFrameRate;
-                float traveled;
-                if (elapsed <= accelerateTime)
-                    traveled = 0.5f * acceleration * elapsed * elapsed;
-                else if (elapsed <= accelerateTime + cruiseTime)
-                    traveled = 0.5f * acceleration * accelerateTime * accelerateTime + peakSpeed * (elapsed - accelerateTime);
-                else
+                throw new InvalidOperationException("muscles must contain at least one channel.");
+            }
+            CharacterPose pose = RequireCanonicalPose(marker.SampleData).Clone();
+            foreach (JProperty property in muscles.Properties())
+            {
+                int index = ResolveCanonicalMuscleIndex(property.Name);
+                float value = ReadFiniteFloat(property.Value, $"muscles.{property.Name}");
+                pose.muscles[index] = value;
+            }
+            SetCanonicalPose(marker.SampleData, pose, character);
+            EditorUtility.SetDirty(marker);
+            SaveTimelineSession(session);
+            return Ok(new JObject
+            {
+                ["cache_pose"] = PoseCacheLocatorJson(session, character, marker, frame),
+                ["pose"] = CharacterPoseJson.ToJson(pose)
+            });
+        });
+
+        public static string PoseContract(string argumentsJson) => Execute(argumentsJson, arguments =>
+        {
+            TimelineSessionRecord session = RequireTimelineSession(arguments);
+            PoseLocator originLocator = RequireReadablePoseLocator(arguments["origin"] as JObject);
+            PoseLocator targetLocator = RequireReadablePoseLocator(arguments["target"] as JObject);
+            string mode = RequiredStringValue(arguments, "mode");
+            if (mode != "align_target_root" && mode != "least_squares_root_fit")
+            {
+                throw new InvalidOperationException("mode must be align_target_root or least_squares_root_fit.");
+            }
+            string[] endEffectors = RequiredStringArray(arguments, "endeffectors", "left_hand", "right_hand", "left_foot", "right_foot");
+            string[] components = RequiredStringArray(arguments, "components", "position", "rotation");
+            JObject originResult = ReadPose(originLocator, PoseContractCommand);
+            JObject targetResult = ReadPose(targetLocator, PoseContractCommand);
+            CharacterPose origin = CharacterPoseJson.Parse(originResult["data"] as JObject);
+            CharacterPose target = CharacterPoseJson.Parse(targetResult["data"] as JObject);
+            TimelineCharacterRecord targetCharacter = ResolvePoseCharacter(targetLocator);
+
+            Vector3 positionDelta = Vector3.zero;
+            Quaternion rotationDelta = Quaternion.identity;
+            int count = 0;
+            foreach (string endEffector in endEffectors)
+            {
+                CharacterPoseTransform originTransform = GetEndEffector(origin, endEffector);
+                CharacterPoseTransform targetTransform = GetEndEffector(target, endEffector);
+                if (components.Contains("position"))
                 {
-                    float decelerationTime = Mathf.Min(accelerateTime, elapsed - accelerateTime - cruiseTime);
-                    traveled = 0.5f * acceleration * accelerateTime * accelerateTime + peakSpeed * cruiseTime +
-                        peakSpeed * decelerationTime - 0.5f * acceleration * decelerationTime * decelerationTime;
+                    positionDelta += (origin.root.t + originTransform.t) - (target.root.t + targetTransform.t);
                 }
-                float u = distance > 1e-6f ? Mathf.Clamp01(traveled / distance) : 0f;
-                Vector2 position;
-                Vector2 heading;
-                EvaluateRoot2DShape(shape, degrees, sign, u, distance, out position, out heading);
-                points.Add(new JObject
+                if (components.Contains("rotation"))
                 {
-                    ["frame"] = frame,
-                    ["position"] = new JArray(position.x, position.y),
-                    ["heading"] = new JArray(heading.x, heading.y)
-                });
+                    Quaternion delta = originTransform.q * Quaternion.Inverse(targetTransform.q);
+                    rotationDelta = count == 0 ? delta : Quaternion.Slerp(rotationDelta, delta, 1f / (count + 1));
+                }
+                count++;
             }
+            if (count == 0)
+            {
+                throw new InvalidOperationException("endeffectors must contain at least one item.");
+            }
+            if (components.Contains("position")) positionDelta /= count;
+            CharacterPose contracted = target.Clone();
+            if (components.Contains("position")) contracted.root.t += positionDelta;
+            if (components.Contains("rotation")) contracted.root.q = (rotationDelta * contracted.root.q).normalized;
+
+            KimodoConstraintMarker marker = GetOrCreateCachedPose(targetCharacter, targetLocator, contracted, overwriteExisting: true);
+            float residual = 0f;
+            if (components.Contains("position"))
+            {
+                foreach (string endEffector in endEffectors)
+                {
+                    Vector3 originPosition = origin.root.t + GetEndEffector(origin, endEffector).t;
+                    Vector3 targetPosition = contracted.root.t + GetEndEffector(contracted, endEffector).t;
+                    residual += Vector3.Distance(originPosition, targetPosition);
+                }
+                residual /= count;
+            }
+            SaveTimelineSession(session);
             return Ok(new JObject
             {
-                ["fps"] = 60,
-                ["duration_frames"] = durationFrames,
-                ["max_speed"] = maxSpeed,
-                ["acceleration"] = acceleration,
-                ["distance"] = distance,
-                ["points"] = points
+                ["cache_pose"] = PoseCacheLocatorJson(session, targetCharacter, marker, targetLocator.Frame),
+                ["root_delta"] = new JObject
+                {
+                    ["position"] = new JArray(positionDelta.x, positionDelta.y, positionDelta.z),
+                    ["yaw_degrees"] = components.Contains("rotation") ? rotationDelta.eulerAngles.y : 0f
+                },
+                ["residual_error"] = residual,
+                ["constraint"] = new JObject
+                {
+                    ["origin"] = PoseLocatorJson(originLocator.Source, originLocator.Frame),
+                    ["target"] = PoseLocatorJson(targetLocator.Source, targetLocator.Frame),
+                    ["endeffectors"] = new JArray(endEffectors),
+                    ["components"] = new JArray(components),
+                    ["mode"] = mode
+                }
             });
         });
-
-        private static void EvaluateRoot2DShape(
-            string shape, int degrees, float sign, float u, float distance,
-            out Vector2 position, out Vector2 heading)
-        {
-            if (shape == "line" || (shape == "turn" && degrees == 0))
-            {
-                position = new Vector2(distance * u, 0f);
-                heading = Vector2.right;
-                return;
-            }
-            if (shape == "turn" && degrees == 180)
-            {
-                position = new Vector2(distance * u, 0f);
-                heading = u < 1f ? Vector2.right : Vector2.left;
-                return;
-            }
-            if (shape == "circle")
-            {
-                float radius = distance / (2f * Mathf.PI);
-                float angle = u * 2f * Mathf.PI;
-                position = new Vector2(radius * Mathf.Sin(angle), sign * radius * (1f - Mathf.Cos(angle)));
-                heading = new Vector2(Mathf.Cos(angle), sign * Mathf.Sin(angle)).normalized;
-                return;
-            }
-            if (shape == "s")
-            {
-                Vector2 p0 = Vector2.zero;
-                Vector2 p1 = new Vector2(distance / 3f, sign * distance / 3f);
-                Vector2 p2 = new Vector2(2f * distance / 3f, -sign * distance / 3f);
-                Vector2 p3 = new Vector2(distance, 0f);
-                float v = 1f - u;
-                position = v * v * v * p0 + 3f * v * v * u * p1 + 3f * v * u * u * p2 + u * u * u * p3;
-                heading = (3f * v * v * (p1 - p0) + 6f * v * u * (p2 - p1) + 3f * u * u * (p3 - p2)).normalized;
-                return;
-            }
-
-            float radians = degrees * Mathf.Deg2Rad;
-            Vector2 q0 = Vector2.zero;
-            Vector2 q1 = new Vector2(Mathf.Tan(radians * 0.5f), 0f);
-            Vector2 q2 = new Vector2(Mathf.Sin(radians), sign * (1f - Mathf.Cos(radians)));
-            float approximateLength = Mathf.Max(1e-5f, Vector2.Distance(q0, q1) + Vector2.Distance(q1, q2));
-            float scale = distance / approximateLength;
-            q1 *= scale;
-            q2 *= scale;
-            float oneMinus = 1f - u;
-            position = oneMinus * oneMinus * q0 + 2f * oneMinus * u * q1 + u * u * q2;
-            heading = (2f * oneMinus * (q1 - q0) + 2f * u * (q2 - q1)).normalized;
-        }
 
         private static JObject ReadPose(PoseLocator locator, string command = GenerateAnimationCommand)
         {
             TimelineSessionRecord session = RequireCurrentTimelineSession();
-            TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
-                string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase));
-            if (character != null)
+            TimelineCharacterRecord cacheOwner = ResolvePoseCacheOwner(locator.Source);
+            if (cacheOwner != null)
             {
-                ThrowIfGenerationRangeLocked(session, character, locator.Frame, locator.Frame + 1, command);
-                CharacterPose data = CaptureCharacterPose(character, locator.Frame);
+                KimodoConstraintMarker marker = FindCachedPose(cacheOwner.PoseCacheTrack, locator.Frame, locator.MarkerId)
+                    ?? throw new InvalidOperationException("Pose Cache source does not contain the requested marker.");
                 return new JObject
                 {
-                    ["pose"] = PoseLocatorJson(character.Name, locator.Frame),
-                    ["data"] = CharacterPoseJson.ToJson(data)
-                };
-            }
-            character = ResolvePoseCacheOwner(locator.Source);
-            if (character != null)
-            {
-                KimodoConstraintMarker marker = FindUntypedPose(character.PoseCacheTrack, locator.Frame)
-                    ?? throw new InvalidOperationException("Writable pose source does not contain a pose at the requested frame.");
-                return new JObject
-                {
-                    ["pose"] = PoseLocatorJson(character.PoseCacheTrack.name, locator.Frame),
+                    ["pose"] = PoseLocatorJson(cacheOwner.PoseCacheTrack.name, locator.Frame),
                     ["data"] = CharacterPoseJson.ToJson(RequireCanonicalPose(marker.SampleData))
                 };
             }
-            TimelineSessionRecord current = RequireCurrentTimelineSession();
-            KimodoConstraintMarker constraint = current.Characters
+            if (TryResolveAnimationPoseSource(session, locator, out TimelineCharacterRecord animationCharacter, out int absoluteFrame))
+            {
+                ThrowIfGenerationRangeLocked(session, animationCharacter, absoluteFrame, absoluteFrame + 1, command);
+                return new JObject
+                {
+                    ["pose"] = PoseLocatorJson(locator.Source, locator.Frame),
+                    ["data"] = CharacterPoseJson.ToJson(CaptureCharacterPose(animationCharacter, absoluteFrame))
+                };
+            }
+            KimodoConstraintMarker constraint = session.Characters
                 .SelectMany(item => item.Track.GetMarkers().OfType<KimodoConstraintMarker>())
-                .FirstOrDefault(item =>
-                    string.Equals(item.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
+                .FirstOrDefault(item => string.Equals(item.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
                     Mathf.RoundToInt((float)(item.time * SessionFrameRate)) == locator.Frame)
                 ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
             return new JObject
@@ -217,6 +206,39 @@ namespace CharacterAnimationCli.Unity.Command
                 ["pose"] = PoseLocatorJson(constraint.name, locator.Frame),
                 ["data"] = CharacterPoseJson.ToJson(RequireCanonicalPose(constraint.SampleData))
             };
+        }
+
+        private static bool TryResolveAnimationPoseSource(
+            TimelineSessionRecord session,
+            PoseLocator locator,
+            out TimelineCharacterRecord character,
+            out int absoluteFrame)
+        {
+            var matches = session.Characters
+                .SelectMany(owner => owner.Animations
+                    .Where(animation => string.Equals(animation.Name, locator.Source, StringComparison.OrdinalIgnoreCase))
+                    .Select(animation => (owner, animation)))
+                .ToArray();
+            if (matches.Length == 0)
+            {
+                character = null;
+                absoluteFrame = 0;
+                return false;
+            }
+            if (matches.Length != 1)
+                throw new InvalidOperationException($"Animation pose source '{locator.Source}' is ambiguous in the selected Session.");
+            TimelineAnimationRecord animation = matches[0].animation;
+            int startFrame = animation.TimelineClip != null
+                ? Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate))
+                : animation.StartFrame;
+            int duration = animation.TimelineClip != null
+                ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)))
+                : Math.Max(1, animation.EndFrameExclusive - animation.StartFrame);
+            if (locator.Frame < 0 || locator.Frame >= duration)
+                throw new InvalidOperationException($"frame must be within animation '{animation.Name}' local range [0,{duration}).");
+            character = matches[0].owner;
+            absoluteFrame = startFrame + locator.Frame;
+            return true;
         }
 
         private static CharacterPose CaptureCharacterPose(TimelineCharacterRecord character, int frame)
@@ -274,34 +296,191 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        private static JObject StoreWritablePose(TimelineCharacterRecord character, CharacterPose pose)
+        private static KimodoConstraintMarker GetOrCreateCachedPose(
+            TimelineCharacterRecord character,
+            PoseLocator source,
+            CharacterPose pose,
+            bool overwriteExisting = false)
         {
-            int frame = AllocatePoseFrame(character.PoseCacheTrack);
-            KimodoConstraintMarker marker = character.PoseCacheTrack.CreateMarker<KimodoConstraintMarker>(frame / SessionFrameRate);
-            marker.name = $"Pose_{frame}";
-            marker.autoSampleFullBody = false;
-            marker.autoSampleRoot2D = false;
-            marker.constraintEnabled = true;
-            SetCanonicalPose(marker.SampleData, pose, character);
-            marker.SampleData.sampleTime = frame / SessionFrameRate;
+            RequireWritablePoseAvatar(character);
+            string markerId = BuildPoseMarkerId(RequireCurrentTimelineSession(), character, source);
+            KimodoConstraintMarker marker = FindCachedPose(character.PoseCacheTrack, source.Frame, markerId);
+            if (marker == null)
+            {
+                marker = character.PoseCacheTrack.CreateMarker<KimodoConstraintMarker>(source.Frame / SessionFrameRate);
+                marker.name = markerId;
+                marker.autoSampleFullBody = false;
+                marker.autoSampleRoot2D = false;
+                marker.constraintEnabled = true;
+                overwriteExisting = true;
+            }
+            if (overwriteExisting)
+            {
+                SetCanonicalPose(marker.SampleData, pose, character);
+                marker.SampleData.sampleTime = source.Frame / SessionFrameRate;
+            }
             EditorUtility.SetDirty(marker);
             EditorUtility.SetDirty(character.PoseCacheTrack);
-            SaveTimelineSession(RequireCurrentTimelineSession());
-            return PoseLocatorJson(character.PoseCacheTrack.name, frame);
+            return marker;
         }
 
-        private static int AllocatePoseFrame(AnimationTrack track)
+        private static KimodoConstraintMarker RequirePoseCacheMarker(
+            JObject value,
+            out TimelineCharacterRecord character,
+            out int frame)
         {
-            var occupied = new HashSet<int>(track.GetMarkers().OfType<KimodoConstraintMarker>()
-                .Select(marker => Mathf.RoundToInt((float)(marker.time * SessionFrameRate))));
-            int frame = 0;
-            while (occupied.Contains(frame)) frame++;
-            return frame;
+            if (value == null)
+            {
+                throw new InvalidOperationException("pose must be a Pose Cache marker locator.");
+            }
+            string track = RequiredStringValue(value, "track");
+            frame = RequiredNonNegativeFrame(value, "frame");
+            TimelineSessionRecord session = RequireCurrentTimelineSession();
+            string sessionId = value.Value<string>("session_id");
+            if (!string.IsNullOrWhiteSpace(sessionId) && !string.Equals(sessionId, session.Id.ToString("D"), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Pose Cache marker belongs to a different Session.");
+            }
+            character = session.Characters.FirstOrDefault(item => item.PoseCacheTrack != null &&
+                string.Equals(item.PoseCacheTrack.name, track, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException($"Pose Cache track '{track}' was not found.");
+            string markerId = value.Value<string>("marker_id")?.Trim();
+            KimodoConstraintMarker marker = FindCachedPose(character.PoseCacheTrack, frame, markerId)
+                ?? throw new InvalidOperationException("Pose Cache marker was not found at the requested track/frame.");
+            return marker;
+        }
+
+        private static string BuildPoseMarkerId(TimelineSessionRecord session, TimelineCharacterRecord character, PoseLocator source)
+        {
+            string text = string.Join("|", new[]
+            {
+                session.Id.ToString("D"),
+                character.Name ?? string.Empty,
+                source.Source ?? string.Empty,
+                source.Frame.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            });
+            using (SHA256 sha = SHA256.Create())
+            {
+                string hash = BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(text))).Replace("-", string.Empty).ToLowerInvariant();
+                return "pose_" + hash;
+            }
+        }
+
+        private static JObject PoseCacheLocatorJson(
+            TimelineSessionRecord session,
+            TimelineCharacterRecord character,
+            KimodoConstraintMarker marker,
+            int frame) => new JObject
+            {
+                ["session_id"] = session.Id.ToString("D"),
+                ["track"] = character.PoseCacheTrack.name,
+                ["frame"] = frame,
+                ["marker_id"] = marker.name ?? string.Empty
+            };
+
+        private static JObject BuildCompactPose(CharacterPose pose) => new JObject
+        {
+            ["root"] = new JObject
+            {
+                ["position"] = new JArray(pose.root.t.x, pose.root.t.y, pose.root.t.z),
+                ["rotation"] = new JArray(pose.root.q.x, pose.root.q.y, pose.root.q.z, pose.root.q.w)
+            },
+            ["hands"] = new JObject
+            {
+                ["left"] = TransformJson(pose.hands.left),
+                ["right"] = TransformJson(pose.hands.right)
+            },
+            ["feet"] = new JObject
+            {
+                ["left"] = TransformJson(pose.feet.left),
+                ["right"] = TransformJson(pose.feet.right)
+            }
+        };
+
+        private static JObject TransformJson(CharacterPoseTransform transform) => new JObject
+        {
+            ["position"] = new JArray(transform.t.x, transform.t.y, transform.t.z),
+            ["rotation"] = new JArray(transform.q.x, transform.q.y, transform.q.z, transform.q.w)
+        };
+
+        private static readonly int[] CanonicalMuscleIndices = Enumerable.Range(0, 15)
+            .Concat(Enumerable.Range(21, 34)).ToArray();
+
+        private static int ResolveCanonicalMuscleIndex(string name)
+        {
+            for (int index = 0; index < CanonicalMuscleIndices.Length; index++)
+            {
+                int humanIndex = CanonicalMuscleIndices[index];
+                if (humanIndex < HumanTrait.MuscleName.Length &&
+                    string.Equals(HumanTrait.MuscleName[humanIndex], name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return index;
+                }
+            }
+            throw new InvalidOperationException($"Unknown canonical muscle '{name}'.");
+        }
+
+        private static string[] RequiredStringArray(JObject arguments, string name, params string[] allowed)
+        {
+            if (arguments?[name] is not JArray array || array.Count == 0)
+            {
+                throw new InvalidOperationException($"{name} must be a non-empty array.");
+            }
+            var values = new List<string>();
+            foreach (JToken item in array)
+            {
+                string value = item.Value<string>()?.Trim();
+                if (string.IsNullOrWhiteSpace(value) || !allowed.Contains(value, StringComparer.Ordinal))
+                {
+                    throw new InvalidOperationException($"{name} contains an unsupported value.");
+                }
+                if (!values.Contains(value, StringComparer.Ordinal)) values.Add(value);
+            }
+            return values.ToArray();
+        }
+
+        private static CharacterPoseTransform GetEndEffector(CharacterPose pose, string endEffector)
+        {
+            return endEffector switch
+            {
+                "left_hand" => pose.hands.left,
+                "right_hand" => pose.hands.right,
+                "left_foot" => pose.feet.left,
+                "right_foot" => pose.feet.right,
+                _ => throw new InvalidOperationException($"Unsupported end effector '{endEffector}'.")
+            };
+        }
+
+        private static Vector3 ReadVector3(JArray value, string name)
+        {
+            if (value == null || value.Count != 3) throw new InvalidOperationException($"{name} must be [x,y,z].");
+            return new Vector3(ReadFiniteFloat(value[0], name + "[0]"), ReadFiniteFloat(value[1], name + "[1]"), ReadFiniteFloat(value[2], name + "[2]"));
+        }
+
+        private static Quaternion ReadQuaternion(JArray value, string name)
+        {
+            if (value == null || value.Count != 4) throw new InvalidOperationException($"{name} must be [x,y,z,w].");
+            var result = new Quaternion(ReadFiniteFloat(value[0], name + "[0]"), ReadFiniteFloat(value[1], name + "[1]"), ReadFiniteFloat(value[2], name + "[2]"), ReadFiniteFloat(value[3], name + "[3]"));
+            float magnitudeSquared = result.x * result.x + result.y * result.y + result.z * result.z + result.w * result.w;
+            if (magnitudeSquared <= 1e-8f) throw new InvalidOperationException($"{name} must be non-zero.");
+            return result.normalized;
+        }
+
+        private static float ReadFiniteFloat(JToken value, string name)
+        {
+            if (value == null || (value.Type != JTokenType.Integer && value.Type != JTokenType.Float)) throw new InvalidOperationException($"{name} must be a number.");
+            float result = value.Value<float>();
+            if (float.IsNaN(result) || float.IsInfinity(result)) throw new InvalidOperationException($"{name} must be finite.");
+            return result;
         }
 
         private static KimodoConstraintMarker FindUntypedPose(AnimationTrack track, int frame) =>
+            FindCachedPose(track, frame, null);
+
+        private static KimodoConstraintMarker FindCachedPose(AnimationTrack track, int frame, string markerId) =>
             track.GetMarkers().OfType<KimodoConstraintMarker>().FirstOrDefault(marker =>
-                Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == frame);
+                Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == frame &&
+                (string.IsNullOrWhiteSpace(markerId) || string.Equals(marker.name, markerId, StringComparison.Ordinal)));
 
         private static TimelineCharacterRecord ResolvePoseCacheOwner(string source)
         {
@@ -313,15 +492,14 @@ namespace CharacterAnimationCli.Unity.Command
         private static TimelineCharacterRecord ResolvePoseCharacter(PoseLocator locator)
         {
             TimelineSessionRecord session = RequireCurrentTimelineSession();
-            TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
-                string.Equals(item.Name, locator.Source, StringComparison.OrdinalIgnoreCase))
-                ?? ResolvePoseCacheOwner(locator.Source)
-                ?? session.Characters.FirstOrDefault(item => item.Track.GetMarkers()
-                    .OfType<KimodoConstraintMarker>()
-                    .Any(marker => string.Equals(marker.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
-                        Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame));
-            return character
-                ?? throw new InvalidOperationException($"Pose source '{locator.Source}' has no owning character track.");
+            TimelineCharacterRecord character = ResolvePoseCacheOwner(locator.Source);
+            if (character != null) return character;
+            if (TryResolveAnimationPoseSource(session, locator, out character, out _)) return character;
+            character = session.Characters.FirstOrDefault(item => item.Track.GetMarkers()
+                .OfType<KimodoConstraintMarker>()
+                .Any(marker => string.Equals(marker.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
+                    Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame));
+            return character ?? throw new InvalidOperationException($"Pose source '{locator.Source}' has no owning character track.");
         }
 
         private static PoseLocator RequirePoseLocator(JObject value)
@@ -330,6 +508,20 @@ namespace CharacterAnimationCli.Unity.Command
             string source = RequiredStringValue(value, "source");
             int frame = RequiredNonNegativeFrame(value, "frame");
             return new PoseLocator(source, frame);
+        }
+
+        private static PoseLocator RequireReadablePoseLocator(JObject value)
+        {
+            if (value == null) throw new InvalidOperationException("pose must be an object.");
+            if (value["source"] != null)
+            {
+                return RequirePoseLocator(value);
+            }
+            string track = RequiredStringValue(value, "track");
+            int frame = RequiredNonNegativeFrame(value, "frame");
+            string markerId = value.Value<string>("marker_id")?.Trim();
+            RequirePoseCacheMarker(value, out _, out _);
+            return new PoseLocator(track, frame, markerId);
         }
 
         private static int RequiredNonNegativeFrame(JObject value, string name)
@@ -367,18 +559,17 @@ namespace CharacterAnimationCli.Unity.Command
             sample.mask = KimodoConstraintMask.Resolve(sample.mask, "constraint");
         }
 
-        private static Vector2 RequiredVector2(JObject value, string name)
-        {
-            JArray array = value?[name] as JArray;
-            if (array == null || array.Count != 2) throw new InvalidOperationException($"{name} must be [x,z].");
-            return new Vector2(array[0].Value<float>(), array[1].Value<float>());
-        }
-
         private readonly struct PoseLocator
         {
-            public PoseLocator(string source, int frame) { Source = source; Frame = frame; }
+            public PoseLocator(string source, int frame, string markerId = null)
+            {
+                Source = source;
+                Frame = frame;
+                MarkerId = markerId;
+            }
             public string Source { get; }
             public int Frame { get; }
+            public string MarkerId { get; }
         }
     }
 }

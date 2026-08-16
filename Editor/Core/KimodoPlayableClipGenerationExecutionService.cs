@@ -97,9 +97,11 @@ namespace KimodoBridge.Editor
         internal static bool Analysis(
             KimodoEditorAnalysisInput input,
             out string analysisJson,
+            out byte[] motionBytes,
             out string error)
         {
             analysisJson = string.Empty;
+            motionBytes = null;
             error = string.Empty;
             try
             {
@@ -144,8 +146,18 @@ namespace KimodoBridge.Editor
                 {
                     throw new InvalidOperationException("Analysis returned no data.");
                 }
+                if (response.MotionBytes == null || response.MotionBytes.Length == 0)
+                {
+                    throw new InvalidOperationException("Analysis returned no dense KMB motion.");
+                }
+                if (!KimodoRawMotionUtility.TryParseFlatBuffer(response.MotionBytes, out KimodoRawMotionData motion, out string parseError) ||
+                    !motion.HasFootContacts)
+                {
+                    throw new InvalidOperationException($"Analysis returned dense KMB without foot contacts: {parseError}");
+                }
 
                 analysisJson = response.AnalysisJson;
+                motionBytes = response.MotionBytes;
                 return true;
             }
             catch (Exception ex)

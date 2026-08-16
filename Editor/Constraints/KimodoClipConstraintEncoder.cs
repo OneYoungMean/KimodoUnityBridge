@@ -18,7 +18,8 @@ namespace KimodoBridge.Editor
             KimodoInOutConstraintMode inOutMode,
             bool enableInConstraint,
             bool enableOutConstraint,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            bool includeFootContacts = false)
         {
             if (timelineClip == null) throw new ArgumentNullException(nameof(timelineClip));
             if (frameCount <= 0 || frameRate <= 0f)
@@ -73,6 +74,12 @@ namespace KimodoBridge.Editor
 
                 var roots = new Vector3[frameCount];
                 var rotations = new List<float>(frameCount * jointNames.Length * 4);
+                int[] footJointIndices = includeFootContacts
+                    ? ResolveFootContactJointIndices(jointNames)
+                    : null;
+                var footPositions = includeFootContacts
+                    ? new Vector3[frameCount, KimodoFootContactTrackUtility.ChannelCount]
+                    : null;
                 Transform rootJoint = joints[0];
                 if (rootJoint == null)
                 {
@@ -91,6 +98,14 @@ namespace KimodoBridge.Editor
 
                     Quaternion rootRotation = rootJoint.rotation.normalized;
                     roots[frame] = rootJoint.position;
+                    if (footPositions != null)
+                    {
+                        for (int channel = 0; channel < KimodoFootContactTrackUtility.ChannelCount; channel++)
+                        {
+                            Transform footJoint = joints[footJointIndices[channel]];
+                            footPositions[frame, channel] = footJoint.position;
+                        }
+                    }
                     for (int joint = 0; joint < joints.Length; joint++)
                     {
                         Quaternion value = joint == 0
@@ -105,6 +120,13 @@ namespace KimodoBridge.Editor
                     }
                 }
 
+                byte[] footContacts = null;
+                if (includeFootContacts)
+                {
+                    footContacts = TrySampleFootContacts(context, timelineTimes, out byte[] authoredContacts)
+                        ? authoredContacts
+                        : DetectFootContacts(footPositions, frameRate);
+                }
                 return KimodoRawMotionUtility.ToFlatBuffer(
                     new KimodoRawMotionData(
                         frameCount,
@@ -114,13 +136,91 @@ namespace KimodoBridge.Editor
                         jointParents,
                         roots,
                         rotations,
-                        rootJointIndex: 0),
+                        rootJointIndex: 0,
+                        footContacts: footContacts),
                     modelName);
             }
             finally
             {
                 sampler.Dispose();
             }
+        }
+
+        private static int[] ResolveFootContactJointIndices(string[] jointNames)
+        {
+            return new[]
+            {
+                FindJointIndex(jointNames, "LeftFoot", "left_ankle_roll_skel", "left_ankle"),
+                FindJointIndex(jointNames, "LeftToeBase", "left_toe_base", "left_foot"),
+                FindJointIndex(jointNames, "RightFoot", "right_ankle_roll_skel", "right_ankle"),
+                FindJointIndex(jointNames, "RightToeBase", "right_toe_base", "right_foot")
+            };
+        }
+
+        private static int FindJointIndex(string[] jointNames, params string[] candidates)
+        {
+            for (int candidate = 0; candidate < candidates.Length; candidate++)
+            {
+                for (int index = 0; index < jointNames.Length; index++)
+                {
+                    if (string.Equals(jointNames[index], candidates[candidate], StringComparison.OrdinalIgnoreCase))
+                    {
+                        return index;
+                    }
+                }
+            }
+            throw new InvalidOperationException("The selected model profile has no required foot-contact joint.");
+        }
+
+        private static bool TrySampleFootContacts(
+            KimodoTimelineInOutConstraintContext context,
+            IReadOnlyList<double> timelineTimes,
+            out byte[] contacts)
+        {
+            contacts = new byte[timelineTimes.Count * KimodoFootContactTrackUtility.ChannelCount];
+            for (int frame = 0; frame < timelineTimes.Count; frame++)
+            {
+                if (!KimodoTimelineFootContactSampler.TrySample(context, timelineTimes[frame], out byte[] values))
+                {
+                    contacts = null;
+                    return false;
+                }
+                Array.Copy(values, 0, contacts, frame * KimodoFootContactTrackUtility.ChannelCount, values.Length);
+            }
+            return true;
+        }
+
+        private static byte[] DetectFootContacts(Vector3[,] footPositions, float frameRate)
+        {
+            const float heightTolerance = 0.1f;
+            const float velocityThreshold = 0.15f;
+            int frameCount = footPositions.GetLength(0);
+            int channelCount = footPositions.GetLength(1);
+            var minimumHeights = new float[channelCount];
+            for (int channel = 0; channel < channelCount; channel++)
+            {
+                minimumHeights[channel] = float.PositiveInfinity;
+                for (int frame = 0; frame < frameCount; frame++)
+                {
+                    minimumHeights[channel] = Mathf.Min(minimumHeights[channel], footPositions[frame, channel].y);
+                }
+            }
+
+            var contacts = new byte[frameCount * channelCount];
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                int previous = frame == 0 ? Mathf.Min(1, frameCount - 1) : frame - 1;
+                for (int channel = 0; channel < channelCount; channel++)
+                {
+                    float velocity = Vector3.Distance(footPositions[frame, channel], footPositions[previous, channel]) * frameRate;
+                    contacts[frame * channelCount + channel] =
+                        footPositions[frame, channel].y <= minimumHeights[channel] + heightTolerance &&
+                        velocity < velocityThreshold
+                            ? (byte)1
+                            : (byte)0;
+                }
+            }
+            return contacts;
         }
 
         internal static double[] BuildTimelineSampleTimes(

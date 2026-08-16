@@ -26,6 +26,7 @@ from core.protocol.kmb_motion import (
     MAX_KMB_BYTES,
     attachment_payload,
     clip_slice,
+    encode_kmb1,
     parse_constraints,
     parse_kmb1,
 )
@@ -1066,21 +1067,26 @@ def _execute_analysis_only(
         payload = attachment_payload(item, attachments, ardy_backend.ArdyBackendError)
         motion = parse_kmb1(payload, ardy_backend.ArdyBackendError)
         start, end = clip_slice(item, motion, ardy_backend.ArdyBackendError)
+        dense_clip = encode_kmb1(motion, start, end)
         offset = len(output)
-        output.extend(payload)
+        output.extend(dense_clip)
         manifest.append(
             {
                 "index": len(manifest),
                 "offset": offset,
-                "byte_length": len(payload),
-                "start_frame": start,
-                "end_frame_exclusive": end,
+                "byte_length": len(dense_clip),
+                "start_frame": 0,
+                "end_frame_exclusive": end - start,
             }
         )
         clips.append(
             {
                 "root_positions": motion.root_positions[start:end],
                 "local_rot_quats": motion.local_rot_quats[start:end],
+                "joint_names": list(motion.joint_names),
+                "joint_parents": list(motion.joint_parents),
+                "foot_contacts": motion.foot_contacts[start:end] if motion.foot_contacts is not None else None,
+                "model_name": motion.model_name,
                 "fps": motion.fps,
             }
         )

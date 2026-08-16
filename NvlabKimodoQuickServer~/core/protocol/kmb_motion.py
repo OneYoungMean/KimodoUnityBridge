@@ -98,6 +98,56 @@ def parse_kmb1(payload: bytes, error_type: type[ValueError] = ValueError) -> Kmb
     )
 
 
+def encode_kmb1(motion: KmbMotion, start_frame: int = 0, end_frame_exclusive: int | None = None) -> bytes:
+    """Encode one dense, half-open frame range as a standalone KMB1 payload."""
+    import flatbuffers
+
+    from core.protocol.generated import MotionPacket
+
+    if motion is None:
+        raise ValueError("motion is required")
+    start = int(start_frame)
+    end = motion.num_frames if end_frame_exclusive is None else int(end_frame_exclusive)
+    if not 0 <= start < end <= motion.num_frames:
+        raise ValueError(f"Invalid KMB1 slice [{start},{end}) for {motion.num_frames} frames.")
+
+    roots = np.ascontiguousarray(motion.root_positions[start:end], dtype=np.float32).reshape(-1)
+    quats = np.ascontiguousarray(motion.local_rot_quats[start:end], dtype=np.float32).reshape(-1)
+    contacts = np.asarray(motion.foot_contacts[start:end], dtype=np.uint8).reshape(-1) if motion.foot_contacts is not None else np.empty(0, dtype=np.uint8)
+    frame_count = end - start
+    joint_count = len(motion.joint_names)
+    if roots.size != frame_count * 3 or quats.size != frame_count * joint_count * 4:
+        raise ValueError("KMB1 motion data does not match its metadata.")
+
+    builder = flatbuffers.Builder(max(1024, int(roots.nbytes + quats.nbytes + contacts.nbytes + 512)))
+    model_name = builder.CreateString(motion.model_name or "")
+    name_offsets = [builder.CreateString(name or "") for name in motion.joint_names]
+    MotionPacket.StartJointNamesVector(builder, len(name_offsets))
+    for offset in reversed(name_offsets):
+        builder.PrependUOffsetTRelative(offset)
+    names = builder.EndVector()
+    parents = builder.CreateNumpyVector(np.asarray(motion.joint_parents, dtype=np.int32))
+    root_positions = builder.CreateNumpyVector(roots)
+    rotations = builder.CreateNumpyVector(quats)
+    foot_contacts = builder.CreateNumpyVector(contacts) if contacts.size else None
+
+    MotionPacket.Start(builder)
+    MotionPacket.AddVersion(builder, 1)
+    MotionPacket.AddFps(builder, float(motion.fps))
+    MotionPacket.AddNumFrames(builder, frame_count)
+    MotionPacket.AddNumJoints(builder, joint_count)
+    MotionPacket.AddJointNames(builder, names)
+    MotionPacket.AddJointParents(builder, parents)
+    MotionPacket.AddRootPositions(builder, root_positions)
+    MotionPacket.AddLocalRotQuats(builder, rotations)
+    MotionPacket.AddModelName(builder, model_name)
+    if foot_contacts is not None:
+        MotionPacket.AddFootContacts(builder, foot_contacts)
+    packet = MotionPacket.End(builder)
+    builder.Finish(packet, file_identifier=b"KMB1")
+    return bytes(builder.Output())
+
+
 def parse_constraints(value: Any, error_type: type[ValueError] = ValueError) -> list[dict[str, Any]]:
     if value is None or value == "":
         return []

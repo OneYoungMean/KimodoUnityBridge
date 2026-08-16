@@ -1,64 +1,41 @@
 ---
 name: kimodo-unity-animation
-description: Discover and run Kimodo humanoid animation commands in the current Unity Editor.
+description: Discover, generate, inspect, and refine humanoid animation through Kimodo commands in the current Unity Editor.
 ---
 
-# Kimodo Unity Animation Commands
+# Kimodo Unity Animation
 
-Chinese counterpart: [SKILL-zh.md](SKILL-zh.md).
-
-Use this package's public Editor entry point:
+Use the public Editor entry point:
 
 ```csharp
 using CharacterAnimationCli.Unity.Command;
-
 string schema = command_dispatcher.GetCommandDefinitionsJson();
 string result = command_dispatcher.Invoke(commandName, argumentsJson);
 ```
 
-Expose every item in `schema.tools` as an AI tool whose implementation calls `Invoke` with the tool name and a JSON object. The live schema and returned errors are authoritative. Every result has `ok`; a failure is `{"ok":false,"error":"..."}`. Omit optional keys instead of sending `null`.
+Expose exactly the live `schema.tools` entries as tools. Results always use the vNext `ok` envelope. Treat command definitions, returned IDs, names, paths, and cache locators as authoritative opaque handles.
 
-## Discover and verify the workflow
+## Standard workflow
 
-1. Call `kimodo_help({})`. Follow its returned `workflow` array; do not guess command order or arguments.
-2. Call `kimodo_help({"command":"<name>"})` before using an unfamiliar command.
-3. Call `kimodo_help({"section":"models"})` only when selecting a non-default model or text encoder.
+1. `kimodo_help({})`, then `session_get_or_create({"name":"<stable name>"})`.
+2. `session_add({"kind":"character","character":"<scene name or hierarchy path>"})`; save the returned safe character name.
+3. Generate with `kimodo_generate_animation`; save `request_id`; poll `kimodo_get_generation` to a terminal status.
+4. Call `animation_analyze` for the completed animation; save `analysis_id`, then read `analysis_path` and its dense-KMB `motion_path`.
+5. Call all three picture commands with that `analysis_id`: motion overlay, key poses, and 3D trajectory.
+6. Compare the visual evidence with the prompt. Revise sparse constraints, endpoint poses, or the prompt and iterate.
 
-The minimal generation check returned by help is:
+Read the returned `session_json_path` whenever the complete Session state is required. A new Session is empty. `session_add` explicitly adds the scene humanoid, clip, or Animator content.
 
-```text
-session_open({})
-query_current_session({"query":"characters"})
-kimodo_generate_animation({"character":"<returned name>","prompt":"stand still and breathe naturally","duration_frames":60})
-kimodo_get_generation({"request_id":"<returned request_id>"}) until terminal
-session_close({})
-```
+## Visual acceptance
 
-Do not close the Session while generation is running. A terminal status is `completed`, `failed`, or `canceled`. On completion, query `character_animations` to confirm the generated animation was appended:
+- Key-pose images must show the requested action, direction, body state, contact/object relationship, and ending state.
+- Inspect `keyframes` in their returned descending-saliency order. Inspect `foot_contact_changes` in their returned shortest-duration-first order, then verify the dense KMB contact track.
+- Motion-overlay images must show the expected root path, displacement, orientation, and no unexplained drift.
+- Trajectory images must show plausible root, pelvis, hand, and foot paths.
+- Loop work requires inspecting first/last poses, root heading and position, foot-contact phase, and velocity continuity. A visible seam requires another generation/refinement pass.
 
-```json
-{"query":"character_animations","character":"<returned name>"}
-```
+## Pose work
 
-## Current contract
+Use `pose_get` to obtain a source pose and its writable Pose Cache marker. Keep the returned marker locator for `pose_set_root_transform` and `pose_set_muscle`. Use `full_data:true` when all muscle channels are needed. Use `pose_contract` to fit one or more hand/foot targets and keep its reported residual when judging a multi-effector fit.
 
-- Commands run in the current Unity Editor in Edit Mode.
-- Public time values are integer frames at 60 FPS. Ranges are `[start_frame,end_frame)`.
-- Characters are safe scene/Session names. If duplicate scene names exist, use `session_try_add` with the hierarchy path before other character commands.
-- `session_open` creates or reopens the current retained Session; `session_close` saves and closes its editing environment without deleting generated animation assets.
-- `kimodo_generate_animation` may create and close a retained `__KimodoAuto__` Session when no current Session exists, but explicit Session use is preferred for multi-step AI work.
-- Never send `timeline_session_id`, external model paths, or parameters absent from the live schema.
-
-## Prompt wording for dataset animations
-
-When turning a dataset animation file name into a generation prompt, rewrite it as concise natural language instead of copying the internal file name. Preserve the motion, phase, path or direction, speed, body state, object/contact, and intended ending state when they are present. Remove take numbers, actor identifiers, mirror flags, and internal variant suffixes such as `001`, `__A494`, `_M`, and `_R` unless they carry motion semantics.
-
-## Tool groups
-
-- Discovery: `kimodo_help`.
-- Session: `session_open`, `session_close`, `query_current_session`, `session_try_add`, `session_try_remove`.
-- Pose and constraints: `pose_create`, `pose_get`, `pose_set`, `pose_copy`, `kimodo_build_root2d_path`.
-- Animation: `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation`, `kimodo_analyze`, `query_picture`, `kimodo_bake_range`.
-- Debug maintenance: `kimodo_debug_install_server`; use only when explicitly diagnosing the local QuickServer installation.
-
-For pose/constraint examples, see [Manual/AI workflow and Constraint API](Manual/AI%20工作流示例与%20Constraint%20API%20设计.md). Always check the command's live schema before copying an example.
+Dataset animation names become concise natural-language prompts: preserve action, phase, direction/path, speed, contact/object, and ending state; remove take IDs, actor IDs, and internal variant suffixes that carry no movement meaning.

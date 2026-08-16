@@ -22,25 +22,24 @@ namespace CharacterAnimationCli.Unity.Command
     internal static partial class command_context
     {
         public const string HelpCommand = "kimodo_help";
-        public const string DebugInstallServerCommand = "kimodo_debug_install_server";
+        public const string InstallServerCommand = "kimodo_install_server";
         public const string GenerateAnimationCommand = "kimodo_generate_animation";
-        public const string SessionOpenCommand = "session_open";
+        public const string SessionGetOrCreateCommand = "session_get_or_create";
         public const string SessionCloseCommand = "session_close";
-        public const string QueryCurrentSessionCommand = "query_current_session";
-        public const string SessionTryAddCommand = "session_try_add";
-        public const string SessionTryRemoveCommand = "session_try_remove";
-        public const string KimodoAnalyzeCommand = "kimodo_analyze";
-        public const string KimodoRecordRangeCommand = "kimodo_record_range";
-        public const string KimodoBakeRangeCommand = "kimodo_bake_range";
-        public const string KimodoRetargetAnimationCommand = "kimodo_retarget_animation";
-        public const string QueryPictureCommand = "query_picture";
-        public const string PoseCreateCommand = "pose_create";
+        public const string SessionAddCommand = "session_add";
+        public const string AnimationAnalyzeCommand = "animation_analyze";
+        public const string AnimationCompareCommand = "animation_compare";
+        public const string RecordRangeCommand = "kimodo_record_range";
+        public const string RetargetAnimationCommand = "kimodo_retarget_animation";
+        public const string PictureMotionOverlayCommand = "picture_motion_overlay";
+        public const string PictureKeyPosesCommand = "picture_key_poses";
+        public const string PictureTrajectory3DCommand = "picture_trajectory_3d";
         public const string PoseGetCommand = "pose_get";
-        public const string PoseSetCommand = "pose_set";
-        public const string PoseCopyCommand = "pose_copy";
-        public const string BuildRoot2DPathCommand = "kimodo_build_root2d_path";
-        public const string QueryGenerationCommand = "kimodo_get_generation";
-        public const string QueryCancelGenerationCommand = "kimodo_cancel_generation";
+        public const string PoseContractCommand = "pose_contract";
+        public const string PoseSetRootTransformCommand = "pose_set_root_transform";
+        public const string PoseSetMuscleCommand = "pose_set_muscle";
+        public const string GetGenerationCommand = "kimodo_get_generation";
+        public const string CancelGenerationCommand = "kimodo_cancel_generation";
 
         private const int MaxRememberedJobs = 128;
         private static readonly Dictionary<Guid, JobRecord> Jobs = new Dictionary<Guid, JobRecord>();
@@ -57,47 +56,46 @@ namespace CharacterAnimationCli.Unity.Command
                         Properties(
                             Optional("command", "string", "Command name whose full manual entry should be returned."),
                             Enum("section", "commands", "models", "constraints"))),
-                    CommandDefinition(DebugInstallServerCommand,
+                    CommandDefinition(InstallServerCommand,
                         "[debug-only] Incrementally install the QuickServer runtime from the package template, preserving models and the Python environment, then restart it.",
                         Properties(),
                         debugOnly: true),
-                    CommandDefinition(SessionOpenCommand,
+                    CommandDefinition(SessionGetOrCreateCommand,
                         "Create an empty current animation Session, or reopen an existing named Session. Add a scene humanoid before using character-scoped commands in a new Session.",
                         Properties(
-                            Optional("session_name", "string", "Existing Session name to load; omitted always creates a new Session."))),
+                            Optional("name", "string", "Stable Session name. An existing name selects that Session; omit it to return the current Session or create one when none exists."))),
                     CommandDefinition(SessionCloseCommand,
-                        "Close the current animation editing Session while preserving it for a later named reopen.",
-                        Properties()),
-                    CommandDefinition(QueryCurrentSessionCommand,
-                        "Read current Session state without changing it. Query characters first, then reuse returned safe names for character- and animation-scoped queries.",
-                        Properties(
-                            RequiredEnum("query", "characters", "character_animations", "animation", "character_constraints", "animation_constraints", "animation_transitions", "transition"),
-                            Optional("character", "string", "Safe character name in the current Session."),
-                            Optional("animation", "string", "Safe animation name in the selected character."))),
-                    CommandDefinition(SessionTryAddCommand,
+                        "Close the selected animation editing Session while preserving its Timeline, assets, and AI-readable Session JSON.",
+                        Properties(Optional("session_id", "string", "Session id; omitted uses the current Session."))),
+                    CommandDefinition(SessionAddCommand,
                         "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator; kind=clip appends one project AnimationClip to a Session character; kind=animator imports a scene AnimatorController into a Session character. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
                         Properties(
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredEnum("kind", "character", "clip", "animator"),
                             Required("character", "string", "Scene character name/path for kind=character, or target Session character name otherwise."),
                             Optional("clip", "string", "Project AnimationClip name for kind=clip."),
                             Optional("animator", "string", "Scene Animator name/path for kind=animator."))),
-                    CommandDefinition(SessionTryRemoveCommand,
-                        "TryRemove a character track or one clip. Removing a clip does not move other clips or reuse its virtual time address.",
+                    CommandDefinition(AnimationAnalyzeCommand,
+                        "Analyze one Session animation synchronously. Keyframes are returned by descending saliency, contact changes by ascending duration; motion_path points to dense KMB foot contacts.",
                         Properties(
-                            RequiredEnum("kind", "character", "clip"),
-                            Required("character", "string", "Safe character name in the current Session."),
-                            Optional("animation", "string", "Safe animation name for kind=clip."))),
-                    CommandDefinition(KimodoAnalyzeCommand,
-                        "Analyze exactly one source: a named animation, or a half-open Session frame range. Returns analysis_id and pose locators for query_picture or pose_copy. Overlap with running generation on the same track returns generation_range_locked.",
-                        Properties(
-                            Required("character", "string", "Safe character name in the current Session."),
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Required("character", "string", "Safe character name in the selected Session."),
                             Optional("animation", "string", "Safe animation name; mutually exclusive with start_frame/end_frame."),
                             Optional("start_frame", "integer", "Inclusive Session frame at 60 FPS; requires end_frame."),
                             Optional("end_frame", "integer", "Exclusive Session frame at 60 FPS; requires start_frame."),
+                            Optional("keyframe_count", "integer", "Requested keyframe count when supported by the server."),
                             Optional("analysis_option", "object", "Optional QuickServer analysis configuration; analysis_only is forced true."))),
-                    CommandDefinition(KimodoRecordRangeCommand,
+                    CommandDefinition(AnimationCompareCommand,
+                        "Compare two animation ranges or transition-like clip ranges without modifying the Session.",
+                        Properties(
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Required("character", "string", "Safe character name in the current Session."),
+                            Required("origin", "object", "Origin animation and half-open frame range."),
+                            Required("target", "object", "Target animation and half-open frame range."))),
+                    CommandDefinition(RecordRangeCommand,
                         "Record a Session time range into an AnimationClip and append it to the source character.",
                         Properties(
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             Required("start_frame", "integer", "Inclusive Session frame at 60 FPS."),
                             Required("end_frame", "integer", "Exclusive Session frame at 60 FPS."),
                             Required("character", "string", "Safe source character name in the current Session."),
@@ -105,29 +103,20 @@ namespace CharacterAnimationCli.Unity.Command
                             Optional("speed", "number", "Playback speed multiplier; defaults to 1.0."),
                             Optional("name", "string", "Requested safe output animation name."),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
-                    CommandDefinition(KimodoRetargetAnimationCommand,
+                    CommandDefinition(RetargetAnimationCommand,
                         "Retarget one loaded animation to another current Session character and append the result.",
                         Properties(
-                            Required("character", "string", "Safe source character name in the current Session."),
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Required("source_character", "string", "Safe source character name in the selected Session."),
                             Required("animation", "string", "Safe source animation name."),
-                            Required("target_character", "string", "Safe target character name in the current Session."),
-                            Optional("name", "string", "Requested safe output animation name."),
-                            Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
-                    CommandDefinition(KimodoBakeRangeCommand,
-                        "Bake a Session time range into an AnimationClip and append it to a character with a fixed 4-frame safezone; optionally retarget it to another current Session character. Overlap with a running generation on the source track returns generation_range_locked.",
-                        Properties(
-                            Required("start_frame", "integer", "Inclusive Session frame at 60 FPS."),
-                            Required("end_frame", "integer", "Exclusive Session frame at 60 FPS."),
-                            Required("character", "string", "Safe source character name in the current Session."),
-                            Optional("retarget_character", "string", "Optional safe target character name."),
-                            Optional("remove_root_motion", "boolean", "Keep vertical motion but remove horizontal root translation and yaw; defaults to false."),
-                            Optional("speed", "number", "Playback speed multiplier; defaults to 1.0."),
+                            Required("target_character", "string", "Safe target character name in the selected Session."),
                             Optional("name", "string", "Requested safe output animation name."),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
                     CommandDefinition(GenerateAnimationCommand,
-                        "Start asynchronous generation for one scene or Session character, append a KimodoPlayableClip with a fixed 4-frame safezone, and return request_id. Poll kimodo_get_generation to a terminal state. Without a current Session, a retained __KimodoAuto__ Session is created and closed after generation.",
+                        "Start asynchronous generation for a character already added to the selected Session. The accepted request is recorded in session.json and must be polled by request_id.",
                         Properties(
-                            Required("character", "string", "Safe scene or Session character name."),
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Required("character", "string", "Safe character name in the selected Session."),
                             Required("prompt", "string", "Motion prompt."),
                             Optional("duration_frames", "integer", "Duration in 60 FPS Session frames; defaults to 300."),
                             Optional("loop", "boolean", "Enable bounded loop preprocessing; over-limit requests fall back to normal generation."),
@@ -140,48 +129,71 @@ namespace CharacterAnimationCli.Unity.Command
                             Optional("name", "string", "Requested safe animation name; defaults to the prompt."),
                             Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
                             OptionalConstraints("constraints", "One sparse constraint object per frame; combine fullbody, root2d, and pose-based hand/foot constraints in the same object."))),
-                    CommandDefinition(QueryPictureCommand,
-                        "Render explicit poses, a cached analysis, or inline constraints as motion_evidence_v2: four ghost-overlay views, three key poses, and a 3D trajectory image.",
+                    CommandDefinition(PictureMotionOverlayCommand,
+                        "Render four orthographic Root-motion overlay views.",
                         Properties(
-                            OptionalPoseLocators("poses", "Pose locators {source,frame}."),
-                            Optional("analysis_id", "string", "Stable id returned by kimodo_analyze."),
-                            OptionalConstraints("constraints", "Inline constraints in the same format accepted by kimodo_generate_animation."),
-                            Optional("character", "string", "Character used to frame position-only Root2D constraints."),
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Optional("analysis_id", "string", "Analysis id returned by animation_analyze."),
+                            Optional("animation", "string", "Animation name when analysis_id is omitted."),
+                            OptionalPoseLocators("poses", "Explicit pose locators when analysis_id and animation are omitted."),
+                            Optional("ghost_frames", "integer", "Number of overlay ghosts; defaults to 5."),
                             Optional("resolution", "integer", "Square output size in pixels; defaults to 512."),
                             Optional("scale", "number", "Camera framing scale; defaults to 1.0."))),
-                    CommandDefinition(PoseCreateCommand,
-                        "Create a writable canonical 49-Muscle + Root/Hand/Foot TQ pose and return its pose locator.",
+                    CommandDefinition(PictureKeyPosesCommand,
+                        "Render three independent key-pose images.",
                         Properties(
-                            Required("character", "string", "Target character name."),
-                            RequiredCharacterPose("pose", partial: false))),
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Optional("analysis_id", "string", "Analysis id returned by animation_analyze."),
+                            Optional("animation", "string", "Animation name when analysis_id is omitted."),
+                            OptionalPoseLocators("poses", "Explicit pose locators when analysis_id and animation are omitted."),
+                            OptionalArray("frames", "integer", "Animation-local frames with animation, or selected analysis keyframe numbers with analysis_id."),
+                            Optional("resolution", "integer", "Square output size in pixels; defaults to 512."))),
+                    CommandDefinition(PictureTrajectory3DCommand,
+                        "Render the 3D trajectory image for root, hips, hands, and feet.",
+                        Properties(
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Optional("analysis_id", "string", "Analysis id returned by animation_analyze."),
+                            Optional("animation", "string", "Animation name when analysis_id is omitted."),
+                            OptionalPoseLocators("poses", "Explicit pose locators when analysis_id and animation are omitted."),
+                            OptionalArray("bones", "string", "Bones to include; defaults to root, hips, hands, and feet."),
+                            Optional("resolution", "integer", "Square output size in pixels; defaults to 512."))),
                     CommandDefinition(PoseGetCommand,
-                        "Read a canonical 49-Muscle + Root/Hand/Foot TQ pose from any returned {source,frame} locator. Sampling a character Timeline frame locked by generation returns generation_range_locked.",
-                        Properties(RequiredPoseLocator("pose"))),
-                    CommandDefinition(PoseSetCommand,
-                        "Patch one or more channels of a writable canonical pose.",
+                        "Read a canonical pose from a source locator, creating or reusing a Pose Cache marker. full_data=true returns all muscles and TQ channels.",
                         Properties(
-                            RequiredPoseLocator("pose"),
-                            RequiredCharacterPose("data", partial: true))),
-                    CommandDefinition(PoseCopyCommand,
-                        "Copy any read-only or writable pose into a new writable pose and return its locator.",
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Required("source", "string", "Animation or Pose Cache source name."),
+                            Required("frame", "integer", "Animation-local frame for an animation source, or the returned frame for a Pose Cache source."),
+                            Optional("full_data", "boolean", "Return all 49 muscles and TQ channels; defaults to false."))),
+                    CommandDefinition(PoseContractCommand,
+                        "Align a target Pose end-effector to an origin Pose and create a cached constraint description.",
                         Properties(
-                            Required("character", "string", "Target character name."),
-                            RequiredPoseLocator("pose"))),
-                    CommandDefinition(BuildRoot2DPathCommand,
-                        "Return dependency-free Root2D constraint values {frame,position,heading} at fixed 60 FPS; this does not read or bake a NavMesh.",
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Required("origin", "object", "Origin Pose locator."),
+                            Required("target", "object", "Target Pose locator."),
+                            RequiredEnumArray("endeffectors", "End effectors to align.", "left_hand", "right_hand", "left_foot", "right_foot"),
+                            RequiredEnumArray("components", "Components to align.", "position", "rotation"),
+                            RequiredEnum("mode", "align_target_root", "least_squares_root_fit"))),
+                    CommandDefinition(PoseSetRootTransformCommand,
+                        "Modify the root transform of a cached Pose marker.",
                         Properties(
-                            RequiredEnum("shape", "line", "turn", "s", "circle"),
-                            Optional("duration_frames", "integer", "Duration at 60 FPS; defaults to 300."),
-                            Optional("max_speed", "number", "Maximum units per second; defaults to 2.5."),
-                            Optional("acceleration", "number", "Acceleration/deceleration units per second squared; defaults to 2.5."),
-                            Enum("direction", "left", "right"),
-                            Optional("turn_degrees", "integer", "0, 45, 90, 135, or 180."))),
-                    CommandDefinition(QueryGenerationCommand,
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Required("pose", "object", "Pose Cache marker locator."),
+                            Required("root", "object", "Root position and rotation."))),
+                    CommandDefinition(PoseSetMuscleCommand,
+                        "Modify one or more muscles of a cached Pose marker.",
+                        Properties(
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Required("pose", "object", "Pose Cache marker locator."),
+                            Required("muscles", "object", "Map of muscle channel names to values."))),
+                    CommandDefinition(GetGenerationCommand,
                         "Get generation progress and the generated animation safe name.",
-                        Properties(Required("request_id", "string", "Request id returned by a generate tool."))),
-                    CommandDefinition(QueryCancelGenerationCommand,
+                        Properties(
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Required("request_id", "string", "Request id returned by a generate tool."))),
+                    CommandDefinition(CancelGenerationCommand,
                         "Cancel an active Kimodo generation request.",
                         Properties(
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             Required("request_id", "string", "Request id returned by a generate tool."),
                             Optional("reason", "string", "Optional cancellation reason.")))
                 }
@@ -194,46 +206,44 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 case HelpCommand:
                     return GetCommandHelp(argumentsJson);
-                case DebugInstallServerCommand:
-                    return DebugInstallServer(argumentsJson);
-                case SessionOpenCommand:
-                    return SessionOpenTimeline(argumentsJson);
+                case InstallServerCommand:
+                    return InstallServer(argumentsJson);
+                case SessionGetOrCreateCommand:
+                    return SessionGetOrCreate(argumentsJson);
                 case SessionCloseCommand:
-                    return SessionCloseTimeline(argumentsJson);
-                case QueryCurrentSessionCommand:
-                    return QueryCurrentSession(argumentsJson);
-                case SessionTryAddCommand:
-                    return SessionTryAdd(argumentsJson);
-                case SessionTryRemoveCommand:
-                    return SessionTryRemove(argumentsJson);
-                case KimodoAnalyzeCommand:
-                    return KimodoAnalyzeTimelineRange(argumentsJson);
-                case KimodoRecordRangeCommand:
-                    return KimodoRecordTimelineRange(argumentsJson);
-                case KimodoBakeRangeCommand:
-                    return KimodoBakeTimelineRange(argumentsJson);
-                case KimodoRetargetAnimationCommand:
-                    return KimodoRetargetAnimation(argumentsJson);
-                case QueryPictureCommand:
-                    return Capture(argumentsJson);
-                case PoseCreateCommand:
-                    return PoseCreate(argumentsJson);
+                    return SessionClose(argumentsJson);
+                case SessionAddCommand:
+                    return SessionAdd(argumentsJson);
+                case AnimationAnalyzeCommand:
+                    return AnimationAnalyze(argumentsJson);
+                case AnimationCompareCommand:
+                    return AnimationCompare(argumentsJson);
+                case RecordRangeCommand:
+                    return RecordRange(argumentsJson);
+                case RetargetAnimationCommand:
+                    return RetargetAnimation(argumentsJson);
+                case PictureMotionOverlayCommand:
+                    return PictureMotionOverlay(argumentsJson);
+                case PictureKeyPosesCommand:
+                    return PictureKeyPoses(argumentsJson);
+                case PictureTrajectory3DCommand:
+                    return PictureTrajectory3D(argumentsJson);
                 case PoseGetCommand:
                     return PoseGet(argumentsJson);
-                case PoseSetCommand:
-                    return PoseSet(argumentsJson);
-                case PoseCopyCommand:
-                    return PoseCopy(argumentsJson);
-                case BuildRoot2DPathCommand:
-                    return BuildRoot2DPath(argumentsJson);
+                case PoseContractCommand:
+                    return PoseContract(argumentsJson);
+                case PoseSetRootTransformCommand:
+                    return PoseSetRootTransform(argumentsJson);
+                case PoseSetMuscleCommand:
+                    return PoseSetMuscle(argumentsJson);
                 case GenerateAnimationCommand:
                     return GenerateAnimationAsset(argumentsJson);
-                case QueryGenerationCommand:
-                    return QueryGeneration(argumentsJson);
-                case QueryCancelGenerationCommand:
-                    return QueryCancelGeneration(argumentsJson);
+                case GetGenerationCommand:
+                    return GetGeneration(argumentsJson);
+                case CancelGenerationCommand:
+                    return CancelGeneration(argumentsJson);
                 default:
-                    return Error($"Unknown Kimodo command '{toolName ?? string.Empty}'.");
+                    return Error("unknown_command", $"Unknown Kimodo command '{toolName ?? string.Empty}'.");
             }
         }
 
@@ -364,66 +374,35 @@ namespace CharacterAnimationCli.Unity.Command
                     ["manual"] = "Kimodo command reference",
                     ["execution_model"] = new JArray
                     {
-                        "The dispatcher owns at most one current Session. A newly created Session has no characters.",
-                        "Inspect the Unity scene with the surrounding Unity tool, then add one Humanoid Animator with session_try_add(kind=character).",
-                        "Treat returned safe names and locators as opaque handles; never reconstruct or guess them.",
-                        "Generation is asynchronous: save request_id and poll kimodo_get_generation to completed, failed, or canceled.",
-                        "Use surrounding Unity tools for scene discovery, general Timeline placement, BlendTree branch choice, and visual playback verification."
+                        "A command may omit session_id only when a current Session exists; otherwise it fails with session_required.",
+                        "session_get_or_create is the only command that creates Sessions. New Sessions are empty; add scene content explicitly with session_add.",
+                        "Treat names, request_id, analysis_id, and Pose Cache locators as opaque values returned by Kimodo.",
+                        "Generation is asynchronous: save request_id and poll kimodo_get_generation until completed, failed, or canceled.",
+                        "Read session_json_path after Session-changing commands for the complete AI-readable Session state."
                     },
                     ["routing"] = new JArray
                     {
-                        Route("discover schema or models", "kimodo_help"),
-                        Route("inspect current Session", "query_current_session"),
-                        Route("bring a scene character, project clip, or AnimatorController into the Session", "session_try_add"),
-                        Route("generate motion", "kimodo_generate_animation", "then kimodo_get_generation"),
-                        Route("analyze existing motion", "kimodo_analyze", "then query_picture or pose_copy"),
-                        Route("edit a sampled pose", "pose_copy", "then pose_get, pose_set, and query_picture"),
-                        Route("create a mathematical root trajectory", "kimodo_build_root2d_path", "convert returned points to root2d constraints"),
-                        Route("record or bake a Session range", "kimodo_record_range")
+                        Route("discover schema or models", HelpCommand),
+                        Route("select or create a Session", SessionGetOrCreateCommand),
+                        Route("add a character, clip, or Animator", SessionAddCommand),
+                        Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
+                        Route("analyze and render motion", AnimationAnalyzeCommand, "then picture_motion_overlay / picture_key_poses / picture_trajectory_3d"),
+                        Route("sample or edit a cached pose", PoseGetCommand, "then pose_set_root_transform / pose_set_muscle / pose_contract"),
+                        Route("record or retarget", RecordRangeCommand, "or " + RetargetAnimationCommand)
                     },
                     ["handles"] = new JObject
                     {
-                        ["character/animation safe name"] = "Reuse in Session-scoped commands.",
+                        ["session_id"] = "Pass to any Session-scoped command; omission selects the current Session.",
                         ["request_id"] = "Pass only to kimodo_get_generation or kimodo_cancel_generation.",
-                        ["analysis_id"] = "Pass to query_picture.",
-                        ["pose {source,frame}"] = "Pass to pose_get, pose_copy, pose_set when writable, or generation constraints."
+                        ["analysis_id"] = "Pass to picture commands.",
+                        ["Pose Cache locator"] = "Pass only to pose_set_root_transform, pose_set_muscle, or pose_contract."
                     },
                     ["workflow"] = new JArray
                     {
-                        new JObject { ["command"] = SessionOpenCommand, ["arguments"] = new JObject() },
-                        new JObject
-                        {
-                            ["external_step"] = "Inspect the open Unity scene and choose one GameObject with a valid Humanoid Animator; save its exact name or hierarchy path."
-                        },
-                        new JObject
-                        {
-                            ["command"] = SessionTryAddCommand,
-                            ["arguments"] = new JObject { ["kind"] = "character", ["character"] = "<scene name or path>" },
-                            ["save"] = "returned character.name safe name"
-                        },
-                        new JObject
-                        {
-                            ["command"] = QueryCurrentSessionCommand,
-                            ["arguments"] = new JObject { ["query"] = "characters" },
-                            ["verify"] = "returned characters contains the saved safe name"
-                        },
-                        new JObject
-                        {
-                            ["command"] = GenerateAnimationCommand,
-                            ["arguments"] = new JObject
-                            {
-                                ["character"] = "<character>",
-                                ["prompt"] = "stand still and breathe naturally",
-                                ["duration_frames"] = 60
-                            },
-                            ["save"] = "request_id"
-                        },
-                        new JObject
-                        {
-                            ["command"] = QueryGenerationCommand,
-                            ["arguments"] = new JObject { ["request_id"] = "<request_id>" },
-                            ["repeat_until"] = "status is completed, failed, or canceled"
-                        },
+                        new JObject { ["command"] = SessionGetOrCreateCommand, ["arguments"] = new JObject { ["name"] = "Locomotion" } },
+                        new JObject { ["command"] = SessionAddCommand, ["arguments"] = new JObject { ["kind"] = "character", ["character"] = "<scene name or path>" } },
+                        new JObject { ["command"] = GenerateAnimationCommand, ["arguments"] = new JObject { ["character"] = "<character>", ["prompt"] = "stand still and breathe naturally", ["duration_frames"] = 60 }, ["save"] = "request_id" },
+                        new JObject { ["command"] = GetGenerationCommand, ["arguments"] = new JObject { ["request_id"] = "<request_id>" }, ["repeat_until"] = "status is completed, failed, or canceled" },
                         new JObject { ["command"] = SessionCloseCommand, ["arguments"] = new JObject() }
                     },
                     ["commands"] = new JArray(all["tools"].Children<JObject>().Select(item => new JObject
@@ -480,7 +459,7 @@ namespace CharacterAnimationCli.Unity.Command
             };
         }
 
-        public static string DebugInstallServer(string argumentsJson = "{}")
+        public static string InstallServer(string argumentsJson = "{}")
         {
             return Execute(argumentsJson, _ =>
             {
@@ -506,38 +485,43 @@ namespace CharacterAnimationCli.Unity.Command
             });
         }
 
-        public static string QueryGeneration(string argumentsJson)
+        public static string GetGeneration(string argumentsJson)
         {
             return Execute(argumentsJson, arguments =>
             {
+                TimelineSessionRecord session = RequireTimelineSession(arguments);
                 Guid requestId = RequiredRequestId(arguments);
                 if (!TryGetJob(requestId, out JobRecord record))
                 {
-                    JObject persisted = LoadPersistedGenerationJob(requestId);
+                    JObject persisted = LoadPersistedGenerationJob(session, requestId);
                     persisted["target_alive"] = false;
                     return Ok(persisted);
                 }
+                EnsureGenerationBelongsToSession(record, session);
                 JObject status = BuildStatus(record);
                 status["target_alive"] = record.Target != null;
                 return Ok(status);
             });
         }
 
-        public static string QueryCancelGeneration(string argumentsJson)
+        public static string CancelGeneration(string argumentsJson)
         {
             return Execute(argumentsJson, arguments =>
             {
+                TimelineSessionRecord session = RequireTimelineSession(arguments);
                 Guid requestId = RequiredRequestId(arguments);
                 if (!TryGetJob(requestId, out JobRecord record))
                 {
-                    JObject persisted = LoadPersistedGenerationJob(requestId);
+                    JObject persisted = LoadPersistedGenerationJob(session, requestId);
                     persisted["canceled"] = false;
                     return Ok(persisted);
                 }
+                EnsureGenerationBelongsToSession(record, session);
                 string reason = arguments.Value<string>("reason")?.Trim();
                 bool canceled = KimodoEditorGenerationJobService.Cancel(
                     requestId,
                     string.IsNullOrWhiteSpace(reason) ? "Generation canceled by command." : reason);
+                PersistGenerationJobStatus(record.Session);
                 JObject status = BuildStatus(record);
                 status["canceled"] = canceled;
                 return Ok(status);
@@ -549,10 +533,9 @@ namespace CharacterAnimationCli.Unity.Command
             return Execute(argumentsJson, arguments =>
             {
                 EnsureCanGenerate();
-                RejectTimelineSessionId(arguments);
+                TimelineSessionRecord session = RequireTimelineSession(arguments);
                 string prompt = RequiredStringValue(arguments, "prompt");
-                TimelineSessionRecord session = EnsureGenerationTimelineSession();
-                ResolvedCharacter character = ResolveCharacter(RequiredStringValue(arguments, "character"));
+                ResolvedCharacter character = ResolveCharacter(session, RequiredStringValue(arguments, "character"));
                 string outputMode = ParseOutputMode(arguments.Value<string>("output_mode"));
                 string requestedModel = arguments.Value<string>("model")?.Trim();
                 string requestedTextEncoder = arguments.Value<string>("text_encoder_model")?.Trim();
@@ -647,7 +630,7 @@ namespace CharacterAnimationCli.Unity.Command
                         }
                         finally
                         {
-                            FinishAutomaticTimelineSession(trace, generationSession.RequestId);
+                            // Session lifetime is owned exclusively by session_close.
                         }
                     },
                     PersistGenerationJobStatus,
@@ -659,6 +642,7 @@ namespace CharacterAnimationCli.Unity.Command
                 }
 
                 Remember(character.Target, generation, trace);
+                PersistGenerationJobStatus(generation);
                 var startedResponse = new JObject
                 {
                     ["character"] = trace.Character.Name,
@@ -671,7 +655,6 @@ namespace CharacterAnimationCli.Unity.Command
                 if (trace != null)
                 {
                     startedResponse["session_name"] = trace.Session.Name;
-                    startedResponse["temporary_session"] = trace.Session.IsAutomatic;
                     startedResponse["start_frame"] = Mathf.RoundToInt((float)(trace.StartSeconds * SessionFrameRate));
                     startedResponse["duration_frames"] = Mathf.RoundToInt((float)(trace.DurationSeconds * SessionFrameRate));
                 }
@@ -1184,64 +1167,19 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        private static ResolvedCharacter ResolveCharacter(string name)
+        private static ResolvedCharacter ResolveCharacter(TimelineSessionRecord session, string name)
         {
-            TimelineSessionRecord session = RequireCurrentTimelineSession();
-            TimelineCharacterRecord sessionCharacter = session.Characters.FirstOrDefault(item =>
-                string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
-            GameObject root = sessionCharacter?.Root;
-            if (root == null)
+            TimelineCharacterRecord sessionCharacter = ResolveSessionCharacterByReference(session, name, addIfMissing: false);
+            GameObject root = sessionCharacter.Root;
+            Animator animator = sessionCharacter.Animator;
+            if (root == null || animator == null || EditorUtility.IsPersistent(root) || !root.scene.IsValid())
             {
-                Animator[] matches = FindSceneAnimators().Where(item =>
-                    string.Equals(item.gameObject.name, name, StringComparison.OrdinalIgnoreCase)).ToArray();
-                if (matches.Length != 1)
-                {
-                    throw new InvalidOperationException(matches.Length == 0
-                        ? $"Character '{name}' was not found in the current Session or scene."
-                        : $"Scene character name '{name}' is ambiguous; add or rename it before use.");
-                }
-                root = matches[0].gameObject;
+                throw new InvalidOperationException($"Character '{name}' is no longer a valid scene Humanoid Animator.");
             }
-            if (EditorUtility.IsPersistent(root) || !root.scene.IsValid())
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sessionCharacter.Avatar))
             {
-                throw new InvalidOperationException("character must name a scene character.");
+                throw new InvalidOperationException($"Character '{sessionCharacter.Name}' does not provide a valid humanoid Avatar.");
             }
-
-            Animator animator = root.GetComponentInChildren<Animator>(true);
-            if (animator == null)
-            {
-                throw new InvalidOperationException($"Character '{root.name}' does not contain an Animator.");
-            }
-
-            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult = KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(root);
-            if (!avatarResult.IsHumanoid || !KimodoRetargetCoreUtility.IsValidHumanoid(avatarResult.Avatar))
-            {
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(avatarResult.Error)
-                    ? $"Character '{root.name}' does not provide a valid humanoid Avatar."
-                    : avatarResult.Error);
-            }
-
-            sessionCharacter = session.Characters.FirstOrDefault(item => item.Animator == animator);
-            if (sessionCharacter == null)
-            {
-                if (!AddCharacterTrack(session, root, animator, true, out string addError, requireAvatar: true))
-                {
-                    throw new InvalidOperationException($"Character could not be appended to the current Session: {addError}");
-                }
-                sessionCharacter = session.Characters.FirstOrDefault(item => item.Animator == animator);
-            }
-            else if (KimodoRetargetCoreUtility.IsValidHumanoid(avatarResult.Avatar) &&
-                !KimodoRetargetCoreUtility.IsValidHumanoid(sessionCharacter.Avatar))
-            {
-                sessionCharacter.Avatar = avatarResult.Avatar;
-                sessionCharacter.AvatarError = string.Empty;
-                session.Director.SetGenericBinding(sessionCharacter.Track, animator);
-            }
-            if (sessionCharacter == null || !KimodoRetargetCoreUtility.IsValidHumanoid(sessionCharacter.Avatar))
-            {
-                throw new InvalidOperationException($"Character '{root.name}' requires a valid humanoid Avatar in the current Session.");
-            }
-
             return new ResolvedCharacter(root, animator, sessionCharacter.Avatar, sessionCharacter.Name);
         }
 
@@ -1412,29 +1350,44 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     return Error(locked);
                 }
-                return Error(ex.Message);
+                if (ex is CommandException command)
+                {
+                    return Error(command.Code, command.Message);
+                }
+                return Error("invalid_argument", ex.Message);
             }
         }
 
         private static string Started(KimodoEditorGenerationJobSession session, JObject extra)
         {
             extra["request_id"] = session.RequestId.ToString("D");
-            extra["status"] = "running";
+            extra["status"] = "accepted";
             return Ok(extra);
         }
 
         private static string Ok(JObject result)
         {
+            result ??= new JObject();
+            if (currentTimelineSession != null)
+            {
+                result["session_id"] = currentTimelineSession.Id.ToString("D");
+                result["session_json_path"] = currentTimelineSession.Metadata?.sessionJsonPath ?? string.Empty;
+                result["session_revision"] = currentTimelineSession.Metadata?.sessionRevision ?? 0;
+            }
             result["ok"] = true;
             return result.ToString(Formatting.None);
         }
 
-        private static string Error(string message)
+        private static string Error(string code, string message)
         {
             return new JObject
             {
                 ["ok"] = false,
-                ["error"] = message ?? string.Empty
+                ["error"] = new JObject
+                {
+                    ["code"] = string.IsNullOrWhiteSpace(code) ? "invalid_argument" : code,
+                    ["message"] = message ?? string.Empty
+                }
             }.ToString(Formatting.None);
         }
 
@@ -1443,15 +1396,21 @@ namespace CharacterAnimationCli.Unity.Command
             return new JObject
             {
                 ["ok"] = false,
-                ["code"] = "generation_range_locked",
-                ["error"] = error.Message,
-                ["command"] = error.Command,
-                ["request_id"] = error.RequestId.ToString("D"),
-                ["character"] = error.Character,
-                ["track"] = error.Track,
-                ["locked_range"] = new JArray(error.LockedStartFrame, error.LockedEndFrame),
-                ["requested_range"] = new JArray(error.RequestedStartFrame, error.RequestedEndFrame),
-                ["action"] = $"Wait for generation completion or cancel request {error.RequestId:D}."
+                ["error"] = new JObject
+                {
+                    ["code"] = "generation_range_locked",
+                    ["message"] = error.Message,
+                    ["details"] = new JObject
+                    {
+                        ["command"] = error.Command,
+                        ["request_id"] = error.RequestId.ToString("D"),
+                        ["character"] = error.Character,
+                        ["track"] = error.Track,
+                        ["locked_range"] = new JArray(error.LockedStartFrame, error.LockedEndFrame),
+                        ["requested_range"] = new JArray(error.RequestedStartFrame, error.RequestedEndFrame),
+                        ["action"] = $"Wait for generation completion or cancel request {error.RequestId:D}."
+                    }
+                }
             }.ToString(Formatting.None);
         }
 
@@ -1463,6 +1422,27 @@ namespace CharacterAnimationCli.Unity.Command
                 throw new InvalidOperationException($"{name} is required.");
             }
             return value;
+        }
+
+        private static Vector2 RequiredVector2(JObject value, string name)
+        {
+            JArray array = value?[name] as JArray;
+            if (array == null || array.Count != 2)
+            {
+                throw new InvalidOperationException($"{name} must be [x,z].");
+            }
+            if ((array[0].Type != JTokenType.Integer && array[0].Type != JTokenType.Float) ||
+                (array[1].Type != JTokenType.Integer && array[1].Type != JTokenType.Float))
+            {
+                throw new InvalidOperationException($"{name} must contain finite numbers.");
+            }
+            float x = array[0].Value<float>();
+            float y = array[1].Value<float>();
+            if (float.IsNaN(x) || float.IsInfinity(x) || float.IsNaN(y) || float.IsInfinity(y))
+            {
+                throw new InvalidOperationException($"{name} must contain finite numbers.");
+            }
+            return new Vector2(x, y);
         }
 
         private static Guid RequiredRequestId(JObject arguments)
@@ -1498,53 +1478,61 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        internal static void PersistGenerationJobStatus(KimodoEditorGenerationJobSession session)
+        internal static void PersistGenerationJobStatus(KimodoEditorGenerationJobSession jobSession)
         {
-            if (session == null)
-            {
-                return;
-            }
-            JObject status;
+            if (jobSession == null) return;
+            JobRecord record;
             lock (JobsLock)
             {
-                status = Jobs.TryGetValue(session.RequestId, out JobRecord record)
-                    ? BuildStatus(record)
-                    : new JObject
-                    {
-                        ["request_id"] = session.RequestId.ToString("D"),
-                        ["status"] = session.Status.ToString().ToLowerInvariant(),
-                        ["stage"] = session.Stage.ToString(),
-                        ["message"] = session.Message ?? string.Empty,
-                        ["error"] = session.Error ?? string.Empty,
-                        ["started_at_utc"] = session.StartedAtUtc.ToString("O", CultureInfo.InvariantCulture)
-                    };
+                Jobs.TryGetValue(jobSession.RequestId, out record);
             }
-            string folder = System.IO.Path.Combine(System.IO.Directory.GetParent(Application.dataPath)?.FullName ?? Application.temporaryCachePath,
-                "Library", "KimodoCache", "Commands");
-            System.IO.Directory.CreateDirectory(folder);
-            System.IO.File.WriteAllText(GenerationJobPath(folder, session.RequestId), status.ToString(Formatting.Indented));
+            if (record?.TimelineGenerationTrace == null) return;
+            TimelineSessionRecord timelineSession = record.TimelineGenerationTrace.Session;
+            JObject status = BuildStatus(record);
+            WriteJsonAtomically(GenerationJobPath(timelineSession, jobSession.RequestId), status);
+            UpdateGenerationHistory(timelineSession, status);
+            PersistTimelineSessionMetadata(timelineSession);
+            EditorUtility.SetDirty(timelineSession.TimelineAsset);
+            AssetDatabase.SaveAssets();
         }
 
-        private static JObject LoadPersistedGenerationJob(Guid requestId)
+        private static string GenerationJobPath(TimelineSessionRecord session, Guid requestId) =>
+            System.IO.Path.Combine(GetSessionGeneratedFolder(session), "Generations", $"generation_{requestId:D}.json");
+
+        private static JObject LoadPersistedGenerationJob(TimelineSessionRecord session, Guid requestId)
         {
-            string folder = System.IO.Path.Combine(System.IO.Directory.GetParent(Application.dataPath)?.FullName ?? Application.temporaryCachePath,
-                "Library", "KimodoCache", "Commands");
-            string path = GenerationJobPath(folder, requestId);
+            string path = GenerationJobPath(session, requestId);
             if (!System.IO.File.Exists(path))
-            {
-                throw new InvalidOperationException($"Unknown or expired request_id '{requestId}'.");
-            }
-            JObject status = JObject.Parse(System.IO.File.ReadAllText(path));
-            status.Remove("asset_path");
-            status.Remove("raw_bone_asset_path");
-            status.Remove("timeline_clip_asset_ref");
-            status.Remove("analysis_track_ref");
-            status.Remove("animation_id");
-            return status;
+                throw new InvalidOperationException($"Unknown request_id '{requestId:D}' in the selected Session.");
+            return JObject.Parse(System.IO.File.ReadAllText(path));
         }
 
-        private static string GenerationJobPath(string folder, Guid requestId) =>
-            System.IO.Path.Combine(folder, $"generation_{requestId:D}.json");
+        private static void EnsureGenerationBelongsToSession(JobRecord record, TimelineSessionRecord session)
+        {
+            if (record?.TimelineGenerationTrace == null || !ReferenceEquals(record.TimelineGenerationTrace.Session, session))
+                throw new InvalidOperationException("request_id belongs to a different Session.");
+        }
+
+        private static void UpdateGenerationHistory(TimelineSessionRecord session, JObject status)
+        {
+            if (session?.Metadata == null || status == null) return;
+            string requestId = status.Value<string>("request_id") ?? string.Empty;
+            KimodoCommandGenerationMetadata history = (session.Metadata.generations ??= new List<KimodoCommandGenerationMetadata>())
+                .FirstOrDefault(item => string.Equals(item.requestId, requestId, StringComparison.OrdinalIgnoreCase));
+            if (history == null)
+            {
+                history = new KimodoCommandGenerationMetadata { requestId = requestId };
+                session.Metadata.generations.Add(history);
+            }
+            history.character = status.Value<string>("character") ?? history.character ?? string.Empty;
+            history.animation = status.Value<string>("animation") ?? history.animation ?? string.Empty;
+            history.status = status.Value<string>("status") ?? string.Empty;
+            history.stage = status.Value<string>("stage") ?? string.Empty;
+            history.message = status.Value<string>("message") ?? string.Empty;
+            history.error = status.Value<string>("error") ?? string.Empty;
+            history.startedAtUtc = status.Value<string>("started_at_utc") ?? history.startedAtUtc ?? string.Empty;
+            history.updatedAtUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        }
 
         private static JObject EnsureRegisteredModel(string modelName, KimodoTextEncoderMode textEncoderMode)
         {
@@ -1732,6 +1720,16 @@ namespace CharacterAnimationCli.Unity.Command
             }, false);
         }
 
+        private static PropertyDefinition RequiredArray(string name, string itemType, string description)
+        {
+            return new PropertyDefinition(name, new JObject
+            {
+                ["type"] = "array",
+                ["items"] = new JObject { ["type"] = itemType },
+                ["description"] = description
+            }, true);
+        }
+
         private static PropertyDefinition OptionalEnumArray(string name, string description, params string[] values)
         {
             return new PropertyDefinition(name, new JObject
@@ -1744,6 +1742,20 @@ namespace CharacterAnimationCli.Unity.Command
                 },
                 ["description"] = description
             }, false);
+        }
+
+        private static PropertyDefinition RequiredEnumArray(string name, string description, params string[] values)
+        {
+            return new PropertyDefinition(name, new JObject
+            {
+                ["type"] = "array",
+                ["items"] = new JObject
+                {
+                    ["type"] = "string",
+                    ["enum"] = new JArray(values)
+                },
+                ["description"] = description
+            }, true);
         }
 
         private static PropertyDefinition OptionalConstraints(string name, string description)
@@ -2030,6 +2042,16 @@ namespace CharacterAnimationCli.Unity.Command
             public UnityEngine.Object Target { get; }
             public KimodoEditorGenerationJobSession Session { get; }
             public TimelineGenerationTrace TimelineGenerationTrace { get; }
+        }
+
+        private sealed class CommandException : InvalidOperationException
+        {
+            public CommandException(string code, string message) : base(message)
+            {
+                Code = string.IsNullOrWhiteSpace(code) ? "invalid_argument" : code;
+            }
+
+            public string Code { get; }
         }
 
         private sealed class GenerationRangeLockedException : InvalidOperationException
