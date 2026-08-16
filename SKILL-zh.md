@@ -20,11 +20,11 @@ string result = command_dispatcher.Invoke(commandName, argumentsJson);
 1. `kimodo_help({})`，然后 `session_get_or_create({"name":"<稳定名称>"})`。
 2. `session_add({"kind":"character","character":"<场景名称或层级路径>"})`；保存返回的安全角色名。
 3. 通过 `kimodo_generate_animation` 生成；保存 `request_id`；轮询 `kimodo_get_generation` 直到终态。
-4. 对完成动画调用 `animation_analyze`；保存 `analysis_id`，然后读取 `analysis_path` 及其中稠密 KMB 的 `motion_path`。
+4. 对完成动画调用 `animation_analyze`。相同不可变 Clip 与有效 analysis 选项会直接返回既有结果；保存 `analysis_id`，仅在需要该稀疏详情时读取 `analysis_path`。其 `motion_path` 仍是稠密 KMB 附件。
 5. 使用该 `analysis_id` 调用三个图片命令：根运动叠加图、关键姿势图和 3D 轨迹图。
 6. 将视觉证据与 prompt 比较。修正稀疏约束、端点姿势或 prompt，然后迭代。
 
-需要完整 Session 状态时读取返回的 `session_json_path`。新 Session 为空；通过 `session_add` 显式加入场景 Humanoid、Clip 或 Animator 内容。
+将返回的 `session_json_path` 作为紧凑的 Session 索引读取；只在必要时再读取它引用的具体 analysis 路径。每个写入 Session 且已完成的 Clip 都不可变：不得覆盖、重定时或替换；生成、Record、Retarget 或修正结果必须追加新 Clip。新 Session 为空；通过 `session_add` 显式加入场景 Humanoid、Clip 或 Animator 内容。
 
 ## 视觉验收
 

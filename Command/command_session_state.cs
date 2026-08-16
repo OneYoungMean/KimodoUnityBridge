@@ -917,7 +917,18 @@ namespace CharacterAnimationCli.Unity.Command
                         animation = BakeTransientAnalysisRange(session, character, startFrame, endFrame, out transientClip, out transientTimelineClip);
                     }
 
-                    JObject analysis = AnalyzeAnimation(arguments, session, animation, out byte[] analysisMotionBytes);
+                    JObject analysisOptions = BuildEffectiveAnalysisOptions(arguments);
+                    string inputSignature = animationMode
+                        ? BuildAnimationAnalysisSignature(character, animation, analysisOptions)
+                        : string.Empty;
+                    if (animationMode && TryFindCachedAnimationAnalysis(
+                            session, character, animation, inputSignature, out AnalysisCacheRecord cached))
+                    {
+                        return Ok(BuildAnimationAnalysisResponse(
+                            session, cached, character, animation, cached: true));
+                    }
+
+                    JObject analysis = AnalyzeAnimation(session, animation, analysisOptions, out byte[] analysisMotionBytes);
                     string poseSource = animationMode ? animation.Name : character.Name;
                     int poseSourceStartFrame = animationMode ? startFrame : 0;
                     JArray poses = BuildAnalysisPoses(character, startFrame, endFrame, analysis, poseSource, poseSourceStartFrame);
@@ -929,25 +940,18 @@ namespace CharacterAnimationCli.Unity.Command
                         endFrame / SessionFrameRate,
                         poses,
                         analysis,
-                        analysisMotionBytes);
+                        analysisMotionBytes,
+                        animationMode ? animation : null,
+                        inputSignature);
                     SaveTimelineSession(session);
-                    var response = new JObject
-                    {
-                        ["analysis_id"] = analysisId,
-                        ["analysis_path"] = ToProjectRelativePath(AnalysisCachePath(session, analysisId)),
-                        ["motion_path"] = ToProjectRelativePath(AnalysisMotionCachePath(session, analysisId)),
-                        ["character"] = character.Name,
-                        ["pose_refs"] = poses,
-                        ["keyframes"] = analysis["keyframes"]?.DeepClone() ?? new JArray(),
-                        ["foot_contact_changes"] = analysis["foot_contact_changes"]?.DeepClone() ?? new JArray()
-                    };
-                    if (animationMode) response["animation"] = animation.Name;
-                    else
-                    {
-                        response["start_frame"] = startFrame;
-                        response["end_frame"] = endFrame;
-                    }
-                    return Ok(response);
+                    return Ok(BuildAnimationAnalysisResponse(
+                        session,
+                        GetCachedAnalysis(session, analysisId),
+                        character,
+                        animationMode ? animation : null,
+                        cached: false,
+                        animationMode ? null : (int?)startFrame,
+                        animationMode ? null : (int?)endFrame));
                 }
                 finally
                 {
@@ -1002,10 +1006,22 @@ namespace CharacterAnimationCli.Unity.Command
             analysis["keyframes"] = keyframes;
         }
 
+        private static JObject BuildEffectiveAnalysisOptions(JObject arguments)
+        {
+            JObject options = arguments["analysis_option"] is JObject supplied
+                ? (JObject)supplied.DeepClone()
+                : new JObject();
+            if (arguments["keyframe_count"] is JValue keyframeCount && keyframeCount.Type == JTokenType.Integer)
+            {
+                options["keyframe_count"] = keyframeCount.ToObject<int>();
+            }
+            return options;
+        }
+
         private static JObject AnalyzeAnimation(
-            JObject arguments,
             TimelineSessionRecord session,
             TimelineAnimationRecord animation,
+            JObject analysisOptions,
             out byte[] analysisMotionBytes)
         {
             analysisMotionBytes = null;
@@ -1035,11 +1051,6 @@ namespace CharacterAnimationCli.Unity.Command
                 startFrame = Mathf.Clamp(startFrame, 0, motion.FrameCount - 1);
                 frameCount = Mathf.Clamp(frameCount, 1, motion.FrameCount - startFrame);
             }
-            JObject options = arguments["analysis_option"] is JObject supplied
-                ? (JObject)supplied.DeepClone()
-                : new JObject();
-            if (arguments["keyframe_count"] is JValue keyframeCount && keyframeCount.Type == JTokenType.Integer)
-                options["keyframe_count"] = keyframeCount.ToObject<int>();
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             var input = new KimodoEditorAnalysisInput
             {
@@ -1049,7 +1060,7 @@ namespace CharacterAnimationCli.Unity.Command
                 ModelName = ResolveModelName(null),
                 TextEncoderMode = settings.DefaultTextEncoderMode,
                 ModelsRoot = settings.LocalModelsPath?.Trim() ?? string.Empty,
-                AnalysisOptionsJson = options.ToString(Formatting.None)
+                AnalysisOptionsJson = (analysisOptions ?? new JObject()).ToString(Formatting.None)
             };
             if (!KimodoPlayableClipGenerationExecutionService.Analysis(
                     input,
