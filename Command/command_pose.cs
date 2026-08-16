@@ -229,10 +229,10 @@ namespace CharacterAnimationCli.Unity.Command
                 throw new InvalidOperationException($"Animation pose source '{locator.Source}' is ambiguous in the selected Session.");
             TimelineAnimationRecord animation = matches[0].animation;
             int startFrame = animation.TimelineClip != null
-                ? Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate))
+                ? Mathf.RoundToInt((float)(animation.TimelineStartSeconds * SessionFrameRate))
                 : animation.StartFrame;
             int duration = animation.TimelineClip != null
-                ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)))
+                ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)))
                 : Math.Max(1, animation.EndFrameExclusive - animation.StartFrame);
             if (locator.Frame < 0 || locator.Frame >= duration)
                 throw new InvalidOperationException($"frame must be within animation '{animation.Name}' local range [0,{duration}).");

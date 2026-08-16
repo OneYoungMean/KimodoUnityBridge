@@ -68,13 +68,14 @@ namespace CharacterAnimationCli.Unity.Command
                         "Close the selected animation editing Session while preserving its Timeline, assets, and AI-readable Session JSON.",
                         Properties(Optional("session_id", "string", "Session id; omitted uses the current Session."))),
                     CommandDefinition(SessionAddCommand,
-                        "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator; kind=clip appends one project AnimationClip to a Session character; kind=animator imports a scene AnimatorController into a Session character. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
+                        "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator; kind=clip appends one project AnimationClip to a Session character; kind=animator imports same-Layer State-to-State transitions as Timeline-composed transition_clip records without baking transition assets. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredEnum("kind", "character", "clip", "animator"),
                             Required("character", "string", "Scene character name/path for kind=character, or target Session character name otherwise."),
                             Optional("clip", "string", "Project AnimationClip name for kind=clip."),
-                            Optional("animator", "string", "Scene Animator name/path for kind=animator."))),
+                             Optional("animator", "string", "Scene Animator name/path for kind=animator."),
+                             Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),
                     CommandDefinition(AnimationAnalyzeCommand,
                         "Analyze one Session animation synchronously. Keyframes are returned by descending saliency, contact changes by ascending duration; motion_path points to dense KMB foot contacts.",
                         Properties(
