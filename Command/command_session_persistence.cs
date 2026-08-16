@@ -342,7 +342,12 @@ namespace CharacterAnimationCli.Unity.Command
                         ["animation_id"] = record.Value<string>("animation_id") ?? string.Empty,
                         ["animation_name"] = record.Value<string>("animation_name") ?? string.Empty,
                         ["input_signature"] = record.Value<string>("input_signature") ?? string.Empty,
-                        ["created_at_utc"] = record.Value<string>("created_at_utc") ?? string.Empty
+                        ["created_at_utc"] = record.Value<string>("created_at_utc") ?? string.Empty,
+                        ["keyframes"] = record["analysis"]?["keyframes"]?.DeepClone() ?? new JArray(),
+                        ["foot_contacts"] = record["analysis"]?["foot_contacts"]?.DeepClone() ?? new JArray(),
+                        // Keep the compact, self-describing visual index in session.json.  The PNG bytes and dense
+                        // KMB motion remain on disk, so Session navigation stays cheap.
+                        ["pictures"] = record["pictures"]?.DeepClone() ?? new JObject()
                     });
                 }
                 catch (Exception exception)

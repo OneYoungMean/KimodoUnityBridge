@@ -77,8 +77,8 @@ namespace CharacterAnimationCli.Unity.Command
                         "Analyze one or two immutable Session clips and render their visual evidence synchronously. Each clip explicitly names its Session character. Returns sparse keyframes, foot contacts, and self-describing picture tiles; completed Clips are never modified.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Required("clips", "array", "One or two {character,clip,role?} objects. role defaults to source then target."),
-                            Enum("level", "low", "middle", "high"))),
+                            RequiredAnalysisClips(),
+                            OptionalEnumWithDefault("level", "middle", "low", "middle", "high"))),
                     CommandDefinition(AnimationCompareCommand,
                         "Compare two animation ranges or transition-like clip ranges without modifying the Session.",
                         Properties(
@@ -336,7 +336,7 @@ namespace CharacterAnimationCli.Unity.Command
                     {
                         "A command may omit session_id only when a current Session exists; otherwise it fails with session_required.",
                         "session_get_or_create is the only command that creates Sessions. New Sessions are empty; add scene content explicitly with session_add.",
-                        "Treat names, request_id, analysis_id, and Pose Cache locators as opaque values returned by Kimodo.",
+                        "Treat names, request_id, picture paths, and Pose Cache locators as opaque values returned by Kimodo.",
                         "Generation is asynchronous: save request_id and poll kimodo_get_generation until completed, failed, or canceled.",
                         "Read session_json_path after Session-changing commands for the complete AI-readable Session state."
                     },
@@ -346,7 +346,7 @@ namespace CharacterAnimationCli.Unity.Command
                         Route("select or create a Session", SessionGetOrCreateCommand),
                         Route("add a character, clip, or Animator", SessionAddCommand),
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
-                        Route("analyze and render motion", AnimationAnalyzeCommand, "then picture_motion_overlay / picture_key_poses / picture_trajectory_3d"),
+                        Route("analyze and render motion", AnimationAnalyzeCommand, "returns one composite picture and self-describing tiles"),
                         Route("sample or edit a cached pose", PoseGetCommand, "then pose_set_root_transform / pose_set_muscle / pose_contract"),
                         Route("record or retarget", RecordRangeCommand, "or " + RetargetAnimationCommand)
                     },
@@ -354,7 +354,7 @@ namespace CharacterAnimationCli.Unity.Command
                     {
                         ["session_id"] = "Pass to any Session-scoped command; omission selects the current Session.",
                         ["request_id"] = "Pass only to kimodo_get_generation or kimodo_cancel_generation.",
-                        ["analysis_id"] = "Pass to picture commands.",
+                        ["pictures.image_path"] = "Read the composite PNG returned by animation_analyze.",
                         ["Pose Cache locator"] = "Pass only to pose_set_root_transform, pose_set_muscle, or pose_contract."
                     },
                     ["workflow"] = new JArray
@@ -363,6 +363,7 @@ namespace CharacterAnimationCli.Unity.Command
                         new JObject { ["command"] = SessionAddCommand, ["arguments"] = new JObject { ["kind"] = "character", ["character"] = "<scene name or path>" } },
                         new JObject { ["command"] = GenerateAnimationCommand, ["arguments"] = new JObject { ["character"] = "<character>", ["prompt"] = "stand still and breathe naturally", ["duration_frames"] = 60 }, ["save"] = "request_id" },
                         new JObject { ["command"] = GetGenerationCommand, ["arguments"] = new JObject { ["request_id"] = "<request_id>" }, ["repeat_until"] = "status is completed, failed, or canceled" },
+                        new JObject { ["command"] = AnimationAnalyzeCommand, ["arguments"] = new JObject { ["clips"] = new JArray(new JObject { ["character"] = "<character>", ["clip"] = "<completed animation>" }), ["level"] = "middle" }, ["save"] = "pictures.image_path" },
                         new JObject { ["command"] = SessionCloseCommand, ["arguments"] = new JObject() }
                     },
                     ["commands"] = new JArray(all["tools"].Children<JObject>().Select(item => new JObject
@@ -1690,6 +1691,29 @@ namespace CharacterAnimationCli.Unity.Command
             }, true);
         }
 
+        private static PropertyDefinition RequiredAnalysisClips()
+        {
+            return new PropertyDefinition("clips", new JObject
+            {
+                ["type"] = "array",
+                ["description"] = "One or two immutable Session clip references. Every item explicitly names its Session character; role defaults to source for the first item and target for the second.",
+                ["minItems"] = 1,
+                ["maxItems"] = 2,
+                ["items"] = new JObject
+                {
+                    ["type"] = "object",
+                    ["additionalProperties"] = false,
+                    ["properties"] = new JObject
+                    {
+                        ["role"] = new JObject { ["type"] = "string", ["enum"] = new JArray("source", "target") },
+                        ["character"] = new JObject { ["type"] = "string" },
+                        ["clip"] = new JObject { ["type"] = "string" }
+                    },
+                    ["required"] = new JArray("character", "clip")
+                }
+            }, true);
+        }
+
         private static PropertyDefinition OptionalEnumArray(string name, string description, params string[] values)
         {
             return new PropertyDefinition(name, new JObject
@@ -1975,6 +1999,16 @@ namespace CharacterAnimationCli.Unity.Command
                 ["type"] = "string",
                 ["enum"] = new JArray(values),
                 ["default"] = values[0]
+            }, false);
+        }
+
+        private static PropertyDefinition OptionalEnumWithDefault(string name, string defaultValue, params string[] values)
+        {
+            return new PropertyDefinition(name, new JObject
+            {
+                ["type"] = "string",
+                ["enum"] = new JArray(values),
+                ["default"] = defaultValue
             }, false);
         }
 

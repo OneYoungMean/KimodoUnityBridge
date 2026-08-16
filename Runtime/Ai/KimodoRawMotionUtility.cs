@@ -101,7 +101,7 @@ namespace KimodoBridge
             return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
-        internal bool TryReadFootContact(int frameIndex, int channel, out float value)
+        public bool TryReadFootContact(int frameIndex, int channel, out float value)
         {
             value = 0f;
             if (!HasFootContacts ||

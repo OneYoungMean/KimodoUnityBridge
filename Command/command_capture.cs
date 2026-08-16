@@ -11,9 +11,7 @@ using CharacterAnimationCli.Unity;
 using KimodoBridge;
 using TimelineInject;
 using UnityEditor;
-using UnityEditor.Timeline;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace CharacterAnimationCli.Unity.Command
 {
@@ -22,174 +20,7 @@ namespace CharacterAnimationCli.Unity.Command
         private static readonly Dictionary<string, AnalysisCacheRecord> AnalysisCache =
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
-        private static string RenderEvidence(TimelineSessionRecord session, JObject arguments)
-        {
-            try
-            {
-                var requests = new List<CaptureRequest>();
-                int selected = (arguments["poses"] != null ? 1 : 0) +
-                    (arguments["analysis_id"] != null ? 1 : 0) +
-                    (arguments["constraints"] != null ? 1 : 0);
-                if (selected != 1)
-                {
-                    throw new InvalidOperationException("Provide exactly one of poses, analysis_id, or constraints.");
-                }
-                if (arguments["poses"] is JArray poses)
-                {
-                    foreach (JObject pose in poses.OfType<JObject>()) requests.Add(BuildCaptureRequest(session, RequirePoseLocator(pose), null));
-                    if (requests.Count != poses.Count) throw new InvalidOperationException("Every poses item must be a {source,frame} object.");
-                }
-                else if (arguments["analysis_id"] != null)
-                {
-                    string id = RequiredStringValue(arguments, "analysis_id");
-                    AnalysisCacheRecord cached = GetCachedAnalysis(session, id);
-                    string timelineGuid = AssetDatabase.AssetPathToGUID(session.TimelineAssetPath);
-                    bool sameTimeline = !string.IsNullOrWhiteSpace(cached.TimelineAssetGuid)
-                        ? string.Equals(cached.TimelineAssetGuid, timelineGuid, StringComparison.OrdinalIgnoreCase)
-                        : string.Equals(cached.SessionId, session.Id.ToString("D"), StringComparison.OrdinalIgnoreCase);
-                    if (!sameTimeline)
-                        throw new InvalidOperationException("analysis_source_expired: the analysis belongs to a different Session.");
-                    JArray analyzedPoses = cached.Poses ?? new JArray();
-                    foreach (JObject item in analyzedPoses.OfType<JObject>())
-                        requests.Add(BuildCaptureRequest(session, RequirePoseLocator(item["pose"] as JObject), item["analysis"] as JObject));
-                }
-                else if (arguments["constraints"] is JArray constraints)
-                {
-                    NormalizeConstraintObjects(constraints);
-                    for (int i = 0; i < constraints.Count; i++)
-                    {
-                        if (constraints[i] is not JObject item)
-                        {
-                            throw new InvalidOperationException($"constraints[{i}] must be an object.");
-                        }
-                        int frame = RequiredNonNegativeFrame(item, "frame");
-                        JObject fullBody = item["fullbody"] as JObject;
-                        JObject root2D = item["root2d"] as JObject;
-                        string[] endEffectorFields = { "left_hand", "right_hand", "left_foot", "right_foot" };
-                        if (fullBody == null && root2D == null &&
-                            endEffectorFields.All(field => item[field] is not JObject))
-                        {
-                            throw new InvalidOperationException($"constraints[{i}] must contain at least one constraint field.");
-                        }
-
-                        if (fullBody != null)
-                        {
-                            if (fullBody["pose"] is not JObject fullBodyPose)
-                            {
-                                throw new InvalidOperationException($"constraints[{i}].fullbody.pose is required.");
-                            }
-                            requests.Add(BuildCaptureRequest(session,
-                                RequirePoseLocator(fullBodyPose),
-                                new JObject { ["constraint_type"] = "fullbody", ["frame"] = frame }));
-                        }
-                        if (root2D != null)
-                        {
-                            bool hasPosition = root2D["position"] != null;
-                            bool hasHeading = root2D["heading"] != null;
-                            if (hasPosition != hasHeading)
-                            {
-                                throw new InvalidOperationException($"constraints[{i}].root2d requires position and heading together.");
-                            }
-                            if (root2D["pose"] is JObject rootPose && !hasPosition)
-                            {
-                                requests.Add(BuildCaptureRequest(session,
-                                    RequirePoseLocator(rootPose),
-                                    new JObject { ["constraint_type"] = "root2d", ["frame"] = frame }));
-                            }
-                            else if (hasPosition)
-                            {
-                                string characterRef = arguments.Value<string>("character")?.Trim();
-                                TimelineCharacterRecord character = !string.IsNullOrWhiteSpace(characterRef)
-                                    ? ResolveSessionCharacterByReference(session, characterRef, false)
-                                    : session.Characters.Count == 1
-                                        ? session.Characters[0]
-                                        : throw new InvalidOperationException("character is required to picture a position-only root2d constraint when the Session has multiple characters.");
-                                Vector2 position = RequiredVector2(root2D, "position");
-                                Vector2 heading = RequiredVector2(root2D, "heading");
-                                if (heading.sqrMagnitude <= 1e-8f)
-                                {
-                                    throw new InvalidOperationException($"constraints[{i}].root2d.heading must be non-zero.");
-                                }
-                                var sample = new KimodoMarkerSampleResult
-                                {
-                                    characterPose = new CharacterAnimationCli.Unity.CharacterPose
-                                    {
-                                        root = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                                        {
-                                            t = new Vector3(position.x, 0f, position.y),
-                                            q = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up)
-                                        }
-                                    },
-                                    constraintType = "constraint",
-                                    mask = KimodoConstraintMask.ForType("root2d"),
-                                    hasRootHeading = true
-                                };
-                                requests.Add(new CaptureRequest(character, session.Director.time,
-                                    new JObject { ["constraint_type"] = "root2d", ["frame"] = frame }, sample, frame, true));
-                            }
-                            else
-                            {
-                                throw new InvalidOperationException($"constraints[{i}].root2d requires pose or position plus heading.");
-                            }
-                        }
-
-                        foreach (string field in endEffectorFields)
-                        {
-                            if (item[field] is not JObject value)
-                            {
-                                continue;
-                            }
-                            if (value["pose"] is not JObject endEffectorPose)
-                            {
-                                throw new InvalidOperationException($"constraints[{i}].{field}.pose is required.");
-                            }
-                            requests.Add(BuildCaptureRequest(session,
-                                RequirePoseLocator(endEffectorPose),
-                                new JObject { ["constraint_type"] = field, ["frame"] = frame }));
-                        }
-                    }
-                }
-                if (requests.Count == 0) throw new InvalidOperationException("The selected capture source contains no poses.");
-                JObject result = RenderMotionEvidence(session, requests, arguments);
-                if (arguments["analysis_id"] != null) result["analysis_id"] = arguments.Value<string>("analysis_id");
-                return OkForSession(session, result);
-            }
-            catch (Exception ex)
-            {
-                return Error(ex is CommandException command ? command.Code : "invalid_argument", ex.Message);
-            }
-        }
-
-        private static CaptureRequest BuildCaptureRequest(
-            TimelineSessionRecord session,
-            PoseLocator locator,
-            JObject annotation)
-        {
-            if (TryResolveAnimationPoseSource(session, locator, out TimelineCharacterRecord animationCharacter, out int absoluteFrame))
-            {
-                ThrowIfGenerationRangeLocked(session, animationCharacter, absoluteFrame, absoluteFrame + 1, AnimationAnalyzeCommand);
-                return new CaptureRequest(animationCharacter, absoluteFrame / SessionFrameRate, annotation, null, locator.Frame);
-            }
-            TimelineCharacterRecord cacheOwner = ResolvePoseCacheOwner(locator.Source);
-            if (cacheOwner != null)
-            {
-                KimodoConstraintMarker marker = FindUntypedPose(cacheOwner.PoseCacheTrack, locator.Frame)
-                    ?? throw new InvalidOperationException("Writable pose source does not contain a pose at the requested frame.");
-                return new CaptureRequest(cacheOwner, session.Director.time, annotation, marker.SampleData.Clone(), locator.Frame);
-            }
-            TimelineCharacterRecord owner = session.Characters.FirstOrDefault(item => item.Track.GetMarkers()
-                .OfType<KimodoConstraintMarker>().Any(marker =>
-                    string.Equals(marker.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
-                    Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame));
-            KimodoConstraintMarker constraint = owner?.Track.GetMarkers().OfType<KimodoConstraintMarker>()
-                .FirstOrDefault(marker =>
-                    string.Equals(marker.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
-                    Mathf.RoundToInt((float)(marker.time * SessionFrameRate)) == locator.Frame)
-                ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
-            return new CaptureRequest(owner, session.Director.time, annotation, constraint.SampleData.Clone(), locator.Frame);
-        }
-
-        private const string AnalysisPictureRenderVersion = "2";
+        private const string AnalysisPictureRenderVersion = "5";
 
         private static JObject RenderAnalysisPictures(
             TimelineSessionRecord session,
@@ -197,6 +28,20 @@ namespace CharacterAnimationCli.Unity.Command
             string level)
         {
             PictureLayout layout = PictureLayout.ForLevel(level);
+            string signature = BuildPictureSignature(subjects, level);
+            string imagePath = Path.Combine(EvidenceFolder(session), $"analysis_picture_{signature}.png");
+            string projectPath = ToProjectRelativePath(imagePath);
+            JObject persisted = subjects[0].Record.Pictures;
+            if (persisted != null &&
+                string.Equals(persisted.Value<string>("level"), level, StringComparison.Ordinal) &&
+                string.Equals(persisted.Value<string>("image_path"), projectPath, StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(imagePath))
+            {
+                var cachedResult = (JObject)persisted.DeepClone();
+                cachedResult["cached"] = true;
+                return cachedResult;
+            }
+
             var data = subjects.Select(subject => BuildSubjectPictureData(session, subject)).ToList();
             TrajectoryScale trajectoryScale = BuildTrajectoryScale(data);
             var tiles = new List<PictureTile>();
@@ -205,8 +50,6 @@ namespace CharacterAnimationCli.Unity.Command
                 tiles.AddRange(BuildPictureTiles(subject, level));
             }
 
-            string signature = BuildPictureSignature(data, level);
-            string imagePath = Path.Combine(EvidenceFolder(session), $"analysis_picture_{signature}.png");
             bool cached = File.Exists(imagePath);
             if (!cached)
             {
@@ -222,7 +65,6 @@ namespace CharacterAnimationCli.Unity.Command
                 }
             }
 
-            string projectPath = ToProjectRelativePath(imagePath);
             var descriptions = new JArray();
             for (int index = 0; index < tiles.Count; index++)
             {
@@ -263,9 +105,9 @@ namespace CharacterAnimationCli.Unity.Command
             WriteJsonAtomically(AnalysisCachePath(session, record.Id), record.ToJson());
         }
 
-        private static string BuildPictureSignature(IReadOnlyList<SubjectPictureData> subjects, string level)
+        private static string BuildPictureSignature(IReadOnlyList<AnalysisSubject> subjects, string level)
         {
-            string source = AnalysisPictureRenderVersion + "|" + level + "|" + string.Join("|", subjects.Select(item => item.Subject.Record.Id));
+            string source = AnalysisPictureRenderVersion + "|" + level + "|" + string.Join("|", subjects.Select(item => item.Role + ":" + item.Record.Id));
             using (SHA256 hash = SHA256.Create())
             {
                 return BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(source))).Replace("-", string.Empty).Substring(0, 16).ToLowerInvariant();
@@ -293,8 +135,9 @@ namespace CharacterAnimationCli.Unity.Command
                         throw new InvalidOperationException($"Character '{subject.Character.Name}' has no Humanoid Hips transform.");
                     }
                     pelvis[localFrame] = hips.position;
-                    if (localFrame == 0) firstBounds = CalculateSkinnedBounds(subject.Character.Root);
-                    if (localFrame == frameCount - 1) lastBounds = CalculateSkinnedBounds(subject.Character.Root);
+                    Bounds currentBounds = CalculateSkinnedBounds(subject.Character.Root);
+                    if (localFrame == 0) firstBounds = currentBounds;
+                    if (localFrame == frameCount - 1) lastBounds = currentBounds;
                 }
             }
             finally
@@ -367,6 +210,7 @@ namespace CharacterAnimationCli.Unity.Command
                     .Take(6)
                     .Select(item => (JObject)item.DeepClone())
                     .ToList();
+                List<int> fallbackFrames = keyFrames.Skip(keyCount).Concat(keyFrames).ToList();
                 for (int index = 0; index < 6; index++)
                 {
                     if (index < contacts.Count)
@@ -376,7 +220,8 @@ namespace CharacterAnimationCli.Unity.Command
                     }
                     else
                     {
-                        result.Add(PictureTile.FootFallback(subject, keyFrames[index % keyFrames.Count]));
+                        int fallbackIndex = (index - contacts.Count) % fallbackFrames.Count;
+                        result.Add(PictureTile.FootFallback(subject, fallbackFrames[fallbackIndex]));
                     }
                 }
             }
@@ -433,13 +278,16 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static Texture2D RenderPictureTile(PictureTile tile, int size, TrajectoryScale trajectoryScale)
         {
+            Bounds tileBounds = tile.Presentation == "key" || tile.Presentation == "foot_contact" || tile.Presentation == "foot_fallback"
+                ? CalculatePreviewPoseBounds(tile.Subject, tile.Frame)
+                : tile.Subject.Bounds;
             var environment = new List<GameObject>();
-            CreatePictureEnvironment(environment, tile.Subject.Bounds);
+            CreatePictureEnvironment(environment, tileBounds);
             if (tile.Presentation == "trajectory")
             {
                 CreatePelvisTrajectory(environment, tile.Subject.Pelvis, trajectoryScale);
             }
-            Camera camera = CreateAnalysisPictureCamera(tile.Subject.Bounds, tile.Direction, tile.Orthographic);
+            Camera camera = CreateAnalysisPictureCamera(tileBounds, tile.Direction, tile.Orthographic);
             try
             {
                 Texture2D result = RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
@@ -489,10 +337,7 @@ namespace CharacterAnimationCli.Unity.Command
             Color tint,
             float alpha)
         {
-            CharacterPose pose = CaptureCharacterPose(subject.Subject.Character, subject.Subject.StartFrame + localFrame);
-            var sample = new KimodoMarkerSampleResult { sampleTime = (subject.Subject.StartFrame + localFrame) / SessionFrameRate };
-            SetCanonicalPose(sample, pose, subject.Subject.Character);
-            GameObject preview = CreatePosePreview(subject.Subject.Character, sample, false);
+            GameObject preview = CreateAnalysisPosePreview(subject, localFrame);
             try
             {
                 TintPreview(preview, tint);
@@ -514,6 +359,32 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
+        private static Bounds CalculatePreviewPoseBounds(SubjectPictureData subject, int localFrame)
+        {
+            GameObject preview = CreateAnalysisPosePreview(subject, localFrame);
+            try
+            {
+                Bounds bounds = CalculateSkinnedBounds(preview);
+                bounds.Encapsulate(PreviewRootPosition(preview));
+                bounds.Expand(new Vector3(1.5f, .5f, 1.5f));
+                if (bounds.size.x < 3f) bounds.Expand(new Vector3(3f - bounds.size.x, 0f, 0f));
+                if (bounds.size.z < 3f) bounds.Expand(new Vector3(0f, 0f, 3f - bounds.size.z));
+                return bounds;
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(preview);
+            }
+        }
+
+        private static GameObject CreateAnalysisPosePreview(SubjectPictureData subject, int localFrame)
+        {
+            CharacterPose pose = CaptureCharacterPose(subject.Subject.Character, subject.Subject.StartFrame + localFrame);
+            var sample = new KimodoMarkerSampleResult { sampleTime = (subject.Subject.StartFrame + localFrame) / SessionFrameRate };
+            SetCanonicalPose(sample, pose, subject.Subject.Character);
+            return CreatePosePreview(subject.Subject.Character, sample, false);
+        }
+
         private static void TintPreview(GameObject preview, Color tint)
         {
             foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
@@ -530,10 +401,27 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static List<int> BuildGhostFrames(SubjectPictureData subject)
         {
-            var frames = new SortedSet<int>();
-            for (int frame = 0; frame < subject.Pelvis.Length; frame += 5) frames.Add(frame);
-            frames.Add(subject.Pelvis.Length - 1);
-            foreach (int key in subject.KeyFrameSet) frames.Add(key);
+            int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
+            var frames = new List<int> { 0 };
+            var keys = subject.KeyFrameSet.Where(frame => frame > 0 && frame < lastFrame).OrderBy(frame => frame).ToList();
+            int frame = 0;
+            while (frame < lastFrame)
+            {
+                int windowEnd = Math.Min(lastFrame, frame + 5);
+                int key = keys.FirstOrDefault(candidate => candidate > frame && candidate <= windowEnd);
+                if (key > frame)
+                {
+                    frames.Add(key);
+                    // A highlighted key pose restarts the five-frame ghost cadence.
+                    frame = key;
+                }
+                else
+                {
+                    frame = windowEnd;
+                    if (frame < lastFrame) frames.Add(frame);
+                }
+            }
+            if (frames[frames.Count - 1] != lastFrame) frames.Add(lastFrame);
             return frames.ToList();
         }
 
@@ -648,6 +536,11 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 int x = column * layout.CellSize - 2;
                 FillRect(texture, x, 0, 4, texture.height, Color.white);
+            }
+            for (int panel = 1; panel < panels; panel++)
+            {
+                int y = panel * layout.Height - 2;
+                FillRect(texture, 0, y, texture.width, 4, Color.white);
             }
             for (int panel = 0; panel < panels; panel++)
             {
@@ -765,135 +658,6 @@ namespace CharacterAnimationCli.Unity.Command
         private static string EvidenceFolder(TimelineSessionRecord session) =>
             Path.Combine(GetSessionGeneratedFolder(session), "Pictures");
 
-        private static JObject RenderMotionEvidence(
-            TimelineSessionRecord session,
-            IReadOnlyList<CaptureRequest> requests,
-            JObject arguments)
-        {
-            int resolution = Mathf.Clamp(arguments.Value<int?>("resolution") ?? 512, 128, 4096);
-            float scale = arguments.Value<float?>("scale") ?? 1f;
-            if (float.IsNaN(scale) || float.IsInfinity(scale) || scale < 0.25f || scale > 4f)
-            {
-                throw new InvalidOperationException("scale must be between 0.25 and 4.0.");
-            }
-            int ghostFrames = Mathf.Clamp(arguments.Value<int?>("ghost_frames") ?? 5, 2, 8);
-            List<CaptureRequest> selected = SelectEvidenceRequests(requests, ghostFrames);
-            double originalTime = session.Director.time;
-            var metadata = new JArray();
-            var previews = new List<GameObject>(selected.Count);
-            var environment = new List<GameObject>();
-            var images = new JArray();
-            try
-            {
-                for (int index = 0; index < selected.Count; index++)
-                {
-                    CaptureRequest request = selected[index];
-                    KimodoMarkerSampleResult pose = request.PoseData?.Clone() ?? SampleCapturePose(request);
-                    previews.Add(CreatePosePreview(request.Character, pose, request.Root2DOnly));
-                    var item = new JObject
-                    {
-                        ["index"] = index,
-                        ["character"] = request.Character.Name,
-                        ["frame"] = request.Frame >= 0
-                            ? request.Frame
-                            : Mathf.RoundToInt((float)(request.Time * SessionFrameRate))
-                    };
-                    if (request.AnalysisFrame != null)
-                    {
-                        item["analysis"] = request.AnalysisFrame.DeepClone();
-                    }
-                    metadata.Add(item);
-                }
-
-                Bounds motionBounds = CalculateMotionBounds(previews, CalculateBounds(previews));
-                CreateEvidenceEnvironment(environment, motionBounds, previews, arguments["bones"] as JArray);
-                Directory.CreateDirectory(EvidenceFolder(session));
-                (string kind, Vector3 direction)[] views =
-                {
-                    ("motion_overlay_front", Vector3.forward),
-                    ("motion_overlay_back", Vector3.back),
-                    ("motion_overlay_left", Vector3.left),
-                    ("motion_overlay_right", Vector3.right)
-                };
-                foreach (var view in views)
-                {
-                    Texture2D image = RenderGhostComposite(
-                        previews, environment, motionBounds, view.direction, resolution, scale,
-                        orthographic: true, renderPoses: true);
-                    images.Add(WriteEvidenceImage(session, view.kind, image));
-                    UnityEngine.Object.DestroyImmediate(image);
-                }
-
-                for (int index = 1; index <= 3; index++)
-                {
-                    Texture2D image = RenderSinglePose(
-                        previews, environment, index, CalculateBounds(previews[index]), resolution, scale);
-                    images.Add(WriteEvidenceImage(session, "key_pose_" + index.ToString(CultureInfo.InvariantCulture), image));
-                    UnityEngine.Object.DestroyImmediate(image);
-                }
-
-                Texture2D trajectory = RenderGhostComposite(
-                    previews, environment, motionBounds, new Vector3(1f, .75f, -1f).normalized,
-                    resolution, scale, orthographic: false, renderPoses: false);
-                images.Add(WriteEvidenceImage(session, "trajectory_3d", trajectory));
-                UnityEngine.Object.DestroyImmediate(trajectory);
-
-                return new JObject
-                {
-                    ["image_path"] = ((JObject)images[images.Count - 1])["path"],
-                    ["format"] = "motion_evidence_v2",
-                    ["images"] = images,
-                    ["resolution"] = new JArray(resolution, resolution),
-                    ["scale"] = scale,
-                    ["frames"] = metadata
-                };
-            }
-            finally
-            {
-                foreach (GameObject item in environment)
-                {
-                    if (item != null) UnityEngine.Object.DestroyImmediate(item);
-                }
-                foreach (GameObject preview in previews)
-                {
-                    if (preview != null) UnityEngine.Object.DestroyImmediate(preview);
-                }
-                session.Director.time = originalTime;
-                session.Director.Evaluate();
-                TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
-            }
-        }
-
-        private static List<CaptureRequest> SelectEvidenceRequests(
-            IReadOnlyList<CaptureRequest> requests,
-            int count)
-        {
-            var result = new List<CaptureRequest>(count);
-            for (int index = 0; index < count; index++)
-            {
-                result.Add(requests[Mathf.RoundToInt(index * (requests.Count - 1f) / (count - 1f))]);
-            }
-            return result;
-        }
-
-        private static JObject WriteEvidenceImage(TimelineSessionRecord session, string kind, Texture2D image)
-        {
-            string path = Path.Combine(EvidenceFolder(session),
-                $"picture_{kind}_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.png");
-            File.WriteAllBytes(path, image.EncodeToPNG());
-            return new JObject { ["kind"] = kind, ["path"] = path.Replace('\\', '/') };
-        }
-
-        private static KimodoMarkerSampleResult SampleCapturePose(CaptureRequest request)
-        {
-            CharacterPose pose = CaptureCharacterPose(
-                request.Character,
-                Mathf.RoundToInt((float)(request.Time * SessionFrameRate)));
-            var sample = new KimodoMarkerSampleResult { sampleTime = request.Time };
-            SetCanonicalPose(sample, pose, request.Character);
-            return sample;
-        }
-
         private static GameObject CreatePosePreview(
             TimelineCharacterRecord character,
             KimodoMarkerSampleResult sample,
@@ -930,50 +694,6 @@ namespace CharacterAnimationCli.Unity.Command
             return animator != null ? animator.transform.position : preview.transform.position;
         }
 
-        private static Bounds CalculateMotionBounds(IReadOnlyList<GameObject> previews, Bounds characterBounds)
-        {
-            Bounds result = characterBounds;
-            foreach (GameObject preview in previews) result.Encapsulate(PreviewRootPosition(preview));
-            result.Expand(new Vector3(6f, 1f, 6f));
-            if (result.size.x < 6f) result.Expand(new Vector3(6f - result.size.x, 0f, 0f));
-            if (result.size.z < 6f) result.Expand(new Vector3(0f, 0f, 6f - result.size.z));
-            return result;
-        }
-
-        private static void CreateEvidenceEnvironment(
-            List<GameObject> objects,
-            Bounds bounds,
-            IReadOnlyList<GameObject> previews,
-            JArray requestedBones)
-        {
-            const int captureLayer = 31;
-            float size = Mathf.Ceil(Mathf.Max(bounds.size.x, bounds.size.z) * .5f) * 2f;
-            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            floor.name = "Kimodo Evidence Floor";
-            floor.hideFlags = HideFlags.HideAndDontSave;
-            floor.transform.position = new Vector3(bounds.center.x, 0f, bounds.center.z);
-            floor.transform.localScale = Vector3.one * (size / 10f);
-            SetLayerRecursively(floor, captureLayer);
-            floor.GetComponent<Renderer>().sharedMaterial = MakeMaterial(new Color(.31f, .31f, .31f, 1f));
-            objects.Add(floor);
-            for (float x = bounds.min.x; x <= bounds.max.x; x += .25f)
-            {
-                CreateWorldLine(objects, new Vector3(x, .006f, bounds.min.z), new Vector3(x, .006f, bounds.max.z),
-                    Mathf.Abs(x % 1f) < .01f ? .010f : .003f, new Color(.65f, .65f, .65f, .25f));
-            }
-            for (float z = bounds.min.z; z <= bounds.max.z; z += .25f)
-            {
-                CreateWorldLine(objects, new Vector3(bounds.min.x, .006f, z), new Vector3(bounds.max.x, .006f, z),
-                    Mathf.Abs(z % 1f) < .01f ? .010f : .003f, new Color(.65f, .65f, .65f, .25f));
-            }
-            Vector3[] roots = previews.Select(PreviewRootPosition).ToArray();
-            CreateTrajectory(objects, roots, new Color(.1f, .85f, 1f, 1f), .045f, speedColor: false);
-            CreateMarker(objects, roots[0], Color.green);
-            CreateMarker(objects, roots[roots.Length - 1], Color.red);
-            CreateBoneTrajectories(objects, previews, requestedBones);
-            CreateEvidenceLights(objects, bounds.center);
-        }
-
         private static void CreateEvidenceLights(List<GameObject> objects, Vector3 center)
         {
             foreach (var setup in new[]
@@ -993,54 +713,6 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        private static void CreateBoneTrajectories(
-            List<GameObject> objects,
-            IReadOnlyList<GameObject> previews,
-            JArray requestedBones)
-        {
-            var bones = new[]
-            {
-                (name: "hips", bone: HumanBodyBones.Hips),
-                (name: "left_hand", bone: HumanBodyBones.LeftHand),
-                (name: "right_hand", bone: HumanBodyBones.RightHand),
-                (name: "left_foot", bone: HumanBodyBones.LeftFoot),
-                (name: "right_foot", bone: HumanBodyBones.RightFoot)
-            };
-            var selected = requestedBones == null
-                ? new HashSet<string>(bones.Select(item => item.name), StringComparer.Ordinal)
-                : new HashSet<string>(requestedBones.Values<string>(), StringComparer.Ordinal);
-            foreach (var entry in bones)
-            {
-                if (!selected.Contains(entry.name)) continue;
-                HumanBodyBones bone = entry.bone;
-                Vector3[] points = previews.Select(preview =>
-                {
-                    Animator animator = preview.GetComponentInChildren<Animator>(true);
-                    Transform transform = animator != null ? animator.GetBoneTransform(bone) : null;
-                    return transform != null ? transform.position : PreviewRootPosition(preview);
-                }).ToArray();
-                CreateTrajectory(objects, points, Color.white, .025f, speedColor: true);
-            }
-        }
-
-        private static void CreateTrajectory(
-            List<GameObject> objects,
-            Vector3[] points,
-            Color color,
-            float width,
-            bool speedColor)
-        {
-            for (int index = 1; index < points.Length; index++)
-            {
-                float speed = (points[index] - points[index - 1]).magnitude;
-                Color segment = speedColor
-                    ? Color.Lerp(Color.red, Color.green, Mathf.Clamp01(speed / .4f))
-                    : color;
-                CreateWorldLine(objects, points[index - 1] + Vector3.up * .02f,
-                    points[index] + Vector3.up * .02f, width, segment);
-            }
-        }
-
         private static void CreateWorldLine(List<GameObject> objects, Vector3 from, Vector3 to, float width, Color color)
         {
             GameObject lineObject = new GameObject("Kimodo Evidence Line") { hideFlags = HideFlags.HideAndDontSave };
@@ -1055,17 +727,6 @@ namespace CharacterAnimationCli.Unity.Command
             objects.Add(lineObject);
         }
 
-        private static void CreateMarker(List<GameObject> objects, Vector3 point, Color color)
-        {
-            GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            marker.hideFlags = HideFlags.HideAndDontSave;
-            marker.transform.position = point + Vector3.up * .1f;
-            marker.transform.localScale = Vector3.one * .18f;
-            SetLayerRecursively(marker, 31);
-            marker.GetComponent<Renderer>().sharedMaterial = MakeMaterial(color);
-            objects.Add(marker);
-        }
-
         private static Material MakeMaterial(Color color)
         {
             Shader shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
@@ -1075,82 +736,6 @@ namespace CharacterAnimationCli.Unity.Command
         private static void SetLayerRecursively(GameObject root, int layer)
         {
             foreach (Transform transform in root.GetComponentsInChildren<Transform>(true)) transform.gameObject.layer = layer;
-        }
-
-        private static Texture2D RenderGhostComposite(
-            IReadOnlyList<GameObject> previews,
-            IReadOnlyList<GameObject> environment,
-            Bounds bounds,
-            Vector3 direction,
-            int size,
-            float scale,
-            bool orthographic,
-            bool renderPoses)
-        {
-            Camera camera = CreateEvidenceCamera(bounds, direction, scale, orthographic);
-            try
-            {
-                foreach (GameObject preview in previews) preview.SetActive(false);
-                Texture2D result = RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
-                if (!renderPoses) return result;
-
-                SetEvidenceVisualsEnabled(environment, false);
-                float[] alpha = { .30f, .48f, .65f, .82f, 1f };
-                for (int index = 0; index < previews.Count; index++)
-                {
-                    previews[index].SetActive(true);
-                    Texture2D pose = RenderCamera(camera, size, new Color(0f, 0f, 0f, 0f));
-                    Composite(result, pose, alpha[index]);
-                    UnityEngine.Object.DestroyImmediate(pose);
-                    previews[index].SetActive(false);
-                }
-                return result;
-            }
-            finally
-            {
-                SetEvidenceVisualsEnabled(environment, true);
-                foreach (GameObject preview in previews) preview.SetActive(true);
-                UnityEngine.Object.DestroyImmediate(camera.gameObject);
-            }
-        }
-
-        private static Texture2D RenderSinglePose(
-            IReadOnlyList<GameObject> previews,
-            IReadOnlyList<GameObject> environment,
-            int selected,
-            Bounds bounds,
-            int size,
-            float scale)
-        {
-            for (int index = 0; index < previews.Count; index++) previews[index].SetActive(index == selected);
-            SetEvidenceVisualsEnabled(environment, false);
-            Camera camera = CreateEvidenceCamera(bounds, new Vector3(1f, .65f, -1f).normalized, scale, orthographic: false);
-            try
-            {
-                return RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(camera.gameObject);
-                SetEvidenceVisualsEnabled(environment, true);
-                foreach (GameObject preview in previews) preview.SetActive(true);
-            }
-        }
-
-        private static Camera CreateEvidenceCamera(Bounds bounds, Vector3 direction, float scale, bool orthographic)
-        {
-            GameObject cameraObject = new GameObject("Kimodo Evidence Camera") { hideFlags = HideFlags.HideAndDontSave };
-            Camera camera = cameraObject.AddComponent<Camera>();
-            camera.cullingMask = 1 << 31;
-            camera.orthographic = orthographic;
-            camera.nearClipPlane = .01f;
-            camera.farClipPlane = 100f;
-            camera.clearFlags = CameraClearFlags.SolidColor;
-            camera.orthographicSize = Mathf.Max(2.5f, bounds.extents.magnitude * 1.05f / scale);
-            camera.fieldOfView = 35f;
-            camera.transform.position = bounds.center + direction * Mathf.Max(7f, bounds.extents.magnitude * 3.2f);
-            camera.transform.LookAt(bounds.center + Vector3.up, Vector3.up);
-            return camera;
         }
 
         private static Texture2D RenderCamera(Camera camera, int size, Color background)
@@ -1199,18 +784,6 @@ namespace CharacterAnimationCli.Unity.Command
                 if (item == null) continue;
                 foreach (Renderer renderer in item.GetComponentsInChildren<Renderer>(true)) renderer.enabled = enabled;
             }
-        }
-
-        private static Bounds CalculateBounds(IReadOnlyList<GameObject> roots)
-        {
-            Bounds bounds = CalculateBounds(roots[0]);
-            for (int index = 1; index < roots.Count; index++)
-            {
-                Renderer[] renderers = roots[index].GetComponentsInChildren<Renderer>(true);
-                if (renderers.Length == 0) bounds.Encapsulate(roots[index].transform.position);
-                foreach (Renderer renderer in renderers) bounds.Encapsulate(renderer.bounds);
-            }
-            return bounds;
         }
 
         private static Bounds CalculateBounds(GameObject root)
@@ -1348,46 +921,6 @@ namespace CharacterAnimationCli.Unity.Command
                 return new JArray(array.Select(CanonicalizeJson));
             }
             return value?.DeepClone() ?? JValue.CreateNull();
-        }
-
-        private static JObject BuildAnimationAnalysisResponse(
-            TimelineSessionRecord session,
-            AnalysisCacheRecord record,
-            TimelineCharacterRecord character,
-            TimelineAnimationRecord animation,
-            bool cached,
-            int? startFrame = null,
-            int? endFrame = null)
-        {
-            if (record == null)
-            {
-                throw new InvalidOperationException("Analysis cache record is required.");
-            }
-            if (session == null)
-            {
-                throw new InvalidOperationException("Analysis Session is required.");
-            }
-            var response = new JObject
-            {
-                ["analysis_id"] = record.Id,
-                ["analysis_path"] = ToProjectRelativePath(AnalysisCachePath(session, record.Id)),
-                ["motion_path"] = record.MotionPath ?? string.Empty,
-                ["character"] = character?.Name ?? record.CharacterName ?? string.Empty,
-                ["pose_refs"] = record.Poses?.DeepClone() ?? new JArray(),
-                ["keyframes"] = record.Analysis?["keyframes"]?.DeepClone() ?? new JArray(),
-                ["foot_contacts"] = record.Analysis?["foot_contacts"]?.DeepClone() ?? new JArray(),
-                ["cached"] = cached
-            };
-            if (animation != null)
-            {
-                response["animation"] = animation.Name;
-            }
-            else
-            {
-                response["start_frame"] = startFrame ?? 0;
-                response["end_frame"] = endFrame ?? 0;
-            }
-            return response;
         }
 
         private static string ProjectRelativePathToAbsolute(string path)
@@ -1552,31 +1085,6 @@ namespace CharacterAnimationCli.Unity.Command
             public float MaxAcceleration { get; }
         }
 
-        private sealed class CaptureRequest
-        {
-            public CaptureRequest(
-                TimelineCharacterRecord character,
-                double time,
-                JObject analysisFrame,
-                KimodoMarkerSampleResult poseData = null,
-                int frame = -1,
-                bool root2DOnly = false)
-            {
-                Character = character;
-                Time = time;
-                AnalysisFrame = analysisFrame;
-                PoseData = poseData;
-                Frame = frame;
-                Root2DOnly = root2DOnly;
-            }
-            public TimelineCharacterRecord Character { get; }
-            public double Time { get; }
-            public JObject AnalysisFrame { get; }
-            public KimodoMarkerSampleResult PoseData { get; }
-            public int Frame { get; }
-            public bool Root2DOnly { get; }
-        }
-
         private sealed class AnalysisCacheRecord
         {
             public string Id;
@@ -1594,6 +1102,7 @@ namespace CharacterAnimationCli.Unity.Command
             public string AnimationId;
             public string AnimationName;
             public string InputSignature;
+            public JObject Pictures;
 
             public JObject ToJson() => new JObject
             {
@@ -1606,7 +1115,8 @@ namespace CharacterAnimationCli.Unity.Command
                 ["animation_name"] = AnimationName ?? string.Empty,
                 ["input_signature"] = InputSignature ?? string.Empty,
                 ["poses"] = Poses?.DeepClone() ?? new JArray(),
-                ["analysis"] = Analysis?.DeepClone() ?? new JObject()
+                ["analysis"] = Analysis?.DeepClone() ?? new JObject(),
+                ["pictures"] = Pictures?.DeepClone() ?? new JObject()
             };
 
             public static AnalysisCacheRecord FromJson(JObject json) => new AnalysisCacheRecord
@@ -1621,7 +1131,8 @@ namespace CharacterAnimationCli.Unity.Command
                 AnimationName = json.Value<string>("animation_name"),
                 InputSignature = json.Value<string>("input_signature"),
                 Poses = json["poses"] as JArray ?? json["analysis"]?["poses"] as JArray ?? new JArray(),
-                Analysis = json["analysis"] as JObject ?? new JObject()
+                Analysis = json["analysis"] as JObject ?? new JObject(),
+                Pictures = json["pictures"] as JObject ?? new JObject()
             };
         }
     }

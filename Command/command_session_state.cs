@@ -928,10 +928,10 @@ namespace CharacterAnimationCli.Unity.Command
                         throw new InvalidOperationException($"clips[{index}] must be an object.");
                     }
 
-                    string role = (requested.Value<string>("role") ?? (index == 0 ? "source" : "target")).Trim();
-                    if (string.IsNullOrWhiteSpace(role) || !roles.Add(role))
+                    string role = (requested.Value<string>("role") ?? (index == 0 ? "source" : "target")).Trim().ToLowerInvariant();
+                    if ((role != "source" && role != "target") || !roles.Add(role))
                     {
-                        throw new InvalidOperationException("Each clips item requires a unique non-empty role.");
+                        throw new InvalidOperationException("Each clips item requires a unique role of source or target.");
                     }
 
                     string characterName = RequiredStringValue(requested, "character");
