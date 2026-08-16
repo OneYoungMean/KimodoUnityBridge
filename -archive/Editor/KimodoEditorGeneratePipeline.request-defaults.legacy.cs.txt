@@ -1,8 +1,0 @@
-        private const string DefaultModelName = "Kimodo-SOMA-RP-v1";
-
-            string modelName = string.IsNullOrWhiteSpace(request.ModelName) ? DefaultModelName : request.ModelName.Trim();
-
-                model = modelName,
-                models_root = modelsRoot,
-                force_hf_download = false,
-                owner_pid = System.Diagnostics.Process.GetCurrentProcess().Id,

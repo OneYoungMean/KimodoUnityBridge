@@ -1,8 +1,0 @@
-// Removed after BakeIntoClip: BakeIntoClip already copies the foot-contact curves.
-KimodoFootContactTrackUtility.Apply(request.TargetClip, runtimeResult.MotionData);
-
-// Removed from each SkipRetarget / ExportMuscleClip / CharacterBone branch.
-// CompleteBakedOutput now saves once, after ARDY leading-guard trim has finished.
-KimodoEditorClipWritebackService.FlushWritebackAssets();
-KimodoEditorClipWritebackService.FlushWritebackAssets();
-KimodoEditorClipWritebackService.FlushWritebackAssets();
