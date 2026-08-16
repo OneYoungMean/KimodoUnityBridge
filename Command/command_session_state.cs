@@ -253,7 +253,6 @@ namespace CharacterAnimationCli.Unity.Command
             var character = new TimelineCharacterRecord(
                 GetObjectReference(root), root, animator, avatar, track, poseCacheTrack, avatarError);
             session.Characters.Add(character);
-            FlattenAnimatorClips(session, character);
             EditorUtility.SetDirty(track);
             EditorUtility.SetDirty(poseCacheTrack);
             EditorUtility.SetDirty(session.TimelineAsset);
@@ -286,12 +285,6 @@ namespace CharacterAnimationCli.Unity.Command
             return name;
         }
 
-        private static void FlattenAnimatorClips(TimelineSessionRecord session, TimelineCharacterRecord character)
-        {
-            if (character.Animator?.runtimeAnimatorController is UnityEditor.Animations.AnimatorController)
-                ImportAnimator(session, character, character.Animator);
-        }
-
         private static TimelineAnimationRecord AppendAnimationClip(
             TimelineSessionRecord session,
             TimelineCharacterRecord character,
@@ -314,6 +307,37 @@ namespace CharacterAnimationCli.Unity.Command
             character.NextStartSeconds = timelineClip.end + ClipSafeZoneSeconds;
             EditorUtility.SetDirty(character.Track);
             return animation;
+        }
+
+        private static TimelineClip AppendAnimationTimelineSegment(
+            TimelineCharacterRecord character,
+            AnimationClip clip,
+            double startSeconds,
+            double durationSeconds,
+            double clipInSeconds,
+            string displayName,
+            bool loop)
+        {
+            if (character?.Track == null)
+            {
+                throw new InvalidOperationException("A character AnimationTrack is required.");
+            }
+            if (clip == null)
+            {
+                throw new InvalidOperationException("A source AnimationClip is required.");
+            }
+
+            TimelineClip timelineClip = character.Track.CreateClip<AnimationPlayableAsset>();
+            timelineClip.start = Math.Max(0.0, startSeconds);
+            timelineClip.clipIn = Math.Max(0.0, clipInSeconds);
+            timelineClip.duration = Math.Max(1.0 / SessionFrameRate, durationSeconds);
+            timelineClip.displayName = displayName ?? clip.name;
+            AnimationPlayableAsset animationAsset = (AnimationPlayableAsset)timelineClip.asset;
+            animationAsset.clip = clip;
+            animationAsset.loop = loop
+                ? AnimationPlayableAsset.LoopMode.On
+                : AnimationPlayableAsset.LoopMode.UseSourceAsset;
+            return timelineClip;
         }
 
         private static string MakeUniqueAnimationName(TimelineCharacterRecord character, string requestedName)
@@ -749,7 +773,11 @@ namespace CharacterAnimationCli.Unity.Command
                     if (matches.Length != 1) throw new InvalidOperationException(matches.Length == 0
                         ? $"Scene Animator '{requested}' was not found."
                         : $"Scene Animator '{requested}' is ambiguous; use its hierarchy path.");
-                    return Ok(ImportAnimator(session, target, matches[0]));
+                    return ImportAnimator(
+                        session,
+                        target,
+                        matches[0],
+                        arguments.Value<bool?>("ignore_warning") ?? false);
                 }
                 throw new InvalidOperationException("kind must be character, clip, or animator.");
             });
@@ -855,14 +883,14 @@ namespace CharacterAnimationCli.Unity.Command
             int localStart = range[0].Value<int>();
             int localEnd = range[1].Value<int>();
             int duration = animation.TimelineClip != null
-                ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)))
+                ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)))
                 : Math.Max(1, animation.EndFrameExclusive - animation.StartFrame);
             if (localStart < 0 || localEnd <= localStart || localEnd > duration)
             {
                 throw new InvalidOperationException($"{name}.range must be within the animation's [0,{duration}) frame range.");
             }
             int clipStart = animation.TimelineClip != null
-                ? Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate))
+                ? Mathf.RoundToInt((float)(animation.TimelineStartSeconds * SessionFrameRate))
                 : animation.StartFrame;
             return new AnimationRange(clipStart + localStart, clipStart + localEnd);
         }
@@ -896,8 +924,8 @@ namespace CharacterAnimationCli.Unity.Command
                 if (animationMode)
                 {
                     animation = ResolveAnimation(arguments, character);
-                    startFrame = Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate));
-                    endFrame = startFrame + Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)));
+                    startFrame = Mathf.RoundToInt((float)(animation.TimelineStartSeconds * SessionFrameRate));
+                    endFrame = startFrame + Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)));
                 }
                 else
                 {
@@ -1016,7 +1044,7 @@ namespace CharacterAnimationCli.Unity.Command
             int startFrame = Math.Max(0, animation.StartFrame);
             int frameCount = animation.EndFrameExclusive > animation.StartFrame
                 ? animation.EndFrameExclusive - animation.StartFrame
-                : Math.Max(1, Mathf.CeilToInt((float)(animation.TimelineClip.duration * frameRate)));
+                : Math.Max(1, Mathf.CeilToInt((float)(animation.TimelineDurationSeconds * frameRate)));
             bool requiresFootContactEncoding = motionBytes == null || motionBytes.Length == 0;
             if (!requiresFootContactEncoding &&
                 KimodoRawMotionUtility.TryParseFlatBuffer(motionBytes, out KimodoRawMotionData existingMotion, out _) &&
@@ -1415,13 +1443,25 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static JObject DescribeAnimation(TimelineAnimationRecord animation)
         {
-            return new JObject
+            var result = new JObject
             {
                 ["name"] = animation.Name,
                 ["source"] = animation.Source,
-                ["start_frame"] = animation.TimelineClip != null ? Mathf.RoundToInt((float)(animation.TimelineClip.start * SessionFrameRate)) : 0,
-                ["duration_frames"] = animation.TimelineClip != null ? Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)) : 0
+                ["kind"] = animation.Kind,
+                ["start_frame"] = animation.TimelineClip != null ? Mathf.RoundToInt((float)(animation.TimelineStartSeconds * SessionFrameRate)) : 0,
+                ["duration_frames"] = animation.TimelineClip != null ? Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)) : 0,
+                ["segments"] = new JArray(animation.TimelineSegments.Select(segment => new JObject
+                {
+                    ["role"] = segment.Role,
+                    ["start_frame"] = segment.TimelineClip != null ? Mathf.RoundToInt((float)(segment.TimelineClip.start * SessionFrameRate)) : 0,
+                    ["duration_frames"] = segment.TimelineClip != null ? Mathf.RoundToInt((float)(segment.TimelineClip.duration * SessionFrameRate)) : 0
+                }))
             };
+            if (animation.Transition != null)
+            {
+                result["transition"] = animation.Transition.DeepClone();
+            }
+            return result;
         }
 
         private static JObject DescribeTimelineConstraint(KimodoConstraintMarker marker, int relativeToFrame)
@@ -1662,20 +1702,57 @@ namespace CharacterAnimationCli.Unity.Command
                 KmbBytes = kmbBytes;
                 StartFrame = startFrame;
                 EndFrameExclusive = endFrameExclusive;
+                if (timelineClip != null)
+                {
+                    timelineSegments.Add(new TimelineAnimationSegment("clip", clip, timelineClip));
+                }
             }
 
             public Guid Id { get; }
             private readonly string fallbackName;
-            public string Name => TimelineClip != null ? TimelineClip.displayName : fallbackName;
+            public string Name => fallbackName;
             public string Source { get; }
             public AnimationClip Clip { get; private set; }
             public TimelineClip TimelineClip { get; }
+            public string Kind { get; private set; } = "animation_clip";
+            public JObject Transition { get; private set; }
+            public IReadOnlyList<TimelineAnimationSegment> TimelineSegments => timelineSegments;
             public JObject Analysis { get; private set; }
             public byte[] KmbBytes { get; private set; }
             public int StartFrame { get; private set; }
             public int EndFrameExclusive { get; private set; }
             public string AnimatorImportName { get; set; } = string.Empty;
             public string ImportKey { get; set; } = string.Empty;
+
+            private readonly List<TimelineAnimationSegment> timelineSegments = new List<TimelineAnimationSegment>();
+
+            public double TimelineStartSeconds => timelineSegments.Count > 0
+                ? timelineSegments.Min(item => item.TimelineClip != null ? item.TimelineClip.start : double.MaxValue)
+                : TimelineClip != null ? TimelineClip.start : 0.0;
+
+            public double TimelineEndSeconds => timelineSegments.Count > 0
+                ? timelineSegments.Max(item => item.TimelineClip != null ? item.TimelineClip.end : 0.0)
+                : TimelineClip != null ? TimelineClip.end : 0.0;
+
+            public double TimelineDurationSeconds => Math.Max(0.0, TimelineEndSeconds - TimelineStartSeconds);
+
+            public void ConfigureComposite(
+                string kind,
+                IEnumerable<TimelineAnimationSegment> segments,
+                JObject transition = null)
+            {
+                Kind = string.IsNullOrWhiteSpace(kind) ? "animation_clip" : kind;
+                timelineSegments.Clear();
+                if (segments != null)
+                {
+                    timelineSegments.AddRange(segments.Where(item => item?.TimelineClip != null));
+                }
+                if (timelineSegments.Count == 0 && TimelineClip != null)
+                {
+                    timelineSegments.Add(new TimelineAnimationSegment("clip", Clip, TimelineClip));
+                }
+                Transition = transition != null ? (JObject)transition.DeepClone() : null;
+            }
 
             public void ApplyResult(
                 AnimationClip clip,
@@ -1689,7 +1766,25 @@ namespace CharacterAnimationCli.Unity.Command
                 KmbBytes = kmbBytes;
                 StartFrame = startFrame;
                 EndFrameExclusive = endFrameExclusive;
+                if (timelineSegments.Count > 0)
+                {
+                    timelineSegments[0].Clip = clip;
+                }
             }
+        }
+
+        internal sealed class TimelineAnimationSegment
+        {
+            public TimelineAnimationSegment(string role, AnimationClip clip, TimelineClip timelineClip)
+            {
+                Role = role ?? string.Empty;
+                Clip = clip;
+                TimelineClip = timelineClip;
+            }
+
+            public string Role { get; }
+            public AnimationClip Clip { get; internal set; }
+            public TimelineClip TimelineClip { get; }
         }
 
         internal sealed class AnimatorImportRecord

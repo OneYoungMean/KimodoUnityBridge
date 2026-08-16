@@ -61,7 +61,7 @@ namespace CharacterAnimationCli.Unity.Command
                             .SingleOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))
                             ?? throw new InvalidOperationException($"Animation '{name}' is not loaded in the selected Session.");
                         int duration = animation.TimelineClip != null
-                            ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)))
+                            ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)))
                             : Math.Max(1, animation.EndFrameExclusive - animation.StartFrame);
                         if (requestedFrames.Any(item => item.Value<int>() < 0 || item.Value<int>() >= duration))
                         {
@@ -87,7 +87,7 @@ namespace CharacterAnimationCli.Unity.Command
                         throw new InvalidOperationException($"Animation '{animationName}' is not loaded in the current Session.");
                     }
                     int duration = animation.TimelineClip != null
-                        ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineClip.duration * SessionFrameRate)))
+                        ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)))
                         : Math.Max(1, animation.EndFrameExclusive - animation.StartFrame);
                     int[] frames = SelectFrames(0, duration, 5);
                     captureArguments.Remove("animation");

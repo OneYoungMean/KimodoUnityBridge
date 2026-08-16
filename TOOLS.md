@@ -26,7 +26,7 @@ All public time values use 60 FPS integer frames. Animation ranges are half-open
 ## Working sequence
 
 1. Call `kimodo_help({})`, then `session_get_or_create({"name":"<stable name>"})`.
-2. Add the explicit scene humanoid with `session_add({"kind":"character","character":"<scene name or hierarchy path>"})`. Add project clips or a controller with the corresponding `clip` or `animator` form.
+2. Add the explicit scene humanoid with `session_add({"kind":"character","character":"<scene name or hierarchy path>"})`. Add project clips or a controller with the corresponding `clip` or `animator` form. Animator import materializes same-Layer State-to-State transitions as Timeline-composed `transition_clip` records; it does not bake a transition AnimationClip. If the projected transition count exceeds 128, inspect the warning and opt in with `ignore_warning:true` only when the full set is required. Any State, Entry, Exit, StateMachine, and OverrideController transitions are reported as skipped.
 3. Generate with `kimodo_generate_animation`; retain its `request_id` and poll `kimodo_get_generation` to `completed`, `failed`, or `canceled`.
 4. Call `animation_analyze` on the returned animation. Retain the `analysis_id`, then read its `analysis_path`. Its `motion_path` is a dense KMB track containing the four foot-contact channels.
 5. Render `picture_motion_overlay`, `picture_key_poses`, and `picture_trajectory_3d` using the analysis id. The commands return project-relative image paths.
@@ -75,7 +75,7 @@ Editor 入口为 `command_dispatcher`。通过 `GetCommandDefinitionsJson()` 发
 ## 工作顺序
 
 1. 调用 `kimodo_help({})`，然后调用 `session_get_or_create({"name":"<稳定名称>"})`。
-2. 使用 `session_add({"kind":"character","character":"<场景名称或层级路径>"})` 加入明确的场景 Humanoid。通过对应的 `clip` 或 `animator` 形式加入项目 Clip 或 Controller。
+2. 使用 `session_add({"kind":"character","character":"<场景名称或层级路径>"})` 加入明确的场景 Humanoid。通过对应的 `clip` 或 `animator` 形式加入项目 Clip 或 Controller。Animator 导入会把同 Layer 的 State→State 过渡作为 Timeline 组合的 `transition_clip` 记录，不会 Bake 新的过渡 AnimationClip。预计过渡数量超过 128 时先查看 warning；只有确实需要全量结果时才使用 `ignore_warning:true`。Any State、Entry、Exit、StateMachine 和 OverrideController 过渡会被报告为跳过。
 3. 调用 `kimodo_generate_animation` 生成；保存 `request_id`，并轮询 `kimodo_get_generation` 直到 `completed`、`failed` 或 `canceled`。
 4. 对返回动画调用 `animation_analyze`。保存 `analysis_id`，然后读取其 `analysis_path`。其中的 `motion_path` 是包含四个脚接触通道的稠密 KMB 轨道。
 5. 使用 analysis id 调用 `picture_motion_overlay`、`picture_key_poses`、`picture_trajectory_3d`。命令返回项目相对图片路径。

@@ -18,13 +18,13 @@ Expose exactly the live `schema.tools` entries as tools. Results always use the 
 ## Standard workflow
 
 1. `kimodo_help({})`, then `session_get_or_create({"name":"<stable name>"})`.
-2. `session_add({"kind":"character","character":"<scene name or hierarchy path>"})`; save the returned safe character name.
+2. `session_add({"kind":"character","character":"<scene name or hierarchy path>"})`; save the returned safe character name. Add a project clip or Animator explicitly with `kind:"clip"` or `kind:"animator"`; Animator import creates Timeline-composed `transition_clip` records only for same-Layer State-to-State transitions. Inspect the 128-clip warning and use `ignore_warning:true` only when full expansion is required.
 3. Generate with `kimodo_generate_animation`; save `request_id`; poll `kimodo_get_generation` to a terminal status.
 4. Call `animation_analyze` for the completed animation; save `analysis_id`, then read `analysis_path` and its dense-KMB `motion_path`.
 5. Call all three picture commands with that `analysis_id`: motion overlay, key poses, and 3D trajectory.
 6. Compare the visual evidence with the prompt. Revise sparse constraints, endpoint poses, or the prompt and iterate.
 
-Read the returned `session_json_path` whenever the complete Session state is required. A new Session is empty. `session_add` explicitly adds the scene humanoid, clip, or Animator content.
+Read the returned `session_json_path` whenever the complete Session state is required. A new Session is empty. `session_add` explicitly adds the scene humanoid, clip, or Animator content. A transition is a logical composite over Timeline segments, not a baked AnimationClip asset; unsupported Any State, Entry, Exit, StateMachine, and OverrideController transitions are reported as skipped.
 
 ## Visual acceptance
 

@@ -2,7 +2,7 @@
 
 当前版本：Unity package `0.1.0`，QuickServer `2.2.6`。
 
-`Editor/Core/Manager/command_dispatcher.cs` 是唯一公开 command 入口；`GetCommandDefinitionsJson()` 和 `kimodo_help` 是参数真相。
+`Command/command_dispatcher.cs` 是唯一公开 command 入口；`GetCommandDefinitionsJson()` 和 `kimodo_help` 是参数真相。
 
 ## vNext command surface
 
@@ -33,8 +33,8 @@
 | 生成约束 | `kimodo_generate_animation.constraints` | 完整 | 同帧 sparse fullbody/root2d/hand/foot 组合；内部 clip in/out 约束不属于 command 改造范围。 |
 | 图片证据 | 三个 `picture_*` command | 完整 | 输出根运动四视图、关键姿势、3D 轨迹；光照、网格和固定取景由渲染实现提供。 |
 | Record 与 Retarget | `kimodo_record_range`、`kimodo_retarget_animation` | 完整 | 使用 Session 角色与返回安全动画名。 |
-| Animator 导入 | `session_add(kind:"animator")` | 部分 | 导入 State Clip 和 BlendTree 候选 Clip；不 materialize Transition。 |
-| Transition / authored trajectory | 无 | 未实现 | 记录在后续 todo；本版本不生成 transition 变种或 trajectory command。 |
+| Animator 导入 | `session_add(kind:"animator")` | 完整（有限范围） | 导入 State/BlendTree 叶子，并将同 Layer State→State 过渡组合为 Timeline `transition_clip`；无 Exit Time 为四个源代表性离开帧变体，超过 128 默认 warning。Any State、Entry、Exit、StateMachine、OverrideController 不物化。 |
+| Transition / authored trajectory | `session_add(kind:"animator")` | Transition 已实现，trajectory 未实现 | Transition 不生成新的 AnimationClip 资产；旧 TransitionClip 在重导入时保留，新导入批次追加新记录。 |
 
 ## 维护规则
 

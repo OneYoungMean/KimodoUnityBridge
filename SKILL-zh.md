@@ -18,13 +18,13 @@ string result = command_dispatcher.Invoke(commandName, argumentsJson);
 ## 标准工作流
 
 1. `kimodo_help({})`，然后 `session_get_or_create({"name":"<稳定名称>"})`。
-2. `session_add({"kind":"character","character":"<场景名称或层级路径>"})`；保存返回的安全角色名。
+2. `session_add({"kind":"character","character":"<场景名称或层级路径>"})`；保存返回的安全角色名。使用 `kind:"clip"` 或 `kind:"animator"` 显式加入项目 Clip 或 Animator；Animator 只把同 Layer 的 State→State 过渡组合为 Timeline `transition_clip`。检查 128 个过渡片段的 warning，只有确实需要全量展开时才使用 `ignore_warning:true`。
 3. 通过 `kimodo_generate_animation` 生成；保存 `request_id`；轮询 `kimodo_get_generation` 直到终态。
 4. 对完成动画调用 `animation_analyze`；保存 `analysis_id`，然后读取 `analysis_path` 及其中稠密 KMB 的 `motion_path`。
 5. 使用该 `analysis_id` 调用三个图片命令：根运动叠加图、关键姿势图和 3D 轨迹图。
 6. 将视觉证据与 prompt 比较。修正稀疏约束、端点姿势或 prompt，然后迭代。
 
-需要完整 Session 状态时读取返回的 `session_json_path`。新 Session 为空；通过 `session_add` 显式加入场景 Humanoid、Clip 或 Animator 内容。
+需要完整 Session 状态时读取返回的 `session_json_path`。新 Session 为空；通过 `session_add` 显式加入场景 Humanoid、Clip 或 Animator 内容。Transition 是由 Timeline 片段组成的逻辑复合动画，不会 Bake 新的 AnimationClip；Any State、Entry、Exit、StateMachine 和 OverrideController 过渡会报告为跳过。
 
 ## 视觉验收
 

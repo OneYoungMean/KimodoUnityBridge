@@ -42,15 +42,28 @@ namespace CharacterAnimationCli.Unity.Command
     internal sealed class KimodoCommandAnimationMetadata
     {
         public string animationId;
+        public string name;
         public string characterRef;
         public string timelineClipAssetRef;
+        public string kind;
+        public List<KimodoCommandAnimationSegmentMetadata> timelineSegments = new List<KimodoCommandAnimationSegmentMetadata>();
+        public string transitionJson;
         public string source;
         public string analysisPath;
         public string kmbPath;
+        public int logicalStartFrame;
+        public int logicalEndFrameExclusive;
         public int startFrame;
         public int endFrameExclusive;
         public string animatorImportName;
         public string importKey;
+    }
+
+    [Serializable]
+    internal sealed class KimodoCommandAnimationSegmentMetadata
+    {
+        public string role;
+        public string timelineClipAssetRef;
     }
 
     [Serializable]
@@ -77,7 +90,7 @@ namespace CharacterAnimationCli.Unity.Command
 
     internal static partial class command_context
     {
-        private const string SessionJsonSchemaVersion = "vNext";
+        private const string SessionJsonSchemaVersion = "vNext.transition_clip.1";
         private const string GeneratedSessionsFolder = KimodoEditorClipWritebackService.GeneratedClipFolder + "/Sessions";
 
         // Rebuilt lazily after every editor domain reload.
@@ -139,11 +152,21 @@ namespace CharacterAnimationCli.Unity.Command
                 metadata.animations.Add(new KimodoCommandAnimationMetadata
                 {
                     animationId = animation.Id.ToString("D"),
+                    name = animation.Name,
                     characterRef = character.CharacterRef,
                     timelineClipAssetRef = animation.TimelineClip != null ? GetObjectReference(animation.TimelineClip.asset) : string.Empty,
+                    kind = animation.Kind,
+                    timelineSegments = animation.TimelineSegments.Select(segment => new KimodoCommandAnimationSegmentMetadata
+                    {
+                        role = segment.Role,
+                        timelineClipAssetRef = segment.TimelineClip != null ? GetObjectReference(segment.TimelineClip.asset) : string.Empty
+                    }).ToList(),
+                    transitionJson = animation.Transition != null ? animation.Transition.ToString(Formatting.None) : string.Empty,
                     source = animation.Source,
                     analysisPath = analysisPath,
                     kmbPath = kmbPath,
+                    logicalStartFrame = Mathf.RoundToInt((float)(animation.TimelineStartSeconds * SessionFrameRate)),
+                    logicalEndFrameExclusive = Mathf.RoundToInt((float)(animation.TimelineEndSeconds * SessionFrameRate)),
                     startFrame = animation.StartFrame,
                     endFrameExclusive = animation.EndFrameExclusive,
                     animatorImportName = animation.AnimatorImportName,
@@ -220,9 +243,14 @@ namespace CharacterAnimationCli.Unity.Command
                         string.Equals(item.animationId, animation.Id.ToString("D"), StringComparison.OrdinalIgnoreCase));
                     animationJson["analysis_path"] = persisted?.analysisPath ?? string.Empty;
                     animationJson["motion_path"] = persisted?.kmbPath ?? string.Empty;
-                    animationJson["start_frame"] = animation.StartFrame;
-                    animationJson["end_frame_exclusive"] = animation.EndFrameExclusive;
+                    animationJson["analysis_start_frame"] = animation.StartFrame;
+                    animationJson["analysis_end_frame_exclusive"] = animation.EndFrameExclusive;
                     animationJson["animator_import_name"] = animation.AnimatorImportName ?? string.Empty;
+                    animationJson["kind"] = animation.Kind;
+                    if (animation.Transition != null)
+                    {
+                        animationJson["transition"] = animation.Transition.DeepClone();
+                    }
                     animations.Add(animationJson);
                     ((JArray)characterJson["animations"]).Add(animationJson.DeepClone());
                 }
@@ -350,6 +378,11 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     continue;
                 }
+                if (!string.Equals(metadata.schemaVersion, SessionJsonSchemaVersion, StringComparison.Ordinal))
+                {
+                    Debug.LogWarning($"[Kimodo] Ignoring Session '{metadata.sessionName}' with unsupported schema '{metadata.schemaVersion}'. Expected '{SessionJsonSchemaVersion}'.");
+                    continue;
+                }
                 PlayableDirector director = Resources.FindObjectsOfTypeAll<PlayableDirector>()
                     .FirstOrDefault(item => item != null && item.playableAsset == timeline && item.gameObject.scene.IsValid());
                 if (director == null)
@@ -394,23 +427,45 @@ namespace CharacterAnimationCli.Unity.Command
                     {
                         continue;
                     }
-                    TimelineClip clip = character.Track.GetClips().FirstOrDefault(item => string.Equals(GetObjectReference(item.asset), saved.timelineClipAssetRef, StringComparison.Ordinal));
-                    if (clip == null)
+                    List<KimodoCommandAnimationSegmentMetadata> savedSegments = saved.timelineSegments ?? new List<KimodoCommandAnimationSegmentMetadata>();
+                    if (savedSegments.Count == 0)
                     {
                         continue;
                     }
-                    AnimationClip animationClip = (clip.asset as AnimationPlayableAsset)?.clip;
+                    var segments = new List<TimelineAnimationSegment>();
+                    foreach (KimodoCommandAnimationSegmentMetadata savedSegment in savedSegments)
+                    {
+                        TimelineClip segmentClip = character.Track.GetClips().FirstOrDefault(item =>
+                            string.Equals(GetObjectReference(item.asset), savedSegment.timelineClipAssetRef, StringComparison.Ordinal));
+                        if (segmentClip == null)
+                        {
+                            segments.Clear();
+                            break;
+                        }
+                        segments.Add(new TimelineAnimationSegment(
+                            savedSegment.role,
+                            (segmentClip.asset as AnimationPlayableAsset)?.clip,
+                            segmentClip));
+                    }
+                    if (segments.Count == 0)
+                    {
+                        continue;
+                    }
+                    TimelineClip clip = segments[0].TimelineClip;
+                    AnimationClip animationClip = segments[0].Clip;
                     JObject analysis = File.Exists(saved.analysisPath) ? JObject.Parse(File.ReadAllText(saved.analysisPath)) : null;
                     byte[] kmb = File.Exists(saved.kmbPath) ? File.ReadAllBytes(saved.kmbPath) : null;
-                    var restoredAnimation = new TimelineAnimationRecord(animationId, clip.displayName, saved.source, animationClip, clip, analysis, kmb, saved.startFrame, saved.endFrameExclusive)
+                    JObject transition = string.IsNullOrWhiteSpace(saved.transitionJson) ? null : JObject.Parse(saved.transitionJson);
+                    var restoredAnimation = new TimelineAnimationRecord(animationId, string.IsNullOrWhiteSpace(saved.name) ? clip.displayName : saved.name, saved.source, animationClip, clip, analysis, kmb, saved.startFrame, saved.endFrameExclusive)
                     {
                         AnimatorImportName = saved.animatorImportName ?? string.Empty,
                         ImportKey = saved.importKey ?? string.Empty
                     };
+                    restoredAnimation.ConfigureComposite(saved.kind, segments, transition);
                     character.Animations.Add(restoredAnimation);
                     character.NextStartSeconds = Math.Max(
                         character.NextStartSeconds,
-                        clip.end + command_context.ClipSafeZoneSeconds);
+                        restoredAnimation.TimelineEndSeconds + command_context.ClipSafeZoneSeconds);
                 }
                 lock (TimelineSessionsLock)
                 {
