@@ -23,11 +23,13 @@ namespace CharacterAnimationCli.Unity.Command
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
         private const string AnalysisPictureRenderVersion = "5";
-        private const string TestAnalysisPictureRenderVersion = "15-test";
+        private const string TestAnalysisPictureRenderVersion = "16-test";
         private const float TestCameraMarginMeters = .5f;
         private const float TestCameraFitScale = .5f;
         private const float TestGhostAlphaMin = .1f;
         private const float TestGhostAlphaMax = .5f;
+        private static readonly Color TestStartFrameTint = new Color(57f / 255f, 197f / 255f, 187f / 255f, 1f);
+        private static readonly Color TestEndFrameTint = new Color(217f / 255f, 58f / 255f, 73f / 255f, 1f);
 
         private static JObject RenderAnalysisPictures(
             TimelineSessionRecord session,
@@ -968,9 +970,9 @@ namespace CharacterAnimationCli.Unity.Command
         private static Color ResolveGhostPoseTint(SubjectPictureData subject, int frame)
         {
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
-            if (frame == 0) return Color.yellow;
+            if (frame == 0) return TestStartFrameTint;
+            if (frame == lastFrame) return TestEndFrameTint;
             if (IsKeyframe(subject, frame)) return Color.yellow;
-            if (frame == lastFrame) return new Color(1f, .35f, 0f, 1f);
             return TryGetFootTransitionTint(subject, frame, out Color footTint) ? footTint : Color.white;
         }
 
@@ -981,8 +983,9 @@ namespace CharacterAnimationCli.Unity.Command
             keyframe = tile.Presentation == "test_keyframes" && tile.PrimaryFrames.Contains(frame);
             footTransition = tile.Presentation == "test_foot_transitions" &&
                 tile.PrimaryFrames.Contains(frame) && TryGetFootTransitionTint(subject, frame, out _);
-            if (keyframe || frame == 0) return Color.yellow;
-            if (frame == lastFrame) return new Color(1f, .35f, 0f, 1f);
+            if (frame == 0) return TestStartFrameTint;
+            if (frame == lastFrame) return TestEndFrameTint;
+            if (keyframe) return Color.yellow;
             return footTransition && TryGetFootTransitionTint(subject, frame, out Color footTint)
                 ? footTint
                 : Color.white;

@@ -22,6 +22,7 @@ namespace KimodoBridge.Editor
         private int sceneDragUndoGroup = -1;
         private bool collapseSceneDragUndo;
         private bool refreshSceneAfterDrag;
+        [SerializeField] private HumanBodyBones selectedFullBodyTarget = HumanBodyBones.LastBone;
         private Vector2 scroll;
         private string lastError;
 
@@ -40,7 +41,9 @@ namespace KimodoBridge.Editor
                 .ToArray();
         }
 
-        internal static void ShowWindow(KimodoConstraintMarker marker)
+        internal static void ShowWindow(
+            KimodoConstraintMarker marker,
+            HumanBodyBones selectedTarget = HumanBodyBones.LastBone)
         {
             if (marker == null || !marker.constraintEnabled)
             {
@@ -55,6 +58,7 @@ namespace KimodoBridge.Editor
             var window = GetWindow<KimodoConstraintOverrideEditWindow>(true, "Kimodo Constraint Edit");
             window.minSize = new Vector2(420f, 260f);
             window.marker = marker;
+            window.selectedFullBodyTarget = selectedTarget;
             window.lastError = string.Empty;
             window.ConfigureEditSession(marker);
             if (marker != null)
@@ -67,7 +71,7 @@ namespace KimodoBridge.Editor
             if (marker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out _))
             {
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                FocusSelectionOnEditTarget(marker, context, window.editEntryId);
+                FocusSelectionOnEditTarget(marker, context, window.editEntryId, window.selectedFullBodyTarget);
             }
         }
 
@@ -130,7 +134,7 @@ namespace KimodoBridge.Editor
                 {
                     KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
                     KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
-                    FocusSelectionOnEditTarget(marker, context, editEntryId);
+                    FocusSelectionOnEditTarget(marker, context, editEntryId, selectedFullBodyTarget);
                 }
             }
             LockTimelineWindow();
@@ -273,7 +277,7 @@ namespace KimodoBridge.Editor
                     if (KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out string poseError))
                     {
                         KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                        RestoreEndEffectorTargetSelection(marker, context, editEntryId);
+                        RestoreEndEffectorTargetSelection(marker, context, editEntryId, selectedFullBodyTarget);
                         lastError = string.Empty;
                     }
                     else
@@ -395,7 +399,7 @@ namespace KimodoBridge.Editor
 
             KimodoConstraintPoseCache.SetGroupState(editContext, visible: true, selectable: true);
             KimodoConstraintPoseCache.ClearTransformChanges(editContext, editEntryId);
-            FocusSelectionOnEditTarget(target, editContext, editEntryId);
+            FocusSelectionOnEditTarget(target, editContext, editEntryId, selectedFullBodyTarget);
         }
 
         private bool TryGetEditContext(out PoseCacheRenderContext context, out string error)
@@ -475,7 +479,7 @@ namespace KimodoBridge.Editor
                         KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out poseError))
                     {
                         KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                        RestoreEndEffectorTargetSelection(marker, context, editEntryId);
+                        RestoreEndEffectorTargetSelection(marker, context, editEntryId, selectedFullBodyTarget);
                         lastError = string.Empty;
                         refreshSceneAfterDrag |= sceneDragActive;
                     }
@@ -567,10 +571,25 @@ namespace KimodoBridge.Editor
         private static void FocusSelectionOnEditTarget(
             KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
-            string entryId)
+            string entryId,
+            HumanBodyBones selectedTarget = HumanBodyBones.LastBone)
         {
-            if ((marker is KimodoConstraintMarker || marker is KimodoConstraintMarker) &&
+            if (selectedTarget != HumanBodyBones.LastBone &&
                 KimodoConstraintPoseCache.TryGetFullBodyTarget(
+                    context,
+                    entryId,
+                    selectedTarget,
+                    out GameObject selectedTargetObject) &&
+                selectedTargetObject != null)
+            {
+                Selection.activeGameObject = selectedTargetObject;
+                EditorGUIUtility.PingObject(selectedTargetObject);
+                Tools.current = Tool.Move;
+                SceneView.lastActiveSceneView?.FrameSelected();
+                return;
+            }
+
+            if (KimodoConstraintPoseCache.TryGetFullBodyTarget(
                     context,
                     entryId,
                     HumanBodyBones.Hips,
@@ -612,8 +631,17 @@ namespace KimodoBridge.Editor
         private static void RestoreEndEffectorTargetSelection(
             KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
-            string entryId)
+            string entryId,
+            HumanBodyBones selectedTarget = HumanBodyBones.LastBone)
         {
+            if (selectedTarget != HumanBodyBones.LastBone &&
+                KimodoConstraintPoseCache.TryGetFullBodyTarget(context, entryId, selectedTarget, out GameObject fullBodyTarget) &&
+                fullBodyTarget != null)
+            {
+                Selection.activeGameObject = fullBodyTarget;
+                return;
+            }
+
             if (marker is KimodoConstraintMarker &&
                 KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject target) &&
                 target != null)
