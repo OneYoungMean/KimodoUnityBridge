@@ -1101,25 +1101,23 @@ def ensure_asset_present(
         raise RuntimeError("Injected download network failure once.")
 
     logger.log(f"[STEP] Downloading {asset.label}: {asset.local_dir_name}")
+    if target_dir.exists():
+        logger.log(
+            f"[INFO] {asset.label}: incomplete local download detected; checking download sites before resuming."
+        )
     target_dir.mkdir(parents=True, exist_ok=True)
-    selected_site: DownloadSite
-    selected_repo_id: str
+    candidate_sites: tuple[DownloadSite, ...]
 
     if force_site is not None:
-        selected_site = force_site
-        selected_repo_id = _download_site_repo_id(asset, selected_site)
-        if not selected_repo_id:
+        if not _download_site_repo_id(asset, force_site):
             raise RuntimeError(
-                f"Forced download site '{selected_site.value}' is unavailable for {asset.label}: missing repo id."
+                f"Forced download site '{force_site.value}' is unavailable for {asset.label}: missing repo id."
             )
         logger.log(
-            f"[INFO] {asset.label}: forced download site={selected_site.value} "
-            f"repo={selected_repo_id}"
+            f"[INFO] {asset.label}: forced download site={force_site.value} "
+            f"repo={_download_site_repo_id(asset, force_site)}"
         )
-        if selected_site == DownloadSite.HUGGINGFACE:
-            download_via_huggingface(asset, target_dir, cancel_event)
-        else:
-            download_via_modelscope(asset, target_dir, logger, cancel_event)
+        candidate_sites = (force_site,)
     else:
         logger.log(
             f"[INFO] {asset.label}: probing download sites before transfer "
@@ -1131,25 +1129,55 @@ def ensure_asset_present(
         raise_if_download_cancelled(cancel_event)
         logger.log(f"[PROBE] {asset.label}: {_probe_summary(huggingface_result)}")
         logger.log(f"[PROBE] {asset.label}: {_probe_summary(modelscope_result)}")
-        try:
-            selection = _select_download_site_from_probe_results(huggingface_result, modelscope_result)
-        except RuntimeError as exc:
-            raise RuntimeError(f"Download site probe failed for {asset.label}: {exc}") from exc
-
-        selected_site = selection.selected_site
-        selected_repo_id = _download_site_repo_id(asset, selected_site)
-        logger.log(
-            f"[INFO] {asset.label}: selected download site={selected_site.value} "
-            f"repo={selected_repo_id or '<missing>'}"
+        probe_results = (huggingface_result, modelscope_result)
+        candidate_sites = tuple(
+            result.site
+            for result in sorted(probe_results, key=lambda result: (not result.ok, result.elapsed_ms))
+            if result.repo_id
         )
-        if selected_site == DownloadSite.HUGGINGFACE:
-            download_via_huggingface(asset, target_dir, cancel_event)
-        else:
-            download_via_modelscope(asset, target_dir, logger, cancel_event)
+        if not candidate_sites:
+            raise RuntimeError(f"No download site is configured for {asset.label}.")
+        if not any(result.ok for result in probe_results):
+            logger.log(
+                f"[WARN] {asset.label}: no site passed the short network probe; "
+                "trying both sources because a resumable transfer may still succeed."
+            )
+        logger.log(
+            f"[INFO] {asset.label}: download candidates="
+            + " -> ".join(f"{site.value} ({_download_site_repo_id(asset, site)})" for site in candidate_sites)
+        )
 
-    raise_if_download_cancelled(cancel_event)
-    if not asset_is_ready(asset, target_dir):
-        raise RuntimeError(f"Downloaded asset is incomplete: {target_dir}")
+    download_errors: list[str] = []
+    selected_site: DownloadSite | None = None
+    selected_repo_id = ""
+    for index, site in enumerate(candidate_sites):
+        repo_id = _download_site_repo_id(asset, site)
+        logger.log(f"[INFO] {asset.label}: attempting download site={site.value} repo={repo_id}")
+        try:
+            if site == DownloadSite.HUGGINGFACE:
+                download_via_huggingface(asset, target_dir, cancel_event)
+            else:
+                download_via_modelscope(asset, target_dir, logger, cancel_event)
+            raise_if_download_cancelled(cancel_event)
+            if not asset_is_ready(asset, target_dir):
+                raise RuntimeError(f"Downloaded asset is incomplete: {target_dir}")
+            selected_site = site
+            selected_repo_id = repo_id
+            break
+        except DownloadCancelledError:
+            raise
+        except Exception as exc:
+            download_errors.append(f"{site.value}={type(exc).__name__}: {exc}")
+            if index + 1 < len(candidate_sites):
+                logger.log(
+                    f"[WARN] {asset.label}: download via {site.value} failed; "
+                    f"switching to {candidate_sites[index + 1].value}."
+                )
+
+    if selected_site is None:
+        raise RuntimeError(
+            f"Failed to download {asset.label} via all candidate sites: " + "; ".join(download_errors)
+        )
 
     logger.log(f"[OK] {asset.label} ready via {selected_site.value}: {selected_repo_id}")
     download_counter[0] += 1
