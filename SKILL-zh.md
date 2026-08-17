@@ -20,7 +20,7 @@ string result = command_dispatcher.Invoke(commandName, argumentsJson);
 1. `kimodo_help({})`，然后 `session_get_or_create({"name":"<稳定名称>"})`。
 2. `session_add({"kind":"character","character":"<场景名称或层级路径>"})`；保存返回的安全角色名。使用 `kind:"clip"` 或 `kind:"animator"` 显式加入项目 Clip 或 Animator；Animator 只把同 Layer 的 State→State 过渡组合为 Timeline `transition_clip`。检查 128 个过渡片段的 warning，只有确实需要全量展开时才使用 `ignore_warning:true`。
 3. 通过 `kimodo_generate_animation` 生成；保存 `request_id`；轮询 `kimodo_get_generation` 直到终态。
-4. 使用一个或两个显式的 `{character,clip,role?}` 项调用 `animation_analyze`。`level` 默认是 `middle`；紧凑的 ghost/trajectory 对使用 `low`，需要五个关键姿势和六个脚接触子图时使用 `high`。相同不可变 Clip 与有效 level 会直接返回既有分析和图片。
+4. 使用一个或两个显式的 `{character,clip,role?}` 项调用 `animation_analyze`。`level` 默认是 `middle`；紧凑的 ghost/trajectory 对使用 `low`，需要五个关键姿势和六个脚接触子图时使用 `high`。`-test` 仅用于验证渲染器：每个角色输出一张 512×512 的正交 ghost-3D 图与一张 512×512 的正交骨盆轨迹图。相同不可变 Clip 与有效 level 会直接返回既有分析和图片。
 5. 读取返回的组合 PNG `pictures.image_path` 及其自描述的 `pictures.images` 子图列表。没有独立图片命令或公开的 `analysis_id`。
 6. 将视觉证据与 prompt 比较。修正稀疏约束、端点姿势或 prompt，然后迭代。
 

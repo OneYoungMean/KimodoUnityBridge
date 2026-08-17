@@ -213,7 +213,7 @@ namespace KimodoBridge.Editor
             {
                 EditorGUILayout.PropertyField(
                     ardyAutoHistory,
-                    new GUIContent("Auto History", "Adapt the history window from upcoming motion constraints."));
+                    new GUIContent("Auto History", "0-1 m/s = 0.225; 1-10 m/s grows exponentially to 1; above 10 m/s = 1."));
                 if (!ardyAutoHistory.hasMultipleDifferentValues &&
                     !ardyAutoHistory.boolValue &&
                     ardyHistoryWeight != null)
@@ -754,10 +754,10 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.LabelField("ARDY Motion Limits", EditorStyles.boldLabel);
                 EditorGUILayout.PropertyField(
                     ardyTargetMaxSpeed,
-                    new GUIContent("Max Speed", "Maximum root speed used by ARDY Auto History for a future Full-Body target."));
+                    new GUIContent("Max Speed", "Maximum root speed used to plan ARDY Full-Body root targets."));
                 EditorGUILayout.PropertyField(
                     ardyTargetMaxAcceleration,
-                    new GUIContent("Max Acceleration", "Maximum root acceleration used by ARDY Auto History for a future Full-Body target."));
+                    new GUIContent("Max Acceleration", "Maximum root acceleration used to plan ARDY Full-Body root targets."));
             }
 
             EditorGUILayout.Space(4f);

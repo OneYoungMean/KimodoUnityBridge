@@ -273,7 +273,6 @@ class ArdySettings:
     history_weight: float | None = None
     max_speed: float = 1.25
     max_acceleration: float = 1.5
-    history_transition_weight: float = 0.5
 
     @classmethod
     def from_request(cls, request: dict[str, Any], profile: Any) -> "ArdySettings":
@@ -711,87 +710,24 @@ def _history_limit_for_future(profile: Any, settings: ArdySettings, frame_count:
     return min(history_limit, available)
 
 
-def _auto_history_target(
+def _auto_history_frames_from_root_speed(
     profile: Any,
-    settings: ArdySettings,
-    frame_count: int,
-    target_frame: int,
-    current_root_2d: tuple[float, float],
     current_velocity_2d: tuple[float, float],
-    target_root_2d: tuple[float, float],
-) -> tuple[int, bool]:
+) -> int:
     patch = int(profile.frames_per_token)
     horizon = int(profile.horizon_frames)
     window = int(profile.max_context_frames)
     maximum_history = max(patch, window - horizon)
-    remaining_frames = max(0, int(target_frame) - int(frame_count))
-    delta_x = float(target_root_2d[0]) - float(current_root_2d[0])
-    delta_z = float(target_root_2d[1]) - float(current_root_2d[1])
-    distance = math.hypot(delta_x, delta_z)
-    if distance <= 1e-8:
-        minimum_time = 0.0
+    speed = math.hypot(float(current_velocity_2d[0]), float(current_velocity_2d[1]))
+    if not math.isfinite(speed) or speed <= 1.0:
+        weight = 0.225
+    elif speed < 10.0:
+        weight = 0.225 * math.exp(math.log(1.0 / 0.225) * (speed - 1.0) / 9.0)
     else:
-        direction_x = delta_x / distance
-        direction_z = delta_z / distance
-        initial_speed = max(
-            -settings.max_speed,
-            min(
-                settings.max_speed,
-                float(current_velocity_2d[0]) * direction_x
-                + float(current_velocity_2d[1]) * direction_z,
-            ),
-        )
-        acceleration_distance = (
-            settings.max_speed * settings.max_speed - initial_speed * initial_speed
-        ) / (2.0 * settings.max_acceleration)
-        if distance <= acceleration_distance:
-            minimum_time = (
-                -initial_speed
-                + math.sqrt(
-                    initial_speed * initial_speed
-                    + 2.0 * settings.max_acceleration * distance
-                )
-            ) / settings.max_acceleration
-        else:
-            minimum_time = (
-                (settings.max_speed - initial_speed) / settings.max_acceleration
-                + (distance - acceleration_distance) / settings.max_speed
-            )
-
-    remaining_time = remaining_frames / float(profile.source_fps)
-    if remaining_time + 1e-9 < minimum_time:
-        return patch, True
-
-    lead_frames = (1.25 * minimum_time + horizon / float(profile.source_fps)) * float(
-        profile.source_fps
-    )
-    lead_frames = int(math.ceil(lead_frames / patch) * patch)
-    lead_frames = max(horizon, min(window - patch - 1, lead_frames))
-    if remaining_frames > lead_frames:
-        return maximum_history, False
-
-    fitted = ((window - remaining_frames - 1) // patch) * patch
-    return max(patch, min(maximum_history, fitted)), False
-
-
-def _transition_history_frames(
-    previous: int,
-    desired: int,
-    weight: float,
-    patch: int,
-    maximum: int,
-) -> int:
-    previous = max(patch, min(maximum, previous // patch * patch))
-    desired = max(patch, min(maximum, desired // patch * patch))
-    if previous == desired or weight <= 0.0:
-        return previous
-    if weight >= 1.0:
-        return desired
-    blended = previous + (desired - previous) * weight
-    aligned = int(math.floor(blended / patch + 0.5)) * patch
-    if aligned == previous:
-        aligned += patch if desired > previous else -patch
-    return max(patch, min(maximum, aligned))
+        weight = 1.0
+    max_tokens = max(1, maximum_history // patch)
+    history_tokens = 1 + math.floor(weight * (max_tokens - 1) + 0.5)
+    return min(maximum_history, history_tokens * patch)
 
 
 def _future_clip_mask(values: KmbClipMask | None, joint_names: tuple[str, ...]) -> dict[str, Any]:
@@ -1284,23 +1220,6 @@ class ArdySession:
             mask[:, destination, rotation_slice] = mask[:, destination, rotation_slice].bool() | requested
         return observed, mask
 
-    def _next_root_target(self, frame: int) -> tuple[int, tuple[float, float]] | None:
-        target: tuple[int, tuple[float, float]] | None = None
-        for constraint in self.constraints:
-            if getattr(constraint, "name", None) not in ("fullbody", "root2d"):
-                continue
-            roots = getattr(constraint, "root_2d", None)
-            if roots is None:
-                continue
-            indices = constraint.frame_indices.detach().cpu().tolist()
-            root_values = roots.detach().cpu().tolist()
-            for index, root in zip(indices, root_values):
-                index = int(index)
-                if index <= frame or (target is not None and index >= target[0]):
-                    continue
-                target = (index, (float(root[0]), float(root[1])))
-        return target
-
     def _auto_history_root_state(self, frame: int) -> tuple[tuple[float, float], tuple[float, float]]:
         root_2d, velocity_2d = self._root_state_at_boundary(frame)
         if frame > 0 or self.initial_history_root_2d is not None:
@@ -1329,7 +1248,7 @@ class ArdySession:
             default=-1,
         )
         max_clip = max((start + int(source.shape[1]) - 1 for start, source, _ in self.future_clips), default=-1)
-        if not self.settings.auto_history or self.root_2d_targets:
+        if not self.settings.auto_history:
             return _history_limit_for_future(
                 self.profile,
                 self.settings,
@@ -1337,45 +1256,18 @@ class ArdySession:
                 max(max_constraint, max_clip),
             )
 
-        target = self._next_root_target(frame)
-        maximum_history = int(self.profile.max_context_frames) - int(self.profile.horizon_frames)
-        desired = self.settings.history_crop_frames
-        force_minimum = False
-        if target is not None:
-            current_root_2d, current_velocity_2d = self._auto_history_root_state(frame)
-            desired, force_minimum = _auto_history_target(
-                self.profile,
-                self.settings,
-                frame,
-                target[0],
-                current_root_2d,
-                current_velocity_2d,
-                target[1],
-            )
-
-        previous = getattr(self, "_auto_history_frames", self.settings.history_crop_frames)
-        self._auto_history_frames = desired if force_minimum else _transition_history_frames(
-            previous,
-            desired,
-            self.settings.history_transition_weight,
-            int(self.profile.frames_per_token),
-            maximum_history,
+        _, current_velocity_2d = self._auto_history_root_state(frame)
+        self._auto_history_frames = _auto_history_frames_from_root_speed(
+            self.profile,
+            current_velocity_2d,
         )
-        max_other_constraint = max(
-            (
-                int(constraint.frame_indices.max())
-                for constraint in self.constraints
-                if getattr(constraint, "name", None) != "fullbody" and len(constraint.frame_indices)
-            ),
-            default=-1,
-        )
-        other_limit = _history_limit_for_future(
+        future_limit = _history_limit_for_future(
             self.profile,
             self.settings,
             frame,
-            max(max_other_constraint, max_clip),
+            max(max_constraint, max_clip),
         )
-        return min(self._auto_history_frames, other_limit)
+        return min(self._auto_history_frames, future_limit)
 
     def _next_initial_noise(self, model: Any):
         import torch

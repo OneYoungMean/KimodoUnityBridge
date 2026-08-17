@@ -78,7 +78,7 @@ namespace CharacterAnimationCli.Unity.Command
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredAnalysisClips(),
-                            OptionalEnumWithDefault("level", "middle", "low", "middle", "high"))),
+                             OptionalEnumWithDefault("level", "middle", "low", "middle", "high", "-test"))),
                     CommandDefinition(AnimationCompareCommand,
                         "Compare two animation ranges or transition-like clip ranges without modifying the Session.",
                         Properties(

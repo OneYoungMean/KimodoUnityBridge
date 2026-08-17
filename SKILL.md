@@ -20,7 +20,7 @@ Expose exactly the live `schema.tools` entries as tools. Results always use the 
 1. `kimodo_help({})`, then `session_get_or_create({"name":"<stable name>"})`.
 2. `session_add({"kind":"character","character":"<scene name or hierarchy path>"})`; save the returned safe character name. Add a project clip or Animator explicitly with `kind:"clip"` or `kind:"animator"`; Animator import creates Timeline-composed `transition_clip` records only for same-Layer State-to-State transitions. Inspect the 128-clip warning and use `ignore_warning:true` only when full expansion is required.
 3. Generate with `kimodo_generate_animation`; save `request_id`; poll `kimodo_get_generation` to a terminal status.
-4. Call `animation_analyze` with one or two explicit `{character,clip,role?}` items. `level` defaults to `middle`; use `low` for a compact ghost/trajectory pair or `high` for five key poses and six foot-contact tiles. A matching immutable Clip and effective level return the existing analysis and picture.
+4. Call `animation_analyze` with one or two explicit `{character,clip,role?}` items. `level` defaults to `middle`; use `low` for a compact ghost/trajectory pair or `high` for five key poses and six foot-contact tiles. Use `-test` only to validate the renderer: it emits one 512×512 orthographic ghost-3D tile and one 512×512 orthographic pelvis-trajectory tile per character. A matching immutable Clip and effective level return the existing analysis and picture.
 5. Read the returned composite PNG at `pictures.image_path` and its self-describing `pictures.images` tile list. There is no separate picture command or public `analysis_id`.
 6. Compare the visual evidence with the prompt. Revise sparse constraints, endpoint poses, or the prompt and iterate.
 

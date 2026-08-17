@@ -7,10 +7,22 @@ from typing import Any
 
 import numpy as np
 
-from kimodo.frame_time import seconds_to_frame_count, seconds_to_protocol_frame_index
-
 
 MAX_KMB_BYTES = 256 * 1024**2
+
+
+def _seconds_to_frame_count(seconds: float, fps: float) -> int:
+    # Keep the lightweight KMB parser independent from the model package.  The
+    # old top-level import pulled torch in merely by importing KmbMotion.
+    from kimodo.frame_time import seconds_to_frame_count
+
+    return seconds_to_frame_count(seconds, fps)
+
+
+def _seconds_to_protocol_frame_index(seconds: float, fps: float) -> int:
+    from kimodo.frame_time import seconds_to_protocol_frame_index
+
+    return seconds_to_protocol_frame_index(seconds, fps)
 
 
 @dataclass(frozen=True)
@@ -254,10 +266,10 @@ def parse_kmb_clip(
         raise error_type("Clip constraint requires finite start_time and duration seconds.") from exc
     if not math.isfinite(start_time) or not math.isfinite(duration) or duration <= 0.0:
         raise error_type("Clip constraint start_time/duration must be finite and duration must be positive.")
-    duration_frames = seconds_to_frame_count(duration, fps)
+    duration_frames = _seconds_to_frame_count(duration, fps)
     if duration_frames != motion.num_frames:
         raise error_type(
             f"Clip constraint duration resolves to {duration_frames} frames but its KMB contains {motion.num_frames}."
         )
     mask = parse_clip_mask(item, motion.joint_names, error_type) if item.get("mask") is not None else None
-    return ParsedKmbClip(motion, seconds_to_protocol_frame_index(start_time, fps), mask)
+    return ParsedKmbClip(motion, _seconds_to_protocol_frame_index(start_time, fps), mask)

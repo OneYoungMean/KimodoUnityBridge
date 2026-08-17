@@ -103,7 +103,7 @@ namespace KimodoBridge.Editor
                     new GUIContent("Playback Reserve", "Request more motion when this much playable ARDY animation remains; default 1 second."));
                 EditorGUILayout.PropertyField(
                     ardyAutoHistory,
-                    new GUIContent("Auto History", "Adapt the history window from upcoming motion constraints."));
+                    new GUIContent("Auto History", "0-1 m/s = 0.225; 1-10 m/s grows exponentially to 1; above 10 m/s = 1."));
                 if (!ardyAutoHistory.hasMultipleDifferentValues && !ardyAutoHistory.boolValue)
                 {
                     EditorGUILayout.PropertyField(

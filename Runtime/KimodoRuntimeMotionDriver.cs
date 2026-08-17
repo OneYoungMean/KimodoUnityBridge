@@ -35,7 +35,7 @@ namespace KimodoBridge
         [FormerlySerializedAs("ardySafeIntervalSeconds")]
         [SerializeField][Min(0.2f), Tooltip("Request more ARDY motion when this much playable animation remains.")]
         private float ardyPlaybackReserveSeconds = 1f;
-        [SerializeField, Tooltip("Adapt the ARDY history window from upcoming motion constraints.")]
+        [SerializeField, Tooltip("Adapt ARDY history from previous root speed: 0-1 m/s = 0.225; 1-10 m/s grows exponentially to 1; above 10 m/s = 1.")]
         private bool ardyAutoHistory = true;
         [SerializeField, Range(0f, 1f), Tooltip("0 uses one motion token of history; 1 uses the largest history window allowed by the model context.")]
         private float ardyHistoryWeight = 1f;

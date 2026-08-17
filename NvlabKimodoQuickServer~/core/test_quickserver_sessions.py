@@ -1689,56 +1689,34 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(ardy_backend._history_limit_for_future(profile, settings, 100, 232), 64)
         self.assertEqual(ardy_backend._history_limit_for_future(profile, settings, 100, 259), 40)
 
-    def test_auto_history_uses_motion_limits_and_forces_four_frames_when_unreachable(self):
+    def test_auto_history_uses_previous_root_speed(self):
         profile = SimpleNamespace(
             source_fps=20.0,
             horizon_frames=40,
             frames_per_token=4,
             max_context_frames=200,
         )
-        settings = ardy_backend.ArdySettings(
-            160,
-            160,
-            20,
-            False,
-            auto_history=True,
-            max_speed=1.25,
-            max_acceleration=1.5,
-            history_transition_weight=0.5,
-        )
-
-        unreachable = ardy_backend._auto_history_target(
+        idle = ardy_backend._auto_history_frames_from_root_speed(
             profile,
-            settings,
-            0,
-            40,
             (0.0, 0.0),
-            (0.0, 0.0),
+        )
+        walking = ardy_backend._auto_history_frames_from_root_speed(
+            profile,
+            (1.0, 0.0),
+        )
+        running = ardy_backend._auto_history_frames_from_root_speed(
+            profile,
+            (5.5, 0.0),
+        )
+        saturated = ardy_backend._auto_history_frames_from_root_speed(
+            profile,
             (10.0, 0.0),
         )
-        far_in_time = ardy_backend._auto_history_target(
-            profile,
-            settings,
-            0,
-            220,
-            (0.0, 0.0),
-            (0.0, 0.0),
-            (1.0, 0.0),
-        )
-        planning = ardy_backend._auto_history_target(
-            profile,
-            settings,
-            0,
-            70,
-            (0.0, 0.0),
-            (0.0, 0.0),
-            (1.0, 0.0),
-        )
 
-        self.assertEqual(unreachable, (4, True))
-        self.assertEqual(far_in_time, (160, False))
-        self.assertEqual(planning, (128, False))
-        self.assertEqual(ardy_backend._transition_history_frames(160, 64, 0.5, 4, 160), 112)
+        self.assertEqual(idle, 40)
+        self.assertEqual(walking, 40)
+        self.assertEqual(running, 76)
+        self.assertEqual(saturated, 160)
 
     def test_auto_history_reads_sparse_fullbody_without_adding_root2d(self):
         session = self._fake_ardy_session()
@@ -1748,9 +1726,6 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             20,
             False,
             auto_history=True,
-            max_speed=1.25,
-            max_acceleration=1.5,
-            history_transition_weight=0.5,
         )
         session._auto_history_frames = 160
         session.constraints = [
@@ -1763,12 +1738,12 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
         history_limit = session._resolve_history_limit(0)
 
-        self.assertEqual(history_limit, 4)
-        self.assertEqual(session._auto_history_frames, 4)
+        self.assertEqual(history_limit, 40)
+        self.assertEqual(session._auto_history_frames, 40)
         self.assertEqual([constraint.name for constraint in session.constraints], ["fullbody"])
         self.assertEqual(session.root_2d_targets, [])
 
-    def test_auto_history_keeps_full_history_for_timed_root2d_points(self):
+    def test_auto_history_uses_idle_history_for_timed_root2d_points(self):
         session = self._fake_ardy_session()
         session.settings = ardy_backend.ArdySettings(
             160,
@@ -1776,9 +1751,6 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             20,
             False,
             auto_history=True,
-            max_speed=1.25,
-            max_acceleration=1.5,
-            history_transition_weight=0.5,
         )
         session._auto_history_frames = 160
         session.root_2d_targets = [
@@ -1794,8 +1766,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
         history_limit = session._resolve_history_limit(0)
 
-        self.assertEqual(history_limit, 160)
-        self.assertEqual(session._auto_history_frames, 160)
+        self.assertEqual(history_limit, 40)
+        self.assertEqual(session._auto_history_frames, 40)
 
     @staticmethod
     def _fake_ardy_session():

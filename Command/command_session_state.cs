@@ -984,9 +984,9 @@ namespace CharacterAnimationCli.Unity.Command
         private static string NormalizeAnalysisPictureLevel(string level)
         {
             string normalized = (level ?? "middle").Trim().ToLowerInvariant();
-            if (normalized != "low" && normalized != "middle" && normalized != "high")
+            if (normalized != "low" && normalized != "middle" && normalized != "high" && normalized != "-test")
             {
-                throw new InvalidOperationException("level must be low, middle, or high.");
+                throw new InvalidOperationException("level must be low, middle, high, or -test.");
             }
             return normalized;
         }
@@ -1054,7 +1054,7 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static JObject BuildEffectiveAnalysisOptions(string level)
         {
-            int keyframeCount = level == "high" ? 12 : level == "middle" ? 8 : 4;
+            int keyframeCount = level == "high" ? 12 : level == "middle" || level == "-test" ? 8 : 4;
             return new JObject
             {
                 ["keyframe_count"] = keyframeCount,

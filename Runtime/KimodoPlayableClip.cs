@@ -89,16 +89,16 @@ namespace KimodoBridge
         public bool enableInConstraint = true;
         [Tooltip("Generate the Out boundary constraint when InOut Constraint is Inside or Outside.")]
         public bool enableOutConstraint = true;
-        [Tooltip("Adapt the ARDY history window from upcoming motion constraints.")]
+        [Tooltip("Adapt ARDY history from previous root speed: 0-1 m/s = 0.225; 1-10 m/s grows exponentially to 1; above 10 m/s = 1.")]
         public bool ardyAutoHistory = true;
         [Range(0f, 1f)]
         [Tooltip("0 uses one motion token of history; 1 uses the largest history window allowed by the model context.")]
         public float ardyHistoryWeight = 1f;
         [Min(0.01f)]
-        [Tooltip("Maximum root speed used by ARDY Auto History for a future Full-Body target.")]
+        [Tooltip("Maximum root speed used to plan ARDY Full-Body root targets.")]
         public float ardyTargetMaxSpeed = DefaultArdyTargetMaxSpeed;
         [Min(0.01f)]
-        [Tooltip("Maximum root acceleration used by ARDY Auto History for a future Full-Body target.")]
+        [Tooltip("Maximum root acceleration used to plan ARDY Full-Body root targets.")]
         public float ardyTargetMaxAcceleration = DefaultArdyTargetMaxAcceleration;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
