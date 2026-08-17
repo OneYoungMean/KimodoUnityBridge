@@ -515,7 +515,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
         }
 
         [Test]
-        public void AutoSampleChannels_MergeIndependentlyAndKeepHandAuthored()
+        public void AutoSampleFullBody_KeepsCommandRoot2DOverrideAndHandAuthored()
         {
             KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
             try
@@ -553,7 +553,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 KimodoMarkerSampleResult root2dOnly = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sampled);
                 Assert.That(root2dOnly.characterPose.muscles[0], Is.EqualTo(2f));
                 Assert.That(root2dOnly.characterPose.root.t, Is.EqualTo(new Vector3(1f, 2f, 3f)));
-                Assert.That(root2dOnly.root2DOverride.t, Is.EqualTo(new Vector3(10f, 0f, 12f)));
+                Assert.That(root2dOnly.root2DOverride.t, Is.EqualTo(new Vector3(7f, 0f, 8f)));
                 Assert.That(root2dOnly.characterPose.hands.left.t, Is.EqualTo(new Vector3(4f, 5f, 6f)));
                 Assert.That(root2dOnly.characterPose.hands.right.t, Is.EqualTo(new Vector3(-4f, -5f, -6f)));
 

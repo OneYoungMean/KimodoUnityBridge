@@ -12,11 +12,6 @@ namespace KimodoBridge.Editor
             return so?.FindProperty("autoSampleFullBody")?.boolValue == true;
         }
 
-        internal static bool IsRoot2DAutoSample(SerializedObject so)
-        {
-            return so?.FindProperty("autoSampleRoot2D")?.boolValue == true;
-        }
-
         internal static void DrawConstraintPanels(SerializedObject so)
         {
             if (so == null) return;
@@ -26,8 +21,25 @@ namespace KimodoBridge.Editor
             if (pose == null || mask == null) return;
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            SerializedProperty root = pose.FindPropertyRelative("root");
+            SerializedProperty rootPosition = mask.FindPropertyRelative("rootPosition");
+            SerializedProperty rootHeading = mask.FindPropertyRelative("rootHeading");
+            using (new EditorGUI.DisabledScope(IsFullBodyAutoSample(so)))
+            {
+                if (DrawTransform(root, "Root Position / Rotation"))
+                {
+                    // Root is always part of the authoring surface.  Keep the
+                    // historical Root2D mask as an internal export detail and
+                    // only enable it when the user actually edits this root.
+                    if (rootPosition != null) rootPosition.boolValue = true;
+                    if (rootHeading != null) rootHeading.boolValue = true;
+                }
+            }
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             SerializedProperty fullBodyEnabled = mask.FindPropertyRelative("muscle");
-            EditorGUILayout.PropertyField(fullBodyEnabled, new GUIContent("FullBody Constraint Enable"));
+            EditorGUILayout.PropertyField(fullBodyEnabled, new GUIContent("Muscle Values (FullBody)"));
             DrawAutoSampleField(so, "autoSampleFullBody");
             using (new EditorGUI.DisabledScope(
                 fullBodyEnabled == null ||
@@ -35,69 +47,25 @@ namespace KimodoBridge.Editor
                 IsFullBodyAutoSample(so)))
             {
                 DrawMuscleValues(pose.FindPropertyRelative("muscles"));
-                DrawTransform(pose.FindPropertyRelative("root"), "Original Root Bone");
-            }
-            EditorGUILayout.EndVertical();
-
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            SerializedProperty rootPosition = mask.FindPropertyRelative("rootPosition");
-            SerializedProperty rootHeading = mask.FindPropertyRelative("rootHeading");
-            EditorGUILayout.PropertyField(rootPosition, new GUIContent("Root2D Constraint Enable"));
-            DrawAutoSampleField(so, "autoSampleRoot2D");
-            using (new EditorGUI.DisabledScope(
-                rootPosition == null ||
-                !rootPosition.boolValue ||
-                IsRoot2DAutoSample(so)))
-            {
-                SerializedProperty root2D = so.FindProperty("sampleData.root2DOverride");
-                SerializedProperty position = root2D?.FindPropertyRelative("t");
-                if (position != null)
-                {
-                    Vector3 value = position.vector3Value;
-                    EditorGUI.BeginChangeCheck();
-                    Vector2 xz = EditorGUILayout.Vector2Field("Root2D XZ", new Vector2(value.x, value.z));
-                    if (EditorGUI.EndChangeCheck())
-                    {
-                        position.vector3Value = new Vector3(xz.x, 0f, xz.y);
-                    }
-                }
-            }
-
-            EditorGUILayout.PropertyField(rootHeading, new GUIContent("Enable Root Heading"));
-            using (new EditorGUI.DisabledScope(
-                rootHeading == null ||
-                !rootHeading.boolValue ||
-                IsRoot2DAutoSample(so)))
-            {
-                SerializedProperty rotation = so.FindProperty("sampleData.root2DOverride.q");
-                if (rotation != null)
-                {
-                    EditorGUI.BeginChangeCheck();
-                    float yaw = EditorGUILayout.FloatField("Root Heading Y", rotation.quaternionValue.eulerAngles.y);
-                    if (EditorGUI.EndChangeCheck())
-                    {
-                        rotation.quaternionValue = Quaternion.Euler(0f, yaw, 0f);
-                    }
-                }
             }
             EditorGUILayout.EndVertical();
 
             DrawEndEffectorPanel(
                 pose.FindPropertyRelative("hands.left"),
                 mask.FindPropertyRelative("leftHand"),
-                "Left Hand Constraint");
+                "Left Hand Effector");
             DrawEndEffectorPanel(
                 pose.FindPropertyRelative("hands.right"),
                 mask.FindPropertyRelative("rightHand"),
-                "Right Hand Constraint");
+                "Right Hand Effector");
             DrawEndEffectorPanel(
                 pose.FindPropertyRelative("feet.left"),
                 mask.FindPropertyRelative("leftFoot"),
-                "Left Foot Constraint");
+                "Left Foot Effector");
             DrawEndEffectorPanel(
                 pose.FindPropertyRelative("feet.right"),
                 mask.FindPropertyRelative("rightFoot"),
-                "Right Foot Constraint");
+                "Right Foot Effector");
         }
 
         private static void DrawAutoSampleField(SerializedObject so, string propertyPath)
@@ -121,23 +89,26 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.PropertyField(enabled, new GUIContent(label + " Enable"));
-            using (new EditorGUI.DisabledScope(enabled == null || !enabled.boolValue))
+            if (DrawTransform(transform, "Target Position / Rotation") && enabled != null)
             {
-                DrawTransform(transform, "Hand / Foot Value");
+                enabled.boolValue = true;
             }
             EditorGUILayout.EndVertical();
         }
 
-        private static void DrawTransform(SerializedProperty transform, string label)
+        private static bool DrawTransform(SerializedProperty transform, string label)
         {
-            if (transform == null) return;
+            if (transform == null) return false;
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
             SerializedProperty position = transform.FindPropertyRelative("t");
             SerializedProperty rotation = transform.FindPropertyRelative("q");
+            EditorGUI.BeginChangeCheck();
             if (position != null) EditorGUILayout.PropertyField(position, new GUIContent("Position"));
             if (rotation != null) EditorGUILayout.PropertyField(rotation, new GUIContent("Rotation"));
+            bool changed = EditorGUI.EndChangeCheck();
             EditorGUILayout.EndVertical();
+            return changed;
         }
     }
 }

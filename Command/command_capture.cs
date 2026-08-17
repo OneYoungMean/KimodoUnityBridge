@@ -23,7 +23,7 @@ namespace CharacterAnimationCli.Unity.Command
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
         private const string AnalysisPictureRenderVersion = "5";
-        private const string TestAnalysisPictureRenderVersion = "11-test";
+        private const string TestAnalysisPictureRenderVersion = "12-test";
         private const float TestCameraMarginMeters = .5f;
         private const float TestCameraFitScale = .5f;
         private const float TestGhostAlphaMin = .1f;
@@ -361,9 +361,8 @@ namespace CharacterAnimationCli.Unity.Command
                     for (int index = 0; index < frames.Count; index++)
                     {
                         int frame = frames[index];
-                        bool key = tile.Subject.KeyFrameSet.Contains(frame);
                         float alpha = GhostAlpha(index, frames.Count, separated);
-                        RenderPoseOnto(result, camera, environment, tile.Subject, frame, key ? Color.yellow : FootTint(tile.Subject, frame), alpha);
+                        RenderPoseOnto(result, camera, environment, tile.Subject, frame, ResolveGhostPoseTint(tile.Subject, frame), alpha);
                     }
                 }
                 else if (tile.Presentation == "key" || tile.Presentation == "foot_contact" || tile.Presentation == "foot_fallback")
@@ -835,28 +834,55 @@ namespace CharacterAnimationCli.Unity.Command
         private static List<int> BuildGhostFrames(SubjectPictureData subject)
         {
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
-            var frames = new List<int> { 0 };
-            var keys = subject.KeyFrameSet.Where(frame => frame > 0 && frame < lastFrame).OrderBy(frame => frame).ToList();
-            int frame = 0;
-            while (frame < lastFrame)
+            var keyFrames = new HashSet<int>(subject.KeyFrameSet);
+            var events = keyFrames
+                .Concat(FootTransitionFrames(subject))
+                .Append(0)
+                .Append(lastFrame)
+                .Distinct()
+                .OrderBy(frame => frame)
+                .ToList();
+
+            // Keep a nearby key pose over a foot transition. If neither event
+            // is a key pose, keep the earlier one to preserve time ordering.
+            for (int index = 1; index < events.Count;)
             {
-                int windowEnd = Math.Min(lastFrame, frame + 5);
-                int key = keys.FirstOrDefault(candidate => candidate > frame && candidate <= windowEnd);
-                if (key > frame)
+                int previous = events[index - 1];
+                int current = events[index];
+                if (current - previous >= 10 || previous == 0 || current == lastFrame)
                 {
-                    frames.Add(key);
-                    // A highlighted key pose restarts the five-frame ghost cadence.
-                    frame = key;
+                    index++;
+                    continue;
+                }
+                if (keyFrames.Contains(current) && !keyFrames.Contains(previous))
+                {
+                    events.RemoveAt(index - 1);
+                    if (index > 1) index--;
                 }
                 else
                 {
-                    frame = windowEnd;
-                    if (frame < lastFrame) frames.Add(frame);
+                    events.RemoveAt(index);
                 }
             }
-            if (frames[frames.Count - 1] != lastFrame) frames.Add(lastFrame);
-            foreach (int transitionFrame in FootTransitionFrames(subject)) frames.Add(transitionFrame);
-            return frames.Distinct().OrderBy(item => item).ToList();
+
+            // Fill only long gaps. The rounded divisions produce evenly spaced
+            // white auxiliary poses and leave no adjacent samples over 20 frames apart.
+            var result = new List<int> { events[0] };
+            for (int index = 1; index < events.Count; index++)
+            {
+                int from = events[index - 1];
+                int to = events[index];
+                int gap = to - from;
+                // A 20-frame gap is allowed as-is. Add helpers only when the
+                // gap is strictly larger, then keep each result below 20 frames.
+                int divisions = gap > 20 ? Mathf.CeilToInt(gap / 19f) : 1;
+                for (int part = 1; part < divisions; part++)
+                {
+                    result.Add(from + Mathf.RoundToInt(gap * part / (float)divisions));
+                }
+                result.Add(to);
+            }
+            return result.Distinct().OrderBy(frame => frame).ToList();
         }
 
         private static float GhostAlpha(int index, int count, bool separated)
@@ -906,33 +932,25 @@ namespace CharacterAnimationCli.Unity.Command
             return true;
         }
 
-        private static bool TryGetKeyframeTint(SubjectPictureData subject, int frame, out Color tint)
+        private static bool IsKeyframe(SubjectPictureData subject, int frame)
         {
-            List<int> frames = (subject.Subject.Record.Analysis?["keyframes"] as JArray ?? new JArray())
-                .OfType<JObject>()
-                .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, Math.Max(0, subject.Pelvis.Length - 1)))
-                .Distinct()
-                .OrderBy(item => item)
-                .ToList();
-            int index = frames.IndexOf(frame);
-            if (index < 0)
-            {
-                tint = Color.gray;
-                return false;
-            }
-            Color darkYellow = new Color(.52f, .38f, .03f, 1f);
-            float progress = frames.Count <= 1 ? 0f : index / (float)(frames.Count - 1);
-            tint = Color.Lerp(Color.white, darkYellow, progress);
-            return true;
+            return subject.KeyFrameSet.Contains(frame);
+        }
+
+        private static Color ResolveGhostPoseTint(SubjectPictureData subject, int frame)
+        {
+            int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
+            if (frame == 0) return Color.yellow;
+            if (IsKeyframe(subject, frame)) return Color.yellow;
+            if (frame == lastFrame) return new Color(1f, .35f, 0f, 1f);
+            return TryGetFootTransitionTint(subject, frame, out Color footTint) ? footTint : Color.white;
         }
 
         private static Color ResolveTestPoseTint(SubjectPictureData subject, int frame, out bool keyframe, out bool footTransition)
         {
-            keyframe = TryGetKeyframeTint(subject, frame, out Color keyTint);
-            footTransition = TryGetFootTransitionTint(subject, frame, out Color footTint);
-            if (keyframe) return keyTint;
-            if (footTransition) return footTint;
-            return Color.gray;
+            keyframe = IsKeyframe(subject, frame);
+            footTransition = TryGetFootTransitionTint(subject, frame, out _);
+            return ResolveGhostPoseTint(subject, frame);
         }
 
         private static void CreatePictureEnvironment(List<GameObject> objects, Bounds bounds)

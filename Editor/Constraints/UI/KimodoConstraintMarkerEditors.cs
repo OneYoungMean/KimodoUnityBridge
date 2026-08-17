@@ -128,7 +128,7 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
                 ClearMarkerEditorCaches(kimodoMarker);
                 kimodoMarker.time = globalTime;
                 kimodoMarker.SampleData.sampleTime = Math.Max(0.0, globalTime);
-                if (kimodoMarker.autoSampleFullBody || kimodoMarker.autoSampleRoot2D)
+                if (kimodoMarker.autoSampleFullBody)
                 {
                     if (!TryUpdateAutoSampleMarkerData(kimodoMarker, forceRefresh: true, out string sampleError))
                     {

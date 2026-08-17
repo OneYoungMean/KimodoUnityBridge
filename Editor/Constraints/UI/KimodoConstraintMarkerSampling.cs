@@ -62,7 +62,7 @@ public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, 
                 return true;
             }
 
-            if (!marker.autoSampleFullBody && !marker.autoSampleRoot2D)
+            if (!marker.autoSampleFullBody)
             {
                 return true;
             }
@@ -178,7 +178,7 @@ public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, 
             }
 
             if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
-                    marker, preview, disableFullBodyAutoSample: false, disableRoot2DAutoSample: false, out error))
+                    marker, preview, disableFullBodyAutoSample: false, out error))
             {
                 AutoSampleCache[id] = new AutoSampleCacheEntry
                 {
@@ -256,18 +256,6 @@ private static KimodoMarkerSampleResult MergeAutoSampledChannels(
                 }
             }
 
-            if (marker.autoSampleRoot2D && sampled.characterPose.root != null)
-            {
-                Vector3 forward = Vector3.ProjectOnPlane(sampled.characterPose.root.q * Vector3.forward, Vector3.up);
-                result.root2DOverride = new CharacterPoseTransform
-                {
-                    t = new Vector3(sampled.characterPose.root.t.x, 0f, sampled.characterPose.root.t.z),
-                    q = forward.sqrMagnitude > 1e-8f
-                        ? Quaternion.LookRotation(forward, Vector3.up)
-                        : Quaternion.identity
-                };
-                result.hasRoot2DOverride = true;
-            }
             return result;
         }
 

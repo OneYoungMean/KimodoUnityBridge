@@ -1666,7 +1666,7 @@ namespace KimodoBridge.Editor
 
         private static bool CanUseAuthoredValuesWithoutTimelineSampling(KimodoConstraintMarker marker)
         {
-            if (marker == null || marker.autoSampleFullBody || marker.autoSampleRoot2D)
+            if (marker == null || marker.autoSampleFullBody)
             {
                 return false;
             }

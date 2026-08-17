@@ -11,7 +11,6 @@ namespace KimodoBridge.Editor
             KimodoConstraintMarker marker,
             KimodoMarkerSampleResult sample,
             bool disableFullBodyAutoSample,
-            bool disableRoot2DAutoSample,
             out string error)
         {
             error = string.Empty;
@@ -38,8 +37,7 @@ namespace KimodoBridge.Editor
 
             bool changed = !AreSamplesEquivalent(marker.SampleData, normalized) ||
                 System.Math.Abs(marker.time - normalized.sampleTime) > 1e-9 ||
-                (disableFullBodyAutoSample && marker.autoSampleFullBody) ||
-                (disableRoot2DAutoSample && marker.autoSampleRoot2D);
+                (disableFullBodyAutoSample && marker.autoSampleFullBody);
             if (!changed)
             {
                 return true;
@@ -48,7 +46,6 @@ namespace KimodoBridge.Editor
             marker.SampleData = normalized;
             marker.time = normalized.sampleTime;
             if (disableFullBodyAutoSample) marker.autoSampleFullBody = false;
-            if (disableRoot2DAutoSample) marker.autoSampleRoot2D = false;
 
             MarkConstraintMarkerDirty(marker);
             return true;

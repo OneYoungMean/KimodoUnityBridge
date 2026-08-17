@@ -7,41 +7,6 @@ using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
-internal static class KimodoRoot2DConstraintEditorGUI
-    {
-        internal static float ResolveRotationY(Vector2 heading)
-        {
-            return heading.sqrMagnitude > 1e-8f
-                ? Mathf.Atan2(heading.x, heading.y) * Mathf.Rad2Deg
-                : 0f;
-        }
-
-        internal static Vector2 ResolveHeading(float rotationY)
-        {
-            float radians = rotationY * Mathf.Deg2Rad;
-            return new Vector2(Mathf.Sin(radians), Mathf.Cos(radians));
-        }
-
-        internal static void Draw(SerializedObject serializedObject)
-        {
-            SerializedProperty includeHeadingProp = serializedObject.FindProperty("sampleData.hasRootHeading");
-            if (includeHeadingProp == null)
-            {
-                return;
-            }
-
-            EditorGUILayout.PropertyField(
-                includeHeadingProp,
-                new GUIContent("Constrain Rotation Y", "Constrain the absolute world yaw around Unity Y."));
-            if (!includeHeadingProp.boolValue)
-            {
-                return;
-            }
-
-            EditorGUILayout.HelpBox("Root position and heading are edited through CharacterPose.", MessageType.Info);
-        }
-    }
-
     internal static class KimodoConstraintMuscleValueGUI
     {
         private static readonly Dictionary<string, bool> FoldoutStates =
@@ -134,9 +99,7 @@ internal abstract class KimodoConstraintStandardMarkerEditorBase : UnityEditor.E
             KimodoConstraintMarker markerTarget = target as KimodoConstraintMarker;
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(markerTarget);
 
-            if (!windowOpen ||
-                markerTarget?.autoSampleFullBody == true ||
-                markerTarget?.autoSampleRoot2D == true)
+            if (!windowOpen || markerTarget?.autoSampleFullBody == true)
             {
                 if (!KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(markerTarget, forceRefresh: false, out string error))
                 {
@@ -176,8 +139,8 @@ internal abstract class KimodoConstraintStandardMarkerEditorBase : UnityEditor.E
     {
         protected override string TypeLabel => "Constraint";
         protected override string TipText =>
-            "One canonical pose with independently enabled muscle, root and end-effector channels. " +
-            "Export resolves Muscle → Foot IK → Hand IK → Root2D and keeps the server protocol unchanged.";
+            "Edit one canonical pose: fixed Root Position/Rotation, FullBody muscle values, and four limb effectors. " +
+            "Root2D overrides remain command-only internal data.";
 
         protected override void DrawFields(bool readOnly)
         {

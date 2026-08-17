@@ -108,23 +108,6 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
-        [TestCase(0f, 0f, 1f)]
-        [TestCase(90f, 1f, 0f)]
-        [TestCase(-90f, -1f, 0f)]
-        public void Root2DEditorRotationY_UsesCanonicalUnityYaw(
-            float rotationY,
-            float expectedHeadingX,
-            float expectedHeadingZ)
-        {
-            Vector2 heading = KimodoRoot2DConstraintEditorGUI.ResolveHeading(rotationY);
-
-            Assert.That(heading.x, Is.EqualTo(expectedHeadingX).Within(1e-5f));
-            Assert.That(heading.y, Is.EqualTo(expectedHeadingZ).Within(1e-5f));
-            Assert.That(
-                Mathf.DeltaAngle(KimodoRoot2DConstraintEditorGUI.ResolveRotationY(heading), rotationY),
-                Is.EqualTo(0f).Within(1e-4f));
-        }
-
         [Test]
         public void ConstraintPreviewClone_WithResolvedAvatarAndNullBindingAvatar_AppliesAndKeepsSampledPose()
         {
