@@ -11,8 +11,9 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     public bool constraintEnabled = true;
     [Tooltip("When enabled, FullBody muscle and root values follow the Timeline pose at this marker time.")]
     public bool autoSampleFullBody = true;
-    [Tooltip("When enabled, Root2D X/Z and heading follow the Timeline pose at this marker time.")]
-    public bool autoSampleRoot2D = true;
+    // Kept for serialized-marker compatibility. Root2D overrides are command
+    // data; the Unity authoring UI never creates or edits them.
+    [HideInInspector] public bool autoSampleRoot2D;
     // Migration-only: preserves old manual marker data without exposing the
     // retired Override concept in the authoring UI.
     [FormerlySerializedAs("useOverride")]

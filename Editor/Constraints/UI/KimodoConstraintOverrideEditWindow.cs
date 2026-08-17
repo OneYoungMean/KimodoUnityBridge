@@ -456,13 +456,13 @@ namespace KimodoBridge.Editor
                     out sampleError))
             {
                 KimodoConstraintPoseCache.GetChangedAutoSampleChannels(
-                    context, editEntryId, out bool fullBodyChanged, out bool root2DChanged);
+                    context, editEntryId, out bool fullBodyChanged, out _);
                 KimodoConstraintPoseCache.EnableChangedConstraintChannels(context, editEntryId, sample);
                 if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
                         marker,
                         sample,
                         disableFullBodyAutoSample: fullBodyChanged,
-                        disableRoot2DAutoSample: root2DChanged,
+                        disableRoot2DAutoSample: false,
                         out string writeError))
                 {
                     lastError = string.IsNullOrWhiteSpace(writeError) ? "marker writeback failed." : writeError;

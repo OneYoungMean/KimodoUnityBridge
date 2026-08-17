@@ -74,29 +74,6 @@ namespace KimodoBridge
                 }
             }
 
-            if (marker.autoSampleRoot2D && sample.hasRoot2DOverride && sample.root2DOverride != null)
-            {
-                normalized.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                {
-                    t = sample.root2DOverride.t,
-                    q = sample.root2DOverride.q
-                };
-                normalized.hasRoot2DOverride = true;
-            }
-            else if (marker.autoSampleRoot2D && sample.characterPose?.root != null)
-            {
-                Vector3 forward = Vector3.ProjectOnPlane(
-                    sample.characterPose.root.q * Vector3.forward,
-                    Vector3.up);
-                normalized.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                {
-                    t = new Vector3(sample.characterPose.root.t.x, 0f, sample.characterPose.root.t.z),
-                    q = forward.sqrMagnitude > 1e-8f
-                        ? Quaternion.LookRotation(forward, Vector3.up)
-                        : Quaternion.identity
-                };
-                normalized.hasRoot2DOverride = true;
-            }
             return normalized;
         }
 

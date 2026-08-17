@@ -60,7 +60,6 @@ namespace KimodoBridge.Editor
         public List<Material> GeneratedMaterials;
         public GameObject EndEffectorMarker;
         public Dictionary<HumanBodyBones, GameObject> FullBodyTargets;
-        public GameObject Root2DTarget;
         public KimodoConstraintMarker SourceMarker;
         public KimodoMarkerSampleResult BaseSample;
         public bool PickingEnabled;
@@ -305,7 +304,6 @@ namespace KimodoBridge.Editor
                 if (session?.IsDisposed == true) continue;
                 foreach (ConstraintPosePreviewEntry entry in session.Entries.Values)
                 {
-                    DrawRoot2DHandle(entry);
                     if (entry?.FullBodyTargets == null) continue;
                     foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
                     {
@@ -313,43 +311,6 @@ namespace KimodoBridge.Editor
                     }
                 }
             }
-        }
-
-        private static void DrawRoot2DHandle(ConstraintPosePreviewEntry entry)
-        {
-            GameObject target = entry?.Root2DTarget;
-            if (target == null || !target.activeInHierarchy) return;
-            Transform transform = target.transform;
-            Vector3 position = transform.position;
-            position.y = 0f;
-            float size = HandleUtility.GetHandleSize(position) * 0.12f;
-            Handles.color = Color.white;
-            bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(entry.SourceMarker);
-            bool editable = windowOpen && entry.SourceMarker != null &&
-                !entry.SourceMarker.autoSampleRoot2D;
-            if (!windowOpen)
-            {
-                if (Handles.Button(position, Quaternion.identity, size, size * 1.25f, Handles.RectangleHandleCap))
-                {
-                    OpenHandleEditor(entry);
-                }
-            }
-            else if (editable)
-            {
-                EditorGUI.BeginChangeCheck();
-                Vector3 moved = Handles.FreeMoveHandle(position, size, Vector3.zero, Handles.RectangleHandleCap);
-                Quaternion rotated = Handles.RotationHandle(transform.rotation, position);
-                if (EditorGUI.EndChangeCheck())
-                {
-                    moved.y = 0f;
-                    transform.SetPositionAndRotation(moved, rotated);
-                }
-            }
-            else
-            {
-                Handles.RectangleHandleCap(0, position, Quaternion.identity, size, EventType.Repaint);
-            }
-            Handles.Label(position + Vector3.up * size, "Root2D");
         }
 
         private static void DrawTargetHandle(ConstraintPosePreviewEntry entry, HumanBodyBones bone, GameObject target)
@@ -363,7 +324,7 @@ namespace KimodoBridge.Editor
                 ? Handles.SphereHandleCap : Handles.CubeHandleCap;
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(entry.SourceMarker);
             bool editable = windowOpen && entry.SourceMarker != null &&
-                !entry.SourceMarker.autoSampleFullBody;
+                (bone != HumanBodyBones.Hips || !entry.SourceMarker.autoSampleFullBody);
             if (!windowOpen)
             {
                 if (Handles.Button(position, transform.rotation, size, size * 1.25f, cap)) OpenHandleEditor(entry);
@@ -379,7 +340,7 @@ namespace KimodoBridge.Editor
             {
                 cap(0, position, transform.rotation, size, EventType.Repaint);
             }
-            Handles.Label(position + Vector3.up * size, bone == HumanBodyBones.Hips ? "FullBody Root" : bone.ToString());
+            Handles.Label(position + Vector3.up * size, bone == HumanBodyBones.Hips ? "Root Position / Rotation" : bone.ToString());
         }
 
         private static void OpenHandleEditor(ConstraintPosePreviewEntry entry)
@@ -595,11 +556,6 @@ namespace KimodoBridge.Editor
             {
                 return true;
             }
-            if (entry.Root2DTarget != null && entry.Root2DTarget.transform.hasChanged)
-            {
-                return true;
-            }
-
             return HasFullBodyTargetTransformChanges(entry);
         }
 
@@ -625,10 +581,6 @@ namespace KimodoBridge.Editor
             if (entry.EndEffectorMarker != null)
             {
                 entry.EndEffectorMarker.transform.hasChanged = false;
-            }
-            if (entry.Root2DTarget != null)
-            {
-                entry.Root2DTarget.transform.hasChanged = false;
             }
             ClearFullBodyTargetTransformChanges(entry);
         }
@@ -667,10 +619,9 @@ namespace KimodoBridge.Editor
         {
             return TryGetSession(context, out ConstraintPosePreviewSession session) &&
                 TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) &&
-                ((entry?.FullBodyTargets != null &&
-                  entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject target) &&
-                  target != null && target.transform.hasChanged) ||
-                 (entry?.Root2DTarget != null && entry.Root2DTarget.transform.hasChanged));
+                 (entry?.FullBodyTargets != null &&
+                   entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject target) &&
+                   target != null && target.transform.hasChanged);
         }
 
         internal static void EnableChangedConstraintChannels(
@@ -686,19 +637,17 @@ namespace KimodoBridge.Editor
             }
 
             sample.mask ??= new KimodoConstraintMask();
-            if (entry.Root2DTarget != null && entry.Root2DTarget.transform.hasChanged)
-            {
-                sample.mask.rootPosition = true;
-                sample.mask.rootHeading = true;
-                sample.hasRootHeading = true;
-            }
             if (entry.FullBodyTargets == null) return;
             foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
             {
                 if (item.Value == null || !item.Value.transform.hasChanged) continue;
                 switch (item.Key)
                 {
-                    case HumanBodyBones.Hips: sample.mask.muscle = true; break;
+                    case HumanBodyBones.Hips:
+                        sample.mask.rootPosition = true;
+                        sample.mask.rootHeading = true;
+                        sample.hasRootHeading = true;
+                        break;
                     case HumanBodyBones.LeftHand: sample.mask.leftHand = true; break;
                     case HumanBodyBones.RightHand: sample.mask.rightHand = true; break;
                     case HumanBodyBones.LeftFoot: sample.mask.leftFoot = true; break;
@@ -721,7 +670,6 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            root2DChanged = entry.Root2DTarget != null && entry.Root2DTarget.transform.hasChanged;
             if (entry.FullBodyTargets == null) return;
             foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
             {
@@ -1508,11 +1456,6 @@ namespace KimodoBridge.Editor
                 UnityEngine.Object.DestroyImmediate(entry.EndEffectorMarker);
                 entry.EndEffectorMarker = null;
             }
-            if (entry.Root2DTarget != null)
-            {
-                UnityEngine.Object.DestroyImmediate(entry.Root2DTarget);
-                entry.Root2DTarget = null;
-            }
             DestroyFullBodyTargets(entry);
 
             SkeletonCache targetCache = entry.TargetCache;
@@ -1557,11 +1500,6 @@ namespace KimodoBridge.Editor
             if (entry.EndEffectorMarker != null && entry.EndEffectorMarker.activeSelf != visible)
             {
                 entry.EndEffectorMarker.SetActive(visible);
-                changed = true;
-            }
-            if (entry.Root2DTarget != null && entry.Root2DTarget.activeSelf != visible)
-            {
-                entry.Root2DTarget.SetActive(visible);
                 changed = true;
             }
             if (entry.FullBodyTargets != null)
@@ -1622,7 +1560,6 @@ namespace KimodoBridge.Editor
             }
 
             SetIkTargetSelectable(entry.EndEffectorMarker, selectable);
-            SetIkTargetSelectable(entry.Root2DTarget, selectable);
             if (entry.FullBodyTargets != null)
             {
                 foreach (GameObject target in entry.FullBodyTargets.Values)
@@ -1886,16 +1823,6 @@ namespace KimodoBridge.Editor
             try
             {
                 KimodoConstraintMask mask = KimodoConstraintMask.Resolve(entry.BaseSample?.mask, markerType).Clone();
-                bool root2DTargetChanged = entry.Root2DTarget != null &&
-                    entry.Root2DTarget.transform.hasChanged;
-                if (root2DTargetChanged)
-                {
-                    // A Root2D Scene handle owns its two public channels.
-                    // Enable them before resolving the temporary rig so the
-                    // captured pose contains this drag's X/Z and yaw.
-                    mask.rootPosition = true;
-                    mask.rootHeading = true;
-                }
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase) &&
                     HasFullBodyTargetTransformChanges(entry) &&
                     !TryApplyFullBodyTargetsToRig(entry, modelName, mask, out error))
@@ -1948,8 +1875,7 @@ namespace KimodoBridge.Editor
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase))
                 {
                     sample.mask = mask.Clone();
-                    sample.hasRootHeading = mask.rootHeading &&
-                        (entry.BaseSample.hasRootHeading || root2DTargetChanged);
+                    sample.hasRootHeading = mask.rootHeading && entry.BaseSample.hasRootHeading;
                     PreserveIndependentRoot2D(entry, sample);
                 }
                 CaptureEndEffectorTargetPose(entry, markerType, sample);
@@ -2032,18 +1958,9 @@ namespace KimodoBridge.Editor
 
             entry.FullBodyTargets ??= new Dictionary<HumanBodyBones, GameObject>();
             KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample?.mask, sample?.constraintType);
-            UpdateRoot2DTarget(entry, sample, mask);
             for (int i = 0; i < FullBodyTargetBones.Length; i++)
             {
                 HumanBodyBones bone = FullBodyTargetBones[i];
-                if (!IsTargetEnabled(mask, bone, false))
-                {
-                    if (entry.FullBodyTargets.TryGetValue(bone, out GameObject disabled) && disabled != null)
-                    {
-                        disabled.SetActive(false);
-                    }
-                    continue;
-                }
                 Transform bodyPart = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(entry.TargetCache, bone);
                 if (bodyPart == null)
                 {
@@ -2090,137 +2007,24 @@ namespace KimodoBridge.Editor
             return target;
         }
 
-        private static void UpdateRoot2DTarget(
-            ConstraintPosePreviewEntry entry,
-            KimodoMarkerSampleResult sample,
-            KimodoConstraintMask mask)
-        {
-            bool enabled = mask != null && (mask.rootPosition || mask.rootHeading);
-            if (!enabled)
-            {
-                if (entry?.Root2DTarget != null) entry.Root2DTarget.SetActive(false);
-                return;
-            }
-
-            Transform hips = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
-                entry?.TargetCache, HumanBodyBones.Hips);
-            if (hips == null) return;
-            if (entry.Root2DTarget == null)
-            {
-                entry.Root2DTarget = CreateIkTarget(
-                    entry, "__KimodoRoot2DTarget", PrimitiveType.Cube, Color.white);
-            }
-
-            entry.Root2DTarget.transform.SetParent(null, true);
-            Vector3 root2DPosition = hips.position;
-            root2DPosition.y = 0f;
-            entry.Root2DTarget.transform.SetPositionAndRotation(root2DPosition, hips.rotation);
-            entry.Root2DTarget.transform.localScale = Vector3.one * EndEffectorTargetSize;
-            entry.Root2DTarget.transform.hasChanged = false;
-            SetIkTargetSelectable(entry.Root2DTarget, entry.PickingEnabled);
-            entry.Root2DTarget.SetActive(true);
-        }
-
         private static void PreserveIndependentRoot2D(
             ConstraintPosePreviewEntry entry,
             KimodoMarkerSampleResult captured)
         {
             KimodoMarkerSampleResult authored = entry?.BaseSample;
-            if (authored?.characterPose?.root == null ||
-                captured?.characterPose?.root == null)
+            if (authored?.hasRoot2DOverride != true ||
+                authored.root2DOverride == null ||
+                captured == null)
             {
                 return;
             }
 
-            KimodoConstraintMask mask = KimodoConstraintMask.Resolve(authored.mask, authored.constraintType);
-            bool root2DChanged = entry.Root2DTarget != null &&
-                entry.Root2DTarget.transform.hasChanged;
-            bool fullBodyRootChanged = entry.FullBodyTargets != null &&
-                entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject pelvisTarget) &&
-                pelvisTarget != null && pelvisTarget.transform.hasChanged;
-            if (!authored.hasRoot2DOverride && !root2DChanged) return;
-
-            CharacterPoseTransform fullBodyRoot = authored.characterPose.root;
-            CharacterPoseTransform resolvedRoot = captured.characterPose.root;
-            Vector3[] worldGoalPositions = CaptureWorldGoalPositions(captured.characterPose);
-            Quaternion[] worldGoalRotations = CaptureWorldGoalRotations(captured.characterPose);
-            captured.root2DOverride = authored.root2DOverride != null
-                ? new CharacterPoseTransform
-                {
-                    t = authored.root2DOverride.t,
-                    q = authored.root2DOverride.q
-                }
-                : new CharacterPoseTransform();
+            captured.root2DOverride = new CharacterPoseTransform
+            {
+                t = authored.root2DOverride.t,
+                q = authored.root2DOverride.q
+            };
             captured.hasRoot2DOverride = true;
-
-            if (mask.rootPosition || root2DChanged)
-            {
-                captured.root2DOverride.t.x = resolvedRoot.t.x;
-                captured.root2DOverride.t.z = resolvedRoot.t.z;
-            }
-
-            if ((mask.rootHeading && authored.hasRootHeading) || root2DChanged)
-            {
-                Vector3 fullBodyForward = Vector3.ProjectOnPlane(fullBodyRoot.q * Vector3.forward, Vector3.up);
-                Vector3 resolvedForward = Vector3.ProjectOnPlane(resolvedRoot.q * Vector3.forward, Vector3.up);
-                if (fullBodyForward.sqrMagnitude > 1e-8f && resolvedForward.sqrMagnitude > 1e-8f)
-                {
-                    captured.root2DOverride.q = Quaternion.LookRotation(resolvedForward, Vector3.up);
-                }
-            }
-
-            // Root2D is stored separately. Unless the grey FullBody control
-            // moved in the same edit, retain the authored FullBody root.
-            if (!fullBodyRootChanged)
-            {
-                resolvedRoot.t = fullBodyRoot.t;
-                resolvedRoot.q = fullBodyRoot.q;
-                RestoreWorldGoalTransforms(
-                    captured.characterPose,
-                    worldGoalPositions,
-                    worldGoalRotations);
-            }
-        }
-
-        private static Vector3[] CaptureWorldGoalPositions(CharacterPose pose)
-        {
-            Quaternion root = pose.root.q.normalized;
-            return new[]
-            {
-                pose.root.t + root * pose.hands.left.t,
-                pose.root.t + root * pose.hands.right.t,
-                pose.root.t + root * pose.feet.left.t,
-                pose.root.t + root * pose.feet.right.t
-            };
-        }
-
-        private static Quaternion[] CaptureWorldGoalRotations(CharacterPose pose)
-        {
-            Quaternion root = pose.root.q.normalized;
-            return new[]
-            {
-                root * pose.hands.left.q,
-                root * pose.hands.right.q,
-                root * pose.feet.left.q,
-                root * pose.feet.right.q
-            };
-        }
-
-        private static void RestoreWorldGoalTransforms(
-            CharacterPose pose,
-            Vector3[] positions,
-            Quaternion[] rotations)
-        {
-            Quaternion inverseRoot = Quaternion.Inverse(pose.root.q.normalized);
-            CharacterPoseTransform[] goals =
-            {
-                pose.hands.left, pose.hands.right, pose.feet.left, pose.feet.right
-            };
-            for (int i = 0; i < goals.Length; i++)
-            {
-                goals[i].t = inverseRoot * (positions[i] - pose.root.t);
-                goals[i].q = inverseRoot * rotations[i];
-            }
         }
 
         private static PrimitiveType TargetPrimitive(HumanBodyBones bone) =>
@@ -2430,7 +2234,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (mask.muscle &&
+            if ((mask.muscle || mask.rootPosition || mask.rootHeading) &&
                 entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject pelvisTarget) &&
                 pelvisTarget != null)
             {
@@ -2440,34 +2244,6 @@ namespace KimodoBridge.Editor
                 if (hips != null)
                 {
                     hips.SetPositionAndRotation(pelvisTarget.transform.position, pelvisTarget.transform.rotation);
-                }
-            }
-
-            if (entry.Root2DTarget != null && entry.Root2DTarget.activeSelf &&
-                (mask.rootPosition || mask.rootHeading))
-            {
-                Transform hips = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
-                    entry.TargetCache, HumanBodyBones.Hips);
-                if (hips != null)
-                {
-                    Vector3 position = hips.position;
-                    if (mask.rootPosition)
-                    {
-                        position.x = entry.Root2DTarget.transform.position.x;
-                        position.z = entry.Root2DTarget.transform.position.z;
-                    }
-                    Quaternion rotation = hips.rotation;
-                    if (mask.rootHeading)
-                    {
-                        Vector3 currentForward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-                        Vector3 targetForward = Vector3.ProjectOnPlane(entry.Root2DTarget.transform.rotation * Vector3.forward, Vector3.up);
-                        if (currentForward.sqrMagnitude > 1e-8f && targetForward.sqrMagnitude > 1e-8f)
-                        {
-                            rotation = Quaternion.AngleAxis(
-                                Vector3.SignedAngle(currentForward, targetForward, Vector3.up), Vector3.up) * rotation;
-                        }
-                    }
-                    hips.SetPositionAndRotation(position, rotation);
                 }
             }
 
@@ -2735,11 +2511,6 @@ namespace KimodoBridge.Editor
                     }
                 }
             }
-            if (entry?.Root2DTarget != null &&
-                (transform == entry.Root2DTarget.transform || transform.IsChildOf(entry.Root2DTarget.transform)))
-            {
-                return true;
-            }
             return false;
         }
 
@@ -2747,7 +2518,7 @@ namespace KimodoBridge.Editor
         {
             if (entry?.FullBodyTargets == null)
             {
-                return entry?.Root2DTarget != null && entry.Root2DTarget.transform.hasChanged;
+                return false;
             }
             foreach (GameObject target in entry.FullBodyTargets.Values)
             {
@@ -2756,17 +2527,15 @@ namespace KimodoBridge.Editor
                     return true;
                 }
             }
-            return entry.Root2DTarget != null && entry.Root2DTarget.transform.hasChanged;
+            return false;
         }
 
         private static void ClearFullBodyTargetTransformChanges(ConstraintPosePreviewEntry entry)
         {
             if (entry?.FullBodyTargets == null)
             {
-                if (entry?.Root2DTarget != null) entry.Root2DTarget.transform.hasChanged = false;
                 return;
             }
-            if (entry.Root2DTarget != null) entry.Root2DTarget.transform.hasChanged = false;
             foreach (GameObject target in entry.FullBodyTargets.Values)
             {
                 if (target != null)
