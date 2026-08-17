@@ -543,7 +543,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void RuntimeConstraints_OnlyAddsTerminalOverlapPoseToNormalKimodo()
+        public void RuntimeConstraints_UsesTerminalFullBodyOverlapWithoutRoot2D()
         {
             var buffer = new KimodoRuntimeConstraints();
             buffer.SetOverlap(new[]
@@ -555,8 +555,21 @@ namespace KimodoBridge.Editor.Tests
                 },
                 new KimodoMarkerSampleResult
                 {
-                    constraintType = "right-hand",
+                    constraintType = "fullbody",
                     sampleTime = 0.0,
+                    characterPose = new CharacterAnimationCli.Unity.CharacterPose
+                    {
+                        root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                        {
+                            t = new Vector3(2f, 3f, 4f),
+                            q = Quaternion.identity
+                        }
+                    },
+                    rawData = new KimodoConstraintRawData
+                    {
+                        rootPosition = new Vector3(2f, 3f, 4f),
+                        localJointAxisAngles = new List<Vector3> { new Vector3(0.1f, 0.2f, 0.3f) }
+                    }
                 }
             });
 
@@ -566,10 +579,18 @@ namespace KimodoBridge.Editor.Tests
                 includeOverlap: true,
                 duration: 5f);
             Assert.That(normalActive, Has.Count.EqualTo(1));
-            Assert.That(normalActive[0].constraintType, Is.EqualTo("constraint"));
+            Assert.That(normalActive[0].constraintType, Is.EqualTo("fullbody"));
             Assert.That(normalActive[0].mask.muscle, Is.True);
             Assert.That(normalActive[0].sampleTime, Is.Zero);
-            Assert.That(normalActive[0].characterPose.root.t, Is.EqualTo(new Vector3(0f, 3f, 0f)));
+            Assert.That(normalActive[0].characterPose.root.t, Is.EqualTo(new Vector3(2f, 3f, 4f)));
+            Assert.That(normalActive[0].rawData.rootPosition, Is.EqualTo(new Vector3(2f, 3f, 4f)));
+
+            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(
+                normalActive,
+                new KimodoConstraintExportContext()));
+            Assert.That(json, Has.Count.EqualTo(1));
+            Assert.That(json[0].Value<string>("type"), Is.EqualTo("fullbody"));
+            Assert.That(json[0]["root_positions"][0].Values<float>(), Is.EqualTo(new[] { -2f, 3f, 4f }));
 
             Assert.That(
                 buffer.BuildForGeneration(

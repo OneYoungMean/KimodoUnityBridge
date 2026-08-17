@@ -90,26 +90,23 @@ namespace KimodoBridge
             bool includeOverlap,
             float duration)
         {
-            var result = new List<KimodoMarkerSampleResult>();
+            KimodoMarkerSampleResult overlapFullBody = null;
             if (includeOverlap)
             {
                 KimodoMarkerSampleResult terminal = FindEarliestOverlap();
                 if (terminal != null)
                 {
-                    terminal.constraintType = "constraint";
+                    // The previous segment's terminal pose is already a
+                    // complete FullBody anchor. Keep it as-is so protocol
+                    // expansion does not synthesize a Root2D companion.
+                    terminal.constraintType = FullBodyType;
                     terminal.mask = KimodoConstraintMask.ForType(FullBodyType);
                     terminal.sampleTime = 0.0;
-                    if (terminal.characterPose?.root != null)
-                    {
-                        terminal.characterPose.root.t = new Vector3(
-                            0f,
-                            terminal.characterPose.root.t.y,
-                            0f);
-                    }
-                    result.Add(terminal);
+                    overlapFullBody = terminal;
                 }
             }
 
+            var result = new List<KimodoMarkerSampleResult>();
             for (int i = 0; i < pending.Count; i++)
             {
                 KimodoMarkerSampleResult sample = pending[i].Clone();
@@ -120,9 +117,15 @@ namespace KimodoBridge
             }
 
             result.Sort((left, right) => left.sampleTime.CompareTo(right.sampleTime));
-            return KimodoConstraintSampleResolver.MergeAsUnifiedSamples(
+            List<KimodoMarkerSampleResult> merged = KimodoConstraintSampleResolver.MergeAsUnifiedSamples(
                 result,
                 KimodoMotionModelProfiles.DefaultFrameRate);
+            if (overlapFullBody != null)
+            {
+                merged.Add(overlapFullBody);
+                merged.Sort((left, right) => left.sampleTime.CompareTo(right.sampleTime));
+            }
+            return merged;
         }
 
         internal void CompleteGeneration(bool isArdy) => CompleteGeneration(isArdy, PendingRevision);
