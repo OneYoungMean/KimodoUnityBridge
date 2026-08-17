@@ -108,10 +108,15 @@ namespace KimodoBridge
             sample.mask = KimodoConstraintMask.ForType(KimodoRuntimeConstraints.Root2DType);
             if (sample.characterPose != null)
             {
-                sample.characterPose.root.t = new Vector3(
-                    modelTarget.x / player.SourceHumanScale,
-                    sample.characterPose.root.t.y,
-                    modelTarget.y / player.SourceHumanScale);
+                sample.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                {
+                    t = new Vector3(
+                        modelTarget.x / player.SourceHumanScale,
+                        0f,
+                        modelTarget.y / player.SourceHumanScale),
+                    q = Quaternion.identity
+                };
+                sample.hasRoot2DOverride = true;
             }
             sample.hasRootHeading = worldHeading.HasValue;
             if (worldHeading.HasValue)
@@ -119,9 +124,9 @@ namespace KimodoBridge
                 Vector2 modelHeading = KimodoRoot2DPlanner.ToModelHeading(
                     modelToWorldRotation,
                     worldHeading.Value);
-                if (sample.characterPose != null)
+                if (sample.root2DOverride != null)
                 {
-                    sample.characterPose.root.q = Quaternion.LookRotation(
+                    sample.root2DOverride.q = Quaternion.LookRotation(
                         new Vector3(modelHeading.x, 0f, modelHeading.y),
                         Vector3.up);
                 }

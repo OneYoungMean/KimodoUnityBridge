@@ -1,6 +1,6 @@
 # Kimodo AI Animation Tools
 
-QuickServer version: `2.2.7`; capability: motion generation, sparse representative keyframes, dense KMB foot-contact analysis, and an experimental engine-independent KMB reference-pose retarget core with target-arm A-to-T calibration.
+QuickServer version: `2.2.8`; capability: safe supervisor endpoint handoff, motion generation, sparse representative keyframes, dense KMB foot-contact analysis, and an experimental engine-independent KMB reference-pose retarget core with target-arm A-to-T calibration.
 
 ## Public entry and response contract
 
@@ -38,6 +38,8 @@ All public time values use 60 FPS integer frames. Animation ranges are half-open
 
 Use `pose_contract` to align the target pose root to one or more source end effectors. `align_target_root` fits a direct root delta; `least_squares_root_fit` reports a residual for multiple effectors. Generation constraints remain sparse per-frame objects and may combine full-body, root2d, hand, and foot information.
 
+The Editor exposes one FullBody rig: Root Position/Rotation and muscle values are authored there. `root2d` is command-only planar override data, composed internally with the FullBody root; each hand/foot effector locks world space only while its own Enable field is on.
+
 ## Session state and current boundaries
 
 Each Session-changing operation updates `Assets/KimodoGeneratedClips/Sessions/<safe-session-name>/session.json` using temporary-file write and atomic replacement. Every completed Clip added to a Session is immutable: commands never overwrite, retime, or replace it; generation, record, retarget, and later corrections append a new Clip. The JSON is a bounded AI-readable index of Session revision, tracks, animations, constraints, Pose Cache markers, analysis records, visual tile descriptors, and generation history. Dense motion remains in its per-analysis cache file; do not load it unless that specific analysis is required. It is not a runtime query API.
@@ -50,7 +52,7 @@ This version imports Animator state clips and BlendTree candidate clips only. Tr
 
 # Kimodo AI 动画工具
 
-QuickServer 版本：`2.2.7`；能力：动作生成、稀疏代表性关键帧、稠密 KMB 脚接触分析，以及带 target 手臂 A→T 校准的实验性引擎无关 KMB 参考姿势 Retarget 核心。
+QuickServer 版本：`2.2.8`；能力：安全的 supervisor endpoint 交接、动作生成、稀疏代表性关键帧、稠密 KMB 脚接触分析，以及带 target 手臂 A→T 校准的实验性引擎无关 KMB 参考姿势 Retarget 核心。
 
 ## 公开入口与返回契约
 
@@ -87,6 +89,8 @@ Editor 入口为 `command_dispatcher`。通过 `GetCommandDefinitionsJson()` 发
 `pose_get` 读取动画 Pose，并创建或复用 Pose Cache marker。保存返回的 cache locator（`session_id`、`track`、`frame`、`marker_id`），供 `pose_set_root_transform` 和 `pose_set_muscle` 使用。`full_data:true` 返回全部 49 个 muscle 以及 root、hand、foot T/Q 通道；默认返回紧凑数据。
 
 `pose_contract` 将目标 Pose 的 root 对齐到一个或多个来源末端。`align_target_root` 计算直接 root delta；`least_squares_root_fit` 对多个末端返回 residual。生成约束保持按帧稀疏对象，可组合 full-body、root2d、手和脚信息。
+
+Editor 只暴露一套 FullBody rig：Root Position/Rotation 和 muscle value 在此编辑。`root2d` 是仅 command 可设置的平面 override 数据，内部与 FullBody root 组合；每个手/脚 effector 仅在自身 Enable 打开时锁定世界空间。
 
 ## Session 状态与当前边界
 

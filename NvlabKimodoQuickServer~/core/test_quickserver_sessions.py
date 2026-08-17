@@ -3,6 +3,7 @@ import json
 import math
 import os
 from pathlib import Path
+import tempfile
 import threading
 from types import SimpleNamespace
 from types import MethodType
@@ -161,6 +162,17 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             quickserver_cli.os, "kill", side_effect=PermissionError()
         ):
             self.assertTrue(quickserver_cli._pid_is_running(1234))
+
+    def test_stale_serverport_is_removed_before_starting_a_replacement(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            serverport = Path(temp_dir) / "serverport"
+            serverport.write_text("host=127.0.0.1\nport=12345\npid=1234\n", encoding="utf-8")
+            logger = SimpleNamespace(log=lambda _message: None)
+
+            with patch.object(quickserver_cli, "_pid_is_running", return_value=False):
+                self.assertFalse(quickserver_cli._try_reuse_existing_supervisor(serverport, logger))
+
+            self.assertFalse(serverport.exists())
 
     def test_seconds_to_frame_count_uses_tolerance_protected_ceiling(self):
         self.assertEqual(seconds_to_frame_count(4.5666666, 30.0), 137)

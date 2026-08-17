@@ -23,7 +23,7 @@ namespace CharacterAnimationCli.Unity.Command
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
         private const string AnalysisPictureRenderVersion = "5";
-        private const string TestAnalysisPictureRenderVersion = "12-test";
+        private const string TestAnalysisPictureRenderVersion = "15-test";
         private const float TestCameraMarginMeters = .5f;
         private const float TestCameraFitScale = .5f;
         private const float TestGhostAlphaMin = .1f;
@@ -236,8 +236,8 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 return new List<PictureTile>
                 {
-                    PictureTile.TestGhost(subject, new Vector3(1f, .75f, -1f)),
-                    PictureTile.TestTrajectory(subject, SelectKeyFrames(subject, 8), new Vector3(1f, .75f, -1f))
+                    PictureTile.TestFootTransitions(subject, new Vector3(1f, .75f, -1f)),
+                    PictureTile.TestKeyframes(subject, new Vector3(1f, .75f, -1f))
                 };
             }
 
@@ -336,7 +336,7 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static Texture2D RenderPictureTile(PictureTile tile, int size, TrajectoryScale trajectoryScale)
         {
-            if (tile.Presentation == "test_ghost" || tile.Presentation == "test_trajectory")
+            if (tile.Presentation == "test_foot_transitions" || tile.Presentation == "test_keyframes")
             {
                 return RenderTestPictureTile(tile, size, trajectoryScale);
             }
@@ -478,9 +478,7 @@ namespace CharacterAnimationCli.Unity.Command
         private static Texture2D RenderTestPictureTile(PictureTile tile, int size, TrajectoryScale trajectoryScale)
         {
             int lastFrame = Math.Max(0, tile.Subject.Pelvis.Length - 1);
-            var requestedFrames = tile.Presentation == "test_ghost"
-                ? BuildGhostFrames(tile.Subject)
-                : tile.TrajectoryFrames;
+            var requestedFrames = tile.TrajectoryFrames;
             requestedFrames = requestedFrames
                 .Concat(new[] { 0, lastFrame })
                 .Distinct()
@@ -492,15 +490,15 @@ namespace CharacterAnimationCli.Unity.Command
             using (TestPosePlan posePlan = BuildTestPosePlan(tile.Subject, requestedFrames))
             {
                 var virtualPoses = new List<TestVirtualPose>();
-                if (tile.Presentation == "test_ghost")
+                if (tile.Presentation == "test_foot_transitions" || tile.Presentation == "test_keyframes")
                 {
-                    List<int> frames = BuildGhostFrames(tile.Subject);
+                    List<int> frames = tile.TrajectoryFrames;
                     bool separated = !tile.Subject.FirstBounds.Intersects(tile.Subject.LastBounds);
                     for (int index = 0; index < frames.Count; index++)
                     {
                         int frame = frames[index];
                         if (frame == 0 || frame == lastFrame) continue;
-                        Color tint = ResolveTestPoseTint(tile.Subject, frame, out bool keyframe, out bool footTransition);
+                        Color tint = ResolveTestPoseTint(tile, frame, out bool keyframe, out bool footTransition);
                         float alpha = Mathf.Clamp(
                             GhostAlpha(index, frames.Count, separated),
                             TestGhostAlphaMin,
@@ -512,40 +510,20 @@ namespace CharacterAnimationCli.Unity.Command
                             posePlan.Get(frame), tint, alpha));
                     }
                 }
-                else
-                {
-                    // The trajectory and grid are created before the virtual
-                    // characters and are rendered in the same camera pass.
-                    foreach (int frame in tile.TrajectoryFrames)
-                    {
-                        if (frame == 0 || frame == lastFrame) continue;
-                        Color tint = ResolveTestPoseTint(tile.Subject, frame, out bool keyframe, out bool footTransition);
-                        float alpha = keyframe ? .45f : .2f;
-                        if (keyframe) alpha += .3f;
-                        if (footTransition) alpha += .2f;
-                        virtualPoses.Add(CreateTestVirtualPose(
-                            posePlan.Get(frame),
-                            tint,
-                            Mathf.Clamp01(alpha)));
-                    }
-                }
-
-                Color startTint = ResolveTestPoseTint(tile.Subject, 0, out bool startIsKeyframe, out bool startIsFootTransition);
-                Color endTint = ResolveTestPoseTint(tile.Subject, lastFrame, out bool endIsKeyframe, out bool endIsFootTransition);
+                Color startTint = ResolveTestPoseTint(tile, 0, out bool startIsKeyframe, out bool startIsFootTransition);
+                Color endTint = ResolveTestPoseTint(tile, lastFrame, out bool endIsKeyframe, out bool endIsFootTransition);
                 if (!startIsKeyframe && !startIsFootTransition) startTint = new Color(1f, .65f, .05f, 1f);
                 if (!endIsKeyframe && !endIsFootTransition) endTint = new Color(1f, .35f, 0f, 1f);
                 virtualPoses.Add(CreateTestVirtualPose(posePlan.Get(0), startTint, 1f));
                 virtualPoses.Add(CreateTestVirtualPose(posePlan.Get(lastFrame), endTint, 1f));
 
-                Bounds contentBounds = tile.Presentation == "test_ghost"
-                    ? CalculateVirtualPoseBounds(virtualPoses)
-                    : tile.Subject.TestBounds;
+                Bounds contentBounds = CalculateVirtualPoseBounds(virtualPoses);
                 Bounds tileBounds = IncludeGroundInBounds(contentBounds);
                 var environment = new List<GameObject>();
                 CreateTestPictureEnvironment(environment, tileBounds);
-                if (tile.Presentation == "test_trajectory")
+                if (tile.ShowTestTrajectories)
                 {
-                    CreateTestBodyTrajectories(environment, tile.Subject, trajectoryScale);
+                    CreateTestBodyTrajectories(environment, tile.Subject);
                 }
 
                 Camera camera = CreateTestAnalysisPictureCamera(tileBounds, tile.Direction);
@@ -588,7 +566,7 @@ namespace CharacterAnimationCli.Unity.Command
             Texture2D layer = RenderCamera(camera, destination.width, new Color(0f, 0f, 0f, 0f));
             try
             {
-                Composite(destination, layer, pose.Alpha);
+                Composite(destination, layer, pose.UsesGhostMaterial ? 1f : pose.Alpha);
             }
             finally
             {
@@ -698,9 +676,10 @@ namespace CharacterAnimationCli.Unity.Command
             }
             snapshot.Apply(preview);
             var transientMaterials = new List<Material>();
+            // Comparison render: keep the original/default material path.
             TintPreview(preview, tint, transientMaterials);
             SetPreviewRenderersEnabled(preview, false);
-            return new TestVirtualPose(preview, transientMaterials, alpha);
+            return new TestVirtualPose(preview, transientMaterials, alpha, false);
         }
 
         private static void SetPreviewRenderersEnabled(GameObject preview, bool enabled)
@@ -885,6 +864,55 @@ namespace CharacterAnimationCli.Unity.Command
             return result.Distinct().OrderBy(frame => frame).ToList();
         }
 
+        private static List<int> BuildTestSampleFrames(SubjectPictureData subject, IEnumerable<int> primaryFrames)
+        {
+            int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
+            var events = (primaryFrames ?? Enumerable.Empty<int>())
+                .Select(frame => Mathf.Clamp(frame, 0, lastFrame))
+                .Append(0)
+                .Append(lastFrame)
+                .Distinct()
+                .OrderBy(frame => frame)
+                .ToList();
+
+            // Keep the endpoints and discard any event closer than 10 frames
+            // to its predecessor. This leaves one sample per short interval.
+            for (int index = 1; index < events.Count;)
+            {
+                int previous = events[index - 1];
+                int current = events[index];
+                if (current - previous >= 10)
+                {
+                    index++;
+                    continue;
+                }
+                if (current == lastFrame && previous != 0)
+                {
+                    events.RemoveAt(index - 1);
+                    if (index > 1) index--;
+                }
+                else
+                {
+                    events.RemoveAt(index);
+                }
+            }
+
+            var result = new List<int> { events[0] };
+            for (int index = 1; index < events.Count; index++)
+            {
+                int from = events[index - 1];
+                int to = events[index];
+                int gap = to - from;
+                int divisions = gap > 20 ? Mathf.CeilToInt(gap / 20f) : 1;
+                for (int part = 1; part < divisions; part++)
+                {
+                    result.Add(from + Mathf.RoundToInt(gap * part / (float)divisions));
+                }
+                result.Add(to);
+            }
+            return result.Distinct().OrderBy(frame => frame).ToList();
+        }
+
         private static float GhostAlpha(int index, int count, bool separated)
         {
             if (count <= 1) return 1f;
@@ -946,11 +974,18 @@ namespace CharacterAnimationCli.Unity.Command
             return TryGetFootTransitionTint(subject, frame, out Color footTint) ? footTint : Color.white;
         }
 
-        private static Color ResolveTestPoseTint(SubjectPictureData subject, int frame, out bool keyframe, out bool footTransition)
+        private static Color ResolveTestPoseTint(PictureTile tile, int frame, out bool keyframe, out bool footTransition)
         {
-            keyframe = IsKeyframe(subject, frame);
-            footTransition = TryGetFootTransitionTint(subject, frame, out _);
-            return ResolveGhostPoseTint(subject, frame);
+            SubjectPictureData subject = tile.Subject;
+            int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
+            keyframe = tile.Presentation == "test_keyframes" && tile.PrimaryFrames.Contains(frame);
+            footTransition = tile.Presentation == "test_foot_transitions" &&
+                tile.PrimaryFrames.Contains(frame) && TryGetFootTransitionTint(subject, frame, out _);
+            if (keyframe || frame == 0) return Color.yellow;
+            if (frame == lastFrame) return new Color(1f, .35f, 0f, 1f);
+            return footTransition && TryGetFootTransitionTint(subject, frame, out Color footTint)
+                ? footTint
+                : Color.white;
         }
 
         private static void CreatePictureEnvironment(List<GameObject> objects, Bounds bounds)
@@ -1175,16 +1210,32 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static void CreateTestBodyTrajectories(
             List<GameObject> objects,
-            SubjectPictureData subject,
-            TrajectoryScale scale)
+            SubjectPictureData subject)
         {
-            // The root is intentionally omitted. The thick center line is the
-            // pelvis; hands and feet use thinner, more transparent traces.
-            CreateMotionTrajectory(objects, subject.Pelvis, scale, .1f, true, 1f);
-            CreateMotionTrajectory(objects, subject.LeftHand, scale, .05f, true, .55f);
-            CreateMotionTrajectory(objects, subject.RightHand, scale, .05f, true, .55f);
-            CreateMotionTrajectory(objects, subject.LeftFoot, scale, .06f, true, .75f);
-            CreateMotionTrajectory(objects, subject.RightFoot, scale, .06f, true, .75f);
+            CreateTestTrajectory(objects, subject.Pelvis, new Color(.1f, .8f, .2f, .9f), .09f);
+            CreateTestTrajectory(objects, subject.LeftHand, new Color(.2f, .45f, 1f, .65f), .035f);
+            CreateTestTrajectory(objects, subject.LeftFoot, new Color(.2f, .45f, 1f, .8f), .05f);
+            CreateTestTrajectory(objects, subject.RightHand, new Color(1f, .2f, .2f, .65f), .035f);
+            CreateTestTrajectory(objects, subject.RightFoot, new Color(1f, .2f, .2f, .8f), .05f);
+        }
+
+        private static void CreateTestTrajectory(
+            List<GameObject> objects,
+            Vector3[] points,
+            Color color,
+            float lineWidth)
+        {
+            if (points == null || points.Length < 2) return;
+            GameObject lineObject = new GameObject("Kimodo Test Body Trajectory") { hideFlags = HideFlags.HideAndDontSave };
+            SetLayerRecursively(lineObject, 31);
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.positionCount = points.Length;
+            line.SetPositions(points.Select(point => point + Vector3.up * .02f).ToArray());
+            line.startWidth = line.endWidth = lineWidth;
+            line.useWorldSpace = true;
+            line.sharedMaterial = MakeUnlitMaterial(color);
+            line.startColor = line.endColor = color;
+            objects.Add(lineObject);
         }
 
         private static void CreateMotionTrajectory(
@@ -1719,6 +1770,8 @@ namespace CharacterAnimationCli.Unity.Command
             public bool Orthographic { get; private set; }
             public int Frame { get; private set; }
             public List<int> TrajectoryFrames { get; private set; } = new List<int>();
+            public HashSet<int> PrimaryFrames { get; private set; } = new HashSet<int>();
+            public bool ShowTestTrajectories { get; private set; }
 
             public static PictureTile Ghost(SubjectPictureData subject, string view, Vector3 direction, bool orthographic)
             {
@@ -1729,35 +1782,42 @@ namespace CharacterAnimationCli.Unity.Command
                 };
             }
 
-            public static PictureTile TestGhost(SubjectPictureData subject, Vector3 direction)
+            public static PictureTile TestFootTransitions(SubjectPictureData subject, Vector3 direction)
             {
-                return new PictureTile(subject, "test_ghost", new JObject
-                {
-                    ["presentation"] = "ghost-3D",
-                    ["view"] = "three_quarter",
-                    ["test"] = true
-                })
-                {
-                    Direction = direction,
-                    Orthographic = true
-                };
+                return TestFrameSet(subject, "test_foot_transitions", "foot_transitions", FootTransitionFrames(subject), direction, false);
             }
 
-            public static PictureTile TestTrajectory(SubjectPictureData subject, IEnumerable<int> keyFrames, Vector3 direction)
+            public static PictureTile TestKeyframes(SubjectPictureData subject, Vector3 direction)
             {
-                var frames = new SortedSet<int> { 0, Math.Max(0, subject.Pelvis.Length - 1) };
-                foreach (int frame in keyFrames) frames.Add(frame);
-                return new PictureTile(subject, "test_trajectory", new JObject
+                return TestFrameSet(subject, "test_keyframes", "keyframes", subject.KeyFrameSet, direction, true);
+            }
+
+            private static PictureTile TestFrameSet(
+                SubjectPictureData subject,
+                string presentation,
+                string label,
+                IEnumerable<int> primaryFrames,
+                Vector3 direction,
+                bool showTrajectories)
+            {
+                int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
+                var primary = new HashSet<int>((primaryFrames ?? Enumerable.Empty<int>())
+                    .Select(frame => Mathf.Clamp(frame, 0, lastFrame)));
+                List<int> frames = BuildTestSampleFrames(subject, primary);
+                primary.IntersectWith(frames);
+                return new PictureTile(subject, presentation, new JObject
                 {
-                    ["presentation"] = "trajectory",
-                    ["bone"] = "hips",
+                    ["presentation"] = label,
+                    ["primary_frames"] = new JArray(primary.OrderBy(frame => frame)),
                     ["frames"] = new JArray(frames),
                     ["test"] = true
                 })
                 {
                     Direction = direction,
                     Orthographic = true,
-                    TrajectoryFrames = frames.ToList()
+                    TrajectoryFrames = frames,
+                    PrimaryFrames = primary,
+                    ShowTestTrajectories = showTrajectories
                 };
             }
 
@@ -1825,16 +1885,19 @@ namespace CharacterAnimationCli.Unity.Command
             public TestVirtualPose(
                 GameObject preview,
                 IReadOnlyList<Material> transientMaterials,
-                float alpha)
+                float alpha,
+                bool usesGhostMaterial)
             {
                 Preview = preview;
                 TransientMaterials = transientMaterials;
                 Alpha = alpha;
+                UsesGhostMaterial = usesGhostMaterial;
             }
 
             public GameObject Preview { get; }
             public IReadOnlyList<Material> TransientMaterials { get; }
             public float Alpha { get; }
+            public bool UsesGhostMaterial { get; }
 
             public void Dispose()
             {

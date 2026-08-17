@@ -79,35 +79,6 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(diff, Does.Contain("maxIndex=1"));
             Assert.That(diff, Does.Contain($"maxName='{HumanTrait.MuscleName[1]}'"));
         }
-
-
-
-        [Test]
-        public void Root2DPreviewPosition_UpdatesGroundPlaneAndPreservesHeightWithoutHeading()
-        {
-            var preview = new GameObject("Root2DPreviewPositionTest");
-            try
-            {
-                preview.transform.position = new Vector3(8f, 1.75f, 9f);
-                preview.transform.rotation = Quaternion.Euler(0f, 25f, 0f);
-                Quaternion storedRotation = preview.transform.rotation;
-                var sample = new KimodoMarkerSampleResult
-                {
-                    constraintType = "root2d",
-                    hasRootHeading = false,
-                };
-
-                KimodoConstraintSpaceConverter.ApplyRoot2DHeadingToPreviewRoot(sample, preview.transform);
-
-                Assert.That(preview.transform.position, Is.EqualTo(new Vector3(2f, 1.75f, 3f)));
-                Assert.That(Quaternion.Angle(preview.transform.rotation, storedRotation), Is.LessThan(0.001f));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(preview);
-            }
-        }
-
         [Test]
         public void ConstraintPreviewClone_WithResolvedAvatarAndNullBindingAvatar_AppliesAndKeepsSampledPose()
         {

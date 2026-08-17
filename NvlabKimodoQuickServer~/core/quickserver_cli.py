@@ -2039,7 +2039,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     continue
                 seen.add(id(runtime))
                 _unload_runtime_model(runtime, logger)
-        _remove_file(serverport_path)
+        # The next launcher validates and removes stale endpoints. Do not
+        # delete here: a replacement supervisor may already own this path.
         try:
             server.close()
         except Exception:

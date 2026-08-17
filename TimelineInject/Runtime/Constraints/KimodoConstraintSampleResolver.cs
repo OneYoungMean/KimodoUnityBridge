@@ -280,17 +280,33 @@ namespace TimelineInject
             CharacterPose composed = seed?.characterPose?.Clone();
             if (composed == null) return new CharacterPose();
 
-            // FullBody → Root2D → Foot IK → Hand IK. Root2D only changes X/Z
-            // and yaw; enabled limb goals remain fixed in world space.
+            // FullBody → Root2D → Foot IK → Hand IK. Root2D is an internal
+            // planar transform applied to the FullBody root with X/Z and yaw
+            // removed. Only enabled limb goals remain fixed in world space.
             CopyFootGoals(samples, composed);
             CopyHandGoals(samples, composed);
             Vector3[] worldPositions = CaptureWorldGoalPositions(composed);
             Quaternion[] worldRotations = CaptureWorldGoalRotations(composed);
+            bool[] worldLockedGoals = CollectWorldLockedGoals(samples);
             if (CopyRoot2D(samples, composed))
             {
-                RestoreWorldGoalTransforms(composed, worldPositions, worldRotations);
+                RestoreWorldGoalTransforms(composed, worldPositions, worldRotations, worldLockedGoals);
             }
             return composed;
+        }
+
+        private static bool[] CollectWorldLockedGoals(List<KimodoMarkerSampleResult> samples)
+        {
+            var result = new bool[4];
+            for (int i = 0; i < samples.Count; i++)
+            {
+                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(samples[i]?.mask, samples[i]?.constraintType);
+                result[0] |= mask.leftHand;
+                result[1] |= mask.rightHand;
+                result[2] |= mask.leftFoot;
+                result[3] |= mask.rightFoot;
+            }
+            return result;
         }
 
         private static Vector3[] CaptureWorldGoalPositions(CharacterPose pose)
@@ -317,12 +333,17 @@ namespace TimelineInject
             };
         }
 
-        private static void RestoreWorldGoalTransforms(CharacterPose pose, Vector3[] positions, Quaternion[] rotations)
+        private static void RestoreWorldGoalTransforms(
+            CharacterPose pose,
+            Vector3[] positions,
+            Quaternion[] rotations,
+            bool[] worldLockedGoals)
         {
             Quaternion inverseRoot = Quaternion.Inverse(pose.root.q.normalized);
             CharacterPoseTransform[] goals = { pose.hands.left, pose.hands.right, pose.feet.left, pose.feet.right };
             for (int i = 0; i < goals.Length; i++)
             {
+                if (worldLockedGoals == null || i >= worldLockedGoals.Length || !worldLockedGoals[i]) continue;
                 goals[i].t = inverseRoot * (positions[i] - pose.root.t);
                 goals[i].q = inverseRoot * rotations[i];
             }
@@ -358,7 +379,8 @@ namespace TimelineInject
         {
             bool changed = false;
             // The seed pose is the FullBody base. A unified marker's separate
-            // Root2D values (or a legacy root2d record) override only X/Z+yaw.
+            // Root2D values (or a legacy root2d record) are an internal planar
+            // parent transform: Root2D * FullBody(with X/Z and yaw cleared).
             for (int i = 0; i < samples.Count; i++)
             {
                 KimodoMarkerSampleResult source = samples[i];
@@ -369,23 +391,27 @@ namespace TimelineInject
                 if (root == null) continue;
                 if (mask.rootPosition)
                 {
-                    target.root.t.x = root.t.x;
-                    target.root.t.z = root.t.z;
+                    Quaternion overrideYaw = PlanarRotation(root.q);
+                    target.root.t = new Vector3(root.t.x, 0f, root.t.z) +
+                        overrideYaw * new Vector3(0f, target.root.t.y, 0f);
                     changed = true;
                 }
                 if (mask.rootHeading && source.hasRootHeading)
                 {
-                    Vector3 currentForward = Vector3.ProjectOnPlane(target.root.q * Vector3.forward, Vector3.up);
-                    Vector3 desiredForward = Vector3.ProjectOnPlane(root.q * Vector3.forward, Vector3.up);
-                    if (currentForward.sqrMagnitude > 1e-8f && desiredForward.sqrMagnitude > 1e-8f)
-                    {
-                        float deltaYaw = Vector3.SignedAngle(currentForward, desiredForward, Vector3.up);
-                        target.root.q = Quaternion.AngleAxis(deltaYaw, Vector3.up) * target.root.q;
-                        changed = true;
-                    }
+                    Quaternion fullBodyYaw = PlanarRotation(target.root.q);
+                    target.root.q = PlanarRotation(root.q) * Quaternion.Inverse(fullBodyYaw) * target.root.q;
+                    changed = true;
                 }
             }
             return changed;
+        }
+
+        private static Quaternion PlanarRotation(Quaternion rotation)
+        {
+            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
+            return forward.sqrMagnitude > 1e-8f
+                ? Quaternion.LookRotation(forward, Vector3.up)
+                : Quaternion.identity;
         }
 
         private static CharacterPoseTransform ResolveRoot2DOverride(KimodoMarkerSampleResult sample)

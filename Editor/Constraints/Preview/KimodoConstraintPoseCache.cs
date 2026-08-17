@@ -546,7 +546,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < transforms.Length; i++)
             {
                 Transform t = transforms[i];
-                if (t != null && t.hasChanged)
+                if (t != null && t.hasChanged && !IsAuxiliaryTransform(entry, t))
                 {
                     return true;
                 }
@@ -608,7 +608,9 @@ namespace KimodoBridge.Editor
             if (entry?.FullBodyTargets == null) return false;
             foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
             {
-                if (item.Key != HumanBodyBones.Hips && item.Value != null && item.Value.transform.hasChanged) return true;
+                if (item.Key != HumanBodyBones.Hips &&
+                    IsTargetEnabled(KimodoConstraintMask.Resolve(entry.BaseSample?.mask, entry.BaseSample?.constraintType), item.Key) &&
+                    item.Value != null && item.Value.transform.hasChanged) return true;
             }
             return false;
         }
@@ -641,6 +643,7 @@ namespace KimodoBridge.Editor
             foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
             {
                 if (item.Value == null || !item.Value.transform.hasChanged) continue;
+                if (item.Key != HumanBodyBones.Hips && !IsTargetEnabled(sample.mask, item.Key)) continue;
                 switch (item.Key)
                 {
                     case HumanBodyBones.Hips:
@@ -1975,16 +1978,22 @@ namespace KimodoBridge.Editor
                     entry.FullBodyTargets[bone] = target;
                 }
 
-                if (bone != HumanBodyBones.Hips &&
+                if (bone == HumanBodyBones.Hips)
+                {
+                    target.transform.SetParent(null, true);
+                    target.transform.SetPositionAndRotation(bodyPart.position, bodyPart.rotation);
+                }
+                else if (IsTargetEnabled(mask, bone) &&
                     TryResolveWorldIkGoal(entry, bone, sample, out Vector3 position, out Quaternion rotation))
                 {
+                    target.transform.SetParent(null, true);
                     target.transform.SetPositionAndRotation(position, rotation);
                 }
                 else
                 {
-                    target.transform.SetPositionAndRotation(bodyPart.position, bodyPart.rotation);
+                    target.transform.SetParent(bodyPart, false);
+                    target.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
                 }
-                target.transform.SetParent(null, true);
                 target.transform.localScale = Vector3.one * (bone == HumanBodyBones.Hips
                     ? ResolveFullBodyRootSize(entry)
                     : EndEffectorTargetSize);
@@ -2518,9 +2527,11 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
-            foreach (GameObject target in entry.FullBodyTargets.Values)
+            KimodoConstraintMask mask = KimodoConstraintMask.Resolve(entry.BaseSample?.mask, entry.BaseSample?.constraintType);
+            foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
             {
-                if (target != null && target.transform.hasChanged)
+                if (item.Value != null && item.Value.transform.hasChanged &&
+                    (item.Key == HumanBodyBones.Hips || IsTargetEnabled(mask, item.Key)))
                 {
                     return true;
                 }

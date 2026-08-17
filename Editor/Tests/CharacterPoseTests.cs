@@ -429,6 +429,39 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
         }
 
         [Test]
+        public void UnifiedRoot2D_ComposesPlanarOverrideAndOnlyEnabledEffectorsLockWorld()
+        {
+            var pose = new CharacterPose();
+            pose.root.t = new Vector3(3f, 2f, 5f);
+            pose.root.q = Quaternion.Euler(20f, 30f, 10f);
+            pose.hands.left.t = new Vector3(2f, 1f, -1f);
+            pose.hands.right.t = new Vector3(-2f, 1f, -1f);
+            Vector3 leftWorld = pose.root.t + pose.root.q * pose.hands.left.t;
+            Vector3 rightWorld = pose.root.t + pose.root.q * pose.hands.right.t;
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintType = "constraint",
+                characterPose = pose,
+                hasRoot2DOverride = true,
+                root2DOverride = new CharacterPoseTransform
+                {
+                    t = new Vector3(8f, 99f, 9f),
+                    q = Quaternion.Euler(0f, 140f, 0f)
+                },
+                mask = new KimodoConstraintMask { muscle = true, rootPosition = true, rootHeading = true, leftHand = true }
+            };
+
+            KimodoMarkerSampleResult resolved = KimodoConstraintSampleResolver.ResolveUnifiedSample(sample);
+
+            Assert.That(resolved.characterPose.root.t, Is.EqualTo(new Vector3(8f, 2f, 9f)));
+            Assert.That(Quaternion.Angle(sample.characterPose.root.q, Quaternion.Euler(20f, 30f, 10f)), Is.LessThan(1e-4f));
+            Vector3 resolvedLeftWorld = resolved.characterPose.root.t + resolved.characterPose.root.q * resolved.characterPose.hands.left.t;
+            Vector3 resolvedRightWorld = resolved.characterPose.root.t + resolved.characterPose.root.q * resolved.characterPose.hands.right.t;
+            Assert.That(Vector3.Distance(resolvedLeftWorld, leftWorld), Is.LessThan(1e-5f));
+            Assert.That(Vector3.Distance(resolvedRightWorld, rightWorld), Is.GreaterThan(1e-3f));
+        }
+
+        [Test]
         public void UnifiedMerge_ProducesOneMarkerPerFrameWithAllEnabledChannels()
         {
             var fullBody = new CharacterPose();

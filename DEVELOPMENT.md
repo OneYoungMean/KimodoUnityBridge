@@ -1,6 +1,6 @@
 # 开发能力与命令覆盖
 
-当前版本：Unity package `0.1.0`，QuickServer `2.2.7`。
+当前版本：Unity package `0.1.0`，QuickServer `2.2.8`。
 
 `Command/command_dispatcher.cs` 是唯一公开 command 入口；`GetCommandDefinitionsJson()` 和 `kimodo_help` 是参数真相。
 

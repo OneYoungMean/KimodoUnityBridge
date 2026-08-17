@@ -37,6 +37,8 @@ namespace KimodoBridge.Editor
             }
             EditorGUILayout.EndVertical();
 
+            DrawRoot2DOverride(so);
+
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             SerializedProperty fullBodyEnabled = mask.FindPropertyRelative("muscle");
             EditorGUILayout.PropertyField(fullBodyEnabled, new GUIContent("Muscle Values (FullBody)"));
@@ -93,6 +95,22 @@ namespace KimodoBridge.Editor
             {
                 enabled.boolValue = true;
             }
+            EditorGUILayout.EndVertical();
+        }
+
+        private static void DrawRoot2DOverride(SerializedObject so)
+        {
+            SerializedProperty hasOverride = so.FindProperty("sampleData.hasRoot2DOverride");
+            SerializedProperty root2D = so.FindProperty("sampleData.root2DOverride");
+            if (hasOverride?.boolValue != true || root2D == null) return;
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.LabelField("Root2D Override", EditorStyles.boldLabel);
+            using (new EditorGUI.DisabledScope(true))
+            {
+                DrawTransform(root2D, "Position / Rotation");
+            }
+            EditorGUILayout.HelpBox("API override only.", MessageType.Info);
             EditorGUILayout.EndVertical();
         }
 
