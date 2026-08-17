@@ -280,6 +280,39 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
         self.assertIsNone(load_model.call_args.kwargs["text_encoder"])
 
 
+class DownloadFallbackTests(unittest.TestCase):
+    def test_incomplete_download_switches_source_after_probe_timeouts(self):
+        asset = assets.AssetSpec(
+            label="test asset",
+            local_dir_name="test-asset",
+            modelscope_repo="test/modelscope",
+            huggingface_repo="test/huggingface",
+        )
+        probes = (
+            assets.SiteProbeResult(assets.DownloadSite.HUGGINGFACE, "test/huggingface", "", False, 1, None, "timeout"),
+            assets.SiteProbeResult(assets.DownloadSite.MODELSCOPE, "test/modelscope", "", False, 2, None, "timeout"),
+        )
+        messages: list[str] = []
+        logger = SimpleNamespace(log=messages.append)
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target_dir = root / "asset"
+            target_dir.mkdir()
+            download_counter = [0]
+            with patch.object(assets, "asset_is_ready", side_effect=(False, True)), patch.object(
+                assets, "probe_download_site", side_effect=probes
+            ), patch.object(
+                assets, "download_via_huggingface", side_effect=RuntimeError("connection lost")
+            ) as huggingface_download, patch.object(assets, "download_via_modelscope") as modelscope_download:
+                assets.ensure_asset_present(asset, target_dir, logger, root / "flags", download_counter)
+
+        huggingface_download.assert_called_once_with(asset, target_dir, None)
+        modelscope_download.assert_called_once_with(asset, target_dir, logger, None)
+        self.assertEqual(download_counter, [1])
+        self.assertTrue(any("incomplete local download detected" in message for message in messages))
+        self.assertTrue(any("switching to modelscope" in message for message in messages))
+
+
 class DownloadCancellationTests(unittest.TestCase):
     def test_modelscope_progress_callback_observes_cancellation(self):
         cancel = threading.Event()
