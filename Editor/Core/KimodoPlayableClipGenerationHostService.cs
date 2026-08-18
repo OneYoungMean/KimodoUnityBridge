@@ -25,7 +25,6 @@ namespace KimodoBridge.Editor
             bool deferConstraintNormalization = false,
             bool enableAutoBeginAnchor = true,
             TimelineClip timelineClipOverride = null,
-            bool? enableClipConstraintOverride = null,
             bool? generateLoopOverride = null)
         {
             if (clip == null)
@@ -119,7 +118,6 @@ namespace KimodoBridge.Editor
                 runtimeTrimStartFrame,
                 !disableTimelineInOut &&
                     (externalConstraint?.Enabled != true || externalConstraint.IncludeTimelineConstraints),
-                enableClipConstraintOverride,
                 token);
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             return new KimodoEditorGenerateRequest(
@@ -171,6 +169,15 @@ namespace KimodoBridge.Editor
                     ? Mathf.Max(0.01f, clip.ardyTargetMaxAcceleration)
                     : (double?)null
             };
+        }
+
+        // TODO: expose an internal generation entry that supplies an AvatarMask when Clip Constraint is ready.
+        internal static bool TryGetClipConstraintAvatarMask(
+            KimodoPlayableClip clip,
+            out AvatarMask avatarMask)
+        {
+            avatarMask = null;
+            return false;
         }
 
         private static bool ShouldUseOutsideGuardFrame(

@@ -180,7 +180,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        // TODO: Re-enable Clip Constraint Inspector controls once the authoring workflow is mature.
         private void DrawGenerationSection()
         {
             EditorGUILayout.LabelField("Generate Motion", EditorStyles.boldLabel);

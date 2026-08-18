@@ -778,7 +778,9 @@ namespace KimodoBridge.Editor
                     token,
                     timelineClipOverride);
             }
-            if (clip.enableClipConstraint &&
+            if (KimodoPlayableClipGenerationHostService.TryGetClipConstraintAvatarMask(
+                    clip,
+                    out _) &&
                 !KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _))
             {
                 return await GenerateClipConstraintBakedAsync(
@@ -831,7 +833,6 @@ namespace KimodoBridge.Editor
                     externalConstraint,
                     token,
                     timelineClipOverride: timelineClipOverride,
-                    enableClipConstraintOverride: false,
                     generateLoopOverride: false);
                 firstRequest.AnalysisOptionsJson = string.Empty;
                 firstRequest.Progress = (stage, message) =>
@@ -847,7 +848,6 @@ namespace KimodoBridge.Editor
                     token,
                     effectiveSeedOverride: effectiveSeed,
                     timelineClipOverride: timelineClipOverride,
-                    enableClipConstraintOverride: false,
                     enableAutoBeginAnchor: false,
                     generateLoopOverride: true);
                 string loopConstraintJson = BuildLoopConstraintJson(
@@ -984,8 +984,7 @@ namespace KimodoBridge.Editor
                     prompt,
                     externalConstraint,
                     token,
-                    timelineClipOverride: timelineClipOverride,
-                    enableClipConstraintOverride: false);
+                    timelineClipOverride: timelineClipOverride);
                 baselineRequest.Progress = progress;
                 string bakeAnalysisOptionsJson = baselineRequest.AnalysisOptionsJson;
                 baselineRequest.AnalysisOptionsJson = string.Empty;
@@ -1005,8 +1004,7 @@ namespace KimodoBridge.Editor
                     externalConstraint,
                     token,
                     effectiveSeedOverride: baselineRequest.EffectiveSeed,
-                    timelineClipOverride: timelineClipOverride,
-                    enableClipConstraintOverride: true);
+                    timelineClipOverride: timelineClipOverride);
 
                 KimodoClipConstraint clipConstraint = null;
                 // BuildRequest may prepend a one-frame synthetic begin constraint.
@@ -1084,8 +1082,7 @@ namespace KimodoBridge.Editor
                     externalConstraint,
                     token,
                     effectiveSeedOverride: baselineRequest.EffectiveSeed,
-                    timelineClipOverride: timelineClipOverride,
-                    enableClipConstraintOverride: false);
+                    timelineClipOverride: timelineClipOverride);
                 finalRequest.Progress = progress;
                 finalRequest.Constraints.json = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
                     baselineRequest.Constraints.json,
