@@ -16,7 +16,6 @@ namespace KimodoBridge.Editor
             float frameRate,
             int runtimeTrimStartFrame,
             bool includeTimelineInConstraint,
-            bool? enableClipConstraintOverride,
             CancellationToken token)
         {
             var result = new List<KimodoClipConstraint>();
@@ -34,10 +33,11 @@ namespace KimodoBridge.Editor
                     runtimeTrimStartFrame / frameRate,
                     token));
             }
-            if (!(enableClipConstraintOverride ?? playableClip.enableClipConstraint)) return result;
-            if (playableClip.clipConstraintAvatarMask == null)
+            if (!KimodoPlayableClipGenerationHostService.TryGetClipConstraintAvatarMask(
+                    playableClip,
+                    out UnityEngine.AvatarMask avatarMask))
             {
-                throw new InvalidOperationException("Clip Constraint is enabled but Avatar Mask is not assigned.");
+                return result;
             }
             result.Add(new KimodoClipConstraint
             {
@@ -53,7 +53,7 @@ namespace KimodoBridge.Editor
                     token),
                 startTime = 0f,
                 duration = runtimeFrameCount / frameRate,
-                mask = KimodoClipConstraintMask.FromAvatarMask(modelName, playableClip.clipConstraintAvatarMask)
+                mask = KimodoClipConstraintMask.FromAvatarMask(modelName, avatarMask)
             });
             return result;
         }

@@ -69,11 +69,6 @@ namespace KimodoBridge
         public int seed = 42;
         [Tooltip("Generate a baseline motion, constrain its first pose at the end, then generate an extended motion and keep its middle section.")]
         public bool generateLoop;
-        [Header("Clip Constraint")]
-        [Tooltip("Sample this playable clip's current animation as a per-frame pose condition before regenerating it.")]
-        public bool enableClipConstraint;
-        [Tooltip("Bones preserved by Clip Constraint. Hips preserves root position and orientation.")]
-        public AvatarMask clipConstraintAvatarMask;
         [Tooltip("Backend analysis options serialized as JSON and applied to this generation clip.")]
         public string analysisOptionsJson = string.Empty;
         [Tooltip("Optional generated AnimationClip asset name without extension.")]
