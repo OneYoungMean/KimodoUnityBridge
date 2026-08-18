@@ -826,9 +826,15 @@ namespace CharacterAnimationCli.Unity.Command
             CharacterPose sourcePose = ReadCharacterPose(value?["pose"] as JObject,
                 $"constraints[{constraintIndex}].{constraintType.Replace('-', '_')}");
             MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToMuscleSample(sourcePose);
+            KimodoConstraintMask mask = KimodoConstraintMask.ForType(constraintType);
             if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                     sourceSample, frameRate, targetCache,
-                    out BoneSample boneSample, out MuscleSample targetMuscleSample, out string retargetError))
+                    out BoneSample boneSample, out MuscleSample targetMuscleSample, out string retargetError,
+                    solveLeftHandIk: mask.leftHand,
+                    solveRightHandIk: mask.rightHand,
+                    applyFootIk: mask.leftFoot || mask.rightFoot,
+                    solveLeftFootIk: mask.leftFoot,
+                    solveRightFootIk: mask.rightFoot))
             {
                 throw new InvalidOperationException($"Retarget constraints[{constraintIndex}] failed: {retargetError}");
             }

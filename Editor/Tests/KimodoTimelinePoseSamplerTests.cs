@@ -906,7 +906,14 @@ namespace KimodoBridge.Editor.Tests
                         HumanBodyBones.Hips,
                         out GameObject pelvisTarget),
                     Is.True);
-                pelvisTarget.transform.position += new Vector3(0.04f, 0.02f, -0.03f);
+                Assert.That(
+                    Vector3.Distance(
+                        pelvisTarget.transform.position,
+                        initial.characterPose.root.t * source.humanScale),
+                    Is.LessThan(1e-4f),
+                    "The FullBody Root target must display the solved HumanPose root, not Hips.");
+                Vector3 requestedRootWorld = pelvisTarget.transform.position + new Vector3(0.04f, 0.02f, -0.03f);
+                pelvisTarget.transform.position = requestedRootWorld;
                 Assert.That(
                     KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
                         context,
@@ -930,6 +937,9 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(
                     Vector3.Distance(initial.characterPose.root.t, edited.characterPose.root.t),
                     Is.GreaterThan(1e-4f));
+                Assert.That(
+                    Vector3.Distance(edited.characterPose.root.t * source.humanScale, requestedRootWorld),
+                    Is.LessThan(Vector3.Distance(initial.characterPose.root.t * source.humanScale, requestedRootWorld)));
             }
             finally
             {
@@ -1025,6 +1035,120 @@ namespace KimodoBridge.Editor.Tests
             finally
             {
                 cache.Dispose();
+            }
+        }
+
+        [Test]
+        public void SingleMuscleSample_WithoutAnyIk_ReportsFkFootError()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoMotionModelProfiles.DefaultModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoTimelineFkOnlySource",
+                    out SkeletonCache source,
+                    out error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoTimelineFkOnlyTarget",
+                    out SkeletonCache target,
+                    out error),
+                Is.True,
+                error);
+
+            try
+            {
+                source.skeletonRoot.SetPositionAndRotation(
+                    new Vector3(1.25f, 0.2f, -0.75f),
+                    Quaternion.Euler(0f, 32f, 0f));
+                var sourcePose = new HumanPose();
+                source.poseHandler.GetHumanPose(ref sourcePose);
+                sourcePose.bodyPosition += new Vector3(0.08f, 0.03f, -0.05f) / source.humanScale;
+                sourcePose.bodyRotation = Quaternion.Euler(0f, 17f, 0f) * sourcePose.bodyRotation;
+                source.poseHandler.SetHumanPose(ref sourcePose);
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                        source,
+                        out MuscleSample input,
+                        out error),
+                    Is.True,
+                    error);
+
+                KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(target);
+                HumanPose expectedPose = input.pose;
+                target.poseHandler.SetHumanPose(ref expectedPose);
+                Transform expectedLeftFoot = target.animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+                Transform expectedRightFoot = target.animator.GetBoneTransform(HumanBodyBones.RightFoot);
+                Assert.That(expectedLeftFoot, Is.Not.Null);
+                Assert.That(expectedRightFoot, Is.Not.Null);
+                Vector3 expectedLeftPosition = expectedLeftFoot.position;
+                Vector3 expectedRightPosition = expectedRightFoot.position;
+
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                        input,
+                        KimodoMotionModelProfiles.DefaultFrameRate,
+                        target,
+                        out _,
+                        out MuscleSample solved,
+                        out error,
+                        solveLeftHandIk: false,
+                        solveRightHandIk: false,
+                        applyFootIk: false,
+                        solveLeftFootIk: false,
+                        solveRightFootIk: false),
+                    Is.True,
+                    error);
+
+                float leftFkError = Vector3.Distance(
+                    target.animator.GetBoneTransform(HumanBodyBones.LeftFoot).position,
+                    expectedLeftPosition);
+                float rightFkError = Vector3.Distance(
+                    target.animator.GetBoneTransform(HumanBodyBones.RightFoot).position,
+                    expectedRightPosition);
+                KimodoRetargetHumanoidIkUtility.BodyRelativeIkGoalToWorld(
+                    solved.pose.bodyPosition,
+                    solved.pose.bodyRotation,
+                    target.humanScale,
+                    solved.leftFootPosition,
+                    solved.leftFootRotation,
+                    out Vector3 leftGoalWorld,
+                    out _);
+                KimodoRetargetHumanoidIkUtility.BodyRelativeIkGoalToWorld(
+                    solved.pose.bodyPosition,
+                    solved.pose.bodyRotation,
+                    target.humanScale,
+                    solved.rightFootPosition,
+                    solved.rightFootRotation,
+                    out Vector3 rightGoalWorld,
+                    out _);
+                float leftGoalBoneOffset = Vector3.Distance(
+                    leftGoalWorld,
+                    target.animator.GetBoneTransform(HumanBodyBones.LeftFoot).position);
+                float rightGoalBoneOffset = Vector3.Distance(
+                    rightGoalWorld,
+                    target.animator.GetBoneTransform(HumanBodyBones.RightFoot).position);
+
+                TestContext.Out.WriteLine(
+                    $"FK-only foot error: left={leftFkError:F6}m, right={rightFkError:F6}m");
+                TestContext.Out.WriteLine(
+                    $"Foot goal-to-bone offset: left={leftGoalBoneOffset:F6}m, right={rightGoalBoneOffset:F6}m");
+                Assert.That(leftFkError, Is.LessThan(0.01f));
+                Assert.That(rightFkError, Is.LessThan(0.01f));
+            }
+            finally
+            {
+                target.Dispose();
+                source.Dispose();
             }
         }
 

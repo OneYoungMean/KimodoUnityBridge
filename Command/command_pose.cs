@@ -243,11 +243,24 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static CharacterPose CaptureCharacterPose(TimelineCharacterRecord character, int frame)
         {
+            return CaptureCharacterPoses(character, frame, 1)[0];
+        }
+
+        private static CharacterPose[] CaptureCharacterPoses(
+            TimelineCharacterRecord character,
+            int startFrame,
+            int frameCount)
+        {
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
             {
                 throw new InvalidOperationException($"Character '{character.Name}' requires a valid humanoid Avatar for pose sampling.");
             }
-            double sampleTime = frame / SessionFrameRate;
+            if (frameCount <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(frameCount));
+            }
+
+            double sampleTime = startFrame / SessionFrameRate;
             TimelineClip sourceClip = character.Track.GetClips()
                 .FirstOrDefault(item =>
                     (sampleTime >= item.start ||
@@ -263,6 +276,14 @@ namespace CharacterAnimationCli.Unity.Command
                 throw new InvalidOperationException($"Character '{character.Name}' has no retargetable Timeline clip: {contextError}");
             }
 
+            if (KimodoMarkerSamplingUtility.TryResolveAnimationClipFromTimelineClip(
+                    sourceClip,
+                    out AnimationClip sourceAnimation,
+                    out _))
+            {
+                return CaptureCharacterPosesFromSourceClip(character, sourceClip, sourceAnimation, startFrame, frameCount);
+            }
+
             string modelName = KimodoMotionModelProfiles.NormalizeName(context.ModelName);
             if (!KimodoTimelineSamplingSession.TryCreate(
                     context,
@@ -274,17 +295,90 @@ namespace CharacterAnimationCli.Unity.Command
             }
             using (sampler)
             {
-                if (!sampler.TryCaptureMuscleSample(
-                        sampleTime,
-                        normalizeRootToAnchor: false,
-                        Vector3.zero,
-                        Quaternion.identity,
-                        out MuscleSample sample,
+                var sampleTimes = new double[frameCount];
+                for (int index = 0; index < frameCount; index++)
+                {
+                    sampleTimes[index] = (startFrame + index) / SessionFrameRate;
+                }
+                if (!sampler.TryCaptureMuscleSamples(
+                        sampleTimes,
+                        out MuscleSample[] samples,
                         out sampleError))
                 {
                     throw new InvalidOperationException($"Timeline pose sampling failed: {sampleError}");
                 }
-                return CharacterPoseMuscleAdapter.FromMuscleSample(sample);
+
+                var poses = new CharacterPose[samples.Length];
+                for (int index = 0; index < samples.Length; index++)
+                {
+                    poses[index] = CharacterPoseMuscleAdapter.FromMuscleSample(samples[index]);
+                }
+                return poses;
+            }
+        }
+
+        private static CharacterPose[] CaptureCharacterPosesFromSourceClip(
+            TimelineCharacterRecord character,
+            TimelineClip timelineClip,
+            AnimationClip sourceAnimation,
+            int startFrame,
+            int frameCount)
+        {
+            SkeletonCache cache = null;
+            KimodoRetargetClipSamplingUtility.ClipSamplingSession session = null;
+            try
+            {
+                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                        character.Avatar,
+                        "KimodoCharacterPoseSampler",
+                        out cache,
+                        out string error))
+                {
+                    throw new InvalidOperationException($"Timeline pose sampler failed: {error}");
+                }
+                if (!KimodoRetargetClipSamplingUtility.ClipSamplingSession.TryCreate(
+                        sourceAnimation,
+                        cache,
+                        "KimodoCharacterPoseSampler",
+                        KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(sourceAnimation),
+                        out session,
+                        out error))
+                {
+                    throw new InvalidOperationException($"Timeline pose sampler failed: {error}");
+                }
+
+                Transform characterRoot = character.Animator != null
+                    ? character.Animator.transform
+                    : (character.Root != null ? character.Root.transform : null);
+                if (characterRoot != null)
+                {
+                    cache.root.transform.SetPositionAndRotation(characterRoot.position, characterRoot.rotation);
+                }
+
+                var poses = new CharacterPose[frameCount];
+                for (int index = 0; index < frameCount; index++)
+                {
+                    double timelineTime = (startFrame + index) / SessionFrameRate;
+                    float sourceTime = (float)KimodoMarkerSamplingUtility.ResolveSourceClipSampleTime(timelineClip, timelineTime);
+                    if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
+                            session.Context,
+                            sourceTime,
+                            out error))
+                    {
+                        throw new InvalidOperationException($"Timeline pose sampling failed: {error}");
+                    }
+                    if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(cache, out MuscleSample sample, out error))
+                    {
+                        throw new InvalidOperationException($"Timeline pose sampling failed: {error}");
+                    }
+                    poses[index] = CharacterPoseMuscleAdapter.FromMuscleSample(sample);
+                }
+                return poses;
+            }
+            finally
+            {
+                session?.Dispose();
+                cache?.Dispose();
             }
         }
 

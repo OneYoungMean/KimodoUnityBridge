@@ -137,25 +137,34 @@ namespace CharacterAnimationCli.Unity.Command
             Bounds allPoseBounds = default;
             bool hasPoseBounds = false;
             double originalTime = session.Director.time;
+            GameObject posePreview = null;
             try
             {
+                CharacterPose[] poses = CaptureCharacterPoses(subject.Character, subject.StartFrame, frameCount);
+                posePreview = CreateCanonicalPosePreview(subject.Character);
+                Animator poseAnimator = posePreview.GetComponentInChildren<Animator>(true)
+                    ?? throw new InvalidOperationException($"Character '{subject.Character.Name}' pose preview has no Animator.");
                 for (int localFrame = 0; localFrame < frameCount; localFrame++)
                 {
-                    session.Director.time = (subject.StartFrame + localFrame) / SessionFrameRate;
-                    session.Director.Evaluate();
-                    Transform hips = subject.Character.Animator != null
-                        ? subject.Character.Animator.GetBoneTransform(HumanBodyBones.Hips)
-                        : null;
+                    CharacterPose pose = poses[localFrame];
+                    var sample = new KimodoMarkerSampleResult
+                    {
+                        sampleTime = (subject.StartFrame + localFrame) / SessionFrameRate
+                    };
+                    SetCanonicalPose(sample, pose, subject.Character);
+                    ApplyCanonicalPoseToPreview(posePreview, subject.Character, sample);
+
+                    Transform hips = poseAnimator.GetBoneTransform(HumanBodyBones.Hips);
                     if (hips == null)
                     {
                         throw new InvalidOperationException($"Character '{subject.Character.Name}' has no Humanoid Hips transform.");
                     }
                     pelvis[localFrame] = hips.position;
-                    leftHand[localFrame] = ReadHumanoidBonePosition(subject.Character.Animator, HumanBodyBones.LeftHand, pelvis[localFrame]);
-                    rightHand[localFrame] = ReadHumanoidBonePosition(subject.Character.Animator, HumanBodyBones.RightHand, pelvis[localFrame]);
-                    leftFoot[localFrame] = ReadHumanoidBonePosition(subject.Character.Animator, HumanBodyBones.LeftFoot, pelvis[localFrame]);
-                    rightFoot[localFrame] = ReadHumanoidBonePosition(subject.Character.Animator, HumanBodyBones.RightFoot, pelvis[localFrame]);
-                    Bounds currentBounds = CalculateSkinnedBounds(subject.Character.Root);
+                    leftHand[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftHand, pelvis[localFrame]);
+                    rightHand[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightHand, pelvis[localFrame]);
+                    leftFoot[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftFoot, pelvis[localFrame]);
+                    rightFoot[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightFoot, pelvis[localFrame]);
+                    Bounds currentBounds = CalculateSkinnedBounds(posePreview);
                     if (localFrame == 0) firstBounds = currentBounds;
                     if (localFrame == frameCount - 1) lastBounds = currentBounds;
                     if (!hasPoseBounds)
@@ -171,6 +180,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
             finally
             {
+                if (posePreview != null) UnityEngine.Object.DestroyImmediate(posePreview);
                 session.Director.time = originalTime;
                 session.Director.Evaluate();
             }
@@ -714,28 +724,9 @@ namespace CharacterAnimationCli.Unity.Command
         private static GameObject CreateAnalysisPosePreview(SubjectPictureData subject, int localFrame)
         {
             TimelineCharacterRecord character = subject.Subject.Character;
-            GameObject preview = UnityEngine.Object.Instantiate(character.Root);
-            preview.name = "Kimodo Pose Preview";
-            preview.hideFlags = HideFlags.HideAndDontSave;
-            foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
-            {
-                transform.gameObject.layer = 31;
-            }
-
+            GameObject preview = CreateCanonicalPosePreview(character);
             Animator animator = preview.GetComponentInChildren<Animator>(true)
                 ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
-            // The preview must use the same humanoid Avatar as the Session
-            // character. Without this assignment AnimationClipPlayable leaves
-            // the instantiated model in its imported T-pose.
-            if (KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
-            {
-                animator.avatar = character.Avatar;
-                animator.runtimeAnimatorController = null;
-                animator.applyRootMotion = true;
-                animator.enabled = true;
-                animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
-                animator.Rebind();
-            }
 
             AnimationClip clip = subject.Subject.Animation?.Clip;
             if (clip != null && KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
@@ -767,6 +758,33 @@ namespace CharacterAnimationCli.Unity.Command
             var sample = new KimodoMarkerSampleResult { sampleTime = (subject.Subject.StartFrame + localFrame) / SessionFrameRate };
             SetCanonicalPose(sample, pose, character);
             ApplyCanonicalPoseToPreview(preview, character, sample);
+            return preview;
+        }
+
+        private static GameObject CreateCanonicalPosePreview(TimelineCharacterRecord character)
+        {
+            GameObject preview = UnityEngine.Object.Instantiate(character.Root);
+            preview.name = "Kimodo Pose Preview";
+            preview.hideFlags = HideFlags.HideAndDontSave;
+            foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
+            {
+                transform.gameObject.layer = 31;
+            }
+
+            Animator animator = preview.GetComponentInChildren<Animator>(true)
+                ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
+            // The preview must use the same humanoid Avatar as the Session
+            // character. Without this assignment AnimationClipPlayable leaves
+            // the instantiated model in its imported T-pose.
+            if (KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
+            {
+                animator.avatar = character.Avatar;
+                animator.runtimeAnimatorController = null;
+                animator.applyRootMotion = true;
+                animator.enabled = true;
+                animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                animator.Rebind();
+            }
             return preview;
         }
 

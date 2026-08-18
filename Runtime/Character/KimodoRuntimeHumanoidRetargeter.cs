@@ -187,6 +187,7 @@ namespace KimodoBridge
             HumanPose pose = sample.pose;
             KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
             BuildFootWorldPose(
+                sourceCache,
                 sample,
                 out Vector3 leftFootWorldPosition,
                 out Quaternion leftFootWorldRotation,
@@ -355,6 +356,7 @@ namespace KimodoBridge
         }
 
         private static void BuildFootWorldPose(
+            SkeletonCache sourceCache,
             MuscleSample sample,
             out Vector3 leftFootWorldPosition,
             out Quaternion leftFootWorldRotation,
@@ -362,12 +364,49 @@ namespace KimodoBridge
             out Quaternion rightFootWorldRotation)
         {
             HumanPose pose = sample != null ? sample.pose : default;
-            Vector3 rootPosition = pose.bodyPosition;
-            Quaternion rootRotation = pose.bodyRotation;
-            leftFootWorldPosition = rootPosition + rootRotation * (sample != null ? sample.leftFootPosition : Vector3.zero);
-            leftFootWorldRotation = rootRotation * (sample != null ? sample.leftFootRotation : Quaternion.identity);
-            rightFootWorldPosition = rootPosition + rootRotation * (sample != null ? sample.rightFootPosition : Vector3.zero);
-            rightFootWorldRotation = rootRotation * (sample != null ? sample.rightFootRotation : Quaternion.identity);
+            leftFootWorldPosition = ResolveFootBoneWorldPosition(
+                sourceCache,
+                pose,
+                HumanBodyBones.LeftFoot,
+                sample != null ? sample.leftFootPosition : Vector3.zero,
+                sample != null ? sample.leftFootRotation : Quaternion.identity);
+            leftFootWorldRotation = pose.bodyRotation *
+                (sample != null ? sample.leftFootRotation : Quaternion.identity);
+            rightFootWorldPosition = ResolveFootBoneWorldPosition(
+                sourceCache,
+                pose,
+                HumanBodyBones.RightFoot,
+                sample != null ? sample.rightFootPosition : Vector3.zero,
+                sample != null ? sample.rightFootRotation : Quaternion.identity);
+            rightFootWorldRotation = pose.bodyRotation *
+                (sample != null ? sample.rightFootRotation : Quaternion.identity);
+        }
+
+        private static Vector3 ResolveFootBoneWorldPosition(
+            SkeletonCache sourceCache,
+            HumanPose pose,
+            HumanBodyBones bone,
+            Vector3 goalPosition,
+            Quaternion goalRotation)
+        {
+            if (sourceCache == null)
+            {
+                return pose.bodyPosition + pose.bodyRotation * goalPosition;
+            }
+
+            KimodoRetargetHumanoidIkUtility.BodyRelativeIkGoalToWorld(
+                pose.bodyPosition,
+                pose.bodyRotation,
+                sourceCache.humanScale,
+                goalPosition,
+                goalRotation,
+                out Vector3 worldGoalPosition,
+                out Quaternion worldGoalRotation);
+            return KimodoRetargetHumanoidIkUtility.IkGoalPositionToBoneWorldPosition(
+                sourceCache.avatar,
+                bone,
+                worldGoalPosition,
+                worldGoalRotation);
         }
 
         private static Quaternion ResolvePlanarRotation(Quaternion rotation)

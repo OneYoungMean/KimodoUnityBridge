@@ -114,7 +114,10 @@ namespace KimodoBridge.Editor
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                         out samplingContext,
                         out error,
-                        applyMotionXToDelta: true))
+                        applyMotionXToDelta: true,
+                        applyFootIk: useLeftFoot || useRightFoot,
+                        solveLeftFootIk: useLeftFoot,
+                        solveRightFootIk: useRightFoot))
                 {
                     return false;
                 }

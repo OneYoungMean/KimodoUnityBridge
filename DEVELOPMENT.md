@@ -40,3 +40,4 @@
 1. command 的新增、删除或改名必须同一变更同步 `TOOLS.md` 的中英文区域、`SKILL.md`、`SKILL-zh.md` 和本文件。
 2. QuickServer 代码、测试或文档变更每个完整变更集只增加一次 patch 版本，并同步 `TOOLS.md` 和本文件的版本行。
 3. Unity 验证应区分 command 程序集结果与不相关测试程序集的既有错误；后端修改至少运行最小相关单元测试。
+4. Unity-facing C# 代码禁止使用 `??`；UnityEngine 对象和组件必须使用显式 `== null` / `!= null` 判断，以遵循 Unity 的伪 null 语义。

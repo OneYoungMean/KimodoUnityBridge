@@ -24,10 +24,12 @@ namespace KimodoBridge
             out TSample sample,
             out string error);
 
-        private struct HumanoidHandIkSolveJob : IAnimationJob
+        private struct HumanoidIkSolveJob : IAnimationJob
         {
             public bool solveLeftHand;
             public bool solveRightHand;
+            public bool solveLeftFoot;
+            public bool solveRightFoot;
 
             public void ProcessRootMotion(AnimationStream stream)
             {
@@ -35,6 +37,7 @@ namespace KimodoBridge
 
             public void ProcessAnimation(AnimationStream stream)
             {
+                //return;
                 if (!stream.isHumanStream)
                 {
                     return;
@@ -45,6 +48,14 @@ namespace KimodoBridge
                 human.SetGoalWeightRotation(AvatarIKGoal.LeftHand, solveLeftHand ? 1f : 0f);
                 human.SetGoalWeightPosition(AvatarIKGoal.RightHand, solveRightHand ? 1f : 0f);
                 human.SetGoalWeightRotation(AvatarIKGoal.RightHand, solveRightHand ? 1f : 0f);
+                human.SetGoalWeightPosition(AvatarIKGoal.LeftFoot, solveLeftFoot ? 1f : 0f);
+                human.SetGoalWeightRotation(AvatarIKGoal.LeftFoot, solveLeftFoot ? 1f : 0f);
+                human.SetGoalWeightPosition(AvatarIKGoal.RightFoot, solveRightFoot ? 1f : 0f);
+                human.SetGoalWeightRotation(AvatarIKGoal.RightFoot, solveRightFoot ? 1f : 0f);
+                if (!solveLeftHand && !solveRightHand && !solveLeftFoot && !solveRightFoot)
+                {
+                    return;
+                }
                 human.SolveIK();
             }
         }
@@ -268,7 +279,9 @@ namespace KimodoBridge
             bool applyFootIk = true,
             bool solveHandIk = false,
             bool solveLeftHandIk = true,
-            bool solveRightHandIk = true)
+            bool solveRightHandIk = true,
+            bool solveLeftFootIk = true,
+            bool solveRightFootIk = true)
         {
             context = null;
             error = string.Empty;
@@ -296,8 +309,14 @@ namespace KimodoBridge
 
                 graph = PlayableGraph.Create(rootName + "Graph");
                 graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
+                bool useLeftHandIk = solveHandIk && solveLeftHandIk;
+                bool useRightHandIk = solveHandIk && solveRightHandIk;
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
-                clipPlayable.SetApplyFootIK(applyFootIk && RetargetSamplingDefaultFootIk);
+                bool solveLeftFoot = applyFootIk && RetargetSamplingDefaultFootIk && solveLeftFootIk;
+                bool solveRightFoot = applyFootIk && RetargetSamplingDefaultFootIk && solveRightFootIk;
+                // AnimationClipPlayable foot IK is an all-or-nothing switch.
+                // Solve goals in the job below so a disabled side stays untouched.
+                clipPlayable.SetApplyFootIK(false);
                 clipPlayable.SetApplyPlayableIK(RetargetSamplingDefaultPlayableIk);
                 Playable sourcePlayable = clipPlayable;
                 if (applyMotionXToDelta)
@@ -306,19 +325,21 @@ namespace KimodoBridge
                         graph,
                         sourcePlayable);
                 }
-                if (solveHandIk)
+                if (useLeftHandIk || useRightHandIk || solveLeftFoot || solveRightFoot)
                 {
-                    AnimationScriptPlayable handIkPlayable = AnimationScriptPlayable.Create(
+                    AnimationScriptPlayable ikPlayable = AnimationScriptPlayable.Create(
                         graph,
-                        new HumanoidHandIkSolveJob
+                        new HumanoidIkSolveJob
                         {
-                            solveLeftHand = solveLeftHandIk,
-                            solveRightHand = solveRightHandIk
+                            solveLeftHand = useLeftHandIk,
+                            solveRightHand = useRightHandIk,
+                            solveLeftFoot = solveLeftFoot,
+                            solveRightFoot = solveRightFoot
                         },
                         1);
-                    graph.Connect(sourcePlayable, 0, handIkPlayable, 0);
-                    handIkPlayable.SetInputWeight(0, 1f);
-                    sourcePlayable = handIkPlayable;
+                    graph.Connect(sourcePlayable, 0, ikPlayable, 0);
+                    ikPlayable.SetInputWeight(0, 1f);
+                    sourcePlayable = ikPlayable;
                 }
                 AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, rootName + "Output", cache.animator);
                 output.SetSourcePlayable(sourcePlayable);
@@ -621,7 +642,9 @@ namespace KimodoBridge
             out string error,
             bool solveLeftHandIk = true,
             bool solveRightHandIk = true,
-            bool applyFootIk = true)
+            bool applyFootIk = true,
+            bool solveLeftFootIk = true,
+            bool solveRightFootIk = true)
         {
             targetSample = null;
             targetMuscleSample = null;
@@ -645,7 +668,9 @@ namespace KimodoBridge
                     out error,
                     solveLeftHandIk: solveLeftHandIk,
                     solveRightHandIk: solveRightHandIk,
-                    applyFootIk: applyFootIk) ||
+                    applyFootIk: applyFootIk,
+                    solveLeftFootIk: solveLeftFootIk,
+                    solveRightFootIk: solveRightFootIk) ||
                 targetSamples == null ||
                 targetSamples.Length == 0)
             {
@@ -671,7 +696,9 @@ namespace KimodoBridge
             Func<AnimationClip, string, string> writebackClip = null,
             bool solveLeftHandIk = true,
             bool solveRightHandIk = true,
-            bool applyFootIk = true)
+            bool applyFootIk = true,
+            bool solveLeftFootIk = true,
+            bool solveRightFootIk = true)
         {
             targetSamples = null;
             error = string.Empty;
@@ -727,7 +754,9 @@ namespace KimodoBridge
                         applyFootIk: applyFootIk,
                         solveHandIk: solveLeftHandIk || solveRightHandIk,
                         solveLeftHandIk: solveLeftHandIk,
-                        solveRightHandIk: solveRightHandIk))
+                        solveRightHandIk: solveRightHandIk,
+                        solveLeftFootIk: solveLeftFootIk,
+                        solveRightFootIk: solveRightFootIk))
                 {
                     return false;
                 }

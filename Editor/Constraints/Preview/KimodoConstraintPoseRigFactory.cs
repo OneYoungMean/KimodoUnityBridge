@@ -145,7 +145,7 @@ namespace KimodoBridge.Editor
                 {
                     generatedMaterials.Add(previewMaterial);
                 }
-                CopySkinnedMeshes(sourceAnimator.transform, transformMap, previewMaterial, out error);
+                CopyMeshes(sourceAnimator.transform, transformMap, previewMaterial, out error);
                 if (!string.IsNullOrEmpty(error))
                 {
                     UnityEngine.Object.DestroyImmediate(root);
@@ -199,7 +199,7 @@ namespace KimodoBridge.Editor
             return clone;
         }
 
-        private static void CopySkinnedMeshes(
+        private static void CopyMeshes(
             Transform sourceRoot,
             Dictionary<Transform, Transform> transformMap,
             Material previewMaterial,
@@ -216,7 +216,7 @@ namespace KimodoBridge.Editor
                 }
 
                 var target = targetTransform.gameObject.AddComponent<SkinnedMeshRenderer>();
-                target.sharedMesh = source.sharedMesh;
+                EditorUtility.CopySerialized(source, target);
                 target.rootBone = ResolveCloneTransform(source.rootBone, transformMap);
                 Transform[] sourceBones = source.bones;
                 var targetBones = new Transform[sourceBones.Length];
@@ -230,26 +230,10 @@ namespace KimodoBridge.Editor
                     }
                 }
                 target.bones = targetBones;
-                target.localBounds = source.localBounds;
-                target.quality = source.quality;
                 target.updateWhenOffscreen = true;
                 target.skinnedMotionVectors = false;
-                target.shadowCastingMode = source.shadowCastingMode;
-                target.receiveShadows = source.receiveShadows;
-                target.lightProbeUsage = source.lightProbeUsage;
-                target.reflectionProbeUsage = source.reflectionProbeUsage;
                 target.probeAnchor = ResolveCloneTransform(source.probeAnchor, transformMap);
-                target.enabled = source.enabled;
-
-                Material[] sourceMaterials = source.sharedMaterials;
-                var materials = new Material[sourceMaterials != null ? sourceMaterials.Length : 0];
-                for (int materialIndex = 0; materialIndex < materials.Length; materialIndex++)
-                {
-                    materials[materialIndex] = previewMaterial != null
-                        ? previewMaterial
-                        : sourceMaterials[materialIndex];
-                }
-                target.sharedMaterials = materials;
+                target.sharedMaterials = ResolvePreviewMaterials(source.sharedMaterials, previewMaterial);
 
                 Mesh mesh = source.sharedMesh;
                 if (mesh != null)
@@ -260,6 +244,43 @@ namespace KimodoBridge.Editor
                     }
                 }
             }
+
+            MeshFilter[] staticFilters = sourceRoot.GetComponentsInChildren<MeshFilter>(true);
+            for (int i = 0; i < staticFilters.Length; i++)
+            {
+                MeshFilter sourceFilter = staticFilters[i];
+                MeshRenderer source = sourceFilter != null ? sourceFilter.GetComponent<MeshRenderer>() : null;
+                if (source == null || sourceFilter.sharedMesh == null ||
+                    !transformMap.TryGetValue(source.transform, out Transform targetTransform))
+                {
+                    continue;
+                }
+
+                MeshFilter targetFilter = targetTransform.gameObject.GetComponent<MeshFilter>();
+                if (targetFilter == null)
+                {
+                    targetFilter = targetTransform.gameObject.AddComponent<MeshFilter>();
+                }
+                EditorUtility.CopySerialized(sourceFilter, targetFilter);
+                MeshRenderer target = targetTransform.gameObject.GetComponent<MeshRenderer>();
+                if (target == null)
+                {
+                    target = targetTransform.gameObject.AddComponent<MeshRenderer>();
+                }
+                EditorUtility.CopySerialized(source, target);
+                target.probeAnchor = ResolveCloneTransform(source.probeAnchor, transformMap);
+                target.sharedMaterials = ResolvePreviewMaterials(source.sharedMaterials, previewMaterial);
+            }
+        }
+
+        private static Material[] ResolvePreviewMaterials(Material[] sourceMaterials, Material previewMaterial)
+        {
+            var materials = new Material[sourceMaterials != null ? sourceMaterials.Length : 0];
+            for (int i = 0; i < materials.Length; i++)
+            {
+                materials[i] = previewMaterial != null ? previewMaterial : sourceMaterials[i];
+            }
+            return materials;
         }
 
         private static Transform ResolveCloneTransform(

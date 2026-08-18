@@ -55,7 +55,9 @@ namespace KimodoBridge
                         out error,
                         solveLeftHandIk: mask.leftHand,
                         solveRightHandIk: mask.rightHand,
-                        applyFootIk: mask.leftFoot || mask.rightFoot))
+                        applyFootIk: mask.leftFoot || mask.rightFoot,
+                        solveLeftFootIk: mask.leftFoot,
+                        solveRightFootIk: mask.rightFoot))
                 {
                     throw new InvalidOperationException($"Constraint pose projection failed: {error}");
                 }
