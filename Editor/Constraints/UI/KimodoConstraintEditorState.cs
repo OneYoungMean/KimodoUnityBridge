@@ -20,6 +20,8 @@ namespace KimodoBridge.Editor
             SerializedProperty mask = so.FindProperty("sampleData.mask");
             if (pose == null || mask == null) return;
 
+            DrawAutoSampleField(so, "autoSampleFullBody");
+
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             SerializedProperty root = pose.FindPropertyRelative("root");
             SerializedProperty rootPosition = mask.FindPropertyRelative("rootPosition");
@@ -42,7 +44,6 @@ namespace KimodoBridge.Editor
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             SerializedProperty fullBodyEnabled = mask.FindPropertyRelative("muscle");
             EditorGUILayout.PropertyField(fullBodyEnabled, new GUIContent("Muscle Values (FullBody)"));
-            DrawAutoSampleField(so, "autoSampleFullBody");
             using (new EditorGUI.DisabledScope(
                 fullBodyEnabled == null ||
                 !fullBodyEnabled.boolValue ||
@@ -91,9 +92,9 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.PropertyField(enabled, new GUIContent(label + " Enable"));
-            if (DrawTransform(transform, "Target Position / Rotation") && enabled != null)
+            using (new EditorGUI.DisabledScope(enabled == null || !enabled.boolValue))
             {
-                enabled.boolValue = true;
+                DrawTransform(transform, "Target Position / Rotation");
             }
             EditorGUILayout.EndVertical();
         }

@@ -38,13 +38,13 @@ All public time values use 60 FPS integer frames. Animation ranges are half-open
 
 Use `pose_contract` to align the target pose root to one or more source end effectors. `align_target_root` fits a direct root delta; `least_squares_root_fit` reports a residual for multiple effectors. Generation constraints remain sparse per-frame objects and may combine full-body, root2d, hand, and foot information.
 
-The Editor exposes one FullBody rig: Root Position/Rotation and muscle values are authored there. `root2d` is command-only planar override data, composed internally with the FullBody root; each hand/foot effector locks world space only while its own Enable field is on.
+The Editor exposes one FullBody rig: Auto Sample is at the constraint-panel level, while Root Position/Rotation and muscle values are authored in the rig. Each hand/foot effector parameter panel stays disabled until its own Enable field is on; dragging its Scene target enables that IK channel automatically, and only the selected target shows a rotation handle. `root2d` is command-only planar override data, composed internally with the FullBody root.
 
 ## Session state and current boundaries
 
 Each Session-changing operation updates `Assets/KimodoGeneratedClips/Sessions/<safe-session-name>/session.json` using temporary-file write and atomic replacement. Every completed Clip added to a Session is immutable: commands never overwrite, retime, or replace it; generation, record, retarget, and later corrections append a new Clip. The JSON is a bounded AI-readable index of Session revision, tracks, animations, constraints, Pose Cache markers, analysis records, visual tile descriptors, and generation history. Dense motion remains in its per-analysis cache file; do not load it unless that specific analysis is required. It is not a runtime query API.
 
-The experimental retarget core is engine-independent and consumes KMB motion plus two explicit fullbody reference-pose payloads (source and target). A reference may be a bind, neutral, A-pose, or canonical pose; it does not require a T-pose. The regular generation fullbody locator is not sufficient unless it includes global joint positions, global joint rotations, joint names, and parent indices. Unmapped target joints inherit their animated parent by default; an explicit `freeze_global` fallback is available only when that behavior is desired. Missing intermediate target joints share the mapped endpoints' relative rotation. An optional target-arm calibration builds a virtual T-pose from explicitly named upper/lower arm pairs, retargets through it, then rebases the result to the target's real reference pose; it does not modify the character asset or calibrate non-arm joints.
+The experimental retarget core is engine-independent and consumes KMB motion plus two explicit fullbody reference-pose payloads (source and target). A reference may be a bind, neutral, A-pose, or canonical pose; it does not require a T-pose. The regular generation fullbody locator is not sufficient unless it includes global joint positions, global joint rotations, joint names, and parent indices. Unmapped target joints inherit their animated parent by default; an explicit `freeze_global` fallback is available only when that behavior is desired. Missing intermediate target joints share the mapped endpoints' relative rotation. An optional target-arm calibration builds a virtual T-pose from explicitly named upper/lower arm pairs, retargets through it, then rebases the result to the target's real reference pose; it does not modify the character asset or calibrate non-arm joints. Unity Humanoid retarget writeback is FK-only by default: it exports RootT/RootQ and FootT/FootQ curves, does not export HandT/HandQ curves, and only constraint-internal IK sampling may call `SolveIK()`.
 
 This version imports Animator state clips and BlendTree candidate clips only. Transition materialization and authored trajectory commands are deferred. `animation_analyze` renders visual evidence without modifying the animation.
 
@@ -90,12 +90,12 @@ Editor 入口为 `command_dispatcher`。通过 `GetCommandDefinitionsJson()` 发
 
 `pose_contract` 将目标 Pose 的 root 对齐到一个或多个来源末端。`align_target_root` 计算直接 root delta；`least_squares_root_fit` 对多个末端返回 residual。生成约束保持按帧稀疏对象，可组合 full-body、root2d、手和脚信息。
 
-Editor 只暴露一套 FullBody rig：Root Position/Rotation 和 muscle value 在此编辑。`root2d` 是仅 command 可设置的平面 override 数据，内部与 FullBody root 组合；每个手/脚 effector 仅在自身 Enable 打开时锁定世界空间。
+Editor 只暴露一套 FullBody rig：Auto Sample 位于约束面板层级，Root Position/Rotation 和 muscle value 在 rig 中编辑。每个手/脚 effector 的参数框在自身 Enable 打开前保持禁用；拖拽 Scene target 会自动打开对应 IK 通道，且只有当前选中的 target 显示旋转手柄。`root2d` 是仅 command 可设置的平面 override 数据，内部与 FullBody root 组合。
 
 ## Session 状态与当前边界
 
 每次 Session 变更都通过临时文件写入和原子替换，更新 `Assets/KimodoGeneratedClips/Sessions/<safe-session-name>/session.json`。每个写入 Session 且已完成的 Clip 都不可变：command 不得覆盖、重定时或替换它；生成、Record、Retarget 与后续修正都必须追加新 Clip。该 JSON 是有界的 AI 可读索引，只记录 Session revision、轨道、动画、约束、Pose Cache marker、analysis 记录、视觉子图描述符与 generation history。稠密 motion 位于每个 analysis 的缓存文件；只在确实需要某个分析时才读取。它不是运行时查询 API。
 
-实验性的 Retarget 核心与引擎无关，使用 KMB 动作以及两份显式 fullbody 参考姿势数据（source 和 target）。参考姿势可以是 bind、neutral、A-Pose 或 canonical pose，不要求 T-Pose。普通生成 fullbody locator 只有在同时包含全局关节位置、全局关节旋转、关节名称和父索引时，才足以作为 Retarget 参考。未映射的 target 关节默认继承已动画化父关节；只有显式指定 `freeze_global` 时才使用冻结全局姿势。缺失的 target 中间关节会共同分配已映射两端关节之间的相对旋转。可选的 target 手臂校准通过显式 upper/lower arm 对构造虚拟 T-Pose，经由该姿势 Retarget 后再 rebase 回 target 的真实参考姿势；它不修改角色资产，也不校准非手臂关节。
+实验性的 Retarget 核心与引擎无关，使用 KMB 动作以及两份显式 fullbody 参考姿势数据（source 和 target）。参考姿势可以是 bind、neutral、A-Pose 或 canonical pose，不要求 T-Pose。普通生成 fullbody locator 只有在同时包含全局关节位置、全局关节旋转、关节名称和父索引时，才足以作为 Retarget 参考。未映射的 target 关节默认继承已动画化父关节；只有显式指定 `freeze_global` 时才使用冻结全局姿势。缺失的 target 中间关节会共同分配已映射两端关节之间的相对旋转。可选的 target 手臂校准通过显式 upper/lower arm 对构造虚拟 T-Pose，经由该姿势 Retarget 后再 rebase 回 target 的真实参考姿势；它不修改角色资产，也不校准非手臂关节。Unity Humanoid Retarget 写回默认只走 FK：导出 RootT/RootQ 与 FootT/FootQ 曲线，不导出 HandT/HandQ；只有 constraint 内部 IK 采样可以调用 `SolveIK()`。
 
 此版本只导入 Animator State Clip 和 BlendTree 候选 Clip。Transition materialization 与可创作 trajectory 命令仍待后续版本实现。`animation_analyze` 只渲染运动证据，不修改动画。

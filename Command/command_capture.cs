@@ -12,8 +12,6 @@ using KimodoBridge;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.Animations;
-using UnityEngine.Playables;
 
 namespace CharacterAnimationCli.Unity.Command
 {
@@ -22,10 +20,10 @@ namespace CharacterAnimationCli.Unity.Command
         private static readonly Dictionary<string, AnalysisCacheRecord> AnalysisCache =
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
-        private const string AnalysisPictureRenderVersion = "5";
-        private const string TestAnalysisPictureRenderVersion = "16-test";
+        private const string AnalysisPictureRenderVersion = "7";
+        private const string TestAnalysisPictureRenderVersion = "21-test";
         private const float TestCameraMarginMeters = .5f;
-        private const float TestCameraFitScale = .5f;
+        private const float TestCameraFitScale = 1f;
         private const float TestGhostAlphaMin = .1f;
         private const float TestGhostAlphaMax = .5f;
         private static readonly Color TestStartFrameTint = new Color(57f / 255f, 197f / 255f, 187f / 255f, 1f);
@@ -59,11 +57,15 @@ namespace CharacterAnimationCli.Unity.Command
                 tiles.AddRange(BuildPictureTiles(subject, level));
             }
 
+            int tileWidth = layout.TileSize;
+            int tileHeight = ResolvePictureTileHeight(layout, tiles, tileWidth);
+            int panelHeight = layout.TileRows * tileHeight;
+
             bool cached = File.Exists(imagePath);
             if (!cached)
             {
                 Directory.CreateDirectory(EvidenceFolder(session));
-                Texture2D canvas = RenderPictureCanvas(data, tiles, layout, trajectoryScale);
+                Texture2D canvas = RenderPictureCanvas(data, tiles, layout, trajectoryScale, tileWidth, tileHeight);
                 try
                 {
                     File.WriteAllBytes(imagePath, canvas.EncodeToPNG());
@@ -80,15 +82,15 @@ namespace CharacterAnimationCli.Unity.Command
                 PictureTile tile = tiles[index];
                 int panel = data.FindIndex(item => ReferenceEquals(item, tile.Subject));
                 int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tile.Subject));
-                int x = (localIndex % layout.TileColumns) * layout.TileSize;
-                int y = (data.Count - panel - 1) * layout.Height +
-                    (layout.TileRows - 1 - localIndex / layout.TileColumns) * layout.TileSize;
+                int x = (localIndex % layout.TileColumns) * tileWidth;
+                int y = (data.Count - panel - 1) * panelHeight +
+                    (layout.TileRows - 1 - localIndex / layout.TileColumns) * tileHeight;
                 JObject description = (JObject)tile.Description.DeepClone();
                 description["subject"] = tile.Subject.Subject.Role;
                 descriptions.Add(new JObject
                 {
                     ["id"] = tile.Subject.Subject.Role + "." + (localIndex + 1).ToString(CultureInfo.InvariantCulture),
-                    ["rect"] = new JObject { ["x"] = x, ["y"] = y, ["width"] = layout.TileSize, ["height"] = layout.TileSize },
+                    ["rect"] = new JObject { ["x"] = x, ["y"] = y, ["width"] = tileWidth, ["height"] = tileHeight },
                     ["description"] = description
                 });
             }
@@ -97,13 +99,108 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 ["level"] = level,
                 ["image_path"] = projectPath,
-                ["width"] = layout.Width,
-                ["height"] = layout.Height * data.Count,
+                ["width"] = layout.TileColumns * tileWidth,
+                ["height"] = panelHeight * data.Count,
                 ["images"] = descriptions,
                 ["cached"] = cached
             };
             PersistPictureSummary(session, subjects[0].Record, result);
             return result;
+        }
+
+        private static int ResolvePictureTileHeight(
+            PictureLayout layout,
+            IReadOnlyList<PictureTile> tiles,
+            int tileWidth)
+        {
+            if (layout.TileSize != tileWidth || tiles == null ||
+                !tiles.Any(tile => tile.Presentation == "test_foot_transitions" || tile.Presentation == "test_keyframes"))
+            {
+                return layout.TileSize;
+            }
+
+            float widestAspect = 1f;
+            foreach (PictureTile tile in tiles)
+            {
+                if (tile.Presentation != "test_foot_transitions" && tile.Presentation != "test_keyframes") continue;
+                CalculateTestViewExtents(tile.Subject, tile.Direction, out _, out float horizontal, out float vertical, out _);
+                widestAspect = Mathf.Max(
+                    widestAspect,
+                    (horizontal + TestCameraMarginMeters) / Mathf.Max(.01f, vertical + TestCameraMarginMeters));
+            }
+
+            int minimumHeight = Mathf.Max(160, tileWidth / 3);
+            return Mathf.Clamp(Mathf.RoundToInt(tileWidth / widestAspect), minimumHeight, tileWidth);
+        }
+
+        private static Bounds CalculateTestContentBounds(SubjectPictureData subject)
+        {
+            if (subject == null || subject.Pelvis == null || subject.Pelvis.Length == 0)
+            {
+                return new Bounds(Vector3.up, Vector3.one);
+            }
+
+            Bounds bounds = new Bounds(subject.Pelvis[0], Vector3.zero);
+            // The viewport follows the sampled trajectory markers directly.
+            // Do not extrapolate a body envelope from first/last mesh bounds;
+            // that mixes a world-space mesh box with every Hips sample.
+            foreach (Vector3 point in subject.Pelvis) bounds.Encapsulate(point);
+            foreach (Vector3 point in subject.LeftHand) bounds.Encapsulate(point);
+            foreach (Vector3 point in subject.RightHand) bounds.Encapsulate(point);
+            foreach (Vector3 point in subject.LeftFoot) bounds.Encapsulate(point);
+            foreach (Vector3 point in subject.RightFoot) bounds.Encapsulate(point);
+
+            return bounds;
+        }
+
+        private static void CalculateTestViewExtents(
+            SubjectPictureData subject,
+            Vector3 direction,
+            out Vector3 viewCenter,
+            out float maxHorizontal,
+            out float maxVertical,
+            out float maxDepth)
+        {
+            Vector3 normalizedDirection = direction.sqrMagnitude > .0001f
+                ? direction.normalized
+                : new Vector3(1f, .75f, -1f).normalized;
+            Vector3 up = Mathf.Abs(Vector3.Dot(normalizedDirection, Vector3.up)) > .95f
+                ? Vector3.forward
+                : Vector3.up;
+            Quaternion inverseView = Quaternion.Inverse(Quaternion.LookRotation(-normalizedDirection, up));
+            float minHorizontal = float.PositiveInfinity;
+            float maxHorizontalValue = float.NegativeInfinity;
+            float minVertical = float.PositiveInfinity;
+            float maxVerticalValue = float.NegativeInfinity;
+            float minDepth = float.PositiveInfinity;
+            float maxDepthValue = float.NegativeInfinity;
+            foreach (Vector3 point in subject.Pelvis.Concat(subject.LeftHand)
+                         .Concat(subject.RightHand).Concat(subject.LeftFoot).Concat(subject.RightFoot))
+            {
+                Vector3 local = inverseView * point;
+                minHorizontal = Mathf.Min(minHorizontal, local.x);
+                maxHorizontalValue = Mathf.Max(maxHorizontalValue, local.x);
+                minVertical = Mathf.Min(minVertical, local.y);
+                maxVerticalValue = Mathf.Max(maxVerticalValue, local.y);
+                minDepth = Mathf.Min(minDepth, local.z);
+                maxDepthValue = Mathf.Max(maxDepthValue, local.z);
+            }
+
+            if (float.IsPositiveInfinity(minHorizontal))
+            {
+                viewCenter = Vector3.zero;
+                maxHorizontal = maxVertical = maxDepth = 0f;
+                return;
+            }
+
+            Vector3 localCenter = new Vector3(
+                (minHorizontal + maxHorizontalValue) * .5f,
+                (minVertical + maxVerticalValue) * .5f,
+                (minDepth + maxDepthValue) * .5f);
+            viewCenter = Quaternion.Inverse(inverseView) * localCenter;
+            maxHorizontal = (maxHorizontalValue - minHorizontal) * .5f;
+            maxVertical = (maxVerticalValue - minVertical) * .5f;
+            maxDepth = (maxDepthValue - minDepth) * .5f;
         }
 
         private static void PersistPictureSummary(TimelineSessionRecord session, AnalysisCacheRecord record, JObject pictures)
@@ -138,9 +235,10 @@ namespace CharacterAnimationCli.Unity.Command
             bool hasPoseBounds = false;
             double originalTime = session.Director.time;
             GameObject posePreview = null;
+            CharacterPose[] poses;
             try
             {
-                CharacterPose[] poses = CaptureCharacterPoses(subject.Character, subject.StartFrame, frameCount);
+                poses = CaptureCharacterPoses(subject.Character, subject.StartFrame, frameCount);
                 posePreview = CreateCanonicalPosePreview(subject.Character);
                 Animator poseAnimator = posePreview.GetComponentInChildren<Animator>(true)
                     ?? throw new InvalidOperationException($"Character '{subject.Character.Name}' pose preview has no Animator.");
@@ -160,10 +258,10 @@ namespace CharacterAnimationCli.Unity.Command
                         throw new InvalidOperationException($"Character '{subject.Character.Name}' has no Humanoid Hips transform.");
                     }
                     pelvis[localFrame] = hips.position;
-                    leftHand[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftHand, pelvis[localFrame]);
-                    rightHand[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightHand, pelvis[localFrame]);
-                    leftFoot[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftFoot, pelvis[localFrame]);
-                    rightFoot[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightFoot, pelvis[localFrame]);
+                    leftHand[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftHand, subject.Character.Name);
+                    rightHand[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightHand, subject.Character.Name);
+                    leftFoot[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftFoot, subject.Character.Name);
+                    rightFoot[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightFoot, subject.Character.Name);
                     Bounds currentBounds = CalculateSkinnedBounds(posePreview);
                     if (localFrame == 0) firstBounds = currentBounds;
                     if (localFrame == frameCount - 1) lastBounds = currentBounds;
@@ -214,6 +312,7 @@ namespace CharacterAnimationCli.Unity.Command
             foreach (Vector3 point in pelvis) testBounds.Encapsulate(point);
             return new SubjectPictureData(
                 subject,
+                poses,
                 pelvis,
                 leftHand,
                 rightHand,
@@ -227,10 +326,18 @@ namespace CharacterAnimationCli.Unity.Command
                 testBounds);
         }
 
-        private static Vector3 ReadHumanoidBonePosition(Animator animator, HumanBodyBones bone, Vector3 fallback)
+        private static Vector3 ReadHumanoidBonePosition(Animator animator, HumanBodyBones bone, string characterName)
         {
-            Transform transform = animator != null ? animator.GetBoneTransform(bone) : null;
-            return transform != null ? transform.position : fallback;
+            if (animator == null)
+            {
+                throw new InvalidOperationException($"Character '{characterName}' preview has no Animator while reading {bone}.");
+            }
+            Transform transform = animator.GetBoneTransform(bone);
+            if (transform == null)
+            {
+                throw new InvalidOperationException($"Character '{characterName}' has no Humanoid {bone} transform.");
+            }
+            return transform.position;
         }
 
         private static Bounds CalculateSkinnedBounds(GameObject root)
@@ -318,40 +425,45 @@ namespace CharacterAnimationCli.Unity.Command
             IReadOnlyList<SubjectPictureData> subjects,
             IReadOnlyList<PictureTile> tiles,
             PictureLayout layout,
-            TrajectoryScale trajectoryScale)
+            TrajectoryScale trajectoryScale,
+            int tileWidth,
+            int tileHeight)
         {
-            var canvas = new Texture2D(layout.Width, layout.Height * subjects.Count, TextureFormat.RGBA32, false);
+            int panelHeight = layout.TileRows * tileHeight;
+            var canvas = new Texture2D(layout.TileColumns * tileWidth, panelHeight * subjects.Count, TextureFormat.RGBA32, false);
             Fill(canvas, Color.white);
             for (int index = 0; index < tiles.Count; index++)
             {
                 PictureTile tile = tiles[index];
                 int panel = subjects.ToList().FindIndex(item => ReferenceEquals(item, tile.Subject));
                 int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tile.Subject));
-                Texture2D image = RenderPictureTile(tile, layout.TileSize, trajectoryScale);
+                Texture2D image = RenderPictureTile(tile, tileWidth, tileHeight, trajectoryScale);
                 try
                 {
                     DrawTileNumber(image, localIndex + 1);
-                    int x = (localIndex % layout.TileColumns) * layout.TileSize;
-                    int y = (subjects.Count - panel - 1) * layout.Height +
-                        (layout.TileRows - 1 - localIndex / layout.TileColumns) * layout.TileSize;
-                    canvas.SetPixels(x, y, layout.TileSize, layout.TileSize, image.GetPixels());
+                    int x = (localIndex % layout.TileColumns) * tileWidth;
+                    int y = (subjects.Count - panel - 1) * panelHeight +
+                        (layout.TileRows - 1 - localIndex / layout.TileColumns) * tileHeight;
+                    canvas.SetPixels(x, y, tileWidth, tileHeight, image.GetPixels());
                 }
                 finally
                 {
                     UnityEngine.Object.DestroyImmediate(image);
                 }
             }
-            DrawInternalGrid(canvas, layout, subjects.Count);
+            DrawInternalGrid(canvas, layout, subjects.Count, tileWidth, tileHeight);
             canvas.Apply(false, false);
             return canvas;
         }
 
-        private static Texture2D RenderPictureTile(PictureTile tile, int size, TrajectoryScale trajectoryScale)
+        private static Texture2D RenderPictureTile(PictureTile tile, int width, int height, TrajectoryScale trajectoryScale)
         {
             if (tile.Presentation == "test_foot_transitions" || tile.Presentation == "test_keyframes")
             {
-                return RenderTestPictureTile(tile, size, trajectoryScale);
+                return RenderTestPictureTile(tile, width, height, trajectoryScale);
             }
+
+            int size = width;
 
             Bounds tileBounds = tile.Presentation == "key" || tile.Presentation == "foot_contact" || tile.Presentation == "foot_fallback"
                 ? CalculatePreviewPoseBounds(tile.Subject, tile.Frame)
@@ -487,7 +599,7 @@ namespace CharacterAnimationCli.Unity.Command
             return true;
         }
 
-        private static Texture2D RenderTestPictureTile(PictureTile tile, int size, TrajectoryScale trajectoryScale)
+        private static Texture2D RenderTestPictureTile(PictureTile tile, int width, int height, TrajectoryScale trajectoryScale)
         {
             int lastFrame = Math.Max(0, tile.Subject.Pelvis.Length - 1);
             var requestedFrames = tile.TrajectoryFrames;
@@ -496,9 +608,9 @@ namespace CharacterAnimationCli.Unity.Command
                 .Distinct()
                 .OrderBy(frame => frame)
                 .ToList();
-            // Sample once with a real Avatar, then render all poses from the
-            // captured skeleton snapshots. Virtual poses never run an
-            // Animator/PlayableGraph and therefore cannot fall back to T-pose.
+            // BuildSubjectPictureData already sampled every frame. Reuse those
+            // canonical poses for both trajectory points and ghost snapshots so
+            // the renderer never has a second AnimationClip sampling path.
             using (TestPosePlan posePlan = BuildTestPosePlan(tile.Subject, requestedFrames))
             {
                 var virtualPoses = new List<TestVirtualPose>();
@@ -522,14 +634,12 @@ namespace CharacterAnimationCli.Unity.Command
                             posePlan.Get(frame), tint, alpha));
                     }
                 }
-                Color startTint = ResolveTestPoseTint(tile, 0, out bool startIsKeyframe, out bool startIsFootTransition);
-                Color endTint = ResolveTestPoseTint(tile, lastFrame, out bool endIsKeyframe, out bool endIsFootTransition);
-                if (!startIsKeyframe && !startIsFootTransition) startTint = new Color(1f, .65f, .05f, 1f);
-                if (!endIsKeyframe && !endIsFootTransition) endTint = new Color(1f, .35f, 0f, 1f);
+                Color startTint = ResolveTestPoseTint(tile, 0, out _, out _);
+                Color endTint = ResolveTestPoseTint(tile, lastFrame, out _, out _);
                 virtualPoses.Add(CreateTestVirtualPose(posePlan.Get(0), startTint, 1f));
                 virtualPoses.Add(CreateTestVirtualPose(posePlan.Get(lastFrame), endTint, 1f));
 
-                Bounds contentBounds = CalculateVirtualPoseBounds(virtualPoses);
+                Bounds contentBounds = CalculateTestContentBounds(tile.Subject);
                 Bounds tileBounds = IncludeGroundInBounds(contentBounds);
                 var environment = new List<GameObject>();
                 CreateTestPictureEnvironment(environment, tileBounds);
@@ -538,10 +648,14 @@ namespace CharacterAnimationCli.Unity.Command
                     CreateTestBodyTrajectories(environment, tile.Subject);
                 }
 
-                Camera camera = CreateTestAnalysisPictureCamera(tileBounds, tile.Direction);
+                Camera camera = CreateTestAnalysisPictureCamera(
+                    contentBounds,
+                    tile.Subject,
+                    tile.Direction,
+                    (float)width / Mathf.Max(1, height));
                 try
                 {
-                    Texture2D result = RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
+                    Texture2D result = RenderCamera(camera, width, height, new Color(.12f, .12f, .12f, 1f));
                     foreach (TestVirtualPose pose in virtualPoses)
                     {
                         RenderTestPoseOnto(result, camera, environment, pose);
@@ -575,7 +689,7 @@ namespace CharacterAnimationCli.Unity.Command
             // separate body and clothing renderers.
             SetEvidenceVisualsEnabled(environment, false);
             SetPreviewRenderersEnabled(pose.Preview, true);
-            Texture2D layer = RenderCamera(camera, destination.width, new Color(0f, 0f, 0f, 0f));
+            Texture2D layer = RenderCamera(camera, destination.width, destination.height, new Color(0f, 0f, 0f, 0f));
             try
             {
                 Composite(destination, layer, pose.UsesGhostMaterial ? 1f : pose.Alpha);
@@ -588,87 +702,27 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        private static Bounds CalculateVirtualPoseBounds(IReadOnlyList<TestVirtualPose> poses)
-        {
-            Bounds result = default;
-            bool initialized = false;
-            foreach (TestVirtualPose pose in poses)
-            {
-                if (pose?.Preview == null) continue;
-                Bounds bounds = CalculateSkinnedBounds(pose.Preview);
-                bounds.Encapsulate(pose.Preview.transform.position);
-                if (!initialized)
-                {
-                    result = bounds;
-                    initialized = true;
-                }
-                else
-                {
-                    result.Encapsulate(bounds);
-                }
-            }
-            return initialized ? result : new Bounds(Vector3.up, Vector3.one);
-        }
-
         private static TestPosePlan BuildTestPosePlan(SubjectPictureData subject, IReadOnlyList<int> frames)
         {
-            var source = UnityEngine.Object.Instantiate(subject.Subject.Character.Root);
-            source.name = "Kimodo Test Pose Sampler";
-            source.hideFlags = HideFlags.HideAndDontSave;
-            foreach (Transform transform in source.GetComponentsInChildren<Transform>(true))
-            {
-                transform.gameObject.layer = 31;
-            }
-
-            Animator animator = source.GetComponentInChildren<Animator>(true);
-            PlayableGraph graph = default;
-            AnimationClipPlayable playable = default;
-            AnimationClip clip = subject.Subject.Animation?.Clip;
-            if (animator != null && KimodoRetargetCoreUtility.IsValidHumanoid(subject.Subject.Character.Avatar))
-            {
-                animator.avatar = subject.Subject.Character.Avatar;
-                animator.runtimeAnimatorController = null;
-                animator.applyRootMotion = true;
-                animator.enabled = true;
-                animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
-                animator.Rebind();
-                if (clip != null)
-                {
-                    graph = PlayableGraph.Create("KimodoTestPoseSampler");
-                    graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
-                    playable = AnimationClipPlayable.Create(graph, clip);
-                    playable.SetApplyFootIK(true);
-                    playable.SetApplyPlayableIK(true);
-                    AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, "KimodoTestPoseOutput", animator);
-                    output.SetSourcePlayable(playable);
-                    graph.Play();
-                }
-            }
-
+            GameObject source = CreateCanonicalPosePreview(subject.Subject.Character);
             var snapshots = new Dictionary<int, TestPoseSnapshot>();
             try
             {
                 foreach (int frame in frames.Distinct().OrderBy(item => item))
                 {
-                    if (playable.IsValid())
+                    CharacterPose pose = subject.GetPose(frame);
+                    var sample = new KimodoMarkerSampleResult
                     {
-                        playable.SetTime(ResolveAnimationClipSampleTime(subject.Subject.Animation, frame, clip));
-                        graph.Evaluate(0f);
-                    }
-                    else
-                    {
-                        CharacterPose pose = CaptureCharacterPose(subject.Subject.Character, subject.Subject.StartFrame + frame);
-                        var sample = new KimodoMarkerSampleResult { sampleTime = (subject.Subject.StartFrame + frame) / SessionFrameRate };
-                        SetCanonicalPose(sample, pose, subject.Subject.Character);
-                        ApplyCanonicalPoseToPreview(source, subject.Subject.Character, sample);
-                    }
+                        sampleTime = (subject.Subject.StartFrame + frame) / SessionFrameRate
+                    };
+                    SetCanonicalPose(sample, pose, subject.Subject.Character);
+                    ApplyCanonicalPoseToPreview(source, subject.Subject.Character, sample);
                     snapshots[frame] = TestPoseSnapshot.Capture(source);
                 }
-                return new TestPosePlan(source, graph, snapshots);
+                return new TestPosePlan(source, snapshots);
             }
             catch
             {
-                if (graph.IsValid()) graph.Destroy();
                 UnityEngine.Object.DestroyImmediate(source);
                 throw;
             }
@@ -725,36 +779,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             TimelineCharacterRecord character = subject.Subject.Character;
             GameObject preview = CreateCanonicalPosePreview(character);
-            Animator animator = preview.GetComponentInChildren<Animator>(true)
-                ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
-
-            AnimationClip clip = subject.Subject.Animation?.Clip;
-            if (clip != null && KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
-            {
-                PlayableGraph graph = default;
-                try
-                {
-                    graph = PlayableGraph.Create("KimodoAnalysisPoseGraph");
-                    graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
-                    AnimationClipPlayable playable = AnimationClipPlayable.Create(graph, clip);
-                    playable.SetApplyFootIK(true);
-                    playable.SetApplyPlayableIK(true);
-                    AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, "KimodoAnalysisPoseOutput", animator);
-                    output.SetSourcePlayable(playable);
-                    float sampleTime = ResolveAnimationClipSampleTime(subject.Subject.Animation, localFrame, clip);
-                    playable.SetTime(sampleTime);
-                    graph.Play();
-                    graph.Evaluate(0f);
-                }
-                finally
-                {
-                    if (graph.IsValid()) graph.Destroy();
-                }
-                return preview;
-            }
-
-            // Keep the canonical-pose fallback for non-clip/legacy records.
-            CharacterPose pose = CaptureCharacterPose(character, subject.Subject.StartFrame + localFrame);
+            CharacterPose pose = subject.GetPose(localFrame);
             var sample = new KimodoMarkerSampleResult { sampleTime = (subject.Subject.StartFrame + localFrame) / SessionFrameRate };
             SetCanonicalPose(sample, pose, character);
             ApplyCanonicalPoseToPreview(preview, character, sample);
@@ -774,8 +799,7 @@ namespace CharacterAnimationCli.Unity.Command
             Animator animator = preview.GetComponentInChildren<Animator>(true)
                 ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
             // The preview must use the same humanoid Avatar as the Session
-            // character. Without this assignment AnimationClipPlayable leaves
-            // the instantiated model in its imported T-pose.
+            // character before applying canonical HumanPose snapshots.
             if (KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
             {
                 animator.avatar = character.Avatar;
@@ -786,18 +810,6 @@ namespace CharacterAnimationCli.Unity.Command
                 animator.Rebind();
             }
             return preview;
-        }
-
-        private static float ResolveAnimationClipSampleTime(
-            TimelineAnimationRecord animation,
-            int localFrame,
-            AnimationClip clip)
-        {
-            float clipIn = animation?.TimelineClip != null
-                ? (float)Math.Max(0.0, animation.TimelineClip.clipIn)
-                : 0f;
-            float time = (float)(localFrame / SessionFrameRate) + clipIn;
-            return clip.length > 0f ? Mathf.Clamp(time, 0f, clip.length) : 0f;
         }
 
         private static void ApplyCanonicalPoseToPreview(
@@ -813,7 +825,6 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 handler.SetHumanPose(ref pose);
             }
-            animator.transform.SetPositionAndRotation(sample.characterPose.root.t, sample.characterPose.root.q);
         }
 
         private static void TintPreview(GameObject preview, Color tint)
@@ -884,7 +895,10 @@ namespace CharacterAnimationCli.Unity.Command
             return result.Distinct().OrderBy(frame => frame).ToList();
         }
 
-        private static List<int> BuildTestSampleFrames(SubjectPictureData subject, IEnumerable<int> primaryFrames)
+        private static List<int> BuildTestSampleFrames(
+            SubjectPictureData subject,
+            IEnumerable<int> primaryFrames,
+            bool preserveAllPrimaryFrames)
         {
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
             var events = (primaryFrames ?? Enumerable.Empty<int>())
@@ -895,9 +909,9 @@ namespace CharacterAnimationCli.Unity.Command
                 .OrderBy(frame => frame)
                 .ToList();
 
-            // Keep the endpoints and discard any event closer than 10 frames
-            // to its predecessor. This leaves one sample per short interval.
-            for (int index = 1; index < events.Count;)
+            // Keyframe panels compact nearby events. Foot-transition panels keep
+            // every authored transition, even when two events are within 10 frames.
+            for (int index = 1; !preserveAllPrimaryFrames && index < events.Count;)
             {
                 int previous = events[index - 1];
                 int current = events[index];
@@ -917,13 +931,14 @@ namespace CharacterAnimationCli.Unity.Command
                 }
             }
 
+            int maximumGap = preserveAllPrimaryFrames ? 10 : 20;
             var result = new List<int> { events[0] };
             for (int index = 1; index < events.Count; index++)
             {
                 int from = events[index - 1];
                 int to = events[index];
                 int gap = to - from;
-                int divisions = gap > 20 ? Mathf.CeilToInt(gap / 20f) : 1;
+                int divisions = gap > maximumGap ? Mathf.CeilToInt(gap / (float)maximumGap) : 1;
                 for (int part = 1; part < divisions; part++)
                 {
                     result.Add(from + Mathf.RoundToInt(gap * part / (float)divisions));
@@ -998,7 +1013,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             SubjectPictureData subject = tile.Subject;
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
-            keyframe = tile.Presentation == "test_keyframes" && tile.PrimaryFrames.Contains(frame);
+            keyframe = IsKeyframe(subject, frame);
             footTransition = tile.Presentation == "test_foot_transitions" &&
                 tile.PrimaryFrames.Contains(frame) && TryGetFootTransitionTint(subject, frame, out _);
             if (frame == 0) return TestStartFrameTint;
@@ -1137,49 +1152,39 @@ namespace CharacterAnimationCli.Unity.Command
             return camera;
         }
 
-        private static Camera CreateTestAnalysisPictureCamera(Bounds bounds, Vector3 direction)
+        private static Camera CreateTestAnalysisPictureCamera(
+            Bounds bounds,
+            SubjectPictureData subject,
+            Vector3 direction,
+            float aspect)
         {
             GameObject cameraObject = new GameObject("Kimodo Test Analysis Picture Camera") { hideFlags = HideFlags.HideAndDontSave };
             Camera camera = cameraObject.AddComponent<Camera>();
             camera.cullingMask = 1 << 31;
             camera.orthographic = true;
-            camera.aspect = 1f;
+            camera.aspect = Mathf.Max(.1f, aspect);
             camera.nearClipPlane = .01f;
             camera.farClipPlane = 1000f;
             camera.clearFlags = CameraClearFlags.SolidColor;
             Vector3 normalizedDirection = direction.sqrMagnitude > .0001f ? direction.normalized : new Vector3(1f, .75f, -1f).normalized;
+            CalculateTestViewExtents(
+                subject,
+                normalizedDirection,
+                out Vector3 viewCenter,
+                out float maxHorizontal,
+                out float maxVertical,
+                out float maxDepth);
             float distance = Mathf.Max(8f, bounds.extents.magnitude * 4f);
-            camera.transform.position = bounds.center + normalizedDirection * distance;
+            camera.transform.position = viewCenter + normalizedDirection * distance;
             Vector3 up = Mathf.Abs(Vector3.Dot(normalizedDirection, Vector3.up)) > .95f ? Vector3.forward : Vector3.up;
-            camera.transform.LookAt(bounds.center, up);
+            camera.transform.LookAt(viewCenter, up);
 
-            float maxHorizontal = 0f;
-            float maxVertical = 0f;
-            float maxDepth = 0f;
-            Vector3 min = bounds.min;
-            Vector3 max = bounds.max;
-            for (int x = 0; x <= 1; x++)
-            {
-                for (int y = 0; y <= 1; y++)
-                {
-                    for (int z = 0; z <= 1; z++)
-                    {
-                        Vector3 local = camera.transform.InverseTransformPoint(new Vector3(
-                            x == 0 ? min.x : max.x,
-                            y == 0 ? min.y : max.y,
-                            z == 0 ? min.z : max.z));
-                        maxHorizontal = Mathf.Max(maxHorizontal, Mathf.Abs(local.x));
-                        maxVertical = Mathf.Max(maxVertical, Mathf.Abs(local.y));
-                        maxDepth = Mathf.Max(maxDepth, Mathf.Abs(local.z));
-                    }
-                }
-            }
-            // -test prioritizes readable pose detail over showing every edge of
-            // the aggregate ghost bounds.  The view volume is deliberately
-            // half-sized, with a fixed half-meter breathing margin.
+            float horizontalHalf = maxHorizontal * TestCameraFitScale + TestCameraMarginMeters;
+            float verticalHalf = maxVertical * TestCameraFitScale + TestCameraMarginMeters;
             camera.orthographicSize = Mathf.Max(
                 .5f,
-                Mathf.Max(maxHorizontal, maxVertical) * TestCameraFitScale + TestCameraMarginMeters);
+                verticalHalf,
+                horizontalHalf / camera.aspect);
             camera.farClipPlane = Mathf.Max(100f, distance + maxDepth + 10f);
             return camera;
         }
@@ -1288,27 +1293,28 @@ namespace CharacterAnimationCli.Unity.Command
             texture.SetPixels(pixels);
         }
 
-        private static void DrawInternalGrid(Texture2D texture, PictureLayout layout, int panels)
+        private static void DrawInternalGrid(Texture2D texture, PictureLayout layout, int panels, int tileWidth, int tileHeight)
         {
+            int panelHeight = layout.TileRows * tileHeight;
             for (int column = 1; column < layout.TileColumns; column++)
             {
-                int x = column * layout.TileSize - 2;
+                int x = column * tileWidth - 2;
                 for (int panel = 0; panel < panels; panel++)
                 {
-                    FillRect(texture, x, panel * layout.Height, 4, layout.Height, Color.white);
+                    FillRect(texture, x, panel * panelHeight, 4, panelHeight, Color.white);
                 }
             }
             for (int panel = 1; panel < panels; panel++)
             {
-                int y = panel * layout.Height - 2;
+                int y = panel * panelHeight - 2;
                 FillRect(texture, 0, y, texture.width, 4, Color.white);
             }
             for (int panel = 0; panel < panels; panel++)
             {
-                int originY = panel * layout.Height;
+                int originY = panel * panelHeight;
                 for (int row = 1; row < layout.TileRows; row++)
                 {
-                    int y = originY + row * layout.TileSize - 2;
+                    int y = originY + row * tileHeight - 2;
                     FillRect(texture, 0, y, texture.width, 4, Color.white);
                 }
             }
@@ -1445,7 +1451,10 @@ namespace CharacterAnimationCli.Unity.Command
                     handler.SetHumanPose(ref pose);
                 }
             }
-            animator.transform.SetPositionAndRotation(position, rotation);
+            else
+            {
+                animator.transform.SetPositionAndRotation(position, rotation);
+            }
             return preview;
         }
 
@@ -1507,7 +1516,12 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static Texture2D RenderCamera(Camera camera, int size, Color background)
         {
-            RenderTexture renderTexture = RenderTexture.GetTemporary(size, size, 24, RenderTextureFormat.ARGB32);
+            return RenderCamera(camera, size, size, background);
+        }
+
+        private static Texture2D RenderCamera(Camera camera, int width, int height, Color background)
+        {
+            RenderTexture renderTexture = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.ARGB32);
             RenderTexture previous = RenderTexture.active;
             try
             {
@@ -1515,8 +1529,8 @@ namespace CharacterAnimationCli.Unity.Command
                 camera.targetTexture = renderTexture;
                 camera.Render();
                 RenderTexture.active = renderTexture;
-                var image = new Texture2D(size, size, TextureFormat.RGBA32, false);
-                image.ReadPixels(new Rect(0, 0, size, size), 0, 0);
+                var image = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                image.ReadPixels(new Rect(0, 0, width, height), 0, 0);
                 image.Apply(false, false);
                 return image;
             }
@@ -1732,6 +1746,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             public SubjectPictureData(
                 AnalysisSubject subject,
+                CharacterPose[] poses,
                 Vector3[] pelvis,
                 Vector3[] leftHand,
                 Vector3[] rightHand,
@@ -1745,6 +1760,7 @@ namespace CharacterAnimationCli.Unity.Command
                 Bounds testBounds)
             {
                 Subject = subject;
+                Poses = poses;
                 Pelvis = pelvis;
                 LeftHand = leftHand;
                 RightHand = rightHand;
@@ -1761,6 +1777,7 @@ namespace CharacterAnimationCli.Unity.Command
                     .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, Math.Max(0, pelvis.Length - 1))));
             }
             public AnalysisSubject Subject { get; }
+            public CharacterPose[] Poses { get; }
             public Vector3[] Pelvis { get; }
             public Vector3[] LeftHand { get; }
             public Vector3[] RightHand { get; }
@@ -1773,6 +1790,15 @@ namespace CharacterAnimationCli.Unity.Command
             public Bounds Bounds { get; }
             public Bounds TestBounds { get; }
             public HashSet<int> KeyFrameSet { get; }
+
+            public CharacterPose GetPose(int localFrame)
+            {
+                if (Poses == null || Poses.Length == 0)
+                {
+                    throw new InvalidOperationException($"Character '{Subject.Character.Name}' has no sampled poses.");
+                }
+                return Poses[Mathf.Clamp(localFrame, 0, Poses.Length - 1)];
+            }
         }
 
         private sealed class PictureTile
@@ -1824,7 +1850,10 @@ namespace CharacterAnimationCli.Unity.Command
                 int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
                 var primary = new HashSet<int>((primaryFrames ?? Enumerable.Empty<int>())
                     .Select(frame => Mathf.Clamp(frame, 0, lastFrame)));
-                List<int> frames = BuildTestSampleFrames(subject, primary);
+                List<int> frames = BuildTestSampleFrames(
+                    subject,
+                    primary,
+                    presentation == "test_foot_transitions");
                 primary.IntersectWith(frames);
                 return new PictureTile(subject, presentation, new JObject
                 {
@@ -1936,16 +1965,13 @@ namespace CharacterAnimationCli.Unity.Command
         private sealed class TestPosePlan : IDisposable
         {
             private readonly GameObject source;
-            private readonly PlayableGraph graph;
             private readonly Dictionary<int, TestPoseSnapshot> snapshots;
 
             public TestPosePlan(
                 GameObject source,
-                PlayableGraph graph,
                 Dictionary<int, TestPoseSnapshot> snapshots)
             {
                 this.source = source;
-                this.graph = graph;
                 this.snapshots = snapshots;
             }
 
@@ -1957,7 +1983,6 @@ namespace CharacterAnimationCli.Unity.Command
 
             public void Dispose()
             {
-                if (graph.IsValid()) graph.Destroy();
                 if (source != null) UnityEngine.Object.DestroyImmediate(source);
             }
         }

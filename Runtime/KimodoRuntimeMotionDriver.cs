@@ -149,8 +149,6 @@ namespace KimodoBridge
                 out KimodoRuntimeGeneratedSegment completedSegment,
                 out string playbackError);
 
-            MaybeQueueNextGeneration(generationSession.LifetimeToken);
-
             if (!string.IsNullOrWhiteSpace(playbackError))
             {
                 UpdateStatus($"Playback failed: {playbackError}");
@@ -158,6 +156,8 @@ namespace KimodoBridge
 
             if (startedSegment == null)
             {
+                MaybeQueueNextGeneration(generationSession.LifetimeToken);
+
                 if (completedSegment != null)
                 {
                     SegmentCompleted?.Invoke(CreateSegmentReport(completedSegment));
@@ -174,6 +174,10 @@ namespace KimodoBridge
             {
                 constraints.ClearOverlap();
             }
+
+            // Publish this segment's terminal pose before starting the next
+            // generation request; the request snapshots constraints immediately.
+            MaybeQueueNextGeneration(generationSession.LifetimeToken);
 
             UpdateStatus($"Playing segment {startedSegment.Index}.");
             SegmentStarted?.Invoke(CreateSegmentReport(startedSegment));

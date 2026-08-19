@@ -9,9 +9,6 @@ namespace KimodoBridge
 {
     internal static class KimodoRetargetClipSamplingUtility
     {
-        internal const bool RetargetSamplingDefaultFootIk = true;
-        internal const bool RetargetSamplingDefaultPlayableIk = true;
-
         internal enum ClipSamplingMode
         {
             Humanoid = 0,
@@ -268,6 +265,35 @@ namespace KimodoBridge
                 : KimodoMotionModelProfiles.DefaultFrameRate;
         }
 
+        internal static bool TryBuildIkClipSamplingContext(
+            AnimationClip clip,
+            SkeletonCache cache,
+            string rootName,
+            ClipSamplingMode samplingMode,
+            out ClipSamplingContext context,
+            out string error,
+            bool applyMotionXToDelta = true,
+            bool solveLeftHandIk = false,
+            bool solveRightHandIk = false,
+            bool solveLeftFootIk = false,
+            bool solveRightFootIk = false)
+        {
+            return TryBuildClipSamplingContext(
+                clip,
+                cache,
+                rootName,
+                samplingMode,
+                out context,
+                out error,
+                applyMotionXToDelta,
+                applyFootIk: solveLeftFootIk || solveRightFootIk,
+                solveHandIk: solveLeftHandIk || solveRightHandIk,
+                solveLeftHandIk: solveLeftHandIk,
+                solveRightHandIk: solveRightHandIk,
+                solveLeftFootIk: solveLeftFootIk,
+                solveRightFootIk: solveRightFootIk);
+        }
+
         internal static bool TryBuildClipSamplingContext(
             AnimationClip clip,
             SkeletonCache cache,
@@ -276,12 +302,12 @@ namespace KimodoBridge
             out ClipSamplingContext context,
             out string error,
             bool applyMotionXToDelta = true,
-            bool applyFootIk = true,
+            bool applyFootIk = false,
             bool solveHandIk = false,
-            bool solveLeftHandIk = true,
-            bool solveRightHandIk = true,
-            bool solveLeftFootIk = true,
-            bool solveRightFootIk = true)
+            bool solveLeftHandIk = false,
+            bool solveRightHandIk = false,
+            bool solveLeftFootIk = false,
+            bool solveRightFootIk = false)
         {
             context = null;
             error = string.Empty;
@@ -312,12 +338,12 @@ namespace KimodoBridge
                 bool useLeftHandIk = solveHandIk && solveLeftHandIk;
                 bool useRightHandIk = solveHandIk && solveRightHandIk;
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
-                bool solveLeftFoot = applyFootIk && RetargetSamplingDefaultFootIk && solveLeftFootIk;
-                bool solveRightFoot = applyFootIk && RetargetSamplingDefaultFootIk && solveRightFootIk;
+                bool solveLeftFoot = applyFootIk && solveLeftFootIk;
+                bool solveRightFoot = applyFootIk && solveRightFootIk;
                 // AnimationClipPlayable foot IK is an all-or-nothing switch.
                 // Solve goals in the job below so a disabled side stays untouched.
                 clipPlayable.SetApplyFootIK(false);
-                clipPlayable.SetApplyPlayableIK(RetargetSamplingDefaultPlayableIk);
+                clipPlayable.SetApplyPlayableIK(false);
                 Playable sourcePlayable = clipPlayable;
                 if (applyMotionXToDelta)
                 {
@@ -640,11 +666,11 @@ namespace KimodoBridge
             out BoneSample targetSample,
             out MuscleSample targetMuscleSample,
             out string error,
-            bool solveLeftHandIk = true,
-            bool solveRightHandIk = true,
-            bool applyFootIk = true,
-            bool solveLeftFootIk = true,
-            bool solveRightFootIk = true)
+            bool solveLeftHandIk = false,
+            bool solveRightHandIk = false,
+            bool applyFootIk = false,
+            bool solveLeftFootIk = false,
+            bool solveRightFootIk = false)
         {
             targetSample = null;
             targetMuscleSample = null;
@@ -694,11 +720,11 @@ namespace KimodoBridge
             out BoneSample[] targetSamples,
             out string error,
             Func<AnimationClip, string, string> writebackClip = null,
-            bool solveLeftHandIk = true,
-            bool solveRightHandIk = true,
-            bool applyFootIk = true,
-            bool solveLeftFootIk = true,
-            bool solveRightFootIk = true)
+            bool solveLeftHandIk = false,
+            bool solveRightHandIk = false,
+            bool applyFootIk = false,
+            bool solveLeftFootIk = false,
+            bool solveRightFootIk = false)
         {
             targetSamples = null;
             error = string.Empty;
@@ -743,7 +769,10 @@ namespace KimodoBridge
                         return false;
                     }
                 }
-                if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+                bool shouldSolveIk = solveLeftHandIk || solveRightHandIk ||
+                    (applyFootIk && (solveLeftFootIk || solveRightFootIk));
+                bool builtContext = shouldSolveIk
+                    ? KimodoRetargetClipSamplingUtility.TryBuildIkClipSamplingContext(
                         clip,
                         targetCache,
                         "KimodoRetarget_TargetPoseClip",
@@ -751,12 +780,19 @@ namespace KimodoBridge
                         out context,
                         out error,
                         applyMotionXToDelta: true,
-                        applyFootIk: applyFootIk,
-                        solveHandIk: solveLeftHandIk || solveRightHandIk,
                         solveLeftHandIk: solveLeftHandIk,
                         solveRightHandIk: solveRightHandIk,
                         solveLeftFootIk: solveLeftFootIk,
-                        solveRightFootIk: solveRightFootIk))
+                        solveRightFootIk: solveRightFootIk)
+                    : KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+                        clip,
+                        targetCache,
+                        "KimodoRetarget_TargetPoseClip",
+                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                        out context,
+                        out error,
+                        applyMotionXToDelta: true);
+                if (!builtContext)
                 {
                     return false;
                 }
@@ -892,7 +928,7 @@ namespace KimodoBridge
                 frameRate,
                 "Muscle samples are empty.",
                 "KimodoTransientMuscleClip",
-                KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip,
+                KimodoRetargetClipWriter.WriteTransientMuscleCurves,
                 out clip,
                 out error);
         }

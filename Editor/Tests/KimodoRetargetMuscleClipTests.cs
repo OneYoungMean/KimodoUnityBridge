@@ -60,11 +60,7 @@ namespace KimodoBridge.Editor.Tests
                     if (binding.type == typeof(Animator) &&
                         !binding.propertyName.StartsWith("Root", StringComparison.Ordinal) &&
                         !binding.propertyName.StartsWith("LeftFoot", StringComparison.Ordinal) &&
-                        !binding.propertyName.StartsWith("RightFoot", StringComparison.Ordinal) &&
-                        !binding.propertyName.StartsWith("LeftHandT", StringComparison.Ordinal) &&
-                        !binding.propertyName.StartsWith("LeftHandQ", StringComparison.Ordinal) &&
-                        !binding.propertyName.StartsWith("RightHandT", StringComparison.Ordinal) &&
-                        !binding.propertyName.StartsWith("RightHandQ", StringComparison.Ordinal))
+                        !binding.propertyName.StartsWith("RightFoot", StringComparison.Ordinal))
                     {
                         actual[binding.propertyName] = AnimationUtility.GetEditorCurve(clip, binding).Evaluate(0f);
                     }
@@ -87,7 +83,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void WriteMuscleClip_ExportsHandIkGoals()
+        public void WriteMuscleClip_DoesNotExportHandIkGoals()
         {
             var clip = new AnimationClip { frameRate = 30f };
             try
@@ -103,10 +99,38 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
 
-                Assert.That(ReadAnimatorKey(clip, "LeftHandT.x"), Is.EqualTo(1f).Within(1e-5f));
-                Assert.That(ReadAnimatorKey(clip, "LeftHandQ.w"), Is.EqualTo(0.9f).Within(1e-5f));
-                Assert.That(ReadAnimatorKey(clip, "RightHandT.z"), Is.EqualTo(6f).Within(1e-5f));
-                Assert.That(ReadAnimatorKey(clip, "RightHandQ.y"), Is.EqualTo(0.5f).Within(1e-5f));
+                Assert.That(HasAnimatorCurve(clip, "LeftHandT.x"), Is.False);
+                Assert.That(HasAnimatorCurve(clip, "LeftHandQ.w"), Is.False);
+                Assert.That(HasAnimatorCurve(clip, "RightHandT.z"), Is.False);
+                Assert.That(HasAnimatorCurve(clip, "RightHandQ.y"), Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+            }
+        }
+
+        [Test]
+        public void WriteMuscleClip_ExportsFootIkGoals()
+        {
+            var clip = new AnimationClip { frameRate = 30f };
+            try
+            {
+                MuscleSample sample = CreateRootRotationSample(Quaternion.identity);
+                sample.leftFootPosition = new Vector3(1f, 2f, 3f);
+                sample.leftFootRotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f);
+                sample.rightFootPosition = new Vector3(4f, 5f, 6f);
+                sample.rightFootRotation = new Quaternion(0.4f, 0.5f, 0.6f, 0.7f);
+
+                Assert.That(
+                    KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(new[] { sample }, clip, out string error),
+                    Is.True,
+                    error);
+
+                Assert.That(ReadAnimatorKey(clip, "LeftFootT.x"), Is.EqualTo(1f).Within(1e-5f));
+                Assert.That(ReadAnimatorKey(clip, "LeftFootQ.w"), Is.EqualTo(0.9f).Within(1e-5f));
+                Assert.That(ReadAnimatorKey(clip, "RightFootT.z"), Is.EqualTo(6f).Within(1e-5f));
+                Assert.That(ReadAnimatorKey(clip, "RightFootQ.y"), Is.EqualTo(0.5f).Within(1e-5f));
             }
             finally
             {
@@ -217,6 +241,13 @@ namespace KimodoBridge.Editor.Tests
         private static float ReadAnimatorKey(AnimationClip clip, string propertyName)
         {
             return ReadRootKey(clip, propertyName, 0);
+        }
+
+        private static bool HasAnimatorCurve(AnimationClip clip, string propertyName)
+        {
+            return AnimationUtility.GetEditorCurve(
+                clip,
+                EditorCurveBinding.FloatCurve(string.Empty, typeof(Animator), propertyName)) != null;
         }
     }
 }

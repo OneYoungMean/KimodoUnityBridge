@@ -309,6 +309,11 @@ namespace KimodoBridge
             currentSegment = segment;
             bool isArdy = segment.UseRawRootPosition && ardyBuffer != null && ReferenceEquals(segment, ardySegment);
             currentSegment.WorldAccumulatedOffset = lastCompletedWorldOffset;
+            // Keep ordinary segment joins continuous in Y as well as X/Z.
+            if (!isArdy && LastCompletedSegmentIndex < 0)
+            {
+                currentSegment.WorldAccumulatedOffset.y = segment.FirstRootPosition.y;
+            }
             currentSegmentRootBaseline = segment.FirstRootPosition;
             retargeter.ResetAnchors();
             timeSeconds = isArdy ? ardyBuffer.StartFrame / ardyBuffer.FrameRate : 0f;
@@ -389,7 +394,7 @@ namespace KimodoBridge
                 Vector3 completedDelta = currentSegment.LastRootPosition - currentSegment.FirstRootPosition;
                 lastCompletedWorldOffset = currentSegment.WorldAccumulatedOffset + new Vector3(
                     completedDelta.x,
-                    0f,
+                    completedDelta.y,
                     completedDelta.z);
             }
 
@@ -600,7 +605,7 @@ namespace KimodoBridge
                 ? rootPosition
                 : new Vector3(
                     currentSegment.WorldAccumulatedOffset.x + delta.x,
-                    rootPosition.y,
+                    currentSegment.WorldAccumulatedOffset.y + delta.y,
                     currentSegment.WorldAccumulatedOffset.z + delta.z);
             return true;
         }
@@ -624,7 +629,7 @@ namespace KimodoBridge
                 ? rootPosition
                 : new Vector3(
                     currentSegment.WorldAccumulatedOffset.x + delta.x,
-                    rootPosition.y,
+                    currentSegment.WorldAccumulatedOffset.y + delta.y,
                     currentSegment.WorldAccumulatedOffset.z + delta.z);
             return true;
         }

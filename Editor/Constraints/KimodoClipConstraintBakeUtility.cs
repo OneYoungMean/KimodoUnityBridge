@@ -107,7 +107,7 @@ namespace KimodoBridge.Editor
                         baseline.FrameRate,
                         out mergedClip,
                         out error) ||
-                    !KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+                    !KimodoRetargetClipSamplingUtility.TryBuildIkClipSamplingContext(
                         mergedClip,
                         cache,
                         "KimodoClipConstraintFootTQOutput",
@@ -115,7 +115,6 @@ namespace KimodoBridge.Editor
                         out samplingContext,
                         out error,
                         applyMotionXToDelta: true,
-                        applyFootIk: useLeftFoot || useRightFoot,
                         solveLeftFootIk: useLeftFoot,
                         solveRightFootIk: useRightFoot))
                 {

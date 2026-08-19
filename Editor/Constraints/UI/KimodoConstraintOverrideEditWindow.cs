@@ -1,7 +1,10 @@
 using TimelineInject;
 using System.Linq;
 using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEditor.Timeline;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace KimodoBridge.Editor
 {
@@ -22,6 +25,10 @@ namespace KimodoBridge.Editor
         private int sceneDragUndoGroup = -1;
         private bool collapseSceneDragUndo;
         private bool refreshSceneAfterDrag;
+        private bool invalidContext;
+        private string invalidContextError;
+        private int editSceneHandle;
+        private bool editSceneCaptured;
         [SerializeField] private HumanBodyBones selectedFullBodyTarget = HumanBodyBones.LastBone;
         private Vector2 scroll;
         private string lastError;
@@ -60,6 +67,10 @@ namespace KimodoBridge.Editor
             window.marker = marker;
             window.selectedFullBodyTarget = selectedTarget;
             window.lastError = string.Empty;
+            window.invalidContext = false;
+            window.invalidContextError = string.Empty;
+            window.editSceneCaptured = false;
+            window.CaptureEditScene();
             window.ConfigureEditSession(marker);
             if (marker != null)
             {
@@ -122,6 +133,7 @@ namespace KimodoBridge.Editor
         private void OnEnable()
         {
             currentWindow = this;
+            CaptureEditScene();
             if (marker != null)
             {
                 lastKnownMarker = marker;
@@ -140,6 +152,8 @@ namespace KimodoBridge.Editor
             LockTimelineWindow();
             EditorApplication.update += OnEditorUpdate;
             SceneView.duringSceneGui += OnSceneGUI;
+            EditorSceneManager.sceneClosing += OnSceneClosing;
+            EditorSceneManager.activeSceneChangedInEditMode += OnActiveSceneChanged;
         }
 
         private void OnDisable()
@@ -147,7 +161,10 @@ namespace KimodoBridge.Editor
             KimodoConstraintMarker restoreMarker = marker != null ? marker : lastKnownMarker;
             UnityEngine.Object restoreSelection = selectionBeforeOpen != null ? selectionBeforeOpen : restoreMarker as UnityEngine.Object;
 
-            CommitPoseChangesFromCache();
+            if (!invalidContext)
+            {
+                CommitPoseChangesFromCache();
+            }
 
             if (currentWindow == this)
             {
@@ -155,18 +172,15 @@ namespace KimodoBridge.Editor
             }
             EditorApplication.update -= OnEditorUpdate;
             SceneView.duringSceneGui -= OnSceneGUI;
-            if (hasEditContext)
-            {
-                if (!string.IsNullOrWhiteSpace(editEntryId))
-                {
-                    KimodoConstraintPoseCache.DestroyEntry(editContext, editEntryId);
-                }
-                else
-                {
-                    KimodoConstraintPoseCache.DestroyContext(editContext);
-                }
-            }
-            else if (restoreMarker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(restoreMarker, out PoseCacheRenderContext restoreContext, out _))
+            EditorSceneManager.sceneClosing -= OnSceneClosing;
+            EditorSceneManager.activeSceneChangedInEditMode -= OnActiveSceneChanged;
+            DestroyEditPreview();
+            if (!hasEditContext && !invalidContext &&
+                restoreMarker != null &&
+                KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(
+                    restoreMarker,
+                    out PoseCacheRenderContext restoreContext,
+                    out _))
             {
                 KimodoConstraintPoseCache.DestroyContext(restoreContext);
             }
@@ -198,6 +212,25 @@ namespace KimodoBridge.Editor
             sceneDragActive = false;
             pendingEndEffectorWriteback = false;
             pendingRootWriteback = false;
+            invalidContext = false;
+            invalidContextError = string.Empty;
+            editSceneCaptured = false;
+        }
+
+        private void OnSceneClosing(Scene scene, bool _)
+        {
+            if (editSceneCaptured && scene.handle == editSceneHandle)
+            {
+                MarkInvalid("The scene containing the edited character was closed. Reopen the edit window.");
+            }
+        }
+
+        private void OnActiveSceneChanged(Scene _, Scene next)
+        {
+            if (editSceneCaptured && next.handle != editSceneHandle)
+            {
+                MarkInvalid("The active scene changed while the edit window was open. Reopen the edit window.");
+            }
         }
 
         private void OnSceneGUI(SceneView sceneView)
@@ -221,76 +254,92 @@ namespace KimodoBridge.Editor
 
         private void OnEditorUpdate()
         {
-            if (marker == null || !marker.constraintEnabled)
+            if (invalidContext)
+            {
+                Repaint();
+                return;
+            }
+
+            if (marker == null)
+            {
+                MarkInvalid("The edited constraint marker was deleted.");
+                return;
+            }
+
+            if (!marker.constraintEnabled)
             {
                 Close();
                 return;
             }
 
-            if (TryGetEditContext(out PoseCacheRenderContext context, out _))
+            if (!TryGetEditContext(out PoseCacheRenderContext context, out string contextError))
             {
-                if (sceneDragActive &&
-                    KimodoConstraintPoseCache.HasIkTargetTransformChanges(context, editEntryId))
-                {
-                    if (KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
-                            context,
-                            editEntryId,
-                            marker.ConstraintType,
-                            out string previewError))
-                    {
-                        pendingEndEffectorWriteback = true;
-                        lastError = string.Empty;
-                    }
-                    else
-                    {
-                        lastError = string.IsNullOrWhiteSpace(previewError)
-                            ? "end-effector preview failed."
-                            : previewError;
-                    }
+                MarkInvalid(string.IsNullOrWhiteSpace(contextError)
+                    ? "The edited character or rig is no longer available."
+                    : contextError);
+                return;
+            }
 
-                }
-
-                if (sceneDragActive &&
-                    KimodoConstraintPoseCache.HasRootTargetTransformChanges(context, editEntryId))
-                {
-                    pendingRootWriteback = true;
-                }
-
-                if (!sceneDragActive &&
-                    (Tools.current == Tool.Move || Tools.current == Tool.Transform) &&
-                    KimodoConstraintPoseCache.IsNonRootPoseTransform(
+            if (sceneDragActive &&
+                KimodoConstraintPoseCache.HasIkTargetTransformChanges(context, editEntryId))
+            {
+                if (KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
                         context,
                         editEntryId,
-                        Selection.activeTransform))
+                        marker.ConstraintType,
+                        out string previewError))
                 {
-                    Tools.current = Tool.Rotate;
+                    pendingEndEffectorWriteback = true;
+                    lastError = string.Empty;
                 }
+                else
+                {
+                    lastError = string.IsNullOrWhiteSpace(previewError)
+                        ? "end-effector preview failed."
+                        : previewError;
+                }
+            }
 
-                if (pendingEndEffectorWriteback || pendingRootWriteback ||
-                    KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
-                {
-                    WriteBackPoseChanges(context);
-                }
+            if (sceneDragActive &&
+                KimodoConstraintPoseCache.HasRootTargetTransformChanges(context, editEntryId))
+            {
+                pendingRootWriteback = true;
+            }
 
-                if (!sceneDragActive && refreshSceneAfterDrag)
-                {
-                    if (KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out string poseError))
-                    {
-                        KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                        RestoreEndEffectorTargetSelection(marker, context, editEntryId, selectedFullBodyTarget);
-                        lastError = string.Empty;
-                    }
-                    else
-                    {
-                        lastError = string.IsNullOrWhiteSpace(poseError) ? "pose cache update failed." : poseError;
-                    }
-                    refreshSceneAfterDrag = false;
-                }
+            if (!sceneDragActive &&
+                (Tools.current == Tool.Move || Tools.current == Tool.Transform) &&
+                KimodoConstraintPoseCache.IsNonRootPoseTransform(
+                    context,
+                    editEntryId,
+                    Selection.activeTransform))
+            {
+                Tools.current = Tool.Rotate;
+            }
 
-                if (collapseSceneDragUndo)
+            if (pendingEndEffectorWriteback || pendingRootWriteback ||
+                KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
+            {
+                WriteBackPoseChanges(context);
+            }
+
+            if (!sceneDragActive && refreshSceneAfterDrag)
+            {
+                if (KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out string poseError))
                 {
-                    CollapseSceneDragUndo();
+                    KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
+                    RestoreEndEffectorTargetSelection(marker, context, editEntryId, selectedFullBodyTarget);
+                    lastError = string.Empty;
                 }
+                else
+                {
+                    lastError = string.IsNullOrWhiteSpace(poseError) ? "pose cache update failed." : poseError;
+                }
+                refreshSceneAfterDrag = false;
+            }
+
+            if (collapseSceneDragUndo)
+            {
+                CollapseSceneDragUndo();
             }
 
             Repaint();
@@ -298,17 +347,40 @@ namespace KimodoBridge.Editor
 
         private void OnGUI()
         {
+            if (invalidContext)
+            {
+                DrawInvalidState();
+                return;
+            }
+
             if (marker == null)
             {
-                EditorGUILayout.HelpBox("Marker is null.", MessageType.Error);
+                MarkInvalid("The edited constraint marker was deleted.");
+                DrawInvalidState();
                 return;
             }
 
             KimodoConstraintMarkerEditorUtility.HandleDeleteCommand(marker);
-            if (marker == null || marker.parent == null)
+            if (marker == null)
             {
-                Close();
-                GUIUtility.ExitGUI();
+                MarkInvalid("The edited constraint marker was deleted.");
+                DrawInvalidState();
+                return;
+            }
+
+            if (marker.parent == null)
+            {
+                MarkInvalid("The edited rig or parent track was deleted.");
+                DrawInvalidState();
+                return;
+            }
+
+            if (!TryGetEditContext(out _, out string contextError))
+            {
+                MarkInvalid(string.IsNullOrWhiteSpace(contextError)
+                    ? "The edited character or rig is no longer available."
+                    : contextError);
+                DrawInvalidState();
                 return;
             }
 
@@ -338,7 +410,7 @@ namespace KimodoBridge.Editor
 
             if (so.ApplyModifiedProperties())
             {
-                EditorUtility.SetDirty(marker);
+                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(marker);
                 string poseError = string.Empty;
                 bool rendered = TryGetEditContext(out PoseCacheRenderContext context, out poseError) &&
                     KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out poseError);
@@ -374,6 +446,25 @@ namespace KimodoBridge.Editor
             }
         }
 
+        private void DrawInvalidState()
+        {
+            EditorGUILayout.LabelField("Constraint Edit", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                string.IsNullOrWhiteSpace(invalidContextError)
+                    ? "The edit window is no longer valid."
+                    : invalidContextError,
+                MessageType.Error);
+            EditorGUILayout.HelpBox(
+                "The character, rig, marker, or Timeline scene used by this window is no longer available. Close this window and reopen it after restoring the source.",
+                MessageType.Error);
+            EditorGUILayout.Space(6f);
+            if (GUILayout.Button("Close", GUILayout.Height(30f)))
+            {
+                Close();
+                GUIUtility.ExitGUI();
+            }
+        }
+
         private void ConfigureEditSession(KimodoConstraintMarker target)
         {
             hasEditContext = false;
@@ -405,30 +496,105 @@ namespace KimodoBridge.Editor
         private bool TryGetEditContext(out PoseCacheRenderContext context, out string error)
         {
             error = string.Empty;
+            if (invalidContext)
+            {
+                context = default;
+                error = invalidContextError;
+                return false;
+            }
+
+            if (!IsEditSceneStillValid(out error))
+            {
+                context = default;
+                return false;
+            }
+
             string contextError = string.Empty;
+            if (marker == null)
+            {
+                context = default;
+                error = "The edited constraint marker was deleted.";
+                return false;
+            }
+
+            if (!KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(
+                    marker,
+                    out PoseCacheRenderContext resolvedContext,
+                    out contextError))
+            {
+                context = default;
+                error = contextError;
+                error = string.IsNullOrWhiteSpace(error)
+                    ? "The edited character or rig is no longer available."
+                    : error;
+                return false;
+            }
+
             if (hasEditContext)
             {
+                if (!KimodoRetargetCoreUtility.IsValidHumanoid(editContext.SourceAvatar))
+                {
+                    context = default;
+                    error = "The edited rig Avatar was deleted or is no longer valid. Reopen the edit window.";
+                    return false;
+                }
+
+                Animator sourceAnimator =
+                    KimodoEditorObjectIdUtility.ObjectFromId(editContext.AnimatorId) as Animator;
+                if (sourceAnimator == null ||
+                    !KimodoLocalAvatarUtility.CheckAvatarValid(
+                        editContext.SourceAvatar,
+                        sourceAnimator.gameObject))
+                {
+                    context = default;
+                    error = "The edited character rig was deleted or no longer matches its Avatar. Reopen the edit window.";
+                    return false;
+                }
+
+                if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                        editContext.ModelName,
+                        out Avatar profileAvatar,
+                        out _)
+                    || !KimodoRetargetCoreUtility.IsValidHumanoid(profileAvatar))
+                {
+                    context = default;
+                    error = "The edited rig profile Avatar was deleted or is no longer valid. Reopen the edit window.";
+                    return false;
+                }
+
+                if (!AreSameContext(editContext, resolvedContext))
+                {
+                    context = default;
+                    error = "The edited character or rig changed or was deleted. Reopen the edit window.";
+                    return false;
+                }
+
+                if (!KimodoConstraintPoseCache.TryGetPreviewRoot(
+                        editContext,
+                        editEntryId,
+                        out Transform previewRoot) ||
+                    previewRoot == null)
+                {
+                    context = default;
+                    error = "The edited rig preview was deleted. Reopen the edit window.";
+                    return false;
+                }
+
                 context = editContext;
                 return true;
             }
 
-            if (marker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out context, out contextError))
-            {
-                editContext = context;
-                editEntryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker);
-                hasEditContext = true;
-                return true;
-            }
-
-            context = default;
-            error = contextError;
-            error = string.IsNullOrWhiteSpace(error) ? "edit context is unavailable." : error;
-            return false;
+            editContext = resolvedContext;
+            editEntryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker);
+            hasEditContext = true;
+            context = editContext;
+            return true;
         }
 
         private void CommitPoseChangesFromCache()
         {
-            if (marker == null ||
+            if (invalidContext ||
+                marker == null ||
                 !TryGetEditContext(out PoseCacheRenderContext context, out _) ||
                 (!pendingEndEffectorWriteback &&
                  !pendingRootWriteback &&
@@ -443,7 +609,7 @@ namespace KimodoBridge.Editor
 
         private void WriteBackPoseChanges(PoseCacheRenderContext context)
         {
-            if (marker == null) return;
+            if (invalidContext || marker == null) return;
             EnsureSceneDragUndo();
             KimodoConstraintPoseCache.RestoreNonRootBoneTranslations(context, editEntryId);
             KimodoConstraintMarkerEditorUtility.LogDragMuscleSnapshot(
@@ -466,7 +632,8 @@ namespace KimodoBridge.Editor
                         marker,
                         sample,
                         disableFullBodyAutoSample: fullBodyChanged,
-                        out string writeError))
+                        out string writeError,
+                        writeSampledCharacterPose: true))
                 {
                     lastError = string.IsNullOrWhiteSpace(writeError) ? "marker writeback failed." : writeError;
                 }
@@ -552,6 +719,89 @@ namespace KimodoBridge.Editor
             }
 
             timelineLockCaptured = false;
+        }
+
+        private void CaptureEditScene()
+        {
+            if (editSceneCaptured)
+            {
+                return;
+            }
+
+            Scene scene = SceneManager.GetActiveScene();
+            var director = TimelineEditor.inspectedDirector;
+            if (director != null && director.gameObject != null && director.gameObject.scene.IsValid())
+            {
+                scene = director.gameObject.scene;
+            }
+
+            editSceneHandle = scene.handle;
+            editSceneCaptured = scene.IsValid();
+        }
+
+        private bool IsEditSceneStillValid(out string error)
+        {
+            error = string.Empty;
+            if (!editSceneCaptured)
+            {
+                return true;
+            }
+
+            Scene activeScene = SceneManager.GetActiveScene();
+            if (!activeScene.IsValid() || activeScene.handle != editSceneHandle)
+            {
+                error = "The active scene changed while the edit window was open. Reopen the edit window.";
+                return false;
+            }
+
+            return true;
+        }
+
+        private void MarkInvalid(string error)
+        {
+            invalidContext = true;
+            invalidContextError = string.IsNullOrWhiteSpace(error)
+                ? "The edit window is no longer valid."
+                : error;
+            lastError = invalidContextError;
+            sceneDragActive = false;
+            CollapseSceneDragUndo();
+            refreshSceneAfterDrag = false;
+            pendingEndEffectorWriteback = false;
+            pendingRootWriteback = false;
+            DestroyEditPreview();
+            Repaint();
+            SceneView.RepaintAll();
+        }
+
+        private void DestroyEditPreview()
+        {
+            if (!hasEditContext)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(editEntryId))
+            {
+                KimodoConstraintPoseCache.DestroyEntry(editContext, editEntryId);
+            }
+            else
+            {
+                KimodoConstraintPoseCache.DestroyContext(editContext);
+            }
+
+            hasEditContext = false;
+            editEntryId = string.Empty;
+            editContext = default;
+        }
+
+        private static bool AreSameContext(PoseCacheRenderContext left, PoseCacheRenderContext right)
+        {
+            return left.ClipId == right.ClipId &&
+                left.AnimatorId == right.AnimatorId &&
+                left.TrackId == right.TrackId &&
+                left.RigType == right.RigType &&
+                string.Equals(left.ModelName, right.ModelName, System.StringComparison.Ordinal);
         }
 
         private static void DrawPropertyIfExists(SerializedObject so, string name)

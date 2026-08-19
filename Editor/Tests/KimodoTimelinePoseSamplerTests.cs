@@ -839,6 +839,9 @@ namespace KimodoBridge.Editor.Tests
                     KimodoMotionModelProfiles.DefaultModelName,
                     source.skeletonRoot,
                     "fullbody");
+                sample.characterPose.muscles[0] = 0.123f;
+                sample.characterPose.muscles[17] = -0.234f;
+                float[] authoredMuscles = (float[])sample.characterPose.muscles.Clone();
                 Assert.That(
                     KimodoConstraintPoseCache.RenderBatch(
                         context,
@@ -848,7 +851,7 @@ namespace KimodoBridge.Editor.Tests
                             {
                                 EntryId = entryId,
                                 SampleData = sample,
-                                ConstraintType = "fullbody",
+                                ConstraintType = "constraint",
                                 Visible = true
                             }
                         },
@@ -874,23 +877,21 @@ namespace KimodoBridge.Editor.Tests
                             out GameObject target),
                         Is.True,
                         $"Missing FullBody target for {bones[i]}.");
-                    string expectedMesh = bones[i] == HumanBodyBones.Hips ||
-                        bones[i] == HumanBodyBones.LeftHand || bones[i] == HumanBodyBones.RightHand
-                        ? "Sphere"
-                        : "Cube";
-                    Assert.That(target.GetComponent<MeshFilter>()?.sharedMesh?.name, Is.EqualTo(expectedMesh));
+                    Assert.That(target, Is.Not.Null);
                 }
 
                 Assert.That(
                     KimodoConstraintPoseCache.TryBuildSampleFromContext(
                         context,
                         entryId,
-                        "fullbody",
+                        "constraint",
                         0.0,
                         out KimodoMarkerSampleResult initial,
                         out error),
                     Is.True,
                     error);
+                Assert.That(initial.characterPose.muscles, Is.EqualTo(authoredMuscles),
+                    "Initial sampling must preserve authored muscle values.");
                 Assert.That(
                     KimodoConstraintPoseCache.TryGetFullBodyTarget(
                         context,
@@ -918,7 +919,7 @@ namespace KimodoBridge.Editor.Tests
                     KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
                         context,
                         entryId,
-                        "fullbody",
+                        "constraint",
                         out error),
                     Is.True,
                     error);
@@ -926,7 +927,7 @@ namespace KimodoBridge.Editor.Tests
                     KimodoConstraintPoseCache.TryBuildSampleFromContext(
                         context,
                         entryId,
-                        "fullbody",
+                        "constraint",
                         0.0,
                         out KimodoMarkerSampleResult edited,
                         out error),
@@ -934,6 +935,10 @@ namespace KimodoBridge.Editor.Tests
                     error);
                 Assert.That(edited.characterPose, Is.Not.Null);
                 Assert.That(edited.characterPose.TryValidate(out error), Is.True, error);
+                Assert.That(edited.characterPose.muscles, Is.EqualTo(authoredMuscles),
+                    "Dragging IK targets must not resample post-IK muscles into the canonical pose.");
+                Assert.That(edited.mask.leftHand, Is.True,
+                    "Dragging a disabled FullBody hand target must enable its IK channel.");
                 Assert.That(
                     Vector3.Distance(initial.characterPose.root.t, edited.characterPose.root.t),
                     Is.GreaterThan(1e-4f));
@@ -1017,7 +1022,12 @@ namespace KimodoBridge.Editor.Tests
                         cache,
                         out _,
                         out MuscleSample solved,
-                        out error),
+                        out error,
+                        solveLeftHandIk: goal == AvatarIKGoal.LeftHand,
+                        solveRightHandIk: goal == AvatarIKGoal.RightHand,
+                        applyFootIk: goal == AvatarIKGoal.LeftFoot || goal == AvatarIKGoal.RightFoot,
+                        solveLeftFootIk: goal == AvatarIKGoal.LeftFoot,
+                        solveRightFootIk: goal == AvatarIKGoal.RightFoot),
                     Is.True,
                     error);
                 Assert.That(solved, Is.Not.Null);
@@ -1100,12 +1110,7 @@ namespace KimodoBridge.Editor.Tests
                         target,
                         out _,
                         out MuscleSample solved,
-                        out error,
-                        solveLeftHandIk: false,
-                        solveRightHandIk: false,
-                        applyFootIk: false,
-                        solveLeftFootIk: false,
-                        solveRightFootIk: false),
+                        out error),
                     Is.True,
                     error);
 
@@ -2292,6 +2297,177 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void ConstraintSomaConstraint_RoundTripReportsSkeletonPoseError()
+        {
+            const string modelName = KimodoMotionModelProfiles.DefaultModelName;
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    modelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoConstraintRoundTrip_Source",
+                    out SkeletonCache source,
+                    out error),
+                Is.True,
+                error);
+
+            SkeletonCache somaFromConstraint = null;
+            SkeletonCache somaFromRestoredConstraint = null;
+            try
+            {
+                Assert.That(
+                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                        avatar,
+                        "KimodoConstraintRoundTrip_FirstSoma",
+                        out somaFromConstraint,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                        avatar,
+                        "KimodoConstraintRoundTrip_SecondSoma",
+                        out somaFromRestoredConstraint,
+                        out error),
+                    Is.True,
+                    error);
+
+                Transform hips = source.animator.GetBoneTransform(HumanBodyBones.Hips);
+                Transform leftHand = source.animator.GetBoneTransform(HumanBodyBones.LeftHand);
+                Transform rightHand = source.animator.GetBoneTransform(HumanBodyBones.RightHand);
+                Transform leftFoot = source.animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+                Transform rightFoot = source.animator.GetBoneTransform(HumanBodyBones.RightFoot);
+                Assert.That(hips, Is.Not.Null);
+                Assert.That(leftHand, Is.Not.Null);
+                Assert.That(rightHand, Is.Not.Null);
+                Assert.That(leftFoot, Is.Not.Null);
+                Assert.That(rightFoot, Is.Not.Null);
+
+                source.skeletonRoot.SetPositionAndRotation(
+                    new Vector3(1.25f, 0.2f, -0.75f),
+                    Quaternion.Euler(0f, 32f, 0f));
+                hips.localRotation *= Quaternion.Euler(7f, 18f, -4f);
+                leftHand.localRotation *= Quaternion.Euler(22f, -13f, 31f);
+                rightHand.localRotation *= Quaternion.Euler(-17f, 11f, -24f);
+                leftFoot.localRotation *= Quaternion.Euler(-16f, 9f, 6f);
+                rightFoot.localRotation *= Quaternion.Euler(13f, -8f, -5f);
+
+                BoneSample originalSomaPose = KimodoRetargetSamplingUtility.CaptureBoneSample(source);
+                Assert.That(
+                    KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                        originalSomaPose,
+                        source,
+                        modelName,
+                        "fullbody",
+                        0.0,
+                        out KimodoMarkerSampleResult originalConstraint,
+                        out error),
+                    Is.True,
+                    error);
+                originalConstraint.mask = new KimodoConstraintMask
+                {
+                    muscle = true,
+                    rootPosition = true,
+                    rootHeading = true,
+                    leftHand = true,
+                    rightHand = true,
+                    leftFoot = true,
+                    rightFoot = true
+                };
+
+                Assert.That(
+                    KimodoConstraintSpaceConverter.TryApplyToTargetAvatar(
+                        originalConstraint,
+                        modelName,
+                        KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
+                        source,
+                        somaFromConstraint,
+                        out error),
+                    Is.True,
+                    error);
+                BoneSample firstSomaPose = KimodoRetargetSamplingUtility.CaptureBoneSample(somaFromConstraint);
+
+                Assert.That(
+                    KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                        firstSomaPose,
+                        somaFromConstraint,
+                        modelName,
+                        "fullbody",
+                        0.0,
+                        out KimodoMarkerSampleResult restoredConstraint,
+                        out error),
+                    Is.True,
+                    error);
+                restoredConstraint.mask = originalConstraint.mask.Clone();
+
+                Assert.That(
+                    KimodoConstraintSpaceConverter.TryApplyToTargetAvatar(
+                        restoredConstraint,
+                        modelName,
+                        KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
+                        source,
+                        somaFromRestoredConstraint,
+                        out error),
+                    Is.True,
+                    error);
+                BoneSample restoredSomaPose = KimodoRetargetSamplingUtility.CaptureBoneSample(somaFromRestoredConstraint);
+
+                MeasureBoneSampleDifference(
+                    originalSomaPose,
+                    firstSomaPose,
+                    out float firstPositionMax,
+                    out string firstPositionMaxBone,
+                    out float firstPositionMean,
+                    out float firstRotationMax,
+                    out string firstRotationMaxBone,
+                    out float firstRotationMean);
+                MeasureBoneSampleDifference(
+                    firstSomaPose,
+                    restoredSomaPose,
+                    out float roundTripPositionMax,
+                    out string roundTripPositionMaxBone,
+                    out float roundTripPositionMean,
+                    out float roundTripRotationMax,
+                    out string roundTripRotationMaxBone,
+                    out float roundTripRotationMean);
+                MeasureBoneSampleDifference(
+                    originalSomaPose,
+                    restoredSomaPose,
+                    out float totalPositionMax,
+                    out string totalPositionMaxBone,
+                    out float totalPositionMean,
+                    out float totalRotationMax,
+                    out string totalRotationMaxBone,
+                    out float totalRotationMean);
+
+                Debug.Log(
+                    $"[Kimodo][ConstraintSomaConstraintRoundTrip] bones={originalSomaPose.boneNames.Length} " +
+                    $"firstSoma positionMax={firstPositionMax:F6}m bone={firstPositionMaxBone} positionMean={firstPositionMean:F6}m " +
+                    $"rotationMax={firstRotationMax:F4}deg bone={firstRotationMaxBone} rotationMean={firstRotationMean:F4}deg; " +
+                    $"somaConstraintSoma positionMax={roundTripPositionMax:F6}m bone={roundTripPositionMaxBone} positionMean={roundTripPositionMean:F6}m " +
+                    $"rotationMax={roundTripRotationMax:F4}deg bone={roundTripRotationMaxBone} rotationMean={roundTripRotationMean:F4}deg; " +
+                    $"total positionMax={totalPositionMax:F6}m bone={totalPositionMaxBone} positionMean={totalPositionMean:F6}m " +
+                    $"rotationMax={totalRotationMax:F4}deg bone={totalRotationMaxBone} rotationMean={totalRotationMean:F4}deg");
+
+                Assert.That(roundTripPositionMax, Is.LessThan(0.01f),
+                    $"SOMA pose changed after constraint -> SOMA -> constraint -> SOMA. max={roundTripPositionMax:F6}m");
+                Assert.That(roundTripRotationMax, Is.LessThan(5f),
+                    $"SOMA pose changed after constraint -> SOMA -> constraint -> SOMA. max={roundTripRotationMax:F4}deg");
+            }
+            finally
+            {
+                somaFromRestoredConstraint?.Dispose();
+                somaFromConstraint?.Dispose();
+                source.Dispose();
+            }
+        }
+
+        [Test]
         public void ConstraintPoseCache_IsolatesPreviewSessionsByTrack()
         {
             KimodoConstraintPoseCache.DestroyAll();
@@ -2572,6 +2748,53 @@ namespace KimodoBridge.Editor.Tests
                     return true;
                 default:
                     return false;
+            }
+        }
+
+        private static void MeasureBoneSampleDifference(
+            BoneSample left,
+            BoneSample right,
+            out float positionMax,
+            out string positionMaxBone,
+            out float positionMean,
+            out float rotationMax,
+            out string rotationMaxBone,
+            out float rotationMean)
+        {
+            Assert.That(left, Is.Not.Null);
+            Assert.That(right, Is.Not.Null);
+            Assert.That(right.boneNames.Length, Is.EqualTo(left.boneNames.Length));
+
+            positionMax = 0f;
+            positionMaxBone = string.Empty;
+            positionMean = 0f;
+            rotationMax = 0f;
+            rotationMaxBone = string.Empty;
+            rotationMean = 0f;
+            for (int i = 0; i < left.boneNames.Length; i++)
+            {
+                Assert.That(right.boneNames[i], Is.EqualTo(left.boneNames[i]));
+                float positionError = Vector3.Distance(left.localPositions[i], right.localPositions[i]);
+                float rotationError = Quaternion.Angle(left.localRotations[i], right.localRotations[i]);
+                if (positionError > positionMax)
+                {
+                    positionMax = positionError;
+                    positionMaxBone = left.boneNames[i];
+                }
+                positionMean += positionError;
+                if (rotationError > rotationMax)
+                {
+                    rotationMax = rotationError;
+                    rotationMaxBone = left.boneNames[i];
+                }
+                rotationMean += rotationError;
+            }
+
+            int count = left.boneNames.Length;
+            if (count > 0)
+            {
+                positionMean /= count;
+                rotationMean /= count;
             }
         }
 

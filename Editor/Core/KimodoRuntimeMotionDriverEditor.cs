@@ -1,9 +1,12 @@
+using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
     [CustomEditor(typeof(KimodoRuntimeMotionDriver))]
+    [CanEditMultipleObjects]
     internal sealed class KimodoRuntimeMotionDriverEditor : UnityEditor.Editor
     {
         private SerializedProperty targetAnimators;
@@ -131,13 +134,19 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            KimodoRuntimeMotionDriver driver = (KimodoRuntimeMotionDriver)target;
-            driver.FootIkEnabled = EditorGUILayout.Toggle(label, driver.FootIkEnabled);
+            bool previousShowMixedValue = EditorGUI.showMixedValue;
+            EditorGUI.showMixedValue = driveFootIkTargets.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
+            bool enabled = EditorGUILayout.Toggle(label, driveFootIkTargets.boolValue);
+            if (EditorGUI.EndChangeCheck())
+            {
+                ForEachSelectedDriver(driver => driver.FootIkEnabled = enabled);
+            }
+            EditorGUI.showMixedValue = previousShowMixedValue;
         }
 
         private void DrawRuntimeControls()
         {
-            KimodoRuntimeMotionDriver driver = (KimodoRuntimeMotionDriver)target;
             EditorGUILayout.LabelField("Runtime Controls", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
 
@@ -146,22 +155,33 @@ namespace KimodoBridge.Editor
                 if (GUILayout.Button(new GUIContent("Apply", "Apply settings now; restart this session when required."), GUILayout.Height(30f)))
                 {
                     serializedObject.ApplyModifiedProperties();
-                    driver.ApplyGenerationSettings();
+                    ForEachSelectedDriver(driver => driver.ApplyGenerationSettings());
                 }
 
                 if (GUILayout.Button("Reset Motion", GUILayout.Height(24f)))
                 {
-                    _ = driver.ResetMotionAsync();
+                    ForEachSelectedDriver(driver => _ = driver.ResetMotionAsync());
                 }
             }
 
-            EditorGUILayout.LabelField("Driver status: " + (driver.IsRunning ? "running" : "stopped"), EditorStyles.miniLabel);
+            int runningCount = 0;
+            for (int i = 0; i < targets.Length; i++)
+            {
+                if (targets[i] is KimodoRuntimeMotionDriver driver && driver.IsRunning)
+                {
+                    runningCount++;
+                }
+            }
+            EditorGUILayout.LabelField(
+                $"Drivers: {targets.Length} selected ({runningCount} running)",
+                EditorStyles.miniLabel);
             EditorGUILayout.LabelField(
                 "Bridge status: " + (KimodoBridgeService.Shared.IsConnected ? "connected" : "disconnected"),
                 EditorStyles.miniLabel);
-            if (!string.IsNullOrWhiteSpace(driver.StatusMessage))
+            string statusSummary = BuildStatusSummary();
+            if (!string.IsNullOrWhiteSpace(statusSummary))
             {
-                EditorGUILayout.LabelField(driver.StatusMessage, EditorStyles.wordWrappedMiniLabel);
+                EditorGUILayout.LabelField(statusSummary, EditorStyles.wordWrappedMiniLabel);
             }
             if (!Application.isPlaying)
             {
@@ -174,6 +194,48 @@ namespace KimodoBridge.Editor
 
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
+        }
+
+        private void ForEachSelectedDriver(Action<KimodoRuntimeMotionDriver> action)
+        {
+            for (int i = 0; i < targets.Length; i++)
+            {
+                if (targets[i] is KimodoRuntimeMotionDriver driver)
+                {
+                    action(driver);
+                }
+            }
+        }
+
+        private string BuildStatusSummary()
+        {
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < targets.Length; i++)
+            {
+                if (!(targets[i] is KimodoRuntimeMotionDriver driver) ||
+                    string.IsNullOrWhiteSpace(driver.StatusMessage))
+                {
+                    continue;
+                }
+
+                string status = driver.StatusMessage.Trim();
+                counts.TryGetValue(status, out int count);
+                counts[status] = count + 1;
+            }
+
+            if (counts.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var summaries = new List<string>(counts.Count);
+            foreach (KeyValuePair<string, int> item in counts)
+            {
+                summaries.Add(item.Value > 1
+                    ? $"{item.Key} (x{item.Value})"
+                    : item.Key);
+            }
+            return string.Join(" | ", summaries);
         }
 
         private void DrawDebugSection()

@@ -334,12 +334,20 @@ namespace KimodoBridge.Editor
             {
                 if (Handles.Button(position, transform.rotation, size, size * 1.25f, cap)) OpenHandleEditor(entry, bone);
             }
-            else if (editable)
+            else if (editable && Selection.activeTransform == transform)
             {
                 EditorGUI.BeginChangeCheck();
                 Vector3 moved = Handles.FreeMoveHandle(position, size, Vector3.zero, cap);
                 Quaternion rotated = Handles.RotationHandle(transform.rotation, moved);
                 if (EditorGUI.EndChangeCheck()) transform.SetPositionAndRotation(moved, rotated);
+            }
+            else if (editable)
+            {
+                if (Handles.Button(position, transform.rotation, size, size * 1.25f, cap))
+                {
+                    Selection.activeGameObject = target;
+                    Tools.current = Tool.Move;
+                }
             }
             else
             {
@@ -645,15 +653,13 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            // Root dragging remains editable; only disabled hand/foot IK
-            // channels are prevented from being promoted by a drag.
             sample.mask ??= new KimodoConstraintMask();
-            if (entry.FullBodyTargets != null &&
+            bool rootChanged = entry.FullBodyTargets != null &&
                 entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject rootTarget) &&
-                rootTarget != null && rootTarget.transform.hasChanged)
+                HasFullBodyTargetTransformChanged(entry, HumanBodyBones.Hips, rootTarget, sample.mask);
+            EnableChangedConstraintChannels(entry, sample.mask);
+            if (rootChanged)
             {
-                sample.mask.rootPosition = true;
-                sample.mask.rootHeading = true;
                 sample.hasRootHeading = true;
             }
         }
@@ -682,19 +688,43 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static void EnableChangedRootChannel(
+        private static void EnableChangedConstraintChannels(
             ConstraintPosePreviewEntry entry,
             KimodoConstraintMask mask)
         {
-            if (entry?.FullBodyTargets == null || mask == null ||
-                !entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject rootTarget) ||
-                rootTarget == null || !rootTarget.transform.hasChanged)
+            if (entry?.FullBodyTargets == null || mask == null)
             {
                 return;
             }
 
-            mask.rootPosition = true;
-            mask.rootHeading = true;
+            foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
+            {
+                if (item.Value == null ||
+                    !HasFullBodyTargetTransformChanged(entry, item.Key, item.Value, mask))
+                {
+                    continue;
+                }
+
+                switch (item.Key)
+                {
+                    case HumanBodyBones.Hips:
+                        mask.rootPosition = true;
+                        mask.rootHeading = true;
+                        break;
+                    case HumanBodyBones.LeftHand:
+                        mask.leftHand = true;
+                        break;
+                    case HumanBodyBones.RightHand:
+                        mask.rightHand = true;
+                        break;
+                    case HumanBodyBones.LeftFoot:
+                        mask.leftFoot = true;
+                        break;
+                    case HumanBodyBones.RightFoot:
+                        mask.rightFoot = true;
+                        break;
+                }
+            }
         }
 
         internal static bool TryPreviewEndEffectorTargetPose(
@@ -1822,7 +1852,30 @@ namespace KimodoBridge.Editor
             try
             {
                 KimodoConstraintMask mask = KimodoConstraintMask.Resolve(entry.BaseSample?.mask, markerType).Clone();
-                EnableChangedRootChannel(entry, mask);
+                bool rootTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.Hips, mask);
+                bool leftHandTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.LeftHand, mask);
+                bool rightHandTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.RightHand, mask);
+                bool leftFootTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.LeftFoot, mask);
+                bool rightFootTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.RightFoot, mask);
+                if (entry.EndEffectorMarker != null && entry.EndEffectorMarker.transform.hasChanged)
+                {
+                    switch (ResolveEndEffectorBone(markerType))
+                    {
+                        case HumanBodyBones.LeftHand:
+                            leftHandTargetChanged = true;
+                            break;
+                        case HumanBodyBones.RightHand:
+                            rightHandTargetChanged = true;
+                            break;
+                        case HumanBodyBones.LeftFoot:
+                            leftFootTargetChanged = true;
+                            break;
+                        case HumanBodyBones.RightFoot:
+                            rightFootTargetChanged = true;
+                            break;
+                    }
+                }
+                EnableChangedConstraintChannels(entry, mask);
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase) &&
                     HasFullBodyTargetTransformChanges(entry) &&
                     !TryApplyFullBodyTargetsToRig(entry, modelName, mask, out error))
@@ -1873,7 +1926,14 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                sample.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(targetSample);
+                sample.characterPose = BuildWritebackCharacterPose(
+                    entry,
+                    targetSample,
+                    rootTargetChanged,
+                    leftHandTargetChanged,
+                    rightHandTargetChanged,
+                    leftFootTargetChanged,
+                    rightFootTargetChanged);
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase))
                 {
                     sample.mask = mask.Clone();
@@ -1886,6 +1946,61 @@ namespace KimodoBridge.Editor
             {
                 entry.TargetCache.root.SetActive(wasActive);
             }
+        }
+
+        private static CharacterPose BuildWritebackCharacterPose(
+            ConstraintPosePreviewEntry entry,
+            MuscleSample sampledTarget,
+            bool rootChanged,
+            bool leftHandChanged,
+            bool rightHandChanged,
+            bool leftFootChanged,
+            bool rightFootChanged)
+        {
+            CharacterPose sampledPose = sampledTarget != null
+                ? CharacterPoseMuscleAdapter.FromMuscleSample(sampledTarget)
+                : null;
+            CharacterPose result = entry?.BaseSample?.characterPose?.Clone();
+            if (result == null)
+            {
+                return sampledPose;
+            }
+            if (sampledPose == null)
+            {
+                return result;
+            }
+
+            if (rootChanged)
+            {
+                result.root = sampledPose.root;
+            }
+            if (leftHandChanged)
+            {
+                result.hands.left = sampledPose.hands?.left;
+            }
+            if (rightHandChanged)
+            {
+                result.hands.right = sampledPose.hands?.right;
+            }
+            if (leftFootChanged)
+            {
+                result.feet.left = sampledPose.feet?.left;
+            }
+            if (rightFootChanged)
+            {
+                result.feet.right = sampledPose.feet?.right;
+            }
+            return result;
+        }
+
+        private static bool HasChangedFullBodyTarget(
+            ConstraintPosePreviewEntry entry,
+            HumanBodyBones bone,
+            KimodoConstraintMask mask)
+        {
+            return entry?.FullBodyTargets != null &&
+                entry.FullBodyTargets.TryGetValue(bone, out GameObject target) &&
+                HasFullBodyTargetTransformChanged(entry, bone, target, mask);
         }
 
         private static void UpdateEndEffectorMarker(
@@ -2205,7 +2320,7 @@ namespace KimodoBridge.Editor
             KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
                 entry?.BaseSample?.mask,
                 entry?.BaseSample?.constraintType).Clone();
-            EnableChangedRootChannel(entry, mask);
+            EnableChangedConstraintChannels(entry, mask);
             return TryApplyFullBodyTargetsToRig(
                 entry,
                 modelName,
@@ -2460,31 +2575,8 @@ namespace KimodoBridge.Editor
         {
             Transform transform = target != null ? target.transform : null;
             if (transform == null || !transform.hasChanged) return false;
-            return bone == HumanBodyBones.Hips || IsTargetEnabled(mask, bone) ||
-                !IsTargetFollowingBodyPart(entry, bone, transform);
-        }
-
-        private static bool IsTargetFollowingBodyPart(
-            ConstraintPosePreviewEntry entry,
-            HumanBodyBones bone,
-            Transform target)
-        {
-            Transform bodyPart = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
-                entry?.TargetCache,
-                bone);
-            if (bodyPart == null || target.parent != bodyPart) return false;
-
-            Quaternion expectedRotation = AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(
-                entry?.TargetCache?.avatar,
-                (int)bone);
-            Vector3 expectedPosition = bodyPart.InverseTransformPoint(
-                KimodoRetargetHumanoidIkUtility.BonePositionToIkGoalWorldPosition(
-                    entry?.TargetCache?.avatar,
-                    bone,
-                    bodyPart.position,
-                    bodyPart.rotation * expectedRotation));
-            return (target.localPosition - expectedPosition).sqrMagnitude <= 1e-10f &&
-                Mathf.Abs(Quaternion.Dot(target.localRotation, expectedRotation)) >= 1f - 1e-6f;
+            // Target refreshes clear hasChanged; a remaining flag is a Scene drag.
+            return true;
         }
 
         private static void ClearFullBodyTargetTransformChanges(ConstraintPosePreviewEntry entry)

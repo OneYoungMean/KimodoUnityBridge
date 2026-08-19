@@ -93,12 +93,13 @@ namespace KimodoBridge
                 return false;
             }
 
-            Vector3 modelOrigin = KimodoMotionModelProfiles.TryGetArdy(modelName, out _)
-                ? Vector3.zero
-                : player.NextSegmentRootOrigin;
+            // Kimodo generation normalizes constraints to the earliest anchor
+            // (normally the overlap FullBody frame 0). Keep this target in
+            // absolute model space; subtracting NextSegmentRootOrigin here
+            // would apply the same translation a second time during generation.
             Vector2 modelTarget = KimodoRoot2DPlanner.ToModelTarget(
                 sample.characterPose != null ? new Vector3(sample.characterPose.root.t.x, 0f, sample.characterPose.root.t.z) : Vector3.zero,
-                modelOrigin,
+                Vector3.zero,
                 currentWorldPosition,
                 modelToWorldRotation,
                 new Vector3(targetWorldPosition.x, currentWorldPosition.y, targetWorldPosition.y),

@@ -548,6 +548,56 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
         }
 
         [Test]
+        public void ConstraintWriteback_PromotesDraggedIkChannelsIntoAuthoredMask()
+        {
+            KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
+            try
+            {
+                marker.SampleData = new KimodoMarkerSampleResult
+                {
+                    constraintType = "constraint",
+                    characterPose = new CharacterPose(),
+                    mask = new KimodoConstraintMask()
+                };
+                KimodoMarkerSampleResult dragged = marker.SampleData.Clone();
+                dragged.mask.leftHand = true;
+                dragged.mask.rightFoot = true;
+                dragged.characterPose.hands.left.t = new Vector3(1f, 2f, 3f);
+                dragged.characterPose.feet.right.t = new Vector3(4f, 5f, 6f);
+
+                Assert.That(
+                    KimodoBridge.Editor.KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
+                        marker,
+                        dragged,
+                        disableFullBodyAutoSample: false,
+                        out string error,
+                        writeSampledCharacterPose: true),
+                    Is.True,
+                    error);
+                Assert.That(marker.SampleData.mask.leftHand, Is.True);
+                Assert.That(marker.SampleData.mask.rightFoot, Is.True);
+                Assert.That(marker.SampleData.characterPose.hands.left.t, Is.EqualTo(new Vector3(1f, 2f, 3f)));
+                List<KimodoMarkerSampleResult> samples = KimodoConstraintSampleResolver.ExpandProtocolSamples(
+                    new[] { marker.SampleData },
+                    30.0);
+                Assert.That(
+                    samples.Any(sample =>
+                        sample.constraintType == "left-hand" &&
+                        sample.characterPose.hands.left.t == new Vector3(1f, 2f, 3f)),
+                    Is.True);
+                Assert.That(
+                    samples.Any(sample =>
+                        sample.constraintType == "right-foot" &&
+                        sample.characterPose.feet.right.t == new Vector3(4f, 5f, 6f)),
+                    Is.True);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(marker);
+            }
+        }
+
+        [Test]
         public void AutoSampleFullBody_KeepsCommandRoot2DOverrideAndHandAuthored()
         {
             KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();

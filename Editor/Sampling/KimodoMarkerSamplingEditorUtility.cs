@@ -11,7 +11,8 @@ namespace KimodoBridge.Editor
             KimodoConstraintMarker marker,
             KimodoMarkerSampleResult sample,
             bool disableFullBodyAutoSample,
-            out string error)
+            out string error,
+            bool writeSampledCharacterPose = false)
         {
             error = string.Empty;
             if (marker == null)
@@ -33,6 +34,26 @@ namespace KimodoBridge.Editor
                     out error))
             {
                 return false;
+            }
+
+            // Normalization preserves the authored mask; a Scene drag is the
+            // explicit editor path that may promote newly changed channels.
+            if (sample.mask != null)
+            {
+                KimodoConstraintMask requestedMask = KimodoConstraintMask.Resolve(
+                    sample.mask,
+                    sample.constraintType);
+                normalized.mask.rootPosition |= requestedMask.rootPosition;
+                normalized.mask.rootHeading |= requestedMask.rootHeading;
+                normalized.mask.leftHand |= requestedMask.leftHand;
+                normalized.mask.rightHand |= requestedMask.rightHand;
+                normalized.mask.leftFoot |= requestedMask.leftFoot;
+                normalized.mask.rightFoot |= requestedMask.rightFoot;
+            }
+
+            if (writeSampledCharacterPose && sample.characterPose != null)
+            {
+                normalized.characterPose = sample.characterPose.Clone();
             }
 
             bool changed = !AreSamplesEquivalent(marker.SampleData, normalized) ||
@@ -58,6 +79,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            KimodoConstraintMarkerSampling.ClearMarkerCache(marker);
             EditorUtility.SetDirty(marker);
 
             if (marker.parent is UnityEngine.Object parentObject)
