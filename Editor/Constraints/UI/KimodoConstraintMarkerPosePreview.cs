@@ -332,6 +332,7 @@ public static bool TryRenderMarkerToPoseCache(KimodoConstraintMarker marker, out
                 EntryId = entryId,
                 SampleData = normalizedSample,
                 ConstraintType = marker.ConstraintType,
+                ConstraintMode = marker.ConstraintMode,
                 HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
                 Visible = true,
                 SourceMarker = marker
@@ -376,6 +377,7 @@ public static bool TryRenderMarkerToPoseCache(KimodoConstraintMarker marker, out
                     EntryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker),
                     SampleData = sample,
                     ConstraintType = marker.ConstraintType,
+                    ConstraintMode = marker.ConstraintMode,
                     HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
                     Visible = true,
                     SourceMarker = marker

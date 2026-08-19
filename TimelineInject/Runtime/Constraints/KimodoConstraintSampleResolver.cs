@@ -51,6 +51,11 @@ namespace TimelineInject
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double frameRate)
         {
+            if (HasModeAwareSamples(samples))
+            {
+                return ExpandModeAwareSamples(samples, frameRate);
+            }
+
             var output = new List<KimodoMarkerSampleResult>();
             if (samples == null) return output;
             foreach (List<KimodoMarkerSampleResult> group in GroupByFrame(samples, frameRate).Values)
@@ -103,6 +108,204 @@ namespace TimelineInject
                 }
             }
             return output;
+        }
+
+        private static bool HasModeAwareSamples(IReadOnlyList<KimodoMarkerSampleResult> samples)
+        {
+            if (samples == null) return false;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(samples[i]?.constraintMode)) return true;
+            }
+            return false;
+        }
+
+        private static List<KimodoMarkerSampleResult> ExpandModeAwareSamples(
+            IReadOnlyList<KimodoMarkerSampleResult> samples,
+            double frameRate)
+        {
+            var output = new List<KimodoMarkerSampleResult>();
+            foreach (List<KimodoMarkerSampleResult> group in GroupByFrame(samples, frameRate).Values)
+            {
+                KimodoMarkerSampleResult root = LastModeSample(group, "root2d");
+                KimodoMarkerSampleResult fullBody = LastModeSample(group, "fullbody");
+                KimodoMarkerSampleResult ik = MergeIkModeSamples(group);
+
+                if (root != null && fullBody != null)
+                {
+                    ApplyRoot2DOverlay(root, fullBody);
+                }
+                if (root != null && ik != null)
+                {
+                    ApplyRoot2DOverlay(root, ik);
+                }
+
+                // Keep the protocol family separate. A Root2D record remains
+                // an explicit input even when it also overlays FullBody/IK.
+                if (root != null)
+                {
+                    KimodoMarkerSampleResult rootSample = root.Clone();
+                    rootSample.constraintType = "root2d";
+                    rootSample.mask = KimodoConstraintMask.ForType("root2d");
+                    output.Add(rootSample);
+                }
+
+                if (fullBody != null)
+                {
+                    KimodoMarkerSampleResult fullSample = fullBody.Clone();
+                    fullSample.constraintType = "fullbody";
+                    output.Add(fullSample);
+                }
+
+                if (ik != null)
+                {
+                    KimodoConstraintMask mask = KimodoConstraintMask.Resolve(ik.mask, "ik");
+                    AppendModeAwareIk(output, ik, mask.leftHand, "left-hand");
+                    AppendModeAwareIk(output, ik, mask.rightHand, "right-hand");
+                    AppendModeAwareIk(output, ik, mask.leftFoot, "left-foot");
+                    AppendModeAwareIk(output, ik, mask.rightFoot, "right-foot");
+                }
+            }
+            return output;
+        }
+
+        private static KimodoMarkerSampleResult LastModeSample(
+            List<KimodoMarkerSampleResult> group,
+            string mode)
+        {
+            KimodoMarkerSampleResult result = null;
+            for (int i = 0; i < group.Count; i++)
+            {
+                if (string.Equals(group[i]?.constraintMode, mode, StringComparison.OrdinalIgnoreCase))
+                {
+                    result = group[i];
+                }
+            }
+            return result;
+        }
+
+        private static KimodoMarkerSampleResult MergeIkModeSamples(List<KimodoMarkerSampleResult> group)
+        {
+            KimodoMarkerSampleResult result = null;
+            for (int i = 0; i < group.Count; i++)
+            {
+                KimodoMarkerSampleResult source = group[i];
+                if (!string.Equals(source?.constraintMode, "ik", StringComparison.OrdinalIgnoreCase)) continue;
+                if (result == null)
+                {
+                    result = source.Clone();
+                    continue;
+                }
+
+                KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source.mask, "ik");
+                result.mask ??= new KimodoConstraintMask();
+                if (sourceMask.leftHand)
+                {
+                    result.characterPose.hands.left = source.characterPose.hands.left.Clone();
+                    result.mask.leftHand = true;
+                }
+                if (sourceMask.rightHand)
+                {
+                    result.characterPose.hands.right = source.characterPose.hands.right.Clone();
+                    result.mask.rightHand = true;
+                }
+                if (sourceMask.leftFoot)
+                {
+                    result.characterPose.feet.left = source.characterPose.feet.left.Clone();
+                    result.mask.leftFoot = true;
+                }
+                if (sourceMask.rightFoot)
+                {
+                    result.characterPose.feet.right = source.characterPose.feet.right.Clone();
+                    result.mask.rightFoot = true;
+                }
+                result.characterPose.root = source.characterPose.root.Clone();
+                result.characterPose.muscles = (float[])source.characterPose.muscles.Clone();
+                result.hasRootHeading = source.hasRootHeading;
+            }
+            return result;
+        }
+
+        private static void AppendModeAwareIk(
+            List<KimodoMarkerSampleResult> output,
+            KimodoMarkerSampleResult source,
+            bool enabled,
+            string type)
+        {
+            if (!enabled) return;
+            KimodoMarkerSampleResult sample = source.Clone();
+            sample.constraintType = type;
+            sample.mask = KimodoConstraintMask.ForType(type);
+            output.Add(sample);
+        }
+
+        private static void ApplyRoot2DOverlay(
+            KimodoMarkerSampleResult rootSample,
+            KimodoMarkerSampleResult targetSample)
+        {
+            if (rootSample?.characterPose?.root == null || targetSample?.characterPose?.root == null)
+            {
+                return;
+            }
+
+            CharacterPose target = targetSample.characterPose;
+            CharacterPose root = rootSample.characterPose;
+            Vector3[] worldPositions = CaptureGoalPositions(target);
+            Quaternion[] worldRotations = CaptureGoalRotations(target);
+            bool[] locked = CollectWorldLockedGoals(targetSample.mask);
+
+            Quaternion targetYaw = PlanarRotation(target.root.q);
+            Quaternion rootYaw = PlanarRotation(root.root.q);
+            target.root.t = new Vector3(root.root.t.x, target.root.t.y, root.root.t.z);
+            if (rootSample.hasRootHeading)
+            {
+                target.root.q = rootYaw * Quaternion.Inverse(targetYaw) * target.root.q;
+            }
+
+            Quaternion inverseRoot = Quaternion.Inverse(target.root.q.normalized);
+            CharacterPoseTransform[] goals =
+            {
+                target.hands.left, target.hands.right,
+                target.feet.left, target.feet.right
+            };
+            for (int i = 0; i < goals.Length; i++)
+            {
+                if (!locked[i]) continue;
+                goals[i].t = inverseRoot * (worldPositions[i] - target.root.t);
+                goals[i].q = inverseRoot * worldRotations[i];
+            }
+        }
+
+        private static bool[] CollectWorldLockedGoals(KimodoConstraintMask mask) => new[]
+        {
+            mask?.leftHand == true,
+            mask?.rightHand == true,
+            mask?.leftFoot == true,
+            mask?.rightFoot == true
+        };
+
+        private static Vector3[] CaptureGoalPositions(CharacterPose pose)
+        {
+            Quaternion root = pose.root.q.normalized;
+            return new[]
+            {
+                pose.root.t + root * pose.hands.left.t,
+                pose.root.t + root * pose.hands.right.t,
+                pose.root.t + root * pose.feet.left.t,
+                pose.root.t + root * pose.feet.right.t
+            };
+        }
+
+        private static Quaternion[] CaptureGoalRotations(CharacterPose pose)
+        {
+            Quaternion root = pose.root.q.normalized;
+            return new[]
+            {
+                root * pose.hands.left.q,
+                root * pose.hands.right.q,
+                root * pose.feet.left.q,
+                root * pose.feet.right.q
+            };
         }
 
         /// <summary>Composes same-frame samples into the one Marker format used

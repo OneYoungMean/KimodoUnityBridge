@@ -206,7 +206,7 @@ namespace KimodoBridge.Editor
             {
                 return new KimodoConstraintExportContext(
                     KimodoConstraintNormalizationUtility.ResolveHumanScale(context.SourceAvatar),
-                    KimodoConstraintExportProjector.Create(context.ModelName));
+                    KimodoConstraintExportProjector.Create(context.ModelName, context.SourceAvatar));
             }
             return new KimodoConstraintExportContext();
         }

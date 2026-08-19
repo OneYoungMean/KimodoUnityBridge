@@ -35,6 +35,85 @@ namespace TimelineInject
         Core27 = 4
     }
 
+    public enum KimodoConstraintMode
+    {
+        Root2D = 0,
+        FullBody = 1,
+        IK = 2
+    }
+
+    [Serializable]
+    public sealed class KimodoConstraintIkTargets
+    {
+        public CharacterPoseSides hands = new CharacterPoseSides();
+        public CharacterPoseSides feet = new CharacterPoseSides();
+
+        public KimodoConstraintIkTargets Clone() => new KimodoConstraintIkTargets
+        {
+            hands = hands != null ? hands.Clone() : new CharacterPoseSides(),
+            feet = feet != null ? feet.Clone() : new CharacterPoseSides()
+        };
+
+        public void CopyTo(CharacterPose pose)
+        {
+            if (pose == null) return;
+            pose.hands = hands != null ? hands.Clone() : new CharacterPoseSides();
+            pose.feet = feet != null ? feet.Clone() : new CharacterPoseSides();
+        }
+    }
+
+    [Serializable]
+    public sealed class KimodoRoot2DConstraintData
+    {
+        public CharacterPoseTransform root = new CharacterPoseTransform();
+        public bool allowHeading = true;
+
+        public KimodoRoot2DConstraintData Clone() => new KimodoRoot2DConstraintData
+        {
+            root = root != null ? root.Clone() : new CharacterPoseTransform(),
+            allowHeading = allowHeading
+        };
+    }
+
+    [Serializable]
+    public sealed class KimodoFullBodyConstraintData
+    {
+        // Muscles and root are the authored FullBody source. Its four IK
+        // targets are always active, separate channels; they never write back
+        // into the muscle source.
+        public CharacterPose pose = new CharacterPose();
+        public KimodoConstraintIkTargets ikTargets = new KimodoConstraintIkTargets();
+
+        public KimodoFullBodyConstraintData Clone() => new KimodoFullBodyConstraintData
+        {
+            pose = pose != null ? pose.Clone() : new CharacterPose(),
+            ikTargets = ikTargets != null ? ikTargets.Clone() : new KimodoConstraintIkTargets()
+        };
+    }
+
+    [Serializable]
+    public sealed class KimodoIkConstraintData
+    {
+        // The last successful animation sample is retained when Auto Sample
+        // is disabled. IK edits never write back to this reference muscle set.
+        public CharacterPose referencePose = new CharacterPose();
+        public KimodoConstraintIkTargets ikTargets = new KimodoConstraintIkTargets();
+        public bool leftHand;
+        public bool rightHand;
+        public bool leftFoot;
+        public bool rightFoot;
+
+        public KimodoIkConstraintData Clone() => new KimodoIkConstraintData
+        {
+            referencePose = referencePose != null ? referencePose.Clone() : new CharacterPose(),
+            ikTargets = ikTargets != null ? ikTargets.Clone() : new KimodoConstraintIkTargets(),
+            leftHand = leftHand,
+            rightHand = rightHand,
+            leftFoot = leftFoot,
+            rightFoot = rightFoot
+        };
+    }
+
     /// <summary>Channels owned by one canonical constraint pose.  The protocol
     /// still receives its historical fullbody/root2d/end-effector records.</summary>
     [Serializable]
@@ -55,7 +134,15 @@ namespace TimelineInject
             var result = new KimodoConstraintMask();
             switch ((type ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
             {
-                case "fullbody": result.muscle = true; result.rootPosition = true; result.rootHeading = true; break;
+                case "fullbody":
+                    result.muscle = true;
+                    result.rootPosition = true;
+                    result.rootHeading = true;
+                    result.leftHand = true;
+                    result.rightHand = true;
+                    result.leftFoot = true;
+                    result.rightFoot = true;
+                    break;
                 case "root2d": result.rootPosition = true; result.rootHeading = true; break;
                 case "left-hand": result.leftHand = true; break;
                 case "right-hand": result.rightHand = true; break;
@@ -107,6 +194,10 @@ namespace TimelineInject
         public CharacterPoseTransform root2DOverride = new CharacterPoseTransform();
         public bool hasRoot2DOverride;
         public string constraintType = "constraint";
+        // Non-empty for samples authored by the new mode-aware marker. Empty
+        // samples retain the legacy resolver behavior for command-only data.
+        public string constraintMode;
+        [NonSerialized]
         public double sampleTime;
         public bool hasRootHeading = true;
         public KimodoConstraintMask mask;
@@ -120,6 +211,7 @@ namespace TimelineInject
                 : null,
             hasRoot2DOverride = hasRoot2DOverride,
             constraintType = this.constraintType,
+            constraintMode = this.constraintMode,
             sampleTime = sampleTime,
             hasRootHeading = hasRootHeading,
             mask = mask?.Clone()

@@ -127,8 +127,7 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
             {
                 ClearMarkerEditorCaches(kimodoMarker);
                 kimodoMarker.time = globalTime;
-                kimodoMarker.SampleData.sampleTime = Math.Max(0.0, globalTime);
-                if (kimodoMarker.autoSampleFullBody)
+                if (kimodoMarker.autoSample)
                 {
                     if (!TryUpdateAutoSampleMarkerData(kimodoMarker, forceRefresh: true, out string sampleError))
                     {
@@ -157,56 +156,34 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
             KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsModified);
         }
 
-public static void DrawSampleTimeField(SerializedObject so, IMarker marker)
+        internal static double GetMarkerTimeForDisplay(IMarker marker)
+        {
+            return Math.Max(0.0, marker?.time ?? 0.0);
+        }
+
+        public static void DrawMarkerTimeField(SerializedObject so, IMarker marker)
         {
             if (so == null || marker == null)
             {
                 return;
             }
 
-            SerializedProperty timeProp = so.FindProperty("sampleData.sampleTime");
-            if (timeProp == null)
-            {
-                return;
-            }
-
-            // Keep stored sample time aligned with marker timeline position.
-            double markerTime = Math.Max(0.0, marker.time);
-            if (Math.Abs(timeProp.doubleValue - markerTime) > 1e-9)
-            {
-                timeProp.doubleValue = markerTime;
-            }
-
-            double sourceTime = Math.Max(0.0, timeProp.doubleValue);
-            if (Math.Abs(timeProp.doubleValue - sourceTime) > 1e-9)
-            {
-                timeProp.doubleValue = sourceTime;
-            }
-
-            double displayCurrent = Math.Round(sourceTime, 4, MidpointRounding.AwayFromZero);
-            double displaySampleTime = Math.Max(0.0, marker.time);
-            if (TryGetClipRangeForMarker(marker, out TimelineClip clipRange) && clipRange != null)
-            {
-                displaySampleTime = KimodoMarkerSamplingUtility.ClampLocalSampleTime(clipRange, marker.time);
-            }
-            displaySampleTime = Math.Round(displaySampleTime, 4, MidpointRounding.AwayFromZero);
+            // Constraint marker time is always the absolute Timeline time. A
+            // TimelineClip's local evaluation time is only an implementation
+            // detail of source animation sampling and must never be shown or
+            // written back here.
+            double displayMarkerTime = Math.Round(
+                GetMarkerTimeForDisplay(marker),
+                4,
+                MidpointRounding.AwayFromZero);
 
             double editedTime = EditorGUILayout.DoubleField(
-                new GUIContent("Marker Time (seconds)", "Absolute timeline time stored in marker data and used by preview/edit. Allowed range: [0, +inf)."),
-                displayCurrent);
+                new GUIContent("Marker Time (seconds)", "The Timeline marker time is the only sampling time."),
+                displayMarkerTime);
             double normalizedEdited = Math.Max(0.0, editedTime);
-            EditorGUILayout.LabelField($"Sample Time: {displaySampleTime:F4}s", EditorStyles.miniLabel);
-            if (Math.Abs(normalizedEdited - sourceTime) > 1e-9)
+            if (Math.Abs(normalizedEdited - marker.time) > 1e-9)
             {
                 MoveMarkerToTime(marker, normalizedEdited);
-
-                // Refresh SerializedObject cache after direct marker.time mutation to avoid stale writeback.
-                so.UpdateIfRequiredOrScript();
-                SerializedProperty refreshedTimeProp = so.FindProperty("sampleData.sampleTime");
-                if (refreshedTimeProp != null)
-                {
-                    refreshedTimeProp.doubleValue = normalizedEdited;
-                }
             }
         }
 

@@ -960,6 +960,7 @@ namespace KimodoBridge.Editor.Tests
             Quaternion bodyRotation = Quaternion.Euler(12f, 47f, -6f);
             Vector3 worldPosition = new Vector3(3f, 1.2f, -0.7f);
             Quaternion worldRotation = Quaternion.Euler(-15f, 81f, 22f);
+            float humanScale = 1f;
 
             KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
                 bodyPosition,
@@ -1027,7 +1028,8 @@ namespace KimodoBridge.Editor.Tests
                         solveRightHandIk: goal == AvatarIKGoal.RightHand,
                         applyFootIk: goal == AvatarIKGoal.LeftFoot || goal == AvatarIKGoal.RightFoot,
                         solveLeftFootIk: goal == AvatarIKGoal.LeftFoot,
-                        solveRightFootIk: goal == AvatarIKGoal.RightFoot),
+                        solveRightFootIk: goal == AvatarIKGoal.RightFoot,
+                        ikGoalsAlreadyInTargetSpace: true),
                     Is.True,
                     error);
                 Assert.That(solved, Is.Not.Null);
@@ -1041,6 +1043,73 @@ namespace KimodoBridge.Editor.Tests
                     Quaternion.Angle(solvedRotation, desiredRotation),
                     Is.LessThan(Quaternion.Angle(initialRotation, desiredRotation)),
                     $"{goal} rotation did not move toward the requested IK goal.");
+            }
+            finally
+            {
+                cache.Dispose();
+            }
+        }
+
+        [Test]
+        public void SolvedMuscleSample_PreservesAuthoredIkCurveChannels()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoMotionModelProfiles.DefaultModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    avatar,
+                    "KimodoTimelineSolvedIkCurveChannels",
+                    out SkeletonCache cache,
+                    out error),
+                Is.True,
+                error);
+
+            try
+            {
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryCaptureMuscleSample(cache, out MuscleSample source, out error),
+                    Is.True,
+                    error);
+
+                source.leftHandPosition += new Vector3(0.02f, 0.01f, -0.01f);
+                source.rightHandPosition += new Vector3(-0.02f, 0.01f, 0.01f);
+                source.leftFootPosition += new Vector3(0.01f, 0.02f, -0.01f);
+                source.rightFootPosition += new Vector3(-0.01f, 0.02f, 0.01f);
+                source.leftHandRotation = Quaternion.Euler(3f, 5f, 7f) * source.leftHandRotation;
+                source.rightHandRotation = Quaternion.Euler(-3f, -5f, -7f) * source.rightHandRotation;
+                source.leftFootRotation = Quaternion.Euler(2f, 4f, 6f) * source.leftFootRotation;
+                source.rightFootRotation = Quaternion.Euler(-2f, -4f, -6f) * source.rightFootRotation;
+
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TrySolveMuscleSampleOnAvatar(
+                        source,
+                        KimodoMotionModelProfiles.DefaultFrameRate,
+                        cache,
+                        out _,
+                        out MuscleSample solved,
+                        out error,
+                        solveLeftHandIk: true,
+                        solveRightHandIk: true,
+                        applyFootIk: true,
+                        solveLeftFootIk: true,
+                        solveRightFootIk: true),
+                    Is.True,
+                    error);
+
+                Assert.That(solved, Is.Not.Null);
+                Assert.That(Vector3.Distance(solved.leftHandPosition, source.leftHandPosition), Is.LessThan(1e-6f));
+                Assert.That(Vector3.Distance(solved.rightHandPosition, source.rightHandPosition), Is.LessThan(1e-6f));
+                Assert.That(Vector3.Distance(solved.leftFootPosition, source.leftFootPosition), Is.LessThan(1e-6f));
+                Assert.That(Vector3.Distance(solved.rightFootPosition, source.rightFootPosition), Is.LessThan(1e-6f));
+                Assert.That(Quaternion.Angle(solved.leftHandRotation, source.leftHandRotation), Is.LessThan(1e-4f));
+                Assert.That(Quaternion.Angle(solved.rightHandRotation, source.rightHandRotation), Is.LessThan(1e-4f));
+                Assert.That(Quaternion.Angle(solved.leftFootRotation, source.leftFootRotation), Is.LessThan(1e-4f));
+                Assert.That(Quaternion.Angle(solved.rightFootRotation, source.rightFootRotation), Is.LessThan(1e-4f));
             }
             finally
             {

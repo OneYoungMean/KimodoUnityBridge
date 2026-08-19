@@ -20,8 +20,13 @@ namespace CharacterAnimationCli.Unity.Command
         private static readonly Dictionary<string, AnalysisCacheRecord> AnalysisCache =
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
-        private const string AnalysisPictureRenderVersion = "7";
-        private const string TestAnalysisPictureRenderVersion = "21-test";
+        private const string AnalysisPictureRenderVersion = "15-test-levels";
+        private const string TestAnalysisPictureRenderVersion = "22-test";
+        private const int AnalysisKeyframeCount = 8;
+        private const int TestPoseSupersampleHeight = 2048;
+        private const float TestPoseJointCameraOffsetMeters = .2f;
+        private const float TestPoseFootForwardCameraOffsetMeters = .3f;
+        private const float TestPoseHeadCameraOffsetMeters = .3f;
         private const float TestCameraMarginMeters = .5f;
         private const float TestCameraFitScale = 1f;
         private const float TestGhostAlphaMin = .1f;
@@ -34,7 +39,6 @@ namespace CharacterAnimationCli.Unity.Command
             IReadOnlyList<AnalysisSubject> subjects,
             string level)
         {
-            PictureLayout layout = PictureLayout.ForLevel(level);
             string signature = BuildPictureSignature(subjects, level);
             string imagePath = Path.Combine(EvidenceFolder(session), $"analysis_picture_{signature}.png");
             string projectPath = ToProjectRelativePath(imagePath);
@@ -57,40 +61,46 @@ namespace CharacterAnimationCli.Unity.Command
                 tiles.AddRange(BuildPictureTiles(subject, level));
             }
 
+            int maxTileCount = Math.Max(
+                1,
+                data.Select(subject => tiles.Count(tile => ReferenceEquals(tile.Subject, subject))).DefaultIfEmpty(1).Max());
+            PictureLayout layout = PictureLayout.ForLevel(maxTileCount, level == "high");
+
             int tileWidth = layout.TileSize;
             int tileHeight = ResolvePictureTileHeight(layout, tiles, tileWidth);
             int panelHeight = layout.TileRows * tileHeight;
 
-            bool cached = File.Exists(imagePath);
-            if (!cached)
+            List<RectInt> imageRects;
+            int imageWidth;
+            int imageHeight;
+            bool cached = false;
+            Directory.CreateDirectory(EvidenceFolder(session));
+            Texture2D canvas = RenderPictureCanvas(data, tiles, layout, trajectoryScale, tileWidth, tileHeight, out imageRects);
+            try
             {
-                Directory.CreateDirectory(EvidenceFolder(session));
-                Texture2D canvas = RenderPictureCanvas(data, tiles, layout, trajectoryScale, tileWidth, tileHeight);
-                try
-                {
-                    File.WriteAllBytes(imagePath, canvas.EncodeToPNG());
-                }
-                finally
-                {
-                    UnityEngine.Object.DestroyImmediate(canvas);
-                }
+                imageWidth = canvas.width;
+                imageHeight = canvas.height;
+                File.WriteAllBytes(imagePath, canvas.EncodeToPNG());
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(canvas);
             }
 
             var descriptions = new JArray();
             for (int index = 0; index < tiles.Count; index++)
             {
                 PictureTile tile = tiles[index];
+                RectInt rect = imageRects[index];
                 int panel = data.FindIndex(item => ReferenceEquals(item, tile.Subject));
                 int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tile.Subject));
-                int x = (localIndex % layout.TileColumns) * tileWidth;
-                int y = (data.Count - panel - 1) * panelHeight +
-                    (layout.TileRows - 1 - localIndex / layout.TileColumns) * tileHeight;
                 JObject description = (JObject)tile.Description.DeepClone();
                 description["subject"] = tile.Subject.Subject.Role;
                 descriptions.Add(new JObject
                 {
-                    ["id"] = tile.Subject.Subject.Role + "." + (localIndex + 1).ToString(CultureInfo.InvariantCulture),
-                    ["rect"] = new JObject { ["x"] = x, ["y"] = y, ["width"] = tileWidth, ["height"] = tileHeight },
+                    ["id"] = (panel + 1).ToString(CultureInfo.InvariantCulture) + "." +
+                        (localIndex + 1).ToString(CultureInfo.InvariantCulture),
+                    ["rect"] = new JObject { ["x"] = rect.x, ["y"] = rect.y, ["width"] = rect.width, ["height"] = rect.height },
                     ["description"] = description
                 });
             }
@@ -99,8 +109,8 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 ["level"] = level,
                 ["image_path"] = projectPath,
-                ["width"] = layout.TileColumns * tileWidth,
-                ["height"] = panelHeight * data.Count,
+                ["width"] = imageWidth,
+                ["height"] = imageHeight,
                 ["images"] = descriptions,
                 ["cached"] = cached
             };
@@ -129,7 +139,7 @@ namespace CharacterAnimationCli.Unity.Command
                     (horizontal + TestCameraMarginMeters) / Mathf.Max(.01f, vertical + TestCameraMarginMeters));
             }
 
-            int minimumHeight = Mathf.Max(160, tileWidth / 3);
+            int minimumHeight = Mathf.Max(1, Mathf.Min(160, tileWidth / 3));
             return Mathf.Clamp(Mathf.RoundToInt(tileWidth / widestAspect), minimumHeight, tileWidth);
         }
 
@@ -149,12 +159,59 @@ namespace CharacterAnimationCli.Unity.Command
             foreach (Vector3 point in subject.RightHand) bounds.Encapsulate(point);
             foreach (Vector3 point in subject.LeftFoot) bounds.Encapsulate(point);
             foreach (Vector3 point in subject.RightFoot) bounds.Encapsulate(point);
+            foreach (Vector3 point in subject.Head) bounds.Encapsulate(point);
 
             return bounds;
         }
 
         private static void CalculateTestViewExtents(
             SubjectPictureData subject,
+            Vector3 direction,
+            out Vector3 viewCenter,
+            out float maxHorizontal,
+            out float maxVertical,
+            out float maxDepth)
+        {
+            CalculateTestViewExtents(
+                subject.Pelvis.Concat(subject.LeftHand)
+                    .Concat(subject.RightHand).Concat(subject.LeftFoot).Concat(subject.RightFoot)
+                    .Concat(subject.Head),
+                direction,
+                out viewCenter,
+                out maxHorizontal,
+                out maxVertical,
+                out maxDepth);
+        }
+
+        private static void CalculateTestViewExtents(
+            Bounds bounds,
+            Vector3 direction,
+            out Vector3 viewCenter,
+            out float maxHorizontal,
+            out float maxVertical,
+            out float maxDepth)
+        {
+            CalculateTestViewExtents(
+                new[]
+                {
+                    new Vector3(bounds.min.x, bounds.min.y, bounds.min.z),
+                    new Vector3(bounds.min.x, bounds.min.y, bounds.max.z),
+                    new Vector3(bounds.min.x, bounds.max.y, bounds.min.z),
+                    new Vector3(bounds.min.x, bounds.max.y, bounds.max.z),
+                    new Vector3(bounds.max.x, bounds.min.y, bounds.min.z),
+                    new Vector3(bounds.max.x, bounds.min.y, bounds.max.z),
+                    new Vector3(bounds.max.x, bounds.max.y, bounds.min.z),
+                    new Vector3(bounds.max.x, bounds.max.y, bounds.max.z)
+                },
+                direction,
+                out viewCenter,
+                out maxHorizontal,
+                out maxVertical,
+                out maxDepth);
+        }
+
+        private static void CalculateTestViewExtents(
+            IEnumerable<Vector3> points,
             Vector3 direction,
             out Vector3 viewCenter,
             out float maxHorizontal,
@@ -174,8 +231,7 @@ namespace CharacterAnimationCli.Unity.Command
             float maxVerticalValue = float.NegativeInfinity;
             float minDepth = float.PositiveInfinity;
             float maxDepthValue = float.NegativeInfinity;
-            foreach (Vector3 point in subject.Pelvis.Concat(subject.LeftHand)
-                         .Concat(subject.RightHand).Concat(subject.LeftFoot).Concat(subject.RightFoot))
+            foreach (Vector3 point in points)
             {
                 Vector3 local = inverseView * point;
                 minHorizontal = Mathf.Min(minHorizontal, local.x);
@@ -201,6 +257,42 @@ namespace CharacterAnimationCli.Unity.Command
             maxHorizontal = (maxHorizontalValue - minHorizontal) * .5f;
             maxVertical = (maxVerticalValue - minVertical) * .5f;
             maxDepth = (maxDepthValue - minDepth) * .5f;
+        }
+
+        private static Vector3[] ExpandPosePointsAwayFromHipsInCameraSpace(
+            IReadOnlyList<Vector3> points,
+            Vector3 direction,
+            Vector3 characterForward)
+        {
+            if (points == null || points.Count == 0) return Array.Empty<Vector3>();
+            Vector3 normalizedDirection = direction.sqrMagnitude > .0001f
+                ? direction.normalized
+                : new Vector3(1f, .75f, -1f).normalized;
+            Vector3 up = Mathf.Abs(Vector3.Dot(normalizedDirection, Vector3.up)) > .95f
+                ? Vector3.forward
+                : Vector3.up;
+            Quaternion toCameraSpace = Quaternion.Inverse(Quaternion.LookRotation(-normalizedDirection, up));
+            Quaternion toWorldSpace = Quaternion.Inverse(toCameraSpace);
+            Vector3 hips = toCameraSpace * points[0];
+            Vector3 forward = toCameraSpace * characterForward;
+            var expanded = new List<Vector3>(points.Count * 2 + 2);
+            expanded.AddRange(points);
+            for (int index = 1; index < points.Count; index++)
+            {
+                Vector3 joint = toCameraSpace * points[index];
+                Vector3 fromHips = joint - hips;
+                if (fromHips.sqrMagnitude > .0001f)
+                {
+                    float offset = index == points.Count - 1 ? TestPoseHeadCameraOffsetMeters : TestPoseJointCameraOffsetMeters;
+                    joint += fromHips.normalized * offset;
+                }
+                expanded.Add(toWorldSpace * joint);
+                if ((index == 5 || index == 6) && forward.sqrMagnitude > .0001f)
+                {
+                    expanded.Add(toWorldSpace * (joint + forward.normalized * TestPoseFootForwardCameraOffsetMeters));
+                }
+            }
+            return expanded.ToArray();
         }
 
         private static void PersistPictureSummary(TimelineSessionRecord session, AnalysisCacheRecord record, JObject pictures)
@@ -229,6 +321,11 @@ namespace CharacterAnimationCli.Unity.Command
             var rightHand = new Vector3[frameCount];
             var leftFoot = new Vector3[frameCount];
             var rightFoot = new Vector3[frameCount];
+            var leftElbow = new Vector3[frameCount];
+            var rightElbow = new Vector3[frameCount];
+            var leftKnee = new Vector3[frameCount];
+            var rightKnee = new Vector3[frameCount];
+            var head = new Vector3[frameCount];
             Bounds firstBounds = default;
             Bounds lastBounds = default;
             Bounds allPoseBounds = default;
@@ -262,6 +359,11 @@ namespace CharacterAnimationCli.Unity.Command
                     rightHand[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightHand, subject.Character.Name);
                     leftFoot[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftFoot, subject.Character.Name);
                     rightFoot[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightFoot, subject.Character.Name);
+                    leftElbow[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftLowerArm, subject.Character.Name);
+                    rightElbow[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightLowerArm, subject.Character.Name);
+                    leftKnee[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftLowerLeg, subject.Character.Name);
+                    rightKnee[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightLowerLeg, subject.Character.Name);
+                    head[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.Head, subject.Character.Name);
                     Bounds currentBounds = CalculateSkinnedBounds(posePreview);
                     if (localFrame == 0) firstBounds = currentBounds;
                     if (localFrame == frameCount - 1) lastBounds = currentBounds;
@@ -318,6 +420,11 @@ namespace CharacterAnimationCli.Unity.Command
                 rightHand,
                 leftFoot,
                 rightFoot,
+                leftElbow,
+                rightElbow,
+                leftKnee,
+                rightKnee,
+                head,
                 leftContacts,
                 rightContacts,
                 firstBounds,
@@ -351,59 +458,34 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static List<PictureTile> BuildPictureTiles(SubjectPictureData subject, string level)
         {
-            if (level == "-test")
+            if (level == "-test" || level == "low" || level == "middle" || level == "high")
             {
-                return new List<PictureTile>
+                var result = new List<PictureTile>
                 {
                     PictureTile.TestFootTransitions(subject, new Vector3(1f, .75f, -1f)),
                     PictureTile.TestKeyframes(subject, new Vector3(1f, .75f, -1f))
                 };
-            }
 
-            int keyCount = level == "high" ? 5 : level == "middle" ? 3 : 0;
-            var result = new List<PictureTile>();
-            if (level != "low")
-            {
-                result.Add(PictureTile.Ghost(subject, "three_quarter", new Vector3(1f, .75f, -1f), false));
-                result.Add(PictureTile.Ghost(subject, "front", Vector3.forward, true));
-                result.Add(PictureTile.Ghost(subject, "left", Vector3.left, true));
-                result.Add(PictureTile.Ghost(subject, "bottom", Vector3.down, true));
-            }
-            else
-            {
-                result.Add(PictureTile.Ghost(subject, "three_quarter", new Vector3(1f, .75f, -1f), false));
-            }
-
-            List<int> keyFrames = SelectKeyFrames(subject, Math.Max(keyCount, 6));
-            for (int index = 0; index < keyCount; index++)
-            {
-                result.Add(PictureTile.Key(subject, keyFrames[index % keyFrames.Count]));
-            }
-            if (level == "high")
-            {
-                List<JObject> contacts = (subject.Subject.Record.Analysis?["foot_contacts"] as JArray ?? new JArray())
-                    .OfType<JObject>()
-                    .OrderBy(item => item.Value<int?>("duration_frames") ?? int.MaxValue)
-                    .Take(6)
-                    .Select(item => (JObject)item.DeepClone())
-                    .ToList();
-                List<int> fallbackFrames = keyFrames.Skip(keyCount).Concat(keyFrames).ToList();
-                for (int index = 0; index < 6; index++)
+                if (level == "middle" || level == "high")
                 {
-                    if (index < contacts.Count)
+                    foreach (int frame in SelectKeyFrames(subject, AnalysisKeyframeCount))
                     {
-                        int frame = Mathf.Clamp(contacts[index].Value<int?>("frame") ?? 0, 0, subject.Pelvis.Length - 1);
-                        result.Add(PictureTile.FootContact(subject, frame, contacts[index]));
-                    }
-                    else
-                    {
-                        int fallbackIndex = (index - contacts.Count) % fallbackFrames.Count;
-                        result.Add(PictureTile.FootFallback(subject, fallbackFrames[fallbackIndex]));
+                        result.Add(PictureTile.TestPose(subject, frame, "keyframe", new Vector3(1f, .75f, -1f)));
                     }
                 }
+
+                if (level == "high")
+                {
+                    foreach (int frame in FootTransitionFrames(subject))
+                    {
+                        result.Add(PictureTile.TestPose(subject, frame, "foot_transition", new Vector3(1f, .75f, -1f)));
+                    }
+                }
+
+                return result;
             }
-            result.Add(PictureTile.Trajectory(subject, keyFrames));
-            return result;
+
+            throw new InvalidOperationException($"Unsupported analysis picture level '{level}'.");
         }
 
         private static List<int> SelectKeyFrames(SubjectPictureData subject, int count)
@@ -412,6 +494,7 @@ namespace CharacterAnimationCli.Unity.Command
                 .OfType<JObject>()
                 .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, subject.Pelvis.Length - 1))
                 .Distinct()
+                .Take(Math.Max(0, count))
                 .ToList();
             for (int index = 0; frames.Count < count && index < count; index++)
             {
@@ -427,33 +510,63 @@ namespace CharacterAnimationCli.Unity.Command
             PictureLayout layout,
             TrajectoryScale trajectoryScale,
             int tileWidth,
-            int tileHeight)
+            int tileHeight,
+            out List<RectInt> imageRects)
         {
             int panelHeight = layout.TileRows * tileHeight;
-            var canvas = new Texture2D(layout.TileColumns * tileWidth, panelHeight * subjects.Count, TextureFormat.RGBA32, false);
-            Fill(canvas, Color.white);
-            for (int index = 0; index < tiles.Count; index++)
+            var images = new Texture2D[tiles.Count];
+            try
             {
-                PictureTile tile = tiles[index];
-                int panel = subjects.ToList().FindIndex(item => ReferenceEquals(item, tile.Subject));
-                int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tile.Subject));
-                Texture2D image = RenderPictureTile(tile, tileWidth, tileHeight, trajectoryScale);
-                try
+                for (int index = 0; index < tiles.Count; index++)
                 {
-                    DrawTileNumber(image, localIndex + 1);
-                    int x = (localIndex % layout.TileColumns) * tileWidth;
-                    int y = (subjects.Count - panel - 1) * panelHeight +
-                        (layout.TileRows - 1 - localIndex / layout.TileColumns) * tileHeight;
-                    canvas.SetPixels(x, y, tileWidth, tileHeight, image.GetPixels());
+                    images[index] = RenderPictureTile(tiles[index], tileWidth, tileHeight, trajectoryScale);
+                    int panel = subjects.ToList().FindIndex(item => ReferenceEquals(item, tiles[index].Subject));
+                    int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tiles[index].Subject));
+                    DrawTileNumber(
+                        images[index],
+                        (panel + 1).ToString(CultureInfo.InvariantCulture) + "." +
+                        (localIndex + 1).ToString(CultureInfo.InvariantCulture));
                 }
-                finally
+
+                imageRects = new List<RectInt>(tiles.Count);
+                var rowWidths = new int[subjects.Count * layout.TileRows];
+                for (int index = 0; index < tiles.Count; index++)
                 {
-                    UnityEngine.Object.DestroyImmediate(image);
+                    int panel = subjects.ToList().FindIndex(item => ReferenceEquals(item, tiles[index].Subject));
+                    int row = layout.TileRows == 2 && IsHighFootPose(tiles[index]) ? 0 : layout.TileRows - 1;
+                    int rowIndex = panel * layout.TileRows + row;
+                    int x = rowWidths[rowIndex];
+                    rowWidths[rowIndex] += images[index].width;
+                    imageRects.Add(new RectInt(
+                        x,
+                        (subjects.Count - panel - 1) * panelHeight + row * tileHeight,
+                        images[index].width,
+                        images[index].height));
+                }
+                int canvasWidth = Math.Max(1, rowWidths.DefaultIfEmpty(1).Max());
+                if (canvasWidth > SystemInfo.maxTextureSize)
+                {
+                    throw new InvalidOperationException($"Analysis picture width {canvasWidth} exceeds Unity's maximum texture width {SystemInfo.maxTextureSize}.");
+                }
+
+                var canvas = new Texture2D(canvasWidth, panelHeight * subjects.Count, TextureFormat.RGBA32, false);
+                Fill(canvas, new Color(.12f, .12f, .12f, 1f));
+                for (int index = 0; index < tiles.Count; index++)
+                {
+                    RectInt rect = imageRects[index];
+                    canvas.SetPixels(rect.x, rect.y, rect.width, rect.height, images[index].GetPixels());
+                }
+                DrawPictureGrid(canvas, imageRects, subjects.Count, panelHeight, layout.TileRows);
+                canvas.Apply(false, false);
+                return canvas;
+            }
+            finally
+            {
+                foreach (Texture2D image in images)
+                {
+                    if (image != null) UnityEngine.Object.DestroyImmediate(image);
                 }
             }
-            DrawInternalGrid(canvas, layout, subjects.Count, tileWidth, tileHeight);
-            canvas.Apply(false, false);
-            return canvas;
         }
 
         private static Texture2D RenderPictureTile(PictureTile tile, int width, int height, TrajectoryScale trajectoryScale)
@@ -461,6 +574,10 @@ namespace CharacterAnimationCli.Unity.Command
             if (tile.Presentation == "test_foot_transitions" || tile.Presentation == "test_keyframes")
             {
                 return RenderTestPictureTile(tile, width, height, trajectoryScale);
+            }
+            if (tile.Presentation == "test_pose")
+            {
+                return RenderTestPoseTile(tile, height);
             }
 
             int size = width;
@@ -655,12 +772,13 @@ namespace CharacterAnimationCli.Unity.Command
                     (float)width / Mathf.Max(1, height));
                 try
                 {
-                    Texture2D result = RenderCamera(camera, width, height, new Color(.12f, .12f, .12f, 1f));
-                    foreach (TestVirtualPose pose in virtualPoses)
-                    {
-                        RenderTestPoseOnto(result, camera, environment, pose);
-                    }
-                    return result;
+                    return RenderTestPoseLayers(
+                        camera,
+                        environment,
+                        virtualPoses,
+                        width,
+                        height,
+                        new Color(.12f, .12f, .12f, 1f));
                 }
                 finally
                 {
@@ -675,6 +793,151 @@ namespace CharacterAnimationCli.Unity.Command
                     }
                 }
             }
+        }
+
+        private static Texture2D RenderTestPoseTile(PictureTile tile, int targetHeight)
+        {
+            int frame = Mathf.Clamp(tile.Frame, 0, Math.Max(0, tile.Subject.Pelvis.Length - 1));
+            Vector3[] viewPoints =
+            {
+                tile.Subject.Pelvis[frame],
+                tile.Subject.LeftHand[frame],
+                tile.Subject.RightHand[frame],
+                tile.Subject.LeftElbow[frame],
+                tile.Subject.RightElbow[frame],
+                tile.Subject.LeftFoot[frame],
+                tile.Subject.RightFoot[frame],
+                tile.Subject.LeftKnee[frame],
+                tile.Subject.RightKnee[frame],
+                tile.Subject.Head[frame]
+            };
+            CharacterPose sampledPose = tile.Subject.GetPose(frame);
+            viewPoints = ExpandPosePointsAwayFromHipsInCameraSpace(
+                viewPoints,
+                tile.Direction,
+                sampledPose.root.q * Vector3.forward);
+            CalculateTestViewExtents(viewPoints, tile.Direction, out _, out float horizontal, out float vertical, out _);
+            float aspect = horizontal / Mathf.Max(.0001f, vertical);
+            int sourceHeight = TestPoseSupersampleHeight;
+            int sourceWidth = Math.Max(1, Mathf.CeilToInt(sourceHeight * aspect));
+            int targetWidth = Math.Max(1, Mathf.RoundToInt(targetHeight * aspect));
+            using (TestPosePlan posePlan = BuildTestPosePlan(tile.Subject, new[] { frame }))
+            {
+                TestVirtualPose pose = CreateTestVirtualPose(
+                    posePlan.Get(frame),
+                    ResolveSingleTestPoseTint(tile, frame),
+                    1f);
+                try
+                {
+                    Bounds contentBounds = new Bounds(viewPoints[0], Vector3.zero);
+                    foreach (Vector3 point in viewPoints) contentBounds.Encapsulate(point);
+                    Bounds tileBounds = IncludeGroundInBounds(contentBounds);
+                    var environment = new List<GameObject>();
+                    CreateTestPictureEnvironment(environment, tileBounds);
+                    Camera camera = CreateTestAnalysisPictureCamera(viewPoints, tile.Direction, aspect);
+                    try
+                    {
+                        Texture2D source = RenderTestPoseLayers(
+                            camera,
+                            environment,
+                            new[] { pose },
+                            sourceWidth,
+                            sourceHeight,
+                            new Color(.12f, .12f, .12f, 1f));
+                        try
+                        {
+                            return ResizeTexture(source, targetWidth, targetHeight);
+                        }
+                        finally
+                        {
+                            UnityEngine.Object.DestroyImmediate(source);
+                        }
+                    }
+                    finally
+                    {
+                        UnityEngine.Object.DestroyImmediate(camera.gameObject);
+                        foreach (GameObject item in environment)
+                        {
+                            if (item != null) UnityEngine.Object.DestroyImmediate(item);
+                        }
+                    }
+                }
+                finally
+                {
+                    pose.Dispose();
+                }
+            }
+        }
+
+        private static Texture2D RenderTestPoseLayers(
+            Camera camera,
+            IReadOnlyList<GameObject> environment,
+            IReadOnlyList<TestVirtualPose> poses,
+            int width,
+            int height,
+            Color background)
+        {
+            RenderTexture accumulation = RenderTexture.GetTemporary(
+                width,
+                height,
+                24,
+                RenderTextureFormat.ARGB32);
+            RenderTexture layer = RenderTexture.GetTemporary(
+                width,
+                height,
+                24,
+                RenderTextureFormat.ARGB32);
+            Material compositor = CreateTestPoseCompositeMaterial();
+            try
+            {
+                // Render the environment once. Each subsequent pose is drawn
+                // into a transparent layer and blended by the GPU into this
+                // accumulation target, avoiding GetPixels/SetPixels per pose.
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = background;
+                camera.targetTexture = accumulation;
+                SetEvidenceVisualsEnabled(environment, true);
+                camera.Render();
+
+                SetEvidenceVisualsEnabled(environment, false);
+                foreach (TestVirtualPose pose in poses)
+                {
+                    SetPreviewRenderersEnabled(pose.Preview, true);
+                    camera.clearFlags = CameraClearFlags.SolidColor;
+                    camera.backgroundColor = new Color(0f, 0f, 0f, 0f);
+                    camera.targetTexture = layer;
+                    camera.Render();
+                    SetPreviewRenderersEnabled(pose.Preview, false);
+
+                    compositor.SetColor(
+                        "_Color",
+                        new Color(1f, 1f, 1f, Mathf.Clamp01(pose.Alpha)));
+                    Graphics.Blit(layer, accumulation, compositor);
+                }
+
+                camera.targetTexture = null;
+                return ReadRenderTexture(accumulation, width, height);
+            }
+            finally
+            {
+                camera.targetTexture = null;
+                SetEvidenceVisualsEnabled(environment, true);
+                if (compositor != null) UnityEngine.Object.DestroyImmediate(compositor);
+                RenderTexture.ReleaseTemporary(layer);
+                RenderTexture.ReleaseTemporary(accumulation);
+            }
+        }
+
+        private static Material CreateTestPoseCompositeMaterial()
+        {
+            Shader shader = Shader.Find("Sprites/Default") ??
+                Shader.Find("UI/Default") ??
+                Shader.Find("Unlit/Transparent");
+            if (shader == null)
+            {
+                throw new InvalidOperationException("No transparent GPU compositing shader is available.");
+            }
+            return new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
         }
 
         private static void RenderTestPoseOnto(
@@ -719,6 +982,10 @@ namespace CharacterAnimationCli.Unity.Command
                     ApplyCanonicalPoseToPreview(source, subject.Subject.Character, sample);
                     snapshots[frame] = TestPoseSnapshot.Capture(source);
                 }
+                // The source is only a transform snapshot template. Keep it
+                // out of the capture layer so each pose is rendered exactly
+                // once by its dedicated virtual-pose instance.
+                SetPreviewRenderersEnabled(source, false);
                 return new TestPosePlan(source, snapshots);
             }
             catch
@@ -1013,7 +1280,9 @@ namespace CharacterAnimationCli.Unity.Command
         {
             SubjectPictureData subject = tile.Subject;
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
-            keyframe = IsKeyframe(subject, frame);
+            // The two test panels intentionally color only their own event
+            // type: keyframe samples never inherit foot colors, and vice versa.
+            keyframe = tile.Presentation == "test_keyframes" && tile.PrimaryFrames.Contains(frame);
             footTransition = tile.Presentation == "test_foot_transitions" &&
                 tile.PrimaryFrames.Contains(frame) && TryGetFootTransitionTint(subject, frame, out _);
             if (frame == 0) return TestStartFrameTint;
@@ -1022,6 +1291,20 @@ namespace CharacterAnimationCli.Unity.Command
             return footTransition && TryGetFootTransitionTint(subject, frame, out Color footTint)
                 ? footTint
                 : Color.white;
+        }
+
+        private static Color ResolveSingleTestPoseTint(PictureTile tile, int frame)
+        {
+            int lastFrame = Math.Max(0, tile.Subject.Pelvis.Length - 1);
+            if (frame == 0) return TestStartFrameTint;
+            if (frame == lastFrame) return TestEndFrameTint;
+            if (string.Equals(tile.PoseKind, "keyframe", StringComparison.Ordinal)) return Color.yellow;
+            if (string.Equals(tile.PoseKind, "foot_transition", StringComparison.Ordinal) &&
+                TryGetFootTransitionTint(tile.Subject, frame, out Color footTint))
+            {
+                return footTint;
+            }
+            return Color.white;
         }
 
         private static void CreatePictureEnvironment(List<GameObject> objects, Bounds bounds)
@@ -1189,6 +1472,65 @@ namespace CharacterAnimationCli.Unity.Command
             return camera;
         }
 
+        private static Camera CreateTestAnalysisPictureCamera(
+            Bounds bounds,
+            Vector3 direction,
+            float aspect)
+        {
+            GameObject cameraObject = new GameObject("Kimodo Test Pose Camera") { hideFlags = HideFlags.HideAndDontSave };
+            Camera camera = cameraObject.AddComponent<Camera>();
+            camera.cullingMask = 1 << 31;
+            camera.orthographic = true;
+            camera.aspect = Mathf.Max(.1f, aspect);
+            camera.nearClipPlane = .01f;
+            camera.farClipPlane = 1000f;
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            Vector3 normalizedDirection = direction.sqrMagnitude > .0001f ? direction.normalized : new Vector3(1f, .75f, -1f).normalized;
+            CalculateTestViewExtents(
+                bounds,
+                normalizedDirection,
+                out Vector3 viewCenter,
+                out float maxHorizontal,
+                out float maxVertical,
+                out float maxDepth);
+            float distance = Mathf.Max(8f, bounds.extents.magnitude * 4f);
+            camera.transform.position = viewCenter + normalizedDirection * distance;
+            Vector3 up = Mathf.Abs(Vector3.Dot(normalizedDirection, Vector3.up)) > .95f ? Vector3.forward : Vector3.up;
+            camera.transform.LookAt(viewCenter, up);
+
+            float horizontalHalf = maxHorizontal * TestCameraFitScale + TestCameraMarginMeters;
+            float verticalHalf = maxVertical * TestCameraFitScale + TestCameraMarginMeters;
+            camera.orthographicSize = Mathf.Max(
+                .5f,
+                verticalHalf,
+                horizontalHalf / camera.aspect);
+            camera.farClipPlane = Mathf.Max(100f, distance + maxDepth + 10f);
+            return camera;
+        }
+
+        private static Camera CreateTestAnalysisPictureCamera(
+            IEnumerable<Vector3> points,
+            Vector3 direction,
+            float aspect)
+        {
+            GameObject cameraObject = new GameObject("Kimodo Test Pose Camera") { hideFlags = HideFlags.HideAndDontSave };
+            Camera camera = cameraObject.AddComponent<Camera>();
+            camera.cullingMask = 1 << 31;
+            camera.orthographic = true;
+            camera.aspect = Mathf.Max(.0001f, aspect);
+            camera.nearClipPlane = .01f;
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            Vector3 normalizedDirection = direction.sqrMagnitude > .0001f ? direction.normalized : new Vector3(1f, .75f, -1f).normalized;
+            CalculateTestViewExtents(points, normalizedDirection, out Vector3 viewCenter, out _, out float vertical, out float maxDepth);
+            float distance = Mathf.Max(8f, maxDepth + 8f);
+            Vector3 up = Mathf.Abs(Vector3.Dot(normalizedDirection, Vector3.up)) > .95f ? Vector3.forward : Vector3.up;
+            camera.transform.position = viewCenter + normalizedDirection * distance;
+            camera.transform.LookAt(viewCenter, up);
+            camera.orthographicSize = Mathf.Max(.0001f, vertical);
+            camera.farClipPlane = Mathf.Max(100f, distance + maxDepth + 10f);
+            return camera;
+        }
+
         private static TrajectoryScale BuildTrajectoryScale(IReadOnlyList<SubjectPictureData> subjects, bool includeEndEffectors = false)
         {
             var speeds = new List<float>();
@@ -1293,44 +1635,64 @@ namespace CharacterAnimationCli.Unity.Command
             texture.SetPixels(pixels);
         }
 
-        private static void DrawInternalGrid(Texture2D texture, PictureLayout layout, int panels, int tileWidth, int tileHeight)
+        private static bool IsHighFootPose(PictureTile tile)
         {
-            int panelHeight = layout.TileRows * tileHeight;
-            for (int column = 1; column < layout.TileColumns; column++)
+            return tile != null && tile.Presentation == "test_pose" &&
+                string.Equals(tile.PoseKind, "foot_transition", StringComparison.Ordinal);
+        }
+
+        private static void DrawPictureGrid(
+            Texture2D texture,
+            IReadOnlyList<RectInt> imageRects,
+            int panels,
+            int panelHeight,
+            int rows)
+        {
+            foreach (RectInt rect in imageRects)
             {
-                int x = column * tileWidth - 2;
-                for (int panel = 0; panel < panels; panel++)
+                if (rect.xMax < texture.width)
                 {
-                    FillRect(texture, x, panel * panelHeight, 4, panelHeight, Color.white);
+                    FillRect(texture, rect.xMax - 2, rect.y, 4, rect.height, Color.white);
+                }
+            }
+            for (int panel = 0; panel < panels; panel++)
+            {
+                int origin = panel * panelHeight;
+                for (int row = 1; row < rows; row++)
+                {
+                    FillRect(texture, 0, origin + row * (panelHeight / rows) - 2, texture.width, 4, Color.white);
                 }
             }
             for (int panel = 1; panel < panels; panel++)
             {
-                int y = panel * panelHeight - 2;
-                FillRect(texture, 0, y, texture.width, 4, Color.white);
-            }
-            for (int panel = 0; panel < panels; panel++)
-            {
-                int originY = panel * panelHeight;
-                for (int row = 1; row < layout.TileRows; row++)
-                {
-                    int y = originY + row * tileHeight - 2;
-                    FillRect(texture, 0, y, texture.width, 4, Color.white);
-                }
+                FillRect(texture, 0, panel * panelHeight - 2, texture.width, 4, Color.white);
             }
         }
 
-        private static void DrawTileNumber(Texture2D texture, int value)
+        private static void DrawTileNumber(Texture2D texture, string value)
         {
-            string text = value.ToString(CultureInfo.InvariantCulture);
+            string text = value ?? string.Empty;
             int size = texture.width >= 256 ? 4 : 2;
-            int width = (size * 4 + size) * text.Length;
+            int width = 0;
+            foreach (char character in text)
+            {
+                width += character == '.' ? size * 2 : size * 5;
+            }
+            width = Math.Max(1, width - size);
             int x = texture.width - width - size * 2;
             int y = texture.height - size * 8;
             foreach (char digit in text)
             {
-                DrawSevenSegmentDigit(texture, x, y, digit, size, Color.white);
-                x += size * 5;
+                if (digit == '.')
+                {
+                    FillRect(texture, x, y, size, size, Color.white);
+                    x += size * 2;
+                }
+                else
+                {
+                    DrawSevenSegmentDigit(texture, x, y, digit, size, Color.white);
+                    x += size * 5;
+                }
             }
             texture.Apply(false, false);
         }
@@ -1539,6 +1901,43 @@ namespace CharacterAnimationCli.Unity.Command
                 RenderTexture.active = previous;
                 camera.targetTexture = null;
                 RenderTexture.ReleaseTemporary(renderTexture);
+            }
+        }
+
+        private static Texture2D ReadRenderTexture(RenderTexture source, int width, int height)
+        {
+            RenderTexture previous = RenderTexture.active;
+            try
+            {
+                RenderTexture.active = source;
+                var image = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                image.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                image.Apply(false, false);
+                return image;
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+            }
+        }
+
+        private static Texture2D ResizeTexture(Texture2D source, int width, int height)
+        {
+            RenderTexture target = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
+            RenderTexture previous = RenderTexture.active;
+            try
+            {
+                Graphics.Blit(source, target);
+                RenderTexture.active = target;
+                var image = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                image.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                image.Apply(false, false);
+                return image;
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                RenderTexture.ReleaseTemporary(target);
             }
         }
 
@@ -1752,6 +2151,11 @@ namespace CharacterAnimationCli.Unity.Command
                 Vector3[] rightHand,
                 Vector3[] leftFoot,
                 Vector3[] rightFoot,
+                Vector3[] leftElbow,
+                Vector3[] rightElbow,
+                Vector3[] leftKnee,
+                Vector3[] rightKnee,
+                Vector3[] head,
                 bool[] leftContacts,
                 bool[] rightContacts,
                 Bounds firstBounds,
@@ -1766,6 +2170,11 @@ namespace CharacterAnimationCli.Unity.Command
                 RightHand = rightHand;
                 LeftFoot = leftFoot;
                 RightFoot = rightFoot;
+                LeftElbow = leftElbow;
+                RightElbow = rightElbow;
+                LeftKnee = leftKnee;
+                RightKnee = rightKnee;
+                Head = head;
                 LeftContacts = leftContacts;
                 RightContacts = rightContacts;
                 FirstBounds = firstBounds;
@@ -1783,6 +2192,11 @@ namespace CharacterAnimationCli.Unity.Command
             public Vector3[] RightHand { get; }
             public Vector3[] LeftFoot { get; }
             public Vector3[] RightFoot { get; }
+            public Vector3[] LeftElbow { get; }
+            public Vector3[] RightElbow { get; }
+            public Vector3[] LeftKnee { get; }
+            public Vector3[] RightKnee { get; }
+            public Vector3[] Head { get; }
             public bool[] LeftContacts { get; }
             public bool[] RightContacts { get; }
             public Bounds FirstBounds { get; }
@@ -1816,6 +2230,7 @@ namespace CharacterAnimationCli.Unity.Command
             public Vector3 Direction { get; private set; }
             public bool Orthographic { get; private set; }
             public int Frame { get; private set; }
+            public string PoseKind { get; private set; }
             public List<int> TrajectoryFrames { get; private set; } = new List<int>();
             public HashSet<int> PrimaryFrames { get; private set; } = new HashSet<int>();
             public bool ShowTestTrajectories { get; private set; }
@@ -1836,7 +2251,28 @@ namespace CharacterAnimationCli.Unity.Command
 
             public static PictureTile TestKeyframes(SubjectPictureData subject, Vector3 direction)
             {
-                return TestFrameSet(subject, "test_keyframes", "keyframes", subject.KeyFrameSet, direction, true);
+                return TestFrameSet(subject, "test_keyframes", "keyframes", SelectKeyFrames(subject, AnalysisKeyframeCount), direction, true);
+            }
+
+            public static PictureTile TestPose(
+                SubjectPictureData subject,
+                int frame,
+                string poseKind,
+                Vector3 direction)
+            {
+                int clampedFrame = Mathf.Clamp(frame, 0, Math.Max(0, subject.Pelvis.Length - 1));
+                return new PictureTile(subject, "test_pose", new JObject
+                {
+                    ["presentation"] = "test_pose",
+                    ["frame"] = clampedFrame,
+                    ["pose_kind"] = poseKind
+                })
+                {
+                    Direction = direction,
+                    Orthographic = true,
+                    Frame = clampedFrame,
+                    PoseKind = poseKind
+                };
             }
 
             private static PictureTile TestFrameSet(
@@ -1904,18 +2340,48 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static void TintPreview(GameObject preview, Color tint, List<Material> transientMaterials)
         {
+            // Use Unity's built-in lit shader only. Do not select a URP/HDRP
+            // variant here: the analysis project is intentionally pipeline-
+            // agnostic and the lit pass preserves pose shadows and depth.
+            Shader poseShader = Shader.Find("Standard");
+            if (poseShader == null)
+            {
+                throw new InvalidOperationException("Unity built-in Standard shader is unavailable for pose rendering.");
+            }
+
+            Color flatTint = new Color(tint.r, tint.g, tint.b, 1f);
             foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
             {
-                Material[] materials = renderer.materials;
-                foreach (Material material in materials)
+                Material[] sourceMaterials = renderer.sharedMaterials;
+                if (sourceMaterials == null || sourceMaterials.Length == 0)
                 {
-                    if (material == null) continue;
-                    transientMaterials?.Add(material);
+                    sourceMaterials = new[] { (Material)null };
+                }
+                var replacements = new Material[sourceMaterials.Length];
+                for (int index = 0; index < sourceMaterials.Length; index++)
+                {
+                    Material source = sourceMaterials[index];
+                    Material material = new Material(poseShader) { hideFlags = HideFlags.HideAndDontSave };
                     if (material.HasProperty("_Color"))
                     {
-                        material.color = Color.Lerp(material.color, tint, .8f);
+                        material.SetColor("_Color", flatTint);
                     }
+                    if (source != null && material.HasProperty("_MainTex"))
+                    {
+                        // Preserve the source albedo and its UV transform while
+                        // applying the event tint through the Lit material.
+                        // mainTexture also handles source materials whose main
+                        // texture property is named _BaseMap rather than _MainTex.
+                        material.mainTexture = source.mainTexture;
+                        material.mainTextureScale = source.mainTextureScale;
+                        material.mainTextureOffset = source.mainTextureOffset;
+                    }
+                    if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", 0f);
+                    if (material.HasProperty("_Glossiness")) material.SetFloat("_Glossiness", .35f);
+                    replacements[index] = material;
+                    transientMaterials?.Add(material);
                 }
+                renderer.sharedMaterials = replacements;
             }
         }
 
@@ -2088,29 +2554,24 @@ namespace CharacterAnimationCli.Unity.Command
 
         private readonly struct PictureLayout
         {
-            private PictureLayout(int columns, int rows, int cellSize, int tileSpan)
+            private PictureLayout(int tileColumns, int tileRows, int tileSize)
             {
-                Columns = columns;
-                Rows = rows;
-                CellSize = cellSize;
-                TileSpan = tileSpan;
+                TileColumns = Math.Max(1, tileColumns);
+                TileRows = Math.Max(1, tileRows);
+                TileSize = Math.Max(1, tileSize);
             }
-            public int Columns { get; }
-            public int Rows { get; }
-            public int CellSize { get; }
-            public int TileSpan { get; }
-            public int TileColumns => Columns / TileSpan;
-            public int TileRows => Rows / TileSpan;
-            public int TileSize => CellSize * TileSpan;
-            public int Width => Columns * CellSize;
-            public int Height => Rows * CellSize;
-            public static PictureLayout ForLevel(string level) => level == "high"
-                ? new PictureLayout(8, 2, 256, 1)
-                : level == "middle"
-                    ? new PictureLayout(4, 2, 256, 1)
-                    : level == "-test"
-                        ? new PictureLayout(4, 2, 256, 2)
-                        : new PictureLayout(2, 1, 128, 1);
+            public int TileColumns { get; }
+            public int TileRows { get; }
+            public int TileSize { get; }
+
+            public static PictureLayout ForLevel(int tileColumns, bool splitHighRows)
+            {
+                // Keep one composite within Unity's texture limit while retaining
+                // the largest readable tile size for shorter animations.
+                int maxTextureSize = Mathf.Max(1, SystemInfo.maxTextureSize);
+                int tileSize = Mathf.Clamp(maxTextureSize / Math.Max(1, tileColumns), 1, 512);
+                return new PictureLayout(tileColumns, splitHighRows ? 2 : 1, tileSize);
+            }
         }
 
         private readonly struct TrajectoryScale

@@ -60,6 +60,7 @@ namespace CharacterAnimationCli.Unity.Command
                 throw new InvalidOperationException("root must contain position and/or rotation.");
             }
             SetCanonicalPose(marker.SampleData, pose, character);
+            marker.CommitSampleData();
             EditorUtility.SetDirty(marker);
             SaveTimelineSession(session);
             return Ok(new JObject
@@ -86,6 +87,7 @@ namespace CharacterAnimationCli.Unity.Command
                 pose.muscles[index] = value;
             }
             SetCanonicalPose(marker.SampleData, pose, character);
+            marker.CommitSampleData();
             EditorUtility.SetDirty(marker);
             SaveTimelineSession(session);
             return Ok(new JObject
@@ -359,7 +361,7 @@ namespace CharacterAnimationCli.Unity.Command
                 for (int index = 0; index < frameCount; index++)
                 {
                     double timelineTime = (startFrame + index) / SessionFrameRate;
-                    float sourceTime = (float)KimodoMarkerSamplingUtility.ResolveSourceClipSampleTime(timelineClip, timelineTime);
+                    float sourceTime = (float)KimodoMarkerSamplingUtility.ResolveAnimationSourceTime(timelineClip, timelineTime);
                     if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
                             session.Context,
                             sourceTime,
@@ -411,7 +413,7 @@ namespace CharacterAnimationCli.Unity.Command
             if (overwriteExisting)
             {
                 SetCanonicalPose(marker.SampleData, pose, character);
-                marker.SampleData.sampleTime = source.Frame / SessionFrameRate;
+                marker.CommitSampleData();
             }
             EditorUtility.SetDirty(marker);
             EditorUtility.SetDirty(character.PoseCacheTrack);

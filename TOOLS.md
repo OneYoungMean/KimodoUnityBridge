@@ -1,101 +1,87 @@
-# Kimodo AI Animation Tools
+# Character Animation CLI Unity — AI operational contract / AI 操作契约
 
-QuickServer version: `2.2.8`; capability: safe supervisor endpoint handoff, motion generation, sparse representative keyframes, dense KMB foot-contact analysis, and an experimental engine-independent KMB reference-pose retarget core with target-arm A-to-T calibration.
+Use the live command schema for exact parameters. This document keeps only shared workflow and evidence rules.
 
-## Public entry and response contract
+## English
 
-The Editor entry point is `command_dispatcher`. Discover the live schema with `GetCommandDefinitionsJson()` and invoke every command with a JSON object. The live schema and `kimodo_help` are the parameter authority.
+### 1. Entry and session
 
-Every successful result contains `{"ok":true}`. Every failure has `{"ok":false,"error":{"code":"...","message":"..."}}`. `session_id` is optional only while a current Session exists; otherwise the result uses `session_required`. Session names are stable and case-insensitive. A supplied existing name selects that Session.
+Use `CharacterAnimationCli.Unity.Command.command_dispatcher`. Start with `kimodo_help({})`, then `session_get_or_create({"name":"<stable name>"})`. A new Session is empty: add the scene Humanoid with `session_add({"kind":"character",...})`, then add project Clips or Animator content explicitly. Save the returned Session, character, and Clip names exactly.
 
-All public time values use 60 FPS integer frames. Animation ranges are half-open: `[start_frame,end_frame)`; an animation Pose locator uses an animation-local frame.
+### 2. Time, immutability, and async generation
 
-## Command groups
+- Public time is 60 FPS integer frames; ranges are half-open `[start_frame,end_frame)` and animation Pose frames are local to the Clip.
+- A completed Session Clip is immutable. Generate, record, retarget, or correct by appending a new Clip; never overwrite or retime the source.
+- `kimodo_generate_animation` is asynchronous. Save `request_id` and poll `kimodo_get_generation` until `completed`, `failed`, or `canceled`.
+- Use `kimodo_install_server` only for explicit runtime repair/diagnosis. Wait for Unity compilation/import to finish before mutating commands.
 
-| Goal | Commands |
-| --- | --- |
-| Discover schema, constraints, and models | `kimodo_help` |
-| Repair the project-local runtime when explicitly requested | `kimodo_install_server` |
-| Create/select, add content to, or close a Session | `session_get_or_create`, `session_add`, `session_close` |
-| Generate and poll/cancel work | `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation` |
-| Analyze, render visual evidence, and compare motion | `animation_analyze`, `animation_compare` |
-| Read, align, and edit cached poses | `pose_get`, `pose_contract`, `pose_set_root_transform`, `pose_set_muscle` |
-| Record and retarget assets | `kimodo_record_range`, `kimodo_retarget_animation` |
+### 3. Analyze and inspect visual evidence
 
-## Working sequence
+Use `animation_analyze` with one or two explicit `{character,clip,role?}` entries. Choose `level` deliberately: `low` for compact ghost/trajectory evidence, `middle` for key poses, `high` for key poses plus foot-contact transitions, and `-test` only for renderer validation. The result contains analysis data and a composite PNG at `pictures.image_path`; read and open that file. Use `pictures.images` to understand the tile presentations. There is no separate picture command.
 
-1. Call `kimodo_help({})`, then `session_get_or_create({"name":"<stable name>"})`.
-2. Add the explicit scene humanoid with `session_add({"kind":"character","character":"<scene name or hierarchy path>"})`. Add project clips or a controller with the corresponding `clip` or `animator` form. Animator import materializes same-Layer State-to-State transitions as Timeline-composed `transition_clip` records; it does not bake a transition AnimationClip. If the projected transition count exceeds 128, inspect the warning and opt in with `ignore_warning:true` only when the full set is required. Any State, Entry, Exit, StateMachine, and OverrideController transitions are reported as skipped.
-3. Generate with `kimodo_generate_animation`; retain its `request_id` and poll `kimodo_get_generation` to `completed`, `failed`, or `canceled`.
-4. Call `animation_analyze` with one or two explicit `{character,clip,role?}` items. `level` defaults to `middle`; use `low` for a compact ghost/trajectory pair or `high` for additional key and foot-contact tiles. `-test` is a temporary renderer-validation layout: each character contributes a 512×512 orthographic ghost-3D tile and a 512×512 orthographic pelvis-trajectory tile, so one/two characters produce 1024×512/1024×1024 PNGs. The same immutable Session clip with the same effective level returns its existing analysis and picture instead of recomputing it.
-5. `animation_analyze` returns one composite PNG through `pictures.image_path` and a self-describing `pictures.images` tile list. The image contains all visual evidence; there is no separate picture command or public `analysis_id`. The descriptors are also indexed in `session.json` without embedding image bytes.
-6. `keyframes` are ordered by descending `saliency`; inspect them in that order. `foot_contacts` is ordered by ascending `duration_frames`, so transient left/right support changes are inspected first. Check that the ghost, key-pose, foot-contact, and pelvis-trajectory tiles express the requested action, phase, direction, contact, and final state. Use the analysis result, `pose_get`, `pose_contract`, and sparse generation constraints to revise the next attempt.
-7. For a loop, compare first and last key poses, root position/heading, contact phase, and velocity visually. Treat a visible discontinuity as a reason to revise the endpoint pose or root constraint and regenerate. There is no automatic loop-seam score in this version.
+Analysis is evidence, not semantic proof. Compare key poses, ghost root path, pelvis trajectory, foot contacts, direction, phase, object contact, and ending state with the requested motion. `animation_compare` can compare two ranges without mutating the Session.
 
-## Pose and constraint use
+### 4. Pose cache and generation constraints
 
-`pose_get` reads an animation pose and creates or reuses a Pose Cache marker. Preserve its cache locator (`session_id`, `track`, `frame`, `marker_id`) for `pose_set_root_transform` and `pose_set_muscle`. `full_data:true` returns all 49 muscles plus root, hand, and foot T/Q channels; the default is compact.
+`pose_get({"source":"<clip>","frame":<local frame>})` reads a source pose and returns a writable Pose Cache marker. Preserve that cache locator. Modify it only with `pose_set_root_transform` or `pose_set_muscle`; use `pose_contract` to align selected end-effectors and record its `residual_error`.
 
-Use `pose_contract` to align the target pose root to one or more source end effectors. `align_target_root` fits a direct root delta; `least_squares_root_fit` reports a residual for multiple effectors. Generation constraints remain sparse per-frame objects and may combine full-body, root2d, hand, and foot information.
+Generation constraints use sparse same-frame objects. Use `fullbody` for a complete pose, `root2d` for planar root position/heading, and pose-based `left_hand`, `right_hand`, `left_foot`, or `right_foot` for contacts. The exact shape comes from `kimodo_help({"section":"constraints"})`. There is no standalone Root2D path command; prepare the root samples/poses yourself or use the surrounding Unity tooling.
 
-The Editor exposes one FullBody rig: Auto Sample is at the constraint-panel level, while Root Position/Rotation and muscle values are authored in the rig. Each hand/foot effector parameter panel stays disabled until its own Enable field is on; dragging its Scene target enables that IK channel automatically, and only the selected target shows a rotation handle. `root2d` is command-only planar override data, composed internally with the FullBody root.
+### 5. Quality gate and loop seam
 
-## Session state and current boundaries
+After every completed generation or correction:
 
-Each Session-changing operation updates `Assets/KimodoGeneratedClips/Sessions/<safe-session-name>/session.json` using temporary-file write and atomic replacement. Every completed Clip added to a Session is immutable: commands never overwrite, retime, or replace it; generation, record, retarget, and later corrections append a new Clip. The JSON is a bounded AI-readable index of Session revision, tracks, animations, constraints, Pose Cache markers, analysis records, visual tile descriptors, and generation history. Dense motion remains in its per-analysis cache file; do not load it unless that specific analysis is required. It is not a runtime query API.
+1. Analyze the output Clip with `animation_analyze`.
+2. Open `pictures.image_path` and inspect the returned tiles.
+3. Check requested action, direction/path, phase, silhouette, balance, root trajectory, contacts, and ending state.
+4. Revise by appending another Clip when the evidence fails; retain the evidence and report what changed.
 
-The experimental retarget core is engine-independent and consumes KMB motion plus two explicit fullbody reference-pose payloads (source and target). A reference may be a bind, neutral, A-pose, or canonical pose; it does not require a T-pose. The regular generation fullbody locator is not sufficient unless it includes global joint positions, global joint rotations, joint names, and parent indices. Unmapped target joints inherit their animated parent by default; an explicit `freeze_global` fallback is available only when that behavior is desired. Missing intermediate target joints share the mapped endpoints' relative rotation. An optional target-arm calibration builds a virtual T-pose from explicitly named upper/lower arm pairs, retargets through it, then rebases the result to the target's real reference pose; it does not modify the character asset or calibrate non-arm joints. Unity Humanoid retarget writeback is FK-only by default: it exports RootT/RootQ and FootT/FootQ curves, does not export HandT/HandQ curves, and only constraint-internal IK sampling may call `SolveIK()`.
+For a loop, inspect first/last poses with `pose_get` and compare the corresponding analysis tiles. Check root position/heading, gait/contact phase, and velocity continuity. In-place loops should return to the initial root/pose; locomotion loops may retain cycle displacement and must not be forced back to world origin. Still images do not prove timing, sliding, popping, or acceleration; use playback/dense samples when supplied and otherwise report `not_verified`.
 
-This version imports Animator state clips and BlendTree candidate clips only. Transition materialization and authored trajectory commands are deferred. `animation_analyze` renders visual evidence without modifying the animation.
+Visual status is `passed`, `needs_revision`, or `not_verified`. `passed` requires actually opening the returned PNG.
 
----
+### 6. Animator transitions and boundaries
 
-# Kimodo AI 动画工具
+`session_add(kind:"animator")` imports supported same-Layer State-to-State transitions as logical Timeline `transition_clip` records; it does not bake a new AnimationClip. Any State, Entry, Exit, StateMachine, and OverrideController transitions are reported as skipped. If the public commands cannot perform a requested edit, complete the supported analysis and report the boundary instead of claiming completion.
 
-QuickServer 版本：`2.2.8`；能力：安全的 supervisor endpoint 交接、动作生成、稀疏代表性关键帧、稠密 KMB 脚接触分析，以及带 target 手臂 A→T 校准的实验性引擎无关 KMB 参考姿势 Retarget 核心。
+## 中文对照
 
-## 公开入口与返回契约
+### 1. 入口与 Session
 
-Editor 入口为 `command_dispatcher`。通过 `GetCommandDefinitionsJson()` 发现实时 Schema，并使用 JSON 对象调用每个命令。参数以实时 Schema 和 `kimodo_help` 为准。
+使用 `CharacterAnimationCli.Unity.Command.command_dispatcher`。先调用 `kimodo_help({})`，再调用 `session_get_or_create({"name":"<稳定名称>"})`。新 Session 为空：用 `session_add({"kind":"character",...})` 显式加入场景 Humanoid，再显式加入项目 Clip 或 Animator。原样保存返回的 Session、角色和 Clip 名称。
 
-每个成功结果均包含 `{"ok":true}`。每个失败结果均为 `{"ok":false,"error":{"code":"...","message":"..."}}`。只有已存在 current Session 时才能省略 `session_id`；否则返回 `session_required`。Session 名称稳定且大小写不敏感；传入同名 Session 会选中该 Session。
+### 2. 时间、不可变性与异步生成
 
-所有公开时间值均为 60 FPS 整数帧。动画区间是半开区间 `[start_frame,end_frame)`；动画 Pose locator 中的帧为动画局部帧。
+- 公开时间为 60 FPS 整数帧；区间为半开区间 `[start_frame,end_frame)`，动画 Pose 帧是 Clip 局部帧。
+- 已完成的 Session Clip 不可变。生成、Record、Retarget 或修正都追加新 Clip，不覆盖或重定时源 Clip。
+- `kimodo_generate_animation` 是异步的。保存 `request_id`，轮询 `kimodo_get_generation` 直到 `completed`、`failed` 或 `canceled`。
+- `kimodo_install_server` 只用于用户明确要求的运行时修复/诊断。Unity 编译或导入期间等待后再执行变更命令。
 
-## 命令分组
+### 3. 分析与视觉证据
 
-| 目标 | 命令 |
-| --- | --- |
-| 发现 Schema、约束和模型 | `kimodo_help` |
-| 用户明确要求时修复项目级运行时 | `kimodo_install_server` |
-| 创建/选择、添加内容、关闭 Session | `session_get_or_create`、`session_add`、`session_close` |
-| 生成、轮询与取消 | `kimodo_generate_animation`、`kimodo_get_generation`、`kimodo_cancel_generation` |
-| 分析、渲染视觉证据与比较动作 | `animation_analyze`、`animation_compare` |
-| 读取、对齐、编辑缓存 Pose | `pose_get`、`pose_contract`、`pose_set_root_transform`、`pose_set_muscle` |
-| 录制和重定向资产 | `kimodo_record_range`、`kimodo_retarget_animation` |
+用一个或两个显式 `{character,clip,role?}` 项调用 `animation_analyze`。按目的选择 `level`：`low` 为紧凑 ghost/轨迹证据，`middle` 增加关键姿势，`high` 再增加脚接触切换，`-test` 仅验证渲染器。结果返回分析数据和 `pictures.image_path` 组合 PNG；实际读取并打开该文件，并用 `pictures.images` 理解子图类型。没有独立图片命令。
 
-## 工作顺序
+Analysis 是证据，不是语义证明。将关键姿势、ghost 根路径、骨盆轨迹、脚接触、方向、相位、对象接触和结束状态与动作要求对照。`animation_compare` 可以在不修改 Session 的情况下比较两个区间。
 
-1. 调用 `kimodo_help({})`，然后调用 `session_get_or_create({"name":"<稳定名称>"})`。
-2. 使用 `session_add({"kind":"character","character":"<场景名称或层级路径>"})` 加入明确的场景 Humanoid。通过对应的 `clip` 或 `animator` 形式加入项目 Clip 或 Controller。Animator 导入会把同 Layer 的 State→State 过渡作为 Timeline 组合的 `transition_clip` 记录，不会 Bake 新的过渡 AnimationClip。预计过渡数量超过 128 时先查看 warning；只有确实需要全量结果时才使用 `ignore_warning:true`。Any State、Entry、Exit、StateMachine 和 OverrideController 过渡会被报告为跳过。
-3. 调用 `kimodo_generate_animation` 生成；保存 `request_id`，并轮询 `kimodo_get_generation` 直到 `completed`、`failed` 或 `canceled`。
-4. 使用一个或两个显式的 `{character,clip,role?}` 项调用 `animation_analyze`。`level` 默认是 `middle`；紧凑的 ghost/trajectory 对使用 `low`，需要额外关键帧和脚接触子图时使用 `high`。`-test` 是临时渲染验证布局：每个角色输出一张 512×512 的正交 ghost-3D 图和一张 512×512 的正交骨盆轨迹图，因此单/双角色分别输出 1024×512/1024×1024 PNG。同一个不可变 Session Clip 使用相同有效 level 时，命令直接返回既有分析和图片而不重复计算。
-5. `animation_analyze` 通过 `pictures.image_path` 返回一张组合 PNG，并通过自描述的 `pictures.images` 返回子图列表。该图包含全部视觉证据；没有独立图片命令或公开的 `analysis_id`。描述符也会写入 `session.json` 索引，但不会嵌入图片字节。
-6. `keyframes` 按 `saliency` 降序排列；按此顺序检查。`foot_contacts` 按 `duration_frames` 升序排列，因此短暂的左右脚支撑切换优先检查。检查 ghost、关键姿势、脚接触和骨盆轨迹子图是否表达了请求动作、阶段、方向、接触和结束状态。使用分析结果、`pose_get`、`pose_contract` 和稀疏生成约束修正下一次生成。
-7. 对循环动画，视觉比较首末关键姿势、根位置/朝向、接触相位和速度。发现可见接缝时，修改端点姿势或根约束后重新生成。本版本不提供自动 loop-seam 分数。
+### 4. Pose Cache 与生成约束
 
-## Pose 与约束
+`pose_get({"source":"<clip>","frame":<局部帧>})` 读取源姿势并返回可写 Pose Cache marker。保存该 cache locator；只用 `pose_set_root_transform` 或 `pose_set_muscle` 修改；使用 `pose_contract` 对齐指定末端，并记录 `residual_error`。
 
-`pose_get` 读取动画 Pose，并创建或复用 Pose Cache marker。保存返回的 cache locator（`session_id`、`track`、`frame`、`marker_id`），供 `pose_set_root_transform` 和 `pose_set_muscle` 使用。`full_data:true` 返回全部 49 个 muscle 以及 root、hand、foot T/Q 通道；默认返回紧凑数据。
+生成约束使用按帧稀疏对象：`fullbody` 表示完整姿势，`root2d` 表示平面 Root 位置/朝向，`left_hand`、`right_hand`、`left_foot`、`right_foot` 使用 Pose 表示接触。准确结构以 `kimodo_help({"section":"constraints"})` 为准。本 command surface 没有独立 Root2D path 命令；请自行准备根采样/姿势，或使用外围 Unity 工具。
 
-`pose_contract` 将目标 Pose 的 root 对齐到一个或多个来源末端。`align_target_root` 计算直接 root delta；`least_squares_root_fit` 对多个末端返回 residual。生成约束保持按帧稀疏对象，可组合 full-body、root2d、手和脚信息。
+### 5. 质量门与循环接缝
 
-Editor 只暴露一套 FullBody rig：Auto Sample 位于约束面板层级，Root Position/Rotation 和 muscle value 在 rig 中编辑。每个手/脚 effector 的参数框在自身 Enable 打开前保持禁用；拖拽 Scene target 会自动打开对应 IK 通道，且只有当前选中的 target 显示旋转手柄。`root2d` 是仅 command 可设置的平面 override 数据，内部与 FullBody root 组合。
+每次生成或修正完成后：
 
-## Session 状态与当前边界
+1. 用 `animation_analyze` 分析输出 Clip。
+2. 打开 `pictures.image_path` 并检查返回子图。
+3. 检查动作、方向/路径、阶段、剪影、平衡、根轨迹、接触和结束状态。
+4. 证据失败时追加另一个 Clip 重新修正，保存证据并说明变化。
 
-每次 Session 变更都通过临时文件写入和原子替换，更新 `Assets/KimodoGeneratedClips/Sessions/<safe-session-name>/session.json`。每个写入 Session 且已完成的 Clip 都不可变：command 不得覆盖、重定时或替换它；生成、Record、Retarget 与后续修正都必须追加新 Clip。该 JSON 是有界的 AI 可读索引，只记录 Session revision、轨道、动画、约束、Pose Cache marker、analysis 记录、视觉子图描述符与 generation history。稠密 motion 位于每个 analysis 的缓存文件；只在确实需要某个分析时才读取。它不是运行时查询 API。
+循环需要用 `pose_get` 检查首尾姿势，并结合分析子图比较。检查 Root 位置/朝向、步态/接触相位和速度连续性。原地循环应回到初始 Root/姿势；位移循环可以保留周期位移，不能强制回到世界原点。静态图不能证明时序、滑步、跳变或加速度；有播放/密集采样时检查，否则报告 `not_verified`。
 
-实验性的 Retarget 核心与引擎无关，使用 KMB 动作以及两份显式 fullbody 参考姿势数据（source 和 target）。参考姿势可以是 bind、neutral、A-Pose 或 canonical pose，不要求 T-Pose。普通生成 fullbody locator 只有在同时包含全局关节位置、全局关节旋转、关节名称和父索引时，才足以作为 Retarget 参考。未映射的 target 关节默认继承已动画化父关节；只有显式指定 `freeze_global` 时才使用冻结全局姿势。缺失的 target 中间关节会共同分配已映射两端关节之间的相对旋转。可选的 target 手臂校准通过显式 upper/lower arm 对构造虚拟 T-Pose，经由该姿势 Retarget 后再 rebase 回 target 的真实参考姿势；它不修改角色资产，也不校准非手臂关节。Unity Humanoid Retarget 写回默认只走 FK：导出 RootT/RootQ 与 FootT/FootQ 曲线，不导出 HandT/HandQ；只有 constraint 内部 IK 采样可以调用 `SolveIK()`。
+视觉状态只能是 `passed`、`needs_revision` 或 `not_verified`。实际打开返回 PNG 才能报告 `passed`。
 
-此版本只导入 Animator State Clip 和 BlendTree 候选 Clip。Transition materialization 与可创作 trajectory 命令仍待后续版本实现。`animation_analyze` 只渲染运动证据，不修改动画。
+### 6. Animator 过渡与边界
+
+`session_add(kind:"animator")` 将支持的同 Layer State→State 过渡导入为逻辑 Timeline `transition_clip`，不会 Bake 新 AnimationClip。Any State、Entry、Exit、StateMachine 和 OverrideController 过渡会报告为跳过。公开 command 无法执行某项修改时，完成可支持的分析并报告边界，不能声称已完成。

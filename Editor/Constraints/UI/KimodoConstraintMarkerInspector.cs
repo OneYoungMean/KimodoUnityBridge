@@ -128,7 +128,7 @@ internal abstract class KimodoConstraintStandardMarkerEditorBase : UnityEditor.E
 
         private void DrawMarkerTime()
         {
-            KimodoConstraintMarkerEditorUtility.DrawSampleTimeField(serializedObject, target as IMarker);
+            KimodoConstraintMarkerEditorUtility.DrawMarkerTimeField(serializedObject, target as IMarker);
         }
 
         protected abstract void DrawFields(bool readOnly);

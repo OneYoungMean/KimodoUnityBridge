@@ -210,7 +210,6 @@ namespace KimodoBridge
                 }
                 foreach (JToken clip in clips) constraints.Add(clip.DeepClone());
             }
-            constraints = KimodoConstraintProtocolNormalizer.NormalizeRoot2DIntoFullBody(constraints);
             string constraintsJson = constraints.Count > 0
                 ? constraints.ToString(Formatting.None)
                 : baseConstraintsJson;

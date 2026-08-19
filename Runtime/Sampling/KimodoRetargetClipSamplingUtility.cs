@@ -670,7 +670,8 @@ namespace KimodoBridge
             bool solveRightHandIk = false,
             bool applyFootIk = false,
             bool solveLeftFootIk = false,
-            bool solveRightFootIk = false)
+            bool solveRightFootIk = false,
+            bool ikGoalsAlreadyInTargetSpace = false)
         {
             targetSample = null;
             targetMuscleSample = null;
@@ -686,17 +687,32 @@ namespace KimodoBridge
                 return false;
             }
 
+            if ((solveLeftHandIk || solveRightHandIk ||
+                 (applyFootIk && (solveLeftFootIk || solveRightFootIk))) &&
+                ikGoalsAlreadyInTargetSpace)
+            {
+                // The sample and goals already belong to targetCache's Avatar;
+                // solve once there. Cross-Avatar callers must solve on their
+                // source cache before entering the retarget path.
+                return TrySolveMuscleSampleOnAvatar(
+                    sourceSample,
+                    frameRate,
+                    targetCache,
+                    out targetSample,
+                    out targetMuscleSample,
+                    out error,
+                    solveLeftHandIk,
+                    solveRightHandIk,
+                    applyFootIk,
+                    solveLeftFootIk,
+                    solveRightFootIk);
+            }
             if (!TryRetargetMuscleSamplesToBoneSamples(
                     new[] { sourceSample },
                     frameRate,
                     targetCache,
                     out BoneSample[] targetSamples,
-                    out error,
-                    solveLeftHandIk: solveLeftHandIk,
-                    solveRightHandIk: solveRightHandIk,
-                    applyFootIk: applyFootIk,
-                    solveLeftFootIk: solveLeftFootIk,
-                    solveRightFootIk: solveRightFootIk) ||
+                    out error) ||
                 targetSamples == null ||
                 targetSamples.Length == 0)
             {
@@ -710,7 +726,114 @@ namespace KimodoBridge
                 return false;
             }
 
-            return TryCaptureMuscleSample(targetCache, out targetMuscleSample, out error);
+            if (!TryCaptureMuscleSample(targetCache, out targetMuscleSample, out error))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Applies a CharacterPose's local IK goals on its own Avatar, then
+        /// captures the solved pose as a transient muscle + FootT/Q snapshot.
+        /// The returned sample is transport data only; it never mutates the
+        /// authored CharacterPose or constraint payload.
+        /// </summary>
+        internal static bool TrySolveMuscleSampleOnAvatar(
+            MuscleSample sourceSample,
+            float frameRate,
+            SkeletonCache sourceCache,
+            out BoneSample solvedBoneSample,
+            out MuscleSample solvedMuscleSample,
+            out string error,
+            bool solveLeftHandIk = false,
+            bool solveRightHandIk = false,
+            bool applyFootIk = false,
+            bool solveLeftFootIk = false,
+            bool solveRightFootIk = false)
+        {
+            solvedBoneSample = null;
+            solvedMuscleSample = null;
+            error = string.Empty;
+            if (sourceSample == null)
+            {
+                error = "Source muscle sample is null.";
+                return false;
+            }
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(sourceCache, out error))
+            {
+                return false;
+            }
+
+            bool shouldSolveIk = solveLeftHandIk || solveRightHandIk ||
+                (applyFootIk && (solveLeftFootIk || solveRightFootIk));
+            var clipSamples = new[] { sourceSample, sourceSample };
+            AnimationClip clip = null;
+            KimodoRetargetClipSamplingUtility.ClipSamplingContext context = null;
+            try
+            {
+                if (!TryCreateTransientMuscleClip(
+                        clipSamples,
+                        frameRate,
+                        out clip,
+                        out error,
+                        includeHandIkGoals: solveLeftHandIk || solveRightHandIk))
+                {
+                    return false;
+                }
+
+                bool builtContext = shouldSolveIk
+                    ? KimodoRetargetClipSamplingUtility.TryBuildIkClipSamplingContext(
+                        clip,
+                        sourceCache,
+                        "KimodoRetarget_SourceIkPoseClip",
+                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                        out context,
+                        out error,
+                        applyMotionXToDelta: true,
+                        solveLeftHandIk: solveLeftHandIk,
+                        solveRightHandIk: solveRightHandIk,
+                        solveLeftFootIk: solveLeftFootIk,
+                        solveRightFootIk: solveRightFootIk)
+                    : KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+                        clip,
+                        sourceCache,
+                        "KimodoRetarget_SourcePoseClip",
+                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                        out context,
+                        out error,
+                        applyMotionXToDelta: true);
+                if (!builtContext ||
+                    !KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(context, 0f, out error))
+                {
+                    return false;
+                }
+
+                solvedBoneSample = CaptureBoneSample(sourceCache);
+                if (!TryCaptureMuscleSample(sourceCache, out MuscleSample solvedPoseSample, out error))
+                {
+                    return false;
+                }
+
+                // The solved skeleton gives us the post-IK muscle pose, but
+                // it cannot be used to regenerate FootT/Q or HandT/Q.  Those
+                // curve channels and the runtime IK end-effector pose are in
+                // different spaces.  Keeping the authored curve values makes
+                // the transport clip a valid muscle + FootT/Q pair while the
+                // solved muscles carry the constraint result across Avatar
+                // retargeting.
+                solvedMuscleSample = CopyIkCurveChannels(sourceSample, solvedPoseSample);
+                return true;
+            }
+            finally
+            {
+                context?.Dispose();
+                if (clip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(clip);
+                }
+            }
         }
 
         internal static bool TryRetargetMuscleSamplesToBoneSamples(
@@ -719,13 +842,11 @@ namespace KimodoBridge
             SkeletonCache targetCache,
             out BoneSample[] targetSamples,
             out string error,
-            Func<AnimationClip, string, string> writebackClip = null,
-            bool solveLeftHandIk = false,
-            bool solveRightHandIk = false,
-            bool applyFootIk = false,
-            bool solveLeftFootIk = false,
-            bool solveRightFootIk = false)
+            Func<AnimationClip, string, string> writebackClip = null)
         {
+            // This is the transport boundary: source samples must already be
+            // solved in their own Avatar. Retargeting only consumes the
+            // matching muscle + FootT/Q snapshot and never solves it again.
             targetSamples = null;
             error = string.Empty;
             if (sourceSamples == null || sourceSamples.Count == 0)
@@ -756,48 +877,35 @@ namespace KimodoBridge
             KimodoRetargetClipSamplingUtility.ClipSamplingContext context = null;
             try
             {
-                if (!TryCreateTransientMuscleClip(clipSamples, frameRate, out clip, out error))
+                // FootT/Q is an Avatar-local IK-goal channel.  It must not be
+                // copied from the source Avatar into the target retarget clip;
+                // the target pose is captured below in the target Avatar's
+                // own space instead.
+                if (!TryCreateTransientMuscleClip(
+                        clipSamples,
+                        frameRate,
+                        out clip,
+                        out error,
+                        includeFootIkGoals: false))
                 {
                     return false;
                 }
-                if (writebackClip != null)
-                {
-                    string writebackError = writebackClip(clip, "MuscleClip");
-                    if (!string.IsNullOrWhiteSpace(writebackError))
-                    {
-                        error = writebackError;
-                        return false;
-                    }
-                }
-                bool shouldSolveIk = solveLeftHandIk || solveRightHandIk ||
-                    (applyFootIk && (solveLeftFootIk || solveRightFootIk));
-                bool builtContext = shouldSolveIk
-                    ? KimodoRetargetClipSamplingUtility.TryBuildIkClipSamplingContext(
+                if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
                         clip,
                         targetCache,
                         "KimodoRetarget_TargetPoseClip",
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                         out context,
                         out error,
-                        applyMotionXToDelta: true,
-                        solveLeftHandIk: solveLeftHandIk,
-                        solveRightHandIk: solveRightHandIk,
-                        solveLeftFootIk: solveLeftFootIk,
-                        solveRightFootIk: solveRightFootIk)
-                    : KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
-                        clip,
-                        targetCache,
-                        "KimodoRetarget_TargetPoseClip",
-                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
-                        out context,
-                        out error,
-                        applyMotionXToDelta: true);
-                if (!builtContext)
+                        applyMotionXToDelta: true))
                 {
                     return false;
                 }
 
                 targetSamples = new BoneSample[sampleCount];
+                MuscleSample[] targetMuscleSamples = writebackClip != null
+                    ? new MuscleSample[sampleCount]
+                    : null;
                 float fps = Mathf.Max(1f, frameRate);
                 for (int i = 0; i < sampleCount; i++)
                 {
@@ -811,6 +919,41 @@ namespace KimodoBridge
                     }
 
                     targetSamples[i] = CaptureBoneSample(targetCache);
+                    if (targetMuscleSamples != null &&
+                        !TryCaptureMuscleSample(targetCache, out targetMuscleSamples[i], out error))
+                    {
+                        targetSamples = null;
+                        return false;
+                    }
+                }
+
+                if (writebackClip != null)
+                {
+                    if (!TryCreateTransientMuscleClip(
+                            targetMuscleSamples,
+                            frameRate,
+                            out AnimationClip targetClip,
+                            out error,
+                            includeFootIkGoals: true))
+                    {
+                        targetSamples = null;
+                        return false;
+                    }
+
+                    try
+                    {
+                        string writebackError = writebackClip(targetClip, "MuscleClip");
+                        if (!string.IsNullOrWhiteSpace(writebackError))
+                        {
+                            error = writebackError;
+                            targetSamples = null;
+                            return false;
+                        }
+                    }
+                    finally
+                    {
+                        UnityEngine.Object.DestroyImmediate(targetClip);
+                    }
                 }
                 return true;
             }
@@ -921,16 +1064,38 @@ namespace KimodoBridge
             IReadOnlyList<MuscleSample> samples,
             float frameRate,
             out AnimationClip clip,
-            out string error)
+            out string error,
+            bool includeHandIkGoals = false,
+            bool includeFootIkGoals = true)
         {
             return TryCreateTransientClip(
                 samples,
                 frameRate,
                 "Muscle samples are empty.",
-                "KimodoTransientMuscleClip",
-                KimodoRetargetClipWriter.WriteTransientMuscleCurves,
+                includeHandIkGoals ? "KimodoTransientMuscleIkClip" :
+                    includeFootIkGoals ? "KimodoTransientMuscleClip" : "KimodoTransientMuscleOnlyClip",
+                includeHandIkGoals && includeFootIkGoals
+                    ? KimodoRetargetClipWriter.WriteMuscleCurvesWithIkGoals
+                    : includeFootIkGoals
+                        ? KimodoRetargetClipWriter.WriteMuscleCurves
+                        : KimodoRetargetClipWriter.WriteMuscleCurvesWithoutIkGoals,
                 out clip,
                 out error);
+        }
+
+        private static MuscleSample CopyIkCurveChannels(
+            MuscleSample sourceSample,
+            MuscleSample solvedPoseSample)
+        {
+            solvedPoseSample.leftFootPosition = sourceSample.leftFootPosition;
+            solvedPoseSample.leftFootRotation = sourceSample.leftFootRotation;
+            solvedPoseSample.rightFootPosition = sourceSample.rightFootPosition;
+            solvedPoseSample.rightFootRotation = sourceSample.rightFootRotation;
+            solvedPoseSample.leftHandPosition = sourceSample.leftHandPosition;
+            solvedPoseSample.leftHandRotation = sourceSample.leftHandRotation;
+            solvedPoseSample.rightHandPosition = sourceSample.rightHandPosition;
+            solvedPoseSample.rightHandRotation = sourceSample.rightHandRotation;
+            return solvedPoseSample;
         }
 
         internal static bool TryCreateTransientBoneClip(

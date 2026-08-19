@@ -11,15 +11,18 @@ namespace KimodoBridge
     /// </summary>
     public static class KimodoRuntimeConstraintExportProjector
     {
-        public static Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> Create(string modelName)
+        public static Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> Create(
+            string modelName,
+            Avatar sourceAvatar = null)
         {
             string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
-            return sample => Project(sample, resolvedModelName);
+            return sample => Project(sample, resolvedModelName, sourceAvatar);
         }
 
         private static KimodoConstraintProjectedPose Project(
             KimodoMarkerSampleResult sample,
-            string modelName)
+            string modelName,
+            Avatar sourceAvatar)
         {
             CharacterAnimationCli.Unity.CharacterPose pose = sample?.characterPose;
             string poseError = null;
@@ -43,21 +46,55 @@ namespace KimodoBridge
                 throw new InvalidOperationException($"Constraint pose projection failed: {error}");
             }
 
+            SkeletonCache sourceCache = null;
             try
             {
                 KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
-                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                        CharacterPoseMuscleAdapter.ToMuscleSample(pose),
-                        KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
-                        cache,
-                        out _,
-                        out MuscleSample projectedMuscleSample,
-                        out error,
-                        solveLeftHandIk: mask.leftHand,
-                        solveRightHandIk: mask.rightHand,
-                        applyFootIk: mask.leftFoot || mask.rightFoot,
-                        solveLeftFootIk: mask.leftFoot,
-                        solveRightFootIk: mask.rightFoot))
+                float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
+                MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToMuscleSample(pose);
+                MuscleSample projectedMuscleSample;
+                if (KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
+                {
+                    if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                            sourceAvatar,
+                            "KimodoRuntimeConstraintSourceProfile",
+                            out sourceCache,
+                            out error) ||
+                        !KimodoRetargetSamplingUtility.TrySolveMuscleSampleOnAvatar(
+                            sourceSample,
+                            frameRate,
+                            sourceCache,
+                            out _,
+                            out MuscleSample solvedSourceSample,
+                            out error,
+                            solveLeftHandIk: mask.leftHand,
+                            solveRightHandIk: mask.rightHand,
+                            applyFootIk: mask.leftFoot || mask.rightFoot,
+                            solveLeftFootIk: mask.leftFoot,
+                            solveRightFootIk: mask.rightFoot) ||
+                        !KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                            solvedSourceSample,
+                            frameRate,
+                            cache,
+                            out _,
+                            out projectedMuscleSample,
+                            out error))
+                    {
+                        throw new InvalidOperationException($"Constraint pose source retarget failed: {error}");
+                    }
+                }
+                else if (!KimodoRetargetSamplingUtility.TrySolveMuscleSampleOnAvatar(
+                            sourceSample,
+                            frameRate,
+                            cache,
+                            out _,
+                            out projectedMuscleSample,
+                            out error,
+                            solveLeftHandIk: mask.leftHand,
+                            solveRightHandIk: mask.rightHand,
+                            applyFootIk: mask.leftFoot || mask.rightFoot,
+                            solveLeftFootIk: mask.leftFoot,
+                            solveRightFootIk: mask.rightFoot))
                 {
                     throw new InvalidOperationException($"Constraint pose projection failed: {error}");
                 }
@@ -94,6 +131,7 @@ namespace KimodoBridge
             }
             finally
             {
+                sourceCache?.Dispose();
                 cache.Dispose();
             }
         }

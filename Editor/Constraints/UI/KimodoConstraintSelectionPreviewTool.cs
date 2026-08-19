@@ -454,6 +454,9 @@ namespace KimodoBridge.Editor
                 EntryId = entryId,
                 SampleData = sample,
                 ConstraintType = constraintType,
+                ConstraintMode = sourceMarker != null
+                    ? sourceMarker.ConstraintMode
+                    : KimodoConstraintMode.FullBody,
                 HighlightJoints = highlightJoints,
                 PreviewColor = color,
                 Visible = true,
@@ -571,4 +574,3 @@ namespace KimodoBridge.Editor
         }
     }
 }
-

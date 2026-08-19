@@ -1,9 +1,9 @@
 ---
-name: kimodo-unity-animation
-description: Discover, generate, inspect, and refine humanoid animation through Kimodo commands in the current Unity Editor.
+name: character-animation-cli-unity
+description: Discover, generate, analyze, compare, and refine humanoid animation through the maintained Character Animation CLI Unity commands.
 ---
 
-# Kimodo Unity Animation
+# Character Animation CLI Unity
 
 Use the public Editor entry point:
 
@@ -13,30 +13,12 @@ string schema = command_dispatcher.GetCommandDefinitionsJson();
 string result = command_dispatcher.Invoke(commandName, argumentsJson);
 ```
 
-Expose exactly the live `schema.tools` entries as tools. Results always use the vNext `ok` envelope. Treat command definitions, returned IDs, names, paths, and cache locators as authoritative opaque handles.
+Treat the live schema, `kimodo_help`, returned IDs/names/paths, and error envelopes as authoritative. Read [TOOLS.md](TOOLS.md) for shared execution rules, then route to:
 
-## Standard workflow
+- [Recognition](skills/recognition.md): interpret animation images and compare them with requested semantics.
+- [Optimization](skills/optimization.md): analyze, inspect, revise, and re-validate immutable Session Clips.
+- [Generation](skills/generation.md): turn names into prompts, plan constraints, and generate appended Clips.
 
-1. `kimodo_help({})`, then `session_get_or_create({"name":"<stable name>"})`.
-2. `session_add({"kind":"character","character":"<scene name or hierarchy path>"})`; save the returned safe character name. Add a project clip or Animator explicitly with `kind:"clip"` or `kind:"animator"`; Animator import creates Timeline-composed `transition_clip` records only for same-Layer State-to-State transitions. Inspect the 128-clip warning and use `ignore_warning:true` only when full expansion is required.
-3. Generate with `kimodo_generate_animation`; save `request_id`; poll `kimodo_get_generation` to a terminal status.
-4. Call `animation_analyze` with one or two explicit `{character,clip,role?}` items. `level` defaults to `middle`; use `low` for a compact ghost/trajectory pair or `high` for five key poses and six foot-contact tiles. Use `-test` only to validate the renderer: it emits one 512×512 orthographic ghost-3D tile and one 512×512 orthographic pelvis-trajectory tile per character. A matching immutable Clip and effective level return the existing analysis and picture.
-5. Read the returned composite PNG at `pictures.image_path` and its self-describing `pictures.images` tile list. There is no separate picture command or public `analysis_id`.
-6. Compare the visual evidence with the prompt. Revise sparse constraints, endpoint poses, or the prompt and iterate.
+Always create/select a Session, add the character/content explicitly, preserve opaque returned handles, poll generation to `completed`, `failed`, or `canceled`, and inspect the PNG returned by `animation_analyze` before claiming visual acceptance.
 
-Read the returned `session_json_path` as a compact Session index; it includes visual tile descriptors but never image bytes. Every completed Clip appended to a Session is immutable: never overwrite, retime, or replace it; create a new appended Clip for a generated, recorded, retargeted, or corrected result. A new Session is empty. `session_add` explicitly adds the scene humanoid, clip, or Animator content.
-A transition is a logical composite over Timeline segments, not a baked AnimationClip asset; unsupported Any State, Entry, Exit, StateMachine, and OverrideController transitions are reported as skipped.
-
-## Visual acceptance
-
-- Key-pose images must show the requested action, direction, body state, contact/object relationship, and ending state.
-- Inspect `keyframes` in their returned descending-saliency order. Inspect `foot_contacts` in their returned shortest-duration-first order.
-- Ghost tiles must show the expected root path, displacement, orientation, and no unexplained drift.
-- Trajectory tiles must show a plausible pelvis path, with speed and acceleration encoded by line color and alpha.
-- Loop work requires inspecting first/last poses, root heading and position, foot-contact phase, and velocity continuity. A visible seam requires another generation/refinement pass.
-
-## Pose work
-
-Use `pose_get` to obtain a source pose and its writable Pose Cache marker. Keep the returned marker locator for `pose_set_root_transform` and `pose_set_muscle`. Use `full_data:true` when all muscle channels are needed. Use `pose_contract` to fit one or more hand/foot targets and keep its reported residual when judging a multi-effector fit.
-
-Dataset animation names become concise natural-language prompts: preserve action, phase, direction/path, speed, contact/object, and ending state; remove take IDs, actor IDs, and internal variant suffixes that carry no movement meaning.
+The Chinese entry point is [SKILL-zh.md](SKILL-zh.md).

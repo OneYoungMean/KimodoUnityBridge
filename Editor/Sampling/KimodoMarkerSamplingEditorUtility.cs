@@ -57,7 +57,6 @@ namespace KimodoBridge.Editor
             }
 
             bool changed = !AreSamplesEquivalent(marker.SampleData, normalized) ||
-                System.Math.Abs(marker.time - normalized.sampleTime) > 1e-9 ||
                 (disableFullBodyAutoSample && marker.autoSampleFullBody);
             if (!changed)
             {
@@ -65,7 +64,6 @@ namespace KimodoBridge.Editor
             }
 
             marker.SampleData = normalized;
-            marker.time = normalized.sampleTime;
             if (disableFullBodyAutoSample) marker.autoSampleFullBody = false;
 
             MarkConstraintMarkerDirty(marker);
@@ -108,7 +106,7 @@ namespace KimodoBridge.Editor
             }
 
             return string.Equals(left.constraintType ?? string.Empty, right.constraintType ?? string.Empty, System.StringComparison.Ordinal) &&
-                System.Math.Abs(left.sampleTime - right.sampleTime) <= 1e-9 &&
+                string.Equals(left.constraintMode ?? string.Empty, right.constraintMode ?? string.Empty, System.StringComparison.Ordinal) &&
                 string.Equals(CharacterPoseSignature(left), CharacterPoseSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(Root2DOverrideSignature(left), Root2DOverrideSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(MaskSignature(left.mask), MaskSignature(right.mask), System.StringComparison.Ordinal) &&

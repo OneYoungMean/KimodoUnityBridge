@@ -62,7 +62,7 @@ public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, 
                 return true;
             }
 
-            if (!marker.autoSampleFullBody)
+            if (!marker.autoSample)
             {
                 return true;
             }
@@ -162,7 +162,10 @@ public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, 
             sample.sampleTime = sampleTime;
             if (marker is KimodoConstraintMarker)
             {
-                sample.mask = KimodoConstraintMask.Resolve(marker.SampleData.mask, "fullbody").Clone();
+                sample.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
+                    ? "root2d"
+                    : marker.ConstraintMode == KimodoConstraintMode.IK ? "ik" : "fullbody";
+                sample.mask = KimodoConstraintMask.Resolve(marker.SampleData.mask, "constraint").Clone();
             }
             KimodoMarkerSampleResult preview = MergeAutoSampledChannels(marker, sample);
             if (preview == null)
@@ -212,51 +215,63 @@ private static KimodoMarkerSampleResult MergeAutoSampledChannels(
             result.constraintType = "constraint";
             result.mask = KimodoConstraintMask.Resolve(marker.SampleData.mask, "constraint").Clone();
             result.characterPose ??= sampled.characterPose.Clone();
-            if (marker.autoSampleFullBody)
+            result.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
+                ? "root2d"
+                : marker.ConstraintMode == KimodoConstraintMode.IK ? "ik" : "fullbody";
+            if (marker.autoSample)
             {
                 result.characterPose.hands ??= new CharacterPoseSides();
                 result.characterPose.feet ??= new CharacterPoseSides();
                 result.characterPose.muscles = sampled.characterPose.muscles != null
                     ? (float[])sampled.characterPose.muscles.Clone()
                     : result.characterPose.muscles;
-                result.characterPose.root = sampled.characterPose.root != null
-                    ? new CharacterPoseTransform { t = sampled.characterPose.root.t, q = sampled.characterPose.root.q }
-                    : result.characterPose.root;
-                if (!result.mask.leftHand && sampled.characterPose.hands?.left != null)
+                if (sampled.characterPose.root != null)
                 {
-                    result.characterPose.hands.left = new CharacterPoseTransform
+                    result.characterPose.root = new CharacterPoseTransform
                     {
-                        t = sampled.characterPose.hands.left.t,
-                        q = sampled.characterPose.hands.left.q
+                        t = sampled.characterPose.root.t,
+                        q = sampled.characterPose.root.q
                     };
                 }
-                if (!result.mask.rightHand && sampled.characterPose.hands?.right != null)
+                if (marker.ConstraintMode == KimodoConstraintMode.Root2D)
                 {
-                    result.characterPose.hands.right = new CharacterPoseTransform
-                    {
-                        t = sampled.characterPose.hands.right.t,
-                        q = sampled.characterPose.hands.right.q
-                    };
+                    result.hasRootHeading = marker.Root2DData.allowHeading;
+                    result.hasRoot2DOverride = true;
+                    result.root2DOverride = result.characterPose.root;
                 }
-                if (!result.mask.leftFoot && sampled.characterPose.feet?.left != null)
+                else
                 {
-                    result.characterPose.feet.left = new CharacterPoseTransform
-                    {
-                        t = sampled.characterPose.feet.left.t,
-                        q = sampled.characterPose.feet.left.q
-                    };
-                }
-                if (!result.mask.rightFoot && sampled.characterPose.feet?.right != null)
-                {
-                    result.characterPose.feet.right = new CharacterPoseTransform
-                    {
-                        t = sampled.characterPose.feet.right.t,
-                        q = sampled.characterPose.feet.right.q
-                    };
+                    CopyAutoSampleTargets(
+                        result,
+                        sampled,
+                        overwriteAll: marker.ConstraintMode == KimodoConstraintMode.FullBody);
                 }
             }
 
             return result;
+        }
+
+        private static void CopyAutoSampleTargets(
+            KimodoMarkerSampleResult destination,
+            KimodoMarkerSampleResult sampled,
+            bool overwriteAll)
+        {
+            if (destination?.characterPose == null || sampled?.characterPose == null) return;
+            if ((overwriteAll || !destination.mask.leftHand) && sampled.characterPose.hands?.left != null)
+                destination.characterPose.hands.left = CloneTransform(sampled.characterPose.hands.left);
+            if ((overwriteAll || !destination.mask.rightHand) && sampled.characterPose.hands?.right != null)
+                destination.characterPose.hands.right = CloneTransform(sampled.characterPose.hands.right);
+            if ((overwriteAll || !destination.mask.leftFoot) && sampled.characterPose.feet?.left != null)
+                destination.characterPose.feet.left = CloneTransform(sampled.characterPose.feet.left);
+            if ((overwriteAll || !destination.mask.rightFoot) && sampled.characterPose.feet?.right != null)
+                destination.characterPose.feet.right = CloneTransform(sampled.characterPose.feet.right);
+        }
+
+        private static CharacterPoseTransform CloneTransform(CharacterPoseTransform value)
+        {
+            return value != null
+                ? new CharacterPoseTransform { t = value.t, q = value.q }
+                : new CharacterPoseTransform();
         }
 
 internal static bool TryRefreshMarkerCache(KimodoConstraintMarker marker, out string error)

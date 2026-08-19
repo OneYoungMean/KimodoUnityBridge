@@ -79,7 +79,7 @@ namespace KimodoBridge.Editor
                 built.CombinedSamples,
                 new KimodoConstraintExportContext(
                     KimodoConstraintNormalizationUtility.ResolveHumanScale(request.SourceAvatar),
-                    KimodoConstraintExportProjector.Create(request.ModelName)),
+                    KimodoConstraintExportProjector.Create(request.ModelName, request.SourceAvatar)),
                 clipStartSeconds: 0.0,
                 clipDurationSeconds: clipDurationSeconds,
                 exportFps: generationFrameRate);

@@ -834,7 +834,8 @@ namespace CharacterAnimationCli.Unity.Command
                     solveRightHandIk: mask.rightHand,
                     applyFootIk: mask.leftFoot || mask.rightFoot,
                     solveLeftFootIk: mask.leftFoot,
-                    solveRightFootIk: mask.rightFoot))
+                    solveRightFootIk: mask.rightFoot,
+                    ikGoalsAlreadyInTargetSpace: true))
             {
                 throw new InvalidOperationException($"Retarget constraints[{constraintIndex}] failed: {retargetError}");
             }

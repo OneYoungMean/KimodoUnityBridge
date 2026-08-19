@@ -1,118 +1,159 @@
+using TimelineInject;
 using UnityEditor;
 using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
-    // Single source of truth for Constraint Inspector/Edit Window state and
-    // panel behavior. AutoSample values are always serialized on the marker.
+    // Single source of truth for the mode-aware Constraint inspector.
     internal static class KimodoConstraintEditorState
     {
-        internal static bool IsFullBodyAutoSample(SerializedObject so)
+        internal static bool IsAutoSample(SerializedObject so)
         {
-            return so?.FindProperty("autoSampleFullBody")?.boolValue == true;
+            return so?.FindProperty("autoSample")?.boolValue == true;
         }
+
+        internal static bool IsFullBodyAutoSample(SerializedObject so) => IsAutoSample(so);
 
         internal static void DrawConstraintPanels(SerializedObject so)
         {
             if (so == null) return;
 
-            SerializedProperty pose = so.FindProperty("sampleData.characterPose");
-            SerializedProperty mask = so.FindProperty("sampleData.mask");
-            if (pose == null || mask == null) return;
-
-            DrawAutoSampleField(so, "autoSampleFullBody");
-
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            SerializedProperty root = pose.FindPropertyRelative("root");
-            SerializedProperty rootPosition = mask.FindPropertyRelative("rootPosition");
-            SerializedProperty rootHeading = mask.FindPropertyRelative("rootHeading");
-            using (new EditorGUI.DisabledScope(IsFullBodyAutoSample(so)))
+            SerializedProperty mode = so.FindProperty("constraintMode");
+            SerializedProperty autoSample = so.FindProperty("autoSample");
+            if (autoSample != null)
             {
-                if (DrawTransform(root, "Root Position / Rotation"))
+                EditorGUILayout.PropertyField(autoSample, new GUIContent("Auto Sample"));
+                if (!autoSample.boolValue)
                 {
-                    // Root is always part of the authoring surface.  Keep the
-                    // historical Root2D mask as an internal export detail and
-                    // only enable it when the user actually edits this root.
-                    if (rootPosition != null) rootPosition.boolValue = true;
-                    if (rootHeading != null) rootHeading.boolValue = true;
+                    EditorGUILayout.HelpBox(
+                        "Auto Sample is disabled. Enable it to synchronize the scene pose.\n" +
+                        "已关闭 Auto Sample；请打开它以同步场景姿势。",
+                        MessageType.Warning);
                 }
             }
-            EditorGUILayout.EndVertical();
+            if (mode == null) return;
 
-            DrawRoot2DOverride(so);
+            EditorGUILayout.PropertyField(
+                mode,
+                new GUIContent("Constraint Mode", "Only the selected mode is sampled, displayed, and exported."));
 
+            switch ((KimodoConstraintMode)mode.enumValueIndex)
+            {
+                case KimodoConstraintMode.Root2D:
+                    DrawRoot2D(so);
+                    break;
+                case KimodoConstraintMode.IK:
+                    DrawIk(so, "ikData");
+                    break;
+                default:
+                    DrawFullBody(so);
+                    break;
+            }
+        }
+
+        private static void DrawRoot2D(SerializedObject so)
+        {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            SerializedProperty fullBodyEnabled = mask.FindPropertyRelative("muscle");
-            EditorGUILayout.PropertyField(fullBodyEnabled, new GUIContent("Muscle Values (FullBody)"));
-            using (new EditorGUI.DisabledScope(
-                fullBodyEnabled == null ||
-                !fullBodyEnabled.boolValue ||
-                IsFullBodyAutoSample(so)))
+            SerializedProperty root = so.FindProperty("root2DData.root");
+            SerializedProperty allowHeading = so.FindProperty("root2DData.allowHeading");
+            using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
-                DrawMuscleValues(pose.FindPropertyRelative("muscles"));
+                DrawTransform(root, "Root Position / Rotation");
+                if (allowHeading != null)
+                {
+                    EditorGUILayout.PropertyField(
+                        allowHeading,
+                        new GUIContent("Allow Heading", "Export Root2D heading and use it as FullBody yaw overlay."));
+                }
             }
+            EditorGUILayout.HelpBox("Root2D mode draws only the root marker and exports only root2d.", MessageType.None);
             EditorGUILayout.EndVertical();
-
-            DrawEndEffectorPanel(
-                pose.FindPropertyRelative("hands.left"),
-                mask.FindPropertyRelative("leftHand"),
-                "Left Hand Effector");
-            DrawEndEffectorPanel(
-                pose.FindPropertyRelative("hands.right"),
-                mask.FindPropertyRelative("rightHand"),
-                "Right Hand Effector");
-            DrawEndEffectorPanel(
-                pose.FindPropertyRelative("feet.left"),
-                mask.FindPropertyRelative("leftFoot"),
-                "Left Foot Effector");
-            DrawEndEffectorPanel(
-                pose.FindPropertyRelative("feet.right"),
-                mask.FindPropertyRelative("rightFoot"),
-                "Right Foot Effector");
         }
 
-        private static void DrawAutoSampleField(SerializedObject so, string propertyPath)
+        private static void DrawFullBody(SerializedObject so)
         {
-            SerializedProperty property = so.FindProperty(propertyPath);
-            if (property != null)
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            SerializedProperty pose = so.FindProperty("fullBodyData.pose");
+            using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
-                EditorGUILayout.PropertyField(property, new GUIContent("Auto Sample"));
+                DrawTransform(pose?.FindPropertyRelative("root"), "Pelvis Position / Rotation");
+                DrawMuscleValues(pose?.FindPropertyRelative("muscles"));
+            }
+            DrawFullBodyIkTargets(so, IsAutoSample(so));
+            EditorGUILayout.HelpBox(
+                "FullBody always exports its four IK targets with the muscle pose. Dragging a Scene target writes its target data and never rewrites muscles.",
+                MessageType.None);
+            EditorGUILayout.EndVertical();
+        }
+
+        private static void DrawFullBodyIkTargets(SerializedObject so, bool autoSample)
+        {
+            EditorGUILayout.LabelField("FullBody IK Targets", EditorStyles.boldLabel);
+            using (new EditorGUI.DisabledScope(autoSample))
+            {
+                DrawTransform(so.FindProperty("fullBodyData.ikTargets.hands.left"), "Left Hand Effector");
+                DrawTransform(so.FindProperty("fullBodyData.ikTargets.hands.right"), "Right Hand Effector");
+                DrawTransform(so.FindProperty("fullBodyData.ikTargets.feet.left"), "Left Foot Effector");
+                DrawTransform(so.FindProperty("fullBodyData.ikTargets.feet.right"), "Right Foot Effector");
             }
         }
 
-        private static void DrawMuscleValues(SerializedProperty muscles)
+        private static void DrawIk(SerializedObject so, string root)
         {
-            KimodoConstraintMuscleValueGUI.Draw(muscles);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.HelpBox(
+                "IK keeps the last sampled reference pose when Auto Sample is disabled. Only IK target channels are editable.",
+                MessageType.None);
+            DrawIkTargetPanels(so, root, "IK Targets", IsAutoSample(so));
+            EditorGUILayout.EndVertical();
+        }
+
+        private static void DrawIkTargetPanels(
+            SerializedObject so,
+            string root,
+            string label,
+            bool autoSample)
+        {
+            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+            DrawEndEffectorPanel(
+                so.FindProperty(root + ".ikTargets.hands.left"),
+                so.FindProperty(root + ".leftHand"),
+                "Left Hand Effector", autoSample);
+            DrawEndEffectorPanel(
+                so.FindProperty(root + ".ikTargets.hands.right"),
+                so.FindProperty(root + ".rightHand"),
+                "Right Hand Effector", autoSample);
+            DrawEndEffectorPanel(
+                so.FindProperty(root + ".ikTargets.feet.left"),
+                so.FindProperty(root + ".leftFoot"),
+                "Left Foot Effector", autoSample);
+            DrawEndEffectorPanel(
+                so.FindProperty(root + ".ikTargets.feet.right"),
+                so.FindProperty(root + ".rightFoot"),
+                "Right Foot Effector", autoSample);
         }
 
         private static void DrawEndEffectorPanel(
             SerializedProperty transform,
             SerializedProperty enabled,
-            string label)
+            string label,
+            bool autoSample)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.PropertyField(enabled, new GUIContent(label + " Enable"));
-            using (new EditorGUI.DisabledScope(enabled == null || !enabled.boolValue))
+            if (enabled != null)
+            {
+                EditorGUILayout.PropertyField(enabled, new GUIContent(label + " Enable"));
+            }
+            using (new EditorGUI.DisabledScope(autoSample || enabled == null || !enabled.boolValue))
             {
                 DrawTransform(transform, "Target Position / Rotation");
             }
             EditorGUILayout.EndVertical();
         }
 
-        private static void DrawRoot2DOverride(SerializedObject so)
+        private static void DrawMuscleValues(SerializedProperty muscles)
         {
-            SerializedProperty hasOverride = so.FindProperty("sampleData.hasRoot2DOverride");
-            SerializedProperty root2D = so.FindProperty("sampleData.root2DOverride");
-            if (hasOverride?.boolValue != true || root2D == null) return;
-
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("Root2D Override", EditorStyles.boldLabel);
-            using (new EditorGUI.DisabledScope(true))
-            {
-                DrawTransform(root2D, "Position / Rotation");
-            }
-            EditorGUILayout.HelpBox("API override only.", MessageType.Info);
-            EditorGUILayout.EndVertical();
+            KimodoConstraintMuscleValueGUI.Draw(muscles);
         }
 
         private static bool DrawTransform(SerializedProperty transform, string label)

@@ -405,7 +405,6 @@ namespace KimodoBridge.Editor
             var so = new SerializedObject(marker);
             so.Update();
 
-            DrawPropertyIfExists(so, "sampleData.sampleTime");
             KimodoConstraintEditorState.DrawConstraintPanels(so);
 
             if (so.ApplyModifiedProperties())
@@ -628,10 +627,13 @@ namespace KimodoBridge.Editor
                 KimodoConstraintPoseCache.GetChangedAutoSampleChannels(
                     context, editEntryId, out bool fullBodyChanged);
                 KimodoConstraintPoseCache.EnableChangedConstraintChannels(context, editEntryId, sample);
+                bool disableAutoSample = fullBodyChanged ||
+                    pendingEndEffectorWriteback ||
+                    pendingRootWriteback;
                 if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
                         marker,
                         sample,
-                        disableFullBodyAutoSample: fullBodyChanged,
+                        disableFullBodyAutoSample: disableAutoSample,
                         out string writeError,
                         writeSampledCharacterPose: true))
                 {

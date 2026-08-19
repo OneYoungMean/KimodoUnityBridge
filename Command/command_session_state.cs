@@ -457,7 +457,6 @@ namespace CharacterAnimationCli.Unity.Command
                 KimodoMarkerSampleResult markerSample = sample.Clone();
                 markerSample.mask = KimodoConstraintMask.Resolve(markerSample.mask, sample.constraintType);
                 markerSample.constraintType = "constraint";
-                markerSample.sampleTime = markerTime;
                 marker.SampleData = markerSample;
                 if (createdMarker)
                 {
@@ -1054,7 +1053,7 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static JObject BuildEffectiveAnalysisOptions(string level)
         {
-            int keyframeCount = level == "high" ? 12 : level == "middle" || level == "-test" ? 8 : 4;
+            const int keyframeCount = 8;
             return new JObject
             {
                 ["keyframe_count"] = keyframeCount,

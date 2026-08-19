@@ -139,6 +139,41 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void TransientMuscleClip_ExportsFootGoalsButNotHandGoals()
+        {
+            AnimationClip clip = null;
+            try
+            {
+                MuscleSample sample = CreateRootRotationSample(Quaternion.identity);
+                sample.leftFootPosition = new Vector3(10f, 20f, 30f);
+                sample.rightFootPosition = new Vector3(-10f, -20f, -30f);
+                sample.leftHandPosition = new Vector3(40f, 50f, 60f);
+                sample.rightHandPosition = new Vector3(-40f, -50f, -60f);
+
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
+                        new[] { sample },
+                        30f,
+                        out clip,
+                        out string error),
+                    Is.True,
+                    error);
+
+                Assert.That(HasAnimatorCurve(clip, "LeftFootT.x"), Is.True);
+                Assert.That(HasAnimatorCurve(clip, "RightFootQ.w"), Is.True);
+                Assert.That(HasAnimatorCurve(clip, "LeftHandT.x"), Is.False);
+                Assert.That(HasAnimatorCurve(clip, "RightHandQ.w"), Is.False);
+            }
+            finally
+            {
+                if (clip != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(clip);
+                }
+            }
+        }
+
+        [Test]
         public void WriteMuscleClip_AlignsRootQuaternionHemisphere()
         {
             var clip = new AnimationClip { frameRate = 30f };

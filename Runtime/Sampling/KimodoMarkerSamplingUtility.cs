@@ -21,60 +21,98 @@ namespace KimodoBridge
             KimodoMarkerSampleResult normalized = authored?.Clone() ?? new KimodoMarkerSampleResult();
             normalized.sampleTime = marker.time;
             normalized.constraintType = "constraint";
+            normalized.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
+                ? "root2d"
+                : marker.ConstraintMode == KimodoConstraintMode.IK ? "ik" : "fullbody";
             normalized.mask = KimodoConstraintMask.Resolve(authored?.mask, "constraint").Clone();
             normalized.hasRootHeading = authored != null && authored.hasRootHeading;
 
-            if (marker.autoSampleFullBody && sample.characterPose != null)
+            if (marker.autoSample && sample.characterPose != null)
             {
                 normalized.characterPose ??= sample.characterPose.Clone();
                 normalized.characterPose.hands ??= new CharacterAnimationCli.Unity.CharacterPoseSides();
                 normalized.characterPose.feet ??= new CharacterAnimationCli.Unity.CharacterPoseSides();
-                normalized.characterPose.muscles = sample.characterPose.muscles != null
-                    ? (float[])sample.characterPose.muscles.Clone()
-                    : normalized.characterPose.muscles;
-                if (sample.characterPose.root != null)
+                switch (marker.ConstraintMode)
                 {
-                    normalized.characterPose.root = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                    {
-                        t = sample.characterPose.root.t,
-                        q = sample.characterPose.root.q
-                    };
-                }
-                if (!normalized.mask.leftHand && sample.characterPose.hands?.left != null)
-                {
-                    normalized.characterPose.hands.left = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                    {
-                        t = sample.characterPose.hands.left.t,
-                        q = sample.characterPose.hands.left.q
-                    };
-                }
-                if (!normalized.mask.rightHand && sample.characterPose.hands?.right != null)
-                {
-                    normalized.characterPose.hands.right = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                    {
-                        t = sample.characterPose.hands.right.t,
-                        q = sample.characterPose.hands.right.q
-                    };
-                }
-                if (!normalized.mask.leftFoot && sample.characterPose.feet?.left != null)
-                {
-                    normalized.characterPose.feet.left = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                    {
-                        t = sample.characterPose.feet.left.t,
-                        q = sample.characterPose.feet.left.q
-                    };
-                }
-                if (!normalized.mask.rightFoot && sample.characterPose.feet?.right != null)
-                {
-                    normalized.characterPose.feet.right = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                    {
-                        t = sample.characterPose.feet.right.t,
-                        q = sample.characterPose.feet.right.q
-                    };
+                    case KimodoConstraintMode.Root2D:
+                        if (sample.characterPose.root != null)
+                        {
+                            normalized.characterPose.root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                            {
+                                t = sample.characterPose.root.t,
+                                q = sample.characterPose.root.q
+                            };
+                        }
+                        normalized.hasRootHeading = marker.Root2DData.allowHeading;
+                        normalized.hasRoot2DOverride = true;
+                        normalized.root2DOverride = normalized.characterPose.root;
+                        break;
+                    case KimodoConstraintMode.IK:
+                        normalized.characterPose.muscles = sample.characterPose.muscles != null
+                            ? (float[])sample.characterPose.muscles.Clone()
+                            : normalized.characterPose.muscles;
+                        if (sample.characterPose.root != null)
+                        {
+                            normalized.characterPose.root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                            {
+                                t = sample.characterPose.root.t,
+                                q = sample.characterPose.root.q
+                            };
+                        }
+                        CopyUnenabledGoals(normalized, sample, normalized.mask);
+                        break;
+                    default:
+                        normalized.characterPose.muscles = sample.characterPose.muscles != null
+                            ? (float[])sample.characterPose.muscles.Clone()
+                            : normalized.characterPose.muscles;
+                        if (sample.characterPose.root != null)
+                        {
+                            normalized.characterPose.root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                            {
+                                t = sample.characterPose.root.t,
+                                q = sample.characterPose.root.q
+                            };
+                        }
+                        CopyAutoSampleGoals(normalized, sample, normalized.mask, overwriteAll: true);
+                        break;
                 }
             }
 
             return normalized;
+        }
+
+        private static void CopyUnenabledGoals(
+            KimodoMarkerSampleResult destination,
+            KimodoMarkerSampleResult source,
+            KimodoConstraintMask mask)
+        {
+            CopyAutoSampleGoals(destination, source, mask, overwriteAll: false);
+        }
+
+        private static void CopyAutoSampleGoals(
+            KimodoMarkerSampleResult destination,
+            KimodoMarkerSampleResult source,
+            KimodoConstraintMask mask,
+            bool overwriteAll)
+        {
+            if (destination?.characterPose == null || source?.characterPose == null) return;
+            mask ??= new KimodoConstraintMask();
+            if ((overwriteAll || !mask.leftHand) && source.characterPose.hands?.left != null)
+                destination.characterPose.hands.left = CloneTransform(source.characterPose.hands.left);
+            if ((overwriteAll || !mask.rightHand) && source.characterPose.hands?.right != null)
+                destination.characterPose.hands.right = CloneTransform(source.characterPose.hands.right);
+            if ((overwriteAll || !mask.leftFoot) && source.characterPose.feet?.left != null)
+                destination.characterPose.feet.left = CloneTransform(source.characterPose.feet.left);
+            if ((overwriteAll || !mask.rightFoot) && source.characterPose.feet?.right != null)
+                destination.characterPose.feet.right = CloneTransform(source.characterPose.feet.right);
+        }
+
+        private static CharacterAnimationCli.Unity.CharacterPoseTransform CloneTransform(
+            CharacterAnimationCli.Unity.CharacterPoseTransform value)
+        {
+            return value != null
+                ? new CharacterAnimationCli.Unity.CharacterPoseTransform { t = value.t, q = value.q }
+                : new CharacterAnimationCli.Unity.CharacterPoseTransform();
         }
 
         private static string ResolveFixedEndEffectorJointName(string constraintType)
@@ -224,8 +262,18 @@ namespace KimodoBridge
                 return new List<string>();
             }
 
-            KimodoConstraintMask mask = KimodoConstraintMask.Resolve(marker.SampleData?.mask, "constraint");
-            return BuildHighlightJointsForConstraint(mask.muscle ? "fullbody" : "root2d", null, modelName);
+            switch (marker.ConstraintMode)
+            {
+                case KimodoConstraintMode.Root2D:
+                    return BuildHighlightJointsForConstraint("root2d", null, modelName);
+                case KimodoConstraintMode.IK:
+                    return BuildHighlightJointsForConstraint(
+                        "left-hand",
+                        new List<string> { "LeftHand", "RightHand", "LeftFoot", "RightFoot" },
+                        modelName);
+                default:
+                    return BuildHighlightJointsForConstraint("fullbody", null, modelName);
+            }
         }
 
         public static bool TryResolveAnimationClipFromTimelineClip(
@@ -246,36 +294,21 @@ namespace KimodoBridge
             return true;
         }
 
-        public static double ClampLocalSampleTime(TimelineClip timelineClip, double globalTime)
+        /// <summary>
+        /// Resolves a Timeline-global time to the underlying AnimationClip
+        /// evaluation time. The conversion is deliberately kept at this
+        /// source-sampling boundary; markers never store this value.
+        /// </summary>
+        public static double ResolveAnimationSourceTime(TimelineClip timelineClip, double timelineTime)
         {
             if (timelineClip == null)
             {
-                return Math.Max(0.0, globalTime);
+                return Math.Max(0.0, timelineTime);
             }
 
-            double localSampleTime = timelineClip.ToLocalTime(globalTime);
-            if (localSampleTime < 0.0)
-            {
-                return 0.0;
-            }
-
-            if (localSampleTime > timelineClip.duration)
-            {
-                return timelineClip.duration;
-            }
-
-            return localSampleTime;
-        }
-
-        public static double ResolveSourceClipSampleTime(TimelineClip timelineClip, double globalTime)
-        {
-            if (timelineClip == null)
-            {
-                return Math.Max(0.0, globalTime);
-            }
-
-            double localSampleTime = ClampLocalSampleTime(timelineClip, globalTime);
-            double sourceSampleTime = timelineClip.clipIn + (localSampleTime * timelineClip.timeScale);
+            double clipRelativeTime = timelineClip.ToLocalTime(timelineTime);
+            clipRelativeTime = Math.Max(0.0, Math.Min(timelineClip.duration, clipRelativeTime));
+            double sourceSampleTime = timelineClip.clipIn + (clipRelativeTime * timelineClip.timeScale);
             if (sourceSampleTime < 0.0)
             {
                 return 0.0;
