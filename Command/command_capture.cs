@@ -20,8 +20,9 @@ namespace CharacterAnimationCli.Unity.Command
         private static readonly Dictionary<string, AnalysisCacheRecord> AnalysisCache =
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
-        private const string AnalysisPictureRenderVersion = "15-test-levels";
-        private const string TestAnalysisPictureRenderVersion = "22-test";
+        private const string AnalysisPictureRenderVersion = "20-urp-lit-bounds";
+        private const string TestAnalysisPictureRenderVersion = "23-depth-occlusion";
+        private const int PictureSupersample = 2;
         private const int AnalysisKeyframeCount = 8;
         private const int TestPoseSupersampleHeight = 2048;
         private const float TestPoseJointCameraOffsetMeters = .2f;
@@ -37,9 +38,10 @@ namespace CharacterAnimationCli.Unity.Command
         private static JObject RenderAnalysisPictures(
             TimelineSessionRecord session,
             IReadOnlyList<AnalysisSubject> subjects,
-            string level)
+            string level,
+            int requestedResolution)
         {
-            string signature = BuildPictureSignature(subjects, level);
+            string signature = BuildPictureSignature(subjects, level, requestedResolution);
             string imagePath = Path.Combine(EvidenceFolder(session), $"analysis_picture_{signature}.png");
             string projectPath = ToProjectRelativePath(imagePath);
             JObject persisted = subjects[0].Record.Pictures;
@@ -64,7 +66,7 @@ namespace CharacterAnimationCli.Unity.Command
             int maxTileCount = Math.Max(
                 1,
                 data.Select(subject => tiles.Count(tile => ReferenceEquals(tile.Subject, subject))).DefaultIfEmpty(1).Max());
-            PictureLayout layout = PictureLayout.ForLevel(maxTileCount, level == "high");
+            PictureLayout layout = PictureLayout.ForLevel(maxTileCount, level == "high", requestedResolution);
 
             int tileWidth = layout.TileSize;
             int tileHeight = ResolvePictureTileHeight(layout, tiles, tileWidth);
@@ -75,7 +77,15 @@ namespace CharacterAnimationCli.Unity.Command
             int imageHeight;
             bool cached = false;
             Directory.CreateDirectory(EvidenceFolder(session));
-            Texture2D canvas = RenderPictureCanvas(data, tiles, layout, trajectoryScale, tileWidth, tileHeight, out imageRects);
+            Texture2D canvas = RenderPictureCanvas(
+                data,
+                tiles,
+                layout,
+                trajectoryScale,
+                tileWidth,
+                tileHeight,
+                PictureSupersample,
+                out imageRects);
             try
             {
                 imageWidth = canvas.width;
@@ -111,6 +121,8 @@ namespace CharacterAnimationCli.Unity.Command
                 ["image_path"] = projectPath,
                 ["width"] = imageWidth,
                 ["height"] = imageHeight,
+                ["resolution"] = requestedResolution,
+                ["supersample"] = PictureSupersample,
                 ["images"] = descriptions,
                 ["cached"] = cached
             };
@@ -303,10 +315,14 @@ namespace CharacterAnimationCli.Unity.Command
             WriteJsonAtomically(AnalysisCachePath(session, record.Id), record.ToJson());
         }
 
-        private static string BuildPictureSignature(IReadOnlyList<AnalysisSubject> subjects, string level)
+        private static string BuildPictureSignature(
+            IReadOnlyList<AnalysisSubject> subjects,
+            string level,
+            int requestedResolution)
         {
             string renderVersion = level == "-test" ? TestAnalysisPictureRenderVersion : AnalysisPictureRenderVersion;
-            string source = renderVersion + "|" + level + "|" + string.Join("|", subjects.Select(item => item.Role + ":" + item.Record.Id));
+            string source = renderVersion + "|" + level + "|" + requestedResolution + "|" + PictureSupersample + "|" +
+                string.Join("|", subjects.Select(item => item.Role + ":" + item.Record.Id));
             using (SHA256 hash = SHA256.Create())
             {
                 return BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(source))).Replace("-", string.Empty).Substring(0, 16).ToLowerInvariant();
@@ -511,6 +527,7 @@ namespace CharacterAnimationCli.Unity.Command
             TrajectoryScale trajectoryScale,
             int tileWidth,
             int tileHeight,
+            int supersample,
             out List<RectInt> imageRects)
         {
             int panelHeight = layout.TileRows * tileHeight;
@@ -519,7 +536,8 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 for (int index = 0; index < tiles.Count; index++)
                 {
-                    images[index] = RenderPictureTile(tiles[index], tileWidth, tileHeight, trajectoryScale);
+                    images[index] = RenderPictureTileSupersampled(
+                        tiles[index], tileWidth, tileHeight, trajectoryScale, supersample);
                     int panel = subjects.ToList().FindIndex(item => ReferenceEquals(item, tiles[index].Subject));
                     int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tiles[index].Subject));
                     DrawTileNumber(
@@ -795,6 +813,51 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
+        private static Texture2D RenderPictureTileSupersampled(
+            PictureTile tile,
+            int targetWidth,
+            int targetHeight,
+            TrajectoryScale trajectoryScale,
+            int supersample)
+        {
+            int scale = Mathf.Max(1, supersample);
+            if (scale == 1)
+            {
+                return RenderPictureTile(tile, targetWidth, targetHeight, trajectoryScale);
+            }
+
+            if (tile.Presentation == "test_pose")
+            {
+                // Test pose tiles already choose their width from the pose
+                // aspect. Render at the larger height, then preserve that
+                // aspect while reducing to the requested output resolution.
+                Texture2D source = RenderTestPoseTile(tile, targetHeight * scale);
+                try
+                {
+                    int outputWidth = Mathf.Max(1, Mathf.RoundToInt(source.width / (float)scale));
+                    return ResizeTexture(source, outputWidth, targetHeight);
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(source);
+                }
+            }
+
+            Texture2D highResolution = RenderPictureTile(
+                tile,
+                Mathf.Max(1, targetWidth * scale),
+                Mathf.Max(1, targetHeight * scale),
+                trajectoryScale);
+            try
+            {
+                return ResizeTexture(highResolution, targetWidth, targetHeight);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(highResolution);
+            }
+        }
+
         private static Texture2D RenderTestPoseTile(PictureTile tile, int targetHeight)
         {
             int frame = Mathf.Clamp(tile.Frame, 0, Math.Max(0, tile.Subject.Pelvis.Length - 1));
@@ -890,14 +953,14 @@ namespace CharacterAnimationCli.Unity.Command
             Material compositor = CreateTestPoseCompositeMaterial();
             try
             {
-                // Render the environment once. Each subsequent pose is drawn
-                // into a transparent layer and blended by the GPU into this
-                // accumulation target, avoiding GetPixels/SetPixels per pose.
-                camera.clearFlags = CameraClearFlags.SolidColor;
-                camera.backgroundColor = background;
-                camera.targetTexture = accumulation;
-                SetEvidenceVisualsEnabled(environment, true);
-                camera.Render();
+                // Clear the accumulation target directly. Tuanjie URP's
+                // ScriptableRenderContext path is unstable for the temporary
+                // grid/LineRenderer environment used by this evidence pass;
+                // the character layers below remain fully rendered.
+                RenderTexture previousTarget = RenderTexture.active;
+                RenderTexture.active = accumulation;
+                GL.Clear(true, true, background);
+                RenderTexture.active = previousTarget;
 
                 SetEvidenceVisualsEnabled(environment, false);
                 foreach (TestVirtualPose pose in poses)
@@ -907,6 +970,7 @@ namespace CharacterAnimationCli.Unity.Command
                     camera.backgroundColor = new Color(0f, 0f, 0f, 0f);
                     camera.targetTexture = layer;
                     camera.Render();
+
                     SetPreviewRenderersEnabled(pose.Preview, false);
 
                     compositor.SetColor(
@@ -930,12 +994,16 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static Material CreateTestPoseCompositeMaterial()
         {
+            // Use the engine-provided transparent blit shader. Custom
+            // SV_Depth fullscreen passes crash Tuanjie/URP on some GPUs and
+            // render as the magenta error material; pose geometry itself still
+            // gets a fresh depth buffer in each camera.Render call above.
             Shader shader = Shader.Find("Sprites/Default") ??
-                Shader.Find("UI/Default") ??
+                Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default") ??
                 Shader.Find("Unlit/Transparent");
             if (shader == null)
             {
-                throw new InvalidOperationException("No transparent GPU compositing shader is available.");
+                throw new InvalidOperationException("No transparent pose composite shader is available.");
             }
             return new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
         }
@@ -1020,6 +1088,11 @@ namespace CharacterAnimationCli.Unity.Command
             if (preview == null) return;
             foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
             {
+                if (renderer is SkinnedMeshRenderer skinned)
+                {
+                    skinned.updateWhenOffscreen = true;
+                    skinned.localBounds = new Bounds(Vector3.zero, Vector3.one * 100f);
+                }
                 renderer.enabled = enabled;
             }
         }
@@ -1100,9 +1173,14 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 foreach (Material material in renderer.materials)
                 {
-                    if (material != null && material.HasProperty("_Color"))
+                    if (material != null)
                     {
-                        material.color = Color.Lerp(material.color, tint, .8f);
+                        Color current = material.HasProperty("_BaseColor")
+                            ? material.GetColor("_BaseColor")
+                            : material.color;
+                        Color result = Color.Lerp(current, tint, .8f);
+                        if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", result);
+                        if (material.HasProperty("_Color")) material.SetColor("_Color", result);
                     }
                 }
             }
@@ -1861,7 +1939,9 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static Material MakeMaterial(Color color)
         {
-            Shader shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit") ??
+                Shader.Find("Sprites/Default") ??
+                Shader.Find("Standard");
             return new Material(shader) { hideFlags = HideFlags.HideAndDontSave, color = color };
         }
 
@@ -2340,15 +2420,13 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static void TintPreview(GameObject preview, Color tint, List<Material> transientMaterials)
         {
-            // Use Unity's built-in lit shader only. Do not select a URP/HDRP
-            // variant here: the analysis project is intentionally pipeline-
-            // agnostic and the lit pass preserves pose shadows and depth.
-            Shader poseShader = Shader.Find("Standard");
+            Shader poseShader = Shader.Find("Universal Render Pipeline/Lit") ??
+                Shader.Find("Universal Render Pipeline/Unlit") ??
+                Shader.Find("Standard");
             if (poseShader == null)
             {
-                throw new InvalidOperationException("Unity built-in Standard shader is unavailable for pose rendering.");
+                throw new InvalidOperationException("No compatible pose shader is available.");
             }
-
             Color flatTint = new Color(tint.r, tint.g, tint.b, 1f);
             foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
             {
@@ -2361,28 +2439,34 @@ namespace CharacterAnimationCli.Unity.Command
                 for (int index = 0; index < sourceMaterials.Length; index++)
                 {
                     Material source = sourceMaterials[index];
-                    Material material = new Material(poseShader) { hideFlags = HideFlags.HideAndDontSave };
-                    if (material.HasProperty("_Color"))
+                    Material material;
+                    material = new Material(poseShader);
+                    material.hideFlags = HideFlags.HideAndDontSave;
+                    SetMaterialTint(material, flatTint);
+                    if (source != null)
                     {
-                        material.SetColor("_Color", flatTint);
-                    }
-                    if (source != null && material.HasProperty("_MainTex"))
-                    {
-                        // Preserve the source albedo and its UV transform while
-                        // applying the event tint through the Lit material.
-                        // mainTexture also handles source materials whose main
-                        // texture property is named _BaseMap rather than _MainTex.
                         material.mainTexture = source.mainTexture;
                         material.mainTextureScale = source.mainTextureScale;
                         material.mainTextureOffset = source.mainTextureOffset;
                     }
                     if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", 0f);
                     if (material.HasProperty("_Glossiness")) material.SetFloat("_Glossiness", .35f);
+                    if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .35f);
                     replacements[index] = material;
                     transientMaterials?.Add(material);
                 }
                 renderer.sharedMaterials = replacements;
             }
+        }
+
+        private static void SetMaterialTint(Material material, Color tint)
+        {
+            if (material == null) return;
+            // Unity has no universal `mainColor` field. These are shader
+            // property names: URP Lit uses _BaseColor, Built-in uses _Color,
+            // and custom materials may expose either (or both).
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", tint);
+            if (material.HasProperty("_Color")) material.SetColor("_Color", tint);
         }
 
         private static void SetPreviewMaterialRenderQueue(GameObject preview, int renderQueue)
@@ -2564,12 +2648,13 @@ namespace CharacterAnimationCli.Unity.Command
             public int TileRows { get; }
             public int TileSize { get; }
 
-            public static PictureLayout ForLevel(int tileColumns, bool splitHighRows)
+            public static PictureLayout ForLevel(int tileColumns, bool splitHighRows, int requestedTileSize)
             {
                 // Keep one composite within Unity's texture limit while retaining
                 // the largest readable tile size for shorter animations.
                 int maxTextureSize = Mathf.Max(1, SystemInfo.maxTextureSize);
-                int tileSize = Mathf.Clamp(maxTextureSize / Math.Max(1, tileColumns), 1, 512);
+                int maxTileSize = Mathf.Max(1, maxTextureSize / Math.Max(1, tileColumns));
+                int tileSize = Mathf.Clamp(requestedTileSize, 1, maxTileSize);
                 return new PictureLayout(tileColumns, splitHighRows ? 2 : 1, tileSize);
             }
         }

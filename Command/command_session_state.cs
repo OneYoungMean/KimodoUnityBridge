@@ -917,6 +917,7 @@ namespace CharacterAnimationCli.Unity.Command
                 }
 
                 string level = NormalizeAnalysisPictureLevel(arguments.Value<string>("level"));
+                int pictureResolution = ResolveAnalysisPictureResolution(arguments["resolution"]);
                 JObject analysisOptions = BuildEffectiveAnalysisOptions(level);
                 var subjects = new List<AnalysisSubject>(requestedClips.Count);
                 var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -962,7 +963,7 @@ namespace CharacterAnimationCli.Unity.Command
                     subjects.Add(new AnalysisSubject(role, character, animation, record, startFrame, endFrame));
                 }
 
-                JObject pictures = RenderAnalysisPictures(session, subjects, level);
+                JObject pictures = RenderAnalysisPictures(session, subjects, level, pictureResolution);
                 SaveTimelineSession(session);
                 return Ok(new JObject
                 {
@@ -988,6 +989,21 @@ namespace CharacterAnimationCli.Unity.Command
                 throw new InvalidOperationException("level must be low, middle, high, or -test.");
             }
             return normalized;
+        }
+
+        private static int ResolveAnalysisPictureResolution(JToken value)
+        {
+            if (value == null || value.Type == JTokenType.Null) return 512;
+            if (value.Type != JTokenType.Integer)
+            {
+                throw new InvalidOperationException("resolution must be a positive integer pixel size.");
+            }
+            int resolution = value.Value<int>();
+            if (resolution < 64 || resolution > 4096)
+            {
+                throw new InvalidOperationException("resolution must be between 64 and 4096 pixels.");
+            }
+            return resolution;
         }
 
         private static JArray BuildAnalysisPoses(
