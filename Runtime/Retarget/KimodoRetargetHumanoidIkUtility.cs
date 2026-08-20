@@ -14,11 +14,7 @@ namespace KimodoBridge
                 leftFootPosition = Vector3.zero,
                 leftFootRotation = Quaternion.identity,
                 rightFootPosition = Vector3.zero,
-                rightFootRotation = Quaternion.identity,
-                leftHandPosition = Vector3.zero,
-                leftHandRotation = Quaternion.identity,
-                rightHandPosition = Vector3.zero,
-                rightHandRotation = Quaternion.identity
+                rightFootRotation = Quaternion.identity
             };
             return sample;
         }

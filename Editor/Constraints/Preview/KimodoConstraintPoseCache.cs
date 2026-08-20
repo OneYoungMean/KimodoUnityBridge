@@ -67,6 +67,11 @@ namespace KimodoBridge.Editor
         public bool ShowVirtualAvatar = true;
         public bool HasRenderSignature;
         public int RenderSignature;
+        // Transform.hasChanged is cleared after each writeback. Keep the
+        // authored target state separately so a refresh cannot snap a rig
+        // back to the bone while the edit window is still active.
+        public readonly HashSet<HumanBodyBones> EditedIkTargets =
+            new HashSet<HumanBodyBones>();
     }
 
     internal sealed class ConstraintPosePreviewSession : IDisposable
@@ -494,6 +499,14 @@ namespace KimodoBridge.Editor
                 }
 
                 entry.SourceMarker = item.SourceMarker;
+                if (entry.SourceMarker?.autoSample != false &&
+                    !HasLiveIkTargetChanges(entry))
+                {
+                    // AutoSample owns the rig coordinates. A previous manual
+                    // edit must not pin the targets when the timeline pose
+                    // advances.
+                    entry.EditedIkTargets.Clear();
+                }
                 KimodoConstraintMode renderMode = ResolveRenderMode(item);
                 entry.ShowVirtualAvatar = renderMode != KimodoConstraintMode.Root2D;
 
@@ -503,16 +516,45 @@ namespace KimodoBridge.Editor
                     entry.BaseSample = item.SampleData.Clone();
                     KimodoMarkerSampleResult renderSample =
                         KimodoConstraintSampleResolver.ResolveUnifiedSample(item.SampleData);
-                    if (!ApplySampleToRig(renderSample, context.ModelName, entry, out error))
-                    {
-                        error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
-                        return false;
-                    }
-
                     var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
+
+                    if (entry.SourceMarker?.autoSample != false)
+                    {
+                        // AutoSample flow is deliberately two-phase:
+                        // timeline/muscles -> FK avatar -> rig transforms ->
+                        // scene-handle IK solve. Solving before refreshing the
+                        // rig would feed the previous frame's targets.
+                        KimodoMarkerSampleResult fkSample = renderSample.Clone();
+                        fkSample.worldIkTargets = null;
+                        if (!ApplySampleToRig(
+                                fkSample,
+                                context.ModelName,
+                                entry,
+                                out error,
+                                applySceneTargets: false))
+                        {
+                            error = $"pose cache FK render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
+                            return false;
+                        }
+                        UpdateEndEffectorMarker(entry, item.ConstraintType, renderMode);
+                        if (!ApplySampleToRig(renderSample, context.ModelName, entry, out error))
+                        {
+                            error = $"pose cache IK render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        if (!ApplySampleToRig(renderSample, context.ModelName, entry, out error))
+                        {
+                            error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
+                            return false;
+                        }
+                        UpdateEndEffectorMarker(entry, item.ConstraintType, renderMode);
+                    }
+
                     ApplyConstraintColoring(entry, highlightedJoints, item.PreviewColor);
-                    UpdateEndEffectorMarker(entry, item.ConstraintType, renderMode);
                     entry.RenderSignature = renderSignature;
                     entry.HasRenderSignature = true;
                     changed = true;
@@ -1827,7 +1869,12 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static bool ApplySampleToRig(KimodoMarkerSampleResult sample, string modelName, ConstraintPosePreviewEntry entry, out string error)
+        private static bool ApplySampleToRig(
+            KimodoMarkerSampleResult sample,
+            string modelName,
+            ConstraintPosePreviewEntry entry,
+            out string error,
+            bool applySceneTargets = true)
         {
             error = string.Empty;
             if (sample == null || entry?.TargetCache == null || entry.ProfileCache == null)
@@ -1847,9 +1894,11 @@ namespace KimodoBridge.Editor
                     entry.ProfileCache,
                     entry.TargetCache,
                     out error,
-                    BuildSceneTargets(
-                        entry,
-                        KimodoConstraintMask.Resolve(sample.mask, sample.constraintType)));
+                    applySceneTargets
+                        ? BuildSceneTargets(
+                            entry,
+                            KimodoConstraintMask.Resolve(sample.mask, sample.constraintType))
+                        : default(KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets));
             }
             finally
             {
@@ -1889,22 +1938,28 @@ namespace KimodoBridge.Editor
                 bool rightFootTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.RightFoot, mask);
                 if (entry.EndEffectorMarker != null && entry.EndEffectorMarker.transform.hasChanged)
                 {
-                    switch (ResolveEndEffectorBone(markerType))
+                    HumanBodyBones endEffectorBone = ResolveEndEffectorBone(markerType);
+                    if (endEffectorBone != HumanBodyBones.LastBone)
                     {
-                        case HumanBodyBones.LeftHand:
-                            leftHandTargetChanged = true;
-                            break;
-                        case HumanBodyBones.RightHand:
-                            rightHandTargetChanged = true;
-                            break;
-                        case HumanBodyBones.LeftFoot:
-                            leftFootTargetChanged = true;
-                            break;
-                        case HumanBodyBones.RightFoot:
-                            rightFootTargetChanged = true;
-                            break;
+                        entry.EditedIkTargets.Add(endEffectorBone);
+                        switch (endEffectorBone)
+                        {
+                            case HumanBodyBones.LeftHand:
+                                leftHandTargetChanged = true;
+                                break;
+                            case HumanBodyBones.RightHand:
+                                rightHandTargetChanged = true;
+                                break;
+                            case HumanBodyBones.LeftFoot:
+                                leftFootTargetChanged = true;
+                                break;
+                            case HumanBodyBones.RightFoot:
+                                rightFootTargetChanged = true;
+                                break;
+                        }
                     }
                 }
+                RememberEditedIkTargets(entry);
                 EnableChangedConstraintChannels(entry, mask);
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase) &&
                     HasFullBodyTargetTransformChanges(entry) &&
@@ -1993,7 +2048,7 @@ namespace KimodoBridge.Editor
             bool rightFootChanged)
         {
             CharacterPose sampledPose = sampledTarget != null
-                ? CharacterPoseMuscleAdapter.FromMuscleSample(sampledTarget)
+                ? CharacterPoseMuscleAdapter.FromMuscleSample(sampledTarget, entry?.TargetCache)
                 : null;
             CharacterPose result = entry?.BaseSample?.characterPose?.Clone();
             if (result == null)
@@ -2109,6 +2164,13 @@ namespace KimodoBridge.Editor
             }
 
             Transform marker = entry.EndEffectorMarker.transform;
+            bool preserveEditedTarget = marker.hasChanged ||
+                (entry.SourceMarker?.autoSample == false &&
+                 entry.EditedIkTargets.Contains(bone));
+            if (preserveEditedTarget && marker.hasChanged)
+            {
+                entry.EditedIkTargets.Add(bone);
+            }
             marker.SetParent(null, true);
             Transform bodyPart = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
                 entry.TargetCache,
@@ -2119,16 +2181,20 @@ namespace KimodoBridge.Editor
                 entry.EndEffectorMarker = null;
                 return;
             }
-            Vector3 targetPosition = bodyPart.position;
-            Quaternion targetRotation = bodyPart.rotation;
-            if (entry.SourceMarker?.autoSample == false &&
-                TryGetWorldIkTarget(entry.BaseSample?.worldIkTargets, bone,
-                    out Vector3 savedPosition, out Quaternion savedRotation))
+            if (!preserveEditedTarget)
             {
-                targetPosition = savedPosition;
-                targetRotation = savedRotation;
+                Vector3 targetPosition = bodyPart.position;
+                Quaternion targetRotation = ResolveIkGoalRotation(entry, bone, bodyPart);
+                if (entry.SourceMarker?.autoSample == false &&
+                    TryGetWorldIkTarget(entry.BaseSample?.worldIkTargets, bone,
+                        out Vector3 savedPosition, out Quaternion savedRotation))
+                {
+                    targetPosition = savedPosition;
+                    targetRotation = savedRotation;
+                }
+                marker.SetPositionAndRotation(targetPosition, targetRotation);
+                marker.hasChanged = false;
             }
-            marker.SetPositionAndRotation(targetPosition, targetRotation);
 
             marker.localScale = Vector3.one * EndEffectorTargetSize;
             SetEndEffectorMarkerSelectable(entry, entry.PickingEnabled);
@@ -2168,6 +2234,7 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
+                bool createdTarget = false;
                 if (!entry.FullBodyTargets.TryGetValue(bone, out GameObject target) || target == null)
                 {
                     target = CreateIkTarget(
@@ -2176,14 +2243,40 @@ namespace KimodoBridge.Editor
                         bone == HumanBodyBones.Hips ? PrimitiveType.Sphere : TargetPrimitive(bone),
                         bone == HumanBodyBones.Hips ? FullBodyRootColor : TargetColor(bone));
                     entry.FullBodyTargets[bone] = target;
+                    createdTarget = true;
+                }
+
+                bool preserveEditedTarget = !createdTarget &&
+                    (target.transform.hasChanged ||
+                     (entry.SourceMarker?.autoSample == false &&
+                      entry.EditedIkTargets.Contains(bone)));
+                if (preserveEditedTarget)
+                {
+                    entry.EditedIkTargets.Add(bone);
+                    target.transform.localScale = Vector3.one * (bone == HumanBodyBones.Hips
+                        ? 0.1f
+                        : EndEffectorTargetSize);
+                    SetIkTargetSelectable(target, entry.PickingEnabled);
+                    target.SetActive(true);
+                    target.transform.hasChanged = false;
+                    continue;
                 }
 
                 if (bone == HumanBodyBones.Hips)
                 {
                     target.transform.SetParent(null, true);
-                    target.transform.SetPositionAndRotation(
-                        solvedSample.pose.bodyPosition * Mathf.Max(1e-6f, entry.TargetCache.humanScale),
-                        solvedSample.pose.bodyRotation);
+                    if (entry.SourceMarker?.autoSample != false)
+                    {
+                        target.transform.SetPositionAndRotation(
+                            solvedSample.pose.bodyPosition * Mathf.Max(1e-6f, entry.TargetCache.humanScale),
+                            solvedSample.pose.bodyRotation);
+                    }
+                    else if (entry.BaseSample?.characterPose?.root != null)
+                    {
+                        target.transform.SetPositionAndRotation(
+                            entry.BaseSample.characterPose.root.t * Mathf.Max(1e-6f, entry.TargetCache.humanScale),
+                            entry.BaseSample.characterPose.root.q);
+                    }
                 }
                 else if (entry.SourceMarker?.autoSample == false &&
                     TryGetWorldIkTarget(entry.BaseSample?.worldIkTargets, bone,
@@ -2192,7 +2285,7 @@ namespace KimodoBridge.Editor
                     target.transform.SetParent(null, true);
                     target.transform.SetPositionAndRotation(savedPosition, savedRotation);
                 }
-                else
+                else if (entry.SourceMarker?.autoSample != false)
                 {
                     SetTargetToFollowBodyPart(entry, bone, target.transform, bodyPart);
                 }
@@ -2274,6 +2367,7 @@ namespace KimodoBridge.Editor
                 entry.FullBodyTargets = new Dictionary<HumanBodyBones, GameObject>();
             }
 
+            bool createdTarget = false;
             if (!entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject target) || target == null)
             {
                 target = CreateIkTarget(
@@ -2282,12 +2376,17 @@ namespace KimodoBridge.Editor
                     PrimitiveType.Cube,
                     Color.white);
                 entry.FullBodyTargets[HumanBodyBones.Hips] = target;
+                createdTarget = true;
             }
 
             target.transform.SetParent(null, true);
-            target.transform.SetPositionAndRotation(
-                entry.BaseSample.characterPose.root.t * Mathf.Max(1e-6f, entry.TargetCache.humanScale),
-                entry.BaseSample.characterPose.root.q);
+            if (createdTarget || !target.transform.hasChanged)
+            {
+                target.transform.SetPositionAndRotation(
+                    entry.BaseSample.characterPose.root.t * Mathf.Max(1e-6f, entry.TargetCache.humanScale),
+                    entry.BaseSample.characterPose.root.q);
+                target.transform.hasChanged = false;
+            }
             target.transform.localScale = Vector3.one * 0.1f;
             SetIkTargetSelectable(target, entry.PickingEnabled);
             target.SetActive(true);
@@ -2311,11 +2410,88 @@ namespace KimodoBridge.Editor
             Transform target,
             Transform bodyPart)
         {
-            // FullBody handles represent the actual humanoid bone.  FootT/Q
-            // and HandT/Q are Avatar-local IK goals and are converted only
-            // when the handle is written back to the constraint sample.
+            // FullBody handles represent scene-space IK targets. Their
+            // transforms are passed to HumanoidIkSolveJob as scene handles.
             target.SetParent(null, true);
-            target.SetPositionAndRotation(bodyPart.position, bodyPart.rotation);
+            target.SetPositionAndRotation(
+                bodyPart.position,
+                ResolveIkGoalRotation(entry, bone, bodyPart));
+        }
+
+        private static void RememberEditedIkTargets(ConstraintPosePreviewEntry entry)
+        {
+            if (entry == null)
+            {
+                return;
+            }
+
+            if (entry.EndEffectorMarker != null && entry.EndEffectorMarker.transform.hasChanged)
+            {
+                HumanBodyBones bone = ResolveEndEffectorBone(entry.SourceMarker?.ConstraintType);
+                if (bone != HumanBodyBones.LastBone)
+                {
+                    entry.EditedIkTargets.Add(bone);
+                }
+            }
+
+            if (entry.FullBodyTargets == null)
+            {
+                return;
+            }
+
+            foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
+            {
+                if (item.Value != null && item.Value.transform.hasChanged)
+                {
+                    entry.EditedIkTargets.Add(item.Key);
+                }
+            }
+        }
+
+        private static bool HasLiveIkTargetChanges(ConstraintPosePreviewEntry entry)
+        {
+            if (entry?.EndEffectorMarker != null &&
+                entry.EndEffectorMarker.transform.hasChanged)
+            {
+                return true;
+            }
+
+            if (entry?.FullBodyTargets == null)
+            {
+                return false;
+            }
+
+            foreach (GameObject target in entry.FullBodyTargets.Values)
+            {
+                if (target != null && target.transform.hasChanged)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static Quaternion ResolveIkGoalRotation(
+            ConstraintPosePreviewEntry entry,
+            HumanBodyBones bone,
+            Transform bodyPart)
+        {
+            if (entry?.TargetCache == null || bodyPart == null)
+            {
+                return bodyPart != null ? bodyPart.rotation : Quaternion.identity;
+            }
+
+            if (!entry.TargetCache.GetBoneBindLocalRotation(
+                    bone,
+                    out Quaternion bindLocalRotation))
+            {
+                return bodyPart.rotation;
+            }
+
+            Quaternion relativeToBind = bodyPart.localRotation * Quaternion.Inverse(bindLocalRotation);
+            return entry.TargetCache.skeletonRoot != null
+                ? entry.TargetCache.skeletonRoot.rotation * relativeToBind
+                : relativeToBind;
         }
 
         private static bool TryApplyEndEffectorTargetToRig(

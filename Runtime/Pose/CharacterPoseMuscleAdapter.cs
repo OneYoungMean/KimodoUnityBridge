@@ -17,9 +17,24 @@ namespace KimodoBridge
 
         public static CharacterPose FromMuscleSample(MuscleSample sample)
         {
+            return FromMuscleSample(sample, null);
+        }
+
+        public static CharacterPose FromMuscleSample(MuscleSample sample, SkeletonCache cache)
+        {
             if (sample == null)
             {
                 throw new ArgumentNullException(nameof(sample));
+            }
+
+            Vector3 leftHandPosition = Vector3.zero;
+            Quaternion leftHandRotation = Quaternion.identity;
+            Vector3 rightHandPosition = Vector3.zero;
+            Quaternion rightHandRotation = Quaternion.identity;
+            if (cache != null)
+            {
+                cache.GetBonePose(HumanBodyBones.LeftHand, out leftHandPosition, out leftHandRotation);
+                cache.GetBonePose(HumanBodyBones.RightHand, out rightHandPosition, out rightHandRotation);
             }
 
             var result = new CharacterPose
@@ -31,8 +46,8 @@ namespace KimodoBridge
                 },
                 hands = new CharacterPoseSides
                 {
-                    left = new CharacterPoseTransform { t = sample.leftHandPosition, q = sample.leftHandRotation },
-                    right = new CharacterPoseTransform { t = sample.rightHandPosition, q = sample.rightHandRotation }
+                    left = new CharacterPoseTransform { t = leftHandPosition, q = leftHandRotation },
+                    right = new CharacterPoseTransform { t = rightHandPosition, q = rightHandRotation }
                 },
                 feet = new CharacterPoseSides
                 {
@@ -76,10 +91,6 @@ namespace KimodoBridge
                     bodyRotation = pose.root.q.normalized,
                     muscles = unityMuscles
                 },
-                leftHandPosition = pose.hands.left.t,
-                leftHandRotation = pose.hands.left.q.normalized,
-                rightHandPosition = pose.hands.right.t,
-                rightHandRotation = pose.hands.right.q.normalized,
                 leftFootPosition = pose.feet.left.t,
                 leftFootRotation = pose.feet.left.q.normalized,
                 rightFootPosition = pose.feet.right.t,

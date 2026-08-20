@@ -944,7 +944,7 @@ namespace KimodoBridge
 
         /// <summary>
         /// Applies a CharacterPose's local IK goals on its own Avatar, then
-        /// captures the solved pose as a transient muscle + FootT/Q snapshot.
+        /// captures the solved pose as a transient muscle snapshot.
         /// The returned sample is transport data only; it never mutates the
         /// authored CharacterPose or constraint payload.
         /// </summary>
@@ -989,7 +989,7 @@ namespace KimodoBridge
                         frameRate,
                         out clip,
                         out error,
-                        includeHandIkGoals: false))
+                        includeFootIkGoals: true))
                 {
                     return false;
                 }
@@ -1043,13 +1043,9 @@ namespace KimodoBridge
                     return false;
                 }
 
-                // The solved skeleton gives us the post-IK muscle pose, but
-                // it cannot be used to regenerate FootT/Q or HandT/Q.  Those
-                // curve channels and the runtime IK end-effector pose are in
-                // different spaces.  Keeping the authored curve values makes
-                // the transport clip a valid muscle + FootT/Q pair while the
-                // solved muscles carry the constraint result across Avatar
-                // retargeting.
+                // The solved skeleton provides the post-IK muscle pose. IK
+                // targets stay in HumanoidWorldIkTargets/scene Transforms;
+                // they are not copied into MuscleSample.
                 solvedMuscleSample = CopyIkCurveChannels(sourceSample, solvedPoseSample);
                 return true;
             }
@@ -1075,7 +1071,7 @@ namespace KimodoBridge
         {
             // This is the transport boundary: source samples must already be
             // solved in their own Avatar. Retargeting only consumes the
-            // matching muscle + FootT/Q snapshot and never solves it again.
+            // muscle snapshot and never solves it again.
             targetSamples = null;
             error = string.Empty;
             if (sourceSamples == null || sourceSamples.Count == 0)
@@ -1106,10 +1102,9 @@ namespace KimodoBridge
             KimodoRetargetClipSamplingUtility.ClipSamplingContext context = null;
             try
             {
-                // FootT/Q is an Avatar-local IK-goal channel.  It must not be
-                // copied from the source Avatar into the target retarget clip;
-                // the target pose is captured below in the target Avatar's
-                // own space instead.
+                // IK targets are scene data and are not copied across Avatar
+                // retargeting. The target pose is captured below in the
+                // target Avatar's own space instead.
                 if (!TryCreateTransientMuscleClip(
                         clipSamples,
                         frameRate,
@@ -1294,20 +1289,16 @@ namespace KimodoBridge
             float frameRate,
             out AnimationClip clip,
             out string error,
-            bool includeHandIkGoals = false,
             bool includeFootIkGoals = true)
         {
             return TryCreateTransientClip(
                 samples,
                 frameRate,
                 "Muscle samples are empty.",
-                includeHandIkGoals ? "KimodoTransientMuscleIkClip" :
-                    includeFootIkGoals ? "KimodoTransientMuscleClip" : "KimodoTransientMuscleOnlyClip",
-                includeHandIkGoals && includeFootIkGoals
-                    ? KimodoRetargetClipWriter.WriteMuscleCurvesWithIkGoals
-                    : includeFootIkGoals
-                        ? KimodoRetargetClipWriter.WriteMuscleCurves
-                        : KimodoRetargetClipWriter.WriteMuscleCurvesWithoutIkGoals,
+                includeFootIkGoals ? "KimodoTransientMuscleClip" : "KimodoTransientMuscleOnlyClip",
+                includeFootIkGoals
+                    ? KimodoRetargetClipWriter.WriteMuscleCurves
+                    : KimodoRetargetClipWriter.WriteMuscleCurvesWithoutIkGoals,
                 out clip,
                 out error);
         }
@@ -1320,10 +1311,6 @@ namespace KimodoBridge
             solvedPoseSample.leftFootRotation = sourceSample.leftFootRotation;
             solvedPoseSample.rightFootPosition = sourceSample.rightFootPosition;
             solvedPoseSample.rightFootRotation = sourceSample.rightFootRotation;
-            solvedPoseSample.leftHandPosition = sourceSample.leftHandPosition;
-            solvedPoseSample.leftHandRotation = sourceSample.leftHandRotation;
-            solvedPoseSample.rightHandPosition = sourceSample.rightHandPosition;
-            solvedPoseSample.rightHandRotation = sourceSample.rightHandRotation;
             return solvedPoseSample;
         }
 
@@ -1570,11 +1557,7 @@ namespace KimodoBridge
                 leftFootPosition = source.leftFootPosition,
                 leftFootRotation = source.leftFootRotation,
                 rightFootPosition = source.rightFootPosition,
-                rightFootRotation = source.rightFootRotation,
-                leftHandPosition = source.leftHandPosition,
-                leftHandRotation = source.leftHandRotation,
-                rightHandPosition = source.rightHandPosition,
-                rightHandRotation = source.rightHandRotation
+                rightFootRotation = source.rightFootRotation
             };
         }
 

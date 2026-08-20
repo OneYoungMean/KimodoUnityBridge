@@ -313,7 +313,7 @@ namespace CharacterAnimationCli.Unity.Command
                 var poses = new CharacterPose[samples.Length];
                 for (int index = 0; index < samples.Length; index++)
                 {
-                    poses[index] = CharacterPoseMuscleAdapter.FromMuscleSample(samples[index]);
+                    poses[index] = CharacterPoseMuscleAdapter.FromMuscleSample(samples[index], sampler.TargetCache);
                 }
                 return poses;
             }
@@ -373,7 +373,7 @@ namespace CharacterAnimationCli.Unity.Command
                     {
                         throw new InvalidOperationException($"Timeline pose sampling failed: {error}");
                     }
-                    poses[index] = CharacterPoseMuscleAdapter.FromMuscleSample(sample);
+                    poses[index] = CharacterPoseMuscleAdapter.FromMuscleSample(sample, cache);
                 }
                 return poses;
             }

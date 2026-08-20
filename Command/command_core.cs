@@ -848,7 +848,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
             converted.constraintType = constraintType;
             converted.mask = KimodoConstraintMask.ForType(constraintType);
-            converted.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(targetMuscleSample);
+            converted.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(targetMuscleSample, targetCache);
             converted.sampleTime = sampleTime;
             return converted;
         }

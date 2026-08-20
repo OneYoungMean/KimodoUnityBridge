@@ -12,24 +12,18 @@ namespace KimodoBridge
 
         internal static bool WriteMuscleCurves(IReadOnlyList<MuscleSample> samples, AnimationClip clip, out string error)
         {
-            return WriteMuscleCurves(samples, clip, out error, includeHandIkGoals: false, includeFootIkGoals: true);
-        }
-
-        internal static bool WriteMuscleCurvesWithIkGoals(IReadOnlyList<MuscleSample> samples, AnimationClip clip, out string error)
-        {
-            return WriteMuscleCurves(samples, clip, out error, includeHandIkGoals: true, includeFootIkGoals: true);
+            return WriteMuscleCurves(samples, clip, out error, includeFootIkGoals: true);
         }
 
         internal static bool WriteMuscleCurvesWithoutIkGoals(IReadOnlyList<MuscleSample> samples, AnimationClip clip, out string error)
         {
-            return WriteMuscleCurves(samples, clip, out error, includeHandIkGoals: false, includeFootIkGoals: false);
+            return WriteMuscleCurves(samples, clip, out error, includeFootIkGoals: false);
         }
 
         private static bool WriteMuscleCurves(
             IReadOnlyList<MuscleSample> samples,
             AnimationClip clip,
             out string error,
-            bool includeHandIkGoals,
             bool includeFootIkGoals)
         {
             if (!ValidateWriteInputs(samples, clip, "Muscle", out error))
@@ -74,20 +68,6 @@ namespace KimodoBridge
             AnimationCurve rightFootQy = includeFootIkGoals ? new AnimationCurve() : null;
             AnimationCurve rightFootQz = includeFootIkGoals ? new AnimationCurve() : null;
             AnimationCurve rightFootQw = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftHandTx = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftHandTy = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftHandTz = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftHandQx = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftHandQy = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftHandQz = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftHandQw = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightHandTx = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightHandTy = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightHandTz = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightHandQx = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightHandQy = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightHandQz = includeHandIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightHandQw = includeHandIkGoals ? new AnimationCurve() : null;
 
             var muscleCurves = new AnimationCurve[GeneratedMuscleIndices.Length];
             for (int i = 0; i < muscleCurves.Length; i++)
@@ -123,13 +103,6 @@ namespace KimodoBridge
                     AddVector3Key(time, sample.rightFootPosition, rightFootTx, rightFootTy, rightFootTz);
                     AddQuaternionKey(time, sample.rightFootRotation, rightFootQx, rightFootQy, rightFootQz, rightFootQw);
                 }
-                if (includeHandIkGoals)
-                {
-                    AddVector3Key(time, sample.leftHandPosition, leftHandTx, leftHandTy, leftHandTz);
-                    AddQuaternionKey(time, sample.leftHandRotation, leftHandQx, leftHandQy, leftHandQz, leftHandQw);
-                    AddVector3Key(time, sample.rightHandPosition, rightHandTx, rightHandTy, rightHandTz);
-                    AddQuaternionKey(time, sample.rightHandRotation, rightHandQx, rightHandQy, rightHandQz, rightHandQw);
-                }
 
                 for (int muscle = 0; muscle < muscleCurves.Length; muscle++)
                 {
@@ -147,13 +120,6 @@ namespace KimodoBridge
                 SetAnimatorQuaternionCurves(clip, "LeftFootQ", leftFootQx, leftFootQy, leftFootQz, leftFootQw);
                 SetAnimatorVector3Curves(clip, "RightFootT", rightFootTx, rightFootTy, rightFootTz);
                 SetAnimatorQuaternionCurves(clip, "RightFootQ", rightFootQx, rightFootQy, rightFootQz, rightFootQw);
-            }
-            if (includeHandIkGoals)
-            {
-                SetAnimatorVector3Curves(clip, "LeftHandT", leftHandTx, leftHandTy, leftHandTz);
-                SetAnimatorQuaternionCurves(clip, "LeftHandQ", leftHandQx, leftHandQy, leftHandQz, leftHandQw);
-                SetAnimatorVector3Curves(clip, "RightHandT", rightHandTx, rightHandTy, rightHandTz);
-                SetAnimatorQuaternionCurves(clip, "RightHandQ", rightHandQx, rightHandQy, rightHandQz, rightHandQw);
             }
 
             for (int muscle = 0; muscle < muscleCurves.Length; muscle++)

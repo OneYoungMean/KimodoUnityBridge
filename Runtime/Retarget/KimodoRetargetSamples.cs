@@ -25,9 +25,17 @@ namespace KimodoBridge
         public Quaternion leftFootRotation;
         public Vector3 rightFootPosition;
         public Quaternion rightFootRotation;
+        // Hand IK targets are scene data and are carried by
+        // KimodoConstraintIkTargets/HumanoidWorldIkTargets. These legacy
+        // fields remain source-compatible for old editor assets only; the
+        // sampling and clip pipelines no longer read or write them.
+        [Obsolete("Hand IK targets are scene data; use HumanoidWorldIkTargets.")]
         public Vector3 leftHandPosition;
+        [Obsolete("Hand IK targets are scene data; use HumanoidWorldIkTargets.")]
         public Quaternion leftHandRotation;
+        [Obsolete("Hand IK targets are scene data; use HumanoidWorldIkTargets.")]
         public Vector3 rightHandPosition;
+        [Obsolete("Hand IK targets are scene data; use HumanoidWorldIkTargets.")]
         public Quaternion rightHandRotation;
     }
 
@@ -111,6 +119,48 @@ namespace KimodoBridge
             bonePaths != null &&
             boneTransforms != null &&
             bonePaths.Length == boneTransforms.Length;
+
+        public bool GetBonePose(
+            HumanBodyBones bone,
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            if (!IsReady || humanBoneTransforms == null ||
+                !humanBoneTransforms.TryGetValue(bone, out Transform transform) ||
+                transform == null)
+            {
+                return false;
+            }
+
+            position = transform.position;
+            rotation = transform.rotation;
+            return true;
+        }
+
+        public bool GetBoneBindLocalRotation(
+            HumanBodyBones bone,
+            out Quaternion rotation)
+        {
+            rotation = Quaternion.identity;
+            if (!IsReady || humanBoneTransforms == null || bindLocalRotations == null ||
+                !humanBoneTransforms.TryGetValue(bone, out Transform transform) ||
+                transform == null || boneTransforms == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < boneTransforms.Length && i < bindLocalRotations.Length; i++)
+            {
+                if (boneTransforms[i] == transform)
+                {
+                    rotation = bindLocalRotations[i];
+                    return true;
+                }
+            }
+            return false;
+        }
 
         public void Dispose()
         {

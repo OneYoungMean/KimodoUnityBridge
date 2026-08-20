@@ -103,7 +103,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            result.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(muscleSample);
+            result.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(muscleSample, targetCache);
             if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
                 return true;

@@ -185,7 +185,9 @@ namespace KimodoBridge
                 return false;
             }
 
-            sample.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(muscleSample);
+            sample.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(
+                muscleSample,
+                player.ConstraintSkeletonCache);
             return true;
         }
     }

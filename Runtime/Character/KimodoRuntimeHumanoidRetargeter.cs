@@ -24,16 +24,6 @@ namespace KimodoBridge
             internal Transform RightFootBone;
             internal Transform LeftFootIkTarget;
             internal Transform RightFootIkTarget;
-            internal Vector3 LeftFootTargetBaselinePosition;
-            internal Quaternion LeftFootTargetBaselineRotation;
-            internal Vector3 RightFootTargetBaselinePosition;
-            internal Quaternion RightFootTargetBaselineRotation;
-            internal Vector3 SourceLeftFootBaselineWorldPosition;
-            internal Quaternion SourceLeftFootBaselineWorldRotation;
-            internal Vector3 SourceRightFootBaselineWorldPosition;
-            internal Quaternion SourceRightFootBaselineWorldRotation;
-            internal bool LeftFootIkInitialized;
-            internal bool RightFootIkInitialized;
             internal Vector3 LeftKneePoleLocalDirection;
             internal Vector3 RightKneePoleLocalDirection;
             internal bool LeftKneePoleInitialized;
@@ -160,8 +150,6 @@ namespace KimodoBridge
             for (int i = 0; i < targets.Count; i++)
             {
                 TargetState state = targets[i];
-                state.LeftFootIkInitialized = false;
-                state.RightFootIkInitialized = false;
                 state.LeftKneePoleInitialized = false;
                 state.RightKneePoleInitialized = false;
                 state.RetargetAnchorInitialized = false;
@@ -186,14 +174,6 @@ namespace KimodoBridge
 
             HumanPose pose = sample.pose;
             KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
-            BuildFootWorldPose(
-                sourceCache,
-                sample,
-                out Vector3 leftFootWorldPosition,
-                out Quaternion leftFootWorldRotation,
-                out Vector3 rightFootWorldPosition,
-                out Quaternion rightFootWorldRotation);
-
             for (int i = 0; i < targets.Count; i++)
             {
                 TargetState state = targets[i];
@@ -222,15 +202,6 @@ namespace KimodoBridge
 
                 HumanPose targetPose = pose;
                 state.PoseHandler.SetHumanPose(ref targetPose);
-                if (driveFootIk)
-                {
-                    ApplyFootIkTargets(
-                        state,
-                        leftFootWorldPosition,
-                        leftFootWorldRotation,
-                        rightFootWorldPosition,
-                        rightFootWorldRotation);
-                }
             }
             return true;
         }
@@ -355,48 +326,6 @@ namespace KimodoBridge
             }
         }
 
-        private static void BuildFootWorldPose(
-            SkeletonCache sourceCache,
-            MuscleSample sample,
-            out Vector3 leftFootWorldPosition,
-            out Quaternion leftFootWorldRotation,
-            out Vector3 rightFootWorldPosition,
-            out Quaternion rightFootWorldRotation)
-        {
-            HumanPose pose = sample != null ? sample.pose : default;
-            leftFootWorldPosition = ResolveFootBoneWorldPosition(
-                sourceCache,
-                pose,
-                HumanBodyBones.LeftFoot,
-                sample != null ? sample.leftFootPosition : Vector3.zero,
-                sample != null ? sample.leftFootRotation : Quaternion.identity);
-            Transform leftFoot = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
-                sourceCache,
-                HumanBodyBones.LeftFoot);
-            leftFootWorldRotation = leftFoot != null ? leftFoot.rotation : pose.bodyRotation;
-            rightFootWorldPosition = ResolveFootBoneWorldPosition(
-                sourceCache,
-                pose,
-                HumanBodyBones.RightFoot,
-                sample != null ? sample.rightFootPosition : Vector3.zero,
-                sample != null ? sample.rightFootRotation : Quaternion.identity);
-            Transform rightFoot = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
-                sourceCache,
-                HumanBodyBones.RightFoot);
-            rightFootWorldRotation = rightFoot != null ? rightFoot.rotation : pose.bodyRotation;
-        }
-
-        private static Vector3 ResolveFootBoneWorldPosition(
-            SkeletonCache sourceCache,
-            HumanPose pose,
-            HumanBodyBones bone,
-            Vector3 goalPosition,
-            Quaternion goalRotation)
-        {
-            Transform foot = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(sourceCache, bone);
-            return foot != null ? foot.position : pose.bodyPosition;
-        }
-
         private static Quaternion ResolvePlanarRotation(Quaternion rotation)
         {
             Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
@@ -416,76 +345,6 @@ namespace KimodoBridge
 
             return state.TargetHipsAnchorPosition + state.SourceToTargetRotation *
                 (sourceTransform.position - state.SourceHipsAnchorPosition);
-        }
-
-        private static void ApplyFootIkTargets(
-            TargetState state,
-            Vector3 leftFootWorldPosition,
-            Quaternion leftFootWorldRotation,
-            Vector3 rightFootWorldPosition,
-            Quaternion rightFootWorldRotation)
-        {
-            ApplyFootIkTarget(
-                state.LeftFootBone,
-                state.LeftFootIkTarget,
-                ref state.LeftFootIkInitialized,
-                ref state.LeftFootTargetBaselinePosition,
-                ref state.LeftFootTargetBaselineRotation,
-                ref state.SourceLeftFootBaselineWorldPosition,
-                ref state.SourceLeftFootBaselineWorldRotation,
-                leftFootWorldPosition,
-                leftFootWorldRotation,
-                state.SourceToTargetRotation);
-            ApplyFootIkTarget(
-                state.RightFootBone,
-                state.RightFootIkTarget,
-                ref state.RightFootIkInitialized,
-                ref state.RightFootTargetBaselinePosition,
-                ref state.RightFootTargetBaselineRotation,
-                ref state.SourceRightFootBaselineWorldPosition,
-                ref state.SourceRightFootBaselineWorldRotation,
-                rightFootWorldPosition,
-                rightFootWorldRotation,
-                state.SourceToTargetRotation);
-        }
-
-        private static void ApplyFootIkTarget(
-            Transform footBone,
-            Transform ikTarget,
-            ref bool initialized,
-            ref Vector3 targetBaselinePosition,
-            ref Quaternion targetBaselineRotation,
-            ref Vector3 sourceBaselineWorldPosition,
-            ref Quaternion sourceBaselineWorldRotation,
-            Vector3 sourceCurrentWorldPosition,
-            Quaternion sourceCurrentWorldRotation,
-            Quaternion sourceToTargetRotation)
-        {
-            if (ikTarget == null)
-            {
-                return;
-            }
-
-            if (!initialized)
-            {
-                Vector3 alignedPosition = footBone != null ? footBone.position : ikTarget.position;
-                Quaternion alignedRotation = footBone != null ? footBone.rotation : ikTarget.rotation;
-                ikTarget.SetPositionAndRotation(alignedPosition, alignedRotation);
-                targetBaselinePosition = alignedPosition;
-                targetBaselineRotation = alignedRotation;
-                sourceBaselineWorldPosition = sourceCurrentWorldPosition;
-                sourceBaselineWorldRotation = sourceCurrentWorldRotation;
-                initialized = true;
-                return;
-            }
-
-            Vector3 deltaPosition = sourceToTargetRotation *
-                (sourceCurrentWorldPosition - sourceBaselineWorldPosition);
-            Quaternion deltaRotation = sourceCurrentWorldRotation * Quaternion.Inverse(sourceBaselineWorldRotation);
-            deltaRotation = sourceToTargetRotation * deltaRotation * Quaternion.Inverse(sourceToTargetRotation);
-            ikTarget.SetPositionAndRotation(
-                targetBaselinePosition + deltaPosition,
-                deltaRotation * targetBaselineRotation);
         }
 
         internal static void SolveTwoBoneLeg(
