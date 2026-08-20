@@ -99,7 +99,10 @@ internal abstract class KimodoConstraintStandardMarkerEditorBase : UnityEditor.E
             KimodoConstraintMarker markerTarget = target as KimodoConstraintMarker;
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(markerTarget);
 
-            if (!windowOpen || markerTarget?.autoSampleFullBody == true)
+            // The edit window owns the live preview while it is open. Sampling
+            // here would overwrite a just-dragged rig on the next inspector
+            // repaint and make the two surfaces disagree.
+            if (!windowOpen)
             {
                 if (!KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(markerTarget, forceRefresh: false, out string error))
                 {
@@ -109,11 +112,9 @@ internal abstract class KimodoConstraintStandardMarkerEditorBase : UnityEditor.E
 
             DrawFields(false);
 
-            bool changed = serializedObject.ApplyModifiedProperties();
-            if (changed)
-            {
-                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(target as KimodoConstraintMarker);
-            }
+            KimodoConstraintEditorState.ApplyConstraintPanels(
+                serializedObject,
+                target as KimodoConstraintMarker);
 
             KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
         }
@@ -144,7 +145,7 @@ internal abstract class KimodoConstraintStandardMarkerEditorBase : UnityEditor.E
 
         protected override void DrawFields(bool readOnly)
         {
-            KimodoConstraintEditorState.DrawConstraintPanels(serializedObject);
+            KimodoConstraintEditorState.DrawConstraintPayload(serializedObject);
         }
     }
 }

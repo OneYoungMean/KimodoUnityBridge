@@ -405,8 +405,7 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 marker = character.PoseCacheTrack.CreateMarker<KimodoConstraintMarker>(source.Frame / SessionFrameRate);
                 marker.name = markerId;
-                marker.autoSampleFullBody = false;
-                marker.autoSampleRoot2D = false;
+                marker.autoSample = false;
                 marker.constraintEnabled = true;
                 overwriteExisting = true;
             }

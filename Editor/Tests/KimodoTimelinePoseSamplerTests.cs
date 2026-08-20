@@ -1028,8 +1028,7 @@ namespace KimodoBridge.Editor.Tests
                         solveRightHandIk: goal == AvatarIKGoal.RightHand,
                         applyFootIk: goal == AvatarIKGoal.LeftFoot || goal == AvatarIKGoal.RightFoot,
                         solveLeftFootIk: goal == AvatarIKGoal.LeftFoot,
-                        solveRightFootIk: goal == AvatarIKGoal.RightFoot,
-                        ikGoalsAlreadyInTargetSpace: true),
+                        solveRightFootIk: goal == AvatarIKGoal.RightFoot),
                     Is.True,
                     error);
                 Assert.That(solved, Is.Not.Null);

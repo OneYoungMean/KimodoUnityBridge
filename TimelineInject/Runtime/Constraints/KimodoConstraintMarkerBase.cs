@@ -71,21 +71,6 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         }
     }
 
-    // Source-level aliases used by older editor helpers. They are not
-    // serialized and all modes use the same Auto Sample switch now.
-    public bool autoSampleFullBody
-    {
-        get => autoSample;
-        set => autoSample = value;
-    }
-
-    [HideInInspector]
-    public bool autoSampleRoot2D
-    {
-        get => autoSample;
-        set => autoSample = value;
-    }
-
     public void CommitSampleData() => CommitActiveSample();
 
     private void OnEnable()

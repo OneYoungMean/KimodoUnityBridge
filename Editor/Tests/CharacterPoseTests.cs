@@ -516,8 +516,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
             try
             {
-                marker.autoSampleFullBody = true;
-                marker.autoSampleRoot2D = true;
+                marker.autoSample = true;
                 marker.SampleData = new KimodoMarkerSampleResult
                 {
                     constraintType = "constraint",
@@ -569,7 +568,6 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                     KimodoBridge.Editor.KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
                         marker,
                         dragged,
-                        disableFullBodyAutoSample: false,
                         out string error,
                         writeSampledCharacterPose: true),
                     Is.True,
@@ -631,8 +629,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 sampledPose.feet.right.t = new Vector3(43f, 53f, 63f);
                 var sampled = new KimodoMarkerSampleResult { characterPose = sampledPose };
 
-                marker.autoSampleFullBody = false;
-                marker.autoSampleRoot2D = true;
+                marker.autoSample = false;
                 KimodoMarkerSampleResult root2dOnly = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sampled);
                 Assert.That(root2dOnly.characterPose.muscles[0], Is.EqualTo(2f));
                 Assert.That(root2dOnly.characterPose.root.t, Is.EqualTo(new Vector3(1f, 2f, 3f)));
@@ -640,8 +637,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 Assert.That(root2dOnly.characterPose.hands.left.t, Is.EqualTo(new Vector3(4f, 5f, 6f)));
                 Assert.That(root2dOnly.characterPose.hands.right.t, Is.EqualTo(new Vector3(-4f, -5f, -6f)));
 
-                marker.autoSampleFullBody = true;
-                marker.autoSampleRoot2D = false;
+                marker.autoSample = true;
                 KimodoMarkerSampleResult fullBodyOnly = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sampled);
                 Assert.That(fullBodyOnly.characterPose.muscles[0], Is.EqualTo(9f));
                 Assert.That(fullBodyOnly.characterPose.root.t, Is.EqualTo(new Vector3(10f, 11f, 12f)));

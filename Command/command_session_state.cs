@@ -462,8 +462,7 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     marker.name = MakeUniqueConstraintPoseSource(trace.Session, $"{trace.Character.Name}.Constraint");
                 }
-                marker.autoSampleFullBody = false;
-                marker.autoSampleRoot2D = false;
+                marker.autoSample = false;
                 marker.constraintEnabled = true;
             }
 

@@ -86,76 +86,6 @@ namespace KimodoBridge
             }
         }
 
-        internal sealed class HumanoidIkTargetScope : IDisposable
-        {
-            private readonly GameObject[] objects;
-
-            internal HumanoidIkSceneTargets Targets;
-
-            private HumanoidIkTargetScope(GameObject[] objects, HumanoidIkSceneTargets targets)
-            {
-                this.objects = objects;
-                Targets = targets;
-            }
-
-            internal static HumanoidIkTargetScope Create(
-                HumanoidWorldIkTargets goals,
-                out string error)
-            {
-                error = string.Empty;
-                var objects = new GameObject[4];
-                try
-                {
-                    HumanoidIkSceneTargets targets = default;
-                    CreateTarget(goals.leftHand, goals.leftHandPosition, goals.leftHandRotation,
-                        "__KimodoIkLeftHand", ref objects[0], ref targets.leftHandTransform, ref targets.leftHand);
-                    CreateTarget(goals.rightHand, goals.rightHandPosition, goals.rightHandRotation,
-                        "__KimodoIkRightHand", ref objects[1], ref targets.rightHandTransform, ref targets.rightHand);
-                    CreateTarget(goals.leftFoot, goals.leftFootPosition, goals.leftFootRotation,
-                        "__KimodoIkLeftFoot", ref objects[2], ref targets.leftFootTransform, ref targets.leftFoot);
-                    CreateTarget(goals.rightFoot, goals.rightFootPosition, goals.rightFootRotation,
-                        "__KimodoIkRightFoot", ref objects[3], ref targets.rightFootTransform, ref targets.rightFoot);
-                    return new HumanoidIkTargetScope(objects, targets);
-                }
-                catch (Exception ex)
-                {
-                    error = ex.Message;
-                    for (int i = 0; i < objects.Length; i++)
-                    {
-                        if (objects[i] != null) UnityEngine.Object.DestroyImmediate(objects[i]);
-                    }
-                    return null;
-                }
-            }
-
-            private static void CreateTarget(
-                bool enabled,
-                Vector3 position,
-                Quaternion rotation,
-                string name,
-                ref GameObject targetObject,
-                ref Transform targetTransform,
-                ref bool targetEnabled)
-            {
-                if (!enabled) return;
-                targetObject = new GameObject(name)
-                {
-                    hideFlags = HideFlags.HideAndDontSave
-                };
-                targetTransform = targetObject.transform;
-                targetTransform.SetPositionAndRotation(position, rotation);
-                targetEnabled = true;
-            }
-
-            public void Dispose()
-            {
-                for (int i = 0; i < objects.Length; i++)
-                {
-                    if (objects[i] != null) UnityEngine.Object.DestroyImmediate(objects[i]);
-                }
-            }
-        }
-
         internal enum ClipSamplingMode
         {
             Humanoid = 0,
@@ -386,10 +316,14 @@ namespace KimodoBridge
             cache.rootLocalPosition = rootTransform.localPosition;
             cache.rootLocalRotation = rootTransform.localRotation;
             cache.rootLocalScale = rootTransform.localScale;
+            cache.bindSkeletonRootWorldRotation = cache.skeletonRoot != null
+                ? cache.skeletonRoot.rotation
+                : rootTransform.rotation;
 
             int count = cache.boneTransforms.Length;
             cache.bindLocalPositions = new Vector3[count];
             cache.bindLocalRotations = new Quaternion[count];
+            cache.bindWorldRotations = new Quaternion[count];
             for (int i = 0; i < count; i++)
             {
                 Transform bone = cache.boneTransforms[i];
@@ -397,11 +331,13 @@ namespace KimodoBridge
                 {
                     cache.bindLocalPositions[i] = Vector3.zero;
                     cache.bindLocalRotations[i] = Quaternion.identity;
+                    cache.bindWorldRotations[i] = Quaternion.identity;
                     continue;
                 }
 
                 cache.bindLocalPositions[i] = bone.localPosition;
                 cache.bindLocalRotations[i] = bone.localRotation;
+                cache.bindWorldRotations[i] = bone.rotation;
             }
 
         }
@@ -876,8 +812,6 @@ namespace KimodoBridge
             bool applyFootIk = false,
             bool solveLeftFootIk = false,
             bool solveRightFootIk = false,
-            bool ikGoalsAlreadyInTargetSpace = false,
-            KimodoRetargetClipSamplingUtility.HumanoidWorldIkTargets? worldIkTargets = null,
             KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets? sceneTargets = null)
         {
             targetSample = null;
@@ -894,8 +828,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (sceneTargets.HasValue && sceneTargets.Value.Any ||
-                (worldIkTargets.HasValue && worldIkTargets.Value.Any && ikGoalsAlreadyInTargetSpace))
+            if (sceneTargets.HasValue && sceneTargets.Value.Any)
             {
                 // The sample and goals already belong to targetCache's Avatar;
                 // solve once there. Cross-Avatar callers must solve on their
@@ -912,7 +845,6 @@ namespace KimodoBridge
                     applyFootIk,
                     solveLeftFootIk,
                     solveRightFootIk,
-                    worldIkTargets,
                     sceneTargets);
             }
             if (!TryRetargetMuscleSamplesToBoneSamples(
@@ -960,7 +892,6 @@ namespace KimodoBridge
             bool applyFootIk = false,
             bool solveLeftFootIk = false,
             bool solveRightFootIk = false,
-            KimodoRetargetClipSamplingUtility.HumanoidWorldIkTargets? worldIkTargets = null,
             KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets? sceneTargets = null)
         {
             solvedBoneSample = null;
@@ -976,12 +907,10 @@ namespace KimodoBridge
                 return false;
             }
 
-            bool shouldSolveIk = (worldIkTargets.HasValue && worldIkTargets.Value.Any) ||
-                (sceneTargets.HasValue && sceneTargets.Value.Any);
+            bool shouldSolveIk = sceneTargets.HasValue && sceneTargets.Value.Any;
             var clipSamples = new[] { sourceSample, sourceSample };
             AnimationClip clip = null;
             KimodoRetargetClipSamplingUtility.ClipSamplingContext context = null;
-            KimodoRetargetClipSamplingUtility.HumanoidIkTargetScope targetScope = null;
             try
             {
                 if (!TryCreateTransientMuscleClip(
@@ -995,19 +924,6 @@ namespace KimodoBridge
                 }
 
                 KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets resolvedSceneTargets = sceneTargets ?? default;
-                if (shouldSolveIk && !sceneTargets.HasValue && worldIkTargets.HasValue)
-                {
-                    KimodoRetargetClipSamplingUtility.HumanoidWorldIkTargets goals = worldIkTargets.Value;
-                    if (goals.Any)
-                    {
-                        targetScope = KimodoRetargetClipSamplingUtility.HumanoidIkTargetScope.Create(goals, out error);
-                        if (targetScope == null)
-                        {
-                            return false;
-                        }
-                        resolvedSceneTargets = targetScope.Targets;
-                    }
-                }
 
                 bool builtContext = shouldSolveIk
                     ? KimodoRetargetClipSamplingUtility.TryBuildIkClipSamplingContext(
@@ -1044,8 +960,8 @@ namespace KimodoBridge
                 }
 
                 // The solved skeleton provides the post-IK muscle pose. IK
-                // targets stay in HumanoidWorldIkTargets/scene Transforms;
-                // they are not copied into MuscleSample.
+                // targets stay on the caller-owned scene Transforms; they are
+                // never copied into MuscleSample.
                 solvedMuscleSample = CopyIkCurveChannels(sourceSample, solvedPoseSample);
                 return true;
             }
@@ -1056,7 +972,6 @@ namespace KimodoBridge
                 {
                     UnityEngine.Object.DestroyImmediate(clip);
                 }
-                targetScope?.Dispose();
             }
         }
 

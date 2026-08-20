@@ -48,7 +48,7 @@ namespace KimodoBridge
             }
 
             SkeletonCache sourceCache = null;
-            KimodoRetargetClipSamplingUtility.HumanoidIkTargetScope targetScope = null;
+            KimodoWorldIkSceneBinder targetBinder = null;
             try
             {
                 if (KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar) &&
@@ -90,10 +90,10 @@ namespace KimodoBridge
                             cache,
                             projectedMuscleSample,
                             mask);
-                    targetScope = KimodoRetargetClipSamplingUtility.HumanoidIkTargetScope.Create(
+                    targetBinder = KimodoWorldIkSceneBinder.Create(
                         worldTargets,
                         out error);
-                    if (targetScope == null ||
+                    if (targetBinder == null ||
                         !KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                             projectedMuscleSample,
                             frameRate,
@@ -106,8 +106,7 @@ namespace KimodoBridge
                             applyFootIk: mask.leftFoot || mask.rightFoot,
                             solveLeftFootIk: mask.leftFoot,
                             solveRightFootIk: mask.rightFoot,
-                            ikGoalsAlreadyInTargetSpace: true,
-                            sceneTargets: targetScope.Targets))
+                            sceneTargets: targetBinder.Targets))
                     {
                         throw new InvalidOperationException($"Constraint pose IK solve failed: {error}");
                     }
@@ -146,7 +145,7 @@ namespace KimodoBridge
             finally
             {
                 sourceCache?.Dispose();
-                targetScope?.Dispose();
+                targetBinder?.Dispose();
                 cache.Dispose();
             }
         }

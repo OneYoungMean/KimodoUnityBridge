@@ -107,6 +107,8 @@ namespace KimodoBridge
         public Dictionary<HumanBodyBones, Transform> humanBoneTransforms;
         public Vector3[] bindLocalPositions;
         public Quaternion[] bindLocalRotations;
+        public Quaternion bindSkeletonRootWorldRotation;
+        public Quaternion[] bindWorldRotations;
         public int boneCount;
         private bool disposed;
 
@@ -162,6 +164,29 @@ namespace KimodoBridge
             return false;
         }
 
+        public bool GetBoneBindWorldRotation(
+            HumanBodyBones bone,
+            out Quaternion rotation)
+        {
+            rotation = Quaternion.identity;
+            if (!IsReady || humanBoneTransforms == null || bindWorldRotations == null ||
+                !humanBoneTransforms.TryGetValue(bone, out Transform transform) ||
+                transform == null || boneTransforms == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < boneTransforms.Length && i < bindWorldRotations.Length; i++)
+            {
+                if (boneTransforms[i] == transform)
+                {
+                    rotation = bindWorldRotations[i];
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public void Dispose()
         {
             if (disposed)
@@ -191,6 +216,7 @@ namespace KimodoBridge
             humanBoneTransforms = null;
             bindLocalPositions = null;
             bindLocalRotations = null;
+            bindWorldRotations = null;
             boneCount = 0;
         }
     }

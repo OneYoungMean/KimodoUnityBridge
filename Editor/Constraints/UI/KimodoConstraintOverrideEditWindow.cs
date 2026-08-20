@@ -1,4 +1,5 @@
 using TimelineInject;
+using System;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -32,6 +33,8 @@ namespace KimodoBridge.Editor
         [SerializeField] private HumanBodyBones selectedFullBodyTarget = HumanBodyBones.LastBone;
         private Vector2 scroll;
         private string lastError;
+        private double lastRenderedMarkerTime = double.NaN;
+        private bool lastRenderedAutoSample;
 
         internal KimodoConstraintMarker TargetMarker => marker;
 
@@ -280,6 +283,38 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            bool markerTimeChanged = double.IsNaN(lastRenderedMarkerTime) ||
+                Math.Abs(lastRenderedMarkerTime - marker.time) > 1e-9;
+            bool autoSampleChanged = marker.autoSample != lastRenderedAutoSample;
+            if (markerTimeChanged || autoSampleChanged)
+            {
+                string sampleError = string.Empty;
+                string poseError = string.Empty;
+                // A disabled AutoSample marker owns its authored payload. A
+                // time edit must still refresh the preview, but must not ask
+                // the timeline sampler to overwrite that payload with a
+                // cached/previous frame.
+                bool sampleReady = !marker.autoSample ||
+                    KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(
+                        marker, forceRefresh: true, out sampleError);
+                if (sampleReady &&
+                    KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(
+                        marker, context, out poseError))
+                {
+                    lastRenderedMarkerTime = marker.time;
+                    lastRenderedAutoSample = marker.autoSample;
+                    KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
+                    KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
+                    lastError = string.Empty;
+                }
+                else
+                {
+                    lastError = string.IsNullOrWhiteSpace(sampleError)
+                        ? (string.IsNullOrWhiteSpace(poseError) ? "pose cache update failed." : poseError)
+                        : sampleError;
+                }
+            }
+
             if (sceneDragActive &&
                 KimodoConstraintPoseCache.HasIkTargetTransformChanges(context, editEntryId))
             {
@@ -405,11 +440,10 @@ namespace KimodoBridge.Editor
             var so = new SerializedObject(marker);
             so.Update();
 
-            KimodoConstraintEditorState.DrawConstraintPanels(so);
+            KimodoConstraintEditorState.DrawConstraintPayload(so);
 
-            if (so.ApplyModifiedProperties())
+            if (KimodoConstraintEditorState.ApplyConstraintPanels(so, marker))
             {
-                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(marker);
                 string poseError = string.Empty;
                 bool rendered = TryGetEditContext(out PoseCacheRenderContext context, out poseError) &&
                     KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out poseError);
@@ -424,9 +458,6 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            EditorGUILayout.HelpBox(
-                "Muscle values are the authoritative body-pose data. Scene target drags write back to the same canonical pose when the drag completes.",
-                MessageType.None);
         }
 
 
@@ -481,6 +512,8 @@ namespace KimodoBridge.Editor
             }
 
             hasEditContext = true;
+            lastRenderedMarkerTime = target.time;
+            lastRenderedAutoSample = target.autoSample;
             if (!KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(target, editContext, out string renderError))
             {
                 lastError = renderError;
@@ -624,16 +657,10 @@ namespace KimodoBridge.Editor
                     out KimodoMarkerSampleResult sample,
                     out sampleError))
             {
-                KimodoConstraintPoseCache.GetChangedAutoSampleChannels(
-                    context, editEntryId, out bool fullBodyChanged);
                 KimodoConstraintPoseCache.EnableChangedConstraintChannels(context, editEntryId, sample);
-                bool disableAutoSample = fullBodyChanged ||
-                    pendingEndEffectorWriteback ||
-                    pendingRootWriteback;
                 if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
                         marker,
                         sample,
-                        disableFullBodyAutoSample: disableAutoSample,
                         out string writeError,
                         writeSampledCharacterPose: true))
                 {

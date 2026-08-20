@@ -345,46 +345,5 @@ public static bool TryRenderMarkerToPoseCache(KimodoConstraintMarker marker, out
             return true;
         }
 
-        public static bool TryRenderMarkersBatchToPoseCache(
-            PoseCacheRenderContext context,
-            IReadOnlyList<KimodoConstraintMarker> markers,
-            out string error)
-        {
-            error = string.Empty;
-            if (markers == null || markers.Count == 0)
-            {
-                KimodoConstraintPoseCache.SetGroupState(context, visible: false, selectable: false);
-                return true;
-            }
-
-            var items = new List<PoseCacheRenderItem>(markers.Count);
-            for (int i = 0; i < markers.Count; i++)
-            {
-                KimodoConstraintMarker marker = markers[i];
-                if (marker == null || !marker.constraintEnabled)
-                {
-                    continue;
-                }
-
-                if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(marker, marker.SampleData, out KimodoMarkerSampleResult sample, out string normalizeError))
-                {
-                    error = normalizeError;
-                    return false;
-                }
-
-                items.Add(new PoseCacheRenderItem
-                {
-                    EntryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker),
-                    SampleData = sample,
-                    ConstraintType = marker.ConstraintType,
-                    ConstraintMode = marker.ConstraintMode,
-                    HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
-                    Visible = true,
-                    SourceMarker = marker
-                });
-            }
-
-            return KimodoConstraintPoseCache.RenderBatch(context, items, out error);
-        }
     }
 }

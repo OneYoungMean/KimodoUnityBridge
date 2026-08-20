@@ -146,7 +146,6 @@ namespace KimodoBridge.Editor
                         applyFootIk: mask.leftFoot || mask.rightFoot,
                         solveLeftFootIk: mask.leftFoot,
                         solveRightFootIk: mask.rightFoot,
-                        ikGoalsAlreadyInTargetSpace: true,
                         sceneTargets: sceneTargets) ||
                     !KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
                         canonicalTargetSample,
@@ -350,14 +349,14 @@ namespace KimodoBridge.Editor
             Handles.CapFunction cap = !root2D && (bone == HumanBodyBones.Hips || bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand)
                 ? Handles.SphereHandleCap : Handles.CubeHandleCap;
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(entry.SourceMarker);
+            if (!windowOpen)
+            {
+                return;
+            }
             bool editable = windowOpen && entry.SourceMarker != null &&
                 (entry.SourceMarker.ConstraintMode == KimodoConstraintMode.FullBody ||
                  bone != HumanBodyBones.Hips || !entry.SourceMarker.autoSample);
-            if (!windowOpen)
-            {
-                if (Handles.Button(position, transform.rotation, size, size * 1.25f, cap)) OpenHandleEditor(entry, bone);
-            }
-            else if (editable && Selection.activeTransform == transform)
+            if (editable && Selection.activeTransform == transform)
             {
                 EditorGUI.BeginChangeCheck();
                 Vector3 moved = Handles.FreeMoveHandle(position, size, Vector3.zero, cap);
@@ -378,16 +377,6 @@ namespace KimodoBridge.Editor
             }
             Handles.Label(position + Vector3.up * size,
                 bone == HumanBodyBones.Hips ? root2D ? "Root2D" : "Root Position / Rotation" : bone.ToString());
-        }
-
-        private static void OpenHandleEditor(ConstraintPosePreviewEntry entry, HumanBodyBones bone)
-        {
-            if (entry?.SourceMarker == null || !entry.SourceMarker.constraintEnabled) return;
-            Selection.activeObject = entry.SourceMarker;
-            EditorApplication.delayCall += () =>
-            {
-                if (entry.SourceMarker != null) KimodoConstraintOverrideEditWindow.ShowWindow(entry.SourceMarker, bone);
-            };
         }
 
         internal static bool TryGetOrCreateSession(
@@ -724,30 +713,6 @@ namespace KimodoBridge.Editor
             if (rootChanged)
             {
                 sample.hasRootHeading = true;
-            }
-        }
-
-        internal static void GetChangedAutoSampleChannels(
-            PoseCacheRenderContext context,
-            string entryId,
-            out bool fullBodyChanged)
-        {
-            fullBodyChanged = false;
-            if (!TryGetSession(context, out ConstraintPosePreviewSession session) ||
-                !TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry))
-            {
-                return;
-            }
-
-            if (entry.FullBodyTargets == null) return;
-            foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
-            {
-                if (item.Value != null && item.Value.transform.hasChanged &&
-                    item.Key == HumanBodyBones.Hips)
-                {
-                    fullBodyChanged = true;
-                    return;
-                }
             }
         }
 
@@ -1803,6 +1768,12 @@ namespace KimodoBridge.Editor
                 AddHash(ref hash, item != null ? (int)ResolveRenderMode(item) : -1);
                 AddHash(ref hash, item != null ? item.PreviewColor.GetHashCode() : 0);
                 AddHash(ref hash, item != null && item.Visible ? 1 : 0);
+                // AutoSample changes the source of truth (timeline pose vs
+                // authored rig targets), so it must invalidate the cached
+                // render even when the payload values are unchanged.
+                AddHash(ref hash, item?.SourceMarker == null
+                    ? 0
+                    : (item.SourceMarker.autoSample ? 1 : 2));
                 KimodoMarkerSampleResult sample = item?.SampleData;
                 if (sample != null)
                 {
@@ -2268,14 +2239,14 @@ namespace KimodoBridge.Editor
                     if (entry.SourceMarker?.autoSample != false)
                     {
                         target.transform.SetPositionAndRotation(
-                            solvedSample.pose.bodyPosition * Mathf.Max(1e-6f, entry.TargetCache.humanScale),
-                            solvedSample.pose.bodyRotation);
+                            SkeletonRootWorldPosition(entry.TargetCache, solvedSample.pose.bodyPosition),
+                            SkeletonRootWorldRotation(entry.TargetCache, solvedSample.pose.bodyRotation));
                     }
                     else if (entry.BaseSample?.characterPose?.root != null)
                     {
                         target.transform.SetPositionAndRotation(
-                            entry.BaseSample.characterPose.root.t * Mathf.Max(1e-6f, entry.TargetCache.humanScale),
-                            entry.BaseSample.characterPose.root.q);
+                            SkeletonRootWorldPosition(entry.TargetCache, entry.BaseSample.characterPose.root.t),
+                            SkeletonRootWorldRotation(entry.TargetCache, entry.BaseSample.characterPose.root.q));
                     }
                 }
                 else if (entry.SourceMarker?.autoSample == false &&
@@ -2284,6 +2255,13 @@ namespace KimodoBridge.Editor
                 {
                     target.transform.SetParent(null, true);
                     target.transform.SetPositionAndRotation(savedPosition, savedRotation);
+                }
+                else if (entry.SourceMarker?.autoSample == false)
+                {
+                    // If AutoSample was just disabled, no authored world
+                    // target may exist yet. Initialize it from the sampled
+                    // bone instead of leaving the new target at (0,0,0).
+                    SetTargetToFollowBodyPart(entry, bone, target.transform, bodyPart);
                 }
                 else if (entry.SourceMarker?.autoSample != false)
                 {
@@ -2383,8 +2361,8 @@ namespace KimodoBridge.Editor
             if (createdTarget || !target.transform.hasChanged)
             {
                 target.transform.SetPositionAndRotation(
-                    entry.BaseSample.characterPose.root.t * Mathf.Max(1e-6f, entry.TargetCache.humanScale),
-                    entry.BaseSample.characterPose.root.q);
+                    SkeletonRootWorldPosition(entry.TargetCache, entry.BaseSample.characterPose.root.t),
+                    SkeletonRootWorldRotation(entry.TargetCache, entry.BaseSample.characterPose.root.q));
                 target.transform.hasChanged = false;
             }
             target.transform.localScale = Vector3.one * 0.1f;
@@ -2416,6 +2394,40 @@ namespace KimodoBridge.Editor
             target.SetPositionAndRotation(
                 bodyPart.position,
                 ResolveIkGoalRotation(entry, bone, bodyPart));
+        }
+
+        private static Vector3 SkeletonRootWorldPosition(SkeletonCache cache, Vector3 bodyPosition)
+        {
+            if (cache?.skeletonRoot == null)
+            {
+                return bodyPosition * Mathf.Max(1e-6f, cache?.humanScale ?? 1f);
+            }
+            return cache.skeletonRoot.TransformPoint(
+                bodyPosition * Mathf.Max(1e-6f, cache.humanScale));
+        }
+
+        private static Quaternion SkeletonRootWorldRotation(SkeletonCache cache, Quaternion bodyRotation)
+        {
+            return cache?.skeletonRoot != null
+                ? (cache.skeletonRoot.rotation * bodyRotation).normalized
+                : bodyRotation;
+        }
+
+        private static Vector3 SkeletonRootLocalPosition(SkeletonCache cache, Vector3 worldPosition)
+        {
+            if (cache?.skeletonRoot == null)
+            {
+                return worldPosition / Mathf.Max(1e-6f, cache?.humanScale ?? 1f);
+            }
+            return cache.skeletonRoot.InverseTransformPoint(worldPosition) /
+                Mathf.Max(1e-6f, cache.humanScale);
+        }
+
+        private static Quaternion SkeletonRootLocalRotation(SkeletonCache cache, Quaternion worldRotation)
+        {
+            return cache?.skeletonRoot != null
+                ? (Quaternion.Inverse(cache.skeletonRoot.rotation) * worldRotation).normalized
+                : worldRotation;
         }
 
         private static void RememberEditedIkTargets(ConstraintPosePreviewEntry entry)
@@ -2481,17 +2493,30 @@ namespace KimodoBridge.Editor
                 return bodyPart != null ? bodyPart.rotation : Quaternion.identity;
             }
 
-            if (!entry.TargetCache.GetBoneBindLocalRotation(
+            if (!entry.TargetCache.GetBoneBindWorldRotation(
                     bone,
-                    out Quaternion bindLocalRotation))
+                    out Quaternion bindWorldRotation))
             {
                 return bodyPart.rotation;
             }
 
-            Quaternion relativeToBind = bodyPart.localRotation * Quaternion.Inverse(bindLocalRotation);
-            return entry.TargetCache.skeletonRoot != null
-                ? entry.TargetCache.skeletonRoot.rotation * relativeToBind
-                : relativeToBind;
+            Transform skeletonRoot = entry.TargetCache.skeletonRoot;
+            if (skeletonRoot == null)
+            {
+                return bodyPart.rotation;
+            }
+
+            // IK rig transforms are scene/world-space. Compute the current
+            // and bind bone orientations in skeleton-root space first; using
+            // bodyPart.localRotation here mixes parent-bone space with root
+            // space and produces incorrect foot rotations when the pelvis or
+            // skeleton root rotates.
+            Quaternion currentRootRotation = skeletonRoot.rotation;
+            Quaternion currentInRoot = Quaternion.Inverse(currentRootRotation) * bodyPart.rotation;
+            Quaternion bindRootRotation = entry.TargetCache.bindSkeletonRootWorldRotation;
+            Quaternion bindInRoot = Quaternion.Inverse(bindRootRotation) * bindWorldRotation;
+            Quaternion relativeToBind = currentInRoot * Quaternion.Inverse(bindInRoot);
+            return (currentRootRotation * relativeToBind).normalized;
         }
 
         private static bool TryApplyEndEffectorTargetToRig(
@@ -2558,7 +2583,6 @@ namespace KimodoBridge.Editor
                 applyFootIk: bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot,
                 solveLeftFootIk: bone == HumanBodyBones.LeftFoot,
                 solveRightFootIk: bone == HumanBodyBones.RightFoot,
-                ikGoalsAlreadyInTargetSpace: true,
                 sceneTargets: sceneTargets);
         }
 
@@ -2622,14 +2646,17 @@ namespace KimodoBridge.Editor
                 entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject rootTarget) &&
                 rootTarget != null)
             {
-                float scale = Mathf.Max(1e-6f, entry.TargetCache.humanScale);
                 if (mask.rootPosition)
                 {
-                    sourceSample.pose.bodyPosition = rootTarget.transform.position / scale;
+                    sourceSample.pose.bodyPosition = SkeletonRootLocalPosition(
+                        entry.TargetCache,
+                        rootTarget.transform.position);
                 }
                 if (mask.rootHeading)
                 {
-                    sourceSample.pose.bodyRotation = rootTarget.transform.rotation;
+                    sourceSample.pose.bodyRotation = SkeletonRootLocalRotation(
+                        entry.TargetCache,
+                        rootTarget.transform.rotation);
                 }
             }
 
@@ -2648,7 +2675,6 @@ namespace KimodoBridge.Editor
                 applyFootIk: mask.leftFoot || mask.rightFoot,
                 solveLeftFootIk: mask.leftFoot,
                 solveRightFootIk: mask.rightFoot,
-                ikGoalsAlreadyInTargetSpace: true,
                 sceneTargets: sceneTargets);
         }
 

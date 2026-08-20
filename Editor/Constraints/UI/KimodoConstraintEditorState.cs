@@ -51,6 +51,32 @@ namespace KimodoBridge.Editor
             }
         }
 
+        // The edit window's framed payload is the canonical presentation for
+        // both surfaces. Keep the visual container and guidance in one place.
+        internal static void DrawConstraintPayload(SerializedObject so)
+        {
+            if (so == null) return;
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            DrawConstraintPanels(so);
+            EditorGUILayout.HelpBox(
+                "Muscle values are the authoritative body-pose data. Scene target drags write back to the same canonical pose.",
+                MessageType.None);
+            EditorGUILayout.EndVertical();
+        }
+
+        // Inspector and the persistent edit window commit the same payload;
+        // keep the serialized apply/dirty transition in one place.
+        internal static bool ApplyConstraintPanels(SerializedObject so, KimodoConstraintMarker marker)
+        {
+            if (so == null) return false;
+            bool changed = so.ApplyModifiedProperties();
+            if (changed)
+            {
+                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(marker);
+            }
+            return changed;
+        }
+
         private static void DrawRoot2D(SerializedObject so)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);

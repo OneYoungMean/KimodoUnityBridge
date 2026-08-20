@@ -181,7 +181,7 @@ public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, 
             }
 
             if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
-                    marker, preview, disableFullBodyAutoSample: false, out error))
+                    marker, preview, out error))
             {
                 AutoSampleCache[id] = new AutoSampleCacheEntry
                 {

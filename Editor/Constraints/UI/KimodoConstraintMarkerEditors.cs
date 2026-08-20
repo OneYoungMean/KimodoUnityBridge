@@ -133,9 +133,19 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
                     {
                         Debug.LogWarning($"[Kimodo][ConstraintMarker] Auto sample after marker move failed: {sampleError}");
                     }
-                    KimodoConstraintSelectionPreviewTool.ForceRefresh();
-                    SceneView.RepaintAll();
                 }
+                // AutoSample=false keeps the authored muscle/IK payload. The
+                // preview still needs a render pass after a time edit, but it
+                // must not clear/invoke the timeline sampling caches.
+                if (kimodoMarker.autoSample)
+                {
+                    KimodoConstraintSelectionPreviewTool.ForceRefresh();
+                }
+                else
+                {
+                    KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
+                }
+                SceneView.RepaintAll();
             }
 
 
@@ -251,11 +261,6 @@ public static void ClearMarkerPoseCachePreview(KimodoConstraintMarker marker, bo
         internal static bool TryRenderMarkerToPoseCache(KimodoConstraintMarker marker, PoseCacheRenderContext context, out string error)
         {
             return KimodoConstraintMarkerPosePreview.TryRenderMarkerToPoseCache(marker, context, out error);
-        }
-
-        public static bool TryRenderMarkersBatchToPoseCache(PoseCacheRenderContext context, IReadOnlyList<KimodoConstraintMarker> markers, out string error)
-        {
-            return KimodoConstraintMarkerPosePreview.TryRenderMarkersBatchToPoseCache(context, markers, out error);
         }
 
 public static void DrawOverrideEditButton(SerializedObject so, KimodoConstraintMarker marker)
