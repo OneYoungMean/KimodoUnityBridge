@@ -17,6 +17,7 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     [SerializeField] private KimodoRoot2DConstraintData root2DData = new KimodoRoot2DConstraintData();
     [SerializeField] private KimodoFullBodyConstraintData fullBodyData = new KimodoFullBodyConstraintData();
     [SerializeField] private KimodoIkConstraintData ikData = new KimodoIkConstraintData();
+    [SerializeField] private CharacterPoseTransform sourceRootWorldPose = new CharacterPoseTransform();
 
     [NonSerialized] private KimodoMarkerSampleResult activeSampleCache;
     [NonSerialized] private KimodoConstraintMode activeSampleCacheMode;
@@ -121,6 +122,7 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         ikData.ikTargets ??= new KimodoConstraintIkTargets();
         ikData.ikTargets.hands ??= new CharacterPoseSides();
         ikData.ikTargets.feet ??= new CharacterPoseSides();
+        sourceRootWorldPose ??= new CharacterPoseTransform();
     }
 
     private void EnsureActiveSample()
@@ -136,6 +138,7 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
             sampleTime = Math.Max(0.0, time),
             hasRootHeading = true
         };
+        activeSampleCache.sourceRootWorldPose = sourceRootWorldPose.Clone();
 
         switch (constraintMode)
         {
@@ -152,11 +155,13 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
                 activeSampleCache.mask = KimodoConstraintMask.ForType("root2d");
                 break;
             case KimodoConstraintMode.IK:
-                activeSampleCache.characterPose = PoseWithTargets(ikData.referencePose, ikData.ikTargets);
+                activeSampleCache.characterPose = RetargetPoseWithoutHandTq(ikData.referencePose);
+                activeSampleCache.worldIkTargets = ikData.ikTargets?.Clone() ?? new KimodoConstraintIkTargets();
                 activeSampleCache.mask = BuildIkMask(ikData);
                 break;
             default:
-                activeSampleCache.characterPose = PoseWithTargets(fullBodyData.pose, fullBodyData.ikTargets);
+                activeSampleCache.characterPose = RetargetPoseWithoutHandTq(fullBodyData.pose);
+                activeSampleCache.worldIkTargets = fullBodyData.ikTargets?.Clone() ?? new KimodoConstraintIkTargets();
                 activeSampleCache.mask = BuildFullBodyMask();
                 break;
         }
@@ -168,6 +173,9 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         EnsurePayloads();
         CharacterPose pose = activeSampleCache.characterPose;
         if (pose == null) return;
+        sourceRootWorldPose = activeSampleCache.sourceRootWorldPose != null
+            ? activeSampleCache.sourceRootWorldPose.Clone()
+            : new CharacterPoseTransform();
 
         switch (activeSampleCacheMode)
         {
@@ -176,13 +184,13 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
                 root2DData.allowHeading = activeSampleCache.hasRootHeading;
                 break;
             case KimodoConstraintMode.IK:
-                ikData.referencePose = pose.Clone();
-                ikData.ikTargets = TargetsFromPose(pose);
+                ikData.referencePose = RetargetPoseWithoutHandTq(pose);
+                ikData.ikTargets = activeSampleCache.worldIkTargets?.Clone() ?? new KimodoConstraintIkTargets();
                 ApplyIkMask(ikData, activeSampleCache.mask);
                 break;
             default:
-                fullBodyData.pose = pose.Clone();
-                fullBodyData.ikTargets = TargetsFromPose(pose);
+                fullBodyData.pose = RetargetPoseWithoutHandTq(pose);
+                fullBodyData.ikTargets = activeSampleCache.worldIkTargets?.Clone() ?? new KimodoConstraintIkTargets();
                 break;
         }
     }
@@ -263,18 +271,12 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         data.rightFoot = mask.rightFoot;
     }
 
-    private static KimodoConstraintIkTargets TargetsFromPose(CharacterPose pose) => new KimodoConstraintIkTargets
-    {
-        hands = pose?.hands?.Clone() ?? new CharacterPoseSides(),
-        feet = pose?.feet?.Clone() ?? new CharacterPoseSides()
-    };
-
-    private static CharacterPose PoseWithTargets(
-        CharacterPose source,
-        KimodoConstraintIkTargets targets)
+    private static CharacterPose RetargetPoseWithoutHandTq(CharacterPose source)
     {
         CharacterPose pose = source?.Clone() ?? new CharacterPose();
-        targets?.CopyTo(pose);
+        // CharacterPose is the muscle/root transport payload. IK controls are
+        // carried separately in KimodoMarkerSampleResult.worldIkTargets.
+        pose.hands = new CharacterPoseSides();
         return pose;
     }
 

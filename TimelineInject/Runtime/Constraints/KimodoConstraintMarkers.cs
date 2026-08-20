@@ -187,6 +187,11 @@ namespace TimelineInject
     public sealed class KimodoMarkerSampleResult
     {
         public CharacterPose characterPose;
+        // IK controls are absolute scene-space targets. They are intentionally
+        // separate from CharacterPose so the solve path cannot interpret them
+        // as legacy body-relative HandT/Q or FootT/Q values.
+        public KimodoConstraintIkTargets worldIkTargets = new KimodoConstraintIkTargets();
+        public CharacterPoseTransform sourceRootWorldPose = new CharacterPoseTransform();
         [NonSerialized]
         public KimodoConstraintRawData rawData;
         // FullBody owns characterPose.root. Root2D is kept separately so its
@@ -205,6 +210,10 @@ namespace TimelineInject
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
         {
             characterPose = characterPose?.Clone(),
+            worldIkTargets = worldIkTargets?.Clone() ?? new KimodoConstraintIkTargets(),
+            sourceRootWorldPose = sourceRootWorldPose != null
+                ? new CharacterPoseTransform { t = sourceRootWorldPose.t, q = sourceRootWorldPose.q }
+                : new CharacterPoseTransform(),
             rawData = rawData?.Clone(),
             root2DOverride = root2DOverride != null
                 ? new CharacterPoseTransform { t = root2DOverride.t, q = root2DOverride.q }

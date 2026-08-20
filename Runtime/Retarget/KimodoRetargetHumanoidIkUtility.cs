@@ -8,19 +8,6 @@ namespace KimodoBridge
     {
         internal static MuscleSample BuildMuscleSampleFromPose(SkeletonCache cache, HumanPose pose)
         {
-            return BuildMuscleSampleFromPose(
-                cache != null ? cache.avatar : null,
-                cache != null ? cache.humanScale : 1f,
-                pose,
-                bone => ResolveHumanBoneTransform(cache, bone));
-        }
-
-        internal static MuscleSample BuildMuscleSampleFromPose(
-            Avatar avatar,
-            float humanScale,
-            HumanPose pose,
-            Func<HumanBodyBones, Transform> resolveHumanBone)
-        {
             var sample = new MuscleSample
             {
                 pose = pose,
@@ -33,90 +20,10 @@ namespace KimodoBridge
                 rightHandPosition = Vector3.zero,
                 rightHandRotation = Quaternion.identity
             };
-
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar) || resolveHumanBone == null)
-            {
-                return sample;
-            }
-
-            float scale = Mathf.Max(1e-6f, humanScale);
-            TryGetHumanoidIkGoalPose(avatar, resolveHumanBone, AvatarIKGoal.LeftFoot, pose.bodyPosition, pose.bodyRotation, scale, out sample.leftFootPosition, out sample.leftFootRotation);
-            TryGetHumanoidIkGoalPose(avatar, resolveHumanBone, AvatarIKGoal.RightFoot, pose.bodyPosition, pose.bodyRotation, scale, out sample.rightFootPosition, out sample.rightFootRotation);
-            TryGetHumanoidIkGoalPose(avatar, resolveHumanBone, AvatarIKGoal.LeftHand, pose.bodyPosition, pose.bodyRotation, scale, out sample.leftHandPosition, out sample.leftHandRotation);
-            TryGetHumanoidIkGoalPose(avatar, resolveHumanBone, AvatarIKGoal.RightHand, pose.bodyPosition, pose.bodyRotation, scale, out sample.rightHandPosition, out sample.rightHandRotation);
             return sample;
         }
 
-        internal static bool TryGetHumanoidIkGoalPose(
-            SkeletonCache cache,
-            AvatarIKGoal avatarIKGoal,
-            Vector3 bodyPosition,
-            Quaternion bodyRotation,
-            float humanScale,
-            out Vector3 goalPosition,
-            out Quaternion goalRotation)
-        {
-            return TryGetHumanoidIkGoalPose(
-                cache != null ? cache.avatar : null,
-                bone => ResolveHumanBoneTransform(cache, bone),
-                avatarIKGoal,
-                bodyPosition,
-                bodyRotation,
-                humanScale,
-                out goalPosition,
-                out goalRotation);
-        }
-
-        private static bool TryGetHumanoidIkGoalPose(
-            Avatar avatar,
-            Func<HumanBodyBones, Transform> resolveHumanBone,
-            AvatarIKGoal avatarIKGoal,
-            Vector3 bodyPosition,
-            Quaternion bodyRotation,
-            float humanScale,
-            out Vector3 goalPosition,
-            out Quaternion goalRotation)
-        {
-            goalPosition = Vector3.zero;
-            goalRotation = Quaternion.identity;
-
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar) || resolveHumanBone == null)
-            {
-                return false;
-            }
-
-            HumanBodyBones bone = HumanBodyBoneFromAvatarIKGoal(avatarIKGoal);
-            if (bone == HumanBodyBones.LastBone)
-            {
-                return false;
-            }
-
-            Transform transform = resolveHumanBone(bone);
-            if (transform == null)
-            {
-                return false;
-            }
-
-            int humanId = (int)bone;
-            Quaternion postRotation = AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(avatar, humanId);
-            Quaternion worldGoalRotation = transform.rotation * postRotation;
-            Vector3 worldGoalPosition = BonePositionToIkGoalWorldPosition(
-                avatar,
-                bone,
-                transform.position,
-                worldGoalRotation);
-
-            WorldToBodyRelativeIkGoal(
-                bodyPosition,
-                bodyRotation,
-                humanScale,
-                worldGoalPosition,
-                worldGoalRotation,
-                out goalPosition,
-                out goalRotation);
-            return true;
-        }
-
+        [Obsolete("Use the scene IK target Transform directly.")]
         internal static Vector3 BonePositionToIkGoalWorldPosition(
             Avatar avatar,
             HumanBodyBones bone,
@@ -129,6 +36,7 @@ namespace KimodoBridge
             return boneWorldPosition + goalWorldRotation * new Vector3(axisLength, 0f, 0f);
         }
 
+        [Obsolete("Use the scene IK target Transform directly.")]
         internal static Vector3 IkGoalPositionToBoneWorldPosition(
             Avatar avatar,
             HumanBodyBones bone,
@@ -141,11 +49,9 @@ namespace KimodoBridge
             return goalWorldPosition - goalWorldRotation * new Vector3(axisLength, 0f, 0f);
         }
 
-        private static bool UsesAxisEndpoint(HumanBodyBones bone)
-        {
-            return bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot;
-        }
-
+        // Compatibility math retained for serialized/test readers only. New
+        // solve paths pass scene Transforms directly to TransformSceneHandle.
+        [Obsolete("Use scene IK targets and TransformSceneHandle.")]
         internal static void WorldToBodyRelativeIkGoal(
             Vector3 bodyPosition,
             Quaternion bodyRotation,
@@ -161,6 +67,7 @@ namespace KimodoBridge
             goalRotation = inverseBodyRotation * worldGoalRotation;
         }
 
+        [Obsolete("Use scene IK targets and TransformSceneHandle.")]
         internal static void BodyRelativeIkGoalToWorld(
             Vector3 bodyPosition,
             Quaternion bodyRotation,
@@ -173,6 +80,11 @@ namespace KimodoBridge
             float scale = Mathf.Max(1e-6f, humanScale);
             worldGoalPosition = bodyPosition * scale + bodyRotation * (goalPosition * scale);
             worldGoalRotation = bodyRotation * goalRotation;
+        }
+
+        private static bool UsesAxisEndpoint(HumanBodyBones bone)
+        {
+            return bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot;
         }
 
         internal static Transform ResolveHumanBoneTransform(SkeletonCache cache, HumanBodyBones bone)
@@ -215,21 +127,5 @@ namespace KimodoBridge
             return null;
         }
 
-        internal static HumanBodyBones HumanBodyBoneFromAvatarIKGoal(AvatarIKGoal avatarIKGoal)
-        {
-            switch (avatarIKGoal)
-            {
-                case AvatarIKGoal.LeftFoot:
-                    return HumanBodyBones.LeftFoot;
-                case AvatarIKGoal.RightFoot:
-                    return HumanBodyBones.RightFoot;
-                case AvatarIKGoal.LeftHand:
-                    return HumanBodyBones.LeftHand;
-                case AvatarIKGoal.RightHand:
-                    return HumanBodyBones.RightHand;
-                default:
-                    return HumanBodyBones.LastBone;
-            }
-        }
     }
 }

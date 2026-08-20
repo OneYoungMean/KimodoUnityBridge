@@ -112,7 +112,8 @@ namespace KimodoBridge.Editor
             float frameRate,
             SkeletonCache profileCache,
             SkeletonCache targetCache,
-            out string error)
+            out string error,
+            KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets? sceneTargets = null)
         {
             error = string.Empty;
             if (sample == null || profileCache == null || targetCache == null)
@@ -140,7 +141,8 @@ namespace KimodoBridge.Editor
                         applyFootIk: mask.leftFoot || mask.rightFoot,
                         solveLeftFootIk: mask.leftFoot,
                         solveRightFootIk: mask.rightFoot,
-                        ikGoalsAlreadyInTargetSpace: true) ||
+                        ikGoalsAlreadyInTargetSpace: true,
+                        sceneTargets: sceneTargets) ||
                     !KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
                         canonicalTargetSample,
                         targetCache,
@@ -1763,6 +1765,7 @@ namespace KimodoBridge.Editor
                 if (sample != null)
                 {
                     AddHash(ref hash, sample.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty);
+                    AddHash(ref hash, sample.worldIkTargets != null ? JsonUtility.ToJson(sample.worldIkTargets) : string.Empty);
                     AddHash(ref hash, sample.hasRoot2DOverride && sample.root2DOverride != null
                         ? JsonUtility.ToJson(sample.root2DOverride)
                         : string.Empty);
@@ -1843,7 +1846,10 @@ namespace KimodoBridge.Editor
                     KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
                     entry.ProfileCache,
                     entry.TargetCache,
-                    out error);
+                    out error,
+                    BuildSceneTargets(
+                        entry,
+                        KimodoConstraintMask.Resolve(sample.mask, sample.constraintType)));
             }
             finally
             {
@@ -1953,6 +1959,7 @@ namespace KimodoBridge.Editor
                     rightHandTargetChanged,
                     leftFootTargetChanged,
                     rightFootTargetChanged);
+                sample.worldIkTargets = CaptureWorldIkTargetsFromEntry(entry, mask, markerType);
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase))
                 {
                     sample.mask = mask.Clone();
@@ -2103,20 +2110,23 @@ namespace KimodoBridge.Editor
 
             Transform marker = entry.EndEffectorMarker.transform;
             marker.SetParent(null, true);
-            if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                    entry.TargetCache,
-                    out MuscleSample solvedSample,
-                    out _) ||
-                !TryResolveWorldIkGoal(
-                    entry.TargetCache,
-                    solvedSample,
-                    bone,
-                    out Vector3 targetPosition,
-                    out Quaternion targetRotation))
+            Transform bodyPart = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
+                entry.TargetCache,
+                bone);
+            if (bodyPart == null)
             {
                 UnityEngine.Object.DestroyImmediate(entry.EndEffectorMarker);
                 entry.EndEffectorMarker = null;
                 return;
+            }
+            Vector3 targetPosition = bodyPart.position;
+            Quaternion targetRotation = bodyPart.rotation;
+            if (entry.SourceMarker?.autoSample == false &&
+                TryGetWorldIkTarget(entry.BaseSample?.worldIkTargets, bone,
+                    out Vector3 savedPosition, out Quaternion savedRotation))
+            {
+                targetPosition = savedPosition;
+                targetRotation = savedRotation;
             }
             marker.SetPositionAndRotation(targetPosition, targetRotation);
 
@@ -2175,16 +2185,12 @@ namespace KimodoBridge.Editor
                         solvedSample.pose.bodyPosition * Mathf.Max(1e-6f, entry.TargetCache.humanScale),
                         solvedSample.pose.bodyRotation);
                 }
-                else if (IsTargetEnabled(mask, bone) &&
-                    TryResolveWorldIkBonePose(
-                        entry.TargetCache,
-                        solvedSample,
-                        bone,
-                        out Vector3 position,
-                        out Quaternion rotation))
+                else if (entry.SourceMarker?.autoSample == false &&
+                    TryGetWorldIkTarget(entry.BaseSample?.worldIkTargets, bone,
+                        out Vector3 savedPosition, out Quaternion savedRotation))
                 {
                     target.transform.SetParent(null, true);
-                    target.transform.SetPositionAndRotation(position, rotation);
+                    target.transform.SetPositionAndRotation(savedPosition, savedRotation);
                 }
                 else
                 {
@@ -2312,61 +2318,6 @@ namespace KimodoBridge.Editor
             target.SetPositionAndRotation(bodyPart.position, bodyPart.rotation);
         }
 
-        private static bool TryResolveWorldIkGoal(
-            SkeletonCache targetCache,
-            MuscleSample targetSample,
-            HumanBodyBones bone,
-            out Vector3 position,
-            out Quaternion rotation)
-        {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            if (targetCache == null || targetSample == null ||
-                !TryGetMuscleIkGoal(targetSample, bone, out Vector3 goalPosition, out Quaternion goalRotation))
-            {
-                return false;
-            }
-
-            KimodoRetargetHumanoidIkUtility.BodyRelativeIkGoalToWorld(
-                targetSample.pose.bodyPosition,
-                targetSample.pose.bodyRotation,
-                targetCache.humanScale,
-                goalPosition,
-                goalRotation,
-                out position,
-                out rotation);
-            return true;
-        }
-
-        private static bool TryResolveWorldIkBonePose(
-            SkeletonCache targetCache,
-            MuscleSample targetSample,
-            HumanBodyBones bone,
-            out Vector3 position,
-            out Quaternion rotation)
-        {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            if (!TryResolveWorldIkGoal(
-                    targetCache,
-                    targetSample,
-                    bone,
-                    out Vector3 goalPosition,
-                    out Quaternion goalRotation))
-            {
-                return false;
-            }
-
-            position = KimodoRetargetHumanoidIkUtility.IkGoalPositionToBoneWorldPosition(
-                targetCache.avatar,
-                bone,
-                goalPosition,
-                goalRotation);
-            rotation = goalRotation * Quaternion.Inverse(
-                AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(targetCache.avatar, (int)bone));
-            return true;
-        }
-
         private static bool TryApplyEndEffectorTargetToRig(
             ConstraintPosePreviewEntry entry,
             string modelName,
@@ -2397,8 +2348,10 @@ namespace KimodoBridge.Editor
 
             KimodoMarkerSampleResult basePose =
                 KimodoConstraintSampleResolver.ResolveUnifiedSample(entry.BaseSample);
+            KimodoMarkerSampleResult basePoseForApply = basePose.Clone();
+            basePoseForApply.worldIkTargets = null;
             if (!KimodoConstraintSpaceConverter.TryApplyToTargetAvatar(
-                    basePose,
+                    basePoseForApply,
                     modelName,
                     KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
                     entry.ProfileCache,
@@ -2412,19 +2365,10 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
-                sourceSample.pose.bodyPosition,
-                sourceSample.pose.bodyRotation,
-                entry.TargetCache.humanScale,
-                entry.EndEffectorMarker.transform.position,
-                entry.EndEffectorMarker.transform.rotation,
-                out Vector3 goalPosition,
-                out Quaternion goalRotation);
-            if (!TrySetMuscleIkGoal(sourceSample, bone, goalPosition, goalRotation))
-            {
-                error = $"unsupported humanoid IK goal '{bone}'.";
-                return false;
-            }
+            KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets sceneTargets =
+                BuildSceneTargetsForSingleBone(
+                    bone,
+                    entry.EndEffectorMarker.transform);
 
             return KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                 sourceSample,
@@ -2438,7 +2382,8 @@ namespace KimodoBridge.Editor
                 applyFootIk: bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot,
                 solveLeftFootIk: bone == HumanBodyBones.LeftFoot,
                 solveRightFootIk: bone == HumanBodyBones.RightFoot,
-                ikGoalsAlreadyInTargetSpace: true);
+                ikGoalsAlreadyInTargetSpace: true,
+                sceneTargets: sceneTargets);
         }
 
         private static bool TryApplyFullBodyTargetsToRig(
@@ -2476,8 +2421,10 @@ namespace KimodoBridge.Editor
             float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
             KimodoMarkerSampleResult basePose =
                 KimodoConstraintSampleResolver.ResolveUnifiedSample(entry.BaseSample);
+            KimodoMarkerSampleResult basePoseForApply = basePose.Clone();
+            basePoseForApply.worldIkTargets = null;
             if (!KimodoConstraintSpaceConverter.TryApplyToTargetAvatar(
-                    basePose,
+                    basePoseForApply,
                     modelName,
                     frameRate,
                     entry.ProfileCache,
@@ -2510,38 +2457,8 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            for (int i = 1; i < FullBodyTargetBones.Length; i++)
-            {
-                HumanBodyBones bone = FullBodyTargetBones[i];
-                if (!IsTargetEnabled(mask, bone, false) ||
-                    !entry.FullBodyTargets.TryGetValue(bone, out GameObject target) || target == null)
-                {
-                    continue;
-                }
-
-                Quaternion bodyGoalRotation = target.transform.rotation *
-                    AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(
-                        entry.TargetCache.avatar,
-                        (int)bone);
-                Vector3 bodyGoalPosition = KimodoRetargetHumanoidIkUtility.BonePositionToIkGoalWorldPosition(
-                    entry.TargetCache.avatar,
-                    bone,
-                    target.transform.position,
-                    bodyGoalRotation);
-                KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
-                    sourceSample.pose.bodyPosition,
-                    sourceSample.pose.bodyRotation,
-                    entry.TargetCache.humanScale,
-                    bodyGoalPosition,
-                    bodyGoalRotation,
-                    out Vector3 ikGoalPosition,
-                    out Quaternion ikGoalRotation);
-                if (!TrySetMuscleIkGoal(sourceSample, bone, ikGoalPosition, ikGoalRotation))
-                {
-                    error = $"unsupported humanoid IK goal '{bone}'.";
-                    return false;
-                }
-            }
+            KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets sceneTargets =
+                BuildSceneTargets(entry, mask);
 
             return KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                 sourceSample,
@@ -2555,7 +2472,8 @@ namespace KimodoBridge.Editor
                 applyFootIk: mask.leftFoot || mask.rightFoot,
                 solveLeftFootIk: mask.leftFoot,
                 solveRightFootIk: mask.rightFoot,
-                ikGoalsAlreadyInTargetSpace: true);
+                ikGoalsAlreadyInTargetSpace: true,
+                sceneTargets: sceneTargets);
         }
 
         private static bool IsTargetEnabled(
@@ -2576,74 +2494,125 @@ namespace KimodoBridge.Editor
             };
         }
 
-        private static bool TryGetMuscleIkGoal(
-            MuscleSample sample,
+        private static KimodoConstraintIkTargets CaptureWorldIkTargetsFromEntry(
+            ConstraintPosePreviewEntry entry,
+            KimodoConstraintMask mask,
+            string markerType)
+        {
+            var result = new KimodoConstraintIkTargets();
+            if (entry == null || mask == null) return result;
+            if (entry.EndEffectorMarker != null)
+            {
+                HumanBodyBones bone = ResolveEndEffectorBone(markerType);
+                CharacterPoseTransform target = new CharacterPoseTransform
+                {
+                    t = entry.EndEffectorMarker.transform.position,
+                    q = entry.EndEffectorMarker.transform.rotation
+                };
+                switch (bone)
+                {
+                    case HumanBodyBones.LeftHand: result.hands.left = target; break;
+                    case HumanBodyBones.RightHand: result.hands.right = target; break;
+                    case HumanBodyBones.LeftFoot: result.feet.left = target; break;
+                    case HumanBodyBones.RightFoot: result.feet.right = target; break;
+                }
+            }
+            if (entry.FullBodyTargets != null)
+            {
+                CaptureWorldIkTarget(entry, mask.leftHand, HumanBodyBones.LeftHand, result.hands);
+                CaptureWorldIkTarget(entry, mask.rightHand, HumanBodyBones.RightHand, result.hands);
+                CaptureWorldIkTarget(entry, mask.leftFoot, HumanBodyBones.LeftFoot, result.feet);
+                CaptureWorldIkTarget(entry, mask.rightFoot, HumanBodyBones.RightFoot, result.feet);
+            }
+            return result;
+        }
+
+        private static void CaptureWorldIkTarget(
+            ConstraintPosePreviewEntry entry,
+            bool enabled,
+            HumanBodyBones bone,
+            CharacterPoseSides sides)
+        {
+            if (!enabled || sides == null ||
+                !entry.FullBodyTargets.TryGetValue(bone, out GameObject target) || target == null)
+            {
+                return;
+            }
+            var value = new CharacterPoseTransform
+            {
+                t = target.transform.position,
+                q = target.transform.rotation
+            };
+            if (bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.LeftFoot) sides.left = value;
+            else sides.right = value;
+        }
+
+        private static bool TryGetWorldIkTarget(
+            KimodoConstraintIkTargets targets,
             HumanBodyBones bone,
             out Vector3 position,
             out Quaternion rotation)
         {
-            position = Vector3.zero;
-            rotation = Quaternion.identity;
-            if (sample == null)
+            CharacterPoseTransform value = null;
+            if (targets != null)
             {
-                return false;
+                value = bone switch
+                {
+                    HumanBodyBones.LeftHand => targets.hands?.left,
+                    HumanBodyBones.RightHand => targets.hands?.right,
+                    HumanBodyBones.LeftFoot => targets.feet?.left,
+                    HumanBodyBones.RightFoot => targets.feet?.right,
+                    _ => null
+                };
             }
-
-            switch (bone)
-            {
-                case HumanBodyBones.LeftHand:
-                    position = sample.leftHandPosition;
-                    rotation = sample.leftHandRotation;
-                    return true;
-                case HumanBodyBones.RightHand:
-                    position = sample.rightHandPosition;
-                    rotation = sample.rightHandRotation;
-                    return true;
-                case HumanBodyBones.LeftFoot:
-                    position = sample.leftFootPosition;
-                    rotation = sample.leftFootRotation;
-                    return true;
-                case HumanBodyBones.RightFoot:
-                    position = sample.rightFootPosition;
-                    rotation = sample.rightFootRotation;
-                    return true;
-                default:
-                    return false;
-            }
+            position = value != null ? value.t : Vector3.zero;
+            rotation = value != null ? value.q : Quaternion.identity;
+            return value != null;
         }
 
-        private static bool TrySetMuscleIkGoal(
-            MuscleSample sample,
-            HumanBodyBones bone,
-            Vector3 position,
-            Quaternion rotation)
+        private static KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets BuildSceneTargets(
+            ConstraintPosePreviewEntry entry,
+            KimodoConstraintMask mask)
         {
-            if (sample == null)
+            KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets result = default;
+            if (entry?.FullBodyTargets == null || mask == null) return result;
+            if (mask.leftHand && entry.FullBodyTargets.TryGetValue(HumanBodyBones.LeftHand, out GameObject leftHand) && leftHand != null)
             {
-                return false;
+                result.leftHand = true;
+                result.leftHandTransform = leftHand.transform;
             }
+            if (mask.rightHand && entry.FullBodyTargets.TryGetValue(HumanBodyBones.RightHand, out GameObject rightHand) && rightHand != null)
+            {
+                result.rightHand = true;
+                result.rightHandTransform = rightHand.transform;
+            }
+            if (mask.leftFoot && entry.FullBodyTargets.TryGetValue(HumanBodyBones.LeftFoot, out GameObject leftFoot) && leftFoot != null)
+            {
+                result.leftFoot = true;
+                result.leftFootTransform = leftFoot.transform;
+            }
+            if (mask.rightFoot && entry.FullBodyTargets.TryGetValue(HumanBodyBones.RightFoot, out GameObject rightFoot) && rightFoot != null)
+            {
+                result.rightFoot = true;
+                result.rightFootTransform = rightFoot.transform;
+            }
+            return result;
+        }
 
+        private static KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets BuildSceneTargetsForSingleBone(
+            HumanBodyBones bone,
+            Transform target)
+        {
+            var result = new KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets();
+            if (target == null) return result;
             switch (bone)
             {
-                case HumanBodyBones.LeftHand:
-                    sample.leftHandPosition = position;
-                    sample.leftHandRotation = rotation;
-                    return true;
-                case HumanBodyBones.RightHand:
-                    sample.rightHandPosition = position;
-                    sample.rightHandRotation = rotation;
-                    return true;
-                case HumanBodyBones.LeftFoot:
-                    sample.leftFootPosition = position;
-                    sample.leftFootRotation = rotation;
-                    return true;
-                case HumanBodyBones.RightFoot:
-                    sample.rightFootPosition = position;
-                    sample.rightFootRotation = rotation;
-                    return true;
-                default:
-                    return false;
+                case HumanBodyBones.LeftHand: result.leftHand = true; result.leftHandTransform = target; break;
+                case HumanBodyBones.RightHand: result.rightHand = true; result.rightHandTransform = target; break;
+                case HumanBodyBones.LeftFoot: result.leftFoot = true; result.leftFootTransform = target; break;
+                case HumanBodyBones.RightFoot: result.rightFoot = true; result.rightFootTransform = target; break;
             }
+            return result;
         }
 
         private static HumanBodyBones ResolveEndEffectorBone(string constraintType)

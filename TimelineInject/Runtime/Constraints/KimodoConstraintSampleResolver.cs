@@ -199,28 +199,34 @@ namespace TimelineInject
 
                 KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source.mask, "ik");
                 result.mask ??= new KimodoConstraintMask();
+                result.worldIkTargets ??= new KimodoConstraintIkTargets();
+                result.worldIkTargets.hands ??= new CharacterPoseSides();
+                result.worldIkTargets.feet ??= new CharacterPoseSides();
                 if (sourceMask.leftHand)
                 {
-                    result.characterPose.hands.left = source.characterPose.hands.left.Clone();
+                    result.worldIkTargets.hands.left = source.worldIkTargets?.hands?.left?.Clone();
                     result.mask.leftHand = true;
                 }
                 if (sourceMask.rightHand)
                 {
-                    result.characterPose.hands.right = source.characterPose.hands.right.Clone();
+                    result.worldIkTargets.hands.right = source.worldIkTargets?.hands?.right?.Clone();
                     result.mask.rightHand = true;
                 }
                 if (sourceMask.leftFoot)
                 {
-                    result.characterPose.feet.left = source.characterPose.feet.left.Clone();
+                    result.worldIkTargets.feet.left = source.worldIkTargets?.feet?.left?.Clone();
                     result.mask.leftFoot = true;
                 }
                 if (sourceMask.rightFoot)
                 {
-                    result.characterPose.feet.right = source.characterPose.feet.right.Clone();
+                    result.worldIkTargets.feet.right = source.worldIkTargets?.feet?.right?.Clone();
                     result.mask.rightFoot = true;
                 }
-                result.characterPose.root = source.characterPose.root.Clone();
-                result.characterPose.muscles = (float[])source.characterPose.muscles.Clone();
+                if (source.characterPose != null && result.characterPose != null)
+                {
+                    result.characterPose.root = source.characterPose.root.Clone();
+                    result.characterPose.muscles = (float[])source.characterPose.muscles.Clone();
+                }
                 result.hasRootHeading = source.hasRootHeading;
             }
             return result;
@@ -250,10 +256,6 @@ namespace TimelineInject
 
             CharacterPose target = targetSample.characterPose;
             CharacterPose root = rootSample.characterPose;
-            Vector3[] worldPositions = CaptureGoalPositions(target);
-            Quaternion[] worldRotations = CaptureGoalRotations(target);
-            bool[] locked = CollectWorldLockedGoals(targetSample.mask);
-
             Quaternion targetYaw = PlanarRotation(target.root.q);
             Quaternion rootYaw = PlanarRotation(root.root.q);
             target.root.t = new Vector3(root.root.t.x, target.root.t.y, root.root.t.z);
@@ -261,51 +263,6 @@ namespace TimelineInject
             {
                 target.root.q = rootYaw * Quaternion.Inverse(targetYaw) * target.root.q;
             }
-
-            Quaternion inverseRoot = Quaternion.Inverse(target.root.q.normalized);
-            CharacterPoseTransform[] goals =
-            {
-                target.hands.left, target.hands.right,
-                target.feet.left, target.feet.right
-            };
-            for (int i = 0; i < goals.Length; i++)
-            {
-                if (!locked[i]) continue;
-                goals[i].t = inverseRoot * (worldPositions[i] - target.root.t);
-                goals[i].q = inverseRoot * worldRotations[i];
-            }
-        }
-
-        private static bool[] CollectWorldLockedGoals(KimodoConstraintMask mask) => new[]
-        {
-            mask?.leftHand == true,
-            mask?.rightHand == true,
-            mask?.leftFoot == true,
-            mask?.rightFoot == true
-        };
-
-        private static Vector3[] CaptureGoalPositions(CharacterPose pose)
-        {
-            Quaternion root = pose.root.q.normalized;
-            return new[]
-            {
-                pose.root.t + root * pose.hands.left.t,
-                pose.root.t + root * pose.hands.right.t,
-                pose.root.t + root * pose.feet.left.t,
-                pose.root.t + root * pose.feet.right.t
-            };
-        }
-
-        private static Quaternion[] CaptureGoalRotations(CharacterPose pose)
-        {
-            Quaternion root = pose.root.q.normalized;
-            return new[]
-            {
-                root * pose.hands.left.q,
-                root * pose.hands.right.q,
-                root * pose.feet.left.q,
-                root * pose.feet.right.q
-            };
         }
 
         /// <summary>Composes same-frame samples into the one Marker format used
@@ -391,6 +348,21 @@ namespace TimelineInject
             merged.constraintType = "constraint";
             merged.mask = mask;
             merged.hasRootHeading = hasHeading;
+            merged.worldIkTargets ??= new KimodoConstraintIkTargets();
+            for (int i = 0; i < group.Count; i++)
+            {
+                KimodoMarkerSampleResult source = group[i];
+                KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source?.mask, source?.constraintType);
+                if (source?.worldIkTargets == null) continue;
+                if (sourceMask.leftHand && source.worldIkTargets.hands?.left != null)
+                    merged.worldIkTargets.hands.left = source.worldIkTargets.hands.left.Clone();
+                if (sourceMask.rightHand && source.worldIkTargets.hands?.right != null)
+                    merged.worldIkTargets.hands.right = source.worldIkTargets.hands.right.Clone();
+                if (sourceMask.leftFoot && source.worldIkTargets.feet?.left != null)
+                    merged.worldIkTargets.feet.left = source.worldIkTargets.feet.left.Clone();
+                if (sourceMask.rightFoot && source.worldIkTargets.feet?.right != null)
+                    merged.worldIkTargets.feet.right = source.worldIkTargets.feet.right.Clone();
+            }
             CopyRoot2DOverride(group, merged);
             merged.characterPose = hasCanonicalPose
                 ? BuildUnifiedAuthoredPose(group, canonical)
@@ -416,21 +388,6 @@ namespace TimelineInject
                     authored.root.q = source.characterPose.root.q;
                     break;
                 }
-            }
-            // Preserve the authored IK values as well. `canonical` has already
-            // re-expressed them relative to the resolved Root2D transform;
-            // storing those values on the unified marker would make the next
-            // resolve shift the targets a second time.
-            for (int i = 0; i < samples.Count; i++)
-            {
-                KimodoMarkerSampleResult source = samples[i];
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source?.mask, source?.constraintType);
-                CharacterPose pose = source?.characterPose;
-                if (pose == null) continue;
-                if (mask.leftFoot) CopyTransform(pose.feet.left, authored.feet.left);
-                if (mask.rightFoot) CopyTransform(pose.feet.right, authored.feet.right);
-                if (mask.leftHand) CopyTransform(pose.hands.left, authored.hands.left);
-                if (mask.rightHand) CopyTransform(pose.hands.right, authored.hands.right);
             }
             return authored;
         }
@@ -483,99 +440,10 @@ namespace TimelineInject
             CharacterPose composed = seed?.characterPose?.Clone();
             if (composed == null) return new CharacterPose();
 
-            // FullBody → Root2D → Foot IK → Hand IK. Root2D is an internal
-            // planar transform applied to the FullBody root with X/Z and yaw
-            // removed. Only enabled limb goals remain fixed in world space.
-            CopyFootGoals(samples, composed);
-            CopyHandGoals(samples, composed);
-            Vector3[] worldPositions = CaptureWorldGoalPositions(composed);
-            Quaternion[] worldRotations = CaptureWorldGoalRotations(composed);
-            bool[] worldLockedGoals = CollectWorldLockedGoals(samples);
-            if (CopyRoot2D(samples, composed))
-            {
-                RestoreWorldGoalTransforms(composed, worldPositions, worldRotations, worldLockedGoals);
-            }
+            // Root2D modifies only the root transport payload. IK targets are
+            // independent scene-space data and are merged separately.
+            CopyRoot2D(samples, composed);
             return composed;
-        }
-
-        private static bool[] CollectWorldLockedGoals(List<KimodoMarkerSampleResult> samples)
-        {
-            var result = new bool[4];
-            for (int i = 0; i < samples.Count; i++)
-            {
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(samples[i]?.mask, samples[i]?.constraintType);
-                result[0] |= mask.leftHand;
-                result[1] |= mask.rightHand;
-                result[2] |= mask.leftFoot;
-                result[3] |= mask.rightFoot;
-            }
-            return result;
-        }
-
-        private static Vector3[] CaptureWorldGoalPositions(CharacterPose pose)
-        {
-            Quaternion rootRotation = pose.root.q.normalized;
-            return new[]
-            {
-                pose.root.t + rootRotation * pose.hands.left.t,
-                pose.root.t + rootRotation * pose.hands.right.t,
-                pose.root.t + rootRotation * pose.feet.left.t,
-                pose.root.t + rootRotation * pose.feet.right.t
-            };
-        }
-
-        private static Quaternion[] CaptureWorldGoalRotations(CharacterPose pose)
-        {
-            Quaternion rootRotation = pose.root.q.normalized;
-            return new[]
-            {
-                rootRotation * pose.hands.left.q,
-                rootRotation * pose.hands.right.q,
-                rootRotation * pose.feet.left.q,
-                rootRotation * pose.feet.right.q
-            };
-        }
-
-        private static void RestoreWorldGoalTransforms(
-            CharacterPose pose,
-            Vector3[] positions,
-            Quaternion[] rotations,
-            bool[] worldLockedGoals)
-        {
-            Quaternion inverseRoot = Quaternion.Inverse(pose.root.q.normalized);
-            CharacterPoseTransform[] goals = { pose.hands.left, pose.hands.right, pose.feet.left, pose.feet.right };
-            for (int i = 0; i < goals.Length; i++)
-            {
-                if (worldLockedGoals == null || i >= worldLockedGoals.Length || !worldLockedGoals[i]) continue;
-                goals[i].t = inverseRoot * (positions[i] - pose.root.t);
-                goals[i].q = inverseRoot * rotations[i];
-            }
-        }
-
-        private static void CopyFootGoals(List<KimodoMarkerSampleResult> samples, CharacterPose target)
-        {
-            for (int i = 0; i < samples.Count; i++)
-            {
-                KimodoMarkerSampleResult source = samples[i];
-                if (source == null) continue;
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source.mask, source.constraintType);
-                if (source.characterPose == null) continue;
-                if (mask.leftFoot) CopyTransform(source.characterPose.feet.left, target.feet.left);
-                if (mask.rightFoot) CopyTransform(source.characterPose.feet.right, target.feet.right);
-            }
-        }
-
-        private static void CopyHandGoals(List<KimodoMarkerSampleResult> samples, CharacterPose target)
-        {
-            for (int i = 0; i < samples.Count; i++)
-            {
-                KimodoMarkerSampleResult source = samples[i];
-                if (source == null) continue;
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source.mask, source.constraintType);
-                if (source.characterPose == null) continue;
-                if (mask.leftHand) CopyTransform(source.characterPose.hands.left, target.hands.left);
-                if (mask.rightHand) CopyTransform(source.characterPose.hands.right, target.hands.right);
-            }
         }
 
         private static bool CopyRoot2D(List<KimodoMarkerSampleResult> samples, CharacterPose target)
@@ -667,11 +535,5 @@ namespace TimelineInject
             return sample;
         }
 
-        private static void CopyTransform(CharacterPoseTransform source, CharacterPoseTransform destination)
-        {
-            if (source == null || destination == null) return;
-            destination.t = source.t;
-            destination.q = source.q;
-        }
     }
 }

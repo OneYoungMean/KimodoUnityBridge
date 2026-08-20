@@ -9,6 +9,153 @@ namespace KimodoBridge
 {
     internal static class KimodoRetargetClipSamplingUtility
     {
+        // Serialized constraint payloads keep the enable bit separate from
+        // the scene-space transform.  The animation job never receives these
+        // values; they are materialized as temporary/preview Transforms and
+        // converted to TransformSceneHandles before the playable is created.
+        internal struct HumanoidWorldIkTargets
+        {
+            internal bool leftHand;
+            internal bool rightHand;
+            internal bool leftFoot;
+            internal bool rightFoot;
+            internal Vector3 leftHandPosition;
+            internal Quaternion leftHandRotation;
+            internal Vector3 rightHandPosition;
+            internal Quaternion rightHandRotation;
+            internal Vector3 leftFootPosition;
+            internal Quaternion leftFootRotation;
+            internal Vector3 rightFootPosition;
+            internal Quaternion rightFootRotation;
+
+            internal bool Any => leftHand || rightHand || leftFoot || rightFoot;
+
+        }
+
+        // This is the only object-level target payload accepted by the
+        // sampling pipeline.  HumanoidIkSolveJob receives the handles created
+        // from these Transforms, never the Vector3/Quaternion values above.
+        internal struct HumanoidIkSceneTargets
+        {
+            internal bool leftHand;
+            internal bool rightHand;
+            internal bool leftFoot;
+            internal bool rightFoot;
+            internal Transform leftHandTransform;
+            internal Transform rightHandTransform;
+            internal Transform leftFootTransform;
+            internal Transform rightFootTransform;
+
+            internal bool Any => leftHand || rightHand || leftFoot || rightFoot;
+        }
+
+        private struct HumanoidIkSceneHandles
+        {
+            internal bool leftHand;
+            internal bool rightHand;
+            internal bool leftFoot;
+            internal bool rightFoot;
+            internal TransformSceneHandle leftHandHandle;
+            internal TransformSceneHandle rightHandHandle;
+            internal TransformSceneHandle leftFootHandle;
+            internal TransformSceneHandle rightFootHandle;
+
+            internal static HumanoidIkSceneHandles Bind(
+                Animator animator,
+                HumanoidIkSceneTargets targets)
+            {
+                return new HumanoidIkSceneHandles
+                {
+                    leftHand = targets.leftHand && targets.leftHandTransform != null,
+                    rightHand = targets.rightHand && targets.rightHandTransform != null,
+                    leftFoot = targets.leftFoot && targets.leftFootTransform != null,
+                    rightFoot = targets.rightFoot && targets.rightFootTransform != null,
+                    leftHandHandle = targets.leftHand && targets.leftHandTransform != null
+                        ? animator.BindSceneTransform(targets.leftHandTransform)
+                        : default,
+                    rightHandHandle = targets.rightHand && targets.rightHandTransform != null
+                        ? animator.BindSceneTransform(targets.rightHandTransform)
+                        : default,
+                    leftFootHandle = targets.leftFoot && targets.leftFootTransform != null
+                        ? animator.BindSceneTransform(targets.leftFootTransform)
+                        : default,
+                    rightFootHandle = targets.rightFoot && targets.rightFootTransform != null
+                        ? animator.BindSceneTransform(targets.rightFootTransform)
+                        : default
+                };
+            }
+        }
+
+        internal sealed class HumanoidIkTargetScope : IDisposable
+        {
+            private readonly GameObject[] objects;
+
+            internal HumanoidIkSceneTargets Targets;
+
+            private HumanoidIkTargetScope(GameObject[] objects, HumanoidIkSceneTargets targets)
+            {
+                this.objects = objects;
+                Targets = targets;
+            }
+
+            internal static HumanoidIkTargetScope Create(
+                HumanoidWorldIkTargets goals,
+                out string error)
+            {
+                error = string.Empty;
+                var objects = new GameObject[4];
+                try
+                {
+                    HumanoidIkSceneTargets targets = default;
+                    CreateTarget(goals.leftHand, goals.leftHandPosition, goals.leftHandRotation,
+                        "__KimodoIkLeftHand", ref objects[0], ref targets.leftHandTransform, ref targets.leftHand);
+                    CreateTarget(goals.rightHand, goals.rightHandPosition, goals.rightHandRotation,
+                        "__KimodoIkRightHand", ref objects[1], ref targets.rightHandTransform, ref targets.rightHand);
+                    CreateTarget(goals.leftFoot, goals.leftFootPosition, goals.leftFootRotation,
+                        "__KimodoIkLeftFoot", ref objects[2], ref targets.leftFootTransform, ref targets.leftFoot);
+                    CreateTarget(goals.rightFoot, goals.rightFootPosition, goals.rightFootRotation,
+                        "__KimodoIkRightFoot", ref objects[3], ref targets.rightFootTransform, ref targets.rightFoot);
+                    return new HumanoidIkTargetScope(objects, targets);
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                    for (int i = 0; i < objects.Length; i++)
+                    {
+                        if (objects[i] != null) UnityEngine.Object.DestroyImmediate(objects[i]);
+                    }
+                    return null;
+                }
+            }
+
+            private static void CreateTarget(
+                bool enabled,
+                Vector3 position,
+                Quaternion rotation,
+                string name,
+                ref GameObject targetObject,
+                ref Transform targetTransform,
+                ref bool targetEnabled)
+            {
+                if (!enabled) return;
+                targetObject = new GameObject(name)
+                {
+                    hideFlags = HideFlags.HideAndDontSave
+                };
+                targetTransform = targetObject.transform;
+                targetTransform.SetPositionAndRotation(position, rotation);
+                targetEnabled = true;
+            }
+
+            public void Dispose()
+            {
+                for (int i = 0; i < objects.Length; i++)
+                {
+                    if (objects[i] != null) UnityEngine.Object.DestroyImmediate(objects[i]);
+                }
+            }
+        }
+
         internal enum ClipSamplingMode
         {
             Humanoid = 0,
@@ -27,6 +174,10 @@ namespace KimodoBridge
             public bool solveRightHand;
             public bool solveLeftFoot;
             public bool solveRightFoot;
+            public TransformSceneHandle leftHandTarget;
+            public TransformSceneHandle rightHandTarget;
+            public TransformSceneHandle leftFootTarget;
+            public TransformSceneHandle rightFootTarget;
 
             public void ProcessRootMotion(AnimationStream stream)
             {
@@ -41,19 +192,60 @@ namespace KimodoBridge
                 }
 
                 AnimationHumanStream human = stream.AsHuman();
-                human.SetGoalWeightPosition(AvatarIKGoal.LeftHand, solveLeftHand ? 1f : 0f);
-                human.SetGoalWeightRotation(AvatarIKGoal.LeftHand, solveLeftHand ? 1f : 0f);
-                human.SetGoalWeightPosition(AvatarIKGoal.RightHand, solveRightHand ? 1f : 0f);
-                human.SetGoalWeightRotation(AvatarIKGoal.RightHand, solveRightHand ? 1f : 0f);
-                human.SetGoalWeightPosition(AvatarIKGoal.LeftFoot, solveLeftFoot ? 1f : 0f);
-                human.SetGoalWeightRotation(AvatarIKGoal.LeftFoot, solveLeftFoot ? 1f : 0f);
-                human.SetGoalWeightPosition(AvatarIKGoal.RightFoot, solveRightFoot ? 1f : 0f);
-                human.SetGoalWeightRotation(AvatarIKGoal.RightFoot, solveRightFoot ? 1f : 0f);
-                if (!solveLeftHand && !solveRightHand && !solveLeftFoot && !solveRightFoot)
+                bool leftHand = TryReadTarget(stream, leftHandTarget, solveLeftHand, out Vector3 leftHandPosition, out Quaternion leftHandRotation);
+                bool rightHand = TryReadTarget(stream, rightHandTarget, solveRightHand, out Vector3 rightHandPosition, out Quaternion rightHandRotation);
+                bool leftFoot = TryReadTarget(stream, leftFootTarget, solveLeftFoot, out Vector3 leftFootPosition, out Quaternion leftFootRotation);
+                bool rightFoot = TryReadTarget(stream, rightFootTarget, solveRightFoot, out Vector3 rightFootPosition, out Quaternion rightFootRotation);
+
+                if (leftHand)
+                {
+                    human.SetGoalPosition(AvatarIKGoal.LeftHand, leftHandPosition);
+                    human.SetGoalRotation(AvatarIKGoal.LeftHand, leftHandRotation);
+                }
+                if (rightHand)
+                {
+                    human.SetGoalPosition(AvatarIKGoal.RightHand, rightHandPosition);
+                    human.SetGoalRotation(AvatarIKGoal.RightHand, rightHandRotation);
+                }
+                if (leftFoot)
+                {
+                    human.SetGoalPosition(AvatarIKGoal.LeftFoot, leftFootPosition);
+                    human.SetGoalRotation(AvatarIKGoal.LeftFoot, leftFootRotation);
+                }
+                if (rightFoot)
+                {
+                    human.SetGoalPosition(AvatarIKGoal.RightFoot, rightFootPosition);
+                    human.SetGoalRotation(AvatarIKGoal.RightFoot, rightFootRotation);
+                }
+
+                human.SetGoalWeightPosition(AvatarIKGoal.LeftHand, leftHand ? 1f : 0f);
+                human.SetGoalWeightRotation(AvatarIKGoal.LeftHand, leftHand ? 1f : 0f);
+                human.SetGoalWeightPosition(AvatarIKGoal.RightHand, rightHand ? 1f : 0f);
+                human.SetGoalWeightRotation(AvatarIKGoal.RightHand, rightHand ? 1f : 0f);
+                human.SetGoalWeightPosition(AvatarIKGoal.LeftFoot, leftFoot ? 1f : 0f);
+                human.SetGoalWeightRotation(AvatarIKGoal.LeftFoot, leftFoot ? 1f : 0f);
+                human.SetGoalWeightPosition(AvatarIKGoal.RightFoot, rightFoot ? 1f : 0f);
+                human.SetGoalWeightRotation(AvatarIKGoal.RightFoot, rightFoot ? 1f : 0f);
+                if (!leftHand && !rightHand && !leftFoot && !rightFoot)
                 {
                     return;
                 }
                 human.SolveIK();
+            }
+
+            private static bool TryReadTarget(
+                AnimationStream stream,
+                TransformSceneHandle handle,
+                bool enabled,
+                out Vector3 position,
+                out Quaternion rotation)
+            {
+                position = Vector3.zero;
+                rotation = Quaternion.identity;
+                if (!enabled || !handle.IsValid(stream)) return false;
+                position = handle.GetPosition(stream);
+                rotation = handle.GetRotation(stream);
+                return true;
             }
         }
 
@@ -276,7 +468,8 @@ namespace KimodoBridge
             bool solveLeftHandIk = false,
             bool solveRightHandIk = false,
             bool solveLeftFootIk = false,
-            bool solveRightFootIk = false)
+            bool solveRightFootIk = false,
+            HumanoidIkSceneTargets? sceneTargets = null)
         {
             return TryBuildClipSamplingContext(
                 clip,
@@ -291,7 +484,8 @@ namespace KimodoBridge
                 solveLeftHandIk: solveLeftHandIk,
                 solveRightHandIk: solveRightHandIk,
                 solveLeftFootIk: solveLeftFootIk,
-                solveRightFootIk: solveRightFootIk);
+                solveRightFootIk: solveRightFootIk,
+                sceneTargets: sceneTargets);
         }
 
         internal static bool TryBuildClipSamplingContext(
@@ -307,7 +501,8 @@ namespace KimodoBridge
             bool solveLeftHandIk = false,
             bool solveRightHandIk = false,
             bool solveLeftFootIk = false,
-            bool solveRightFootIk = false)
+            bool solveRightFootIk = false,
+            HumanoidIkSceneTargets? sceneTargets = null)
         {
             context = null;
             error = string.Empty;
@@ -335,11 +530,15 @@ namespace KimodoBridge
 
                 graph = PlayableGraph.Create(rootName + "Graph");
                 graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
-                bool useLeftHandIk = solveHandIk && solveLeftHandIk;
-                bool useRightHandIk = solveHandIk && solveRightHandIk;
+                HumanoidIkSceneTargets resolvedSceneTargets = sceneTargets ?? default;
+                HumanoidIkSceneHandles sceneHandles = HumanoidIkSceneHandles.Bind(
+                    cache.animator,
+                    resolvedSceneTargets);
+                bool useLeftHandIk = sceneHandles.leftHand;
+                bool useRightHandIk = sceneHandles.rightHand;
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
-                bool solveLeftFoot = applyFootIk && solveLeftFootIk;
-                bool solveRightFoot = applyFootIk && solveRightFootIk;
+                bool solveLeftFoot = sceneHandles.leftFoot;
+                bool solveRightFoot = sceneHandles.rightFoot;
                 // AnimationClipPlayable foot IK is an all-or-nothing switch.
                 // Solve goals in the job below so a disabled side stays untouched.
                 clipPlayable.SetApplyFootIK(false);
@@ -351,16 +550,22 @@ namespace KimodoBridge
                         graph,
                         sourcePlayable);
                 }
-                if (useLeftHandIk || useRightHandIk || solveLeftFoot || solveRightFoot)
+                if (useLeftHandIk || useRightHandIk || solveLeftFoot || solveRightFoot ||
+                    sceneHandles.leftHand || sceneHandles.rightHand ||
+                    sceneHandles.leftFoot || sceneHandles.rightFoot)
                 {
                     AnimationScriptPlayable ikPlayable = AnimationScriptPlayable.Create(
                         graph,
                         new HumanoidIkSolveJob
                         {
-                            solveLeftHand = useLeftHandIk,
-                            solveRightHand = useRightHandIk,
-                            solveLeftFoot = solveLeftFoot,
-                            solveRightFoot = solveRightFoot
+                            solveLeftHand = useLeftHandIk || sceneHandles.leftHand,
+                            solveRightHand = useRightHandIk || sceneHandles.rightHand,
+                            solveLeftFoot = solveLeftFoot || sceneHandles.leftFoot,
+                            solveRightFoot = solveRightFoot || sceneHandles.rightFoot,
+                            leftHandTarget = sceneHandles.leftHandHandle,
+                            rightHandTarget = sceneHandles.rightHandHandle,
+                            leftFootTarget = sceneHandles.leftFootHandle,
+                            rightFootTarget = sceneHandles.rightFootHandle
                         },
                         1);
                     graph.Connect(sourcePlayable, 0, ikPlayable, 0);
@@ -671,7 +876,9 @@ namespace KimodoBridge
             bool applyFootIk = false,
             bool solveLeftFootIk = false,
             bool solveRightFootIk = false,
-            bool ikGoalsAlreadyInTargetSpace = false)
+            bool ikGoalsAlreadyInTargetSpace = false,
+            KimodoRetargetClipSamplingUtility.HumanoidWorldIkTargets? worldIkTargets = null,
+            KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets? sceneTargets = null)
         {
             targetSample = null;
             targetMuscleSample = null;
@@ -687,9 +894,8 @@ namespace KimodoBridge
                 return false;
             }
 
-            if ((solveLeftHandIk || solveRightHandIk ||
-                 (applyFootIk && (solveLeftFootIk || solveRightFootIk))) &&
-                ikGoalsAlreadyInTargetSpace)
+            if (sceneTargets.HasValue && sceneTargets.Value.Any ||
+                (worldIkTargets.HasValue && worldIkTargets.Value.Any && ikGoalsAlreadyInTargetSpace))
             {
                 // The sample and goals already belong to targetCache's Avatar;
                 // solve once there. Cross-Avatar callers must solve on their
@@ -705,7 +911,9 @@ namespace KimodoBridge
                     solveRightHandIk,
                     applyFootIk,
                     solveLeftFootIk,
-                    solveRightFootIk);
+                    solveRightFootIk,
+                    worldIkTargets,
+                    sceneTargets);
             }
             if (!TryRetargetMuscleSamplesToBoneSamples(
                     new[] { sourceSample },
@@ -751,7 +959,9 @@ namespace KimodoBridge
             bool solveRightHandIk = false,
             bool applyFootIk = false,
             bool solveLeftFootIk = false,
-            bool solveRightFootIk = false)
+            bool solveRightFootIk = false,
+            KimodoRetargetClipSamplingUtility.HumanoidWorldIkTargets? worldIkTargets = null,
+            KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets? sceneTargets = null)
         {
             solvedBoneSample = null;
             solvedMuscleSample = null;
@@ -766,11 +976,12 @@ namespace KimodoBridge
                 return false;
             }
 
-            bool shouldSolveIk = solveLeftHandIk || solveRightHandIk ||
-                (applyFootIk && (solveLeftFootIk || solveRightFootIk));
+            bool shouldSolveIk = (worldIkTargets.HasValue && worldIkTargets.Value.Any) ||
+                (sceneTargets.HasValue && sceneTargets.Value.Any);
             var clipSamples = new[] { sourceSample, sourceSample };
             AnimationClip clip = null;
             KimodoRetargetClipSamplingUtility.ClipSamplingContext context = null;
+            KimodoRetargetClipSamplingUtility.HumanoidIkTargetScope targetScope = null;
             try
             {
                 if (!TryCreateTransientMuscleClip(
@@ -778,9 +989,24 @@ namespace KimodoBridge
                         frameRate,
                         out clip,
                         out error,
-                        includeHandIkGoals: solveLeftHandIk || solveRightHandIk))
+                        includeHandIkGoals: false))
                 {
                     return false;
+                }
+
+                KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets resolvedSceneTargets = sceneTargets ?? default;
+                if (shouldSolveIk && !sceneTargets.HasValue && worldIkTargets.HasValue)
+                {
+                    KimodoRetargetClipSamplingUtility.HumanoidWorldIkTargets goals = worldIkTargets.Value;
+                    if (goals.Any)
+                    {
+                        targetScope = KimodoRetargetClipSamplingUtility.HumanoidIkTargetScope.Create(goals, out error);
+                        if (targetScope == null)
+                        {
+                            return false;
+                        }
+                        resolvedSceneTargets = targetScope.Targets;
+                    }
                 }
 
                 bool builtContext = shouldSolveIk
@@ -795,7 +1021,8 @@ namespace KimodoBridge
                         solveLeftHandIk: solveLeftHandIk,
                         solveRightHandIk: solveRightHandIk,
                         solveLeftFootIk: solveLeftFootIk,
-                        solveRightFootIk: solveRightFootIk)
+                        solveRightFootIk: solveRightFootIk,
+                        sceneTargets: resolvedSceneTargets)
                     : KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
                         clip,
                         sourceCache,
@@ -833,8 +1060,10 @@ namespace KimodoBridge
                 {
                     UnityEngine.Object.DestroyImmediate(clip);
                 }
+                targetScope?.Dispose();
             }
         }
+
 
         internal static bool TryRetargetMuscleSamplesToBoneSamples(
             IReadOnlyList<MuscleSample> sourceSamples,

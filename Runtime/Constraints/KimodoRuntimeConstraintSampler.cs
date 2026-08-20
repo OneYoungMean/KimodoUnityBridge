@@ -1,4 +1,5 @@
 using TimelineInject;
+using CharacterAnimationCli.Unity;
 using UnityEngine;
 
 namespace KimodoBridge
@@ -34,25 +35,18 @@ namespace KimodoBridge
 
             sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.ForType(constraintType);
+            sample.worldIkTargets ??= new KimodoConstraintIkTargets();
+            sample.worldIkTargets.hands ??= new CharacterPoseSides();
+            sample.worldIkTargets.feet ??= new CharacterPoseSides();
             if (sample.characterPose != null &&
                 KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(constraintType, out HumanBodyBones bone))
             {
-                // The command target lives in the displayed character's world.
-                // The profile skeleton lives in model space, so retain its
-                // canonical body root and transform the scene-space delta into
-                // that space before storing the HumanPose IK goal.
+                // IK targets are stored as scene-space rig data. The solve job
+                // later reads the rig Transform through TransformSceneHandle.
                 float humanScale = player.SourceHumanScale;
                 Vector3 modelGoalPosition = sample.characterPose.root.t * humanScale +
                     Quaternion.Inverse(modelToWorldRotation) *
                     (targetWorldPosition - currentWorldBodyPosition);
-                KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
-                    sample.characterPose.root.t,
-                    sample.characterPose.root.q,
-                    humanScale,
-                    modelGoalPosition,
-                    targetJoint.rotation,
-                    out Vector3 goalPosition,
-                    out Quaternion goalRotation);
                 CharacterAnimationCli.Unity.CharacterPoseTransform goal = bone switch
                 {
                     HumanBodyBones.LeftHand => sample.characterPose.hands.left,
@@ -63,8 +57,18 @@ namespace KimodoBridge
                 };
                 if (goal != null)
                 {
-                    goal.t = goalPosition;
-                    goal.q = goalRotation;
+                    CharacterAnimationCli.Unity.CharacterPoseTransform target = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    {
+                        t = modelGoalPosition,
+                        q = targetJoint.rotation
+                    };
+                    switch (bone)
+                    {
+                        case HumanBodyBones.LeftHand: sample.worldIkTargets.hands.left = target; break;
+                        case HumanBodyBones.RightHand: sample.worldIkTargets.hands.right = target; break;
+                        case HumanBodyBones.LeftFoot: sample.worldIkTargets.feet.left = target; break;
+                        case HumanBodyBones.RightFoot: sample.worldIkTargets.feet.right = target; break;
+                    }
                 }
             }
             return true;

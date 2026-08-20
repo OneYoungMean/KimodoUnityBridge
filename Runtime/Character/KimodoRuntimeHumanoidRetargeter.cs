@@ -370,16 +370,20 @@ namespace KimodoBridge
                 HumanBodyBones.LeftFoot,
                 sample != null ? sample.leftFootPosition : Vector3.zero,
                 sample != null ? sample.leftFootRotation : Quaternion.identity);
-            leftFootWorldRotation = pose.bodyRotation *
-                (sample != null ? sample.leftFootRotation : Quaternion.identity);
+            Transform leftFoot = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
+                sourceCache,
+                HumanBodyBones.LeftFoot);
+            leftFootWorldRotation = leftFoot != null ? leftFoot.rotation : pose.bodyRotation;
             rightFootWorldPosition = ResolveFootBoneWorldPosition(
                 sourceCache,
                 pose,
                 HumanBodyBones.RightFoot,
                 sample != null ? sample.rightFootPosition : Vector3.zero,
                 sample != null ? sample.rightFootRotation : Quaternion.identity);
-            rightFootWorldRotation = pose.bodyRotation *
-                (sample != null ? sample.rightFootRotation : Quaternion.identity);
+            Transform rightFoot = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(
+                sourceCache,
+                HumanBodyBones.RightFoot);
+            rightFootWorldRotation = rightFoot != null ? rightFoot.rotation : pose.bodyRotation;
         }
 
         private static Vector3 ResolveFootBoneWorldPosition(
@@ -389,24 +393,8 @@ namespace KimodoBridge
             Vector3 goalPosition,
             Quaternion goalRotation)
         {
-            if (sourceCache == null)
-            {
-                return pose.bodyPosition + pose.bodyRotation * goalPosition;
-            }
-
-            KimodoRetargetHumanoidIkUtility.BodyRelativeIkGoalToWorld(
-                pose.bodyPosition,
-                pose.bodyRotation,
-                sourceCache.humanScale,
-                goalPosition,
-                goalRotation,
-                out Vector3 worldGoalPosition,
-                out Quaternion worldGoalRotation);
-            return KimodoRetargetHumanoidIkUtility.IkGoalPositionToBoneWorldPosition(
-                sourceCache.avatar,
-                bone,
-                worldGoalPosition,
-                worldGoalRotation);
+            Transform foot = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(sourceCache, bone);
+            return foot != null ? foot.position : pose.bodyPosition;
         }
 
         private static Quaternion ResolvePlanarRotation(Quaternion rotation)
