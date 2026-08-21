@@ -19,7 +19,6 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     [SerializeField] private KimodoFullBodyConstraintData fullBodyData = new KimodoFullBodyConstraintData();
     [FormerlySerializedAs("ikData")]
     [SerializeField] private KimodoEffectorConstraintData effectorData = new KimodoEffectorConstraintData();
-    [SerializeField] private CharacterPoseTransform sourceRootWorldPose = new CharacterPoseTransform();
 
     [NonSerialized] private KimodoMarkerSampleResult activeSampleCache;
     [NonSerialized] private KimodoConstraintMode activeSampleCacheMode;
@@ -110,7 +109,6 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         effectorData.effectors ??= new KimodoConstraintEffectors();
         effectorData.effectors.hands ??= new CharacterPoseSides();
         effectorData.effectors.feet ??= new CharacterPoseSides();
-        sourceRootWorldPose ??= new CharacterPoseTransform();
     }
 
     private void EnsureActiveSample()
@@ -126,7 +124,6 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
             sampleTime = Math.Max(0.0, time),
             hasRootHeading = true
         };
-        activeSampleCache.sourceRootWorldPose = sourceRootWorldPose.Clone();
 
         switch (constraintMode)
         {
@@ -176,10 +173,6 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         EnsurePayloads();
         CharacterPose pose = activeSampleCache.characterPose;
         if (pose == null) return;
-        sourceRootWorldPose = activeSampleCache.sourceRootWorldPose != null
-            ? activeSampleCache.sourceRootWorldPose.Clone()
-            : new CharacterPoseTransform();
-
         switch (activeSampleCacheMode)
         {
             case KimodoConstraintMode.Root2D:

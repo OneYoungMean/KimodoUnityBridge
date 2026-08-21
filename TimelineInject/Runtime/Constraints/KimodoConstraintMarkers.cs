@@ -205,7 +205,6 @@ namespace TimelineInject
         // separate from the muscle pose; no intermediate solver interprets them.
         [UnityEngine.Serialization.FormerlySerializedAs("worldIkTargets")]
         public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
-        public CharacterPoseTransform sourceRootWorldPose = new CharacterPoseTransform();
         [NonSerialized]
         public KimodoConstraintRawData rawData;
         // FullBody owns characterPose.root. Root2D is kept separately so its
@@ -228,9 +227,6 @@ namespace TimelineInject
             creationOrder = creationOrder,
             characterPose = characterPose?.Clone(),
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
-            sourceRootWorldPose = sourceRootWorldPose != null
-                ? new CharacterPoseTransform { t = sourceRootWorldPose.t, q = sourceRootWorldPose.q }
-                : new CharacterPoseTransform(),
             rawData = rawData?.Clone(),
             root2DOverride = root2DOverride != null
                 ? new CharacterPoseTransform { t = root2DOverride.t, q = root2DOverride.q }

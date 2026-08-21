@@ -72,3 +72,11 @@
 - 检查：Unity CLI FullDemo 编译成功，退出码 0。
 - 尚未完成：旧字段物理删除和真实 Effector solver。
 - 下一步：提交 CP8；后续如继续清理，应先建立旧字段使用清单和测试屏蔽策略。
+
+## CP9 — 移除 sourceRootWorldPose
+
+- 状态：已完成，待提交。
+- 已完成：从 `KimodoMarkerSampleResult` 和 Marker authoring state 移除 `sourceRootWorldPose`，SampleResult 不再保存冗余 source root world pose。
+- 检查：`git diff --check` 通过；Unity CLI FullDemo 编译成功，退出码 0。
+- 尚未完成：rawData、CharacterPose、constraintType、旧 has* 字段仍有生产/测试引用。
+- 下一步：提交 CP9；继续将 rawData 从 SampleResult 移到导出边界，必要时先屏蔽旧 rawData 测试。
