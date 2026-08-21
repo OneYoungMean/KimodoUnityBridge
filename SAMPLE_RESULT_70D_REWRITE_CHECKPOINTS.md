@@ -215,3 +215,11 @@
 - 检查：结果文件：`C:\tmp\sample-result-70d-tests.xml`；编译仍通过。
 - 结论：当前可确认的是生产编译通过和静态 70D 回归代码可编译；FullBody sampling/Generate 场景仍需在 package 自己的 Unity 测试宿主或实际编辑器 Timeline 中执行。
 - 下一步：不再继续修改外部 FullDemo 测试配置，避免把验证项目的程序集边界误判为功能结果；保留 checkpoint，等待包测试宿主接入后执行场景测试。
+
+## CP27 — 骨骼快照结构确认
+
+- 结论：项目中没有独立的 `SkeletonData` 类型；用户记忆中的全身骨骼帧结构是 `KimodoBridge.BoneSample`。
+- `BoneSample` 位于 `Runtime/Retarget/KimodoRetargetSamples.cs`，包含 `boneNames`、`localPositions`、`localRotations`，表示完整骨骼帧的局部变换。
+- `SkeletonCache` 不是动画帧数据，而是骨架运行时容器；其 `bindLocalPositions`、`bindLocalRotations`、`bindWorldRotations` 和 `bindSkeletonRootWorldRotation` 保存 rest/bind 姿势基准。
+- AutoSample 后续统一链路固定为：`MuscleSample → BoneSample(FK) → 应用到 SkeletonCache 后读取世界空间 pelvis/手脚 → SampleResult`。不新增同义 `SkeletonData`，也不直接把 `BoneSample.local*` 当世界坐标。
+- 当前工作树没有产生有效代码差异；此前尝试把 effector enable 合并到 mask 已撤回，避免在结构确认前误改协议。
