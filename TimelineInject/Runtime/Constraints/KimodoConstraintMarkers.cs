@@ -190,6 +190,12 @@ namespace TimelineInject
     [Serializable]
     public sealed class KimodoMarkerSampleResult
     {
+        // Canonical payload. Legacy fields below are being removed in later
+        // migration phases; new code must use sampleData and validMask.
+        public float[] sampleData = KimodoSampleDataLayout.CreateBuffer();
+        public KimodoSampleChannelMask validMask = new KimodoSampleChannelMask();
+        public bool enabled = true;
+
         public CharacterPose characterPose;
         // Effectors are absolute scene-space transport values. They are kept
         // separate from the muscle pose; no intermediate solver interprets them.
@@ -206,13 +212,15 @@ namespace TimelineInject
         // Non-empty for samples authored by the new mode-aware marker. Empty
         // samples retain the legacy resolver behavior for command-only data.
         public string constraintMode;
-        [NonSerialized]
         public double sampleTime;
         public bool hasRootHeading = true;
         public KimodoConstraintMask mask;
 
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
         {
+            sampleData = sampleData != null ? (float[])sampleData.Clone() : KimodoSampleDataLayout.CreateBuffer(),
+            validMask = validMask?.Clone() ?? new KimodoSampleChannelMask(),
+            enabled = enabled,
             characterPose = characterPose?.Clone(),
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
             sourceRootWorldPose = sourceRootWorldPose != null

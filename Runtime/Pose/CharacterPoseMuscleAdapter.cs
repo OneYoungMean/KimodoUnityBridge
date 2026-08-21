@@ -1,5 +1,6 @@
 using System;
 using CharacterAnimationCli.Unity;
+using TimelineInject;
 using UnityEngine;
 
 namespace KimodoBridge
@@ -72,6 +73,85 @@ namespace KimodoBridge
             }
 
             return result;
+        }
+
+        /// <summary>Encodes the canonical body/root/foot payload into the
+        /// fixed 70-value sampleData layout.</summary>
+        public static float[] ToSampleData(CharacterPose pose)
+        {
+            if (pose == null)
+            {
+                throw new ArgumentNullException(nameof(pose));
+            }
+            if (!pose.TryValidate(out string error))
+            {
+                throw new InvalidOperationException(error);
+            }
+
+            float[] data = KimodoSampleDataLayout.CreateBuffer();
+            Array.Copy(pose.muscles, 0, data, KimodoSampleDataLayout.BodyMuscleOffset,
+                KimodoSampleDataLayout.BodyMuscleCount);
+            KimodoSampleDataLayout.SetTransform(
+                data,
+                KimodoSampleDataLayout.RootTqOffset,
+                pose.root.t,
+                pose.root.q.normalized);
+            KimodoSampleDataLayout.SetTransform(
+                data,
+                KimodoSampleDataLayout.LeftFootTqOffset,
+                pose.feet.left.t,
+                pose.feet.left.q.normalized);
+            KimodoSampleDataLayout.SetTransform(
+                data,
+                KimodoSampleDataLayout.RightFootTqOffset,
+                pose.feet.right.t,
+                pose.feet.right.q.normalized);
+            return data;
+        }
+
+        public static float[] ToSampleData(MuscleSample sample, SkeletonCache cache = null)
+        {
+            return ToSampleData(FromMuscleSample(sample, cache));
+        }
+
+        /// <summary>Decodes valid 70-value data into the legacy CharacterPose
+        /// adapter boundary. Hand effectors remain separate channels.</summary>
+        public static bool TryFromSampleData(
+            float[] data,
+            out CharacterPose pose,
+            out string error)
+        {
+            pose = null;
+            if (!KimodoSampleDataLayout.TryValidate(data, out error))
+            {
+                return false;
+            }
+
+            pose = new CharacterPose();
+            Array.Copy(data, KimodoSampleDataLayout.BodyMuscleOffset,
+                pose.muscles, 0, KimodoSampleDataLayout.BodyMuscleCount);
+            KimodoSampleDataLayout.GetTransform(
+                data,
+                KimodoSampleDataLayout.RootTqOffset,
+                out pose.root.t,
+                out pose.root.q);
+            KimodoSampleDataLayout.GetTransform(
+                data,
+                KimodoSampleDataLayout.LeftFootTqOffset,
+                out pose.feet.left.t,
+                out pose.feet.left.q);
+            KimodoSampleDataLayout.GetTransform(
+                data,
+                KimodoSampleDataLayout.RightFootTqOffset,
+                out pose.feet.right.t,
+                out pose.feet.right.q);
+
+            if (!pose.TryValidate(out error))
+            {
+                pose = null;
+                return false;
+            }
+            return true;
         }
 
         public static MuscleSample ToMuscleSample(CharacterPose pose)
