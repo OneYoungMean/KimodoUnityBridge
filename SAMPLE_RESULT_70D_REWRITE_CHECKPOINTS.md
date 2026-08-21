@@ -40,3 +40,11 @@
 - 检查：Unity CLI FullDemo 编译成功，退出码 0；日志：`C:\tmp\unity-compile-sample-result-70d.log`。仅保留既有序列化分析器/过时 API 警告。
 - 尚未完成：完整移除 CharacterPose 兼容字段、统一实际 Root2D/Effector 姿势 solver、补充新结构测试。
 - 下一步：提交 CP4，然后添加最小 70 维布局与 Composer 回归测试。
+
+## CP5 — 最小回归覆盖
+
+- 状态：已完成，待提交。
+- 已完成：新增 `KimodoSampleDataTests`，覆盖 70 维长度与 T/Q round-trip、最后创建约束优先且 invalid 不回退、Root2D heading 依赖 position；补齐 Unity 文档 `.meta` 文件。
+- 检查：Unity CLI FullDemo 编译成功，退出码 0；EditMode 测试命令成功退出，但当前 FullDemo 测试报告 testcasecount=0（包内测试未被该项目测试程序集发现），因此不能视为运行时测试通过。
+- 尚未完成：完整旧测试迁移、实际 Effector solver、FullBody sampling/Generate 场景级回归。
+- 下一步：提交 CP5；后续恢复时优先处理测试程序集发现问题或在包测试环境执行测试，然后再决定是否清理兼容 CharacterPose 字段。

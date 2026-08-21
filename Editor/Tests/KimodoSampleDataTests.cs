@@ -1,0 +1,82 @@
+using NUnit.Framework;
+using TimelineInject;
+using UnityEngine;
+
+namespace KimodoBridge.Editor.Tests
+{
+    public sealed class KimodoSampleDataTests
+    {
+        [Test]
+        public void SampleDataLayout_Uses70ValuesAndRoundTripsTransforms()
+        {
+            float[] data = KimodoSampleDataLayout.CreateBuffer();
+            Assert.That(data, Has.Length.EqualTo(70));
+            KimodoSampleDataLayout.SetTransform(
+                data,
+                KimodoSampleDataLayout.RootTqOffset,
+                new Vector3(1f, 2f, 3f),
+                Quaternion.Euler(0f, 45f, 0f));
+
+            KimodoSampleDataLayout.GetTransform(
+                data,
+                KimodoSampleDataLayout.RootTqOffset,
+                out Vector3 position,
+                out Quaternion rotation);
+
+            Assert.That(position, Is.EqualTo(new Vector3(1f, 2f, 3f)));
+            Assert.That(Quaternion.Angle(rotation, Quaternion.Euler(0f, 45f, 0f)), Is.LessThan(1e-4f));
+        }
+
+        [Test]
+        public void Composer_LastCreatedInvalidChannelWinsWithoutFallback()
+        {
+            KimodoMarkerSampleResult first = CreateFullBody(1, 0.25f, true);
+            KimodoMarkerSampleResult lastInvalid = CreateFullBody(2, 9f, false);
+
+            var composed = KimodoConstraintSampleComposer.ComposeCanonicalSamples(
+                new[] { first, lastInvalid },
+                60.0);
+
+            Assert.That(composed, Has.Count.EqualTo(1));
+            Assert.That(composed[0].validMask.muscle49, Is.False);
+            Assert.That(composed[0].sampleData[KimodoSampleDataLayout.BodyMuscleOffset], Is.EqualTo(0f));
+        }
+
+        [Test]
+        public void ChannelMask_HeadingRequiresRootPosition()
+        {
+            var mask = new KimodoSampleChannelMask
+            {
+                root2DHeading = true,
+                root2DPosition = false
+            };
+            mask.NormalizeDependencies();
+            Assert.That(mask.root2DHeading, Is.False);
+        }
+
+        private static KimodoMarkerSampleResult CreateFullBody(
+            long creationOrder,
+            float firstMuscle,
+            bool valid)
+        {
+            float[] data = KimodoSampleDataLayout.CreateBuffer();
+            data[KimodoSampleDataLayout.BodyMuscleOffset] = firstMuscle;
+            return new KimodoMarkerSampleResult
+            {
+                sampleData = data,
+                validMask = new KimodoSampleChannelMask
+                {
+                    muscle49 = valid,
+                    rootTQ = valid,
+                    leftFootTQ = valid,
+                    rightFootTQ = valid
+                },
+                constraintMode = "fullbody",
+                constraintType = "fullbody",
+                sampleTime = 0,
+                creationOrder = creationOrder,
+                enabled = true
+            };
+        }
+    }
+}
