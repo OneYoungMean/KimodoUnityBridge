@@ -136,3 +136,11 @@
 - 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-exporter-migration.log`；`git diff --check` 通过。
 - 尚未完成：Composer 与 Preview/Command 仍需迁移；兼容 bridge 暂不删除。
 - 下一步：迁移 `KimodoConstraintSampleComposer`，清除其对派生 `characterPose` 的写入，canonical 输出只保留 sampleData/effectors/mask。
+
+## CP17 — Canonical Composer 迁移
+
+- 状态：已完成，待提交。
+- 已完成：`KimodoConstraintSampleComposer` 的 canonical 合成、Root2D overlay、Mix/协议展开全部改为显式 `KimodoSampleResultPoseUtility` 编解码；不再直接读写 SampleResult 的 `characterPose`，Root2D heading/position 直接使用 `validMask`。输出仍保持原协议的 `constraintType` 边界。
+- 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-composer-migration.log`；`git diff --check` 通过。
+- 尚未完成：Command、Preview、Editor sampling 仍有旧属性调用；兼容 bridge 继续保留直到这些调用迁移完毕。
+- 下一步：迁移 Command/Runtime generation 的 canonical pose 读取，随后清理 Preview 的重复 pose 合成逻辑。
