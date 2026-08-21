@@ -1133,9 +1133,7 @@ namespace KimodoBridge.Editor
             }
 
             return propertyName.StartsWith("MotionT.", StringComparison.Ordinal) ||
-                propertyName.StartsWith("MotionQ.", StringComparison.Ordinal) ||
-                propertyName.StartsWith("RootT.", StringComparison.Ordinal) ||
-                propertyName.StartsWith("RootQ.", StringComparison.Ordinal);
+                propertyName.StartsWith("MotionQ.", StringComparison.Ordinal);
         }
 
         [Serializable]

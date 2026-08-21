@@ -11,34 +11,19 @@ namespace KimodoBridge
         private static readonly int[] GeneratedMuscleIndices = CharacterPoseMuscleAdapter.UnityBodyMuscleIndices;
 
         /// <summary>
-        /// Writes a standalone muscle animation clip, including its explicit
-        /// root/foot animation curves. Retarget sampling must use
-        /// <see cref="WriteBodyMuscleCurves"/> instead.
-        /// </summary>
-        internal static bool WriteMuscleAndTransformCurves(
-            IReadOnlyList<MuscleSample> samples,
-            AnimationClip clip,
-            out string error)
-        {
-            return WriteMuscleCurves(samples, clip, out error, includeRootTransform: true, includeFootIkGoals: true);
-        }
-
-        /// <summary>
         /// Writes only the 49 body-muscle channels. This is the only writer
         /// allowed at the MuscleSample -> BoneSample transport boundary.
         /// RootT/RootQ and FootT/FootQ are intentionally absent.
         /// </summary>
         internal static bool WriteBodyMuscleCurves(IReadOnlyList<MuscleSample> samples, AnimationClip clip, out string error)
         {
-            return WriteMuscleCurves(samples, clip, out error, includeRootTransform: false, includeFootIkGoals: false);
+            return WriteMuscleCurves(samples, clip, out error);
         }
 
         private static bool WriteMuscleCurves(
             IReadOnlyList<MuscleSample> samples,
             AnimationClip clip,
-            out string error,
-            bool includeRootTransform,
-            bool includeFootIkGoals)
+            out string error)
         {
             if (!ValidateWriteInputs(samples, clip, "Muscle", out error))
             {
@@ -61,28 +46,6 @@ namespace KimodoBridge
                 }
             }
 
-            AnimationCurve rootTx = includeRootTransform ? new AnimationCurve() : null;
-            AnimationCurve rootTy = includeRootTransform ? new AnimationCurve() : null;
-            AnimationCurve rootTz = includeRootTransform ? new AnimationCurve() : null;
-            AnimationCurve rootQx = includeRootTransform ? new AnimationCurve() : null;
-            AnimationCurve rootQy = includeRootTransform ? new AnimationCurve() : null;
-            AnimationCurve rootQz = includeRootTransform ? new AnimationCurve() : null;
-            AnimationCurve rootQw = includeRootTransform ? new AnimationCurve() : null;
-            AnimationCurve leftFootTx = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootTy = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootTz = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootQx = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootQy = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootQz = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootQw = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootTx = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootTy = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootTz = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootQx = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootQy = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootQz = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootQw = includeFootIkGoals ? new AnimationCurve() : null;
-
             var muscleCurves = new AnimationCurve[GeneratedMuscleIndices.Length];
             for (int i = 0; i < muscleCurves.Length; i++)
             {
@@ -90,8 +53,6 @@ namespace KimodoBridge
             }
 
             float frameRate = KimodoRetargetClipSamplingUtility.ResolveFrameRate(clip);
-            bool hasPreviousRootRotation = false;
-            Quaternion previousRootRotation = Quaternion.identity;
             for (int frame = 0; frame < samples.Count; frame++)
             {
                 MuscleSample sample = samples[frame];
@@ -103,42 +64,12 @@ namespace KimodoBridge
                 float time = frame / frameRate;
                 HumanPose pose = sample.pose;
                 EnsureHumanPoseMuscles(ref pose);
-                if (includeRootTransform)
-                {
-                    Quaternion rootRotation = ResolveContinuousRotation(
-                        pose.bodyRotation,
-                        ref previousRootRotation,
-                        ref hasPreviousRootRotation);
-                    AddVector3Key(time, pose.bodyPosition, rootTx, rootTy, rootTz);
-                    AddQuaternionKey(time, rootRotation, rootQx, rootQy, rootQz, rootQw);
-                }
-                if (includeFootIkGoals)
-                {
-                    AddVector3Key(time, sample.leftFootPosition, leftFootTx, leftFootTy, leftFootTz);
-                    AddQuaternionKey(time, sample.leftFootRotation, leftFootQx, leftFootQy, leftFootQz, leftFootQw);
-                    AddVector3Key(time, sample.rightFootPosition, rightFootTx, rightFootTy, rightFootTz);
-                    AddQuaternionKey(time, sample.rightFootRotation, rightFootQx, rightFootQy, rightFootQz, rightFootQw);
-                }
-
                 for (int muscle = 0; muscle < muscleCurves.Length; muscle++)
                 {
                     int unityMuscleIndex = GeneratedMuscleIndices[muscle];
                     float value = unityMuscleIndex < pose.muscles.Length ? pose.muscles[unityMuscleIndex] : 0f;
                     muscleCurves[muscle].AddKey(time, value);
                 }
-            }
-
-            if (includeRootTransform)
-            {
-                SetAnimatorVector3Curves(clip, "RootT", rootTx, rootTy, rootTz);
-                SetAnimatorQuaternionCurves(clip, "RootQ", rootQx, rootQy, rootQz, rootQw);
-            }
-            if (includeFootIkGoals)
-            {
-                SetAnimatorVector3Curves(clip, "LeftFootT", leftFootTx, leftFootTy, leftFootTz);
-                SetAnimatorQuaternionCurves(clip, "LeftFootQ", leftFootQx, leftFootQy, leftFootQz, leftFootQw);
-                SetAnimatorVector3Curves(clip, "RightFootT", rightFootTx, rightFootTy, rightFootTz);
-                SetAnimatorQuaternionCurves(clip, "RightFootQ", rightFootQx, rightFootQy, rightFootQz, rightFootQw);
             }
 
             for (int muscle = 0; muscle < muscleCurves.Length; muscle++)
@@ -243,32 +174,6 @@ namespace KimodoBridge
             y.AddKey(time, value.y);
             z.AddKey(time, value.z);
             w.AddKey(time, value.w);
-        }
-
-        private static void SetAnimatorVector3Curves(
-            AnimationClip clip,
-            string propertyPrefix,
-            AnimationCurve x,
-            AnimationCurve y,
-            AnimationCurve z)
-        {
-            SetFloatCurve(clip, propertyPrefix + ".x", x);
-            SetFloatCurve(clip, propertyPrefix + ".y", y);
-            SetFloatCurve(clip, propertyPrefix + ".z", z);
-        }
-
-        private static void SetAnimatorQuaternionCurves(
-            AnimationClip clip,
-            string propertyPrefix,
-            AnimationCurve x,
-            AnimationCurve y,
-            AnimationCurve z,
-            AnimationCurve w)
-        {
-            SetFloatCurve(clip, propertyPrefix + ".x", x);
-            SetFloatCurve(clip, propertyPrefix + ".y", y);
-            SetFloatCurve(clip, propertyPrefix + ".z", z);
-            SetFloatCurve(clip, propertyPrefix + ".w", w);
         }
 
         private static void SetTransformCurves(

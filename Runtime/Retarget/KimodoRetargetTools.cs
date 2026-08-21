@@ -30,7 +30,7 @@ namespace KimodoBridge
             }
 
             clip.ClearCurves();
-            if (!KimodoRetargetClipWriter.WriteMuscleAndTransformCurves(samples, clip, out error))
+            if (!KimodoRetargetClipWriter.WriteBodyMuscleCurves(samples, clip, out error))
             {
                 return false;
             }

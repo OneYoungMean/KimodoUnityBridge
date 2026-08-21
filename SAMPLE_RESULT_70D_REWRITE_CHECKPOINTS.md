@@ -276,3 +276,9 @@
 - 已完成：运行时 effector/root2d 目标统一使用 world position/absolute heading，不再通过 rootTQ 或 root-local 计算；协议导出 Root2D/effector 读取显式 world override/effectors。
 - 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\unity-compile-root-channel-clean5.log`；`git diff --check` 通过。
 - 仍保留的 rootTQ 仅限：70D 固定协议布局、Composer 的显式通道合并、以及明确标注的独立完整动画导出；它们不再参与 MuscleSample→BoneSample。
+
+## CP34 — 删除独立动画 RootT/Q 曲线旁路
+
+- 已完成：肌肉动画写出统一改为 `WriteBodyMuscleCurves`，不再生成 `RootT.*`、`RootQ.*` 或 FootT/Q 动画曲线；删除编辑器对这些旧曲线的保留判断。
+- 已完成：保留的 `rootTQ/footTQ` 只存在于 70D `sampleData` 协议布局，不再以 Animator 曲线形式存在。
+- 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\unity-compile-root-channel-clean6.log`；`git diff --check` 通过。
