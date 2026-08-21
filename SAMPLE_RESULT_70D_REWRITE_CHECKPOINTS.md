@@ -160,3 +160,11 @@
 - 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-editor-boundary-migration3.log`；`git diff --check` 通过。
 - 尚未完成：`KimodoConstraintPoseCache`、Clip Bake、Timeline marker sampler 和 UI marker sampling 仍有旧访问；Preview 的关闭窗口状态清理需要继续核验。
 - 下一步：集中迁移 PoseCache 的读取、hash、writeback 与 root/effector 显示逻辑，完成后删除 SampleResult 兼容属性。
+
+## CP20 — Preview PoseCache 与窗口生命周期
+
+- 状态：已完成，待提交。
+- 已完成：Preview PoseCache 的 FK 应用、hash、writeback、Root2D target 显示改用显式 sampleData 解码与 validMask；关闭编辑窗口时先隐藏/取消选择 preview group，再销毁 cache，并继续调用 `DisablePreview`，避免 OnDisable/domain reload 后残留 preview 状态。
+- 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-preview-migration.log`；`git diff --check` 通过。
+- 尚未完成：Clip Bake 与 Timeline marker sampler/UI sampling 仍有旧属性访问；SampleResult compatibility bridge 还不能删除。
+- 下一步：迁移 Clip Bake 的 root/Root2D 读写和 Timeline sampler 的 Root2D 写入，随后清理 UI sampling 的重复 CharacterPose 合成。

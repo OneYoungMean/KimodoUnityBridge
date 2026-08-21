@@ -177,6 +177,13 @@ namespace KimodoBridge.Editor
             SceneView.duringSceneGui -= OnSceneGUI;
             EditorSceneManager.sceneClosing -= OnSceneClosing;
             EditorSceneManager.activeSceneChangedInEditMode -= OnActiveSceneChanged;
+            // Close is a hard preview boundary: hide and deselect the preview
+            // group before destroying its cache so no stale preview state is
+            // left behind when Unity invokes OnDisable during domain reload.
+            if (hasEditContext)
+            {
+                KimodoConstraintPoseCache.SetGroupState(editContext, visible: false, selectable: false);
+            }
             DestroyEditPreview();
             if (!hasEditContext && !invalidContext &&
                 restoreMarker != null &&

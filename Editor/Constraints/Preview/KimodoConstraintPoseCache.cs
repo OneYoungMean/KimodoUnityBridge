@@ -127,15 +127,15 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (sample.characterPose != null)
+            if (KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose canonicalPose, out error))
             {
                 KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
-                if (!sample.characterPose.TryValidate(out error))
+                if (!canonicalPose.TryValidate(out error))
                 {
                     return false;
                 }
                 if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                        CharacterPoseMuscleAdapter.ToMuscleSample(sample.characterPose),
+                        CharacterPoseMuscleAdapter.ToMuscleSample(canonicalPose),
                         frameRate,
                         targetCache,
                         out BoneSample canonicalTargetSample,
@@ -221,7 +221,8 @@ namespace KimodoBridge.Editor
             // CharacterPose is canonical: applying its root transform a second
             // time after retargeting causes Root2D drag-back.
             // There is no compatibility fallback.
-            if (sample.characterPose == null || !sample.characterPose.TryValidate(out _))
+            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose canonicalPose, out _) ||
+                !canonicalPose.TryValidate(out _))
             {
                 return;
             }
@@ -712,7 +713,9 @@ namespace KimodoBridge.Editor
             EnableChangedConstraintChannels(entry, sample.mask);
             if (rootChanged)
             {
-                sample.hasRootHeading = true;
+                sample.validMask ??= new KimodoSampleChannelMask();
+                sample.validMask.root2DPosition = true;
+                sample.validMask.root2DHeading = true;
             }
         }
 
@@ -1777,16 +1780,16 @@ namespace KimodoBridge.Editor
                 KimodoMarkerSampleResult sample = item?.SampleData;
                 if (sample != null)
                 {
-                    AddHash(ref hash, sample.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty);
+                    AddHash(ref hash, sample.sampleData != null ? string.Join(",", sample.sampleData) : string.Empty);
                     AddHash(ref hash, sample.effectors != null ? JsonUtility.ToJson(sample.effectors) : string.Empty);
-                    AddHash(ref hash, sample.hasRoot2DOverride && sample.root2DOverride != null
+                    AddHash(ref hash, sample.validMask?.root2DPosition == true && sample.root2DOverride != null
                         ? JsonUtility.ToJson(sample.root2DOverride)
                         : string.Empty);
                     AddHash(ref hash, sample.constraintType);
                     AddHash(ref hash, sample.sampleTime.GetHashCode());
                     AddHash(ref hash, MaskSignature(sample.mask));
-                    AddHash(ref hash, sample.hasRootHeading ? 1 : 0);
-                    AddHash(ref hash, sample.hasRoot2DOverride ? 1 : 0);
+                    AddHash(ref hash, sample.validMask?.root2DHeading == true ? 1 : 0);
+                    AddHash(ref hash, sample.validMask?.root2DPosition == true ? 1 : 0);
                 }
                 AddHash(ref hash, item?.HighlightJoints);
                 return hash;
@@ -1977,7 +1980,7 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                sample.characterPose = BuildWritebackCharacterPose(
+                CharacterPose writebackPose = BuildWritebackCharacterPose(
                     entry,
                     targetSample,
                     rootTargetChanged,
@@ -1985,11 +1988,15 @@ namespace KimodoBridge.Editor
                     rightHandTargetChanged,
                     leftFootTargetChanged,
                     rightFootTargetChanged);
+                if (writebackPose != null)
+                {
+                    KimodoSampleResultPoseUtility.TryEncode(sample, writebackPose, out _);
+                }
                 sample.effectors = CaptureEffectorsFromEntry(entry, mask, markerType);
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase))
                 {
                     sample.mask = mask.Clone();
-                    sample.hasRootHeading = mask.rootHeading && entry.BaseSample.hasRootHeading;
+                    sample.validMask.root2DHeading = mask.rootHeading && entry.BaseSample.validMask?.root2DHeading == true;
                     PreserveIndependentRoot2D(entry, sample);
                 }
                 return true;
@@ -2021,7 +2028,12 @@ namespace KimodoBridge.Editor
             CharacterPose sampledPose = sampledTarget != null
                 ? CharacterPoseMuscleAdapter.FromMuscleSample(sampledTarget, entry?.TargetCache)
                 : null;
-            CharacterPose result = entry?.BaseSample?.characterPose?.Clone();
+            CharacterPose result = KimodoSampleResultPoseUtility.TryDecode(
+                entry?.BaseSample,
+                out CharacterPose basePose,
+                out _)
+                ? basePose.Clone()
+                : null;
             if (result == null)
             {
                 return sampledPose;
@@ -2242,11 +2254,11 @@ namespace KimodoBridge.Editor
                             SkeletonRootWorldPosition(entry.TargetCache, solvedSample.pose.bodyPosition),
                             SkeletonRootWorldRotation(entry.TargetCache, solvedSample.pose.bodyRotation));
                     }
-                    else if (entry.BaseSample?.characterPose?.root != null)
+                    else if (KimodoSampleResultPoseUtility.TryDecode(entry.BaseSample, out CharacterPose basePose, out _))
                     {
                         target.transform.SetPositionAndRotation(
-                            SkeletonRootWorldPosition(entry.TargetCache, entry.BaseSample.characterPose.root.t),
-                            SkeletonRootWorldRotation(entry.TargetCache, entry.BaseSample.characterPose.root.q));
+                            SkeletonRootWorldPosition(entry.TargetCache, basePose.root.t),
+                            SkeletonRootWorldRotation(entry.TargetCache, basePose.root.q));
                     }
                 }
                 else if (entry.SourceMarker?.autoSample == false &&
@@ -2298,7 +2310,7 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult captured)
         {
             KimodoMarkerSampleResult authored = entry?.BaseSample;
-            if (authored?.hasRoot2DOverride != true ||
+            if (authored?.validMask?.root2DPosition != true ||
                 authored.root2DOverride == null ||
                 captured == null)
             {
@@ -2310,7 +2322,7 @@ namespace KimodoBridge.Editor
                 t = authored.root2DOverride.t,
                 q = authored.root2DOverride.q
             };
-            captured.hasRoot2DOverride = true;
+            captured.validMask.root2DPosition = true;
         }
 
         private static PrimitiveType TargetPrimitive(HumanBodyBones bone) =>
@@ -2335,7 +2347,8 @@ namespace KimodoBridge.Editor
 
         private static void UpdateRoot2DTarget(ConstraintPosePreviewEntry entry)
         {
-            if (entry?.TargetCache == null || entry.BaseSample?.characterPose?.root == null)
+            if (entry?.TargetCache == null ||
+                !KimodoSampleResultPoseUtility.TryDecode(entry.BaseSample, out CharacterPose basePose, out _))
             {
                 return;
             }
@@ -2361,8 +2374,8 @@ namespace KimodoBridge.Editor
             if (createdTarget || !target.transform.hasChanged)
             {
                 target.transform.SetPositionAndRotation(
-                    SkeletonRootWorldPosition(entry.TargetCache, entry.BaseSample.characterPose.root.t),
-                    SkeletonRootWorldRotation(entry.TargetCache, entry.BaseSample.characterPose.root.q));
+                    SkeletonRootWorldPosition(entry.TargetCache, basePose.root.t),
+                    SkeletonRootWorldRotation(entry.TargetCache, basePose.root.q));
                 target.transform.hasChanged = false;
             }
             target.transform.localScale = Vector3.one * 0.1f;
