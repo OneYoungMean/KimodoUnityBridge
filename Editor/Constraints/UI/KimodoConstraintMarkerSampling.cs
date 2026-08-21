@@ -201,65 +201,11 @@ public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, 
             return true;
         }
 
-private static KimodoMarkerSampleResult MergeAutoSampledChannels(
+        private static KimodoMarkerSampleResult MergeAutoSampledChannels(
             KimodoConstraintMarker marker,
             KimodoMarkerSampleResult sampled)
         {
-            KimodoMarkerSampleResult result = marker?.SampleData?.Clone() ?? new KimodoMarkerSampleResult();
-            if (!KimodoSampleResultPoseUtility.TryDecode(sampled, out CharacterPose sampledPose, out _))
-            {
-                return result;
-            }
-
-            result.sampleTime = marker.time;
-            result.constraintType = "constraint";
-            result.mask = KimodoConstraintMask.Resolve(marker.SampleData.mask, "constraint").Clone();
-            CharacterPose resultPose = KimodoSampleResultPoseUtility.DecodeOrDefault(result);
-            result.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
-                ? "root2d"
-                : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
-            if (marker.autoSample)
-            {
-                resultPose.muscles = (float[])sampledPose.muscles.Clone();
-                resultPose.root = CloneTransform(sampledPose.root);
-                if (marker.ConstraintMode == KimodoConstraintMode.Root2D)
-                {
-                    result.enableMask.root2DPosition = true;
-                    result.enableMask.root2DHeading = marker.SampleData?.enableMask?.root2DHeading == true;
-                    result.root2DOverride = CloneTransform(resultPose.root);
-                }
-                else
-                {
-                    CopyAutoSampleTargets(
-                        result,
-                        sampled,
-                        overwriteAll: marker.ConstraintMode == KimodoConstraintMode.FullBody);
-                }
-            }
-
-                KimodoSampleResultPoseUtility.TryEncode(result, resultPose, out _);
-            return result;
-        }
-
-        private static void CopyAutoSampleTargets(
-            KimodoMarkerSampleResult destination,
-            KimodoMarkerSampleResult sampled,
-            bool overwriteAll)
-        {
-            if (!KimodoSampleResultPoseUtility.TryDecode(destination, out CharacterPose destinationPose, out _) ||
-                !KimodoSampleResultPoseUtility.TryDecode(sampled, out CharacterPose sampledPose, out _)) return;
-            if ((overwriteAll || !destination.mask.leftHand) && sampledPose.hands?.left != null) destination.effectors.hands.left = CloneTransform(sampledPose.hands.left);
-            if ((overwriteAll || !destination.mask.rightHand) && sampledPose.hands?.right != null) destination.effectors.hands.right = CloneTransform(sampledPose.hands.right);
-            if ((overwriteAll || !destination.mask.leftFoot) && sampledPose.feet?.left != null) destination.effectors.feet.left = CloneTransform(sampledPose.feet.left);
-            if ((overwriteAll || !destination.mask.rightFoot) && sampledPose.feet?.right != null) destination.effectors.feet.right = CloneTransform(sampledPose.feet.right);
-            KimodoSampleResultPoseUtility.TryEncode(destination, destinationPose, out _);
-        }
-
-        private static CharacterPoseTransform CloneTransform(CharacterPoseTransform value)
-        {
-            return value != null
-                ? new CharacterPoseTransform { t = value.t, q = value.q }
-                : new CharacterPoseTransform();
+            return sampled?.Clone() ?? marker?.SampleData?.Clone() ?? new KimodoMarkerSampleResult();
         }
 
 internal static bool TryRefreshMarkerCache(KimodoConstraintMarker marker, out string error)

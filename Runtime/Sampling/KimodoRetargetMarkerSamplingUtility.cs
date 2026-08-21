@@ -77,12 +77,114 @@ namespace KimodoBridge
 
             result.sampleData = sampleData;
             result.enableMask = enableMask;
+            CaptureWorldTargets(targetCache, result);
             result.enabled = true;
             if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
             return true;
+        }
+
+        /// <summary>
+        /// Captures the scene-facing targets from the rebuilt skeleton. This is
+        /// deliberately the only production path that creates root2DOverride
+        /// and effector positions for an AutoSample result: all values are
+        /// Transform world values, never HumanPose body-space values.
+        /// </summary>
+        internal static void CaptureWorldTargets(
+            SkeletonCache cache,
+            KimodoMarkerSampleResult result)
+        {
+            if (result == null) return;
+            result.root2DOverride ??= new CharacterPoseTransform();
+            result.effectors ??= new KimodoConstraintEffectors();
+            result.effectors.hands ??= new CharacterPoseSides();
+            result.effectors.feet ??= new CharacterPoseSides();
+            result.effectors.hands.left ??= new CharacterPoseTransform();
+            result.effectors.hands.right ??= new CharacterPoseTransform();
+            result.effectors.feet.left ??= new CharacterPoseTransform();
+            result.effectors.feet.right ??= new CharacterPoseTransform();
+            result.enableMask ??= new KimodoSampleChannelMask();
+
+            Vector3 position;
+            Quaternion rotation;
+            if (!cache.GetBonePose(HumanBodyBones.Hips, out position, out rotation))
+            {
+                position = Vector3.zero;
+                rotation = Quaternion.identity;
+            }
+            result.root2DOverride.t = position;
+            result.root2DOverride.q = rotation;
+            result.enableMask.root2DPosition = true;
+            result.enableMask.root2DHeading = true;
+
+            CaptureEffector(cache, HumanBodyBones.LeftHand, result.effectors.hands.left,
+                result.enableMask, 0, rotationMode: 0);
+            CaptureEffector(cache, HumanBodyBones.RightHand, result.effectors.hands.right,
+                result.enableMask, 1, rotationMode: 0);
+            CaptureEffector(cache, HumanBodyBones.LeftFoot, result.effectors.feet.left,
+                result.enableMask, 2, rotationMode: 1);
+            CaptureEffector(cache, HumanBodyBones.RightFoot, result.effectors.feet.right,
+                result.enableMask, 3, rotationMode: 1);
+            result.enableMask.NormalizeDependencies();
+        }
+
+        private static void CaptureEffector(
+            SkeletonCache cache,
+            HumanBodyBones bone,
+            CharacterPoseTransform target,
+            KimodoSampleChannelMask enableMask,
+            int index,
+            int rotationMode)
+        {
+            target ??= new CharacterPoseTransform();
+            if (cache != null && cache.GetBonePose(bone, out Vector3 position, out Quaternion rotation))
+            {
+                target.t = position;
+                target.q = ResolveEffectorTransportRotation(cache, bone, rotation, rotationMode);
+            }
+            else
+            {
+                target.t = Vector3.zero;
+                target.q = Quaternion.identity;
+            }
+            switch (index)
+            {
+                case 0: enableMask.leftHandEffector = true; break;
+                case 1: enableMask.rightHandEffector = true; break;
+                case 2: enableMask.leftFootEffector = true; break;
+                case 3: enableMask.rightFootEffector = true; break;
+            }
+        }
+
+        internal static Quaternion ResolveEffectorTransportRotation(
+            SkeletonCache cache,
+            HumanBodyBones bone,
+            Quaternion currentWorld,
+            int rotationMode)
+        {
+            if (cache == null || !cache.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
+            {
+                return currentWorld;
+            }
+
+            if (rotationMode == 1)
+            {
+                // Foot cube rotation is independent of pelvis space. The
+                // consumer reconstructs q-current = q-cube * q-initialFoot.
+                return currentWorld * Quaternion.Inverse(initialWorld);
+            }
+
+            if (cache.skeletonRoot == null)
+            {
+                return currentWorld * Quaternion.Inverse(initialWorld);
+            }
+
+            Quaternion currentInRoot = Quaternion.Inverse(cache.skeletonRoot.rotation) * currentWorld;
+            Quaternion initialInRoot = Quaternion.Inverse(cache.bindSkeletonRootWorldRotation) * initialWorld;
+            // Hand transport rotation is q-current-in-root * inverse(q-initial-in-root).
+            return currentInRoot * Quaternion.Inverse(initialInRoot);
         }
 
         private static KimodoMarkerSampleResult CreateSampleShell(

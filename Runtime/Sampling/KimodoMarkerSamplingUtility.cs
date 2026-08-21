@@ -18,7 +18,10 @@ namespace KimodoBridge
             }
 
             KimodoMarkerSampleResult authored = marker.SampleData;
-            KimodoMarkerSampleResult normalized = authored?.Clone() ?? new KimodoMarkerSampleResult();
+            bool useSampledValues = marker.autoSample;
+            KimodoMarkerSampleResult normalized = useSampledValues && sample != null
+                ? sample.Clone()
+                : authored?.Clone() ?? new KimodoMarkerSampleResult();
             normalized.sampleTime = marker.time;
             normalized.constraintType = "constraint";
             normalized.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
@@ -26,80 +29,14 @@ namespace KimodoBridge
                 : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
             normalized.enabled = marker.constraintEnabled;
             normalized.mask = KimodoConstraintMask.Resolve(authored?.mask, "constraint").Clone();
-            normalized.enableMask.root2DHeading = authored?.enableMask?.root2DHeading == true;
-
-            if (KimodoSampleDataLayout.IsValidLength(sample.sampleData) && sample.enableMask?.Any == true)
+            if (!useSampledValues && sample != null &&
+                KimodoSampleDataLayout.IsValidLength(sample.sampleData))
             {
                 normalized.sampleData = (float[])sample.sampleData.Clone();
-                normalized.enableMask = sample.enableMask?.Clone() ?? new KimodoSampleChannelMask();
-            }
-            else if (KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterAnimationCli.Unity.CharacterPose migratedPose, out _) &&
-                     CharacterPoseMuscleAdapter.TryToSampleData(migratedPose, out float[] migratedData, out _))
-            {
-                normalized.sampleData = migratedData;
-                normalized.enableMask = new KimodoSampleChannelMask
-                {
-                    muscle49 = true,
-                    rootTQ = true,
-                    leftFootTQ = true,
-                    rightFootTQ = true
-                };
             }
             normalized.enableMask ??= new KimodoSampleChannelMask();
             normalized.enableMask.NormalizeDependencies();
-
-            if (marker.autoSample && KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterAnimationCli.Unity.CharacterPose sampledPose, out _))
-            {
-                CharacterAnimationCli.Unity.CharacterPose normalizedPose = KimodoSampleResultPoseUtility.DecodeOrDefault(normalized);
-                switch (marker.ConstraintMode)
-                {
-                    case KimodoConstraintMode.Root2D:
-                        normalizedPose.root = CloneTransform(sampledPose.root);
-                        normalized.enableMask.root2DPosition = true;
-                        normalized.enableMask.root2DHeading = marker.SampleData?.enableMask?.root2DHeading == true;
-                        normalized.root2DOverride = CloneTransform(normalizedPose.root);
-                        break;
-                    case KimodoConstraintMode.Effector:
-                        normalizedPose.muscles = (float[])sampledPose.muscles.Clone();
-                        normalizedPose.root = CloneTransform(sampledPose.root);
-                        CopyUnenabledGoals(normalized, sample, normalized.mask);
-                        break;
-                    default:
-                        normalizedPose.muscles = (float[])sampledPose.muscles.Clone();
-                        normalizedPose.root = CloneTransform(sampledPose.root);
-                        CopyAutoSampleGoals(normalized, sample, normalized.mask, overwriteAll: true);
-                        break;
-                }
-                KimodoSampleResultPoseUtility.TryEncode(normalized, normalizedPose, out _);
-            }
-
             return normalized;
-        }
-
-        private static void CopyUnenabledGoals(
-            KimodoMarkerSampleResult destination,
-            KimodoMarkerSampleResult source,
-            KimodoConstraintMask mask)
-        {
-            CopyAutoSampleGoals(destination, source, mask, overwriteAll: false);
-        }
-
-        private static void CopyAutoSampleGoals(
-            KimodoMarkerSampleResult destination,
-            KimodoMarkerSampleResult source,
-            KimodoConstraintMask mask,
-            bool overwriteAll)
-        {
-            if (!KimodoSampleResultPoseUtility.TryDecode(destination, out CharacterAnimationCli.Unity.CharacterPose destinationPose, out _) ||
-                !KimodoSampleResultPoseUtility.TryDecode(source, out CharacterAnimationCli.Unity.CharacterPose sourcePose, out _)) return;
-            mask ??= new KimodoConstraintMask();
-            if ((overwriteAll || !mask.leftHand) && sourcePose.hands?.left != null) destination.effectors.hands.left = CloneTransform(sourcePose.hands.left);
-            if ((overwriteAll || !mask.rightHand) && sourcePose.hands?.right != null) destination.effectors.hands.right = CloneTransform(sourcePose.hands.right);
-            if ((overwriteAll || !mask.leftFoot) && sourcePose.feet?.left != null) destination.effectors.feet.left = CloneTransform(sourcePose.feet.left);
-            if ((overwriteAll || !mask.rightFoot) && sourcePose.feet?.right != null) destination.effectors.feet.right = CloneTransform(sourcePose.feet.right);
-            destinationPose.hands = new CharacterAnimationCli.Unity.CharacterPoseSides { left = CloneTransform(destination.effectors.hands.left), right = CloneTransform(destination.effectors.hands.right) };
-            destinationPose.feet = new CharacterAnimationCli.Unity.CharacterPoseSides { left = CloneTransform(destination.effectors.feet.left), right = CloneTransform(destination.effectors.feet.right) };
-            KimodoSampleResultPoseUtility.TryEncode(destination, destinationPose, out _);
         }
 
         private static CharacterAnimationCli.Unity.CharacterPoseTransform CloneTransform(

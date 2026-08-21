@@ -2193,14 +2193,10 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                    entry.TargetCache,
-                    out MuscleSample solvedSample,
-                    out _))
-            {
-                DestroyFullBodyTargets(entry);
-                return;
-            }
+            var solvedSample = new KimodoMarkerSampleResult();
+            KimodoRetargetMarkerSamplingUtility.CaptureWorldTargets(
+                entry.TargetCache,
+                solvedSample);
 
             entry.FullBodyTargets ??= new Dictionary<HumanBodyBones, GameObject>();
             KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
@@ -2248,17 +2244,19 @@ namespace KimodoBridge.Editor
                 if (bone == HumanBodyBones.Hips)
                 {
                     target.transform.SetParent(null, true);
-                    if (entry.SourceMarker?.autoSample != false)
+                    if (solvedSample?.enableMask?.root2DPosition == true &&
+                        solvedSample.root2DOverride != null)
                     {
                         target.transform.SetPositionAndRotation(
-                            SkeletonRootWorldPosition(entry.TargetCache, solvedSample.pose.bodyPosition),
-                            SkeletonRootWorldRotation(entry.TargetCache, solvedSample.pose.bodyRotation));
+                            solvedSample.root2DOverride.t,
+                            solvedSample.root2DOverride.q);
                     }
-                    else if (KimodoSampleResultPoseUtility.TryDecode(entry.BaseSample, out CharacterPose basePose, out _))
+                    else if (entry.BaseSample?.enableMask?.root2DPosition == true &&
+                             entry.BaseSample.root2DOverride != null)
                     {
                         target.transform.SetPositionAndRotation(
-                            SkeletonRootWorldPosition(entry.TargetCache, basePose.root.t),
-                            SkeletonRootWorldRotation(entry.TargetCache, basePose.root.q));
+                            entry.BaseSample.root2DOverride.t,
+                            entry.BaseSample.root2DOverride.q);
                     }
                 }
                 else if (entry.SourceMarker?.autoSample == false &&
@@ -2348,7 +2346,8 @@ namespace KimodoBridge.Editor
         private static void UpdateRoot2DTarget(ConstraintPosePreviewEntry entry)
         {
             if (entry?.TargetCache == null ||
-                !KimodoSampleResultPoseUtility.TryDecode(entry.BaseSample, out CharacterPose basePose, out _))
+                entry.BaseSample?.enableMask?.root2DPosition != true ||
+                entry.BaseSample.root2DOverride == null)
             {
                 return;
             }
@@ -2374,8 +2373,8 @@ namespace KimodoBridge.Editor
             if (createdTarget || !target.transform.hasChanged)
             {
                 target.transform.SetPositionAndRotation(
-                    SkeletonRootWorldPosition(entry.TargetCache, basePose.root.t),
-                    SkeletonRootWorldRotation(entry.TargetCache, basePose.root.q));
+                    entry.BaseSample.root2DOverride.t,
+                    entry.BaseSample.root2DOverride.q);
                 target.transform.hasChanged = false;
             }
             target.transform.localScale = Vector3.one * 0.1f;
@@ -2506,30 +2505,30 @@ namespace KimodoBridge.Editor
                 return bodyPart != null ? bodyPart.rotation : Quaternion.identity;
             }
 
-            if (!entry.TargetCache.GetBoneBindWorldRotation(
+            Quaternion transport = KimodoRetargetMarkerSamplingUtility.ResolveEffectorTransportRotation(
+                entry.TargetCache,
+                bone,
+                bodyPart.rotation,
+                bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot ? 1 : 0);
+            if (bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot)
+            {
+                return entry.TargetCache.GetBoneBindWorldRotation(
                     bone,
-                    out Quaternion bindWorldRotation))
-            {
-                return bodyPart.rotation;
+                    out Quaternion initialFoot)
+                    ? (transport * initialFoot).normalized
+                    : transport;
             }
 
-            Transform skeletonRoot = entry.TargetCache.skeletonRoot;
-            if (skeletonRoot == null)
+            Transform root = entry.TargetCache.skeletonRoot;
+            if (root == null ||
+                !entry.TargetCache.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
             {
-                return bodyPart.rotation;
+                return transport;
             }
 
-            // Effector rig transforms are scene/world-space. Compute the current
-            // and bind bone orientations in skeleton-root space first; using
-            // bodyPart.localRotation here mixes parent-bone space with root
-            // space and produces incorrect foot rotations when the pelvis or
-            // skeleton root rotates.
-            Quaternion currentRootRotation = skeletonRoot.rotation;
-            Quaternion currentInRoot = Quaternion.Inverse(currentRootRotation) * bodyPart.rotation;
-            Quaternion bindRootRotation = entry.TargetCache.bindSkeletonRootWorldRotation;
-            Quaternion bindInRoot = Quaternion.Inverse(bindRootRotation) * bindWorldRotation;
-            Quaternion relativeToBind = currentInRoot * Quaternion.Inverse(bindInRoot);
-            return (currentRootRotation * relativeToBind).normalized;
+            Quaternion initialInRoot =
+                Quaternion.Inverse(entry.TargetCache.bindSkeletonRootWorldRotation) * initialWorld;
+            return (root.rotation * transport * initialInRoot).normalized;
         }
 
         private static bool TryApplyEndEffectorTargetToRig(
