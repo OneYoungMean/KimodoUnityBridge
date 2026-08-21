@@ -270,7 +270,7 @@ namespace KimodoBridge.Editor
                 return null;
             }
 
-#if UNITY_6000_5_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
             return EditorUtility.EntityIdToObject(objectId);
 #else
             return EditorUtility.InstanceIDToObject(objectId);

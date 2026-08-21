@@ -31,10 +31,18 @@ namespace KimodoBridge
             Quaternion leftHandRotation = Quaternion.identity;
             Vector3 rightHandPosition = Vector3.zero;
             Quaternion rightHandRotation = Quaternion.identity;
+            Vector3 leftFootPosition = sample.leftFootPosition;
+            Quaternion leftFootRotation = sample.leftFootRotation;
+            Vector3 rightFootPosition = sample.rightFootPosition;
+            Quaternion rightFootRotation = sample.rightFootRotation;
             if (cache != null)
             {
                 cache.GetBonePose(HumanBodyBones.LeftHand, out leftHandPosition, out leftHandRotation);
                 cache.GetBonePose(HumanBodyBones.RightHand, out rightHandPosition, out rightHandRotation);
+                // Protocol effectors are emitted from the FK pose rebuilt from
+                // current muscle data, not from stale authored FootT/Q goals.
+                cache.GetBonePose(HumanBodyBones.LeftFoot, out leftFootPosition, out leftFootRotation);
+                cache.GetBonePose(HumanBodyBones.RightFoot, out rightFootPosition, out rightFootRotation);
             }
 
             var result = new CharacterPose
@@ -51,8 +59,8 @@ namespace KimodoBridge
                 },
                 feet = new CharacterPoseSides
                 {
-                    left = new CharacterPoseTransform { t = sample.leftFootPosition, q = sample.leftFootRotation },
-                    right = new CharacterPoseTransform { t = sample.rightFootPosition, q = sample.rightFootRotation }
+                    left = new CharacterPoseTransform { t = leftFootPosition, q = leftFootRotation },
+                    right = new CharacterPoseTransform { t = rightFootPosition, q = rightFootRotation }
                 }
             };
 

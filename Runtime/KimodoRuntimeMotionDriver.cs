@@ -48,11 +48,6 @@ namespace KimodoBridge
         [SerializeField] private bool allowPartialJoints;
         [SerializeField] private KimodoSegmentTrimTrailSettings segmentTrimTrailSettings = new KimodoSegmentTrimTrailSettings();
 
-        [Header("Foot IK Targets")]
-        [SerializeField] private bool driveFootIkTargets = true;
-        [SerializeField] private string leftFootIkTargetName = "LeftFootIK";
-        [SerializeField] private string rightFootIkTargetName = "RightFootIK";
-
         [Header("Debug")]
         [SerializeField, Tooltip("Editor only. Show the model's profile-skeleton FBX driven by the current source pose.")]
         private bool drawDebugSkeleton;
@@ -79,11 +74,6 @@ namespace KimodoBridge
         public event Action<KimodoRuntimeSegmentReport> SegmentReady;
         public event Action<KimodoRuntimeSegmentReport> SegmentStarted;
         public event Action<KimodoRuntimeSegmentReport> SegmentCompleted;
-        public bool FootIkEnabled
-        {
-            get => driveFootIkTargets;
-            set => driveFootIkTargets = value;
-        }
         public bool DrawDebugSkeleton
         {
             get => drawDebugSkeleton;
@@ -141,9 +131,6 @@ namespace KimodoBridge
                 modelName,
                 ResolveTargetAnimators(),
                 allowPartialJoints,
-                driveFootIkTargets,
-                leftFootIkTargetName,
-                rightFootIkTargetName,
                 verboseLogging,
                 out KimodoRuntimeGeneratedSegment startedSegment,
                 out KimodoRuntimeGeneratedSegment completedSegment,
@@ -191,7 +178,7 @@ namespace KimodoBridge
 
         private void LateUpdate()
         {
-            motionPlayer?.ApplyLateRetargetCorrection(driveFootIkTargets);
+            motionPlayer?.ApplyLateRetargetCorrection();
         }
 
         public void SetAnimationPrompt(string prompt)

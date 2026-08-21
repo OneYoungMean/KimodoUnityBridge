@@ -164,7 +164,7 @@ public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, 
             {
                 sample.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
                     ? "root2d"
-                    : marker.ConstraintMode == KimodoConstraintMode.IK ? "ik" : "fullbody";
+                    : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
                 sample.mask = KimodoConstraintMask.Resolve(marker.SampleData.mask, "constraint").Clone();
             }
             KimodoMarkerSampleResult preview = MergeAutoSampledChannels(marker, sample);
@@ -217,7 +217,7 @@ private static KimodoMarkerSampleResult MergeAutoSampledChannels(
             result.characterPose ??= sampled.characterPose.Clone();
             result.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
                 ? "root2d"
-                : marker.ConstraintMode == KimodoConstraintMode.IK ? "ik" : "fullbody";
+                : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
             if (marker.autoSample)
             {
                 result.characterPose.hands ??= new CharacterPoseSides();

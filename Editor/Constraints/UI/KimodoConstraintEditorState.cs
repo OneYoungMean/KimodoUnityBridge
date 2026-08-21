@@ -42,8 +42,8 @@ namespace KimodoBridge.Editor
                 case KimodoConstraintMode.Root2D:
                     DrawRoot2D(so);
                     break;
-                case KimodoConstraintMode.IK:
-                    DrawIk(so, "ikData");
+                case KimodoConstraintMode.Effector:
+                    DrawEffectors(so, "effectorData");
                     break;
                 default:
                     DrawFullBody(so);
@@ -105,32 +105,32 @@ namespace KimodoBridge.Editor
                 DrawTransform(pose?.FindPropertyRelative("root"), "Pelvis Position / Rotation");
                 DrawMuscleValues(pose?.FindPropertyRelative("muscles"));
             }
-            DrawFullBodyIkTargets(so, IsAutoSample(so));
+            DrawFullBodyEffectors(so, IsAutoSample(so));
             EditorGUILayout.HelpBox(
-                "FullBody always exports its four IK targets with the muscle pose. Dragging a Scene target writes its target data and never rewrites muscles.",
+                "FullBody always exports its four effectors with the muscle pose. Dragging a Scene gizmo writes target data and never rewrites muscles.",
                 MessageType.None);
             EditorGUILayout.EndVertical();
         }
 
-        private static void DrawFullBodyIkTargets(SerializedObject so, bool autoSample)
+        private static void DrawFullBodyEffectors(SerializedObject so, bool autoSample)
         {
-            EditorGUILayout.LabelField("FullBody IK Targets", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("FullBody Effectors", EditorStyles.boldLabel);
             using (new EditorGUI.DisabledScope(autoSample))
             {
-                DrawTransform(so.FindProperty("fullBodyData.ikTargets.hands.left"), "Left Hand Effector");
-                DrawTransform(so.FindProperty("fullBodyData.ikTargets.hands.right"), "Right Hand Effector");
-                DrawTransform(so.FindProperty("fullBodyData.ikTargets.feet.left"), "Left Foot Effector");
-                DrawTransform(so.FindProperty("fullBodyData.ikTargets.feet.right"), "Right Foot Effector");
+                DrawTransform(so.FindProperty("fullBodyData.effectors.hands.left"), "Left Hand Effector");
+                DrawTransform(so.FindProperty("fullBodyData.effectors.hands.right"), "Right Hand Effector");
+                DrawTransform(so.FindProperty("fullBodyData.effectors.feet.left"), "Left Foot Effector");
+                DrawTransform(so.FindProperty("fullBodyData.effectors.feet.right"), "Right Foot Effector");
             }
         }
 
-        private static void DrawIk(SerializedObject so, string root)
+        private static void DrawEffectors(SerializedObject so, string root)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.HelpBox(
-                "IK keeps the last sampled reference pose when Auto Sample is disabled. Only IK target channels are editable.",
+                "Effectors keep the last sampled reference pose when Auto Sample is disabled. Only target channels are editable.",
                 MessageType.None);
-            DrawIkTargetPanels(so, root, "IK Targets", IsAutoSample(so));
+            DrawIkTargetPanels(so, root, "Effectors", IsAutoSample(so));
             EditorGUILayout.EndVertical();
         }
 
@@ -142,19 +142,19 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".ikTargets.hands.left"),
+                so.FindProperty(root + ".effectors.hands.left"),
                 so.FindProperty(root + ".leftHand"),
                 "Left Hand Effector", autoSample);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".ikTargets.hands.right"),
+                so.FindProperty(root + ".effectors.hands.right"),
                 so.FindProperty(root + ".rightHand"),
                 "Right Hand Effector", autoSample);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".ikTargets.feet.left"),
+                so.FindProperty(root + ".effectors.feet.left"),
                 so.FindProperty(root + ".leftFoot"),
                 "Left Foot Effector", autoSample);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".ikTargets.feet.right"),
+                so.FindProperty(root + ".effectors.feet.right"),
                 so.FindProperty(root + ".rightFoot"),
                 "Right Foot Effector", autoSample);
         }

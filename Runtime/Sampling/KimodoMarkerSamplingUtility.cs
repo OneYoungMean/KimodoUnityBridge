@@ -23,7 +23,7 @@ namespace KimodoBridge
             normalized.constraintType = "constraint";
             normalized.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
                 ? "root2d"
-                : marker.ConstraintMode == KimodoConstraintMode.IK ? "ik" : "fullbody";
+                : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
             normalized.mask = KimodoConstraintMask.Resolve(authored?.mask, "constraint").Clone();
             normalized.hasRootHeading = authored != null && authored.hasRootHeading;
 
@@ -47,7 +47,7 @@ namespace KimodoBridge
                         normalized.hasRoot2DOverride = true;
                         normalized.root2DOverride = normalized.characterPose.root;
                         break;
-                    case KimodoConstraintMode.IK:
+                    case KimodoConstraintMode.Effector:
                         normalized.characterPose.muscles = sample.characterPose.muscles != null
                             ? (float[])sample.characterPose.muscles.Clone()
                             : normalized.characterPose.muscles;
@@ -174,7 +174,7 @@ namespace KimodoBridge
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double frameRate)
         {
-            KimodoConstraintSampleResolver.ComposeCharacterPosesAtSameFrame(samples, frameRate);
+            KimodoConstraintSampleComposer.ComposeCharacterPosesAtSameFrame(samples, frameRate);
         }
 
         /// <summary>Expands the single-marker representation into the unchanged
@@ -184,14 +184,14 @@ namespace KimodoBridge
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double frameRate)
         {
-            return KimodoConstraintSampleResolver.ExpandProtocolSamples(samples, frameRate);
+            return KimodoConstraintSampleComposer.ExpandProtocolSamples(samples, frameRate);
         }
 
         public static List<KimodoMarkerSampleResult> MergeAsUnifiedConstraintSamples(
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double frameRate)
         {
-            return KimodoConstraintSampleResolver.MergeAsUnifiedSamples(samples, frameRate);
+            return KimodoConstraintSampleComposer.MergeAsUnifiedSamples(samples, frameRate);
         }
 
         private static void CopyTransform(
@@ -266,7 +266,7 @@ namespace KimodoBridge
             {
                 case KimodoConstraintMode.Root2D:
                     return BuildHighlightJointsForConstraint("root2d", null, modelName);
-                case KimodoConstraintMode.IK:
+                case KimodoConstraintMode.Effector:
                     return BuildHighlightJointsForConstraint(
                         "left-hand",
                         new List<string> { "LeftHand", "RightHand", "LeftFoot", "RightFoot" },

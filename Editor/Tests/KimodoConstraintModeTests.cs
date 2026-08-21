@@ -24,15 +24,15 @@ namespace KimodoBridge.Editor.Tests
                 marker.FullBodyData.pose.muscles[0] = 0.75f;
                 marker.FullBodyData.pose.root.t = new Vector3(4f, 5f, 6f);
 
-                marker.ConstraintMode = KimodoConstraintMode.IK;
-                marker.IkData.leftHand = true;
-                marker.IkData.ikTargets.hands.left.t = new Vector3(7f, 8f, 9f);
+                marker.ConstraintMode = KimodoConstraintMode.Effector;
+                marker.EffectorData.leftHand = true;
+                marker.EffectorData.effectors.hands.left.t = new Vector3(7f, 8f, 9f);
 
                 Assert.That(marker.Root2DData.root.t, Is.EqualTo(new Vector3(1f, 2f, 3f)));
                 Assert.That(marker.Root2DData.allowHeading, Is.False);
                 Assert.That(marker.FullBodyData.pose.muscles[0], Is.EqualTo(0.75f));
                 Assert.That(marker.FullBodyData.pose.root.t, Is.EqualTo(new Vector3(4f, 5f, 6f)));
-                Assert.That(marker.IkData.ikTargets.hands.left.t, Is.EqualTo(new Vector3(7f, 8f, 9f)));
+                Assert.That(marker.EffectorData.effectors.hands.left.t, Is.EqualTo(new Vector3(7f, 8f, 9f)));
             }
             finally
             {
@@ -118,17 +118,17 @@ namespace KimodoBridge.Editor.Tests
             {
                 marker.ConstraintMode = KimodoConstraintMode.FullBody;
                 marker.FullBodyData.pose.muscles[0] = 0.42f;
-                marker.FullBodyData.ikTargets.hands.left.t = new Vector3(1f, 2f, 3f);
+                marker.FullBodyData.effectors.hands.left.t = new Vector3(1f, 2f, 3f);
 
                 KimodoMarkerSampleResult editable = marker.SampleData;
                 editable.characterPose.hands.left.t = new Vector3(4f, 5f, 6f);
                 marker.CommitSampleData();
 
                 Assert.That(marker.FullBodyData.pose.muscles[0], Is.EqualTo(0.42f));
-                Assert.That(marker.FullBodyData.ikTargets.hands.left.t, Is.EqualTo(new Vector3(4f, 5f, 6f)));
+                Assert.That(marker.FullBodyData.effectors.hands.left.t, Is.EqualTo(new Vector3(4f, 5f, 6f)));
                 Assert.That(object.ReferenceEquals(
                     marker.FullBodyData.pose.hands.left,
-                    marker.FullBodyData.ikTargets.hands.left), Is.False);
+                    marker.FullBodyData.effectors.hands.left), Is.False);
             }
             finally
             {
@@ -145,7 +145,7 @@ namespace KimodoBridge.Editor.Tests
                 marker.ConstraintMode = KimodoConstraintMode.FullBody;
                 marker.FullBodyData.pose.muscles[0] = 0.37f;
                 marker.FullBodyData.pose.root.t = new Vector3(2f, 3f, 4f);
-                marker.FullBodyData.ikTargets.hands.left.t = new Vector3(1f, 2f, 3f);
+                marker.FullBodyData.effectors.hands.left.t = new Vector3(1f, 2f, 3f);
 
                 KimodoMarkerSampleResult sample = marker.SampleData;
                 Assert.That(sample.mask.leftHand && sample.mask.rightHand && sample.mask.leftFoot && sample.mask.rightFoot, Is.True);

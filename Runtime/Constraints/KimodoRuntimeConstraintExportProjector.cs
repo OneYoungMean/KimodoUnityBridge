@@ -48,7 +48,6 @@ namespace KimodoBridge
             }
 
             SkeletonCache sourceCache = null;
-            KimodoWorldIkSceneBinder targetBinder = null;
             try
             {
                 if (KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar) &&
@@ -64,11 +63,6 @@ namespace KimodoBridge
                 float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
                 MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToMuscleSample(pose);
                 MuscleSample projectedMuscleSample;
-                bool hasWorldIkTargets = sample.worldIkTargets != null &&
-                    ((mask.leftHand && sample.worldIkTargets.hands?.left != null) ||
-                     (mask.rightHand && sample.worldIkTargets.hands?.right != null) ||
-                     (mask.leftFoot && sample.worldIkTargets.feet?.left != null) ||
-                     (mask.rightFoot && sample.worldIkTargets.feet?.right != null));
                 if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                         sourceSample,
                         frameRate,
@@ -80,37 +74,8 @@ namespace KimodoBridge
                     throw new InvalidOperationException($"Constraint pose projection failed: {error}");
                 }
 
-                if (hasWorldIkTargets)
-                {
-                    KimodoRetargetClipSamplingUtility.HumanoidWorldIkTargets worldTargets =
-                        ConvertWorldIkTargetsToTargetAvatarSpace(
-                            sample.worldIkTargets,
-                            sample.sourceRootWorldPose,
-                            sourceCache != null ? sourceCache.humanScale : 1f,
-                            cache,
-                            projectedMuscleSample,
-                            mask);
-                    targetBinder = KimodoWorldIkSceneBinder.Create(
-                        worldTargets,
-                        out error);
-                    if (targetBinder == null ||
-                        !KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                            projectedMuscleSample,
-                            frameRate,
-                            cache,
-                            out _,
-                            out projectedMuscleSample,
-                            out error,
-                            solveLeftHandIk: mask.leftHand,
-                            solveRightHandIk: mask.rightHand,
-                            applyFootIk: mask.leftFoot || mask.rightFoot,
-                            solveLeftFootIk: mask.leftFoot,
-                            solveRightFootIk: mask.rightFoot,
-                            sceneTargets: targetBinder.Targets))
-                    {
-                        throw new InvalidOperationException($"Constraint pose IK solve failed: {error}");
-                    }
-                }
+                // IK/effector values are retained for protocol compatibility only.
+                // Projection deliberately sends the FK pose reconstructed from muscles.
 
                 if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
                         modelName,
@@ -139,60 +104,16 @@ namespace KimodoBridge
                 return new KimodoConstraintProjectedPose
                 {
                     rootPositionMeters = joints[0].position,
-                    localJointAngles = result
+                    localJointAngles = result,
+                    projectedPose = CharacterPoseMuscleAdapter.FromMuscleSample(projectedMuscleSample, cache)
                 };
             }
             finally
             {
                 sourceCache?.Dispose();
-                targetBinder?.Dispose();
                 cache.Dispose();
             }
         }
 
-        private static KimodoRetargetClipSamplingUtility.HumanoidWorldIkTargets ConvertWorldIkTargetsToTargetAvatarSpace(
-            KimodoConstraintIkTargets source,
-            CharacterPoseTransform sourceRoot,
-            float sourceHumanScale,
-            SkeletonCache targetCache,
-            MuscleSample projectedSample,
-            KimodoConstraintMask mask)
-        {
-            var result = new KimodoRetargetClipSamplingUtility.HumanoidWorldIkTargets();
-            if (source == null || targetCache == null || projectedSample?.pose == null) return result;
-            Vector3 sourcePosition = sourceRoot != null ? sourceRoot.t : Vector3.zero;
-            Quaternion sourceRotation = sourceRoot != null ? sourceRoot.q.normalized : Quaternion.identity;
-            float scale = Mathf.Max(1e-6f, targetCache.humanScale) / Mathf.Max(1e-6f, sourceHumanScale);
-            Vector3 targetPosition = projectedSample.pose.bodyPosition * targetCache.humanScale;
-            Quaternion targetRotation = projectedSample.pose.bodyRotation;
-            CopyTarget(source.hands?.left, mask.leftHand, ref result.leftHand, ref result.leftHandPosition, ref result.leftHandRotation,
-                sourcePosition, sourceRotation, scale, targetPosition, targetRotation);
-            CopyTarget(source.hands?.right, mask.rightHand, ref result.rightHand, ref result.rightHandPosition, ref result.rightHandRotation,
-                sourcePosition, sourceRotation, scale, targetPosition, targetRotation);
-            CopyTarget(source.feet?.left, mask.leftFoot, ref result.leftFoot, ref result.leftFootPosition, ref result.leftFootRotation,
-                sourcePosition, sourceRotation, scale, targetPosition, targetRotation);
-            CopyTarget(source.feet?.right, mask.rightFoot, ref result.rightFoot, ref result.rightFootPosition, ref result.rightFootRotation,
-                sourcePosition, sourceRotation, scale, targetPosition, targetRotation);
-            return result;
-        }
-
-        private static void CopyTarget(
-            CharacterPoseTransform source,
-            bool enabled,
-            ref bool targetEnabled,
-            ref Vector3 targetPosition,
-            ref Quaternion targetRotation,
-            Vector3 sourceRootPosition,
-            Quaternion sourceRootRotation,
-            float scale,
-            Vector3 targetRootPosition,
-            Quaternion targetRootRotation)
-        {
-            if (!enabled || source == null) return;
-            Vector3 local = Quaternion.Inverse(sourceRootRotation) * (source.t - sourceRootPosition);
-            targetPosition = targetRootPosition + targetRootRotation * (local * scale);
-            targetRotation = targetRootRotation * (Quaternion.Inverse(sourceRootRotation) * source.q.normalized);
-            targetEnabled = true;
-        }
     }
 }

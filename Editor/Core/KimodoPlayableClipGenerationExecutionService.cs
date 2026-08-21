@@ -1037,7 +1037,7 @@ namespace KimodoBridge.Editor
                     constrainedMotion,
                     baselineRequest.RuntimeTrimStartFrame);
                 KimodoRawMotionData merged;
-                if (!KimodoClipConstraintBakeUtility.TryMergeHumanoidFootIkMotion(
+                if (!KimodoClipConstraintBakeUtility.TryMergeHumanoidFootEffectorMotion(
                         baseline.MotionData,
                         alignedConstraint,
                         clipConstraint.mask,

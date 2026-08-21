@@ -33,7 +33,8 @@ namespace CharacterAnimationCli.Unity
 
     /// <summary>
     /// Canonical Unity pose payload. Its channels have the same meaning as a
-    /// humanoid MuscleClip: 49 body muscles plus Root, Hand and Foot T/Q.
+    /// canonical pose: body muscles plus Root; hand/foot values are effector
+    /// transport channels retained for protocol compatibility.
     /// </summary>
     [Serializable]
     public sealed class CharacterPose

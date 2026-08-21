@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace KimodoBridge
 {
-    internal static class KimodoRetargetHumanoidIkUtility
+    internal static class KimodoRetargetHumanoidPoseUtility
     {
         internal static MuscleSample BuildMuscleSampleFromPose(SkeletonCache cache, HumanPose pose)
         {
@@ -19,8 +19,8 @@ namespace KimodoBridge
             return sample;
         }
 
-        [Obsolete("Use the scene IK target Transform directly.")]
-        internal static Vector3 BonePositionToIkGoalWorldPosition(
+        [Obsolete("IK solving was removed; retained only for serialized/test compatibility.")]
+        internal static Vector3 BonePositionToEffectorWorldPosition(
             Avatar avatar,
             HumanBodyBones bone,
             Vector3 boneWorldPosition,
@@ -32,8 +32,8 @@ namespace KimodoBridge
             return boneWorldPosition + goalWorldRotation * new Vector3(axisLength, 0f, 0f);
         }
 
-        [Obsolete("Use the scene IK target Transform directly.")]
-        internal static Vector3 IkGoalPositionToBoneWorldPosition(
+        [Obsolete("IK solving was removed; retained only for serialized/test compatibility.")]
+        internal static Vector3 EffectorPositionToBoneWorldPosition(
             Avatar avatar,
             HumanBodyBones bone,
             Vector3 goalWorldPosition,
@@ -45,10 +45,9 @@ namespace KimodoBridge
             return goalWorldPosition - goalWorldRotation * new Vector3(axisLength, 0f, 0f);
         }
 
-        // Compatibility math retained for serialized/test readers only. New
-        // solve paths pass scene Transforms directly to TransformSceneHandle.
-        [Obsolete("Use scene IK targets and TransformSceneHandle.")]
-        internal static void WorldToBodyRelativeIkGoal(
+        // Compatibility math retained for serialized/test readers only.
+        [Obsolete("IK solving was removed; retained only for serialized/test compatibility.")]
+        internal static void WorldToBodyRelativeEffector(
             Vector3 bodyPosition,
             Quaternion bodyRotation,
             float humanScale,
@@ -63,8 +62,8 @@ namespace KimodoBridge
             goalRotation = inverseBodyRotation * worldGoalRotation;
         }
 
-        [Obsolete("Use scene IK targets and TransformSceneHandle.")]
-        internal static void BodyRelativeIkGoalToWorld(
+        [Obsolete("IK solving was removed; retained only for serialized/test compatibility.")]
+        internal static void BodyRelativeEffectorToWorld(
             Vector3 bodyPosition,
             Quaternion bodyRotation,
             float humanScale,

@@ -1,5 +1,6 @@
 using TimelineInject;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using System;
 
 namespace KimodoBridge
@@ -24,6 +25,25 @@ namespace KimodoBridge
 
     public static class KimodoUnityObjectIdUtility
     {
+        public static string StableKey(UnityEngine.Object value)
+        {
+            if (value == null) return "0";
+#if UNITY_6000_0_OR_NEWER
+            return value.GetEntityId().ToString();
+#else
+            return value.GetInstanceID().ToString();
+#endif
+        }
+
+        public static ulong GetSceneHandle(Scene scene)
+        {
+#if UNITY_6000_0_OR_NEWER
+            return scene.handle.GetRawData();
+#else
+            return scene.handle >= 0 ? (ulong)scene.handle : 0UL;
+#endif
+        }
+
         public static string NameKey(UnityEngine.Object value)
         {
             return value != null ? value.name ?? string.Empty : string.Empty;
@@ -36,7 +56,7 @@ namespace KimodoBridge
                 return 0;
             }
 
-#if UNITY_6000_5_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
             return value.GetEntityId().GetHashCode();
 #else
             return value.GetInstanceID();

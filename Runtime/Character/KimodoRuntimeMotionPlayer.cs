@@ -13,12 +13,6 @@ namespace KimodoBridge
         private string sourceCacheModelName;
         private Transform sourceRootJoint;
         private Transform sourceHipsBone;
-        private Transform sourceLeftUpperLegBone;
-        private Transform sourceLeftLowerLegBone;
-        private Transform sourceLeftFootBone;
-        private Transform sourceRightUpperLegBone;
-        private Transform sourceRightLowerLegBone;
-        private Transform sourceRightFootBone;
         private Vector3 currentSegmentRootBaseline;
         private Vector3 lastCompletedWorldOffset;
         private KimodoRuntimeGeneratedSegment currentSegment;
@@ -155,9 +149,6 @@ namespace KimodoBridge
             string modelName,
             IReadOnlyList<Animator> targetAnimators,
             bool allowPartialJoints,
-            bool driveFootIkTargets,
-            string leftFootIkTargetName,
-            string rightFootIkTargetName,
             bool verboseLogging,
             out KimodoRuntimeGeneratedSegment startedSegment,
             out KimodoRuntimeGeneratedSegment completedSegment,
@@ -166,8 +157,6 @@ namespace KimodoBridge
             startedSegment = null;
             completedSegment = null;
             error = string.Empty;
-            retargeter.SyncFootIkSetting(driveFootIkTargets, leftFootIkTargetName, rightFootIkTargetName);
-
             if (playing && sourceBinding != null)
             {
                 AdvanceCurrentMotion(deltaTime, out completedSegment, out error);
@@ -184,9 +173,6 @@ namespace KimodoBridge
                         modelName,
                         targetAnimators,
                         allowPartialJoints,
-                        driveFootIkTargets,
-                        leftFootIkTargetName,
-                        rightFootIkTargetName,
                         out error,
                         verboseLogging))
                 {
@@ -208,9 +194,6 @@ namespace KimodoBridge
                         modelName,
                         targetAnimators,
                         allowPartialJoints,
-                        driveFootIkTargets,
-                        leftFootIkTargetName,
-                        rightFootIkTargetName,
                         out error,
                         verboseLogging))
                 {
@@ -221,22 +204,14 @@ namespace KimodoBridge
             }
         }
 
-        public void ApplyLateRetargetCorrection(bool enableFootIk)
+        public void ApplyLateRetargetCorrection()
         {
             if (!playing)
             {
                 return;
             }
 
-            retargeter.ApplyLateCorrection(
-                enableFootIk,
-                sourceHipsBone,
-                sourceLeftUpperLegBone,
-                sourceLeftLowerLegBone,
-                sourceLeftFootBone,
-                sourceRightUpperLegBone,
-                sourceRightLowerLegBone,
-                sourceRightFootBone);
+            retargeter.ApplyLateCorrection(sourceHipsBone);
         }
 
         public void Stop()
@@ -280,9 +255,6 @@ namespace KimodoBridge
             string modelName,
             IReadOnlyList<Animator> targetAnimators,
             bool allowPartialJoints,
-            bool driveFootIkTargets,
-            string leftFootIkTargetName,
-            string rightFootIkTargetName,
             out string error,
             bool verboseLogging)
         {
@@ -292,9 +264,6 @@ namespace KimodoBridge
                     modelName,
                     targetAnimators,
                     allowPartialJoints,
-                    driveFootIkTargets,
-                    leftFootIkTargetName,
-                    rightFootIkTargetName,
                     out error))
             {
                 if (verboseLogging)
@@ -421,12 +390,6 @@ namespace KimodoBridge
         {
             sourceBinding = null;
             sourceHipsBone = null;
-            sourceLeftUpperLegBone = null;
-            sourceLeftLowerLegBone = null;
-            sourceLeftFootBone = null;
-            sourceRightUpperLegBone = null;
-            sourceRightLowerLegBone = null;
-            sourceRightFootBone = null;
             sourceCache?.Dispose();
             sourceCache = null;
             sourceCacheModelName = null;
@@ -437,17 +400,11 @@ namespace KimodoBridge
             string modelName,
             IReadOnlyList<Animator> targetAnimators,
             bool allowPartialJoints,
-            bool driveFootIkTargets,
-            string leftFootIkTargetName,
-            string rightFootIkTargetName,
             out string error)
         {
             error = string.Empty;
             if (!retargeter.BindTargets(
                     targetAnimators,
-                    driveFootIkTargets,
-                    leftFootIkTargetName,
-                    rightFootIkTargetName,
                     out bool hasTarget,
                     out error))
             {
@@ -495,12 +452,6 @@ namespace KimodoBridge
                 ? sourceBinding.joints[0]
                 : null;
             sourceHipsBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.Hips);
-            sourceLeftUpperLegBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg);
-            sourceLeftLowerLegBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg);
-            sourceLeftFootBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.LeftFoot);
-            sourceRightUpperLegBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
-            sourceRightLowerLegBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
-            sourceRightFootBone = sourceCache.animator.GetBoneTransform(HumanBodyBones.RightFoot);
 
             return true;
         }

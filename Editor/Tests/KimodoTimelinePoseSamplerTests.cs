@@ -468,8 +468,8 @@ namespace KimodoBridge.Editor.Tests
                 }
                 MuscleSample[] sourceSamples =
                 {
-                    KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, firstPose),
-                    KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, secondPose)
+                    KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(cache, firstPose),
+                    KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(cache, secondPose)
                 };
                 int writebackCount = 0;
                 string writebackLabel = string.Empty;
@@ -962,7 +962,7 @@ namespace KimodoBridge.Editor.Tests
             Quaternion worldRotation = Quaternion.Euler(-15f, 81f, 22f);
             float humanScale = 1f;
 
-            KimodoRetargetHumanoidIkUtility.WorldToBodyRelativeIkGoal(
+            KimodoRetargetHumanoidPoseUtility.WorldToBodyRelativeEffector(
                 bodyPosition,
                 bodyRotation,
                 humanScale,
@@ -970,7 +970,7 @@ namespace KimodoBridge.Editor.Tests
                 worldRotation,
                 out Vector3 goalPosition,
                 out Quaternion goalRotation);
-            KimodoRetargetHumanoidIkUtility.BodyRelativeIkGoalToWorld(
+            KimodoRetargetHumanoidPoseUtility.BodyRelativeEffectorToWorld(
                 bodyPosition,
                 bodyRotation,
                 humanScale,
@@ -1024,11 +1024,11 @@ namespace KimodoBridge.Editor.Tests
                         out _,
                         out MuscleSample solved,
                         out error,
-                        solveLeftHandIk: goal == AvatarIKGoal.LeftHand,
-                        solveRightHandIk: goal == AvatarIKGoal.RightHand,
-                        applyFootIk: goal == AvatarIKGoal.LeftFoot || goal == AvatarIKGoal.RightFoot,
-                        solveLeftFootIk: goal == AvatarIKGoal.LeftFoot,
-                        solveRightFootIk: goal == AvatarIKGoal.RightFoot),
+                        includeLeftHandEffector: goal == AvatarIKGoal.LeftHand,
+                        includeRightHandEffector: goal == AvatarIKGoal.RightHand,
+                        includeFootEffectors: goal == AvatarIKGoal.LeftFoot || goal == AvatarIKGoal.RightFoot,
+                        includeLeftFootEffector: goal == AvatarIKGoal.LeftFoot,
+                        includeRightFootEffector: goal == AvatarIKGoal.RightFoot),
                     Is.True,
                     error);
                 Assert.That(solved, Is.Not.Null);
@@ -1085,18 +1085,18 @@ namespace KimodoBridge.Editor.Tests
                 source.rightFootRotation = Quaternion.Euler(-2f, -4f, -6f) * source.rightFootRotation;
 
                 Assert.That(
-                    KimodoRetargetSamplingUtility.TrySolveMuscleSampleOnAvatar(
+                    KimodoRetargetSamplingUtility.TryRebuildPoseFromMuscles(
                         source,
                         KimodoMotionModelProfiles.DefaultFrameRate,
                         cache,
                         out _,
                         out MuscleSample solved,
                         out error,
-                        solveLeftHandIk: true,
-                        solveRightHandIk: true,
-                        applyFootIk: true,
-                        solveLeftFootIk: true,
-                        solveRightFootIk: true),
+                        includeLeftHandEffector: true,
+                        includeRightHandEffector: true,
+                        includeFootEffectors: true,
+                        includeLeftFootEffector: true,
+                        includeRightFootEffector: true),
                     Is.True,
                     error);
 
@@ -1188,7 +1188,7 @@ namespace KimodoBridge.Editor.Tests
                 float rightFkError = Vector3.Distance(
                     target.animator.GetBoneTransform(HumanBodyBones.RightFoot).position,
                     expectedRightPosition);
-                KimodoRetargetHumanoidIkUtility.BodyRelativeIkGoalToWorld(
+                KimodoRetargetHumanoidPoseUtility.BodyRelativeEffectorToWorld(
                     solved.pose.bodyPosition,
                     solved.pose.bodyRotation,
                     target.humanScale,
@@ -1196,7 +1196,7 @@ namespace KimodoBridge.Editor.Tests
                     solved.leftFootRotation,
                     out Vector3 leftGoalWorld,
                     out _);
-                KimodoRetargetHumanoidIkUtility.BodyRelativeIkGoalToWorld(
+                KimodoRetargetHumanoidPoseUtility.BodyRelativeEffectorToWorld(
                     solved.pose.bodyPosition,
                     solved.pose.bodyRotation,
                     target.humanScale,
@@ -1270,7 +1270,7 @@ namespace KimodoBridge.Editor.Tests
                 source.poseHandler.SetHumanPose(ref pose);
                 source.poseHandler.GetHumanPose(ref pose);
 
-                MuscleSample input = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(source, pose);
+                MuscleSample input = KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(source, pose);
                 HumanBodyBones[] handBones = { HumanBodyBones.LeftHand, HumanBodyBones.RightHand };
                 var sourcePositions = new Vector3[handBones.Length];
                 var sourceRotations = new Quaternion[handBones.Length];
@@ -1377,7 +1377,7 @@ namespace KimodoBridge.Editor.Tests
 
                 Quaternion handGoalRotation = hand.rotation *
                     AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(avatar, (int)HumanBodyBones.LeftHand);
-                Vector3 handGoalPosition = KimodoRetargetHumanoidIkUtility.BonePositionToIkGoalWorldPosition(
+                Vector3 handGoalPosition = KimodoRetargetHumanoidPoseUtility.BonePositionToEffectorWorldPosition(
                     avatar,
                     HumanBodyBones.LeftHand,
                     hand.position,
@@ -1396,7 +1396,7 @@ namespace KimodoBridge.Editor.Tests
                     error);
                 handGoalRotation = hand.rotation *
                     AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(avatar, (int)HumanBodyBones.LeftHand);
-                handGoalPosition = KimodoRetargetHumanoidIkUtility.BonePositionToIkGoalWorldPosition(
+                handGoalPosition = KimodoRetargetHumanoidPoseUtility.BonePositionToEffectorWorldPosition(
                     avatar,
                     HumanBodyBones.LeftHand,
                     hand.position,
@@ -1418,7 +1418,7 @@ namespace KimodoBridge.Editor.Tests
                     error);
                 handGoalRotation = hand.rotation *
                     AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(avatar, (int)HumanBodyBones.LeftHand);
-                handGoalPosition = KimodoRetargetHumanoidIkUtility.BonePositionToIkGoalWorldPosition(
+                handGoalPosition = KimodoRetargetHumanoidPoseUtility.BonePositionToEffectorWorldPosition(
                     avatar,
                     HumanBodyBones.LeftHand,
                     hand.position,
@@ -1520,13 +1520,13 @@ namespace KimodoBridge.Editor.Tests
             {
                 var pose = new HumanPose();
                 cache.poseHandler.GetHumanPose(ref pose);
-                MuscleSample before = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, pose);
+                MuscleSample before = KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(cache, pose);
 
                 cache.skeletonRoot.SetPositionAndRotation(
                     new Vector3(7f, 2f, -3f),
                     Quaternion.Euler(0f, 73f, 0f));
                 cache.poseHandler.GetHumanPose(ref pose);
-                MuscleSample after = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, pose);
+                MuscleSample after = KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(cache, pose);
 
                 Assert.That(Vector3.Distance(before.leftFootPosition, after.leftFootPosition), Is.LessThan(1e-5f));
                 Assert.That(Vector3.Distance(before.rightFootPosition, after.rightFootPosition), Is.LessThan(1e-5f));
@@ -1562,7 +1562,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 var pose = new HumanPose();
                 cache.poseHandler.GetHumanPose(ref pose);
-                MuscleSample source = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, pose);
+                MuscleSample source = KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(cache, pose);
                 Vector3 rootOffset = new Vector3(0.25f, 0f, -0.4f);
                 source.pose.bodyPosition += rootOffset / cache.humanScale;
                 HumanPose directPose = source.pose;
@@ -1637,7 +1637,7 @@ namespace KimodoBridge.Editor.Tests
                 cache.poseHandler.GetHumanPose(ref pose);
                 pose.bodyPosition += new Vector3(0.25f, 1f, -0.4f) / cache.humanScale;
                 pose.bodyRotation = Quaternion.Euler(0f, 35f, 0f) * pose.bodyRotation;
-                MuscleSample sample = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, pose);
+                MuscleSample sample = KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(cache, pose);
 
                 cache.skeletonRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
                 HumanPose directPose = sample.pose;
@@ -1812,8 +1812,8 @@ namespace KimodoBridge.Editor.Tests
                     KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(
                         new[]
                         {
-                            KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, sourcePose),
-                            KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, sourcePose)
+                            KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(cache, sourcePose),
+                            KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(cache, sourcePose)
                         },
                         clip,
                         out error),

@@ -58,6 +58,18 @@ namespace TimelineInject
             return true;
         }
 
+        public static void DisablePreview()
+        {
+            var state = TimelineEditor.state;
+            if (state == null || !state.previewMode)
+            {
+                return;
+            }
+
+            state.previewMode = false;
+            TimelineEditor.Refresh(RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+        }
+
         public static GameObject InstantiateForAnimatorPreview(Object original)
         {
             return EditorUtility.InstantiateForAnimatorPreview(original) as GameObject;

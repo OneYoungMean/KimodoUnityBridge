@@ -78,7 +78,7 @@ namespace KimodoBridge
             Transform endEffector = null;
             if (KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(markerType, out HumanBodyBones endEffectorBone))
             {
-                endEffector = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(targetCache, endEffectorBone);
+                endEffector = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(targetCache, endEffectorBone);
             }
 
             if (!KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(

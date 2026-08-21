@@ -35,14 +35,14 @@ namespace KimodoBridge
 
             sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.ForType(constraintType);
-            sample.worldIkTargets ??= new KimodoConstraintIkTargets();
-            sample.worldIkTargets.hands ??= new CharacterPoseSides();
-            sample.worldIkTargets.feet ??= new CharacterPoseSides();
+            sample.effectors ??= new KimodoConstraintEffectors();
+            sample.effectors.hands ??= new CharacterPoseSides();
+            sample.effectors.feet ??= new CharacterPoseSides();
             if (sample.characterPose != null &&
                 KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(constraintType, out HumanBodyBones bone))
             {
-                // IK targets are stored as scene-space rig data. The solve job
-                // later reads the rig Transform through TransformSceneHandle.
+                // Effectors are stored as scene-space transport data. No
+                // intermediate solve reads or mutates the rig transform.
                 float humanScale = player.SourceHumanScale;
                 Vector3 modelGoalPosition = sample.characterPose.root.t * humanScale +
                     Quaternion.Inverse(modelToWorldRotation) *
@@ -64,10 +64,10 @@ namespace KimodoBridge
                     };
                     switch (bone)
                     {
-                        case HumanBodyBones.LeftHand: sample.worldIkTargets.hands.left = target; break;
-                        case HumanBodyBones.RightHand: sample.worldIkTargets.hands.right = target; break;
-                        case HumanBodyBones.LeftFoot: sample.worldIkTargets.feet.left = target; break;
-                        case HumanBodyBones.RightFoot: sample.worldIkTargets.feet.right = target; break;
+                        case HumanBodyBones.LeftHand: sample.effectors.hands.left = target; break;
+                        case HumanBodyBones.RightHand: sample.effectors.hands.right = target; break;
+                        case HumanBodyBones.LeftFoot: sample.effectors.feet.left = target; break;
+                        case HumanBodyBones.RightFoot: sample.effectors.feet.right = target; break;
                     }
                 }
             }

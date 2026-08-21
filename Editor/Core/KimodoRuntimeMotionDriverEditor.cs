@@ -24,7 +24,6 @@ namespace KimodoBridge.Editor
         private SerializedProperty diffusionSteps;
         private SerializedProperty randomSeed;
         private SerializedProperty seed;
-        private SerializedProperty driveFootIkTargets;
         private SerializedProperty drawDebugSkeleton;
         private SerializedProperty verboseLogging;
 
@@ -45,7 +44,6 @@ namespace KimodoBridge.Editor
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
             randomSeed = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("fixedSeed");
-            driveFootIkTargets = serializedObject.FindProperty("driveFootIkTargets");
             drawDebugSkeleton = serializedObject.FindProperty("drawDebugSkeleton");
             verboseLogging = serializedObject.FindProperty("verboseLogging");
         }
@@ -118,31 +116,8 @@ namespace KimodoBridge.Editor
             }
             KimodoGenerationInspectorGui.DrawDiffusionSteps(diffusionSteps, modelName);
             KimodoGenerationInspectorGui.DrawSeed(randomSeed, seed);
-            DrawFootIkSetting();
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
-        }
-
-        private void DrawFootIkSetting()
-        {
-            var label = new GUIContent(
-                "Foot IK",
-                "Enable foot target driving and runtime two-bone leg IK correction.");
-            if (!Application.isPlaying)
-            {
-                EditorGUILayout.PropertyField(driveFootIkTargets, label);
-                return;
-            }
-
-            bool previousShowMixedValue = EditorGUI.showMixedValue;
-            EditorGUI.showMixedValue = driveFootIkTargets.hasMultipleDifferentValues;
-            EditorGUI.BeginChangeCheck();
-            bool enabled = EditorGUILayout.Toggle(label, driveFootIkTargets.boolValue);
-            if (EditorGUI.EndChangeCheck())
-            {
-                ForEachSelectedDriver(driver => driver.FootIkEnabled = enabled);
-            }
-            EditorGUI.showMixedValue = previousShowMixedValue;
         }
 
         private void DrawRuntimeControls()

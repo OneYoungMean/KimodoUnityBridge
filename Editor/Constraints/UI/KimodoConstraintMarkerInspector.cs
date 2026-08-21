@@ -20,7 +20,8 @@ namespace KimodoBridge.Editor
         {
             if (muscles == null || !muscles.isArray) return;
 
-            string foldoutKey = muscles.serializedObject.targetObject.GetInstanceID() + ":" + muscles.propertyPath;
+            string foldoutKey = KimodoUnityObjectIdUtility.StableKey(
+                muscles.serializedObject.targetObject) + ":" + muscles.propertyPath;
             FoldoutStates.TryGetValue(foldoutKey, out bool expanded);
             expanded = EditorGUILayout.Foldout(expanded, "Muscle Values", true);
             FoldoutStates[foldoutKey] = expanded;

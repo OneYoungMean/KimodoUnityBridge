@@ -28,7 +28,7 @@ namespace KimodoBridge.Editor
         private bool refreshSceneAfterDrag;
         private bool invalidContext;
         private string invalidContextError;
-        private int editSceneHandle;
+        private ulong editSceneHandle;
         private bool editSceneCaptured;
         [SerializeField] private HumanBodyBones selectedFullBodyTarget = HumanBodyBones.LastBone;
         private Vector2 scroll;
@@ -188,6 +188,7 @@ namespace KimodoBridge.Editor
                 KimodoConstraintPoseCache.DestroyContext(restoreContext);
             }
             RestoreTimelineWindowLock();
+            KimodoTimelinePreviewRefreshUtility.DisablePreview();
             KimodoConstraintSelectionPreviewTool.ForceRefresh();
             SceneView.RepaintAll();
 
@@ -222,7 +223,7 @@ namespace KimodoBridge.Editor
 
         private void OnSceneClosing(Scene scene, bool _)
         {
-            if (editSceneCaptured && scene.handle == editSceneHandle)
+            if (editSceneCaptured && KimodoUnityObjectIdUtility.GetSceneHandle(scene) == editSceneHandle)
             {
                 MarkInvalid("The scene containing the edited character was closed. Reopen the edit window.");
             }
@@ -230,7 +231,7 @@ namespace KimodoBridge.Editor
 
         private void OnActiveSceneChanged(Scene _, Scene next)
         {
-            if (editSceneCaptured && next.handle != editSceneHandle)
+            if (editSceneCaptured && KimodoUnityObjectIdUtility.GetSceneHandle(next) != editSceneHandle)
             {
                 MarkInvalid("The active scene changed while the edit window was open. Reopen the edit window.");
             }
@@ -316,7 +317,7 @@ namespace KimodoBridge.Editor
             }
 
             if (sceneDragActive &&
-                KimodoConstraintPoseCache.HasIkTargetTransformChanges(context, editEntryId))
+                KimodoConstraintPoseCache.HasEffectorTransformChanges(context, editEntryId))
             {
                 if (KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
                         context,
@@ -764,7 +765,7 @@ namespace KimodoBridge.Editor
                 scene = director.gameObject.scene;
             }
 
-            editSceneHandle = scene.handle;
+            editSceneHandle = KimodoUnityObjectIdUtility.GetSceneHandle(scene);
             editSceneCaptured = scene.IsValid();
         }
 
@@ -777,7 +778,8 @@ namespace KimodoBridge.Editor
             }
 
             Scene activeScene = SceneManager.GetActiveScene();
-            if (!activeScene.IsValid() || activeScene.handle != editSceneHandle)
+            if (!activeScene.IsValid() ||
+                KimodoUnityObjectIdUtility.GetSceneHandle(activeScene) != editSceneHandle)
             {
                 error = "The active scene changed while the edit window was open. Reopen the edit window.";
                 return false;

@@ -86,6 +86,9 @@ namespace TimelineInject
     {
         public Vector3 rootPositionMeters;
         public List<Vector3> localJointAngles;
+        // FK pose reconstructed from the current muscle data. Effector values
+        // are exported from this pose, never from authored target gizmos.
+        public CharacterAnimationCli.Unity.CharacterPose projectedPose;
     }
 
     /// <summary>Avatar/retarget data used only while projecting canonical
@@ -207,7 +210,7 @@ namespace TimelineInject
             KimodoConstraintExportContext exportContext)
         {
             return BuildConstraints(
-                KimodoConstraintSampleResolver.ExpandProtocolSamples(samples, DefaultExportFps),
+                KimodoConstraintSampleComposer.ExpandProtocolSamples(samples, DefaultExportFps),
                 exportContext ?? throw new ArgumentNullException(nameof(exportContext)),
                 0.0,
                 null,
@@ -285,7 +288,7 @@ namespace TimelineInject
             double exportFps = DefaultExportFps)
         {
             List<KimodoConstraintJson> constraints = BuildConstraints(
-                KimodoConstraintSampleResolver.ExpandProtocolSamples(samples, exportFps),
+                KimodoConstraintSampleComposer.ExpandProtocolSamples(samples, exportFps),
                 exportContext,
                 clipStartSeconds,
                 clipDurationSeconds,
@@ -457,7 +460,19 @@ namespace TimelineInject
             double? clipDurationSeconds,
             double exportFps)
         {
-            if (!TryBuildProjectedProtocolPose(sample, exportContext, out Vector3 rootPositionMeters, out List<Vector3> localAxisAngles, out string error))
+            KimodoConstraintProjectedPose projected = exportContext?.projectedPoseProjector != null
+                ? exportContext.projectedPoseProjector(sample)
+                : null;
+            Vector3 rootPositionMeters;
+            List<Vector3> localAxisAngles;
+            string error;
+            if (projected != null && projected.localJointAngles != null && projected.localJointAngles.Count > 0)
+            {
+                rootPositionMeters = projected.rootPositionMeters;
+                localAxisAngles = projected.localJointAngles;
+                error = string.Empty;
+            }
+            else if (!TryBuildProjectedProtocolPose(sample, exportContext, out rootPositionMeters, out localAxisAngles, out error))
             {
                 throw new InvalidOperationException($"End-effector constraint pose projection failed: {error}");
             }
@@ -482,13 +497,17 @@ namespace TimelineInject
                 }
             };
 
-            CharacterAnimationCli.Unity.CharacterPoseTransform goal = ResolveEndEffectorGoal(sample.characterPose, sample.constraintType);
+            CharacterAnimationCli.Unity.CharacterPoseTransform goal = ResolveEndEffectorGoal(
+                projected?.projectedPose ?? sample.characterPose,
+                sample.constraintType);
             if (goal != null)
             {
-                // Hand/Foot T/Q use Unity's HumanPose body-relative IK-goal
-                // convention. Unity stores body position and IK goals in units
-                // normalized by humanScale; model protocol space uses metres.
-                Vector3 worldTarget = (sample.characterPose.root.t + sample.characterPose.root.q * goal.t) * humanScale;
+                // Hand/foot channels remain protocol-compatible transport data.
+                // They are sourced from the reconstructed FK pose, not an IK solve.
+                CharacterAnimationCli.Unity.CharacterPose pose = projected?.projectedPose ?? sample.characterPose;
+                Vector3 worldTarget = projected?.projectedPose != null
+                    ? goal.t
+                    : (pose.root.t + pose.root.q * goal.t) * humanScale;
                 json.target_positions = new List<float[]> { new[] { -worldTarget.x, worldTarget.y, worldTarget.z } };
             }
 

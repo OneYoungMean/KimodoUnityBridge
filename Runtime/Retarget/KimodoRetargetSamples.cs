@@ -26,16 +26,16 @@ namespace KimodoBridge
         public Vector3 rightFootPosition;
         public Quaternion rightFootRotation;
         // Hand IK targets are scene data and are carried by
-        // KimodoConstraintIkTargets/HumanoidWorldIkTargets. These legacy
+        // KimodoConstraintEffectors/HumanoidEffectors. These legacy
         // fields remain source-compatible for old editor assets only; the
         // sampling and clip pipelines no longer read or write them.
-        [Obsolete("Hand IK targets are scene data; use HumanoidWorldIkTargets.")]
+        [Obsolete("Hand IK targets are scene data; use HumanoidEffectors.")]
         public Vector3 leftHandPosition;
-        [Obsolete("Hand IK targets are scene data; use HumanoidWorldIkTargets.")]
+        [Obsolete("Hand IK targets are scene data; use HumanoidEffectors.")]
         public Quaternion leftHandRotation;
-        [Obsolete("Hand IK targets are scene data; use HumanoidWorldIkTargets.")]
+        [Obsolete("Hand IK targets are scene data; use HumanoidEffectors.")]
         public Vector3 rightHandPosition;
-        [Obsolete("Hand IK targets are scene data; use HumanoidWorldIkTargets.")]
+        [Obsolete("Hand IK targets are scene data; use HumanoidEffectors.")]
         public Quaternion rightHandRotation;
     }
 
@@ -77,7 +77,7 @@ namespace KimodoBridge
 
         public bool TryGetHumanBone(HumanBodyBones bone, out Transform transform)
         {
-            transform = KimodoRetargetHumanoidIkUtility.ResolveHumanBoneTransform(cache, bone);
+            transform = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(cache, bone);
             return transform != null;
         }
 

@@ -7,7 +7,7 @@ namespace TimelineInject
 {
     /// <summary>Runtime-independent canonical constraint composition.  Editor
     /// and runtime convert this result to a rig only at their respective edges.</summary>
-    public static class KimodoConstraintSampleResolver
+    public static class KimodoConstraintSampleComposer
     {
         /// <summary>Returns the effective pose for one unified marker without
         /// mutating its authored FullBody and Root2D data.</summary>
@@ -129,19 +129,19 @@ namespace TimelineInject
             {
                 KimodoMarkerSampleResult root = LastModeSample(group, "root2d");
                 KimodoMarkerSampleResult fullBody = LastModeSample(group, "fullbody");
-                KimodoMarkerSampleResult ik = MergeIkModeSamples(group);
+                KimodoMarkerSampleResult effectorSample = MergeEffectorModeSamples(group);
 
                 if (root != null && fullBody != null)
                 {
                     ApplyRoot2DOverlay(root, fullBody);
                 }
-                if (root != null && ik != null)
+                if (root != null && effectorSample != null)
                 {
-                    ApplyRoot2DOverlay(root, ik);
+                    ApplyRoot2DOverlay(root, effectorSample);
                 }
 
                 // Keep the protocol family separate. A Root2D record remains
-                // an explicit input even when it also overlays FullBody/IK.
+                // an explicit input even when it also overlays FullBody/effector data.
                 if (root != null)
                 {
                     KimodoMarkerSampleResult rootSample = root.Clone();
@@ -157,13 +157,13 @@ namespace TimelineInject
                     output.Add(fullSample);
                 }
 
-                if (ik != null)
+                if (effectorSample != null)
                 {
-                    KimodoConstraintMask mask = KimodoConstraintMask.Resolve(ik.mask, "ik");
-                    AppendModeAwareIk(output, ik, mask.leftHand, "left-hand");
-                    AppendModeAwareIk(output, ik, mask.rightHand, "right-hand");
-                    AppendModeAwareIk(output, ik, mask.leftFoot, "left-foot");
-                    AppendModeAwareIk(output, ik, mask.rightFoot, "right-foot");
+                    KimodoConstraintMask mask = KimodoConstraintMask.Resolve(effectorSample.mask, "effector");
+                    AppendEffectorSample(output, effectorSample, mask.leftHand, "left-hand");
+                    AppendEffectorSample(output, effectorSample, mask.rightHand, "right-hand");
+                    AppendEffectorSample(output, effectorSample, mask.leftFoot, "left-foot");
+                    AppendEffectorSample(output, effectorSample, mask.rightFoot, "right-foot");
                 }
             }
             return output;
@@ -184,42 +184,43 @@ namespace TimelineInject
             return result;
         }
 
-        private static KimodoMarkerSampleResult MergeIkModeSamples(List<KimodoMarkerSampleResult> group)
+        private static KimodoMarkerSampleResult MergeEffectorModeSamples(List<KimodoMarkerSampleResult> group)
         {
             KimodoMarkerSampleResult result = null;
             for (int i = 0; i < group.Count; i++)
             {
                 KimodoMarkerSampleResult source = group[i];
-                if (!string.Equals(source?.constraintMode, "ik", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!string.Equals(source?.constraintMode, "ik", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(source?.constraintMode, "effector", StringComparison.OrdinalIgnoreCase)) continue;
                 if (result == null)
                 {
                     result = source.Clone();
                     continue;
                 }
 
-                KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source.mask, "ik");
+                KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source.mask, "effector");
                 result.mask ??= new KimodoConstraintMask();
-                result.worldIkTargets ??= new KimodoConstraintIkTargets();
-                result.worldIkTargets.hands ??= new CharacterPoseSides();
-                result.worldIkTargets.feet ??= new CharacterPoseSides();
+                result.effectors ??= new KimodoConstraintEffectors();
+                result.effectors.hands ??= new CharacterPoseSides();
+                result.effectors.feet ??= new CharacterPoseSides();
                 if (sourceMask.leftHand)
                 {
-                    result.worldIkTargets.hands.left = source.worldIkTargets?.hands?.left?.Clone();
+                    result.effectors.hands.left = source.effectors?.hands?.left?.Clone();
                     result.mask.leftHand = true;
                 }
                 if (sourceMask.rightHand)
                 {
-                    result.worldIkTargets.hands.right = source.worldIkTargets?.hands?.right?.Clone();
+                    result.effectors.hands.right = source.effectors?.hands?.right?.Clone();
                     result.mask.rightHand = true;
                 }
                 if (sourceMask.leftFoot)
                 {
-                    result.worldIkTargets.feet.left = source.worldIkTargets?.feet?.left?.Clone();
+                    result.effectors.feet.left = source.effectors?.feet?.left?.Clone();
                     result.mask.leftFoot = true;
                 }
                 if (sourceMask.rightFoot)
                 {
-                    result.worldIkTargets.feet.right = source.worldIkTargets?.feet?.right?.Clone();
+                    result.effectors.feet.right = source.effectors?.feet?.right?.Clone();
                     result.mask.rightFoot = true;
                 }
                 if (source.characterPose != null && result.characterPose != null)
@@ -232,7 +233,7 @@ namespace TimelineInject
             return result;
         }
 
-        private static void AppendModeAwareIk(
+        private static void AppendEffectorSample(
             List<KimodoMarkerSampleResult> output,
             KimodoMarkerSampleResult source,
             bool enabled,
@@ -348,20 +349,20 @@ namespace TimelineInject
             merged.constraintType = "constraint";
             merged.mask = mask;
             merged.hasRootHeading = hasHeading;
-            merged.worldIkTargets ??= new KimodoConstraintIkTargets();
+            merged.effectors ??= new KimodoConstraintEffectors();
             for (int i = 0; i < group.Count; i++)
             {
                 KimodoMarkerSampleResult source = group[i];
                 KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source?.mask, source?.constraintType);
-                if (source?.worldIkTargets == null) continue;
-                if (sourceMask.leftHand && source.worldIkTargets.hands?.left != null)
-                    merged.worldIkTargets.hands.left = source.worldIkTargets.hands.left.Clone();
-                if (sourceMask.rightHand && source.worldIkTargets.hands?.right != null)
-                    merged.worldIkTargets.hands.right = source.worldIkTargets.hands.right.Clone();
-                if (sourceMask.leftFoot && source.worldIkTargets.feet?.left != null)
-                    merged.worldIkTargets.feet.left = source.worldIkTargets.feet.left.Clone();
-                if (sourceMask.rightFoot && source.worldIkTargets.feet?.right != null)
-                    merged.worldIkTargets.feet.right = source.worldIkTargets.feet.right.Clone();
+                if (source?.effectors == null) continue;
+                if (sourceMask.leftHand && source.effectors.hands?.left != null)
+                    merged.effectors.hands.left = source.effectors.hands.left.Clone();
+                if (sourceMask.rightHand && source.effectors.hands?.right != null)
+                    merged.effectors.hands.right = source.effectors.hands.right.Clone();
+                if (sourceMask.leftFoot && source.effectors.feet?.left != null)
+                    merged.effectors.feet.left = source.effectors.feet.left.Clone();
+                if (sourceMask.rightFoot && source.effectors.feet?.right != null)
+                    merged.effectors.feet.right = source.effectors.feet.right.Clone();
             }
             CopyRoot2DOverride(group, merged);
             merged.characterPose = hasCanonicalPose
@@ -440,7 +441,7 @@ namespace TimelineInject
             CharacterPose composed = seed?.characterPose?.Clone();
             if (composed == null) return new CharacterPose();
 
-            // Root2D modifies only the root transport payload. IK targets are
+            // Root2D modifies only the root transport payload. Effector targets are
             // independent scene-space data and are merged separately.
             CopyRoot2D(samples, composed);
             return composed;

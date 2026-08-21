@@ -7,9 +7,6 @@ namespace KimodoBridge
     internal sealed class KimodoRuntimeHumanoidRetargeter : IDisposable
     {
         private readonly List<TargetState> targets = new List<TargetState>();
-        private bool driveFootIk;
-        private string leftFootIkName = string.Empty;
-        private string rightFootIkName = string.Empty;
 
         private sealed class TargetState
         {
@@ -22,12 +19,6 @@ namespace KimodoBridge
             internal Transform RightUpperLegBone;
             internal Transform RightLowerLegBone;
             internal Transform RightFootBone;
-            internal Transform LeftFootIkTarget;
-            internal Transform RightFootIkTarget;
-            internal Vector3 LeftKneePoleLocalDirection;
-            internal Vector3 RightKneePoleLocalDirection;
-            internal bool LeftKneePoleInitialized;
-            internal bool RightKneePoleInitialized;
             internal bool AnimatorWasEnabled;
             internal Quaternion SourceToTargetRotation = Quaternion.identity;
             internal Vector3 SourceHipsAnchorPosition;
@@ -45,16 +36,10 @@ namespace KimodoBridge
 
         internal bool BindTargets(
             IReadOnlyList<Animator> animators,
-            bool enableFootIk,
-            string leftTargetName,
-            string rightTargetName,
             out bool hasTarget,
             out string error)
         {
             DisposeTargets();
-            driveFootIk = enableFootIk;
-            leftFootIkName = leftTargetName ?? string.Empty;
-            rightFootIkName = rightTargetName ?? string.Empty;
             error = string.Empty;
             hasTarget = animators != null && animators.Count > 0;
             if (!hasTarget)
@@ -79,13 +64,6 @@ namespace KimodoBridge
                     return false;
                 }
 
-                ResolveFootIkTargets(
-                    animator.transform,
-                    driveFootIk,
-                    leftFootIkName,
-                    rightFootIkName,
-                    out Transform leftFootIkTarget,
-                    out Transform rightFootIkTarget);
                 var state = new TargetState
                 {
                     Animator = animator,
@@ -97,8 +75,6 @@ namespace KimodoBridge
                     RightUpperLegBone = animator.GetBoneTransform(HumanBodyBones.RightUpperLeg),
                     RightLowerLegBone = animator.GetBoneTransform(HumanBodyBones.RightLowerLeg),
                     RightFootBone = animator.GetBoneTransform(HumanBodyBones.RightFoot),
-                    LeftFootIkTarget = leftFootIkTarget,
-                    RightFootIkTarget = rightFootIkTarget,
                     AnimatorWasEnabled = animator.enabled
                 };
                 animator.enabled = false;
@@ -109,49 +85,11 @@ namespace KimodoBridge
             return hasTarget;
         }
 
-        internal void SyncFootIkSetting(
-            bool enableFootIk,
-            string leftTargetName,
-            string rightTargetName)
-        {
-            string resolvedLeftName = leftTargetName ?? string.Empty;
-            string resolvedRightName = rightTargetName ?? string.Empty;
-            if (driveFootIk == enableFootIk &&
-                string.Equals(leftFootIkName, resolvedLeftName, StringComparison.Ordinal) &&
-                string.Equals(rightFootIkName, resolvedRightName, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            driveFootIk = enableFootIk;
-            leftFootIkName = resolvedLeftName;
-            rightFootIkName = resolvedRightName;
-            for (int i = 0; i < targets.Count; i++)
-            {
-                TargetState state = targets[i];
-                if (state?.Animator == null)
-                {
-                    continue;
-                }
-
-                ResolveFootIkTargets(
-                    state.Animator.transform,
-                    driveFootIk,
-                    leftFootIkName,
-                    rightFootIkName,
-                    out state.LeftFootIkTarget,
-                    out state.RightFootIkTarget);
-            }
-            ResetAnchors();
-        }
-
         internal void ResetAnchors()
         {
             for (int i = 0; i < targets.Count; i++)
             {
                 TargetState state = targets[i];
-                state.LeftKneePoleInitialized = false;
-                state.RightKneePoleInitialized = false;
                 state.RetargetAnchorInitialized = false;
             }
         }
@@ -206,15 +144,7 @@ namespace KimodoBridge
             return true;
         }
 
-        internal void ApplyLateCorrection(
-            bool enableFootIk,
-            Transform sourceHipsBone,
-            Transform sourceLeftUpperLegBone,
-            Transform sourceLeftLowerLegBone,
-            Transform sourceLeftFootBone,
-            Transform sourceRightUpperLegBone,
-            Transform sourceRightLowerLegBone,
-            Transform sourceRightFootBone)
+        internal void ApplyLateCorrection(Transform sourceHipsBone)
         {
             if (sourceHipsBone == null)
             {
@@ -235,118 +165,18 @@ namespace KimodoBridge
                 Vector3 hipsOffset = desiredHipsPosition - state.HipsBone.position;
                 state.Animator.transform.position += new Vector3(hipsOffset.x, 0f, hipsOffset.z);
 
-                if (ShouldSolveFootIk(enableFootIk, state.LeftFootIkTarget))
-                {
-                    SolveTwoBoneLeg(
-                        state.HipsBone,
-                        state.LeftUpperLegBone,
-                        state.LeftLowerLegBone,
-                        state.LeftFootBone,
-                        sourceHipsBone,
-                        sourceLeftUpperLegBone,
-                        sourceLeftLowerLegBone,
-                        sourceLeftFootBone,
-                        TransformSourcePositionForTarget(state, sourceLeftFootBone),
-                        ref state.LeftKneePoleLocalDirection,
-                        ref state.LeftKneePoleInitialized);
-                }
-                if (ShouldSolveFootIk(enableFootIk, state.RightFootIkTarget))
-                {
-                    SolveTwoBoneLeg(
-                        state.HipsBone,
-                        state.RightUpperLegBone,
-                        state.RightLowerLegBone,
-                        state.RightFootBone,
-                        sourceHipsBone,
-                        sourceRightUpperLegBone,
-                        sourceRightLowerLegBone,
-                        sourceRightFootBone,
-                        TransformSourcePositionForTarget(state, sourceRightFootBone),
-                        ref state.RightKneePoleLocalDirection,
-                        ref state.RightKneePoleInitialized);
-                }
             }
         }
-
-        internal static bool ShouldSolveFootIk(bool enabled, Transform ikTarget) =>
-            enabled && ikTarget != null;
 
         public void Dispose()
         {
             DisposeTargets();
-            driveFootIk = false;
-            leftFootIkName = string.Empty;
-            rightFootIkName = string.Empty;
         }
 
-        private void DisposeTargets()
-        {
-            for (int i = 0; i < targets.Count; i++)
-            {
-                targets[i]?.RestoreAnimator();
-            }
-            targets.Clear();
-        }
+        [Obsolete("Foot IK solving was removed; effectors are transport data only.")]
+        internal static bool ShouldSolveFootIk(bool enabled, Transform ikTarget) => false;
 
-        private static void ResolveFootIkTargets(
-            Transform root,
-            bool enabled,
-            string leftName,
-            string rightName,
-            out Transform leftTarget,
-            out Transform rightTarget)
-        {
-            leftTarget = null;
-            rightTarget = null;
-            if (!enabled || root == null)
-            {
-                return;
-            }
-
-            Transform[] transforms = root.GetComponentsInChildren<Transform>(true);
-            for (int i = 0; i < transforms.Length; i++)
-            {
-                Transform candidate = transforms[i];
-                if (leftTarget == null &&
-                    !string.IsNullOrWhiteSpace(leftName) &&
-                    string.Equals(candidate.name, leftName, StringComparison.Ordinal))
-                {
-                    leftTarget = candidate;
-                }
-                if (rightTarget == null &&
-                    !string.IsNullOrWhiteSpace(rightName) &&
-                    string.Equals(candidate.name, rightName, StringComparison.Ordinal))
-                {
-                    rightTarget = candidate;
-                }
-                if (leftTarget != null && rightTarget != null)
-                {
-                    return;
-                }
-            }
-        }
-
-        private static Quaternion ResolvePlanarRotation(Quaternion rotation)
-        {
-            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
-        }
-
-        private static Vector3 TransformSourcePositionForTarget(
-            TargetState state,
-            Transform sourceTransform)
-        {
-            if (state == null || sourceTransform == null)
-            {
-                return Vector3.zero;
-            }
-
-            return state.TargetHipsAnchorPosition + state.SourceToTargetRotation *
-                (sourceTransform.position - state.SourceHipsAnchorPosition);
-        }
-
+        [Obsolete("Foot IK solving was removed; compatibility stub only.")]
         internal static void SolveTwoBoneLeg(
             Transform targetHips,
             Transform upperLeg,
@@ -359,137 +189,25 @@ namespace KimodoBridge
             ref Vector3 previousPoleLocalDirection,
             ref bool poleInitialized)
         {
-            SolveTwoBoneLeg(
-                targetHips,
-                upperLeg,
-                lowerLeg,
-                foot,
-                sourceHips,
-                sourceUpperLeg,
-                sourceLowerLeg,
-                sourceFoot,
-                sourceFoot != null ? sourceFoot.position : Vector3.zero,
-                ref previousPoleLocalDirection,
-                ref poleInitialized);
+            // TODO(IK rewrite): no intermediate IK solve.
         }
 
-        private static void SolveTwoBoneLeg(
-            Transform targetHips,
-            Transform upperLeg,
-            Transform lowerLeg,
-            Transform foot,
-            Transform sourceHips,
-            Transform sourceUpperLeg,
-            Transform sourceLowerLeg,
-            Transform sourceFoot,
-            Vector3 targetFootPosition,
-            ref Vector3 previousPoleLocalDirection,
-            ref bool poleInitialized)
+        private void DisposeTargets()
         {
-            if (targetHips == null || upperLeg == null || lowerLeg == null || foot == null || sourceFoot == null)
+            for (int i = 0; i < targets.Count; i++)
             {
-                return;
+                targets[i]?.RestoreAnimator();
             }
-
-            Vector3 upperPosition = upperLeg.position;
-            Vector3 upperToLower = lowerLeg.position - upperPosition;
-            Vector3 lowerToFoot = foot.position - lowerLeg.position;
-            float upperLength = upperToLower.magnitude;
-            float lowerLength = lowerToFoot.magnitude;
-            if (upperLength <= 1e-5f || lowerLength <= 1e-5f)
-            {
-                return;
-            }
-
-            Vector3 upperToTarget = targetFootPosition - upperPosition;
-            float targetDistance = upperToTarget.magnitude;
-            Vector3 targetDirection = targetDistance > 1e-5f
-                ? upperToTarget / targetDistance
-                : (foot.position - upperPosition).normalized;
-            if (targetDirection.sqrMagnitude <= 1e-8f)
-            {
-                return;
-            }
-
-            float totalLength = upperLength + lowerLength;
-            float minimumReach = Mathf.Abs(upperLength - lowerLength) + 1e-4f;
-            float maximumReach = Mathf.Min(totalLength - 1e-4f, totalLength * 0.995f);
-            if (maximumReach <= minimumReach)
-            {
-                return;
-            }
-
-            float reachableDistance = Mathf.Clamp(targetDistance, minimumReach, maximumReach);
-            Vector3 reachableTarget = upperPosition + targetDirection * reachableDistance;
-            Vector3 previousBendDirection = poleInitialized
-                ? Vector3.ProjectOnPlane(
-                    targetHips.TransformDirection(previousPoleLocalDirection),
-                    targetDirection)
-                : Vector3.zero;
-            Vector3 bendDirection = Vector3.zero;
-            if (sourceHips != null && sourceUpperLeg != null && sourceLowerLeg != null)
-            {
-                Vector3 sourceTargetDirection = sourceFoot.position - sourceUpperLeg.position;
-                Vector3 sourceBendDirection = Vector3.ProjectOnPlane(
-                    sourceLowerLeg.position - sourceUpperLeg.position,
-                    sourceTargetDirection);
-                if (sourceBendDirection.sqrMagnitude > 1e-8f)
-                {
-                    Vector3 sourcePoleLocalDirection =
-                        sourceHips.InverseTransformDirection(sourceBendDirection.normalized);
-                    bendDirection = Vector3.ProjectOnPlane(
-                        targetHips.TransformDirection(sourcePoleLocalDirection),
-                        targetDirection);
-                }
-            }
-            if (bendDirection.sqrMagnitude <= 1e-8f)
-            {
-                bendDirection = previousBendDirection;
-            }
-            if (bendDirection.sqrMagnitude <= 1e-8f)
-            {
-                bendDirection = Vector3.ProjectOnPlane(upperToLower, targetDirection);
-            }
-            if (bendDirection.sqrMagnitude <= 1e-8f)
-            {
-                bendDirection = Vector3.ProjectOnPlane(upperLeg.forward, targetDirection);
-            }
-            if (bendDirection.sqrMagnitude <= 1e-8f)
-            {
-                bendDirection = Vector3.ProjectOnPlane(upperLeg.right, targetDirection);
-            }
-            if (bendDirection.sqrMagnitude <= 1e-8f)
-            {
-                return;
-            }
-            bendDirection.Normalize();
-            if (previousBendDirection.sqrMagnitude > 1e-8f &&
-                Vector3.Dot(bendDirection, previousBendDirection) < 0f)
-            {
-                bendDirection = -bendDirection;
-            }
-            previousPoleLocalDirection =
-                targetHips.InverseTransformDirection(bendDirection).normalized;
-            poleInitialized = true;
-
-            float alongTarget =
-                (upperLength * upperLength + reachableDistance * reachableDistance - lowerLength * lowerLength) /
-                (2f * reachableDistance);
-            float awayFromTarget = Mathf.Sqrt(Mathf.Max(0f, upperLength * upperLength - alongTarget * alongTarget));
-            Vector3 desiredLowerPosition =
-                upperPosition + targetDirection * alongTarget + bendDirection * awayFromTarget;
-            Quaternion footWorldRotation = foot.rotation;
-
-            upperLeg.rotation =
-                Quaternion.FromToRotation(upperToLower, desiredLowerPosition - upperPosition) * upperLeg.rotation;
-            Vector3 adjustedLowerToFoot = foot.position - lowerLeg.position;
-            Vector3 adjustedLowerToTarget = reachableTarget - lowerLeg.position;
-            if (adjustedLowerToFoot.sqrMagnitude > 1e-8f && adjustedLowerToTarget.sqrMagnitude > 1e-8f)
-            {
-                lowerLeg.rotation =
-                    Quaternion.FromToRotation(adjustedLowerToFoot, adjustedLowerToTarget) * lowerLeg.rotation;
-            }
-            foot.rotation = footWorldRotation;
+            targets.Clear();
         }
+
+        private static Quaternion ResolvePlanarRotation(Quaternion rotation)
+        {
+            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
+            return forward.sqrMagnitude > 1e-8f
+                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
+                : Quaternion.identity;
+        }
+
     }
 }

@@ -415,7 +415,7 @@ namespace CharacterAnimationCli.Unity.Command
                 },
                 ["rules"] = new JArray
                 {
-                    "At the same frame, fullbody supplies the base pose, root2d overrides RootTQ, and hand/foot constraints override their matching HandTQ or FootTQ.",
+                    "At the same frame, fullbody supplies the base pose, root2d overrides RootTQ, and hand/foot effector channels override their matching protocol fields.",
                     "Use fullbody for a complete pose and root2d when only the root trajectory or heading should be constrained."
                 }
             };
@@ -831,11 +831,11 @@ namespace CharacterAnimationCli.Unity.Command
             if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                     sourceSample, frameRate, targetCache,
                     out BoneSample boneSample, out MuscleSample targetMuscleSample, out string retargetError,
-                    solveLeftHandIk: mask.leftHand,
-                    solveRightHandIk: mask.rightHand,
-                    applyFootIk: mask.leftFoot || mask.rightFoot,
-                    solveLeftFootIk: mask.leftFoot,
-                    solveRightFootIk: mask.rightFoot))
+                    includeLeftHandEffector: mask.leftHand,
+                    includeRightHandEffector: mask.rightHand,
+                    includeFootEffectors: mask.leftFoot || mask.rightFoot,
+                    includeLeftFootEffector: mask.leftFoot,
+                    includeRightFootEffector: mask.rightFoot))
             {
                 throw new InvalidOperationException($"Retarget constraints[{constraintIndex}] failed: {retargetError}");
             }

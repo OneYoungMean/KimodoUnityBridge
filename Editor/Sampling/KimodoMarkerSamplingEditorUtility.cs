@@ -55,14 +55,14 @@ namespace KimodoBridge.Editor
                 normalized.characterPose = sample.characterPose.Clone();
             }
 
-            // Scene edits author IK targets separately from the canonical pose.
+            // Scene edits author effector targets separately from the canonical pose.
             // Normalization starts from the marker payload, so copy the edited
             // world-space targets explicitly or a drag is lost on the next
             // render.
-            if (sample.worldIkTargets != null &&
-                (!marker.autoSample || HasWorldIkTargets(sample.worldIkTargets)))
+            if (sample.effectors != null &&
+                (!marker.autoSample || HasEffectors(sample.effectors)))
             {
-                normalized.worldIkTargets = sample.worldIkTargets.Clone();
+                normalized.effectors = sample.effectors.Clone();
             }
 
             bool changed = !AreSamplesEquivalent(marker.SampleData, normalized);
@@ -115,7 +115,7 @@ namespace KimodoBridge.Editor
             return string.Equals(left.constraintType ?? string.Empty, right.constraintType ?? string.Empty, System.StringComparison.Ordinal) &&
                 string.Equals(left.constraintMode ?? string.Empty, right.constraintMode ?? string.Empty, System.StringComparison.Ordinal) &&
                 string.Equals(CharacterPoseSignature(left), CharacterPoseSignature(right), System.StringComparison.Ordinal) &&
-                string.Equals(WorldIkTargetsSignature(left), WorldIkTargetsSignature(right), System.StringComparison.Ordinal) &&
+                string.Equals(EffectorsSignature(left), EffectorsSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(Root2DOverrideSignature(left), Root2DOverrideSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(MaskSignature(left.mask), MaskSignature(right.mask), System.StringComparison.Ordinal) &&
                 left.hasRootHeading == right.hasRootHeading &&
@@ -134,14 +134,14 @@ namespace KimodoBridge.Editor
                 : string.Empty;
         }
 
-        private static string WorldIkTargetsSignature(KimodoMarkerSampleResult sample)
+        private static string EffectorsSignature(KimodoMarkerSampleResult sample)
         {
-            return sample?.worldIkTargets != null
-                ? JsonUtility.ToJson(sample.worldIkTargets)
+            return sample?.effectors != null
+                ? JsonUtility.ToJson(sample.effectors)
                 : string.Empty;
         }
 
-        private static bool HasWorldIkTargets(KimodoConstraintIkTargets targets)
+        private static bool HasEffectors(KimodoConstraintEffectors targets)
         {
             return targets?.hands?.left != null || targets?.hands?.right != null ||
                 targets?.feet?.left != null || targets?.feet?.right != null;

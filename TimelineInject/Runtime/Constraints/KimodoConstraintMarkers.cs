@@ -39,16 +39,16 @@ namespace TimelineInject
     {
         Root2D = 0,
         FullBody = 1,
-        IK = 2
+        Effector = 2
     }
 
     [Serializable]
-    public sealed class KimodoConstraintIkTargets
+    public class KimodoConstraintEffectors
     {
         public CharacterPoseSides hands = new CharacterPoseSides();
         public CharacterPoseSides feet = new CharacterPoseSides();
 
-        public KimodoConstraintIkTargets Clone() => new KimodoConstraintIkTargets
+        public KimodoConstraintEffectors Clone() => new KimodoConstraintEffectors
         {
             hands = hands != null ? hands.Clone() : new CharacterPoseSides(),
             feet = feet != null ? feet.Clone() : new CharacterPoseSides()
@@ -78,35 +78,39 @@ namespace TimelineInject
     [Serializable]
     public sealed class KimodoFullBodyConstraintData
     {
-        // Muscles and root are the authored FullBody source. Its four IK
+        // Muscles and root are the authored FullBody source. Its four effector
         // targets are always active, separate channels; they never write back
         // into the muscle source.
         public CharacterPose pose = new CharacterPose();
-        public KimodoConstraintIkTargets ikTargets = new KimodoConstraintIkTargets();
+        [UnityEngine.Serialization.FormerlySerializedAs("ikTargets")]
+        public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
+
 
         public KimodoFullBodyConstraintData Clone() => new KimodoFullBodyConstraintData
         {
             pose = pose != null ? pose.Clone() : new CharacterPose(),
-            ikTargets = ikTargets != null ? ikTargets.Clone() : new KimodoConstraintIkTargets()
+            effectors = effectors != null ? effectors.Clone() : new KimodoConstraintEffectors()
         };
     }
 
     [Serializable]
-    public sealed class KimodoIkConstraintData
+    public sealed class KimodoEffectorConstraintData
     {
         // The last successful animation sample is retained when Auto Sample
-        // is disabled. IK edits never write back to this reference muscle set.
+        // is disabled. Effector edits never write back to this reference muscle set.
         public CharacterPose referencePose = new CharacterPose();
-        public KimodoConstraintIkTargets ikTargets = new KimodoConstraintIkTargets();
+        [UnityEngine.Serialization.FormerlySerializedAs("ikTargets")]
+        public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
+
         public bool leftHand;
         public bool rightHand;
         public bool leftFoot;
         public bool rightFoot;
 
-        public KimodoIkConstraintData Clone() => new KimodoIkConstraintData
+        public KimodoEffectorConstraintData Clone() => new KimodoEffectorConstraintData
         {
             referencePose = referencePose != null ? referencePose.Clone() : new CharacterPose(),
-            ikTargets = ikTargets != null ? ikTargets.Clone() : new KimodoConstraintIkTargets(),
+            effectors = effectors != null ? effectors.Clone() : new KimodoConstraintEffectors(),
             leftHand = leftHand,
             rightHand = rightHand,
             leftFoot = leftFoot,
@@ -187,10 +191,10 @@ namespace TimelineInject
     public sealed class KimodoMarkerSampleResult
     {
         public CharacterPose characterPose;
-        // IK controls are absolute scene-space targets. They are intentionally
-        // separate from CharacterPose so the solve path cannot interpret them
-        // as legacy body-relative HandT/Q or FootT/Q values.
-        public KimodoConstraintIkTargets worldIkTargets = new KimodoConstraintIkTargets();
+        // Effectors are absolute scene-space transport values. They are kept
+        // separate from the muscle pose; no intermediate solver interprets them.
+        [UnityEngine.Serialization.FormerlySerializedAs("worldIkTargets")]
+        public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
         public CharacterPoseTransform sourceRootWorldPose = new CharacterPoseTransform();
         [NonSerialized]
         public KimodoConstraintRawData rawData;
@@ -210,7 +214,7 @@ namespace TimelineInject
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
         {
             characterPose = characterPose?.Clone(),
-            worldIkTargets = worldIkTargets?.Clone() ?? new KimodoConstraintIkTargets(),
+            effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
             sourceRootWorldPose = sourceRootWorldPose != null
                 ? new CharacterPoseTransform { t = sourceRootWorldPose.t, q = sourceRootWorldPose.q }
                 : new CharacterPoseTransform(),

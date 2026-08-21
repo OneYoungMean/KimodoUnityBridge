@@ -418,7 +418,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 mask = new KimodoConstraintMask { muscle = true, rootPosition = true, rootHeading = true, leftHand = true }
             };
 
-            KimodoMarkerSampleResult resolved = KimodoConstraintSampleResolver.ResolveUnifiedSample(sample);
+            KimodoMarkerSampleResult resolved = KimodoConstraintSampleComposer.ResolveUnifiedSample(sample);
             Assert.That(resolved.characterPose.root.t, Is.EqualTo(new Vector3(8f, 2f, 9f)));
             Vector3 forward = resolved.characterPose.root.q * Vector3.forward;
             Assert.That(Vector3.Angle(Vector3.ProjectOnPlane(forward, Vector3.up), Quaternion.Euler(0f, 140f, 0f) * Vector3.forward), Is.LessThan(1e-4f));
@@ -451,7 +451,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 mask = new KimodoConstraintMask { muscle = true, rootPosition = true, rootHeading = true, leftHand = true }
             };
 
-            KimodoMarkerSampleResult resolved = KimodoConstraintSampleResolver.ResolveUnifiedSample(sample);
+            KimodoMarkerSampleResult resolved = KimodoConstraintSampleComposer.ResolveUnifiedSample(sample);
 
             Assert.That(resolved.characterPose.root.t, Is.EqualTo(new Vector3(8f, 2f, 9f)));
             Assert.That(Quaternion.Angle(sample.characterPose.root.q, Quaternion.Euler(20f, 30f, 10f)), Is.LessThan(1e-4f));
@@ -492,7 +492,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             Assert.That(merged[0].characterPose.root.t, Is.EqualTo(fullBody.root.t));
             Assert.That(merged[0].root2DOverride.t, Is.EqualTo(new Vector3(4f, 0f, 5f)));
             Assert.That(merged[0].hasRoot2DOverride, Is.True);
-            KimodoMarkerSampleResult resolved = KimodoConstraintSampleResolver.ResolveUnifiedSample(merged[0]);
+            KimodoMarkerSampleResult resolved = KimodoConstraintSampleComposer.ResolveUnifiedSample(merged[0]);
             Vector3 expectedWorldHand = fullBody.root.t + fullBody.root.q * leftHand.hands.left.t;
             Vector3 resolvedWorldHand = resolved.characterPose.root.t +
                 resolved.characterPose.root.q * resolved.characterPose.hands.left.t;
@@ -575,7 +575,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 Assert.That(marker.SampleData.mask.leftHand, Is.True);
                 Assert.That(marker.SampleData.mask.rightFoot, Is.True);
                 Assert.That(marker.SampleData.characterPose.hands.left.t, Is.EqualTo(new Vector3(1f, 2f, 3f)));
-                List<KimodoMarkerSampleResult> samples = KimodoConstraintSampleResolver.ExpandProtocolSamples(
+                List<KimodoMarkerSampleResult> samples = KimodoConstraintSampleComposer.ExpandProtocolSamples(
                     new[] { marker.SampleData },
                     30.0);
                 Assert.That(

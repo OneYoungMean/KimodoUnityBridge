@@ -9,33 +9,8 @@ namespace KimodoBridge
 {
     internal static class KimodoRetargetClipSamplingUtility
     {
-        // Serialized constraint payloads keep the enable bit separate from
-        // the scene-space transform.  The animation job never receives these
-        // values; they are materialized as temporary/preview Transforms and
-        // converted to TransformSceneHandles before the playable is created.
-        internal struct HumanoidWorldIkTargets
-        {
-            internal bool leftHand;
-            internal bool rightHand;
-            internal bool leftFoot;
-            internal bool rightFoot;
-            internal Vector3 leftHandPosition;
-            internal Quaternion leftHandRotation;
-            internal Vector3 rightHandPosition;
-            internal Quaternion rightHandRotation;
-            internal Vector3 leftFootPosition;
-            internal Quaternion leftFootRotation;
-            internal Vector3 rightFootPosition;
-            internal Quaternion rightFootRotation;
-
-            internal bool Any => leftHand || rightHand || leftFoot || rightFoot;
-
-        }
-
-        // This is the only object-level target payload accepted by the
-        // sampling pipeline.  HumanoidIkSolveJob receives the handles created
-        // from these Transforms, never the Vector3/Quaternion values above.
-        internal struct HumanoidIkSceneTargets
+        // Compatibility payload retained for callers while IK is rewritten.
+        internal struct HumanoidEffectorSceneTargets
         {
             internal bool leftHand;
             internal bool rightHand;
@@ -49,43 +24,6 @@ namespace KimodoBridge
             internal bool Any => leftHand || rightHand || leftFoot || rightFoot;
         }
 
-        private struct HumanoidIkSceneHandles
-        {
-            internal bool leftHand;
-            internal bool rightHand;
-            internal bool leftFoot;
-            internal bool rightFoot;
-            internal TransformSceneHandle leftHandHandle;
-            internal TransformSceneHandle rightHandHandle;
-            internal TransformSceneHandle leftFootHandle;
-            internal TransformSceneHandle rightFootHandle;
-
-            internal static HumanoidIkSceneHandles Bind(
-                Animator animator,
-                HumanoidIkSceneTargets targets)
-            {
-                return new HumanoidIkSceneHandles
-                {
-                    leftHand = targets.leftHand && targets.leftHandTransform != null,
-                    rightHand = targets.rightHand && targets.rightHandTransform != null,
-                    leftFoot = targets.leftFoot && targets.leftFootTransform != null,
-                    rightFoot = targets.rightFoot && targets.rightFootTransform != null,
-                    leftHandHandle = targets.leftHand && targets.leftHandTransform != null
-                        ? animator.BindSceneTransform(targets.leftHandTransform)
-                        : default,
-                    rightHandHandle = targets.rightHand && targets.rightHandTransform != null
-                        ? animator.BindSceneTransform(targets.rightHandTransform)
-                        : default,
-                    leftFootHandle = targets.leftFoot && targets.leftFootTransform != null
-                        ? animator.BindSceneTransform(targets.leftFootTransform)
-                        : default,
-                    rightFootHandle = targets.rightFoot && targets.rightFootTransform != null
-                        ? animator.BindSceneTransform(targets.rightFootTransform)
-                        : default
-                };
-            }
-        }
-
         internal enum ClipSamplingMode
         {
             Humanoid = 0,
@@ -97,87 +35,6 @@ namespace KimodoBridge
             float sampleTime,
             out TSample sample,
             out string error);
-
-        private struct HumanoidIkSolveJob : IAnimationJob
-        {
-            public bool solveLeftHand;
-            public bool solveRightHand;
-            public bool solveLeftFoot;
-            public bool solveRightFoot;
-            public TransformSceneHandle leftHandTarget;
-            public TransformSceneHandle rightHandTarget;
-            public TransformSceneHandle leftFootTarget;
-            public TransformSceneHandle rightFootTarget;
-
-            public void ProcessRootMotion(AnimationStream stream)
-            {
-            }
-
-            public void ProcessAnimation(AnimationStream stream)
-            {
-                //return;
-                if (!stream.isHumanStream)
-                {
-                    return;
-                }
-
-                AnimationHumanStream human = stream.AsHuman();
-                bool leftHand = TryReadTarget(stream, leftHandTarget, solveLeftHand, out Vector3 leftHandPosition, out Quaternion leftHandRotation);
-                bool rightHand = TryReadTarget(stream, rightHandTarget, solveRightHand, out Vector3 rightHandPosition, out Quaternion rightHandRotation);
-                bool leftFoot = TryReadTarget(stream, leftFootTarget, solveLeftFoot, out Vector3 leftFootPosition, out Quaternion leftFootRotation);
-                bool rightFoot = TryReadTarget(stream, rightFootTarget, solveRightFoot, out Vector3 rightFootPosition, out Quaternion rightFootRotation);
-
-                if (leftHand)
-                {
-                    human.SetGoalPosition(AvatarIKGoal.LeftHand, leftHandPosition);
-                    human.SetGoalRotation(AvatarIKGoal.LeftHand, leftHandRotation);
-                }
-                if (rightHand)
-                {
-                    human.SetGoalPosition(AvatarIKGoal.RightHand, rightHandPosition);
-                    human.SetGoalRotation(AvatarIKGoal.RightHand, rightHandRotation);
-                }
-                if (leftFoot)
-                {
-                    human.SetGoalPosition(AvatarIKGoal.LeftFoot, leftFootPosition);
-                    human.SetGoalRotation(AvatarIKGoal.LeftFoot, leftFootRotation);
-                }
-                if (rightFoot)
-                {
-                    human.SetGoalPosition(AvatarIKGoal.RightFoot, rightFootPosition);
-                    human.SetGoalRotation(AvatarIKGoal.RightFoot, rightFootRotation);
-                }
-
-                human.SetGoalWeightPosition(AvatarIKGoal.LeftHand, leftHand ? 1f : 0f);
-                human.SetGoalWeightRotation(AvatarIKGoal.LeftHand, leftHand ? 1f : 0f);
-                human.SetGoalWeightPosition(AvatarIKGoal.RightHand, rightHand ? 1f : 0f);
-                human.SetGoalWeightRotation(AvatarIKGoal.RightHand, rightHand ? 1f : 0f);
-                human.SetGoalWeightPosition(AvatarIKGoal.LeftFoot, leftFoot ? 1f : 0f);
-                human.SetGoalWeightRotation(AvatarIKGoal.LeftFoot, leftFoot ? 1f : 0f);
-                human.SetGoalWeightPosition(AvatarIKGoal.RightFoot, rightFoot ? 1f : 0f);
-                human.SetGoalWeightRotation(AvatarIKGoal.RightFoot, rightFoot ? 1f : 0f);
-                if (!leftHand && !rightHand && !leftFoot && !rightFoot)
-                {
-                    return;
-                }
-                human.SolveIK();
-            }
-
-            private static bool TryReadTarget(
-                AnimationStream stream,
-                TransformSceneHandle handle,
-                bool enabled,
-                out Vector3 position,
-                out Quaternion rotation)
-            {
-                position = Vector3.zero;
-                rotation = Quaternion.identity;
-                if (!enabled || !handle.IsValid(stream)) return false;
-                position = handle.GetPosition(stream);
-                rotation = handle.GetRotation(stream);
-                return true;
-            }
-        }
 
         internal sealed class ClipSamplingContext : IDisposable
         {
@@ -393,7 +250,7 @@ namespace KimodoBridge
                 : KimodoMotionModelProfiles.DefaultFrameRate;
         }
 
-        internal static bool TryBuildIkClipSamplingContext(
+        internal static bool TryBuildHumanoidClipSamplingContext(
             AnimationClip clip,
             SkeletonCache cache,
             string rootName,
@@ -401,12 +258,13 @@ namespace KimodoBridge
             out ClipSamplingContext context,
             out string error,
             bool applyMotionXToDelta = true,
-            bool solveLeftHandIk = false,
-            bool solveRightHandIk = false,
-            bool solveLeftFootIk = false,
-            bool solveRightFootIk = false,
-            HumanoidIkSceneTargets? sceneTargets = null)
+            bool includeLeftHandEffector = false,
+            bool includeRightHandEffector = false,
+            bool includeLeftFootEffector = false,
+            bool includeRightFootEffector = false,
+            HumanoidEffectorSceneTargets? sceneTargets = null)
         {
+            // TODO(IK rewrite): retain the API for callers, but sample FK only.
             return TryBuildClipSamplingContext(
                 clip,
                 cache,
@@ -415,13 +273,12 @@ namespace KimodoBridge
                 out context,
                 out error,
                 applyMotionXToDelta,
-                applyFootIk: solveLeftFootIk || solveRightFootIk,
-                solveHandIk: solveLeftHandIk || solveRightHandIk,
-                solveLeftHandIk: solveLeftHandIk,
-                solveRightHandIk: solveRightHandIk,
-                solveLeftFootIk: solveLeftFootIk,
-                solveRightFootIk: solveRightFootIk,
-                sceneTargets: sceneTargets);
+                includeFootEffectors: false,
+                includeLeftHandEffector: false,
+                includeRightHandEffector: false,
+                includeLeftFootEffector: false,
+                includeRightFootEffector: false,
+                sceneTargets: null);
         }
 
         internal static bool TryBuildClipSamplingContext(
@@ -432,13 +289,12 @@ namespace KimodoBridge
             out ClipSamplingContext context,
             out string error,
             bool applyMotionXToDelta = true,
-            bool applyFootIk = false,
-            bool solveHandIk = false,
-            bool solveLeftHandIk = false,
-            bool solveRightHandIk = false,
-            bool solveLeftFootIk = false,
-            bool solveRightFootIk = false,
-            HumanoidIkSceneTargets? sceneTargets = null)
+            bool includeFootEffectors = false,
+            bool includeLeftHandEffector = false,
+            bool includeRightHandEffector = false,
+            bool includeLeftFootEffector = false,
+            bool includeRightFootEffector = false,
+            HumanoidEffectorSceneTargets? sceneTargets = null)
         {
             context = null;
             error = string.Empty;
@@ -466,17 +322,7 @@ namespace KimodoBridge
 
                 graph = PlayableGraph.Create(rootName + "Graph");
                 graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
-                HumanoidIkSceneTargets resolvedSceneTargets = sceneTargets ?? default;
-                HumanoidIkSceneHandles sceneHandles = HumanoidIkSceneHandles.Bind(
-                    cache.animator,
-                    resolvedSceneTargets);
-                bool useLeftHandIk = sceneHandles.leftHand;
-                bool useRightHandIk = sceneHandles.rightHand;
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
-                bool solveLeftFoot = sceneHandles.leftFoot;
-                bool solveRightFoot = sceneHandles.rightFoot;
-                // AnimationClipPlayable foot IK is an all-or-nothing switch.
-                // Solve goals in the job below so a disabled side stays untouched.
                 clipPlayable.SetApplyFootIK(false);
                 clipPlayable.SetApplyPlayableIK(false);
                 Playable sourcePlayable = clipPlayable;
@@ -485,28 +331,6 @@ namespace KimodoBridge
                     sourcePlayable = AnimationOffsetPlayableAccess.CreateMotionXToDeltaAndConnect(
                         graph,
                         sourcePlayable);
-                }
-                if (useLeftHandIk || useRightHandIk || solveLeftFoot || solveRightFoot ||
-                    sceneHandles.leftHand || sceneHandles.rightHand ||
-                    sceneHandles.leftFoot || sceneHandles.rightFoot)
-                {
-                    AnimationScriptPlayable ikPlayable = AnimationScriptPlayable.Create(
-                        graph,
-                        new HumanoidIkSolveJob
-                        {
-                            solveLeftHand = useLeftHandIk || sceneHandles.leftHand,
-                            solveRightHand = useRightHandIk || sceneHandles.rightHand,
-                            solveLeftFoot = solveLeftFoot || sceneHandles.leftFoot,
-                            solveRightFoot = solveRightFoot || sceneHandles.rightFoot,
-                            leftHandTarget = sceneHandles.leftHandHandle,
-                            rightHandTarget = sceneHandles.rightHandHandle,
-                            leftFootTarget = sceneHandles.leftFootHandle,
-                            rightFootTarget = sceneHandles.rightFootHandle
-                        },
-                        1);
-                    graph.Connect(sourcePlayable, 0, ikPlayable, 0);
-                    ikPlayable.SetInputWeight(0, 1f);
-                    sourcePlayable = ikPlayable;
                 }
                 AnimationPlayableOutput output = AnimationPlayableOutput.Create(graph, rootName + "Output", cache.animator);
                 output.SetSourcePlayable(sourcePlayable);
@@ -807,12 +631,12 @@ namespace KimodoBridge
             out BoneSample targetSample,
             out MuscleSample targetMuscleSample,
             out string error,
-            bool solveLeftHandIk = false,
-            bool solveRightHandIk = false,
-            bool applyFootIk = false,
-            bool solveLeftFootIk = false,
-            bool solveRightFootIk = false,
-            KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets? sceneTargets = null)
+            bool includeLeftHandEffector = false,
+            bool includeRightHandEffector = false,
+            bool includeFootEffectors = false,
+            bool includeLeftFootEffector = false,
+            bool includeRightFootEffector = false,
+            KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets? sceneTargets = null)
         {
             targetSample = null;
             targetMuscleSample = null;
@@ -828,25 +652,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (sceneTargets.HasValue && sceneTargets.Value.Any)
-            {
-                // The sample and goals already belong to targetCache's Avatar;
-                // solve once there. Cross-Avatar callers must solve on their
-                // source cache before entering the retarget path.
-                return TrySolveMuscleSampleOnAvatar(
-                    sourceSample,
-                    frameRate,
-                    targetCache,
-                    out targetSample,
-                    out targetMuscleSample,
-                    out error,
-                    solveLeftHandIk,
-                    solveRightHandIk,
-                    applyFootIk,
-                    solveLeftFootIk,
-                    solveRightFootIk,
-                    sceneTargets);
-            }
+            // IK targets remain protocol data only; sampling is always FK.
             if (!TryRetargetMuscleSamplesToBoneSamples(
                     new[] { sourceSample },
                     frameRate,
@@ -875,24 +681,22 @@ namespace KimodoBridge
         }
 
         /// <summary>
-        /// Applies a CharacterPose's local IK goals on its own Avatar, then
-        /// captures the solved pose as a transient muscle snapshot.
-        /// The returned sample is transport data only; it never mutates the
-        /// authored CharacterPose or constraint payload.
+        /// Rebuilds a transient FK pose from the current muscle snapshot.
+        /// Effector channels are transport data and are not interpreted here.
         /// </summary>
-        internal static bool TrySolveMuscleSampleOnAvatar(
+        internal static bool TryRebuildPoseFromMuscles(
             MuscleSample sourceSample,
             float frameRate,
             SkeletonCache sourceCache,
             out BoneSample solvedBoneSample,
             out MuscleSample solvedMuscleSample,
             out string error,
-            bool solveLeftHandIk = false,
-            bool solveRightHandIk = false,
-            bool applyFootIk = false,
-            bool solveLeftFootIk = false,
-            bool solveRightFootIk = false,
-            KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets? sceneTargets = null)
+            bool includeLeftHandEffector = false,
+            bool includeRightHandEffector = false,
+            bool includeFootEffectors = false,
+            bool includeLeftFootEffector = false,
+            bool includeRightFootEffector = false,
+            KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets? sceneTargets = null)
         {
             solvedBoneSample = null;
             solvedMuscleSample = null;
@@ -907,7 +711,6 @@ namespace KimodoBridge
                 return false;
             }
 
-            bool shouldSolveIk = sceneTargets.HasValue && sceneTargets.Value.Any;
             var clipSamples = new[] { sourceSample, sourceSample };
             AnimationClip clip = null;
             KimodoRetargetClipSamplingUtility.ClipSamplingContext context = null;
@@ -918,35 +721,19 @@ namespace KimodoBridge
                         frameRate,
                         out clip,
                         out error,
-                        includeFootIkGoals: true))
+                        includeFootIkGoals: false))
                 {
                     return false;
                 }
 
-                KimodoRetargetClipSamplingUtility.HumanoidIkSceneTargets resolvedSceneTargets = sceneTargets ?? default;
-
-                bool builtContext = shouldSolveIk
-                    ? KimodoRetargetClipSamplingUtility.TryBuildIkClipSamplingContext(
-                        clip,
-                        sourceCache,
-                        "KimodoRetarget_SourceIkPoseClip",
-                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
-                        out context,
-                        out error,
-                        applyMotionXToDelta: true,
-                        solveLeftHandIk: solveLeftHandIk,
-                        solveRightHandIk: solveRightHandIk,
-                        solveLeftFootIk: solveLeftFootIk,
-                        solveRightFootIk: solveRightFootIk,
-                        sceneTargets: resolvedSceneTargets)
-                    : KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
-                        clip,
-                        sourceCache,
-                        "KimodoRetarget_SourcePoseClip",
-                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
-                        out context,
-                        out error,
-                        applyMotionXToDelta: true);
+                bool builtContext = KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
+                    clip,
+                    sourceCache,
+                    "KimodoRetarget_SourcePoseClip",
+                    KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
+                    out context,
+                    out error,
+                    applyMotionXToDelta: true);
                 if (!builtContext ||
                     !KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(context, 0f, out error))
                 {
@@ -959,10 +746,9 @@ namespace KimodoBridge
                     return false;
                 }
 
-                // The solved skeleton provides the post-IK muscle pose. IK
-                // targets stay on the caller-owned scene Transforms; they are
-                // never copied into MuscleSample.
-                solvedMuscleSample = CopyIkCurveChannels(sourceSample, solvedPoseSample);
+                // The rebuilt skeleton provides the canonical muscle pose.
+                // Effector targets stay on caller-owned transport channels.
+                solvedMuscleSample = solvedPoseSample;
                 return true;
             }
             finally
@@ -1189,7 +975,7 @@ namespace KimodoBridge
                 var pose = new HumanPose();
                 cache.poseHandler.GetHumanPose(ref pose);
                 KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
-                sample = KimodoRetargetHumanoidIkUtility.BuildMuscleSampleFromPose(cache, pose);
+                sample = KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(cache, pose);
                 return sample != null;
             }
             catch (Exception ex)
@@ -1216,17 +1002,6 @@ namespace KimodoBridge
                     : KimodoRetargetClipWriter.WriteMuscleCurvesWithoutIkGoals,
                 out clip,
                 out error);
-        }
-
-        private static MuscleSample CopyIkCurveChannels(
-            MuscleSample sourceSample,
-            MuscleSample solvedPoseSample)
-        {
-            solvedPoseSample.leftFootPosition = sourceSample.leftFootPosition;
-            solvedPoseSample.leftFootRotation = sourceSample.leftFootRotation;
-            solvedPoseSample.rightFootPosition = sourceSample.rightFootPosition;
-            solvedPoseSample.rightFootRotation = sourceSample.rightFootRotation;
-            return solvedPoseSample;
         }
 
         internal static bool TryCreateTransientBoneClip(

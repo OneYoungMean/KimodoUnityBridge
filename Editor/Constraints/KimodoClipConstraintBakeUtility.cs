@@ -9,7 +9,7 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoClipConstraintBakeUtility
     {
-        internal static bool TryMergeHumanoidFootIkMotion(
+        internal static bool TryMergeHumanoidFootEffectorMotion(
             KimodoRawMotionData baseline,
             KimodoRawMotionData constrained,
             KimodoClipConstraintMask mask,
@@ -107,7 +107,7 @@ namespace KimodoBridge.Editor
                         baseline.FrameRate,
                         out mergedClip,
                         out error) ||
-                    !KimodoRetargetClipSamplingUtility.TryBuildIkClipSamplingContext(
+                    !KimodoRetargetClipSamplingUtility.TryBuildHumanoidClipSamplingContext(
                         mergedClip,
                         cache,
                         "KimodoClipConstraintFootTQOutput",
@@ -115,8 +115,8 @@ namespace KimodoBridge.Editor
                         out samplingContext,
                         out error,
                         applyMotionXToDelta: true,
-                        solveLeftFootIk: useLeftFoot,
-                        solveRightFootIk: useRightFoot))
+                        includeLeftFootEffector: useLeftFoot,
+                        includeRightFootEffector: useRightFoot))
                 {
                     return false;
                 }
