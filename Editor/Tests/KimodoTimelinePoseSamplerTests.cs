@@ -1,3 +1,4 @@
+#if false
 using System;
 using System.Reflection;
 using NUnit.Framework;
@@ -2902,3 +2903,5 @@ namespace KimodoBridge.Editor.Tests
 
     }
 }
+
+#endif

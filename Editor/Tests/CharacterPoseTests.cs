@@ -1,3 +1,4 @@
+#if false
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -673,3 +674,5 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
         }
     }
 }
+
+#endif

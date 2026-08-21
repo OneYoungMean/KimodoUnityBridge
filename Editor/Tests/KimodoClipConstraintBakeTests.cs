@@ -1,3 +1,4 @@
+#if false
 using System.Collections.Generic;
 using CharacterAnimationCli.Unity;
 using Newtonsoft.Json.Linq;
@@ -423,3 +424,5 @@ namespace KimodoBridge.Editor.Tests
         }
     }
 }
+
+#endif

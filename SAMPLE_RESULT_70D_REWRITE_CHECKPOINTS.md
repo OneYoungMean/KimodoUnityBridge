@@ -199,3 +199,11 @@
 - 已完成：生产代码全量 Unity CLI 编译通过；`git diff --check` 通过；工作树干净。日志：`C:\tmp\unity-compile-final-70d.log`。
 - 当前边界：旧 Editor 测试仍依赖被移除的 `CharacterPose` SampleResult 属性，尚未纳入生产程序集编译；FullDemo EditMode 测试此前报告 `testcasecount=0`，因此不能宣称场景回归已执行。
 - 下一步：在独立测试宿主中重写/屏蔽旧测试，补充 FullBody sampling 和 Generate 场景验证；之后再评估删除 `CharacterPose` 兼容 DTO 文件及内部 `constraintType` 冗余。
+
+## CP25 — 旧测试屏蔽与新结构编译
+
+- 状态：已完成，待提交。
+- 已完成：将依赖已删除 SampleResult 旧字段的 5 个历史测试文件暂时置于 `#if false`，保留新的 70D 测试文件；修正 `KimodoSampleDataTests` 的 Root2D mask 断言。
+- 检查：FullDemo Unity CLI 编译通过，日志：`C:\tmp\unity-compile-tests-screened.log`；`git diff --check` 通过。
+- 说明：这是用户确认的破坏性升级策略下的临时屏蔽，不代表旧行为恢复；后续应基于 `sampleData`/`validMask` 重写这些测试。
+- 下一步：提交 checkpoint，开始执行 FullBody sampling 与 Generate 场景级最小验证。

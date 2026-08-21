@@ -63,7 +63,7 @@ namespace KimodoBridge.Editor.Tests
             sample.mask.rootHeading = true;
             sample.validMask.root2DPosition = true;
             sample.validMask.root2DHeading = true;
-            sample.hasRoot2DOverride = true;
+            sample.validMask.root2DPosition = true;
             sample.root2DOverride.t = new Vector3(3f, 0f, 4f);
 
             var expanded = KimodoConstraintSampleComposer.ExpandProtocolSamples(
