@@ -289,6 +289,7 @@ namespace TimelineInject
         {
             if (sample.validMask == null) sample.validMask = new KimodoSampleChannelMask();
             if (!sample.validMask.Any && sample.characterPose != null &&
+                string.IsNullOrWhiteSpace(sample.constraintMode) &&
                 KimodoSampleDataLayout.TryEncodeCharacterPose(
                     sample.characterPose,
                     out float[] data,

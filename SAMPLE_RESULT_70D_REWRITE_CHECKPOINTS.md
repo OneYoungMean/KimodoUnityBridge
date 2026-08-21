@@ -64,3 +64,11 @@
 - 检查：Unity CLI FullDemo 编译成功，退出码 0。
 - 尚未完成：实际 Humanoid Effector solver；SampleResult 中旧 CharacterPose/rawData/sourceRootWorldPose 字段仍保留为迁移兼容字段。
 - 下一步：提交 CP7。旧字段清理需要同步改造 Exporter、Bake、Preview 和旧测试，不能进行局部删除。
+
+## CP8 — 无效样本迁移保护
+
+- 状态：已完成，待提交。
+- 已完成：Composer 仅在未声明 mode 的旧样本上从 CharacterPose 做兼容迁移；mode-aware 样本即使带有旧 CharacterPose，也不会覆盖显式全 false 的 validMask。
+- 检查：Unity CLI FullDemo 编译成功，退出码 0。
+- 尚未完成：旧字段物理删除和真实 Effector solver。
+- 下一步：提交 CP8；后续如继续清理，应先建立旧字段使用清单和测试屏蔽策略。
