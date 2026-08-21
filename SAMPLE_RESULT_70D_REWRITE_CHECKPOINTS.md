@@ -104,3 +104,11 @@
 - 检查：Unity CLI FullDemo 编译成功，退出码 0。
 - 尚未完成：生产代码仍有大量旧属性访问，需逐步替换为 sampleData/validMask；constraintType 仍参与协议/legacy 分支；真实 Effector solver 未实现。
 - 下一步：提交 CP12；将 Runtime/Command/Preview 的直接 CharacterPose 读取改为统一 sampleData 解码 helper，减少兼容属性调用。
+
+## CP13 — FK 后 Effector 姿势应用
+
+- 状态：已完成，待提交。
+- 已完成：`TrySampleTargetFromSingleMuscleSample` 和 `TryRebuildPoseFromMuscles` 不再静默丢弃 `sceneTargets`；先完成 muscle FK，再按 world position/rotation 成对写入四个目标骨骼，并重新捕获 `BoneSample`/`MuscleSample`。保持 70 维 sampleData 与原协议边界不变。
+- 检查：`git diff --check` 通过；Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-effector-pass.log`。
+- 尚未完成：SampleResult 的 `characterPose` 兼容属性及其生产调用方仍待迁移；`constraintType` 仍保留在协议导出边界；场景级 FullBody/Generate 验证仍待补充。
+- 下一步：迁移并删除 SampleResult 的 obsolete `characterPose`/`hasRoot*` 兼容层，先处理 Runtime/Command/Composer，再处理 Editor 预览和旧测试。

@@ -673,6 +673,18 @@ namespace KimodoBridge
                 return false;
             }
 
+            if (sceneTargets.HasValue && sceneTargets.Value.Any &&
+                !TryApplySceneTargetsToSkeletonCache(targetCache, sceneTargets.Value, out error))
+            {
+                targetSample = null;
+                return false;
+            }
+
+            if (sceneTargets.HasValue && sceneTargets.Value.Any)
+            {
+                targetSample = CaptureBoneSample(targetCache);
+            }
+
             if (!TryCaptureMuscleSample(targetCache, out targetMuscleSample, out error))
             {
                 return false;
@@ -747,8 +759,20 @@ namespace KimodoBridge
                     return false;
                 }
 
-                // The rebuilt skeleton provides the canonical muscle pose.
-                // Effector targets stay on caller-owned transport channels.
+                if (sceneTargets.HasValue && sceneTargets.Value.Any &&
+                    !TryApplySceneTargetsToSkeletonCache(sourceCache, sceneTargets.Value, out error))
+                {
+                    return false;
+                }
+
+                if (sceneTargets.HasValue && sceneTargets.Value.Any &&
+                    !TryCaptureMuscleSample(sourceCache, out solvedPoseSample, out error))
+                {
+                    return false;
+                }
+
+                // The rebuilt skeleton provides the canonical muscle pose after
+                // the optional effector pass.
                 solvedMuscleSample = solvedPoseSample;
                 return true;
             }
@@ -1015,6 +1039,45 @@ namespace KimodoBridge
             validMask.leftFootTQ = true;
             validMask.rightFootTQ = true;
             return true;
+        }
+
+        private static bool TryApplySceneTargetsToSkeletonCache(
+            SkeletonCache cache,
+            KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets targets,
+            out string error)
+        {
+            error = string.Empty;
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(cache, out error))
+            {
+                return false;
+            }
+
+            ApplySceneTarget(cache, HumanBodyBones.LeftHand, targets.leftHand,
+                targets.leftHandTransform);
+            ApplySceneTarget(cache, HumanBodyBones.RightHand, targets.rightHand,
+                targets.rightHandTransform);
+            ApplySceneTarget(cache, HumanBodyBones.LeftFoot, targets.leftFoot,
+                targets.leftFootTransform);
+            ApplySceneTarget(cache, HumanBodyBones.RightFoot, targets.rightFoot,
+                targets.rightFootTransform);
+            return true;
+        }
+
+        private static void ApplySceneTarget(
+            SkeletonCache cache,
+            HumanBodyBones bone,
+            bool enabled,
+            Transform target)
+        {
+            if (!enabled || target == null || cache.humanBoneTransforms == null ||
+                !cache.humanBoneTransforms.TryGetValue(bone, out Transform destination) ||
+                destination == null)
+            {
+                return;
+            }
+
+            destination.SetPositionAndRotation(target.position, target.rotation);
+            destination.hasChanged = true;
         }
 
         internal static bool TryCreateTransientMuscleClip(
