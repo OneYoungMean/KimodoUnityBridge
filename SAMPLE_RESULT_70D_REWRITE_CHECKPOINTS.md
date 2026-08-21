@@ -128,3 +128,11 @@
 - 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-pose-boundary-migration2.log`；`git diff --check` 通过。
 - 尚未完成：Composer、JSON exporter、Command、Preview、Editor sampling 仍有旧属性访问；兼容桥接暂不能删除。
 - 下一步：迁移 Composer 的合成读写，确保 root2d 与 fullbody 的 canonical 结果只从 70 维数据产生。
+
+## CP16 — JSON Exporter 迁移
+
+- 状态：已完成，待提交。
+- 已完成：`KimodoConstraintJsonExporter` 及其 `KimodoConstraintExportContext` 不再读取 SampleResult 的 `characterPose`/`hasRootHeading`；导出前显式从 70 维 `sampleData` 解码临时 pose，Root2D heading 只由 `validMask` 决定；无效 sampleData 直接失败，不再走旧 fallback。
+- 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-exporter-migration.log`；`git diff --check` 通过。
+- 尚未完成：Composer 与 Preview/Command 仍需迁移；兼容 bridge 暂不删除。
+- 下一步：迁移 `KimodoConstraintSampleComposer`，清除其对派生 `characterPose` 的写入，canonical 输出只保留 sampleData/effectors/mask。
