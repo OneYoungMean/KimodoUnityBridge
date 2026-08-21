@@ -23,3 +23,11 @@
 - 检查：`git diff --check` 通过；尚未运行 Unity 编译。
 - 尚未完成：所有旧调用方清理、Composer 的最后创建优先规则、Root2D/Effector 最终解算。
 - 下一步：提交 CP2 后，改造 Composer 的输入/输出和 channel 优先级。
+
+## CP3 — Composer channel 合成
+
+- 状态：已完成，待提交。
+- 已完成：新增 `ComposeCanonicalSamples`；同帧分组；启用状态独立判断；按 `creationOrder` 最后创建优先；channel 级 valid mask；高优先级无效数据不回退；Root2D heading 依赖 position；Effector position/rotation 通过独立 channel 复制。
+- 检查：`git diff --check` 通过；dotnet 生成工程检查受 FullDemo 缺少 NUnit 引用影响，未得到有效 Unity 编译结论。
+- 尚未完成：将现有 Command/Preview/Export 调用切换到新 Composer；统一 FK → Root2D → Effector 解算；Unity 编辑器实际编译。
+- 下一步：提交 CP3 后，迁移主要消费链路，并补充无效 mask 与优先级测试。

@@ -9,6 +9,226 @@ namespace TimelineInject
     /// and runtime convert this result to a rig only at their respective edges.</summary>
     public static class KimodoConstraintSampleComposer
     {
+        /// <summary>
+        /// Composes canonical samples at the same frame. Constraint
+        /// participation is selected by mode, validity by validMask, and the
+        /// last-created enabled constraint owns each participating channel.
+        /// Invalid data never falls back to an older value.
+        /// </summary>
+        public static List<KimodoMarkerSampleResult> ComposeCanonicalSamples(
+            IReadOnlyList<KimodoMarkerSampleResult> samples,
+            double frameRate)
+        {
+            var output = new List<KimodoMarkerSampleResult>();
+            if (samples == null || frameRate <= 0.0)
+            {
+                return output;
+            }
+
+            foreach (List<KimodoMarkerSampleResult> group in GroupByFrame(samples, frameRate).Values)
+            {
+                if (group.Count == 0) continue;
+                var result = new KimodoMarkerSampleResult
+                {
+                    sampleTime = group[group.Count - 1].sampleTime,
+                    constraintType = "constraint",
+                    constraintMode = "mix",
+                    enabled = true
+                };
+                var ordered = new List<KimodoMarkerSampleResult>(group);
+                ordered.Sort(CompareCreationOrder);
+
+                CopyDataChannel(ordered, result, SampleChannel.Muscle49,
+                    KimodoSampleDataLayout.BodyMuscleOffset,
+                    KimodoSampleDataLayout.BodyMuscleCount);
+                CopyDataChannel(ordered, result, SampleChannel.RootTQ,
+                    KimodoSampleDataLayout.RootTqOffset,
+                    KimodoSampleDataLayout.RootTqCount);
+                CopyDataChannel(ordered, result, SampleChannel.LeftFootTQ,
+                    KimodoSampleDataLayout.LeftFootTqOffset,
+                    KimodoSampleDataLayout.FootTqCount);
+                CopyDataChannel(ordered, result, SampleChannel.RightFootTQ,
+                    KimodoSampleDataLayout.RightFootTqOffset,
+                    KimodoSampleDataLayout.FootTqCount);
+
+                KimodoMarkerSampleResult rootPosition = FindLatest(ordered, SampleChannel.Root2DPosition);
+                if (rootPosition != null)
+                {
+                    result.root2DOverride = rootPosition.root2DOverride != null
+                        ? new CharacterPoseTransform
+                        {
+                            t = rootPosition.root2DOverride.t,
+                            q = rootPosition.root2DOverride.q
+                        }
+                        : new CharacterPoseTransform();
+                    result.validMask.root2DPosition = rootPosition.validMask?.root2DPosition == true;
+                }
+
+                KimodoMarkerSampleResult rootHeading = FindLatest(ordered, SampleChannel.Root2DHeading);
+                if (rootHeading != null)
+                {
+                    result.validMask.root2DHeading = result.validMask.root2DPosition &&
+                        rootHeading.validMask?.root2DHeading == true;
+                }
+
+                CopyEffectorChannel(ordered, result, SampleChannel.LeftHandEffector);
+                CopyEffectorChannel(ordered, result, SampleChannel.RightHandEffector);
+                CopyEffectorChannel(ordered, result, SampleChannel.LeftFootEffector);
+                CopyEffectorChannel(ordered, result, SampleChannel.RightFootEffector);
+                result.validMask.NormalizeDependencies();
+                output.Add(result);
+            }
+
+            return output;
+        }
+
+        private enum SampleChannel
+        {
+            Muscle49,
+            RootTQ,
+            LeftFootTQ,
+            RightFootTQ,
+            Root2DPosition,
+            Root2DHeading,
+            LeftHandEffector,
+            RightHandEffector,
+            LeftFootEffector,
+            RightFootEffector
+        }
+
+        private static int CompareCreationOrder(
+            KimodoMarkerSampleResult left,
+            KimodoMarkerSampleResult right)
+        {
+            return left.creationOrder.CompareTo(right.creationOrder);
+        }
+
+        private static KimodoMarkerSampleResult FindLatest(
+            List<KimodoMarkerSampleResult> ordered,
+            SampleChannel channel)
+        {
+            for (int i = ordered.Count - 1; i >= 0; i--)
+            {
+                KimodoMarkerSampleResult sample = ordered[i];
+                if (sample != null && sample.enabled && Participates(sample, channel))
+                {
+                    return sample;
+                }
+            }
+            return null;
+        }
+
+        private static void CopyDataChannel(
+            List<KimodoMarkerSampleResult> ordered,
+            KimodoMarkerSampleResult destination,
+            SampleChannel channel,
+            int offset,
+            int count)
+        {
+            KimodoMarkerSampleResult source = FindLatest(ordered, channel);
+            if (source == null) return;
+            bool valid = source.validMask != null && IsValid(source.validMask, channel);
+            SetValid(destination.validMask, channel, valid);
+            if (!valid || !KimodoSampleDataLayout.IsValidLength(source.sampleData)) return;
+            Array.Copy(source.sampleData, offset, destination.sampleData, offset, count);
+        }
+
+        private static void CopyEffectorChannel(
+            List<KimodoMarkerSampleResult> ordered,
+            KimodoMarkerSampleResult destination,
+            SampleChannel channel)
+        {
+            KimodoMarkerSampleResult source = FindLatest(ordered, channel);
+            if (source == null) return;
+            bool valid = source.validMask != null && IsValid(source.validMask, channel);
+            SetValid(destination.validMask, channel, valid);
+            if (!valid || source.effectors == null) return;
+
+            CharacterPoseTransform sourceTransform = channel switch
+            {
+                SampleChannel.LeftHandEffector => source.effectors.hands?.left,
+                SampleChannel.RightHandEffector => source.effectors.hands?.right,
+                SampleChannel.LeftFootEffector => source.effectors.feet?.left,
+                SampleChannel.RightFootEffector => source.effectors.feet?.right,
+                _ => null
+            };
+            if (sourceTransform == null) return;
+            CharacterPoseSides sides = channel switch
+            {
+                SampleChannel.LeftHandEffector => destination.effectors.hands,
+                SampleChannel.RightHandEffector => destination.effectors.hands,
+                SampleChannel.LeftFootEffector => destination.effectors.feet,
+                SampleChannel.RightFootEffector => destination.effectors.feet,
+                _ => null
+            };
+            if (sides == null) return;
+            CharacterPoseTransform copy = new CharacterPoseTransform
+            {
+                t = sourceTransform.t,
+                q = sourceTransform.q
+            };
+            if (channel == SampleChannel.LeftHandEffector) sides.left = copy;
+            else if (channel == SampleChannel.RightHandEffector) sides.right = copy;
+            else if (channel == SampleChannel.LeftFootEffector) sides.left = copy;
+            else if (channel == SampleChannel.RightFootEffector) sides.right = copy;
+        }
+
+        private static bool Participates(KimodoMarkerSampleResult sample, SampleChannel channel)
+        {
+            string mode = (sample.constraintMode ?? sample.constraintType ?? string.Empty)
+                .Trim().ToLowerInvariant().Replace('_', '-');
+            bool fullBody = mode == "fullbody" || mode == "constraint" || mode == "mix" ||
+                sample.mask?.muscle == true || sample.validMask?.muscle49 == true;
+            bool root2D = mode == "root2d" || mode == "mix" || sample.hasRoot2DOverride ||
+                sample.validMask?.root2DPosition == true;
+            bool effector = mode == "effector" || sample.mask?.AnyEndEffector == true;
+            return channel switch
+            {
+                SampleChannel.Muscle49 => fullBody,
+                SampleChannel.RootTQ => fullBody,
+                SampleChannel.LeftFootTQ => fullBody,
+                SampleChannel.RightFootTQ => fullBody,
+                SampleChannel.Root2DPosition => root2D,
+                SampleChannel.Root2DHeading => root2D,
+                SampleChannel.LeftHandEffector => effector && (sample.mask?.leftHand == true || sample.validMask?.leftHandEffector == true),
+                SampleChannel.RightHandEffector => effector && (sample.mask?.rightHand == true || sample.validMask?.rightHandEffector == true),
+                SampleChannel.LeftFootEffector => effector && (sample.mask?.leftFoot == true || sample.validMask?.leftFootEffector == true),
+                SampleChannel.RightFootEffector => effector && (sample.mask?.rightFoot == true || sample.validMask?.rightFootEffector == true),
+                _ => false
+            };
+        }
+
+        private static bool IsValid(KimodoSampleChannelMask mask, SampleChannel channel) => channel switch
+        {
+            SampleChannel.Muscle49 => mask.muscle49,
+            SampleChannel.RootTQ => mask.rootTQ,
+            SampleChannel.LeftFootTQ => mask.leftFootTQ,
+            SampleChannel.RightFootTQ => mask.rightFootTQ,
+            SampleChannel.Root2DPosition => mask.root2DPosition,
+            SampleChannel.Root2DHeading => mask.root2DHeading,
+            SampleChannel.LeftHandEffector => mask.leftHandEffector,
+            SampleChannel.RightHandEffector => mask.rightHandEffector,
+            SampleChannel.LeftFootEffector => mask.leftFootEffector,
+            SampleChannel.RightFootEffector => mask.rightFootEffector,
+            _ => false
+        };
+
+        private static void SetValid(KimodoSampleChannelMask mask, SampleChannel channel, bool value)
+        {
+            switch (channel)
+            {
+                case SampleChannel.Muscle49: mask.muscle49 = value; break;
+                case SampleChannel.RootTQ: mask.rootTQ = value; break;
+                case SampleChannel.LeftFootTQ: mask.leftFootTQ = value; break;
+                case SampleChannel.RightFootTQ: mask.rightFootTQ = value; break;
+                case SampleChannel.Root2DPosition: mask.root2DPosition = value; break;
+                case SampleChannel.Root2DHeading: mask.root2DHeading = value; break;
+                case SampleChannel.LeftHandEffector: mask.leftHandEffector = value; break;
+                case SampleChannel.RightHandEffector: mask.rightHandEffector = value; break;
+                case SampleChannel.LeftFootEffector: mask.leftFootEffector = value; break;
+                case SampleChannel.RightFootEffector: mask.rightFootEffector = value; break;
+            }
+        }
         /// <summary>Returns the effective pose for one unified marker without
         /// mutating its authored FullBody and Root2D data.</summary>
         public static KimodoMarkerSampleResult ResolveUnifiedSample(KimodoMarkerSampleResult sample)

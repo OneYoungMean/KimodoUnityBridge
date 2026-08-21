@@ -39,7 +39,8 @@ namespace TimelineInject
     {
         Root2D = 0,
         FullBody = 1,
-        Effector = 2
+        Effector = 2,
+        Mix = 3
     }
 
     [Serializable]
@@ -195,6 +196,9 @@ namespace TimelineInject
         public float[] sampleData = KimodoSampleDataLayout.CreateBuffer();
         public KimodoSampleChannelMask validMask = new KimodoSampleChannelMask();
         public bool enabled = true;
+        // Composer uses this as the explicit creation-order tie breaker.
+        // When unset, input order remains the deterministic fallback.
+        public long creationOrder;
 
         public CharacterPose characterPose;
         // Effectors are absolute scene-space transport values. They are kept
@@ -221,6 +225,7 @@ namespace TimelineInject
             sampleData = sampleData != null ? (float[])sampleData.Clone() : KimodoSampleDataLayout.CreateBuffer(),
             validMask = validMask?.Clone() ?? new KimodoSampleChannelMask(),
             enabled = enabled,
+            creationOrder = creationOrder,
             characterPose = characterPose?.Clone(),
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
             sourceRootWorldPose = sourceRootWorldPose != null
