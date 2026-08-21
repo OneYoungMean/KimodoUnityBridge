@@ -301,3 +301,10 @@
 - 已完成：`TryCreateTransientMuscleClip` 改用完整 retarget writer；Preview 与 Runtime Constraint Projection 从 `CharacterPose` 进入 retarget 时改用保留 root/foot transform 的 `ToMuscleSample`，不再清零 rootTQ。
 - 保持：Root2D 仍在 BoneSample 应用后读取目标 Hips world pose并作为后置 override；effector 仍不执行 IK。
 - 检查：Unity 2022.3.62f3c1 CLI 编译成功，日志：`C:\tmp\unity-compile-retarget-70d-roottq.log`；无 C# 编译错误，退出码 0；`git diff --check` 通过。
+
+## CP38 — Root2DOverride 暂停写入虚拟角色
+
+- 已完成：移除 Preview 中 `root2DOverride → skeletonRoot/hips` 的额外 root delta 和 hips 写回；虚拟角色现在只显示既有 retarget 结果。
+- 已完成：FullBody rig 的 Hips gizmo 优先使用 `entry.BaseSample.root2DOverride`，因此 Root2DOverride 仍会输出并绘制到 rig，但不会改变虚拟角色绘制结果。
+- 结论：此前的 root delta 是预览附加变换，不属于 retarget；当前采样/重建链路不再使用该附加层。
+- 检查：Unity 2022.3.62f3c1 CLI 编译成功，日志：`C:\tmp\unity-compile-root-override-display-only.log`；无 C# 编译错误，退出码 0；`git diff --check` 通过。

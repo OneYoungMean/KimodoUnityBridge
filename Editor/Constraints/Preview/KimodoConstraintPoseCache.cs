@@ -150,7 +150,6 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                ApplyRoot2DOverrideToHips(sample, targetCache);
                 return true;
             }
 
@@ -197,51 +196,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            ApplyRoot2DOverrideToHips(sample, targetCache);
             return true;
-        }
-
-        internal static void ApplyRoot2DOverrideToHips(
-            KimodoMarkerSampleResult sample,
-            SkeletonCache targetCache)
-        {
-            if (sample?.enableMask?.root2DPosition != true ||
-                sample.root2DOverride == null ||
-                targetCache == null ||
-                !targetCache.GetBonePose(HumanBodyBones.Hips, out _, out _))
-            {
-                return;
-            }
-
-            Transform hips = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(
-                targetCache,
-                HumanBodyBones.Hips);
-            if (hips == null)
-            {
-                return;
-            }
-
-            Vector3 targetPosition = sample.root2DOverride.t;
-            Quaternion targetRotation = sample.root2DOverride.q.normalized;
-
-            // The payload is the hips world pose, while the visible avatar is
-            // rooted at the cloned Animator transform. Move that root by the
-            // hips delta first so the whole character follows the sampled
-            // world pose; then apply the exact hips world value to remove any
-            // hierarchy/scale residual.
-            Transform skeletonRoot = targetCache.skeletonRoot;
-            if (skeletonRoot != null && skeletonRoot != hips)
-            {
-                Vector3 currentPosition = hips.position;
-                Quaternion currentRotation = hips.rotation;
-                Quaternion deltaRotation = targetRotation * Quaternion.Inverse(currentRotation);
-                Vector3 rootPosition = skeletonRoot.position;
-                skeletonRoot.SetPositionAndRotation(
-                    targetPosition - deltaRotation * (currentPosition - rootPosition),
-                    deltaRotation * skeletonRoot.rotation);
-            }
-
-            hips.SetPositionAndRotation(targetPosition, targetRotation);
         }
 
         internal static bool TryResolveHumanBonePair(
@@ -2175,19 +2130,19 @@ namespace KimodoBridge.Editor
                 if (bone == HumanBodyBones.Hips)
                 {
                     target.transform.SetParent(null, true);
-                    if (solvedSample?.enableMask?.root2DPosition == true &&
-                        solvedSample.root2DOverride != null)
-                    {
-                        target.transform.SetPositionAndRotation(
-                            solvedSample.root2DOverride.t,
-                            solvedSample.root2DOverride.q);
-                    }
-                    else if (entry.BaseSample?.enableMask?.root2DPosition == true &&
+                    if (entry.BaseSample?.enableMask?.root2DPosition == true &&
                              entry.BaseSample.root2DOverride != null)
                     {
                         target.transform.SetPositionAndRotation(
                             entry.BaseSample.root2DOverride.t,
                             entry.BaseSample.root2DOverride.q);
+                    }
+                    else if (solvedSample?.enableMask?.root2DPosition == true &&
+                             solvedSample.root2DOverride != null)
+                    {
+                        target.transform.SetPositionAndRotation(
+                            solvedSample.root2DOverride.t,
+                            solvedSample.root2DOverride.q);
                     }
                 }
                 else if (entry.SourceMarker?.autoSample == false &&
