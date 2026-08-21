@@ -121,39 +121,38 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         {
             constraintType = "constraint",
             constraintMode = ModeProtocolName(constraintMode),
-            sampleTime = Math.Max(0.0, time),
-            hasRootHeading = true
+            sampleTime = Math.Max(0.0, time)
         };
 
+        CharacterPose activePose;
         switch (constraintMode)
         {
             case KimodoConstraintMode.Root2D:
-                activeSampleCache.characterPose = new CharacterPose
+                activePose = new CharacterPose
                 {
                     root = CloneTransform(root2DData.root),
                     hands = new CharacterPoseSides(),
                     feet = new CharacterPoseSides()
                 };
-                activeSampleCache.hasRoot2DOverride = true;
                 activeSampleCache.root2DOverride = CloneTransform(root2DData.root);
-                activeSampleCache.hasRootHeading = root2DData.allowHeading;
+                activeSampleCache.validMask.root2DPosition = true;
+                activeSampleCache.validMask.root2DHeading = root2DData.allowHeading;
                 activeSampleCache.mask = KimodoConstraintMask.ForType("root2d");
                 break;
             case KimodoConstraintMode.Effector:
-                activeSampleCache.characterPose = effectorData.referencePose?.Clone() ?? new CharacterPose();
+                activePose = effectorData.referencePose?.Clone() ?? new CharacterPose();
                 activeSampleCache.effectors = effectorData.effectors?.Clone() ?? new KimodoConstraintEffectors();
                 activeSampleCache.mask = BuildEffectorMask(effectorData);
                 break;
             default:
-                activeSampleCache.characterPose = fullBodyData.pose?.Clone() ?? new CharacterPose();
+                activePose = fullBodyData.pose?.Clone() ?? new CharacterPose();
                 activeSampleCache.effectors = fullBodyData.effectors?.Clone() ?? new KimodoConstraintEffectors();
                 activeSampleCache.mask = BuildFullBodyMask();
                 break;
         }
 
-        if (activeSampleCache.characterPose != null &&
-            KimodoSampleDataLayout.TryEncodeCharacterPose(
-                activeSampleCache.characterPose,
+        if (KimodoSampleDataLayout.TryEncodeCharacterPose(
+                activePose,
                 out float[] sampleData,
                 out _))
         {
@@ -171,13 +170,15 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     {
         if (activeSampleCache == null) return;
         EnsurePayloads();
-        CharacterPose pose = activeSampleCache.characterPose;
-        if (pose == null) return;
+        if (!KimodoSampleResultPoseUtility.TryDecode(
+                activeSampleCache,
+                out CharacterPose pose,
+                out _)) return;
         switch (activeSampleCacheMode)
         {
             case KimodoConstraintMode.Root2D:
                 root2DData.root = CloneTransform(pose.root);
-                root2DData.allowHeading = activeSampleCache.hasRootHeading;
+                root2DData.allowHeading = activeSampleCache.validMask?.root2DHeading == true;
                 break;
             case KimodoConstraintMode.Effector:
                 effectorData.referencePose = pose.Clone();

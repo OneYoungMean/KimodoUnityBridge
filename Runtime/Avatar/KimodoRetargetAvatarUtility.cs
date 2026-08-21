@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CharacterAnimationCli.Unity;
 using TimelineInject;
 using UnityEngine;
 
@@ -559,7 +560,8 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (sample.characterPose == null || !sample.characterPose.TryValidate(out error))
+            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose pose, out error) ||
+                !pose.TryValidate(out error))
             {
                 return false;
             }
@@ -567,12 +569,12 @@ namespace KimodoBridge
             // This transform-map fallback has no HumanPoseHandler, hence it can
             // apply only the canonical root. Full muscle/FK reconstruction uses
             // the Avatar sampling path at its caller.
-            root.position = sample.characterPose.root.t;
-            root.rotation = sample.characterPose.root.q;
+            root.position = pose.root.t;
+            root.rotation = pose.root.q;
             if (TryGetProfileRootJointTransform(nameMap, modelName, out Transform profileRootJoint))
             {
-                profileRootJoint.position = sample.characterPose.root.t;
-                profileRootJoint.rotation = sample.characterPose.root.q;
+                profileRootJoint.position = pose.root.t;
+                profileRootJoint.rotation = pose.root.q;
             }
             return true;
         }

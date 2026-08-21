@@ -34,7 +34,6 @@ namespace KimodoBridge
             {
                 pose = decoded;
             }
-            pose ??= sample?.characterPose;
             string poseError = null;
             if (pose == null || !pose.TryValidate(out poseError))
             {

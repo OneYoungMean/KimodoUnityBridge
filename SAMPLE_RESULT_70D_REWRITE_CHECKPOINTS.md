@@ -120,3 +120,11 @@
 - 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-compat-bridge.log`；`git diff --check` 通过。
 - 尚未完成：编辑器/命令生产调用方仍有旧属性访问；需继续迁移后物理删除桥接。场景级 solver 仍为直接 world 骨骼目标写入，未引入中间 IK 图。
 - 下一步：优先迁移 `KimodoConstraintSampleComposer` 与 JSON exporter，使 canonical 合成完全只读写 70 维 sampleData，再移除兼容属性。
+
+## CP15 — Runtime 采样边界迁移
+
+- 状态：已完成，待提交。
+- 已完成：Runtime marker 创建、runtime constraint sampler、transform-map 应用和 export projector 改用 `KimodoSampleResultPoseUtility`/`sampleData`；新增 marker active payload 的显式 encode/decode，减少对 SampleResult 兼容属性的依赖。
+- 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-pose-boundary-migration2.log`；`git diff --check` 通过。
+- 尚未完成：Composer、JSON exporter、Command、Preview、Editor sampling 仍有旧属性访问；兼容桥接暂不能删除。
+- 下一步：迁移 Composer 的合成读写，确保 root2d 与 fullbody 的 canonical 结果只从 70 维数据产生。

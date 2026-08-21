@@ -38,37 +38,27 @@ namespace KimodoBridge
             sample.effectors ??= new KimodoConstraintEffectors();
             sample.effectors.hands ??= new CharacterPoseSides();
             sample.effectors.feet ??= new CharacterPoseSides();
-            if (sample.characterPose != null &&
+            if (KimodoSampleResultPoseUtility.TryDecode(
+                    sample,
+                    out CharacterPose referencePose,
+                    out _) &&
                 KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(constraintType, out HumanBodyBones bone))
             {
-                // Effectors are stored as scene-space transport data. No
-                // intermediate solve reads or mutates the rig transform.
                 float humanScale = player.SourceHumanScale;
-                Vector3 modelGoalPosition = sample.characterPose.root.t * humanScale +
+                Vector3 modelGoalPosition = referencePose.root.t * humanScale +
                     Quaternion.Inverse(modelToWorldRotation) *
                     (targetWorldPosition - currentWorldBodyPosition);
-                CharacterAnimationCli.Unity.CharacterPoseTransform goal = bone switch
+                CharacterAnimationCli.Unity.CharacterPoseTransform target = new CharacterAnimationCli.Unity.CharacterPoseTransform
                 {
-                    HumanBodyBones.LeftHand => sample.characterPose.hands.left,
-                    HumanBodyBones.RightHand => sample.characterPose.hands.right,
-                    HumanBodyBones.LeftFoot => sample.characterPose.feet.left,
-                    HumanBodyBones.RightFoot => sample.characterPose.feet.right,
-                    _ => null
+                    t = modelGoalPosition,
+                    q = targetJoint.rotation
                 };
-                if (goal != null)
+                switch (bone)
                 {
-                    CharacterAnimationCli.Unity.CharacterPoseTransform target = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                    {
-                        t = modelGoalPosition,
-                        q = targetJoint.rotation
-                    };
-                    switch (bone)
-                    {
-                        case HumanBodyBones.LeftHand: sample.effectors.hands.left = target; break;
-                        case HumanBodyBones.RightHand: sample.effectors.hands.right = target; break;
-                        case HumanBodyBones.LeftFoot: sample.effectors.feet.left = target; break;
-                        case HumanBodyBones.RightFoot: sample.effectors.feet.right = target; break;
-                    }
+                    case HumanBodyBones.LeftHand: sample.effectors.hands.left = target; break;
+                    case HumanBodyBones.RightHand: sample.effectors.hands.right = target; break;
+                    case HumanBodyBones.LeftFoot: sample.effectors.feet.left = target; break;
+                    case HumanBodyBones.RightFoot: sample.effectors.feet.right = target; break;
                 }
             }
             return true;
@@ -102,7 +92,9 @@ namespace KimodoBridge
             // absolute model space; subtracting NextSegmentRootOrigin here
             // would apply the same translation a second time during generation.
             Vector2 modelTarget = KimodoRoot2DPlanner.ToModelTarget(
-                sample.characterPose != null ? new Vector3(sample.characterPose.root.t.x, 0f, sample.characterPose.root.t.z) : Vector3.zero,
+                KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose rootPose, out _)
+                    ? new Vector3(rootPose.root.t.x, 0f, rootPose.root.t.z)
+                    : Vector3.zero,
                 Vector3.zero,
                 currentWorldPosition,
                 modelToWorldRotation,
@@ -111,7 +103,7 @@ namespace KimodoBridge
                 targetHumanScale);
             sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.ForType(KimodoRuntimeConstraints.Root2DType);
-            if (sample.characterPose != null)
+            if (KimodoSampleResultPoseUtility.TryDecode(sample, out _, out _))
             {
                 sample.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
                 {
@@ -185,9 +177,12 @@ namespace KimodoBridge
                 return false;
             }
 
-            sample.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(
-                muscleSample,
-                player.ConstraintSkeletonCache);
+            KimodoSampleResultPoseUtility.TryEncode(
+                sample,
+                CharacterPoseMuscleAdapter.FromMuscleSample(
+                    muscleSample,
+                    player.ConstraintSkeletonCache),
+                out _);
             return true;
         }
     }
