@@ -207,3 +207,11 @@
 - 检查：FullDemo Unity CLI 编译通过，日志：`C:\tmp\unity-compile-tests-screened.log`；`git diff --check` 通过。
 - 说明：这是用户确认的破坏性升级策略下的临时屏蔽，不代表旧行为恢复；后续应基于 `sampleData`/`validMask` 重写这些测试。
 - 下一步：提交 checkpoint，开始执行 FullBody sampling 与 Generate 场景级最小验证。
+
+## CP26 — 测试宿主发现结论
+
+- 状态：已完成，待提交。
+- 已完成：重新执行 FullDemo EditMode 测试命令；命令退出成功但结果仍为 `testcasecount="0"`，说明该外部项目没有引用本包测试程序集，不能作为测试通过依据。
+- 检查：结果文件：`C:\tmp\sample-result-70d-tests.xml`；编译仍通过。
+- 结论：当前可确认的是生产编译通过和静态 70D 回归代码可编译；FullBody sampling/Generate 场景仍需在 package 自己的 Unity 测试宿主或实际编辑器 Timeline 中执行。
+- 下一步：不再继续修改外部 FullDemo 测试配置，避免把验证项目的程序集边界误判为功能结果；保留 checkpoint，等待包测试宿主接入后执行场景测试。
