@@ -200,7 +200,54 @@ namespace TimelineInject
         // When unset, input order remains the deterministic fallback.
         public long creationOrder;
 
-        public CharacterPose characterPose;
+        [Obsolete("Use sampleData and KimodoSampleDataLayout. This compatibility property is derived, not serialized.")]
+        public CharacterPose characterPose
+        {
+            get
+            {
+                if (!KimodoSampleDataLayout.TryDecodeCharacterPose(
+                        sampleData,
+                        out CharacterPose pose,
+                        out _))
+                {
+                    return null;
+                }
+                if (effectors != null)
+                {
+                    pose.hands = effectors.hands?.Clone() ?? new CharacterPoseSides();
+                    pose.feet = effectors.feet?.Clone() ?? new CharacterPoseSides();
+                }
+                return pose;
+            }
+            set
+            {
+                if (value == null)
+                {
+                    sampleData = KimodoSampleDataLayout.CreateBuffer();
+                    validMask ??= new KimodoSampleChannelMask();
+                    validMask.muscle49 = false;
+                    validMask.rootTQ = false;
+                    validMask.leftFootTQ = false;
+                    validMask.rightFootTQ = false;
+                    return;
+                }
+                if (KimodoSampleDataLayout.TryEncodeCharacterPose(
+                        value,
+                        out float[] encoded,
+                        out _))
+                {
+                    sampleData = encoded;
+                    validMask ??= new KimodoSampleChannelMask();
+                    validMask.muscle49 = true;
+                    validMask.rootTQ = true;
+                    validMask.leftFootTQ = true;
+                    validMask.rightFootTQ = true;
+                }
+                effectors ??= new KimodoConstraintEffectors();
+                effectors.hands = value.hands?.Clone() ?? new CharacterPoseSides();
+                effectors.feet = value.feet?.Clone() ?? new CharacterPoseSides();
+            }
+        }
         // Effectors are absolute scene-space transport values. They are kept
         // separate from the muscle pose; no intermediate solver interprets them.
         [UnityEngine.Serialization.FormerlySerializedAs("worldIkTargets")]
@@ -242,7 +289,6 @@ namespace TimelineInject
             validMask = validMask?.Clone() ?? new KimodoSampleChannelMask(),
             enabled = enabled,
             creationOrder = creationOrder,
-            characterPose = characterPose?.Clone(),
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
             root2DOverride = root2DOverride != null
                 ? new CharacterPoseTransform { t = root2DOverride.t, q = root2DOverride.q }

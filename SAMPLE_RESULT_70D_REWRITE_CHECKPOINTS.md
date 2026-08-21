@@ -96,3 +96,11 @@
 - 检查：Unity CLI FullDemo 编译成功，退出码 0。
 - 尚未完成：constraintType 仍用于协议族命名；CharacterPose 仍作为迁移/Unity HumanPose adapter 边界；真实 Effector solver 未实现。
 - 下一步：提交 CP11；继续将 constraintType 的内部判断迁移到 constraintMode/channel mask，保留协议导出时的局部 type。
+
+## CP12 — CharacterPose 派生兼容层
+
+- 状态：已完成，待提交。
+- 已完成：SampleResult 不再存储独立 `CharacterPose` 字段；`characterPose` 改为由 70 维 sampleData 解码、由 setter 编码的 obsolete 兼容属性；hand/foot 兼容值从 effectors 映射；清空属性会清除 body/root/foot valid bits。
+- 检查：Unity CLI FullDemo 编译成功，退出码 0。
+- 尚未完成：生产代码仍有大量旧属性访问，需逐步替换为 sampleData/validMask；constraintType 仍参与协议/legacy 分支；真实 Effector solver 未实现。
+- 下一步：提交 CP12；将 Runtime/Command/Preview 的直接 CharacterPose 读取改为统一 sampleData 解码 helper，减少兼容属性调用。
