@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using CharacterAnimationCli.Unity;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using TimelineInject;
@@ -934,10 +935,17 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException($"Loop pass 1 raw tail-frame sampling failed: {tailError}");
             }
 
-            Vector3 firstPosition = firstFrame.characterPose.root.t;
-            Vector3 tailPosition = tailFrame.characterPose.root.t;
+            string firstPoseError = string.Empty;
+            string tailPoseError = string.Empty;
+            if (!KimodoSampleResultPoseUtility.TryDecode(firstFrame, out CharacterPose firstPose, out firstPoseError) ||
+                !KimodoSampleResultPoseUtility.TryDecode(tailFrame, out CharacterPose tailPose, out tailPoseError))
+            {
+                throw new InvalidOperationException($"Loop pass 1 sampleData decode failed: {firstPoseError}{tailPoseError}");
+            }
+            Vector3 firstPosition = firstPose.root.t;
+            Vector3 tailPosition = tailPose.root.t;
             float tailRotationY = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(
-                tailFrame.characterPose.root.q).eulerAngles.y;
+                tailPose.root.q).eulerAngles.y;
             KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][GenerateLoop] raw pass-1 root: " +
                 $"firstPosXZ=({firstPosition.x:F4}, {firstPosition.z:F4}), " +

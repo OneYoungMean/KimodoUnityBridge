@@ -50,9 +50,10 @@ namespace KimodoBridge.Editor
                 normalized.mask.rightFoot |= requestedMask.rightFoot;
             }
 
-            if (writeSampledCharacterPose && sample.characterPose != null)
+            if (writeSampledCharacterPose && KimodoSampleDataLayout.IsValidLength(sample.sampleData))
             {
-                normalized.characterPose = sample.characterPose.Clone();
+                normalized.sampleData = (float[])sample.sampleData.Clone();
+                normalized.validMask = sample.validMask?.Clone() ?? new KimodoSampleChannelMask();
             }
 
             // Scene edits author effector targets separately from the canonical pose.
@@ -114,22 +115,22 @@ namespace KimodoBridge.Editor
 
             return string.Equals(left.constraintType ?? string.Empty, right.constraintType ?? string.Empty, System.StringComparison.Ordinal) &&
                 string.Equals(left.constraintMode ?? string.Empty, right.constraintMode ?? string.Empty, System.StringComparison.Ordinal) &&
-                string.Equals(CharacterPoseSignature(left), CharacterPoseSignature(right), System.StringComparison.Ordinal) &&
+                string.Equals(SampleDataSignature(left), SampleDataSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(EffectorsSignature(left), EffectorsSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(Root2DOverrideSignature(left), Root2DOverrideSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(MaskSignature(left.mask), MaskSignature(right.mask), System.StringComparison.Ordinal) &&
-                left.hasRootHeading == right.hasRootHeading &&
-                left.hasRoot2DOverride == right.hasRoot2DOverride;
+                left.validMask?.root2DHeading == right.validMask?.root2DHeading &&
+                left.validMask?.root2DPosition == right.validMask?.root2DPosition;
         }
 
-        private static string CharacterPoseSignature(KimodoMarkerSampleResult sample)
+        private static string SampleDataSignature(KimodoMarkerSampleResult sample)
         {
-            return sample?.characterPose != null ? JsonUtility.ToJson(sample.characterPose) : string.Empty;
+            return sample?.sampleData != null ? string.Join(",", sample.sampleData) : string.Empty;
         }
 
         private static string Root2DOverrideSignature(KimodoMarkerSampleResult sample)
         {
-            return sample?.hasRoot2DOverride == true && sample.root2DOverride != null
+            return sample?.validMask?.root2DPosition == true && sample.root2DOverride != null
                 ? JsonUtility.ToJson(sample.root2DOverride)
                 : string.Empty;
         }

@@ -152,3 +152,11 @@
 - 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-command-migration.log`；`git diff --check` 通过。
 - 尚未完成：Editor Preview、Clip Bake、Timeline sampler 和 sampling editor utility 仍有旧字段调用；兼容桥接仍需保留。
 - 下一步：迁移 Editor Preview 的 pose cache/writeback，重点保证关闭窗口时 preview 状态清理和 Root2D/Effector 显示使用同一 canonical sample。
+
+## CP19 — Editor 生成/采样边界迁移
+
+- 状态：已完成，待提交。
+- 已完成：Clip generation loop 调试、sampling editor utility 的比较/签名、Spline Path 与 In/Out Root2D sample 创建改用 `sampleData`/`validMask`；不再依赖 SampleResult 的 `characterPose`/`hasRoot*` 属性。
+- 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-editor-boundary-migration3.log`；`git diff --check` 通过。
+- 尚未完成：`KimodoConstraintPoseCache`、Clip Bake、Timeline marker sampler 和 UI marker sampling 仍有旧访问；Preview 的关闭窗口状态清理需要继续核验。
+- 下一步：集中迁移 PoseCache 的读取、hash、writeback 与 root/effector 显示逻辑，完成后删除 SampleResult 兼容属性。

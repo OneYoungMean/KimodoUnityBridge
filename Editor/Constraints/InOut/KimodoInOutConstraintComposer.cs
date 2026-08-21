@@ -133,16 +133,30 @@ namespace KimodoBridge.Editor
 
             sample = new KimodoMarkerSampleResult
             {
-                characterPose = new CharacterAnimationCli.Unity.CharacterPose
-                {
-                    root = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                    { t = kimodoPosition / Mathf.Max(1e-6f, request.KimodoHumanScale), q = worldPlanarRotation }
-                },
+                root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                { t = kimodoPosition / Mathf.Max(1e-6f, request.KimodoHumanScale), q = worldPlanarRotation },
                 constraintType = "constraint",
+                constraintMode = "root2d",
                 sampleTime = 0.0,
                 mask = KimodoConstraintMask.ForType(Root2DConstraintType),
-                hasRootHeading = true
+                validMask = new KimodoSampleChannelMask
+                {
+                    root2DPosition = true,
+                    root2DHeading = true
+                }
             };
+            KimodoSampleResultPoseUtility.TryEncode(
+                sample,
+                new CharacterAnimationCli.Unity.CharacterPose
+                {
+                    root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    { t = sample.root2DOverride.t, q = sample.root2DOverride.q }
+                },
+                out _);
+            sample.validMask.muscle49 = false;
+            sample.validMask.rootTQ = false;
+            sample.validMask.leftFootTQ = false;
+            sample.validMask.rightFootTQ = false;
             return true;
         }
 

@@ -155,21 +155,38 @@ namespace KimodoBridge.Editor
                     worldForward.Normalize();
                 }
 
-                samples.Add(new KimodoMarkerSampleResult
+                var sample = new KimodoMarkerSampleResult
                 {
                     constraintType = Root2DConstraintType,
                     sampleTime = timelineClip.start + (durationSeconds * t),
-                    characterPose = new CharacterAnimationCli.Unity.CharacterPose
+                    root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    {
+                        t = new Vector3(worldPosition.x, 0f, worldPosition.z) / sourceHumanScale,
+                        q = Quaternion.LookRotation(worldForward, Vector3.up)
+                    },
+                    mask = KimodoConstraintMask.ForType(Root2DConstraintType),
+                    validMask = new KimodoSampleChannelMask
+                    {
+                        root2DPosition = true,
+                        root2DHeading = clip.SplineIncludeHeading
+                    }
+                };
+                KimodoSampleResultPoseUtility.TryEncode(
+                    sample,
+                    new CharacterAnimationCli.Unity.CharacterPose
                     {
                         root = new CharacterAnimationCli.Unity.CharacterPoseTransform
                         {
-                            t = new Vector3(worldPosition.x, 0f, worldPosition.z) / sourceHumanScale,
-                            q = Quaternion.LookRotation(worldForward, Vector3.up)
+                            t = sample.root2DOverride.t,
+                            q = sample.root2DOverride.q
                         }
                     },
-                    mask = KimodoConstraintMask.ForType(Root2DConstraintType),
-                    hasRootHeading = clip.SplineIncludeHeading
-                });
+                    out _);
+                sample.validMask.muscle49 = false;
+                sample.validMask.rootTQ = false;
+                sample.validMask.leftFootTQ = false;
+                sample.validMask.rightFootTQ = false;
+                samples.Add(sample);
             }
 
             denseRootPath = clip.SplineDensePath;
