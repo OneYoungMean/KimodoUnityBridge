@@ -200,25 +200,16 @@ namespace TimelineInject
         // When unset, input order remains the deterministic fallback.
         public long creationOrder;
 
-        [Obsolete("Use sampleData and KimodoSampleDataLayout. This compatibility property is derived, not serialized.")]
+        // Temporary source-compatibility bridge.  New code must use
+        // KimodoSampleResultPoseUtility; this member is intentionally kept in
+        // one isolated block so it can be deleted after the remaining editor
+        // consumers are migrated.
+        [Obsolete("Use KimodoSampleResultPoseUtility and sampleData.")]
         public CharacterPose characterPose
         {
-            get
-            {
-                if (!KimodoSampleDataLayout.TryDecodeCharacterPose(
-                        sampleData,
-                        out CharacterPose pose,
-                        out _))
-                {
-                    return null;
-                }
-                if (effectors != null)
-                {
-                    pose.hands = effectors.hands?.Clone() ?? new CharacterPoseSides();
-                    pose.feet = effectors.feet?.Clone() ?? new CharacterPoseSides();
-                }
-                return pose;
-            }
+            get => KimodoSampleResultPoseUtility.TryDecode(this, out CharacterPose pose, out _)
+                ? pose
+                : null;
             set
             {
                 if (value == null)
@@ -231,23 +222,10 @@ namespace TimelineInject
                     validMask.rightFootTQ = false;
                     return;
                 }
-                if (KimodoSampleDataLayout.TryEncodeCharacterPose(
-                        value,
-                        out float[] encoded,
-                        out _))
-                {
-                    sampleData = encoded;
-                    validMask ??= new KimodoSampleChannelMask();
-                    validMask.muscle49 = true;
-                    validMask.rootTQ = true;
-                    validMask.leftFootTQ = true;
-                    validMask.rightFootTQ = true;
-                }
-                effectors ??= new KimodoConstraintEffectors();
-                effectors.hands = value.hands?.Clone() ?? new CharacterPoseSides();
-                effectors.feet = value.feet?.Clone() ?? new CharacterPoseSides();
+                KimodoSampleResultPoseUtility.TryEncode(this, value, out _);
             }
         }
+
         // Effectors are absolute scene-space transport values. They are kept
         // separate from the muscle pose; no intermediate solver interprets them.
         [UnityEngine.Serialization.FormerlySerializedAs("worldIkTargets")]

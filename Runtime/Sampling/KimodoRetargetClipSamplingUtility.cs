@@ -10,7 +10,7 @@ namespace KimodoBridge
 {
     internal static class KimodoRetargetClipSamplingUtility
     {
-        // Compatibility payload retained for callers while IK is rewritten.
+        // Canonical world-space effector targets consumed after FK sampling.
         internal struct HumanoidEffectorSceneTargets
         {
             internal bool leftHand;
@@ -769,6 +769,11 @@ namespace KimodoBridge
                     !TryCaptureMuscleSample(sourceCache, out solvedPoseSample, out error))
                 {
                     return false;
+                }
+
+                if (sceneTargets.HasValue && sceneTargets.Value.Any)
+                {
+                    solvedBoneSample = CaptureBoneSample(sourceCache);
                 }
 
                 // The rebuilt skeleton provides the canonical muscle pose after

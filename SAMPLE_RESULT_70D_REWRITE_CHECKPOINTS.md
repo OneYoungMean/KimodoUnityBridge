@@ -112,3 +112,11 @@
 - 检查：`git diff --check` 通过；Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-effector-pass.log`。
 - 尚未完成：SampleResult 的 `characterPose` 兼容属性及其生产调用方仍待迁移；`constraintType` 仍保留在协议导出边界；场景级 FullBody/Generate 验证仍待补充。
 - 下一步：迁移并删除 SampleResult 的 obsolete `characterPose`/`hasRoot*` 兼容层，先处理 Runtime/Command/Composer，再处理 Editor 预览和旧测试。
+
+## CP14 — Pose 转换边界隔离
+
+- 状态：已完成，待提交。
+- 已完成：新增 `KimodoSampleResultPoseUtility`，把 `sampleData ↔ CharacterPose` 的临时转换集中到单一边界；SampleResult 内的兼容 `characterPose` 仅保留为隔离桥接，未再复制保存数据。这样后续可逐文件删除旧访问而不再扩散编解码逻辑。
+- 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-compat-bridge.log`；`git diff --check` 通过。
+- 尚未完成：编辑器/命令生产调用方仍有旧属性访问；需继续迁移后物理删除桥接。场景级 solver 仍为直接 world 骨骼目标写入，未引入中间 IK 图。
+- 下一步：优先迁移 `KimodoConstraintSampleComposer` 与 JSON exporter，使 canonical 合成完全只读写 70 维 sampleData，再移除兼容属性。
