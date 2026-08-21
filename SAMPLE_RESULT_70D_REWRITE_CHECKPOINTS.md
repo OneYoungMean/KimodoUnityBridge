@@ -192,3 +192,10 @@
 - 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-bridge-removed.log`；UI sampling 迁移编译成功，日志：`C:\tmp\unity-compile-ui-sampling.log`；`git diff --check` 通过。
 - 尚未完成：旧 Editor 测试仍大量构造/读取 `characterPose`，按破坏性升级策略先屏蔽/迁移；`constraintType` 仍作为协议导出边界字段保留。需补充完整 FullBody sampling/Generate 场景回归。
 - 下一步：提交本 checkpoint，运行生产代码全量编译；随后处理旧测试程序集和 `constraintType` 内部冗余清理。
+
+## CP24 — 生产编译基线
+
+- 状态：已完成。
+- 已完成：生产代码全量 Unity CLI 编译通过；`git diff --check` 通过；工作树干净。日志：`C:\tmp\unity-compile-final-70d.log`。
+- 当前边界：旧 Editor 测试仍依赖被移除的 `CharacterPose` SampleResult 属性，尚未纳入生产程序集编译；FullDemo EditMode 测试此前报告 `testcasecount=0`，因此不能宣称场景回归已执行。
+- 下一步：在独立测试宿主中重写/屏蔽旧测试，补充 FullBody sampling 和 Generate 场景验证；之后再评估删除 `CharacterPose` 兼容 DTO 文件及内部 `constraintType` 冗余。
