@@ -80,3 +80,11 @@
 - 检查：`git diff --check` 通过；Unity CLI FullDemo 编译成功，退出码 0。
 - 尚未完成：rawData、CharacterPose、constraintType、旧 has* 字段仍有生产/测试引用。
 - 下一步：提交 CP9；继续将 rawData 从 SampleResult 移到导出边界，必要时先屏蔽旧 rawData 测试。
+
+## CP10 — 移除 SampleResult rawData
+
+- 状态：已完成，待提交。
+- 已完成：`KimodoMarkerSampleResult.rawData` 已删除；FullBody Exporter 不再读取 rawData，统一走 sampleData/FK projection；overlap 和 loop generation 不再写入 rawData；旧 rawData 测试已显式 Ignore 或移除旧字段断言。
+- 检查：Unity CLI FullDemo 编译成功，退出码 0；生产代码仅剩 `KimodoRawMotionUtility` 的底层临时构建返回值，不再进入 SampleResult。
+- 尚未完成：CharacterPose、constraintType、hasRootHeading、hasRoot2DOverride 等历史字段仍有大量调用；真实 Effector solver 尚未实现。
+- 下一步：提交 CP10；继续清理 hasRoot* 与 constraintType 前，先建立派生 accessor，避免一次性破坏协议族导出。

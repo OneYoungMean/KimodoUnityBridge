@@ -921,17 +921,6 @@ namespace KimodoBridge.Editor
             {
                 throw new InvalidOperationException($"Loop pass 1 raw first-frame sampling failed: {firstError}");
             }
-            if (!KimodoRawMotionUtility.TryBuildConstraintRawData(
-                    motion,
-                    modelName,
-                    0,
-                    out KimodoConstraintRawData firstRawData,
-                    out string firstRawDataError))
-            {
-                throw new InvalidOperationException(
-                    $"Loop pass 1 raw first-frame FullBody construction failed: {firstRawDataError}");
-            }
-            firstFrame.rawData = firstRawData;
             if (!KimodoRawMotionUtility.TryExtractMarkerSample(
                     motion,
                     modelName,

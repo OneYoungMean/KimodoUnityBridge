@@ -205,8 +205,6 @@ namespace TimelineInject
         // separate from the muscle pose; no intermediate solver interprets them.
         [UnityEngine.Serialization.FormerlySerializedAs("worldIkTargets")]
         public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
-        [NonSerialized]
-        public KimodoConstraintRawData rawData;
         // FullBody owns characterPose.root. Root2D is kept separately so its
         // X/Z and heading override cannot destroy FullBody Y, pitch or roll.
         public CharacterPoseTransform root2DOverride = new CharacterPoseTransform();
@@ -227,7 +225,6 @@ namespace TimelineInject
             creationOrder = creationOrder,
             characterPose = characterPose?.Clone(),
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
-            rawData = rawData?.Clone(),
             root2DOverride = root2DOverride != null
                 ? new CharacterPoseTransform { t = root2DOverride.t, q = root2DOverride.q }
                 : null,

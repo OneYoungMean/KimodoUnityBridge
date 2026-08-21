@@ -94,18 +94,6 @@ namespace KimodoBridge
                     continue;
                 }
 
-                if (!KimodoRawMotionUtility.TryBuildConstraintRawData(
-                        motion,
-                        modelName,
-                        sourceFrameIndex,
-                        out KimodoConstraintRawData rawData,
-                        out string rawDataError))
-                {
-                    throw new System.InvalidOperationException(
-                        $"Failed to capture overlap FullBody pose: {rawDataError}");
-                }
-                sample.rawData = rawData;
-
                 if (samples.Count > 0)
                 {
                     KimodoMarkerSampleResult previous = samples[samples.Count - 1];

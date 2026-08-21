@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using KimodoBridge;
 using TimelineInject;
 using UnityEngine;
 
@@ -595,23 +596,12 @@ namespace KimodoBridge.Editor
             var fullBodyRoot = fullBody.characterPose.root;
             fullBodyRoot.t = new Vector3(root2D.t.x, fullBodyRoot.t.y, root2D.t.z);
             fullBodyRoot.q = MergeRootHeading(fullBodyRoot.q, root2D.q);
-            if (fullBody.rawData == null)
-            {
-                return;
-            }
-
-            fullBody.rawData.rootPosition = new Vector3(
-                root2D.t.x,
-                fullBody.rawData.rootPosition.y,
-                root2D.t.z);
-            if (fullBody.rawData.localJointAxisAngles == null || fullBody.rawData.localJointAxisAngles.Count == 0)
-            {
-                throw new InvalidOperationException("Loop FullBody raw data has no root rotation.");
-            }
-            Quaternion rawRoot = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(
-                fullBody.rawData.localJointAxisAngles[0]);
-            fullBody.rawData.localJointAxisAngles[0] =
-                KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(MergeRootHeading(rawRoot, root2D.q));
+            fullBody.sampleData = KimodoBridge.CharacterPoseMuscleAdapter.ToSampleData(fullBody.characterPose);
+            fullBody.validMask ??= new KimodoSampleChannelMask();
+            fullBody.validMask.muscle49 = true;
+            fullBody.validMask.rootTQ = true;
+            fullBody.validMask.leftFootTQ = true;
+            fullBody.validMask.rightFootTQ = true;
         }
 
         private static Quaternion MergeRootHeading(Quaternion fullBodyRoot, Quaternion root2DHeading)
@@ -628,7 +618,6 @@ namespace KimodoBridge.Editor
             double sampleTimeSeconds)
         {
             KimodoMarkerSampleResult sample = source.Clone();
-            sample.rawData = null;
             sample.constraintType = "root2d";
             sample.mask = KimodoConstraintMask.ForType("root2d");
             sample.sampleTime = sampleTimeSeconds;

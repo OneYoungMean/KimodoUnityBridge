@@ -231,6 +231,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
         }
 
         [Test]
+        [Ignore("RawData was removed from SampleResult; rewrite against sampleData protocol.")]
         public void ConstraintExporter_UsesRawAxisAngleWithoutMuscleProjection()
         {
             Quaternion unityRotation = Quaternion.Euler(0f, 30f, 0f);
@@ -240,11 +241,6 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 constraintType = "fullbody",
                 sampleTime = 0.0,
                 characterPose = new CharacterPose(),
-                rawData = new KimodoConstraintRawData
-                {
-                    rootPosition = new Vector3(1f, 2f, 3f),
-                    localJointAxisAngles = new List<Vector3> { unityAxisAngle }
-                }
             };
             var context = new KimodoConstraintExportContext(
                 2f,
