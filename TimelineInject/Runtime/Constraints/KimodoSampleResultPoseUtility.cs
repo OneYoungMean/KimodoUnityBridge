@@ -5,7 +5,7 @@ namespace TimelineInject
     /// <summary>
     /// Explicit conversion boundary for APIs that still need a temporary
     /// CharacterPose (HumanPose/JSON adapters). KimodoMarkerSampleResult itself
-    /// stores only sampleData, validMask and effector channels.
+    /// stores only sampleData, enableMask and effector channels.
     /// </summary>
     public static class KimodoSampleResultPoseUtility
     {
@@ -57,11 +57,11 @@ namespace TimelineInject
             }
 
             sample.sampleData = encoded;
-            sample.validMask ??= new KimodoSampleChannelMask();
-            sample.validMask.muscle49 = true;
-            sample.validMask.rootTQ = true;
-            sample.validMask.leftFootTQ = true;
-            sample.validMask.rightFootTQ = true;
+            sample.enableMask ??= new KimodoSampleChannelMask();
+            sample.enableMask.muscle49 = true;
+            sample.enableMask.rootTQ = true;
+            sample.enableMask.leftFootTQ = true;
+            sample.enableMask.rightFootTQ = true;
             sample.effectors ??= new KimodoConstraintEffectors();
             sample.effectors.hands = pose.hands?.Clone() ?? new CharacterPoseSides();
             sample.effectors.feet = pose.feet?.Clone() ?? new CharacterPoseSides();

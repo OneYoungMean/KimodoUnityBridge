@@ -113,9 +113,9 @@ namespace KimodoBridge
                         modelTarget.y / player.SourceHumanScale),
                     q = Quaternion.identity
                 };
-                sample.validMask.root2DPosition = true;
+                sample.enableMask.root2DPosition = true;
             }
-            sample.validMask.root2DHeading = worldHeading.HasValue && sample.validMask.root2DPosition;
+            sample.enableMask.root2DHeading = worldHeading.HasValue && sample.enableMask.root2DPosition;
             if (worldHeading.HasValue)
             {
                 Vector2 modelHeading = KimodoRoot2DPlanner.ToModelHeading(
@@ -158,7 +158,7 @@ namespace KimodoBridge
                 constraintType = "constraint",
                 sampleTime = sampleTime,
                 mask = KimodoConstraintMask.ForType(constraintType),
-                validMask = new KimodoSampleChannelMask()
+                enableMask = new KimodoSampleChannelMask()
             };
 
             if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(

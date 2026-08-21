@@ -1018,11 +1018,11 @@ namespace KimodoBridge
         internal static bool TryCaptureSampleData(
             SkeletonCache cache,
             out float[] sampleData,
-            out KimodoSampleChannelMask validMask,
+            out KimodoSampleChannelMask enableMask,
             out string error)
         {
             sampleData = KimodoSampleDataLayout.CreateBuffer();
-            validMask = new KimodoSampleChannelMask();
+            enableMask = new KimodoSampleChannelMask();
             error = string.Empty;
 
             if (!TryCaptureMuscleSample(cache, out MuscleSample sample, out error))
@@ -1039,10 +1039,10 @@ namespace KimodoBridge
                 return true;
             }
 
-            validMask.muscle49 = true;
-            validMask.rootTQ = true;
-            validMask.leftFootTQ = true;
-            validMask.rightFootTQ = true;
+            enableMask.muscle49 = true;
+            enableMask.rootTQ = true;
+            enableMask.leftFootTQ = true;
+            enableMask.rightFootTQ = true;
             return true;
         }
 

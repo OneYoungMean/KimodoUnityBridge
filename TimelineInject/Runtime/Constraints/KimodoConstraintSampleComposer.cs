@@ -11,7 +11,7 @@ namespace TimelineInject
     {
         /// <summary>
         /// Composes canonical samples at the same frame. Constraint
-        /// participation is selected by mode, validity by validMask, and the
+        /// participation is selected by mode, validity by enableMask, and the
         /// last-created enabled constraint owns each participating channel.
         /// Invalid data never falls back to an older value.
         /// </summary>
@@ -76,23 +76,23 @@ namespace TimelineInject
                             q = rootPosition.root2DOverride.q
                         }
                         : new CharacterPoseTransform();
-                    result.validMask.root2DPosition = rootPosition.validMask?.root2DPosition == true;
+                    result.enableMask.root2DPosition = rootPosition.enableMask?.root2DPosition == true;
                 }
 
                 KimodoMarkerSampleResult rootHeading = FindLatest(ordered, SampleChannel.Root2DHeading);
                 if (rootHeading != null)
                 {
-                    result.validMask.root2DHeading = result.validMask.root2DPosition &&
-                        rootHeading.validMask?.root2DHeading == true;
+                    result.enableMask.root2DHeading = result.enableMask.root2DPosition &&
+                        rootHeading.enableMask?.root2DHeading == true;
                 }
 
                 CopyEffectorChannel(ordered, result, SampleChannel.LeftHandEffector);
                 CopyEffectorChannel(ordered, result, SampleChannel.RightHandEffector);
                 CopyEffectorChannel(ordered, result, SampleChannel.LeftFootEffector);
                 CopyEffectorChannel(ordered, result, SampleChannel.RightFootEffector);
-                result.validMask.NormalizeDependencies();
-                result.validMask.NormalizeDependencies();
-                result.mask = ToLegacyMask(result.validMask);
+                result.enableMask.NormalizeDependencies();
+                result.enableMask.NormalizeDependencies();
+                result.mask = ToLegacyMask(result.enableMask);
                 if (KimodoSampleDataLayout.TryDecodeCharacterPose(
                         result.sampleData,
                         out CharacterPose canonicalPose,
@@ -151,8 +151,8 @@ namespace TimelineInject
         {
             KimodoMarkerSampleResult source = FindLatest(ordered, channel);
             if (source == null) return;
-            bool valid = source.validMask != null && IsValid(source.validMask, channel);
-            SetValid(destination.validMask, channel, valid);
+            bool valid = source.enableMask != null && IsValid(source.enableMask, channel);
+            SetValid(destination.enableMask, channel, valid);
             if (!valid || !KimodoSampleDataLayout.IsValidLength(source.sampleData)) return;
             Array.Copy(source.sampleData, offset, destination.sampleData, offset, count);
         }
@@ -164,8 +164,8 @@ namespace TimelineInject
         {
             KimodoMarkerSampleResult source = FindLatest(ordered, channel);
             if (source == null) return;
-            bool valid = source.validMask != null && IsValid(source.validMask, channel);
-            SetValid(destination.validMask, channel, valid);
+            bool valid = source.enableMask != null && IsValid(source.enableMask, channel);
+            SetValid(destination.enableMask, channel, valid);
             if (!valid || source.effectors == null) return;
 
             CharacterPoseTransform sourceTransform = channel switch
@@ -178,7 +178,7 @@ namespace TimelineInject
             };
             if (!IsValidTransform(sourceTransform))
             {
-                SetValid(destination.validMask, channel, false);
+                SetValid(destination.enableMask, channel, false);
                 return;
             }
             CharacterPoseSides sides = channel switch
@@ -206,9 +206,9 @@ namespace TimelineInject
             string mode = (sample.constraintMode ?? sample.constraintType ?? string.Empty)
                 .Trim().ToLowerInvariant().Replace('_', '-');
             bool fullBody = mode == "fullbody" || mode == "constraint" || mode == "mix" ||
-                sample.mask?.muscle == true || sample.validMask?.muscle49 == true;
-            bool root2D = mode == "root2d" || mode == "mix" || sample.validMask?.root2DPosition == true ||
-                sample.validMask?.root2DPosition == true;
+                sample.mask?.muscle == true || sample.enableMask?.muscle49 == true;
+            bool root2D = mode == "root2d" || mode == "mix" || sample.enableMask?.root2DPosition == true ||
+                sample.enableMask?.root2DPosition == true;
             bool effector = mode == "effector" || sample.mask?.AnyEndEffector == true;
             return channel switch
             {
@@ -218,10 +218,10 @@ namespace TimelineInject
                 SampleChannel.RightFootTQ => fullBody,
                 SampleChannel.Root2DPosition => root2D,
                 SampleChannel.Root2DHeading => root2D,
-                SampleChannel.LeftHandEffector => effector && (sample.mask?.leftHand == true || sample.validMask?.leftHandEffector == true),
-                SampleChannel.RightHandEffector => effector && (sample.mask?.rightHand == true || sample.validMask?.rightHandEffector == true),
-                SampleChannel.LeftFootEffector => effector && (sample.mask?.leftFoot == true || sample.validMask?.leftFootEffector == true),
-                SampleChannel.RightFootEffector => effector && (sample.mask?.rightFoot == true || sample.validMask?.rightFootEffector == true),
+                SampleChannel.LeftHandEffector => effector && (sample.mask?.leftHand == true || sample.enableMask?.leftHandEffector == true),
+                SampleChannel.RightHandEffector => effector && (sample.mask?.rightHand == true || sample.enableMask?.rightHandEffector == true),
+                SampleChannel.LeftFootEffector => effector && (sample.mask?.leftFoot == true || sample.enableMask?.leftFootEffector == true),
+                SampleChannel.RightFootEffector => effector && (sample.mask?.rightFoot == true || sample.enableMask?.rightFootEffector == true),
                 _ => false
             };
         }
@@ -286,8 +286,8 @@ namespace TimelineInject
 
         private static void MigrateLegacySample(KimodoMarkerSampleResult sample)
         {
-            if (sample.validMask == null) sample.validMask = new KimodoSampleChannelMask();
-            if (!sample.validMask.Any &&
+            if (sample.enableMask == null) sample.enableMask = new KimodoSampleChannelMask();
+            if (!sample.enableMask.Any &&
                 string.IsNullOrWhiteSpace(sample.constraintMode) &&
                 KimodoSampleDataLayout.TryEncodeCharacterPose(
                     KimodoSampleResultPoseUtility.DecodeOrDefault(sample),
@@ -295,10 +295,10 @@ namespace TimelineInject
                     out _))
             {
                 sample.sampleData = data;
-                sample.validMask.muscle49 = true;
-                sample.validMask.rootTQ = true;
-                sample.validMask.leftFootTQ = true;
-                sample.validMask.rightFootTQ = true;
+                sample.enableMask.muscle49 = true;
+                sample.enableMask.rootTQ = true;
+                sample.enableMask.leftFootTQ = true;
+                sample.enableMask.rightFootTQ = true;
             }
             if (sample.mask != null ||
                 (!string.IsNullOrWhiteSpace(sample.constraintType) &&
@@ -307,15 +307,15 @@ namespace TimelineInject
                 KimodoConstraintMask legacy = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
                 bool explicitRoot2D = string.Equals(sample.constraintType, "root2d", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(sample.constraintMode, "root2d", StringComparison.OrdinalIgnoreCase) ||
-                    sample.validMask?.root2DPosition == true;
-                sample.validMask.root2DPosition |= explicitRoot2D && legacy.rootPosition;
-                sample.validMask.root2DHeading |= explicitRoot2D && legacy.rootHeading && sample.validMask.root2DPosition;
-                sample.validMask.leftHandEffector |= legacy.leftHand;
-                sample.validMask.rightHandEffector |= legacy.rightHand;
-                sample.validMask.leftFootEffector |= legacy.leftFoot;
-                sample.validMask.rightFootEffector |= legacy.rightFoot;
+                    sample.enableMask?.root2DPosition == true;
+                sample.enableMask.root2DPosition |= explicitRoot2D && legacy.rootPosition;
+                sample.enableMask.root2DHeading |= explicitRoot2D && legacy.rootHeading && sample.enableMask.root2DPosition;
+                sample.enableMask.leftHandEffector |= legacy.leftHand;
+                sample.enableMask.rightHandEffector |= legacy.rightHand;
+                sample.enableMask.leftFootEffector |= legacy.leftFoot;
+                sample.enableMask.rightFootEffector |= legacy.rightFoot;
             }
-            sample.validMask.NormalizeDependencies();
+            sample.enableMask.NormalizeDependencies();
         }
         /// <summary>Returns the effective pose for one unified marker without
         /// mutating its authored FullBody and Root2D data.</summary>
@@ -580,7 +580,7 @@ namespace TimelineInject
                     resultPose.muscles = (float[])sourcePose.muscles.Clone();
                     KimodoSampleResultPoseUtility.TryEncode(result, resultPose, out _);
                 }
-                result.validMask.root2DHeading = source.validMask?.root2DHeading == true;
+                result.enableMask.root2DHeading = source.enableMask?.root2DHeading == true;
             }
             return result;
         }
@@ -611,7 +611,7 @@ namespace TimelineInject
             Quaternion targetYaw = PlanarRotation(target.root.q);
             Quaternion rootYaw = PlanarRotation(root.root.q);
             target.root.t = new Vector3(root.root.t.x, target.root.t.y, root.root.t.z);
-            if (rootSample.validMask?.root2DHeading == true)
+            if (rootSample.enableMask?.root2DHeading == true)
             {
                 target.root.q = rootYaw * Quaternion.Inverse(targetYaw) * target.root.q;
             }
@@ -690,7 +690,7 @@ namespace TimelineInject
                     int sourcePriority = IsRoot2D(source) ? 1 : 0;
                     if (sourcePriority >= headingPriority)
                     {
-                        hasHeading = source.validMask?.root2DHeading == true;
+                        hasHeading = source.enableMask?.root2DHeading == true;
                         headingPriority = sourcePriority;
                     }
                 }
@@ -700,7 +700,7 @@ namespace TimelineInject
             KimodoMarkerSampleResult merged = seed.Clone();
             merged.constraintType = "constraint";
             merged.mask = mask;
-            merged.validMask.root2DHeading = hasHeading && merged.validMask.root2DPosition;
+            merged.enableMask.root2DHeading = hasHeading && merged.enableMask.root2DPosition;
             merged.effectors ??= new KimodoConstraintEffectors();
             for (int i = 0; i < group.Count; i++)
             {
@@ -726,10 +726,10 @@ namespace TimelineInject
             }
             else
             {
-                merged.validMask.muscle49 = false;
-                merged.validMask.rootTQ = false;
-                merged.validMask.leftFootTQ = false;
-                merged.validMask.rightFootTQ = false;
+                merged.enableMask.muscle49 = false;
+                merged.enableMask.rootTQ = false;
+                merged.enableMask.leftFootTQ = false;
+                merged.enableMask.rightFootTQ = false;
             }
             return merged;
         }
@@ -765,11 +765,11 @@ namespace TimelineInject
             for (int i = 0; i < samples.Count; i++)
             {
                 KimodoMarkerSampleResult source = samples[i];
-                if (source == null || (!IsRoot2D(source) && source.validMask?.root2DPosition != true)) continue;
+                if (source == null || (!IsRoot2D(source) && source.enableMask?.root2DPosition != true)) continue;
                 CharacterPoseTransform root = ResolveRoot2DOverride(source);
                 if (root == null) continue;
                 destination.root2DOverride = new CharacterPoseTransform { t = root.t, q = root.q };
-                destination.validMask.root2DPosition = true;
+                destination.enableMask.root2DPosition = true;
             }
         }
 
@@ -823,7 +823,7 @@ namespace TimelineInject
                 KimodoMarkerSampleResult source = samples[i];
                 if (source == null) continue;
                 KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source.mask, source.constraintType);
-                if (!IsRoot2D(source) && source.validMask?.root2DPosition != true) continue;
+                if (!IsRoot2D(source) && source.enableMask?.root2DPosition != true) continue;
                 CharacterPoseTransform root = ResolveRoot2DOverride(source);
                 if (root == null) continue;
                 if (mask.rootPosition)
@@ -833,7 +833,7 @@ namespace TimelineInject
                         overrideYaw * new Vector3(0f, target.root.t.y, 0f);
                     changed = true;
                 }
-                if (mask.rootHeading && source.validMask?.root2DHeading == true)
+                if (mask.rootHeading && source.enableMask?.root2DHeading == true)
                 {
                     Quaternion fullBodyYaw = PlanarRotation(target.root.q);
                     target.root.q = PlanarRotation(root.q) * Quaternion.Inverse(fullBodyYaw) * target.root.q;
@@ -854,7 +854,7 @@ namespace TimelineInject
         private static CharacterPoseTransform ResolveRoot2DOverride(KimodoMarkerSampleResult sample)
         {
             if (sample == null) return null;
-            if (sample.validMask?.root2DPosition == true && sample.root2DOverride != null)
+            if (sample.enableMask?.root2DPosition == true && sample.root2DOverride != null)
             {
                 return sample.root2DOverride;
             }
@@ -875,7 +875,7 @@ namespace TimelineInject
             if (mask.rootPosition || mask.rootHeading)
             {
                 KimodoMarkerSampleResult root2D = AppendProtocolSample(output, source, canonical, hasCanonicalPose, "root2d");
-                root2D.validMask.root2DHeading = mask.rootHeading && source.validMask?.root2DHeading == true;
+                root2D.enableMask.root2DHeading = mask.rootHeading && source.enableMask?.root2DHeading == true;
             }
             if (mask.leftHand) AppendProtocolSample(output, source, canonical, hasCanonicalPose, "left-hand");
             if (mask.rightHand) AppendProtocolSample(output, source, canonical, hasCanonicalPose, "right-hand");
@@ -898,13 +898,13 @@ namespace TimelineInject
             }
             else
             {
-                sample.validMask.muscle49 = false;
-                sample.validMask.rootTQ = false;
-                sample.validMask.leftFootTQ = false;
-                sample.validMask.rightFootTQ = false;
+                sample.enableMask.muscle49 = false;
+                sample.enableMask.rootTQ = false;
+                sample.enableMask.leftFootTQ = false;
+                sample.enableMask.rightFootTQ = false;
             }
             if (string.Equals(type, "root2d", StringComparison.OrdinalIgnoreCase) &&
-                source.validMask?.root2DPosition == true && source.root2DOverride != null &&
+                source.enableMask?.root2DPosition == true && source.root2DOverride != null &&
                 TryGetPose(sample, out CharacterPose protocolPose, out _))
             {
                 protocolPose.root.t = source.root2DOverride.t;

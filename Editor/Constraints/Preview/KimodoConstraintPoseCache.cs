@@ -713,9 +713,9 @@ namespace KimodoBridge.Editor
             EnableChangedConstraintChannels(entry, sample.mask);
             if (rootChanged)
             {
-                sample.validMask ??= new KimodoSampleChannelMask();
-                sample.validMask.root2DPosition = true;
-                sample.validMask.root2DHeading = true;
+                sample.enableMask ??= new KimodoSampleChannelMask();
+                sample.enableMask.root2DPosition = true;
+                sample.enableMask.root2DHeading = true;
             }
         }
 
@@ -1782,14 +1782,14 @@ namespace KimodoBridge.Editor
                 {
                     AddHash(ref hash, sample.sampleData != null ? string.Join(",", sample.sampleData) : string.Empty);
                     AddHash(ref hash, sample.effectors != null ? JsonUtility.ToJson(sample.effectors) : string.Empty);
-                    AddHash(ref hash, sample.validMask?.root2DPosition == true && sample.root2DOverride != null
+                    AddHash(ref hash, sample.enableMask?.root2DPosition == true && sample.root2DOverride != null
                         ? JsonUtility.ToJson(sample.root2DOverride)
                         : string.Empty);
                     AddHash(ref hash, sample.constraintType);
                     AddHash(ref hash, sample.sampleTime.GetHashCode());
                     AddHash(ref hash, MaskSignature(sample.mask));
-                    AddHash(ref hash, sample.validMask?.root2DHeading == true ? 1 : 0);
-                    AddHash(ref hash, sample.validMask?.root2DPosition == true ? 1 : 0);
+                    AddHash(ref hash, sample.enableMask?.root2DHeading == true ? 1 : 0);
+                    AddHash(ref hash, sample.enableMask?.root2DPosition == true ? 1 : 0);
                 }
                 AddHash(ref hash, item?.HighlightJoints);
                 return hash;
@@ -1996,7 +1996,7 @@ namespace KimodoBridge.Editor
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase))
                 {
                     sample.mask = mask.Clone();
-                    sample.validMask.root2DHeading = mask.rootHeading && entry.BaseSample.validMask?.root2DHeading == true;
+                    sample.enableMask.root2DHeading = mask.rootHeading && entry.BaseSample.enableMask?.root2DHeading == true;
                     PreserveIndependentRoot2D(entry, sample);
                 }
                 return true;
@@ -2310,7 +2310,7 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult captured)
         {
             KimodoMarkerSampleResult authored = entry?.BaseSample;
-            if (authored?.validMask?.root2DPosition != true ||
+            if (authored?.enableMask?.root2DPosition != true ||
                 authored.root2DOverride == null ||
                 captured == null)
             {
@@ -2322,7 +2322,7 @@ namespace KimodoBridge.Editor
                 t = authored.root2DOverride.t,
                 q = authored.root2DOverride.q
             };
-            captured.validMask.root2DPosition = true;
+            captured.enableMask.root2DPosition = true;
         }
 
         private static PrimitiveType TargetPrimitive(HumanBodyBones bone) =>

@@ -66,13 +66,13 @@ namespace KimodoBridge
 
         public bool TryCaptureSampleData(
             out float[] sampleData,
-            out KimodoSampleChannelMask validMask,
+            out KimodoSampleChannelMask enableMask,
             out string error)
         {
             return KimodoRetargetSamplingUtility.TryCaptureSampleData(
                 cache,
                 out sampleData,
-                out validMask,
+                out enableMask,
                 out error);
         }
 

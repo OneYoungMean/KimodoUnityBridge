@@ -139,7 +139,7 @@ namespace KimodoBridge.Editor
                 constraintMode = "root2d",
                 sampleTime = 0.0,
                 mask = KimodoConstraintMask.ForType(Root2DConstraintType),
-                validMask = new KimodoSampleChannelMask
+                enableMask = new KimodoSampleChannelMask
                 {
                     root2DPosition = true,
                     root2DHeading = true
@@ -153,10 +153,10 @@ namespace KimodoBridge.Editor
                     { t = sample.root2DOverride.t, q = sample.root2DOverride.q }
                 },
                 out _);
-            sample.validMask.muscle49 = false;
-            sample.validMask.rootTQ = false;
-            sample.validMask.leftFootTQ = false;
-            sample.validMask.rightFootTQ = false;
+            sample.enableMask.muscle49 = false;
+            sample.enableMask.rootTQ = false;
+            sample.enableMask.leftFootTQ = false;
+            sample.enableMask.rightFootTQ = false;
             return true;
         }
 

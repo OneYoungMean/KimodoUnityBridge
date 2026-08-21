@@ -519,7 +519,7 @@ namespace KimodoBridge.Editor
             }
 
             var firstRoot = firstPose.root;
-            var tailRoot = tailFrame.validMask?.root2DPosition == true && tailFrame.root2DOverride != null
+            var tailRoot = tailFrame.enableMask?.root2DPosition == true && tailFrame.root2DOverride != null
                 ? tailFrame.root2DOverride
                 : tailPose.root;
             Vector3 planarDelta = tailRoot.t - firstRoot.t;
@@ -563,7 +563,7 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("Loop terminal constraint requires valid first and tail poses.");
             }
 
-            var tailRoot = tailFrame.validMask?.root2DPosition == true && tailFrame.root2DOverride != null
+            var tailRoot = tailFrame.enableMask?.root2DPosition == true && tailFrame.root2DOverride != null
                 ? tailFrame.root2DOverride
                 : tailPose.root;
             KimodoMarkerSampleResult sample = BuildLoopFullBodyConstraintSample(firstFrame, sampleTimeSeconds);
@@ -580,8 +580,8 @@ namespace KimodoBridge.Editor
             sample.mask = KimodoConstraintMask.ForType("fullbody");
             sample.sampleTime = sampleTimeSeconds;
             sample.root2DOverride = null;
-            sample.validMask.root2DPosition = false;
-            sample.validMask.root2DHeading = false;
+            sample.enableMask.root2DPosition = false;
+            sample.enableMask.root2DHeading = false;
             return sample;
         }
 
@@ -598,11 +598,11 @@ namespace KimodoBridge.Editor
             fullBodyRoot.t = new Vector3(root2D.t.x, fullBodyRoot.t.y, root2D.t.z);
             fullBodyRoot.q = MergeRootHeading(fullBodyRoot.q, root2D.q);
             KimodoSampleResultPoseUtility.TryEncode(fullBody, fullPose, out _);
-            fullBody.validMask ??= new KimodoSampleChannelMask();
-            fullBody.validMask.muscle49 = true;
-            fullBody.validMask.rootTQ = true;
-            fullBody.validMask.leftFootTQ = true;
-            fullBody.validMask.rightFootTQ = true;
+            fullBody.enableMask ??= new KimodoSampleChannelMask();
+            fullBody.enableMask.muscle49 = true;
+            fullBody.enableMask.rootTQ = true;
+            fullBody.enableMask.leftFootTQ = true;
+            fullBody.enableMask.rightFootTQ = true;
         }
 
         private static Quaternion MergeRootHeading(Quaternion fullBodyRoot, Quaternion root2DHeading)
@@ -630,8 +630,8 @@ namespace KimodoBridge.Editor
                 t = position,
                 q = pose.root.q
             };
-            sample.validMask.root2DPosition = true;
-            sample.validMask.root2DHeading = true;
+            sample.enableMask.root2DPosition = true;
+            sample.enableMask.root2DHeading = true;
             KimodoSampleResultPoseUtility.TryEncode(sample, pose, out _);
             return sample;
         }

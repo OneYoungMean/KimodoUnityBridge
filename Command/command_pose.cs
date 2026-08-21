@@ -632,7 +632,7 @@ namespace CharacterAnimationCli.Unity.Command
         private static CharacterPose RequireCanonicalPose(KimodoMarkerSampleResult sample)
         {
             CharacterPose pose = null;
-            if (sample != null && sample.validMask?.muscle49 == true &&
+            if (sample != null && sample.enableMask?.muscle49 == true &&
                 CharacterPoseMuscleAdapter.TryFromSampleData(
                     sample.sampleData,
                     out CharacterPose decoded,
@@ -664,11 +664,11 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new InvalidOperationException(encodeError);
             }
-            sample.validMask ??= new KimodoSampleChannelMask();
-            sample.validMask.muscle49 = true;
-            sample.validMask.rootTQ = true;
-            sample.validMask.leftFootTQ = true;
-            sample.validMask.rightFootTQ = true;
+            sample.enableMask ??= new KimodoSampleChannelMask();
+            sample.enableMask.muscle49 = true;
+            sample.enableMask.rootTQ = true;
+            sample.enableMask.leftFootTQ = true;
+            sample.enableMask.rightFootTQ = true;
             sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.Resolve(sample.mask, "constraint");
         }

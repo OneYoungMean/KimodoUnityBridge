@@ -320,7 +320,7 @@ namespace TimelineInject
                     frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
                     smooth_root_2d = new List<float[]> { new[] { -root.x, root.z } }
                 };
-                if (sample.validMask?.root2DHeading == true)
+                if (sample.enableMask?.root2DHeading == true)
                 {
                     canonical.global_root_heading = new List<float[]> { new[] { forward.z, -forward.x } };
                 }

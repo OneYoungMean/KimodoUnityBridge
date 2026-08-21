@@ -68,7 +68,7 @@ namespace KimodoBridge
             if (!KimodoRetargetSamplingUtility.TryCaptureSampleData(
                     targetCache,
                     out float[] sampleData,
-                    out KimodoSampleChannelMask validMask,
+                    out KimodoSampleChannelMask enableMask,
                     out error))
             {
                 result = null;
@@ -76,7 +76,7 @@ namespace KimodoBridge
             }
 
             result.sampleData = sampleData;
-            result.validMask = validMask;
+            result.enableMask = enableMask;
             result.enabled = true;
             if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
@@ -94,7 +94,7 @@ namespace KimodoBridge
                 constraintType = "constraint",
                 sampleTime = sampleTime,
                 mask = KimodoConstraintMask.ForType(markerType),
-                validMask = new KimodoSampleChannelMask()
+                enableMask = new KimodoSampleChannelMask()
             };
         }
     }

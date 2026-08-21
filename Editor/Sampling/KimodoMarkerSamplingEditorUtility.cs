@@ -53,7 +53,7 @@ namespace KimodoBridge.Editor
             if (writeSampledCharacterPose && KimodoSampleDataLayout.IsValidLength(sample.sampleData))
             {
                 normalized.sampleData = (float[])sample.sampleData.Clone();
-                normalized.validMask = sample.validMask?.Clone() ?? new KimodoSampleChannelMask();
+                normalized.enableMask = sample.enableMask?.Clone() ?? new KimodoSampleChannelMask();
             }
 
             // Scene edits author effector targets separately from the canonical pose.
@@ -119,8 +119,8 @@ namespace KimodoBridge.Editor
                 string.Equals(EffectorsSignature(left), EffectorsSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(Root2DOverrideSignature(left), Root2DOverrideSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(MaskSignature(left.mask), MaskSignature(right.mask), System.StringComparison.Ordinal) &&
-                left.validMask?.root2DHeading == right.validMask?.root2DHeading &&
-                left.validMask?.root2DPosition == right.validMask?.root2DPosition;
+                left.enableMask?.root2DHeading == right.enableMask?.root2DHeading &&
+                left.enableMask?.root2DPosition == right.enableMask?.root2DPosition;
         }
 
         private static string SampleDataSignature(KimodoMarkerSampleResult sample)
@@ -130,7 +130,7 @@ namespace KimodoBridge.Editor
 
         private static string Root2DOverrideSignature(KimodoMarkerSampleResult sample)
         {
-            return sample?.validMask?.root2DPosition == true && sample.root2DOverride != null
+            return sample?.enableMask?.root2DPosition == true && sample.root2DOverride != null
                 ? JsonUtility.ToJson(sample.root2DOverride)
                 : string.Empty;
         }

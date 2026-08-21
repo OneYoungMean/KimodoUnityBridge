@@ -38,7 +38,7 @@ namespace KimodoBridge.Editor.Tests
                 60.0);
 
             Assert.That(composed, Has.Count.EqualTo(1));
-            Assert.That(composed[0].validMask.muscle49, Is.False);
+            Assert.That(composed[0].enableMask.muscle49, Is.False);
             Assert.That(composed[0].sampleData[KimodoSampleDataLayout.BodyMuscleOffset], Is.EqualTo(0f));
         }
 
@@ -61,9 +61,9 @@ namespace KimodoBridge.Editor.Tests
             sample.constraintMode = "mix";
             sample.mask.rootPosition = true;
             sample.mask.rootHeading = true;
-            sample.validMask.root2DPosition = true;
-            sample.validMask.root2DHeading = true;
-            sample.validMask.root2DPosition = true;
+            sample.enableMask.root2DPosition = true;
+            sample.enableMask.root2DHeading = true;
+            sample.enableMask.root2DPosition = true;
             sample.root2DOverride.t = new Vector3(3f, 0f, 4f);
 
             var expanded = KimodoConstraintSampleComposer.ExpandProtocolSamples(
@@ -85,7 +85,7 @@ namespace KimodoBridge.Editor.Tests
             return new KimodoMarkerSampleResult
             {
                 sampleData = data,
-                validMask = new KimodoSampleChannelMask
+                enableMask = new KimodoSampleChannelMask
                 {
                     muscle49 = valid,
                     rootTQ = valid,

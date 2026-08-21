@@ -817,17 +817,17 @@ namespace CharacterAnimationCli.Unity.Command
                     t = pose.root.t,
                     q = pose.root.q
                 },
-                validMask = new KimodoSampleChannelMask
+                enableMask = new KimodoSampleChannelMask
                 {
                     root2DPosition = hasPosition || hasRootPose,
                     root2DHeading = hasPosition || hasRootPose
                 }
             };
             KimodoSampleResultPoseUtility.TryEncode(result, pose, out _);
-            result.validMask.muscle49 = false;
-            result.validMask.rootTQ = false;
-            result.validMask.leftFootTQ = false;
-            result.validMask.rightFootTQ = false;
+            result.enableMask.muscle49 = false;
+            result.enableMask.rootTQ = false;
+            result.enableMask.leftFootTQ = false;
+            result.enableMask.rightFootTQ = false;
             return result;
         }
 

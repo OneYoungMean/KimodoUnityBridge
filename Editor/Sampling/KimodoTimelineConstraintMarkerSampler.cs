@@ -903,8 +903,8 @@ namespace KimodoBridge.Editor
             pose.root.t = targetRootPosition;
             pose.root.q = planarRotation;
             KimodoSampleResultPoseUtility.TryEncode(sample, pose, out _);
-            sample.validMask.root2DPosition = true;
-            sample.validMask.root2DHeading = true;
+            sample.enableMask.root2DPosition = true;
+            sample.enableMask.root2DHeading = true;
             sample.root2DOverride = new CharacterPoseTransform { t = targetRootPosition, q = planarRotation };
             sample.constraintType = "constraint";
             sample.sampleTime = exportedSampleTime;
@@ -1663,7 +1663,7 @@ namespace KimodoBridge.Editor
             }
             KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][ConstraintExport] marker='{marker.ConstraintType}' time={marker.time:F3} mode={mode} " +
-                $"mask={sample.mask?.muscle}:{sample.mask?.rootPosition}:{sample.mask?.AnyEndEffector} hasHeading={sample.validMask?.root2DHeading == true}");
+                $"mask={sample.mask?.muscle}:{sample.mask?.rootPosition}:{sample.mask?.AnyEndEffector} hasHeading={sample.enableMask?.root2DHeading == true}");
             return true;
         }
 

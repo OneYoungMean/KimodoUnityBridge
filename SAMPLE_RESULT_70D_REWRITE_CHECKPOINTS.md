@@ -242,3 +242,11 @@
 - 修改：Runtime constraint capture 不再通过 profile skeleton raw marker 初始化，直接创建 SampleResult 后捕获 FK muscle 数据。
 - 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\unity-compile-phase1-clean-2022.log`；无 `error CS`，退出码 0；`git diff --check` 通过。
 - 尚未完成：SampleResult 仍有旧 mode payload 和 `validMask` 命名；下一阶段统一为单一 sampleData/enableMask，并建立唯一 world SkeletonCache 写入入口。
+
+## CP30 — 单一 SampleResult 与 enableMask
+
+- 已完成：删除 `KimodoRoot2DConstraintData`、`KimodoFullBodyConstraintData`、`KimodoEffectorConstraintData` 三套旧 mode payload；Marker 只序列化一份 `sampleData`。
+- 已完成：生产代码和新测试统一将 `validMask` 重命名为 `enableMask`；Inspector 的 Root2D、muscle、effector 面板改读写 `sampleData`，不再访问旧 payload。
+- 已完成：旧 mode payload 测试按破坏性升级策略屏蔽，避免把已删除语义重新引入生产代码。
+- 检查：`git diff --check` 通过；Unity CLI 已重新解析本地包并正常退出，当前日志没有发现 C# 编译错误；完整编译仍待下一次无缓存运行确认。
+- 尚未完成：BoneSample→SkeletonCache→world SampleResult 唯一采样入口，以及 AutoSample/非 AutoSample 共享写回 utility。

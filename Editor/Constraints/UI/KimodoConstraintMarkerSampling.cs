@@ -224,8 +224,8 @@ private static KimodoMarkerSampleResult MergeAutoSampledChannels(
                 resultPose.root = CloneTransform(sampledPose.root);
                 if (marker.ConstraintMode == KimodoConstraintMode.Root2D)
                 {
-                    result.validMask.root2DPosition = true;
-                    result.validMask.root2DHeading = marker.Root2DData.allowHeading;
+                    result.enableMask.root2DPosition = true;
+                    result.enableMask.root2DHeading = marker.SampleData?.enableMask?.root2DHeading == true;
                     result.root2DOverride = CloneTransform(resultPose.root);
                 }
                 else
@@ -310,7 +310,7 @@ private static AutoSampleSignatureSnapshot BuildAutoSampleSnapshot(
                 CacheTimeFrames = context.CacheTimeFrames,
                 TrackOffsetPosition = trackOffsetPosition,
                 TrackOffsetRotation = trackOffsetRotation,
-                HasRootHeading = source?.validMask?.root2DHeading == true
+                HasRootHeading = source?.enableMask?.root2DHeading == true
             };
         }
 
@@ -337,7 +337,7 @@ private static bool AutoSampleSnapshotMatches(
                 snapshot.CacheTimeFrames == context.CacheTimeFrames &&
                 Vector3Approximately(snapshot.TrackOffsetPosition, trackOffsetPosition) &&
                 QuaternionApproximately(snapshot.TrackOffsetRotation, trackOffsetRotation) &&
-                snapshot.HasRootHeading == (sample?.validMask?.root2DHeading == true);
+                snapshot.HasRootHeading == (sample?.enableMask?.root2DHeading == true);
         }
 
 internal static string ResolveModelName(TimelineClip clipRange)

@@ -63,62 +63,6 @@ namespace TimelineInject
         }
     }
 
-    [Serializable]
-    public sealed class KimodoRoot2DConstraintData
-    {
-        public CharacterPoseTransform root = new CharacterPoseTransform();
-        public bool allowHeading = true;
-
-        public KimodoRoot2DConstraintData Clone() => new KimodoRoot2DConstraintData
-        {
-            root = root != null ? root.Clone() : new CharacterPoseTransform(),
-            allowHeading = allowHeading
-        };
-    }
-
-    [Serializable]
-    public sealed class KimodoFullBodyConstraintData
-    {
-        // Muscles and root are the authored FullBody source. Its four effector
-        // targets are always active, separate channels; they never write back
-        // into the muscle source.
-        public CharacterPose pose = new CharacterPose();
-        [UnityEngine.Serialization.FormerlySerializedAs("ikTargets")]
-        public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
-
-
-        public KimodoFullBodyConstraintData Clone() => new KimodoFullBodyConstraintData
-        {
-            pose = pose != null ? pose.Clone() : new CharacterPose(),
-            effectors = effectors != null ? effectors.Clone() : new KimodoConstraintEffectors()
-        };
-    }
-
-    [Serializable]
-    public sealed class KimodoEffectorConstraintData
-    {
-        // The last successful animation sample is retained when Auto Sample
-        // is disabled. Effector edits never write back to this reference muscle set.
-        public CharacterPose referencePose = new CharacterPose();
-        [UnityEngine.Serialization.FormerlySerializedAs("ikTargets")]
-        public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
-
-        public bool leftHand;
-        public bool rightHand;
-        public bool leftFoot;
-        public bool rightFoot;
-
-        public KimodoEffectorConstraintData Clone() => new KimodoEffectorConstraintData
-        {
-            referencePose = referencePose != null ? referencePose.Clone() : new CharacterPose(),
-            effectors = effectors != null ? effectors.Clone() : new KimodoConstraintEffectors(),
-            leftHand = leftHand,
-            rightHand = rightHand,
-            leftFoot = leftFoot,
-            rightFoot = rightFoot
-        };
-    }
-
     /// <summary>Channels owned by one canonical constraint pose.  The protocol
     /// still receives its historical fullbody/root2d/end-effector records.</summary>
     [Serializable]
@@ -192,9 +136,9 @@ namespace TimelineInject
     public sealed class KimodoMarkerSampleResult
     {
         // Canonical payload. Legacy fields below are being removed in later
-        // migration phases; new code must use sampleData and validMask.
+        // migration phases; new code must use sampleData and enableMask.
         public float[] sampleData = KimodoSampleDataLayout.CreateBuffer();
-        public KimodoSampleChannelMask validMask = new KimodoSampleChannelMask();
+        public KimodoSampleChannelMask enableMask = new KimodoSampleChannelMask();
         public bool enabled = true;
         // Composer uses this as the explicit creation-order tie breaker.
         // When unset, input order remains the deterministic fallback.
@@ -217,7 +161,7 @@ namespace TimelineInject
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
         {
             sampleData = sampleData != null ? (float[])sampleData.Clone() : KimodoSampleDataLayout.CreateBuffer(),
-            validMask = validMask?.Clone() ?? new KimodoSampleChannelMask(),
+            enableMask = enableMask?.Clone() ?? new KimodoSampleChannelMask(),
             enabled = enabled,
             creationOrder = creationOrder,
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),

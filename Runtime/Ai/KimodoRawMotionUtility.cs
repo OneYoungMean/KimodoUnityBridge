@@ -1113,7 +1113,7 @@ namespace KimodoBridge
                 constraintType = "constraint",
                 sampleTime = sampleTime,
                 mask = KimodoConstraintMask.ForType(resolvedConstraintType),
-                validMask = new KimodoSampleChannelMask
+                enableMask = new KimodoSampleChannelMask
                 {
                     rootTQ = true,
                     root2DPosition = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase),
@@ -1121,9 +1121,9 @@ namespace KimodoBridge
                 }
             };
             KimodoSampleResultPoseUtility.TryEncode(sample, pose, out _);
-            if (!sample.validMask.root2DPosition)
+            if (!sample.enableMask.root2DPosition)
             {
-                sample.validMask.rootTQ = true;
+                sample.enableMask.rootTQ = true;
             }
             return true;
         }

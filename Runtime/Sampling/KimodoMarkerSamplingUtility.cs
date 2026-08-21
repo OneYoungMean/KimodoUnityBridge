@@ -26,18 +26,18 @@ namespace KimodoBridge
                 : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
             normalized.enabled = marker.constraintEnabled;
             normalized.mask = KimodoConstraintMask.Resolve(authored?.mask, "constraint").Clone();
-            normalized.validMask.root2DHeading = authored?.validMask?.root2DHeading == true;
+            normalized.enableMask.root2DHeading = authored?.enableMask?.root2DHeading == true;
 
-            if (KimodoSampleDataLayout.IsValidLength(sample.sampleData) && sample.validMask?.Any == true)
+            if (KimodoSampleDataLayout.IsValidLength(sample.sampleData) && sample.enableMask?.Any == true)
             {
                 normalized.sampleData = (float[])sample.sampleData.Clone();
-                normalized.validMask = sample.validMask?.Clone() ?? new KimodoSampleChannelMask();
+                normalized.enableMask = sample.enableMask?.Clone() ?? new KimodoSampleChannelMask();
             }
             else if (KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterAnimationCli.Unity.CharacterPose migratedPose, out _) &&
                      CharacterPoseMuscleAdapter.TryToSampleData(migratedPose, out float[] migratedData, out _))
             {
                 normalized.sampleData = migratedData;
-                normalized.validMask = new KimodoSampleChannelMask
+                normalized.enableMask = new KimodoSampleChannelMask
                 {
                     muscle49 = true,
                     rootTQ = true,
@@ -45,8 +45,8 @@ namespace KimodoBridge
                     rightFootTQ = true
                 };
             }
-            normalized.validMask ??= new KimodoSampleChannelMask();
-            normalized.validMask.NormalizeDependencies();
+            normalized.enableMask ??= new KimodoSampleChannelMask();
+            normalized.enableMask.NormalizeDependencies();
 
             if (marker.autoSample && KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterAnimationCli.Unity.CharacterPose sampledPose, out _))
             {
@@ -55,8 +55,8 @@ namespace KimodoBridge
                 {
                     case KimodoConstraintMode.Root2D:
                         normalizedPose.root = CloneTransform(sampledPose.root);
-                        normalized.validMask.root2DPosition = true;
-                        normalized.validMask.root2DHeading = marker.Root2DData.allowHeading;
+                        normalized.enableMask.root2DPosition = true;
+                        normalized.enableMask.root2DHeading = marker.SampleData?.enableMask?.root2DHeading == true;
                         normalized.root2DOverride = CloneTransform(normalizedPose.root);
                         break;
                     case KimodoConstraintMode.Effector:
@@ -157,7 +157,7 @@ namespace KimodoBridge
             }
             var result = new KimodoMarkerSampleResult
             {
-                validMask = new KimodoSampleChannelMask
+                enableMask = new KimodoSampleChannelMask
                 {
                     muscle49 = true,
                     rootTQ = true,

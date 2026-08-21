@@ -43,7 +43,7 @@ namespace KimodoBridge.Editor
                     DrawRoot2D(so);
                     break;
                 case KimodoConstraintMode.Effector:
-                    DrawEffectors(so, "effectorData");
+                    DrawEffectors(so, "sampleData");
                     break;
                 default:
                     DrawFullBody(so);
@@ -80,8 +80,8 @@ namespace KimodoBridge.Editor
         private static void DrawRoot2D(SerializedObject so)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            SerializedProperty root = so.FindProperty("root2DData.root");
-            SerializedProperty allowHeading = so.FindProperty("root2DData.allowHeading");
+            SerializedProperty root = so.FindProperty("sampleData.root2DOverride");
+            SerializedProperty allowHeading = so.FindProperty("sampleData.enableMask.root2DHeading");
             using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
                 DrawTransform(root, "Root Position / Rotation");
@@ -99,11 +99,10 @@ namespace KimodoBridge.Editor
         private static void DrawFullBody(SerializedObject so)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            SerializedProperty pose = so.FindProperty("fullBodyData.pose");
+            SerializedProperty pose = so.FindProperty("sampleData.sampleData");
             using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
-                DrawTransform(pose?.FindPropertyRelative("root"), "Pelvis Position / Rotation");
-                DrawMuscleValues(pose?.FindPropertyRelative("muscles"));
+                DrawMuscleValues(pose);
             }
             DrawFullBodyEffectors(so, IsAutoSample(so));
             EditorGUILayout.HelpBox(
@@ -117,10 +116,10 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("FullBody Effectors", EditorStyles.boldLabel);
             using (new EditorGUI.DisabledScope(autoSample))
             {
-                DrawTransform(so.FindProperty("fullBodyData.effectors.hands.left"), "Left Hand Effector");
-                DrawTransform(so.FindProperty("fullBodyData.effectors.hands.right"), "Right Hand Effector");
-                DrawTransform(so.FindProperty("fullBodyData.effectors.feet.left"), "Left Foot Effector");
-                DrawTransform(so.FindProperty("fullBodyData.effectors.feet.right"), "Right Foot Effector");
+                DrawTransform(so.FindProperty("sampleData.effectors.hands.left"), "Left Hand Effector");
+                DrawTransform(so.FindProperty("sampleData.effectors.hands.right"), "Right Hand Effector");
+                DrawTransform(so.FindProperty("sampleData.effectors.feet.left"), "Left Foot Effector");
+                DrawTransform(so.FindProperty("sampleData.effectors.feet.right"), "Right Foot Effector");
             }
         }
 
@@ -143,19 +142,19 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
             DrawEndEffectorPanel(
                 so.FindProperty(root + ".effectors.hands.left"),
-                so.FindProperty(root + ".leftHand"),
+                so.FindProperty(root + ".enableMask.leftHandEffector"),
                 "Left Hand Effector", autoSample);
             DrawEndEffectorPanel(
                 so.FindProperty(root + ".effectors.hands.right"),
-                so.FindProperty(root + ".rightHand"),
+                so.FindProperty(root + ".enableMask.rightHandEffector"),
                 "Right Hand Effector", autoSample);
             DrawEndEffectorPanel(
                 so.FindProperty(root + ".effectors.feet.left"),
-                so.FindProperty(root + ".leftFoot"),
+                so.FindProperty(root + ".enableMask.leftFootEffector"),
                 "Left Foot Effector", autoSample);
             DrawEndEffectorPanel(
                 so.FindProperty(root + ".effectors.feet.right"),
-                so.FindProperty(root + ".rightFoot"),
+                so.FindProperty(root + ".enableMask.rightFootEffector"),
                 "Right Foot Effector", autoSample);
         }
 
