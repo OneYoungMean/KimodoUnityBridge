@@ -206,7 +206,7 @@ private static KimodoMarkerSampleResult MergeAutoSampledChannels(
             KimodoMarkerSampleResult sampled)
         {
             KimodoMarkerSampleResult result = marker?.SampleData?.Clone() ?? new KimodoMarkerSampleResult();
-            if (sampled?.characterPose == null)
+            if (!KimodoSampleResultPoseUtility.TryDecode(sampled, out CharacterPose sampledPose, out _))
             {
                 return result;
             }
@@ -214,30 +214,19 @@ private static KimodoMarkerSampleResult MergeAutoSampledChannels(
             result.sampleTime = marker.time;
             result.constraintType = "constraint";
             result.mask = KimodoConstraintMask.Resolve(marker.SampleData.mask, "constraint").Clone();
-            result.characterPose ??= sampled.characterPose.Clone();
+            CharacterPose resultPose = KimodoSampleResultPoseUtility.DecodeOrDefault(result);
             result.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
                 ? "root2d"
                 : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
             if (marker.autoSample)
             {
-                result.characterPose.hands ??= new CharacterPoseSides();
-                result.characterPose.feet ??= new CharacterPoseSides();
-                result.characterPose.muscles = sampled.characterPose.muscles != null
-                    ? (float[])sampled.characterPose.muscles.Clone()
-                    : result.characterPose.muscles;
-                if (sampled.characterPose.root != null)
-                {
-                    result.characterPose.root = new CharacterPoseTransform
-                    {
-                        t = sampled.characterPose.root.t,
-                        q = sampled.characterPose.root.q
-                    };
-                }
+                resultPose.muscles = (float[])sampledPose.muscles.Clone();
+                resultPose.root = CloneTransform(sampledPose.root);
                 if (marker.ConstraintMode == KimodoConstraintMode.Root2D)
                 {
-                    result.hasRootHeading = marker.Root2DData.allowHeading;
-                    result.hasRoot2DOverride = true;
-                    result.root2DOverride = result.characterPose.root;
+                    result.validMask.root2DPosition = true;
+                    result.validMask.root2DHeading = marker.Root2DData.allowHeading;
+                    result.root2DOverride = CloneTransform(resultPose.root);
                 }
                 else
                 {
@@ -248,6 +237,7 @@ private static KimodoMarkerSampleResult MergeAutoSampledChannels(
                 }
             }
 
+                KimodoSampleResultPoseUtility.TryEncode(result, resultPose, out _);
             return result;
         }
 
@@ -256,15 +246,13 @@ private static KimodoMarkerSampleResult MergeAutoSampledChannels(
             KimodoMarkerSampleResult sampled,
             bool overwriteAll)
         {
-            if (destination?.characterPose == null || sampled?.characterPose == null) return;
-            if ((overwriteAll || !destination.mask.leftHand) && sampled.characterPose.hands?.left != null)
-                destination.characterPose.hands.left = CloneTransform(sampled.characterPose.hands.left);
-            if ((overwriteAll || !destination.mask.rightHand) && sampled.characterPose.hands?.right != null)
-                destination.characterPose.hands.right = CloneTransform(sampled.characterPose.hands.right);
-            if ((overwriteAll || !destination.mask.leftFoot) && sampled.characterPose.feet?.left != null)
-                destination.characterPose.feet.left = CloneTransform(sampled.characterPose.feet.left);
-            if ((overwriteAll || !destination.mask.rightFoot) && sampled.characterPose.feet?.right != null)
-                destination.characterPose.feet.right = CloneTransform(sampled.characterPose.feet.right);
+            if (!KimodoSampleResultPoseUtility.TryDecode(destination, out CharacterPose destinationPose, out _) ||
+                !KimodoSampleResultPoseUtility.TryDecode(sampled, out CharacterPose sampledPose, out _)) return;
+            if ((overwriteAll || !destination.mask.leftHand) && sampledPose.hands?.left != null) destination.effectors.hands.left = CloneTransform(sampledPose.hands.left);
+            if ((overwriteAll || !destination.mask.rightHand) && sampledPose.hands?.right != null) destination.effectors.hands.right = CloneTransform(sampledPose.hands.right);
+            if ((overwriteAll || !destination.mask.leftFoot) && sampledPose.feet?.left != null) destination.effectors.feet.left = CloneTransform(sampledPose.feet.left);
+            if ((overwriteAll || !destination.mask.rightFoot) && sampledPose.feet?.right != null) destination.effectors.feet.right = CloneTransform(sampledPose.feet.right);
+            KimodoSampleResultPoseUtility.TryEncode(destination, destinationPose, out _);
         }
 
         private static CharacterPoseTransform CloneTransform(CharacterPoseTransform value)
@@ -322,7 +310,7 @@ private static AutoSampleSignatureSnapshot BuildAutoSampleSnapshot(
                 CacheTimeFrames = context.CacheTimeFrames,
                 TrackOffsetPosition = trackOffsetPosition,
                 TrackOffsetRotation = trackOffsetRotation,
-                HasRootHeading = source != null && source.hasRootHeading
+                HasRootHeading = source?.validMask?.root2DHeading == true
             };
         }
 
@@ -349,7 +337,7 @@ private static bool AutoSampleSnapshotMatches(
                 snapshot.CacheTimeFrames == context.CacheTimeFrames &&
                 Vector3Approximately(snapshot.TrackOffsetPosition, trackOffsetPosition) &&
                 QuaternionApproximately(snapshot.TrackOffsetRotation, trackOffsetRotation) &&
-                snapshot.HasRootHeading == (sample != null && sample.hasRootHeading);
+                snapshot.HasRootHeading == (sample?.validMask?.root2DHeading == true);
         }
 
 internal static string ResolveModelName(TimelineClip clipRange)

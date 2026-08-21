@@ -184,3 +184,11 @@
 - 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-sampling-utility2.log`；`git diff --check` 通过。
 - 尚未完成：Editor UI marker sampling 仍有旧兼容访问；之后需要删除 SampleResult 的 obsolete bridge，并屏蔽/迁移旧 CharacterPose 测试。
 - 下一步：迁移 `KimodoConstraintMarkerSampling` UI 合并逻辑，再做一次全仓生产代码扫描；若无旧访问则物理删除 `characterPose`、`hasRoot*`。
+
+## CP23 — 移除 SampleResult obsolete pose 字段
+
+- 状态：已完成，待提交。
+- 已完成：`KimodoMarkerSampleResult.characterPose`、`hasRoot2DOverride`、`hasRootHeading` 已物理删除；生产代码扫描不再发现这些字段访问。`CharacterPose` 仅保留为 JSON/HumanPose/retarget 边界临时对象，不再是 SampleResult 的存储语义。
+- 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-bridge-removed.log`；UI sampling 迁移编译成功，日志：`C:\tmp\unity-compile-ui-sampling.log`；`git diff --check` 通过。
+- 尚未完成：旧 Editor 测试仍大量构造/读取 `characterPose`，按破坏性升级策略先屏蔽/迁移；`constraintType` 仍作为协议导出边界字段保留。需补充完整 FullBody sampling/Generate 场景回归。
+- 下一步：提交本 checkpoint，运行生产代码全量编译；随后处理旧测试程序集和 `constraintType` 内部冗余清理。

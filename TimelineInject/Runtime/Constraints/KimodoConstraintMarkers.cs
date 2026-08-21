@@ -200,65 +200,18 @@ namespace TimelineInject
         // When unset, input order remains the deterministic fallback.
         public long creationOrder;
 
-        // Temporary source-compatibility bridge.  New code must use
-        // KimodoSampleResultPoseUtility; this member is intentionally kept in
-        // one isolated block so it can be deleted after the remaining editor
-        // consumers are migrated.
-        [Obsolete("Use KimodoSampleResultPoseUtility and sampleData.")]
-        public CharacterPose characterPose
-        {
-            get => KimodoSampleResultPoseUtility.TryDecode(this, out CharacterPose pose, out _)
-                ? pose
-                : null;
-            set
-            {
-                if (value == null)
-                {
-                    sampleData = KimodoSampleDataLayout.CreateBuffer();
-                    validMask ??= new KimodoSampleChannelMask();
-                    validMask.muscle49 = false;
-                    validMask.rootTQ = false;
-                    validMask.leftFootTQ = false;
-                    validMask.rightFootTQ = false;
-                    return;
-                }
-                KimodoSampleResultPoseUtility.TryEncode(this, value, out _);
-            }
-        }
-
         // Effectors are absolute scene-space transport values. They are kept
         // separate from the muscle pose; no intermediate solver interprets them.
         [UnityEngine.Serialization.FormerlySerializedAs("worldIkTargets")]
         public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
-        // FullBody owns characterPose.root. Root2D is kept separately so its
+        // FullBody owns rootTQ in sampleData. Root2D is kept separately so its
         // X/Z and heading override cannot destroy FullBody Y, pitch or roll.
         public CharacterPoseTransform root2DOverride = new CharacterPoseTransform();
-        [Obsolete("Use validMask.root2DPosition. This compatibility property is not serialized.")]
-        public bool hasRoot2DOverride
-        {
-            get => validMask?.root2DPosition == true;
-            set
-            {
-                validMask ??= new KimodoSampleChannelMask();
-                validMask.root2DPosition = value;
-                validMask.NormalizeDependencies();
-            }
-        }
         public string constraintType = "constraint";
         // Non-empty for samples authored by the new mode-aware marker. Empty
         // samples retain the legacy resolver behavior for command-only data.
         public string constraintMode;
         public double sampleTime;
-        [Obsolete("Use validMask.root2DHeading. This compatibility property is not serialized.")]
-        public bool hasRootHeading
-        {
-            get => validMask?.root2DHeading == true;
-            set
-            {
-                validMask ??= new KimodoSampleChannelMask();
-                validMask.root2DHeading = value && validMask.root2DPosition;
-            }
-        }
         public KimodoConstraintMask mask;
 
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
