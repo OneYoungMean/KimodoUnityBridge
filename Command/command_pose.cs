@@ -46,20 +46,32 @@ namespace CharacterAnimationCli.Unity.Command
             TimelineSessionRecord session = RequireTimelineSession(arguments);
             KimodoConstraintMarker marker = RequirePoseCacheMarker(arguments["pose"] as JObject, out TimelineCharacterRecord character, out int frame);
             JObject root = arguments["root"] as JObject ?? throw new InvalidOperationException("root must be an object.");
-            CharacterPose pose = RequireCanonicalPose(marker.SampleData).Clone();
+            KimodoMarkerSampleResult sample = marker.SampleData;
+            CharacterPose pose = RequireCanonicalPose(sample).Clone();
+            sample.root2DOverride ??= new CharacterPoseTransform();
             if (root["position"] is JArray position)
             {
-                pose.root.t = ReadVector3(position, "root.position");
+                sample.root2DOverride.t = ReadVector3(position, "root.position");
             }
             if (root["rotation"] is JArray rotation)
             {
-                pose.root.q = ReadQuaternion(rotation, "root.rotation");
+                sample.root2DOverride.q = ReadQuaternion(rotation, "root.rotation");
             }
             if (root["position"] == null && root["rotation"] == null)
             {
                 throw new InvalidOperationException("root must contain position and/or rotation.");
             }
-            SetCanonicalPose(marker.SampleData, pose, character);
+            bool hasPosition = root["position"] is JArray;
+            bool hasRotation = root["rotation"] is JArray;
+            sample.enableMask ??= new KimodoSampleChannelMask();
+            if (hasRotation && !hasPosition && !sample.enableMask.root2DPosition)
+            {
+                throw new InvalidOperationException("root.rotation requires an existing or supplied root.position.");
+            }
+            sample.enableMask.root2DPosition |= hasPosition;
+            sample.enableMask.root2DHeading = hasRotation && sample.enableMask.root2DPosition;
+            pose.root.t = sample.root2DOverride.t;
+            pose.root.q = sample.root2DOverride.q;
             marker.CommitSampleData();
             EditorUtility.SetDirty(marker);
             SaveTimelineSession(session);

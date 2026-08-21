@@ -282,3 +282,8 @@
 - 已完成：肌肉动画写出统一改为 `WriteBodyMuscleCurves`，不再生成 `RootT.*`、`RootQ.*` 或 FootT/Q 动画曲线；删除编辑器对这些旧曲线的保留判断。
 - 已完成：保留的 `rootTQ/footTQ` 只存在于 70D `sampleData` 协议布局，不再以 Animator 曲线形式存在。
 - 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\unity-compile-root-channel-clean6.log`；`git diff --check` 通过。
+
+## CP35 — Command 根变换改为 Root2DOverride
+
+- 已完成：`pose_set_root_transform` 不再修改 70D `sampleData.rootTQ`，改为写入完整 world-space `root2DOverride`；heading 没有 position 时拒绝写入，保持 `hasHeading` 依赖 position 的协议约束。
+- 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\unity-compile-root-channel-clean7.log`；`git diff --check` 通过。
