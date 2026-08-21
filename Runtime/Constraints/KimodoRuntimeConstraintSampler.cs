@@ -113,9 +113,9 @@ namespace KimodoBridge
                         modelTarget.y / player.SourceHumanScale),
                     q = Quaternion.identity
                 };
-                sample.hasRoot2DOverride = true;
+                sample.validMask.root2DPosition = true;
             }
-            sample.hasRootHeading = worldHeading.HasValue;
+            sample.validMask.root2DHeading = worldHeading.HasValue && sample.validMask.root2DPosition;
             if (worldHeading.HasValue)
             {
                 Vector2 modelHeading = KimodoRoot2DPlanner.ToModelHeading(

@@ -26,19 +26,15 @@ namespace KimodoBridge
                 : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
             normalized.enabled = marker.constraintEnabled;
             normalized.mask = KimodoConstraintMask.Resolve(authored?.mask, "constraint").Clone();
-            normalized.hasRootHeading = authored != null && authored.hasRootHeading;
+            normalized.validMask.root2DHeading = authored?.validMask?.root2DHeading == true;
 
-            if (KimodoSampleDataLayout.IsValidLength(sample.sampleData) &&
-                (sample.validMask?.Any == true || sample.characterPose == null))
+            if (KimodoSampleDataLayout.IsValidLength(sample.sampleData) && sample.validMask?.Any == true)
             {
                 normalized.sampleData = (float[])sample.sampleData.Clone();
                 normalized.validMask = sample.validMask?.Clone() ?? new KimodoSampleChannelMask();
             }
-            else if (sample.characterPose != null &&
-                     CharacterPoseMuscleAdapter.TryToSampleData(
-                         sample.characterPose,
-                         out float[] migratedData,
-                         out _))
+            else if (KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterAnimationCli.Unity.CharacterPose migratedPose, out _) &&
+                     CharacterPoseMuscleAdapter.TryToSampleData(migratedPose, out float[] migratedData, out _))
             {
                 normalized.sampleData = migratedData;
                 normalized.validMask = new KimodoSampleChannelMask
@@ -52,55 +48,29 @@ namespace KimodoBridge
             normalized.validMask ??= new KimodoSampleChannelMask();
             normalized.validMask.NormalizeDependencies();
 
-            if (marker.autoSample && sample.characterPose != null)
+            if (marker.autoSample && KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterAnimationCli.Unity.CharacterPose sampledPose, out _))
             {
-                normalized.characterPose ??= sample.characterPose.Clone();
-                normalized.characterPose.hands ??= new CharacterAnimationCli.Unity.CharacterPoseSides();
-                normalized.characterPose.feet ??= new CharacterAnimationCli.Unity.CharacterPoseSides();
+                CharacterAnimationCli.Unity.CharacterPose normalizedPose = KimodoSampleResultPoseUtility.DecodeOrDefault(normalized);
                 switch (marker.ConstraintMode)
                 {
                     case KimodoConstraintMode.Root2D:
-                        if (sample.characterPose.root != null)
-                        {
-                            normalized.characterPose.root = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                            {
-                                t = sample.characterPose.root.t,
-                                q = sample.characterPose.root.q
-                            };
-                        }
-                        normalized.hasRootHeading = marker.Root2DData.allowHeading;
-                        normalized.hasRoot2DOverride = true;
-                        normalized.root2DOverride = normalized.characterPose.root;
+                        normalizedPose.root = CloneTransform(sampledPose.root);
+                        normalized.validMask.root2DPosition = true;
+                        normalized.validMask.root2DHeading = marker.Root2DData.allowHeading;
+                        normalized.root2DOverride = CloneTransform(normalizedPose.root);
                         break;
                     case KimodoConstraintMode.Effector:
-                        normalized.characterPose.muscles = sample.characterPose.muscles != null
-                            ? (float[])sample.characterPose.muscles.Clone()
-                            : normalized.characterPose.muscles;
-                        if (sample.characterPose.root != null)
-                        {
-                            normalized.characterPose.root = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                            {
-                                t = sample.characterPose.root.t,
-                                q = sample.characterPose.root.q
-                            };
-                        }
+                        normalizedPose.muscles = (float[])sampledPose.muscles.Clone();
+                        normalizedPose.root = CloneTransform(sampledPose.root);
                         CopyUnenabledGoals(normalized, sample, normalized.mask);
                         break;
                     default:
-                        normalized.characterPose.muscles = sample.characterPose.muscles != null
-                            ? (float[])sample.characterPose.muscles.Clone()
-                            : normalized.characterPose.muscles;
-                        if (sample.characterPose.root != null)
-                        {
-                            normalized.characterPose.root = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                            {
-                                t = sample.characterPose.root.t,
-                                q = sample.characterPose.root.q
-                            };
-                        }
+                        normalizedPose.muscles = (float[])sampledPose.muscles.Clone();
+                        normalizedPose.root = CloneTransform(sampledPose.root);
                         CopyAutoSampleGoals(normalized, sample, normalized.mask, overwriteAll: true);
                         break;
                 }
+                KimodoSampleResultPoseUtility.TryEncode(normalized, normalizedPose, out _);
             }
 
             return normalized;
@@ -120,16 +90,16 @@ namespace KimodoBridge
             KimodoConstraintMask mask,
             bool overwriteAll)
         {
-            if (destination?.characterPose == null || source?.characterPose == null) return;
+            if (!KimodoSampleResultPoseUtility.TryDecode(destination, out CharacterAnimationCli.Unity.CharacterPose destinationPose, out _) ||
+                !KimodoSampleResultPoseUtility.TryDecode(source, out CharacterAnimationCli.Unity.CharacterPose sourcePose, out _)) return;
             mask ??= new KimodoConstraintMask();
-            if ((overwriteAll || !mask.leftHand) && source.characterPose.hands?.left != null)
-                destination.characterPose.hands.left = CloneTransform(source.characterPose.hands.left);
-            if ((overwriteAll || !mask.rightHand) && source.characterPose.hands?.right != null)
-                destination.characterPose.hands.right = CloneTransform(source.characterPose.hands.right);
-            if ((overwriteAll || !mask.leftFoot) && source.characterPose.feet?.left != null)
-                destination.characterPose.feet.left = CloneTransform(source.characterPose.feet.left);
-            if ((overwriteAll || !mask.rightFoot) && source.characterPose.feet?.right != null)
-                destination.characterPose.feet.right = CloneTransform(source.characterPose.feet.right);
+            if ((overwriteAll || !mask.leftHand) && sourcePose.hands?.left != null) destination.effectors.hands.left = CloneTransform(sourcePose.hands.left);
+            if ((overwriteAll || !mask.rightHand) && sourcePose.hands?.right != null) destination.effectors.hands.right = CloneTransform(sourcePose.hands.right);
+            if ((overwriteAll || !mask.leftFoot) && sourcePose.feet?.left != null) destination.effectors.feet.left = CloneTransform(sourcePose.feet.left);
+            if ((overwriteAll || !mask.rightFoot) && sourcePose.feet?.right != null) destination.effectors.feet.right = CloneTransform(sourcePose.feet.right);
+            destinationPose.hands = new CharacterAnimationCli.Unity.CharacterPoseSides { left = CloneTransform(destination.effectors.hands.left), right = CloneTransform(destination.effectors.hands.right) };
+            destinationPose.feet = new CharacterAnimationCli.Unity.CharacterPoseSides { left = CloneTransform(destination.effectors.feet.left), right = CloneTransform(destination.effectors.feet.right) };
+            KimodoSampleResultPoseUtility.TryEncode(destination, destinationPose, out _);
         }
 
         private static CharacterAnimationCli.Unity.CharacterPoseTransform CloneTransform(
@@ -185,10 +155,8 @@ namespace KimodoBridge
                 pose.root.t = profileSkeletonRoot.position;
                 pose.root.q = profileSkeletonRoot.rotation;
             }
-            return new KimodoMarkerSampleResult
+            var result = new KimodoMarkerSampleResult
             {
-                characterPose = pose,
-                sampleData = CharacterPoseMuscleAdapter.ToSampleData(pose),
                 validMask = new KimodoSampleChannelMask
                 {
                     muscle49 = true,
@@ -198,9 +166,10 @@ namespace KimodoBridge
                 },
                 constraintType = "constraint",
                 sampleTime = 0d,
-                mask = KimodoConstraintMask.Resolve(null, "constraint"),
-                hasRootHeading = true
+                mask = KimodoConstraintMask.Resolve(null, "constraint")
             };
+            KimodoSampleResultPoseUtility.TryEncode(result, pose, out _);
+            return result;
         }
 
         internal static void ComposeCharacterPosesAtSameFrame(
@@ -409,21 +378,27 @@ namespace KimodoBridge
                 return false;
             }
 
+            CharacterAnimationCli.Unity.CharacterPose initialPose = new CharacterAnimationCli.Unity.CharacterPose
+            {
+                root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                {
+                    t = profileRootJoint.position,
+                    q = profileRootJoint.rotation
+                }
+            };
             result = new KimodoMarkerSampleResult
             {
-                characterPose = new CharacterAnimationCli.Unity.CharacterPose
-                {
-                    root = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                    {
-                        t = profileRootJoint.position,
-                        q = profileRootJoint.rotation
-                    }
-                },
                 constraintType = "constraint",
                 sampleTime = globalTime,
                 mask = KimodoConstraintMask.ForType(markerType),
-                hasRootHeading = true
+                validMask = new KimodoSampleChannelMask
+                {
+                    rootTQ = true,
+                    root2DPosition = string.Equals(markerType, "root2d", StringComparison.OrdinalIgnoreCase),
+                    root2DHeading = string.Equals(markerType, "root2d", StringComparison.OrdinalIgnoreCase)
+                }
             };
+            KimodoSampleResultPoseUtility.TryEncode(result, initialPose, out _);
 
             if (TryResolveEndEffectorBone(markerType, out HumanBodyBones endEffectorBone))
             {
@@ -445,10 +420,10 @@ namespace KimodoBridge
                 {
                     CharacterAnimationCli.Unity.CharacterPoseTransform goal = endEffectorBone switch
                     {
-                        HumanBodyBones.LeftHand => result.characterPose.hands.left,
-                        HumanBodyBones.RightHand => result.characterPose.hands.right,
-                        HumanBodyBones.LeftFoot => result.characterPose.feet.left,
-                        HumanBodyBones.RightFoot => result.characterPose.feet.right,
+                        HumanBodyBones.LeftHand => result.effectors.hands.left,
+                        HumanBodyBones.RightHand => result.effectors.hands.right,
+                        HumanBodyBones.LeftFoot => result.effectors.feet.left,
+                        HumanBodyBones.RightFoot => result.effectors.feet.right,
                         _ => null
                     };
                     if (goal != null)

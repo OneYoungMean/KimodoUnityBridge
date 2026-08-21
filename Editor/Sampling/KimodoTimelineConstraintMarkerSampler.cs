@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using CharacterAnimationCli.Unity;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -898,11 +899,13 @@ namespace KimodoBridge.Editor
 
             targetRootRotation.Normalize();
             Quaternion planarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(targetRootRotation);
-            sample.characterPose ??= new CharacterAnimationCli.Unity.CharacterPose();
-            sample.characterPose.root ??= new CharacterAnimationCli.Unity.CharacterPoseTransform();
-            sample.characterPose.root.t = targetRootPosition;
-            sample.characterPose.root.q = planarRotation;
-            sample.hasRootHeading = true;
+            CharacterPose pose = KimodoSampleResultPoseUtility.DecodeOrDefault(sample);
+            pose.root.t = targetRootPosition;
+            pose.root.q = planarRotation;
+            KimodoSampleResultPoseUtility.TryEncode(sample, pose, out _);
+            sample.validMask.root2DPosition = true;
+            sample.validMask.root2DHeading = true;
+            sample.root2DOverride = new CharacterPoseTransform { t = targetRootPosition, q = planarRotation };
             sample.constraintType = "constraint";
             sample.sampleTime = exportedSampleTime;
         }

@@ -176,3 +176,11 @@
 - 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-bake-migration3.log`；`git diff --check` 通过。
 - 尚未完成：Timeline marker sampler 与 UI sampling 仍存在兼容访问；旧 bridge 仍需保留。
 - 下一步：迁移 Timeline sampler 的 Root2D 写入和 UI sampling 的 effector/pose 合并，之后运行完整编译并评估是否可物理删除 bridge。
+
+## CP22 — Timeline/Runtime Marker Sampling 迁移
+
+- 状态：已完成，待提交。
+- 已完成：Timeline marker sampler、runtime marker normalization/default sample、profile end-effector sample 创建均不再直接读写 SampleResult 的 `characterPose`/`hasRoot*`；自动采样的 pose 与 effector 目标统一经过 `sampleData`/`effectors` 编解码。
+- 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-sampling-utility2.log`；`git diff --check` 通过。
+- 尚未完成：Editor UI marker sampling 仍有旧兼容访问；之后需要删除 SampleResult 的 obsolete bridge，并屏蔽/迁移旧 CharacterPose 测试。
+- 下一步：迁移 `KimodoConstraintMarkerSampling` UI 合并逻辑，再做一次全仓生产代码扫描；若无旧访问则物理删除 `characterPose`、`hasRoot*`。
