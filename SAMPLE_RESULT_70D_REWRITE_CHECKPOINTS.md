@@ -31,3 +31,12 @@
 - 检查：`git diff --check` 通过；dotnet 生成工程检查受 FullDemo 缺少 NUnit 引用影响，未得到有效 Unity 编译结论。
 - 尚未完成：将现有 Command/Preview/Export 调用切换到新 Composer；统一 FK → Root2D → Effector 解算；Unity 编辑器实际编译。
 - 下一步：提交 CP3 后，迁移主要消费链路，并补充无效 mask 与优先级测试。
+
+## CP4 — 核心消费链路迁移
+
+- 提交：待写入。
+- 状态：已完成，待提交。
+- 已完成：Command 读取/写入 sampleData；Runtime export 优先从有效 70 维数据解码；Runtime generation 使用 canonical Composer；Marker/Composer 依赖方向修正为同程序集 `KimodoSampleDataLayout` 编解码；Legacy CharacterPose 输入可迁移。
+- 检查：Unity CLI FullDemo 编译成功，退出码 0；日志：`C:\tmp\unity-compile-sample-result-70d.log`。仅保留既有序列化分析器/过时 API 警告。
+- 尚未完成：完整移除 CharacterPose 兼容字段、统一实际 Root2D/Effector 姿势 solver、补充新结构测试。
+- 下一步：提交 CP4，然后添加最小 70 维布局与 Composer 回归测试。

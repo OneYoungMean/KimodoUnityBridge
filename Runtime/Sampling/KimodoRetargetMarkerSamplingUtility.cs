@@ -98,7 +98,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoRetargetClipSamplingUtility.TryCaptureSampleData(
+            if (!KimodoRetargetSamplingUtility.TryCaptureSampleData(
                     targetCache,
                     out float[] sampleData,
                     out KimodoSampleChannelMask validMask,

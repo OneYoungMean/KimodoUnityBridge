@@ -426,7 +426,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
 
             List<KimodoMarkerSampleResult> unified =
-                KimodoMarkerSamplingUtility.MergeAsUnifiedConstraintSamples(samples, frameRate);
+                KimodoConstraintSampleComposer.ComposeCanonicalSamples(samples, frameRate);
             double lastSampleTime = Math.Max(0.0, trace.DurationSeconds - 1.0 / Math.Max(1f, frameRate));
             for (int i = 0; i < unified.Count; i++)
             {

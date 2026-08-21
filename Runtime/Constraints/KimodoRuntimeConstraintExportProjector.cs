@@ -25,7 +25,16 @@ namespace KimodoBridge
             string modelName,
             Avatar sourceAvatar)
         {
-            CharacterAnimationCli.Unity.CharacterPose pose = sample?.characterPose;
+            CharacterAnimationCli.Unity.CharacterPose pose = null;
+            if (sample != null && sample.validMask?.muscle49 == true &&
+                CharacterPoseMuscleAdapter.TryFromSampleData(
+                    sample.sampleData,
+                    out CharacterAnimationCli.Unity.CharacterPose decoded,
+                    out _))
+            {
+                pose = decoded;
+            }
+            pose ??= sample?.characterPose;
             string poseError = null;
             if (pose == null || !pose.TryValidate(out poseError))
             {

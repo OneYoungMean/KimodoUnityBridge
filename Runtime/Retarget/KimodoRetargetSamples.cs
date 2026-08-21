@@ -81,7 +81,7 @@ namespace KimodoBridge
             out KimodoSampleChannelMask validMask,
             out string error)
         {
-            return KimodoRetargetClipSamplingUtility.TryCaptureSampleData(
+            return KimodoRetargetSamplingUtility.TryCaptureSampleData(
                 cache,
                 out sampleData,
                 out validMask,

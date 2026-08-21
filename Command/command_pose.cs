@@ -631,8 +631,20 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static CharacterPose RequireCanonicalPose(KimodoMarkerSampleResult sample)
         {
-            CharacterPose pose = sample?.characterPose
-                ?? throw new InvalidOperationException("Pose source has no canonical CharacterPose data; resample or copy it from a character Timeline frame.");
+            CharacterPose pose = null;
+            if (sample != null && sample.validMask?.muscle49 == true &&
+                CharacterPoseMuscleAdapter.TryFromSampleData(
+                    sample.sampleData,
+                    out CharacterPose decoded,
+                    out _))
+            {
+                pose = decoded;
+            }
+            pose ??= sample?.characterPose;
+            if (pose == null)
+            {
+                throw new InvalidOperationException("Pose source has no valid 70-value sampleData payload.");
+            }
             if (!pose.TryValidate(out string error))
             {
                 throw new InvalidOperationException(error);
@@ -650,6 +662,12 @@ namespace CharacterAnimationCli.Unity.Command
                 throw new ArgumentNullException(nameof(sample));
             }
             sample.characterPose = pose.Clone();
+            sample.sampleData = CharacterPoseMuscleAdapter.ToSampleData(pose);
+            sample.validMask ??= new KimodoSampleChannelMask();
+            sample.validMask.muscle49 = true;
+            sample.validMask.rootTQ = true;
+            sample.validMask.leftFootTQ = true;
+            sample.validMask.rightFootTQ = true;
             sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.Resolve(sample.mask, "constraint");
         }

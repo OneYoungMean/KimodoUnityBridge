@@ -25,7 +25,22 @@ namespace TimelineInject
                 return output;
             }
 
-            foreach (List<KimodoMarkerSampleResult> group in GroupByFrame(samples, frameRate).Values)
+            var normalizedSamples = new List<KimodoMarkerSampleResult>(samples.Count);
+            for (int i = 0; i < samples.Count; i++)
+            {
+                KimodoMarkerSampleResult sample = samples[i]?.Clone();
+                if (sample == null) continue;
+                if (sample.creationOrder == 0)
+                {
+                    // Legacy callers have no persisted order; input order is
+                    // their creation-order contract and the later item wins.
+                    sample.creationOrder = i + 1L;
+                }
+                MigrateLegacySample(sample);
+                normalizedSamples.Add(sample);
+            }
+
+            foreach (List<KimodoMarkerSampleResult> group in GroupByFrame(normalizedSamples, frameRate).Values)
             {
                 if (group.Count == 0) continue;
                 var result = new KimodoMarkerSampleResult
@@ -76,6 +91,14 @@ namespace TimelineInject
                 CopyEffectorChannel(ordered, result, SampleChannel.LeftFootEffector);
                 CopyEffectorChannel(ordered, result, SampleChannel.RightFootEffector);
                 result.validMask.NormalizeDependencies();
+                result.mask = ToLegacyMask(result.validMask);
+                if (KimodoSampleDataLayout.TryDecodeCharacterPose(
+                        result.sampleData,
+                        out CharacterPose canonicalPose,
+                        out _))
+                {
+                    result.characterPose = canonicalPose;
+                }
                 output.Add(result);
             }
 
@@ -228,6 +251,53 @@ namespace TimelineInject
                 case SampleChannel.LeftFootEffector: mask.leftFootEffector = value; break;
                 case SampleChannel.RightFootEffector: mask.rightFootEffector = value; break;
             }
+        }
+
+        private static KimodoConstraintMask ToLegacyMask(KimodoSampleChannelMask valid)
+        {
+            return new KimodoConstraintMask
+            {
+                muscle = valid.muscle49,
+                rootPosition = valid.root2DPosition,
+                rootHeading = valid.root2DHeading,
+                leftHand = valid.leftHandEffector,
+                rightHand = valid.rightHandEffector,
+                leftFoot = valid.leftFootEffector,
+                rightFoot = valid.rightFootEffector
+            };
+        }
+
+        private static void MigrateLegacySample(KimodoMarkerSampleResult sample)
+        {
+            if (sample.validMask == null) sample.validMask = new KimodoSampleChannelMask();
+            if (!sample.validMask.Any && sample.characterPose != null &&
+                KimodoSampleDataLayout.TryEncodeCharacterPose(
+                    sample.characterPose,
+                    out float[] data,
+                    out _))
+            {
+                sample.sampleData = data;
+                sample.validMask.muscle49 = true;
+                sample.validMask.rootTQ = true;
+                sample.validMask.leftFootTQ = true;
+                sample.validMask.rightFootTQ = true;
+            }
+            if (sample.mask != null ||
+                (!string.IsNullOrWhiteSpace(sample.constraintType) &&
+                 !string.Equals(sample.constraintType, "constraint", StringComparison.OrdinalIgnoreCase)))
+            {
+                KimodoConstraintMask legacy = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
+                bool explicitRoot2D = string.Equals(sample.constraintType, "root2d", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(sample.constraintMode, "root2d", StringComparison.OrdinalIgnoreCase) ||
+                    sample.hasRoot2DOverride;
+                sample.validMask.root2DPosition |= explicitRoot2D && legacy.rootPosition;
+                sample.validMask.root2DHeading |= explicitRoot2D && legacy.rootHeading && sample.validMask.root2DPosition;
+                sample.validMask.leftHandEffector |= legacy.leftHand;
+                sample.validMask.rightHandEffector |= legacy.rightHand;
+                sample.validMask.leftFootEffector |= legacy.leftFoot;
+                sample.validMask.rightFootEffector |= legacy.rightFoot;
+            }
+            sample.validMask.NormalizeDependencies();
         }
         /// <summary>Returns the effective pose for one unified marker without
         /// mutating its authored FullBody and Root2D data.</summary>

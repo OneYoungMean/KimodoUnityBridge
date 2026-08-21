@@ -1,4 +1,5 @@
 using System;
+using CharacterAnimationCli.Unity;
 using UnityEngine;
 
 namespace TimelineInject
@@ -72,6 +73,46 @@ namespace TimelineInject
             return true;
         }
 
+        public static bool TryDecodeCharacterPose(
+            float[] data,
+            out CharacterPose pose,
+            out string error)
+        {
+            pose = null;
+            if (!TryValidate(data, out error)) return false;
+            pose = new CharacterPose();
+            Array.Copy(data, BodyMuscleOffset, pose.muscles, 0, BodyMuscleCount);
+            GetTransform(data, RootTqOffset, out pose.root.t, out pose.root.q);
+            GetTransform(data, LeftFootTqOffset, out pose.feet.left.t, out pose.feet.left.q);
+            GetTransform(data, RightFootTqOffset, out pose.feet.right.t, out pose.feet.right.q);
+            if (!pose.TryValidate(out error))
+            {
+                pose = null;
+                return false;
+            }
+            return true;
+        }
+
+        public static bool TryEncodeCharacterPose(
+            CharacterPose pose,
+            out float[] data,
+            out string error)
+        {
+            data = CreateBuffer();
+            error = string.Empty;
+            if (pose == null)
+            {
+                error = "Character pose is null.";
+                return false;
+            }
+            if (!pose.TryValidate(out error)) return false;
+            Array.Copy(pose.muscles, 0, data, BodyMuscleOffset, BodyMuscleCount);
+            SetTransform(data, RootTqOffset, pose.root.t, pose.root.q.normalized);
+            SetTransform(data, LeftFootTqOffset, pose.feet.left.t, pose.feet.left.q.normalized);
+            SetTransform(data, RightFootTqOffset, pose.feet.right.t, pose.feet.right.q.normalized);
+            return TryValidate(data, out error);
+        }
+
         private static void RequireBuffer(float[] data, int offset)
         {
             if (!IsValidLength(data) || offset < 0 || offset + 6 >= data.Length)
@@ -113,6 +154,10 @@ namespace TimelineInject
             3 => rightFootEffector,
             _ => false
         };
+
+        public bool Any => muscle49 || rootTQ || leftFootTQ || rightFootTQ ||
+            root2DPosition || root2DHeading || leftHandEffector ||
+            rightHandEffector || leftFootEffector || rightFootEffector;
 
     }
 }

@@ -28,7 +28,8 @@ namespace KimodoBridge
             normalized.mask = KimodoConstraintMask.Resolve(authored?.mask, "constraint").Clone();
             normalized.hasRootHeading = authored != null && authored.hasRootHeading;
 
-            if (KimodoSampleDataLayout.IsValidLength(sample.sampleData))
+            if (KimodoSampleDataLayout.IsValidLength(sample.sampleData) &&
+                (sample.validMask?.Any == true || sample.characterPose == null))
             {
                 normalized.sampleData = (float[])sample.sampleData.Clone();
                 normalized.validMask = sample.validMask?.Clone() ?? new KimodoSampleChannelMask();

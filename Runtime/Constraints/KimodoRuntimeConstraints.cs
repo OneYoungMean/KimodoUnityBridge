@@ -117,7 +117,7 @@ namespace KimodoBridge
             }
 
             result.Sort((left, right) => left.sampleTime.CompareTo(right.sampleTime));
-            List<KimodoMarkerSampleResult> merged = KimodoConstraintSampleComposer.MergeAsUnifiedSamples(
+            List<KimodoMarkerSampleResult> merged = KimodoConstraintSampleComposer.ComposeCanonicalSamples(
                 result,
                 KimodoMotionModelProfiles.DefaultFrameRate);
             if (overlapFullBody != null)

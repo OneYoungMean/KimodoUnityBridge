@@ -153,6 +153,21 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
                 activeSampleCache.mask = BuildFullBodyMask();
                 break;
         }
+
+        if (activeSampleCache.characterPose != null &&
+            KimodoSampleDataLayout.TryEncodeCharacterPose(
+                activeSampleCache.characterPose,
+                out float[] sampleData,
+                out _))
+        {
+            activeSampleCache.sampleData = sampleData;
+            activeSampleCache.validMask ??= new KimodoSampleChannelMask();
+            activeSampleCache.validMask.muscle49 = constraintMode == KimodoConstraintMode.FullBody ||
+                constraintMode == KimodoConstraintMode.Effector;
+            activeSampleCache.validMask.rootTQ = activeSampleCache.validMask.muscle49;
+            activeSampleCache.validMask.leftFootTQ = activeSampleCache.validMask.muscle49;
+            activeSampleCache.validMask.rightFootTQ = activeSampleCache.validMask.muscle49;
+        }
     }
 
     private void CommitActiveSample()
