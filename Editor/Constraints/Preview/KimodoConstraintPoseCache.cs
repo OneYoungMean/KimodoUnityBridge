@@ -221,9 +221,27 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            hips.SetPositionAndRotation(
-                sample.root2DOverride.t,
-                sample.root2DOverride.q);
+            Vector3 targetPosition = sample.root2DOverride.t;
+            Quaternion targetRotation = sample.root2DOverride.q.normalized;
+
+            // The payload is the hips world pose, while the visible avatar is
+            // rooted at the cloned Animator transform. Move that root by the
+            // hips delta first so the whole character follows the sampled
+            // world pose; then apply the exact hips world value to remove any
+            // hierarchy/scale residual.
+            Transform skeletonRoot = targetCache.skeletonRoot;
+            if (skeletonRoot != null && skeletonRoot != hips)
+            {
+                Vector3 currentPosition = hips.position;
+                Quaternion currentRotation = hips.rotation;
+                Quaternion deltaRotation = targetRotation * Quaternion.Inverse(currentRotation);
+                Vector3 rootPosition = skeletonRoot.position;
+                skeletonRoot.SetPositionAndRotation(
+                    targetPosition - deltaRotation * (currentPosition - rootPosition),
+                    deltaRotation * skeletonRoot.rotation);
+            }
+
+            hips.SetPositionAndRotation(targetPosition, targetRotation);
         }
 
         internal static bool TryResolveHumanBonePair(

@@ -37,6 +37,14 @@ namespace KimodoBridge.Editor
                 mode,
                 new GUIContent("Constraint Mode", "Only the selected mode is sampled, displayed, and exported."));
 
+            // Root2DOverride is a shared world-space channel.  It must remain
+            // visible while editing FullBody/Effector as well; otherwise the
+            // hips source silently disappears from the unified payload.
+            if ((KimodoConstraintMode)mode.enumValueIndex != KimodoConstraintMode.Root2D)
+            {
+                DrawRoot2DOverride(so);
+            }
+
             switch ((KimodoConstraintMode)mode.enumValueIndex)
             {
                 case KimodoConstraintMode.Root2D:
@@ -93,6 +101,20 @@ namespace KimodoBridge.Editor
                 }
             }
             EditorGUILayout.HelpBox("Root2D mode draws only the root marker and exports only root2d.", MessageType.None);
+            EditorGUILayout.EndVertical();
+        }
+
+        private static void DrawRoot2DOverride(SerializedObject so)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            SerializedProperty root = so.FindProperty("sampleData.root2DOverride");
+            using (new EditorGUI.DisabledScope(IsAutoSample(so)))
+            {
+                DrawTransform(root, "Root Position / Rotation");
+            }
+            EditorGUILayout.HelpBox(
+                "Root2DOverride is the world-space hips position/rotation and is applied before effectors.",
+                MessageType.None);
             EditorGUILayout.EndVertical();
         }
 

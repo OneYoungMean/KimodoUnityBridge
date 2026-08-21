@@ -287,3 +287,10 @@
 
 - 已完成：`pose_set_root_transform` 不再修改 70D `sampleData.rootTQ`，改为写入完整 world-space `root2DOverride`；heading 没有 position 时拒绝写入，保持 `hasHeading` 依赖 position 的协议约束。
 - 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\unity-compile-root-channel-clean7.log`；`git diff --check` 通过。
+
+## CP36 — 面板显示 Root2DOverride 与预览角色根跟随
+
+- 已完成：FullBody/Effector 面板增加统一的 `Root Position / Rotation` 编辑区，直接读写 `sampleData.root2DOverride`；Root2D 模式沿用原面板，避免重复绘制。
+- 已完成：预览应用 root2D 时，先按 hips 当前 world pose 到目标 world pose 的刚体 delta 移动可见 avatar 的 skeleton root，再精确设置 hips world position/rotation；这样采样的 hips 不会只留在 identity 根下或造成角色整体偏移。
+- 约束：`root2DOverride` 仍然是 hips 的 world-space 语义，没有重新接入 `rootTQ`，effector 仍只作为显示/协议数据。
+- 检查：Unity 2022.3.62f3c1 CLI 编译成功，日志：`C:\tmp\unity-compile-root2d-avatar-fix.log`；无 `error CS`，退出码 0；`git diff --check` 通过。
