@@ -733,8 +733,7 @@ namespace KimodoBridge
                         clipSamples,
                         frameRate,
                         out clip,
-                        out error,
-                        includeFootIkGoals: false))
+                        out error))
                 {
                     return false;
                 }
@@ -840,8 +839,7 @@ namespace KimodoBridge
                         clipSamples,
                         frameRate,
                         out clip,
-                        out error,
-                        includeFootIkGoals: false))
+                        out error))
                 {
                     return false;
                 }
@@ -888,8 +886,7 @@ namespace KimodoBridge
                             targetMuscleSamples,
                             frameRate,
                             out AnimationClip targetClip,
-                            out error,
-                            includeFootIkGoals: true))
+                            out error))
                     {
                         targetSamples = null;
                         return false;
@@ -1089,17 +1086,14 @@ namespace KimodoBridge
             IReadOnlyList<MuscleSample> samples,
             float frameRate,
             out AnimationClip clip,
-            out string error,
-            bool includeFootIkGoals = true)
+            out string error)
         {
             return TryCreateTransientClip(
                 samples,
                 frameRate,
                 "Muscle samples are empty.",
-                includeFootIkGoals ? "KimodoTransientMuscleClip" : "KimodoTransientMuscleOnlyClip",
-                includeFootIkGoals
-                    ? KimodoRetargetClipWriter.WriteMuscleCurves
-                    : KimodoRetargetClipWriter.WriteMuscleCurvesWithoutIkGoals,
+                "KimodoTransientBodyMuscleClip",
+                KimodoRetargetClipWriter.WriteBodyMuscleCurves,
                 out clip,
                 out error);
         }

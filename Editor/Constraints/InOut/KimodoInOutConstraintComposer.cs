@@ -145,14 +145,6 @@ namespace KimodoBridge.Editor
                     root2DHeading = true
                 }
             };
-            KimodoSampleResultPoseUtility.TryEncode(
-                sample,
-                new CharacterAnimationCli.Unity.CharacterPose
-                {
-                    root = new CharacterAnimationCli.Unity.CharacterPoseTransform
-                    { t = sample.root2DOverride.t, q = sample.root2DOverride.q }
-                },
-                out _);
             sample.enableMask.muscle49 = false;
             sample.enableMask.rootTQ = false;
             sample.enableMask.leftFootTQ = false;

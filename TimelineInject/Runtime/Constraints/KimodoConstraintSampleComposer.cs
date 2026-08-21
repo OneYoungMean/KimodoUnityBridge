@@ -287,19 +287,6 @@ namespace TimelineInject
         private static void MigrateLegacySample(KimodoMarkerSampleResult sample)
         {
             if (sample.enableMask == null) sample.enableMask = new KimodoSampleChannelMask();
-            if (!sample.enableMask.Any &&
-                string.IsNullOrWhiteSpace(sample.constraintMode) &&
-                KimodoSampleDataLayout.TryEncodeCharacterPose(
-                    KimodoSampleResultPoseUtility.DecodeOrDefault(sample),
-                    out float[] data,
-                    out _))
-            {
-                sample.sampleData = data;
-                sample.enableMask.muscle49 = true;
-                sample.enableMask.rootTQ = true;
-                sample.enableMask.leftFootTQ = true;
-                sample.enableMask.rightFootTQ = true;
-            }
             if (sample.mask != null ||
                 (!string.IsNullOrWhiteSpace(sample.constraintType) &&
                  !string.Equals(sample.constraintType, "constraint", StringComparison.OrdinalIgnoreCase)))
@@ -858,7 +845,10 @@ namespace TimelineInject
             {
                 return sample.root2DOverride;
             }
-            return TryGetPose(sample, out CharacterPose pose, out _) ? pose.root : null;
+            // Root2D is an explicit world-space channel. Never fall back to
+            // sampleData.rootTQ/CharacterPose.root: rootTQ is not hips world
+            // data and must remain independent of Root2D.
+            return null;
         }
 
         private static bool IsRoot2D(KimodoMarkerSampleResult sample) =>

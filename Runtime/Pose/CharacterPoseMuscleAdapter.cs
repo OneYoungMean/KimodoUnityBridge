@@ -170,6 +170,23 @@ namespace KimodoBridge
 
         public static MuscleSample ToMuscleSample(CharacterPose pose)
         {
+            return ToMuscleSample(pose, includeTransformChannels: true);
+        }
+
+        /// <summary>
+        /// Builds the muscle-only representation used by retarget sampling.
+        /// This deliberately never reads or transports CharacterPose.root or
+        /// the authored foot channels into MuscleSample -> BoneSample.
+        /// </summary>
+        public static MuscleSample ToBodyMuscleSample(CharacterPose pose)
+        {
+            return ToMuscleSample(pose, includeTransformChannels: false);
+        }
+
+        private static MuscleSample ToMuscleSample(
+            CharacterPose pose,
+            bool includeTransformChannels)
+        {
             if (pose == null)
             {
                 throw new ArgumentNullException(nameof(pose));
@@ -185,19 +202,20 @@ namespace KimodoBridge
                 unityMuscles[UnityBodyMuscleIndices[i]] = pose.muscles[i];
             }
 
-            return new MuscleSample
+            var sample = new MuscleSample
             {
                 pose = new HumanPose
                 {
-                    bodyPosition = pose.root.t,
-                    bodyRotation = pose.root.q.normalized,
+                    bodyPosition = includeTransformChannels ? pose.root.t : Vector3.zero,
+                    bodyRotation = includeTransformChannels ? pose.root.q.normalized : Quaternion.identity,
                     muscles = unityMuscles
                 },
-                leftFootPosition = pose.feet.left.t,
-                leftFootRotation = pose.feet.left.q.normalized,
-                rightFootPosition = pose.feet.right.t,
-                rightFootRotation = pose.feet.right.q.normalized
+                leftFootPosition = includeTransformChannels ? pose.feet.left.t : Vector3.zero,
+                leftFootRotation = includeTransformChannels ? pose.feet.left.q.normalized : Quaternion.identity,
+                rightFootPosition = includeTransformChannels ? pose.feet.right.t : Vector3.zero,
+                rightFootRotation = includeTransformChannels ? pose.feet.right.q.normalized : Quaternion.identity
             };
+            return sample;
         }
     }
 }

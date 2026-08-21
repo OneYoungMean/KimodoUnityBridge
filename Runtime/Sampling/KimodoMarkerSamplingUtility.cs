@@ -87,11 +87,6 @@ namespace KimodoBridge
             string constraintType = "fullbody")
         {
             var pose = new CharacterAnimationCli.Unity.CharacterPose();
-            if (profileSkeletonRoot != null)
-            {
-                pose.root.t = profileSkeletonRoot.position;
-                pose.root.q = profileSkeletonRoot.rotation;
-            }
             var result = new KimodoMarkerSampleResult
             {
                 enableMask = new KimodoSampleChannelMask

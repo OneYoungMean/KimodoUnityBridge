@@ -143,7 +143,15 @@ namespace TimelineInject
             {
                 return false;
             }
-            rootPositionMeters = pose.root.t * HumanScale;
+            // The canonical rootTQ channel is not a hips/world transform.
+            // Only an explicit world-space Root2D override may provide the
+            // protocol root when no skeleton projector is available.
+            rootPositionMeters = sample.enableMask?.root2DPosition == true &&
+                sample.root2DOverride != null
+                ? sample.root2DOverride.t * HumanScale
+                : Vector3.zero;
+            pose.root.t = Vector3.zero;
+            pose.root.q = Quaternion.identity;
             return TryBuildLocalJointAngles(pose, out localAngles, out error);
         }
 
@@ -307,13 +315,12 @@ namespace TimelineInject
             double? clipDurationSeconds,
             double exportFps)
         {
-            if (KimodoSampleResultPoseUtility.TryDecode(
-                    sample,
-                    out CharacterAnimationCli.Unity.CharacterPose pose,
-                    out _))
+            if (sample != null && sample.enableMask?.root2DPosition == true &&
+                sample.root2DOverride != null)
             {
-                Vector3 root = pose.root.t * ((exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale);
-                Vector3 forward = pose.root.q * Vector3.forward;
+                float humanScale = (exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale;
+                Vector3 root = sample.root2DOverride.t * humanScale;
+                Vector3 forward = sample.root2DOverride.q * Vector3.forward;
                 var canonical = new KimodoConstraintJson
                 {
                     type = "root2d",
@@ -327,7 +334,7 @@ namespace TimelineInject
                 return canonical;
             }
 
-            throw new InvalidOperationException("Root2D sampleData is invalid.");
+            throw new InvalidOperationException("Root2D world override is invalid.");
         }
 
         private static KimodoConstraintJson BuildFullBody(
@@ -425,19 +432,12 @@ namespace TimelineInject
                 }
             };
 
-            CharacterAnimationCli.Unity.CharacterPose pose = projected?.projectedPose;
-            if (pose == null && !KimodoSampleResultPoseUtility.TryDecode(sample, out pose, out error))
-            {
-                throw new InvalidOperationException($"End-effector sampleData is invalid: {error}");
-            }
             CharacterAnimationCli.Unity.CharacterPoseTransform goal = ResolveEndEffectorGoal(
-                pose,
+                sample,
                 sample.constraintType);
             if (goal != null)
             {
-                Vector3 worldTarget = projected?.projectedPose != null
-                    ? goal.t
-                    : (pose.root.t + pose.root.q * goal.t) * humanScale;
+                Vector3 worldTarget = goal.t * humanScale;
                 json.target_positions = new List<float[]> { new[] { -worldTarget.x, worldTarget.y, worldTarget.z } };
             }
 
@@ -456,42 +456,19 @@ namespace TimelineInject
             }
         }
 
-        private static CharacterAnimationCli.Unity.CharacterPoseTransform ResolveEndEffectorGoal(CharacterAnimationCli.Unity.CharacterPose pose, string type)
+        private static CharacterAnimationCli.Unity.CharacterPoseTransform ResolveEndEffectorGoal(
+            KimodoMarkerSampleResult sample,
+            string type)
         {
-            if (pose == null) return null;
+            if (sample?.effectors == null) return null;
             switch ((type ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
             {
-                case "left-hand": return pose.hands?.left;
-                case "right-hand": return pose.hands?.right;
-                case "left-foot": return pose.feet?.left;
-                case "right-foot": return pose.feet?.right;
+                case "left-hand": return sample.effectors.hands?.left;
+                case "right-hand": return sample.effectors.hands?.right;
+                case "left-foot": return sample.effectors.feet?.left;
+                case "right-foot": return sample.effectors.feet?.right;
                 default: return null;
             }
-        }
-
-        private static bool TryBuildProtocolPose(
-            KimodoMarkerSampleResult sample,
-            KimodoConstraintExportContext exportContext,
-            out Vector3 root,
-            out List<Vector3> localAxisAngles,
-            out string error)
-        {
-            root = Vector3.zero;
-            localAxisAngles = null;
-            error = string.Empty;
-            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterAnimationCli.Unity.CharacterPose pose, out error))
-            {
-                return false;
-            }
-
-            // The server's first FK joint is the canonical HumanPose body root.
-            // All authoring data remains in CharacterPose; no historical joint
-            // arrays are retained on the constraint DTO.
-            root = pose.root.t;
-            return exportContext != null && exportContext.TryBuildLocalJointAngles(
-                pose,
-                out localAxisAngles,
-                out error);
         }
 
         private static bool TryBuildProjectedProtocolPose(

@@ -38,19 +38,15 @@ namespace KimodoBridge
             sample.effectors ??= new KimodoConstraintEffectors();
             sample.effectors.hands ??= new CharacterPoseSides();
             sample.effectors.feet ??= new CharacterPoseSides();
-            if (KimodoSampleResultPoseUtility.TryDecode(
-                    sample,
-                    out CharacterPose referencePose,
-                    out _) &&
-                KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(constraintType, out HumanBodyBones bone))
+            if (KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(
+                    constraintType,
+                    out HumanBodyBones bone))
             {
-                float humanScale = player.SourceHumanScale;
-                Vector3 modelGoalPosition = referencePose.root.t * humanScale +
-                    Quaternion.Inverse(modelToWorldRotation) *
-                    (targetWorldPosition - currentWorldBodyPosition);
                 CharacterAnimationCli.Unity.CharacterPoseTransform target = new CharacterAnimationCli.Unity.CharacterPoseTransform
                 {
-                    t = modelGoalPosition,
+                    // Effector positions are protocol world coordinates. They
+                    // must not be reconstructed from rootTQ or root-local data.
+                    t = targetWorldPosition,
                     q = targetJoint.rotation
                 };
                 switch (bone)
@@ -91,26 +87,16 @@ namespace KimodoBridge
             // (normally the overlap FullBody frame 0). Keep this target in
             // absolute model space; subtracting NextSegmentRootOrigin here
             // would apply the same translation a second time during generation.
-            Vector2 modelTarget = KimodoRoot2DPlanner.ToModelTarget(
-                KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose rootPose, out _)
-                    ? new Vector3(rootPose.root.t.x, 0f, rootPose.root.t.z)
-                    : Vector3.zero,
-                Vector3.zero,
-                currentWorldPosition,
-                modelToWorldRotation,
-                new Vector3(targetWorldPosition.x, currentWorldPosition.y, targetWorldPosition.y),
-                player.SourceHumanScale,
-                targetHumanScale);
             sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.ForType(KimodoRuntimeConstraints.Root2DType);
-            if (KimodoSampleResultPoseUtility.TryDecode(sample, out _, out _))
+            if (sample.root2DOverride != null)
             {
                 sample.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
                 {
                     t = new Vector3(
-                        modelTarget.x / player.SourceHumanScale,
-                        0f,
-                        modelTarget.y / player.SourceHumanScale),
+                        targetWorldPosition.x,
+                        currentWorldPosition.y,
+                        targetWorldPosition.y),
                     q = Quaternion.identity
                 };
                 sample.enableMask.root2DPosition = true;
@@ -118,13 +104,10 @@ namespace KimodoBridge
             sample.enableMask.root2DHeading = worldHeading.HasValue && sample.enableMask.root2DPosition;
             if (worldHeading.HasValue)
             {
-                Vector2 modelHeading = KimodoRoot2DPlanner.ToModelHeading(
-                    modelToWorldRotation,
-                    worldHeading.Value);
                 if (sample.root2DOverride != null)
                 {
                     sample.root2DOverride.q = Quaternion.LookRotation(
-                        new Vector3(modelHeading.x, 0f, modelHeading.y),
+                        new Vector3(worldHeading.Value.x, 0f, worldHeading.Value.y),
                         Vector3.up);
                 }
             }

@@ -899,10 +899,6 @@ namespace KimodoBridge.Editor
 
             targetRootRotation.Normalize();
             Quaternion planarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(targetRootRotation);
-            CharacterPose pose = KimodoSampleResultPoseUtility.DecodeOrDefault(sample);
-            pose.root.t = targetRootPosition;
-            pose.root.q = planarRotation;
-            KimodoSampleResultPoseUtility.TryEncode(sample, pose, out _);
             sample.enableMask.root2DPosition = true;
             sample.enableMask.root2DHeading = true;
             sample.root2DOverride = new CharacterPoseTransform { t = targetRootPosition, q = planarRotation };
@@ -1089,8 +1085,11 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            // RootTQ is not part of the muscle sampling transport. The
+            // canonical world root is captured later from SkeletonCache and
+            // written to root2DOverride; legacy anchor normalization is kept
+            // in the signature only for call-site compatibility.
             sample = samples[0];
-            NormalizeSampleRoot(sample, normalizeRootToAnchor, anchorRootPosition, anchorRootRotation);
             return true;
         }
 
@@ -1254,31 +1253,6 @@ namespace KimodoBridge.Editor
                 out error,
                 writebackClip);
         }
-
-        private void NormalizeSampleRoot(
-            MuscleSample sample,
-            bool normalizeRootToAnchor,
-            Vector3 anchorRootPosition,
-            Quaternion anchorRootRotation)
-        {
-            if (!normalizeRootToAnchor || sample == null)
-            {
-                return;
-            }
-
-            HumanPose pose = sample.pose;
-            Vector3 bodyPosition = pose.bodyPosition * sourceHumanScale;
-            Quaternion bodyRotation = pose.bodyRotation;
-            KimodoConstraintNormalizationUtility.NormalizeRootPose(
-                anchorRootPosition,
-                anchorRootRotation,
-                ref bodyPosition,
-                ref bodyRotation);
-            pose.bodyPosition = bodyPosition / sourceHumanScale;
-            pose.bodyRotation = bodyRotation;
-            sample.pose = pose;
-        }
-
 
         private static bool TryBuildSourceBoneTransforms(
             Transform sourceRoot,

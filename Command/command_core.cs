@@ -823,7 +823,6 @@ namespace CharacterAnimationCli.Unity.Command
                     root2DHeading = hasPosition || hasRootPose
                 }
             };
-            KimodoSampleResultPoseUtility.TryEncode(result, pose, out _);
             result.enableMask.muscle49 = false;
             result.enableMask.rootTQ = false;
             result.enableMask.leftFootTQ = false;
@@ -842,7 +841,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             CharacterPose sourcePose = ReadCharacterPose(value?["pose"] as JObject,
                 $"constraints[{constraintIndex}].{constraintType.Replace('-', '_')}");
-            MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToMuscleSample(sourcePose);
+            MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToBodyMuscleSample(sourcePose);
             KimodoConstraintMask mask = KimodoConstraintMask.ForType(constraintType);
             if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                     sourceSample, frameRate, targetCache,

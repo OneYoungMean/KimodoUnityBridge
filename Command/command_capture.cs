@@ -1161,10 +1161,14 @@ namespace CharacterAnimationCli.Unity.Command
                 !canonicalPose.TryValidate(out _)) return;
             Animator animator = preview.GetComponentInChildren<Animator>(true);
             if (animator == null || !KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar)) return;
-            HumanPose pose = CharacterPoseMuscleAdapter.ToMuscleSample(canonicalPose).pose;
+            HumanPose pose = CharacterPoseMuscleAdapter.ToBodyMuscleSample(canonicalPose).pose;
             using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
             {
                 handler.SetHumanPose(ref pose);
+            }
+            if (TryGetRoot2DWorld(sample, out Vector3 rootPosition, out Quaternion rootRotation))
+            {
+                animator.transform.SetPositionAndRotation(rootPosition, rootRotation);
             }
         }
 
@@ -1884,14 +1888,17 @@ namespace CharacterAnimationCli.Unity.Command
             animator.runtimeAnimatorController = null;
             bool hasPose = KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose canonicalPose, out _) &&
                 canonicalPose.TryValidate(out _);
-            Vector3 position = hasPose ? canonicalPose.root.t : Vector3.zero;
-            Quaternion rotation = hasPose ? canonicalPose.root.q : Quaternion.identity;
+            bool hasRoot2D = TryGetRoot2DWorld(sample, out Vector3 position, out Quaternion rotation);
             if (!root2DOnly && hasPose)
             {
-                HumanPose pose = CharacterPoseMuscleAdapter.ToMuscleSample(canonicalPose).pose;
+                HumanPose pose = CharacterPoseMuscleAdapter.ToBodyMuscleSample(canonicalPose).pose;
                 using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
                 {
                     handler.SetHumanPose(ref pose);
+                }
+                if (hasRoot2D)
+                {
+                    animator.transform.SetPositionAndRotation(position, rotation);
                 }
             }
             else
@@ -1899,6 +1906,24 @@ namespace CharacterAnimationCli.Unity.Command
                 animator.transform.SetPositionAndRotation(position, rotation);
             }
             return preview;
+        }
+
+        private static bool TryGetRoot2DWorld(
+            KimodoMarkerSampleResult sample,
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            if (sample == null || sample.enableMask?.root2DPosition != true ||
+                sample.root2DOverride == null)
+            {
+                return false;
+            }
+
+            position = sample.root2DOverride.t;
+            rotation = sample.root2DOverride.q.normalized;
+            return true;
         }
 
         private static Vector3 PreviewRootPosition(GameObject preview)

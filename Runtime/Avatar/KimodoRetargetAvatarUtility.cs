@@ -560,21 +560,21 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose pose, out error) ||
-                !pose.TryValidate(out error))
+            if (sample.enableMask?.root2DPosition != true || sample.root2DOverride == null)
             {
+                error = "Transform-map fallback requires an explicit world-space root2DOverride.";
                 return false;
             }
 
-            // This transform-map fallback has no HumanPoseHandler, hence it can
-            // apply only the canonical root. Full muscle/FK reconstruction uses
-            // the Avatar sampling path at its caller.
-            root.position = pose.root.t;
-            root.rotation = pose.root.q;
+            // This fallback is Root2D-only. Never use sampleData.rootTQ as a
+            // hips/world transform; FK muscle reconstruction is handled by the
+            // Avatar sampling path at its caller.
+            root.position = sample.root2DOverride.t;
+            root.rotation = sample.root2DOverride.q.normalized;
             if (TryGetProfileRootJointTransform(nameMap, modelName, out Transform profileRootJoint))
             {
-                profileRootJoint.position = pose.root.t;
-                profileRootJoint.rotation = pose.root.q;
+                profileRootJoint.position = sample.root2DOverride.t;
+                profileRootJoint.rotation = sample.root2DOverride.q.normalized;
             }
             return true;
         }

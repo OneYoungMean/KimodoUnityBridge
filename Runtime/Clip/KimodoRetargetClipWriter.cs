@@ -10,20 +10,34 @@ namespace KimodoBridge
         // Unity's remaining humanoid muscles cover jaw, eyes and fingers.
         private static readonly int[] GeneratedMuscleIndices = CharacterPoseMuscleAdapter.UnityBodyMuscleIndices;
 
-        internal static bool WriteMuscleCurves(IReadOnlyList<MuscleSample> samples, AnimationClip clip, out string error)
+        /// <summary>
+        /// Writes a standalone muscle animation clip, including its explicit
+        /// root/foot animation curves. Retarget sampling must use
+        /// <see cref="WriteBodyMuscleCurves"/> instead.
+        /// </summary>
+        internal static bool WriteMuscleAndTransformCurves(
+            IReadOnlyList<MuscleSample> samples,
+            AnimationClip clip,
+            out string error)
         {
-            return WriteMuscleCurves(samples, clip, out error, includeFootIkGoals: true);
+            return WriteMuscleCurves(samples, clip, out error, includeRootTransform: true, includeFootIkGoals: true);
         }
 
-        internal static bool WriteMuscleCurvesWithoutIkGoals(IReadOnlyList<MuscleSample> samples, AnimationClip clip, out string error)
+        /// <summary>
+        /// Writes only the 49 body-muscle channels. This is the only writer
+        /// allowed at the MuscleSample -> BoneSample transport boundary.
+        /// RootT/RootQ and FootT/FootQ are intentionally absent.
+        /// </summary>
+        internal static bool WriteBodyMuscleCurves(IReadOnlyList<MuscleSample> samples, AnimationClip clip, out string error)
         {
-            return WriteMuscleCurves(samples, clip, out error, includeFootIkGoals: false);
+            return WriteMuscleCurves(samples, clip, out error, includeRootTransform: false, includeFootIkGoals: false);
         }
 
         private static bool WriteMuscleCurves(
             IReadOnlyList<MuscleSample> samples,
             AnimationClip clip,
             out string error,
+            bool includeRootTransform,
             bool includeFootIkGoals)
         {
             if (!ValidateWriteInputs(samples, clip, "Muscle", out error))
@@ -47,13 +61,13 @@ namespace KimodoBridge
                 }
             }
 
-            AnimationCurve rootTx = new AnimationCurve();
-            AnimationCurve rootTy = new AnimationCurve();
-            AnimationCurve rootTz = new AnimationCurve();
-            AnimationCurve rootQx = new AnimationCurve();
-            AnimationCurve rootQy = new AnimationCurve();
-            AnimationCurve rootQz = new AnimationCurve();
-            AnimationCurve rootQw = new AnimationCurve();
+            AnimationCurve rootTx = includeRootTransform ? new AnimationCurve() : null;
+            AnimationCurve rootTy = includeRootTransform ? new AnimationCurve() : null;
+            AnimationCurve rootTz = includeRootTransform ? new AnimationCurve() : null;
+            AnimationCurve rootQx = includeRootTransform ? new AnimationCurve() : null;
+            AnimationCurve rootQy = includeRootTransform ? new AnimationCurve() : null;
+            AnimationCurve rootQz = includeRootTransform ? new AnimationCurve() : null;
+            AnimationCurve rootQw = includeRootTransform ? new AnimationCurve() : null;
             AnimationCurve leftFootTx = includeFootIkGoals ? new AnimationCurve() : null;
             AnimationCurve leftFootTy = includeFootIkGoals ? new AnimationCurve() : null;
             AnimationCurve leftFootTz = includeFootIkGoals ? new AnimationCurve() : null;
@@ -89,13 +103,15 @@ namespace KimodoBridge
                 float time = frame / frameRate;
                 HumanPose pose = sample.pose;
                 EnsureHumanPoseMuscles(ref pose);
-                Quaternion rootRotation = ResolveContinuousRotation(
-                    pose.bodyRotation,
-                    ref previousRootRotation,
-                    ref hasPreviousRootRotation);
-
-                AddVector3Key(time, pose.bodyPosition, rootTx, rootTy, rootTz);
-                AddQuaternionKey(time, rootRotation, rootQx, rootQy, rootQz, rootQw);
+                if (includeRootTransform)
+                {
+                    Quaternion rootRotation = ResolveContinuousRotation(
+                        pose.bodyRotation,
+                        ref previousRootRotation,
+                        ref hasPreviousRootRotation);
+                    AddVector3Key(time, pose.bodyPosition, rootTx, rootTy, rootTz);
+                    AddQuaternionKey(time, rootRotation, rootQx, rootQy, rootQz, rootQw);
+                }
                 if (includeFootIkGoals)
                 {
                     AddVector3Key(time, sample.leftFootPosition, leftFootTx, leftFootTy, leftFootTz);
@@ -112,8 +128,11 @@ namespace KimodoBridge
                 }
             }
 
-            SetAnimatorVector3Curves(clip, "RootT", rootTx, rootTy, rootTz);
-            SetAnimatorQuaternionCurves(clip, "RootQ", rootQx, rootQy, rootQz, rootQw);
+            if (includeRootTransform)
+            {
+                SetAnimatorVector3Curves(clip, "RootT", rootTx, rootTy, rootTz);
+                SetAnimatorQuaternionCurves(clip, "RootQ", rootQx, rootQy, rootQz, rootQw);
+            }
             if (includeFootIkGoals)
             {
                 SetAnimatorVector3Curves(clip, "LeftFootT", leftFootTx, leftFootTy, leftFootTz);

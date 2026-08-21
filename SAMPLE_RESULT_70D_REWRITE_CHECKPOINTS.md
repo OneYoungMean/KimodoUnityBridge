@@ -267,3 +267,12 @@
 - 已完成：AutoSample 结果不再经过 Editor 自己的 CharacterPose 合并；非 AutoSample 的拖拽只捕获 gizmo world position/rotation，写回同一份 SampleResult。
 - 检查：Unity 2022.3.62f3c1 CLI 编译成功，日志：`C:\tmp\unity-compile-phase3-final.log`；无 `error CS`；`git diff --check` 通过。
 - 尚未完成：把 EditorWindow 与 Inspector 的 world writeback 完全收敛到一个公共函数，清理 Composer/协议边界中残留的 legacy mask/type 分支，并执行 FullBody sampling/Generate 场景验证。
+
+## CP33 — 清理 MuscleSample→BoneSample 旧 rootTQ 通道
+
+- 已完成：transient MuscleSample clip 改为 `WriteBodyMuscleCurves`，只写 49 个 body muscle；不再生成 `RootT.*`、`RootQ.*`、`FootT/Q` 曲线。独立动画导出若需要根运动，使用明确命名的 `WriteMuscleAndTransformCurves`，与 retarget 采样边界隔离。
+- 已完成：新增 `CharacterPoseMuscleAdapter.ToBodyMuscleSample`，所有由 `sampleData/CharacterPose` 进入 MuscleSample→BoneSample 的生产入口均使用 root identity，不读取/传输 rootTQ 与 authored foot goal。
+- 已完成：移除 Root2D fallback 到 `CharacterPose.root`、transform-map fallback 的 rootTQ 读取、loop bake 对 FullBody `CharacterPose.root` 的覆盖、Root2D 临时样本写回 sampleData rootTQ，以及 legacy migration 自动重建 rootTQ。
+- 已完成：运行时 effector/root2d 目标统一使用 world position/absolute heading，不再通过 rootTQ 或 root-local 计算；协议导出 Root2D/effector 读取显式 world override/effectors。
+- 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\unity-compile-root-channel-clean5.log`；`git diff --check` 通过。
+- 仍保留的 rootTQ 仅限：70D 固定协议布局、Composer 的显式通道合并、以及明确标注的独立完整动画导出；它们不再参与 MuscleSample→BoneSample。
