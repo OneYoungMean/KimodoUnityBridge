@@ -177,7 +177,11 @@ namespace TimelineInject
                 SampleChannel.RightFootEffector => source.effectors.feet?.right,
                 _ => null
             };
-            if (sourceTransform == null) return;
+            if (!IsValidTransform(sourceTransform))
+            {
+                SetValid(destination.validMask, channel, false);
+                return;
+            }
             CharacterPoseSides sides = channel switch
             {
                 SampleChannel.LeftHandEffector => destination.effectors.hands,
@@ -254,6 +258,18 @@ namespace TimelineInject
                 case SampleChannel.RightFootEffector: mask.rightFootEffector = value; break;
             }
         }
+
+        private static bool IsValidTransform(CharacterPoseTransform value)
+        {
+            if (value == null) return false;
+            Quaternion q = value.q;
+            return IsFinite(value.t.x) && IsFinite(value.t.y) && IsFinite(value.t.z) &&
+                IsFinite(q.x) && IsFinite(q.y) && IsFinite(q.z) && IsFinite(q.w) &&
+                q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w > 1e-8f;
+        }
+
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
 
         private static KimodoConstraintMask ToLegacyMask(KimodoSampleChannelMask valid)
         {

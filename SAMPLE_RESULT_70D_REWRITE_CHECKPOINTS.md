@@ -56,3 +56,11 @@
 - 检查：Unity CLI FullDemo 编译成功，退出码 0；EditMode 命令仍因 FullDemo 未发现包内测试而报告 testcasecount=0。
 - 尚未完成：CharacterPose/rawData 兼容字段清理、真实 Effector 解算和场景级 Generate/FullBody sampling 验证。
 - 下一步：提交 CP6；继续处理旧协议字段迁移时，优先移除 SampleResult 的 rawData/sourceRootWorldPose，并修复所有生产调用方。
+
+## CP7 — Effector 完整性校验
+
+- 状态：已完成，待提交。
+- 已完成：Composer 对四个 Effector 的 position/rotation 目标执行 finite + non-zero quaternion 成对校验；无效目标对应 validMask 强制为 false，不会复制到最终 canonical sample。
+- 检查：Unity CLI FullDemo 编译成功，退出码 0。
+- 尚未完成：实际 Humanoid Effector solver；SampleResult 中旧 CharacterPose/rawData/sourceRootWorldPose 字段仍保留为迁移兼容字段。
+- 下一步：提交 CP7。旧字段清理需要同步改造 Exporter、Bake、Preview 和旧测试，不能进行局部删除。
