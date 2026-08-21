@@ -294,3 +294,10 @@
 - 已完成：预览应用 root2D 时，先按 hips 当前 world pose 到目标 world pose 的刚体 delta 移动可见 avatar 的 skeleton root，再精确设置 hips world position/rotation；这样采样的 hips 不会只留在 identity 根下或造成角色整体偏移。
 - 约束：`root2DOverride` 仍然是 hips 的 world-space 语义，没有重新接入 `rootTQ`，effector 仍只作为显示/协议数据。
 - 检查：Unity 2022.3.62f3c1 CLI 编译成功，日志：`C:\tmp\unity-compile-root2d-avatar-fix.log`；无 `error CS`，退出码 0；`git diff --check` 通过。
+
+## CP37 — Muscle 到 Bone 恢复既有完整 Retarget Transport
+
+- 已完成：恢复统一 retarget 临时 clip 的完整通道写入：49 个 body muscle、`RootT/RootQ`、左右脚 T/Q；这些是同一 PlayableGraph retarget 管线的输入，不新增第二套重定向逻辑。
+- 已完成：`TryCreateTransientMuscleClip` 改用完整 retarget writer；Preview 与 Runtime Constraint Projection 从 `CharacterPose` 进入 retarget 时改用保留 root/foot transform 的 `ToMuscleSample`，不再清零 rootTQ。
+- 保持：Root2D 仍在 BoneSample 应用后读取目标 Hips world pose并作为后置 override；effector 仍不执行 IK。
+- 检查：Unity 2022.3.62f3c1 CLI 编译成功，日志：`C:\tmp\unity-compile-retarget-70d-roottq.log`；无 C# 编译错误，退出码 0；`git diff --check` 通过。

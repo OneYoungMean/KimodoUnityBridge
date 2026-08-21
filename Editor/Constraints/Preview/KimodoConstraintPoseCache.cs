@@ -135,7 +135,7 @@ namespace KimodoBridge.Editor
                     return false;
                 }
                 if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                        CharacterPoseMuscleAdapter.ToBodyMuscleSample(canonicalPose),
+                        CharacterPoseMuscleAdapter.ToMuscleSample(canonicalPose),
                         frameRate,
                         targetCache,
                         out BoneSample canonicalTargetSample,

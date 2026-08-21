@@ -1093,7 +1093,7 @@ namespace KimodoBridge
                 frameRate,
                 "Muscle samples are empty.",
                 "KimodoTransientBodyMuscleClip",
-                KimodoRetargetClipWriter.WriteBodyMuscleCurves,
+                KimodoRetargetClipWriter.WriteRetargetMuscleCurves,
                 out clip,
                 out error);
         }

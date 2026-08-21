@@ -69,7 +69,7 @@ namespace KimodoBridge
                 }
                 KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
                 float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
-                MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToBodyMuscleSample(pose);
+                MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToMuscleSample(pose);
                 MuscleSample projectedMuscleSample;
                 if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                         sourceSample,
