@@ -232,3 +232,13 @@
 - 计划：重写 `SAMPLE_RESULT_70D_REWRITE_PLAN.md`，明确删除 raw root-space effector、旧 IK helper、CharacterPose 持久化旁路和重复 AutoSample/拖拽 merge，重新建立唯一 `BoneSample → SkeletonCache → world SampleResult` 链路。
 - 检查：回退后工作树干净；尚未修改生产代码。
 - 下一步：执行 Phase 1，全仓清理旧 IK 和 root-space sampling 生产调用，先提交独立 checkpoint。
+
+## CP29 — 清理旧 IK 与 root-space 采样旁路
+
+- 状态：已完成，待提交。
+- 删除：移除 `TrySampleMarkerFromProfileSkeletonRaw` 及其 profile-root-local effector 计算；BoneSample 采样改为创建无中间 root-space 数据的 SampleResult shell。
+- 删除：移除 `WorldToBodyRelativeEffector`、`BodyRelativeEffectorToWorld`、骨骼 endpoint/effector 偏移 helper，以及运行时 foot IK compatibility stubs。
+- 删除：移除 `MuscleSample` 中已废弃的 hand IK position/rotation 字段。
+- 修改：Runtime constraint capture 不再通过 profile skeleton raw marker 初始化，直接创建 SampleResult 后捕获 FK muscle 数据。
+- 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\unity-compile-phase1-clean-2022.log`；无 `error CS`，退出码 0；`git diff --check` 通过。
+- 尚未完成：SampleResult 仍有旧 mode payload 和 `validMask` 命名；下一阶段统一为单一 sampleData/enableMask，并建立唯一 world SkeletonCache 写入入口。

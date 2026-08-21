@@ -47,8 +47,6 @@ namespace KimodoBridge
         {
             result = null;
             error = string.Empty;
-            string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
-
             if (sample == null || !sample.IsValid)
             {
                 error = "Bone sample is invalid.";
@@ -65,38 +63,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                    resolvedModelName,
-                    targetCache,
-                    out string[] jointNames,
-                    out int[] parentIndices,
-                    out Transform[] jointTransforms,
-                    out error))
-            {
-                return false;
-            }
-
-            Transform endEffector = null;
-            if (KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(markerType, out HumanBodyBones endEffectorBone))
-            {
-                endEffector = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(targetCache, endEffectorBone);
-            }
-
-            if (!KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
-                targetCache.animator,
-                targetCache.skeletonRoot,
-                resolvedModelName,
-                sampleTime,
-                markerType,
-                jointNames,
-                parentIndices,
-                jointTransforms,
-                out result,
-                out error,
-                endEffector))
-            {
-                return false;
-            }
+            result = CreateSampleShell(markerType, sampleTime);
 
             if (!KimodoRetargetSamplingUtility.TryCaptureSampleData(
                     targetCache,
@@ -116,6 +83,19 @@ namespace KimodoBridge
                 return true;
             }
             return true;
+        }
+
+        private static KimodoMarkerSampleResult CreateSampleShell(
+            string markerType,
+            double sampleTime)
+        {
+            return new KimodoMarkerSampleResult
+            {
+                constraintType = "constraint",
+                sampleTime = sampleTime,
+                mask = KimodoConstraintMask.ForType(markerType),
+                validMask = new KimodoSampleChannelMask()
+            };
         }
     }
 }

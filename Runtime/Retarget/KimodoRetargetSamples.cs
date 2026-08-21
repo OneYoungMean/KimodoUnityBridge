@@ -26,18 +26,6 @@ namespace KimodoBridge
         public Quaternion leftFootRotation;
         public Vector3 rightFootPosition;
         public Quaternion rightFootRotation;
-        // Hand IK targets are scene data and are carried by
-        // KimodoConstraintEffectors/HumanoidEffectors. These legacy
-        // fields remain source-compatible for old editor assets only; the
-        // sampling and clip pipelines no longer read or write them.
-        [Obsolete("Hand IK targets are scene data; use HumanoidEffectors.")]
-        public Vector3 leftHandPosition;
-        [Obsolete("Hand IK targets are scene data; use HumanoidEffectors.")]
-        public Quaternion leftHandRotation;
-        [Obsolete("Hand IK targets are scene data; use HumanoidEffectors.")]
-        public Vector3 rightHandPosition;
-        [Obsolete("Hand IK targets are scene data; use HumanoidEffectors.")]
-        public Quaternion rightHandRotation;
     }
 
     public sealed class KimodoSkeletonInstance : IDisposable

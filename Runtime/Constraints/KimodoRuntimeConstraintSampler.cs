@@ -153,20 +153,13 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoMarkerSamplingUtility.TrySampleMarkerFromProfileSkeletonRaw(
-                null,
-                player.ConstraintSkeletonRoot,
-                modelName,
-                sampleTime,
-                constraintType,
-                null,
-                null,
-                null,
-                out sample,
-                out error))
+            sample = new KimodoMarkerSampleResult
             {
-                return false;
-            }
+                constraintType = "constraint",
+                sampleTime = sampleTime,
+                mask = KimodoConstraintMask.ForType(constraintType),
+                validMask = new KimodoSampleChannelMask()
+            };
 
             if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
                     player.ConstraintSkeletonCache,

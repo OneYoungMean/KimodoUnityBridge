@@ -173,25 +173,6 @@ namespace KimodoBridge
             DisposeTargets();
         }
 
-        [Obsolete("Foot IK solving was removed; effectors are transport data only.")]
-        internal static bool ShouldSolveFootIk(bool enabled, Transform ikTarget) => false;
-
-        [Obsolete("Foot IK solving was removed; compatibility stub only.")]
-        internal static void SolveTwoBoneLeg(
-            Transform targetHips,
-            Transform upperLeg,
-            Transform lowerLeg,
-            Transform foot,
-            Transform sourceHips,
-            Transform sourceUpperLeg,
-            Transform sourceLowerLeg,
-            Transform sourceFoot,
-            ref Vector3 previousPoleLocalDirection,
-            ref bool poleInitialized)
-        {
-            // TODO(IK rewrite): no intermediate IK solve.
-        }
-
         private void DisposeTargets()
         {
             for (int i = 0; i < targets.Count; i++)

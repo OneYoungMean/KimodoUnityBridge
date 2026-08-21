@@ -19,69 +19,6 @@ namespace KimodoBridge
             return sample;
         }
 
-        [Obsolete("IK solving was removed; retained only for serialized/test compatibility.")]
-        internal static Vector3 BonePositionToEffectorWorldPosition(
-            Avatar avatar,
-            HumanBodyBones bone,
-            Vector3 boneWorldPosition,
-            Quaternion goalWorldRotation)
-        {
-            float axisLength = avatar != null && UsesAxisEndpoint(bone)
-                ? AvatarRuntimeAccess.GetAvatarAxisLengthOrZero(avatar, (int)bone)
-                : 0f;
-            return boneWorldPosition + goalWorldRotation * new Vector3(axisLength, 0f, 0f);
-        }
-
-        [Obsolete("IK solving was removed; retained only for serialized/test compatibility.")]
-        internal static Vector3 EffectorPositionToBoneWorldPosition(
-            Avatar avatar,
-            HumanBodyBones bone,
-            Vector3 goalWorldPosition,
-            Quaternion goalWorldRotation)
-        {
-            float axisLength = avatar != null && UsesAxisEndpoint(bone)
-                ? AvatarRuntimeAccess.GetAvatarAxisLengthOrZero(avatar, (int)bone)
-                : 0f;
-            return goalWorldPosition - goalWorldRotation * new Vector3(axisLength, 0f, 0f);
-        }
-
-        // Compatibility math retained for serialized/test readers only.
-        [Obsolete("IK solving was removed; retained only for serialized/test compatibility.")]
-        internal static void WorldToBodyRelativeEffector(
-            Vector3 bodyPosition,
-            Quaternion bodyRotation,
-            float humanScale,
-            Vector3 worldGoalPosition,
-            Quaternion worldGoalRotation,
-            out Vector3 goalPosition,
-            out Quaternion goalRotation)
-        {
-            float scale = Mathf.Max(1e-6f, humanScale);
-            Quaternion inverseBodyRotation = Quaternion.Inverse(bodyRotation);
-            goalPosition = inverseBodyRotation * (worldGoalPosition - bodyPosition * scale) / scale;
-            goalRotation = inverseBodyRotation * worldGoalRotation;
-        }
-
-        [Obsolete("IK solving was removed; retained only for serialized/test compatibility.")]
-        internal static void BodyRelativeEffectorToWorld(
-            Vector3 bodyPosition,
-            Quaternion bodyRotation,
-            float humanScale,
-            Vector3 goalPosition,
-            Quaternion goalRotation,
-            out Vector3 worldGoalPosition,
-            out Quaternion worldGoalRotation)
-        {
-            float scale = Mathf.Max(1e-6f, humanScale);
-            worldGoalPosition = bodyPosition * scale + bodyRotation * (goalPosition * scale);
-            worldGoalRotation = bodyRotation * goalRotation;
-        }
-
-        private static bool UsesAxisEndpoint(HumanBodyBones bone)
-        {
-            return bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot;
-        }
-
         internal static Transform ResolveHumanBoneTransform(SkeletonCache cache, HumanBodyBones bone)
         {
             if (cache == null)
