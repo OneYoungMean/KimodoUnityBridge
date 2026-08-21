@@ -141,12 +141,7 @@ namespace KimodoBridge.Editor
                         out BoneSample canonicalTargetSample,
                         out _,
                         out error,
-                        includeLeftHandEffector: mask.leftHand,
-                        includeRightHandEffector: mask.rightHand,
-                        includeFootEffectors: mask.leftFoot || mask.rightFoot,
-                        includeLeftFootEffector: mask.leftFoot,
-                        includeRightFootEffector: mask.rightFoot,
-                        sceneTargets: sceneTargets) ||
+                    sceneTargets: null) ||
                     !KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
                         canonicalTargetSample,
                         targetCache,
@@ -155,7 +150,7 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                ApplyRoot2DHeadingToPreviewRoot(sample, targetCache.skeletonRoot);
+                ApplyRoot2DOverrideToHips(sample, targetCache);
                 return true;
             }
 
@@ -177,12 +172,12 @@ namespace KimodoBridge.Editor
                     out _,
                     out MuscleSample solvedProfileSample,
                     out error,
-                    includeLeftHandEffector: KimodoConstraintMask.Resolve(sample.mask, sample.constraintType).leftHand,
-                    includeRightHandEffector: KimodoConstraintMask.Resolve(sample.mask, sample.constraintType).rightHand,
-                    includeFootEffectors: KimodoConstraintMask.Resolve(sample.mask, sample.constraintType).leftFoot ||
-                        KimodoConstraintMask.Resolve(sample.mask, sample.constraintType).rightFoot,
-                    includeLeftFootEffector: KimodoConstraintMask.Resolve(sample.mask, sample.constraintType).leftFoot,
-                    includeRightFootEffector: KimodoConstraintMask.Resolve(sample.mask, sample.constraintType).rightFoot) ||
+                    includeLeftHandEffector: false,
+                    includeRightHandEffector: false,
+                    includeFootEffectors: false,
+                    includeLeftFootEffector: false,
+                    includeRightFootEffector: false,
+                    sceneTargets: null) ||
                 !KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                     solvedProfileSample,
                     frameRate,
@@ -202,30 +197,33 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            ApplyRoot2DHeadingToPreviewRoot(sample, targetCache.skeletonRoot);
+            ApplyRoot2DOverrideToHips(sample, targetCache);
             return true;
         }
 
-        internal static void ApplyRoot2DHeadingToPreviewRoot(
+        internal static void ApplyRoot2DOverrideToHips(
             KimodoMarkerSampleResult sample,
-            Transform previewRoot)
+            SkeletonCache targetCache)
         {
-            bool isRoot2D = string.Equals(sample?.constraintType, "root2d", StringComparison.OrdinalIgnoreCase);
-            bool isUnifiedRoot = string.Equals(sample?.constraintType, "constraint", StringComparison.OrdinalIgnoreCase) &&
-                KimodoConstraintMask.Resolve(sample?.mask, sample?.constraintType).rootPosition;
-            if (previewRoot == null || sample == null || (!isRoot2D && !isUnifiedRoot))
+            if (sample?.enableMask?.root2DPosition != true ||
+                sample.root2DOverride == null ||
+                targetCache == null ||
+                !targetCache.GetBonePose(HumanBodyBones.Hips, out _, out _))
             {
                 return;
             }
 
-            // CharacterPose is canonical: applying its root transform a second
-            // time after retargeting causes Root2D drag-back.
-            // There is no compatibility fallback.
-            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose canonicalPose, out _) ||
-                !canonicalPose.TryValidate(out _))
+            Transform hips = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(
+                targetCache,
+                HumanBodyBones.Hips);
+            if (hips == null)
             {
                 return;
             }
+
+            hips.SetPositionAndRotation(
+                sample.root2DOverride.t,
+                sample.root2DOverride.q);
         }
 
         internal static bool TryResolveHumanBonePair(
@@ -772,26 +770,10 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            bool wasActive = entry.TargetCache.root.activeSelf;
-            entry.TargetCache.root.SetActive(true);
-            try
-            {
-                bool applied = string.Equals(constraintType, "fullbody", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(constraintType, "constraint", StringComparison.OrdinalIgnoreCase)
-                    ? TryApplyFullBodyTargetsToRig(entry, context.ModelName, out error)
-                    : TryApplyEndEffectorTargetToRig(entry, context.ModelName, constraintType, out error);
-                if (!applied)
-                {
-                    return false;
-                }
-
-                SceneView.RepaintAll();
-                return true;
-            }
-            finally
-            {
-                entry.TargetCache.root.SetActive(wasActive);
-            }
+            // Effector gizmos are transport/display data only. Preview must
+            // never run a hidden IK pass or mutate the FK skeleton.
+            SceneView.RepaintAll();
+            return true;
         }
 
         internal static bool TryGetRootBone(PoseCacheRenderContext context, string entryId, out Transform rootBone)
@@ -1868,11 +1850,7 @@ namespace KimodoBridge.Editor
                     entry.ProfileCache,
                     entry.TargetCache,
                     out error,
-                    applySceneTargets
-                        ? BuildSceneTargets(
-                            entry,
-                            KimodoConstraintMask.Resolve(sample.mask, sample.constraintType))
-                        : default(KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets));
+                    sceneTargets: null);
             }
             finally
             {
@@ -1935,19 +1913,6 @@ namespace KimodoBridge.Editor
                 }
                 RememberEditedEffectors(entry);
                 EnableChangedConstraintChannels(entry, mask);
-                if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase) &&
-                    HasFullBodyTargetTransformChanges(entry) &&
-                    !TryApplyFullBodyTargetsToRig(entry, modelName, mask, out error))
-                {
-                    return false;
-                }
-                if (ResolveEndEffectorBone(markerType) != HumanBodyBones.LastBone &&
-                    entry.EndEffectorMarker != null &&
-                    !TryApplyEndEffectorTargetToRig(entry, modelName, markerType, out error))
-                {
-                    return false;
-                }
-
                 if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
                         entry.TargetCache,
                         out MuscleSample targetSample,
@@ -1980,23 +1945,21 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                CharacterPose writebackPose = BuildWritebackCharacterPose(
-                    entry,
-                    targetSample,
-                    rootTargetChanged,
-                    leftHandTargetChanged,
-                    rightHandTargetChanged,
-                    leftFootTargetChanged,
-                    rightFootTargetChanged);
-                if (writebackPose != null)
-                {
-                    KimodoSampleResultPoseUtility.TryEncode(sample, writebackPose, out _);
-                }
                 sample.effectors = CaptureEffectorsFromEntry(entry, mask, markerType);
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase))
                 {
                     sample.mask = mask.Clone();
                     sample.enableMask.root2DHeading = mask.rootHeading && entry.BaseSample.enableMask?.root2DHeading == true;
+                    if (rootTargetChanged && entry.FullBodyTargets.TryGetValue(
+                            HumanBodyBones.Hips, out GameObject rootTarget) && rootTarget != null)
+                    {
+                        sample.root2DOverride = new CharacterPoseTransform
+                        {
+                            t = rootTarget.transform.position,
+                            q = rootTarget.transform.rotation
+                        };
+                        sample.enableMask.root2DPosition = true;
+                    }
                     PreserveIndependentRoot2D(entry, sample);
                 }
                 return true;
@@ -2014,56 +1977,6 @@ namespace KimodoBridge.Editor
                 return KimodoConstraintMode.Root2D;
             }
             return item?.ConstraintMode ?? KimodoConstraintMode.FullBody;
-        }
-
-        private static CharacterPose BuildWritebackCharacterPose(
-            ConstraintPosePreviewEntry entry,
-            MuscleSample sampledTarget,
-            bool rootChanged,
-            bool leftHandChanged,
-            bool rightHandChanged,
-            bool leftFootChanged,
-            bool rightFootChanged)
-        {
-            CharacterPose sampledPose = sampledTarget != null
-                ? CharacterPoseMuscleAdapter.FromMuscleSample(sampledTarget, entry?.TargetCache)
-                : null;
-            CharacterPose result = KimodoSampleResultPoseUtility.TryDecode(
-                entry?.BaseSample,
-                out CharacterPose basePose,
-                out _)
-                ? basePose.Clone()
-                : null;
-            if (result == null)
-            {
-                return sampledPose;
-            }
-            if (sampledPose == null)
-            {
-                return result;
-            }
-
-            if (rootChanged)
-            {
-                result.root = sampledPose.root;
-            }
-            if (leftHandChanged)
-            {
-                result.hands.left = sampledPose.hands?.left;
-            }
-            if (rightHandChanged)
-            {
-                result.hands.right = sampledPose.hands?.right;
-            }
-            if (leftFootChanged)
-            {
-                result.feet.left = sampledPose.feet?.left;
-            }
-            if (rightFootChanged)
-            {
-                result.feet.right = sampledPose.feet?.right;
-            }
-            return result;
         }
 
         private static bool HasChangedFullBodyTarget(
@@ -2408,40 +2321,6 @@ namespace KimodoBridge.Editor
                 ResolveEffectorRotation(entry, bone, bodyPart));
         }
 
-        private static Vector3 SkeletonRootWorldPosition(SkeletonCache cache, Vector3 bodyPosition)
-        {
-            if (cache?.skeletonRoot == null)
-            {
-                return bodyPosition * Mathf.Max(1e-6f, cache?.humanScale ?? 1f);
-            }
-            return cache.skeletonRoot.TransformPoint(
-                bodyPosition * Mathf.Max(1e-6f, cache.humanScale));
-        }
-
-        private static Quaternion SkeletonRootWorldRotation(SkeletonCache cache, Quaternion bodyRotation)
-        {
-            return cache?.skeletonRoot != null
-                ? (cache.skeletonRoot.rotation * bodyRotation).normalized
-                : bodyRotation;
-        }
-
-        private static Vector3 SkeletonRootLocalPosition(SkeletonCache cache, Vector3 worldPosition)
-        {
-            if (cache?.skeletonRoot == null)
-            {
-                return worldPosition / Mathf.Max(1e-6f, cache?.humanScale ?? 1f);
-            }
-            return cache.skeletonRoot.InverseTransformPoint(worldPosition) /
-                Mathf.Max(1e-6f, cache.humanScale);
-        }
-
-        private static Quaternion SkeletonRootLocalRotation(SkeletonCache cache, Quaternion worldRotation)
-        {
-            return cache?.skeletonRoot != null
-                ? (Quaternion.Inverse(cache.skeletonRoot.rotation) * worldRotation).normalized
-                : worldRotation;
-        }
-
         private static void RememberEditedEffectors(ConstraintPosePreviewEntry entry)
         {
             if (entry == null)
@@ -2531,183 +2410,6 @@ namespace KimodoBridge.Editor
             return (root.rotation * transport * initialInRoot).normalized;
         }
 
-        private static bool TryApplyEndEffectorTargetToRig(
-            ConstraintPosePreviewEntry entry,
-            string modelName,
-            string constraintType,
-            out string error)
-        {
-            error = string.Empty;
-            HumanBodyBones bone = ResolveEndEffectorBone(constraintType);
-            if (bone == HumanBodyBones.LastBone ||
-                entry?.EndEffectorMarker == null ||
-                entry.BaseSample == null ||
-                entry.TargetCache == null ||
-                entry.ProfileCache == null)
-            {
-                error = "end-effector target pose is unavailable.";
-                return false;
-            }
-
-            KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
-                entry.BaseSample.mask,
-                entry.BaseSample.constraintType);
-            if (!IsTargetEnabled(mask, bone))
-            {
-                // Disabled end-effectors are display-only until their mask is
-                // explicitly enabled.
-                return true;
-            }
-
-            KimodoMarkerSampleResult basePose =
-                KimodoConstraintSampleComposer.ResolveUnifiedSample(entry.BaseSample);
-            KimodoMarkerSampleResult basePoseForApply = basePose.Clone();
-            basePoseForApply.effectors = null;
-            if (!KimodoConstraintSpaceConverter.TryApplyToTargetAvatar(
-                    basePoseForApply,
-                    modelName,
-                    KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
-                    entry.ProfileCache,
-                    entry.TargetCache,
-                    out error) ||
-                !KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                    entry.TargetCache,
-                    out MuscleSample sourceSample,
-                    out error))
-            {
-                return false;
-            }
-
-            KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets sceneTargets =
-                BuildSceneTargetsForSingleBone(
-                    bone,
-                    entry.EndEffectorMarker.transform);
-
-            return KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                sourceSample,
-                KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
-                entry.TargetCache,
-                out _,
-                out _,
-                out error,
-                includeLeftHandEffector: bone == HumanBodyBones.LeftHand,
-                includeRightHandEffector: bone == HumanBodyBones.RightHand,
-                includeFootEffectors: bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot,
-                includeLeftFootEffector: bone == HumanBodyBones.LeftFoot,
-                includeRightFootEffector: bone == HumanBodyBones.RightFoot,
-                sceneTargets: sceneTargets);
-        }
-
-        private static bool TryApplyFullBodyTargetsToRig(
-            ConstraintPosePreviewEntry entry,
-            string modelName,
-            out string error)
-        {
-            KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
-                entry?.BaseSample?.mask,
-                entry?.BaseSample?.constraintType).Clone();
-            EnableChangedConstraintChannels(entry, mask);
-            return TryApplyFullBodyTargetsToRig(
-                entry,
-                modelName,
-                mask,
-                out error);
-        }
-
-        private static bool TryApplyFullBodyTargetsToRig(
-            ConstraintPosePreviewEntry entry,
-            string modelName,
-            KimodoConstraintMask mask,
-            out string error)
-        {
-            error = string.Empty;
-            if (entry?.FullBodyTargets == null ||
-                entry.BaseSample == null ||
-                entry.TargetCache == null ||
-                entry.ProfileCache == null)
-            {
-                error = "full-body effector targets are unavailable.";
-                return false;
-            }
-
-            float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
-            KimodoMarkerSampleResult basePose =
-                KimodoConstraintSampleComposer.ResolveUnifiedSample(entry.BaseSample);
-            KimodoMarkerSampleResult basePoseForApply = basePose.Clone();
-            basePoseForApply.effectors = null;
-            if (!KimodoConstraintSpaceConverter.TryApplyToTargetAvatar(
-                    basePoseForApply,
-                    modelName,
-                    frameRate,
-                    entry.ProfileCache,
-                    entry.TargetCache,
-                    out error))
-            {
-                return false;
-            }
-
-            if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                    entry.TargetCache,
-                    out MuscleSample sourceSample,
-                    out error))
-            {
-                return false;
-            }
-
-            if ((mask.rootPosition || mask.rootHeading) &&
-                entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject rootTarget) &&
-                rootTarget != null)
-            {
-                if (mask.rootPosition)
-                {
-                    sourceSample.pose.bodyPosition = SkeletonRootLocalPosition(
-                        entry.TargetCache,
-                        rootTarget.transform.position);
-                }
-                if (mask.rootHeading)
-                {
-                    sourceSample.pose.bodyRotation = SkeletonRootLocalRotation(
-                        entry.TargetCache,
-                        rootTarget.transform.rotation);
-                }
-            }
-
-            KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets sceneTargets =
-                BuildSceneTargets(entry, mask);
-
-            return KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                sourceSample,
-                frameRate,
-                entry.TargetCache,
-                out _,
-                out _,
-                out error,
-                includeLeftHandEffector: mask.leftHand,
-                includeRightHandEffector: mask.rightHand,
-                includeFootEffectors: mask.leftFoot || mask.rightFoot,
-                includeLeftFootEffector: mask.leftFoot,
-                includeRightFootEffector: mask.rightFoot,
-                sceneTargets: sceneTargets);
-        }
-
-        private static bool IsTargetEnabled(
-            KimodoConstraintMask mask,
-            HumanBodyBones bone,
-            bool legacyFullBody = false)
-        {
-            if (mask == null) return true;
-            if (legacyFullBody && bone != HumanBodyBones.Hips) return true;
-            return bone switch
-            {
-                HumanBodyBones.Hips => mask.muscle || legacyFullBody,
-                HumanBodyBones.LeftHand => mask.leftHand,
-                HumanBodyBones.RightHand => mask.rightHand,
-                HumanBodyBones.LeftFoot => mask.leftFoot,
-                HumanBodyBones.RightFoot => mask.rightFoot,
-                _ => false
-            };
-        }
-
         private static KimodoConstraintEffectors CaptureEffectorsFromEntry(
             ConstraintPosePreviewEntry entry,
             KimodoConstraintMask mask,
@@ -2782,51 +2484,6 @@ namespace KimodoBridge.Editor
             position = value != null ? value.t : Vector3.zero;
             rotation = value != null ? value.q : Quaternion.identity;
             return value != null;
-        }
-
-        private static KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets BuildSceneTargets(
-            ConstraintPosePreviewEntry entry,
-            KimodoConstraintMask mask)
-        {
-            KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets result = default;
-            if (entry?.FullBodyTargets == null || mask == null) return result;
-            if (mask.leftHand && entry.FullBodyTargets.TryGetValue(HumanBodyBones.LeftHand, out GameObject leftHand) && leftHand != null)
-            {
-                result.leftHand = true;
-                result.leftHandTransform = leftHand.transform;
-            }
-            if (mask.rightHand && entry.FullBodyTargets.TryGetValue(HumanBodyBones.RightHand, out GameObject rightHand) && rightHand != null)
-            {
-                result.rightHand = true;
-                result.rightHandTransform = rightHand.transform;
-            }
-            if (mask.leftFoot && entry.FullBodyTargets.TryGetValue(HumanBodyBones.LeftFoot, out GameObject leftFoot) && leftFoot != null)
-            {
-                result.leftFoot = true;
-                result.leftFootTransform = leftFoot.transform;
-            }
-            if (mask.rightFoot && entry.FullBodyTargets.TryGetValue(HumanBodyBones.RightFoot, out GameObject rightFoot) && rightFoot != null)
-            {
-                result.rightFoot = true;
-                result.rightFootTransform = rightFoot.transform;
-            }
-            return result;
-        }
-
-        private static KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets BuildSceneTargetsForSingleBone(
-            HumanBodyBones bone,
-            Transform target)
-        {
-            var result = new KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets();
-            if (target == null) return result;
-            switch (bone)
-            {
-                case HumanBodyBones.LeftHand: result.leftHand = true; result.leftHandTransform = target; break;
-                case HumanBodyBones.RightHand: result.rightHand = true; result.rightHandTransform = target; break;
-                case HumanBodyBones.LeftFoot: result.leftFoot = true; result.leftFootTransform = target; break;
-                case HumanBodyBones.RightFoot: result.rightFoot = true; result.rightFootTransform = target; break;
-            }
-            return result;
         }
 
         private static HumanBodyBones ResolveEndEffectorBone(string constraintType)

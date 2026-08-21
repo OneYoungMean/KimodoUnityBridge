@@ -259,3 +259,11 @@
 - 已完成：删除 Editor AutoSample 的旧 CharacterPose 合并旁路；AutoSample 结果整体写回同一份 SampleResult。
 - 检查：Unity 2022.3.62f3c1 CLI 编译成功，日志：`C:\tmp\unity-compile-phase2-worldcanonical2.log`；无 `error CS`；`git diff --check` 通过。
 - 尚未完成：非 AutoSample 拖拽统一写回 utility、Composer 的 enableMask/creationOrder 最终边界清理，以及协议导出/Generate 的全链路场景验证。
+
+## CP32 — Preview 旁路清理与 world 拖拽写回
+
+- 已完成：Preview 不再通过 `TrySampleTargetFromSingleMuscleSample` 处理拖拽后的手脚目标；effector 仅作为 world protocol/display 数据，暂不执行 IK。
+- 已完成：Root2D/hips 显示和写回直接使用 world `root2DOverride`；移除 `HumanPose.bodyPosition` 与 `SkeletonRootLocal/World*` 的 hips 转换旁路。
+- 已完成：AutoSample 结果不再经过 Editor 自己的 CharacterPose 合并；非 AutoSample 的拖拽只捕获 gizmo world position/rotation，写回同一份 SampleResult。
+- 检查：Unity 2022.3.62f3c1 CLI 编译成功，日志：`C:\tmp\unity-compile-phase3-final.log`；无 `error CS`；`git diff --check` 通过。
+- 尚未完成：把 EditorWindow 与 Inspector 的 world writeback 完全收敛到一个公共函数，清理 Composer/协议边界中残留的 legacy mask/type 分支，并执行 FullBody sampling/Generate 场景验证。
