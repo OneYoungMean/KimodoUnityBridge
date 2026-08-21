@@ -24,8 +24,32 @@ namespace KimodoBridge
             normalized.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
                 ? "root2d"
                 : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
+            normalized.enabled = marker.constraintEnabled;
             normalized.mask = KimodoConstraintMask.Resolve(authored?.mask, "constraint").Clone();
             normalized.hasRootHeading = authored != null && authored.hasRootHeading;
+
+            if (KimodoSampleDataLayout.IsValidLength(sample.sampleData))
+            {
+                normalized.sampleData = (float[])sample.sampleData.Clone();
+                normalized.validMask = sample.validMask?.Clone() ?? new KimodoSampleChannelMask();
+            }
+            else if (sample.characterPose != null &&
+                     CharacterPoseMuscleAdapter.TryToSampleData(
+                         sample.characterPose,
+                         out float[] migratedData,
+                         out _))
+            {
+                normalized.sampleData = migratedData;
+                normalized.validMask = new KimodoSampleChannelMask
+                {
+                    muscle49 = true,
+                    rootTQ = true,
+                    leftFootTQ = true,
+                    rightFootTQ = true
+                };
+            }
+            normalized.validMask ??= new KimodoSampleChannelMask();
+            normalized.validMask.NormalizeDependencies();
 
             if (marker.autoSample && sample.characterPose != null)
             {
@@ -163,6 +187,14 @@ namespace KimodoBridge
             return new KimodoMarkerSampleResult
             {
                 characterPose = pose,
+                sampleData = CharacterPoseMuscleAdapter.ToSampleData(pose),
+                validMask = new KimodoSampleChannelMask
+                {
+                    muscle49 = true,
+                    rootTQ = true,
+                    leftFootTQ = true,
+                    rightFootTQ = true
+                },
                 constraintType = "constraint",
                 sampleTime = 0d,
                 mask = KimodoConstraintMask.Resolve(null, "constraint"),

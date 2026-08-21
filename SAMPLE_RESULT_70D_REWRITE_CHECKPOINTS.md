@@ -15,3 +15,11 @@
 - 检查：`git diff --check` 通过；尚未运行 Unity 编译。
 - 尚未完成：采样 API 全量迁移、Composer 优先级迁移、Root2D/Effector 统一解算。
 - 下一步：提交 CP1 后，迁移采样侧返回值并让目标骨架 muscle handle 写入 70 维数据。
+
+## CP2 — 采样侧 70 维入口
+
+- 状态：已完成，待提交。
+- 已完成：新增 `TryCaptureSampleData`；目标骨架采样结果写入固定 70 维；有效 pose 设置 body/root/leftFoot/rightFoot mask；无效 pose 保持固定长度但所有 valid bit 为 false；marker normalization 优先沿用 sampleData，旧 CharacterPose 仅作兼容回退。
+- 检查：`git diff --check` 通过；尚未运行 Unity 编译。
+- 尚未完成：所有旧调用方清理、Composer 的最后创建优先规则、Root2D/Effector 最终解算。
+- 下一步：提交 CP2 后，改造 Composer 的输入/输出和 channel 优先级。

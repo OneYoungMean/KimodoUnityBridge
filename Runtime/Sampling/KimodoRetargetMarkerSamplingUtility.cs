@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CharacterAnimationCli.Unity;
 using TimelineInject;
 using UnityEngine;
 
@@ -97,13 +98,25 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(targetCache, out MuscleSample muscleSample, out error))
+            if (!KimodoRetargetClipSamplingUtility.TryCaptureSampleData(
+                    targetCache,
+                    out float[] sampleData,
+                    out KimodoSampleChannelMask validMask,
+                    out error))
             {
                 result = null;
                 return false;
             }
 
-            result.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(muscleSample, targetCache);
+            result.sampleData = sampleData;
+            result.validMask = validMask;
+            result.enabled = true;
+            if (CharacterPoseMuscleAdapter.TryFromSampleData(sampleData, out CharacterPose canonicalPose, out _))
+            {
+                // Temporary compatibility projection for legacy editor code;
+                // new sampling consumers must read sampleData/validMask.
+                result.characterPose = canonicalPose;
+            }
             if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
                 return true;

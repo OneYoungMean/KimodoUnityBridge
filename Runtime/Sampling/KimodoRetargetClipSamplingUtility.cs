@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CharacterAnimationCli.Unity;
 using TimelineInject;
 using UnityEngine;
 using UnityEngine.Animations;
@@ -983,6 +984,37 @@ namespace KimodoBridge
                 error = ex.Message;
                 return false;
             }
+        }
+
+        internal static bool TryCaptureSampleData(
+            SkeletonCache cache,
+            out float[] sampleData,
+            out KimodoSampleChannelMask validMask,
+            out string error)
+        {
+            sampleData = KimodoSampleDataLayout.CreateBuffer();
+            validMask = new KimodoSampleChannelMask();
+            error = string.Empty;
+
+            if (!TryCaptureMuscleSample(cache, out MuscleSample sample, out error))
+            {
+                return false;
+            }
+
+            CharacterPose pose = CharacterPoseMuscleAdapter.FromMuscleSample(sample, cache);
+            if (!CharacterPoseMuscleAdapter.TryToSampleData(pose, out sampleData, out _))
+            {
+                // Sampling completed, but this pose must not be advertised as
+                // valid. Keep the fixed-size payload and clear all validity bits.
+                error = string.Empty;
+                return true;
+            }
+
+            validMask.muscle49 = true;
+            validMask.rootTQ = true;
+            validMask.leftFootTQ = true;
+            validMask.rightFootTQ = true;
+            return true;
         }
 
         internal static bool TryCreateTransientMuscleClip(

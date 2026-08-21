@@ -79,16 +79,30 @@ namespace KimodoBridge
         /// fixed 70-value sampleData layout.</summary>
         public static float[] ToSampleData(CharacterPose pose)
         {
-            if (pose == null)
-            {
-                throw new ArgumentNullException(nameof(pose));
-            }
-            if (!pose.TryValidate(out string error))
+            if (!TryToSampleData(pose, out float[] data, out string error))
             {
                 throw new InvalidOperationException(error);
             }
 
-            float[] data = KimodoSampleDataLayout.CreateBuffer();
+            return data;
+        }
+
+        public static bool TryToSampleData(
+            CharacterPose pose,
+            out float[] data,
+            out string error)
+        {
+            data = KimodoSampleDataLayout.CreateBuffer();
+            if (pose == null)
+            {
+                error = "Character pose is null.";
+                return false;
+            }
+            if (!pose.TryValidate(out error))
+            {
+                return false;
+            }
+
             Array.Copy(pose.muscles, 0, data, KimodoSampleDataLayout.BodyMuscleOffset,
                 KimodoSampleDataLayout.BodyMuscleCount);
             KimodoSampleDataLayout.SetTransform(
@@ -106,7 +120,7 @@ namespace KimodoBridge
                 KimodoSampleDataLayout.RightFootTqOffset,
                 pose.feet.right.t,
                 pose.feet.right.q.normalized);
-            return data;
+            return KimodoSampleDataLayout.TryValidate(data, out error);
         }
 
         public static float[] ToSampleData(MuscleSample sample, SkeletonCache cache = null)

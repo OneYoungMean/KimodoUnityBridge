@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using TimelineInject;
 using UnityEngine;
 
 namespace KimodoBridge
@@ -73,6 +74,18 @@ namespace KimodoBridge
         public bool TryCaptureMuscleSample(out MuscleSample sample, out string error)
         {
             return KimodoRetargetSamplingUtility.TryCaptureMuscleSample(cache, out sample, out error);
+        }
+
+        public bool TryCaptureSampleData(
+            out float[] sampleData,
+            out KimodoSampleChannelMask validMask,
+            out string error)
+        {
+            return KimodoRetargetClipSamplingUtility.TryCaptureSampleData(
+                cache,
+                out sampleData,
+                out validMask,
+                out error);
         }
 
         public bool TryGetHumanBone(HumanBodyBones bone, out Transform transform)
