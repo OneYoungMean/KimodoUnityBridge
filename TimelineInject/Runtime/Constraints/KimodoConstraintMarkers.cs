@@ -208,13 +208,32 @@ namespace TimelineInject
         // FullBody owns characterPose.root. Root2D is kept separately so its
         // X/Z and heading override cannot destroy FullBody Y, pitch or roll.
         public CharacterPoseTransform root2DOverride = new CharacterPoseTransform();
-        public bool hasRoot2DOverride;
+        [Obsolete("Use validMask.root2DPosition. This compatibility property is not serialized.")]
+        public bool hasRoot2DOverride
+        {
+            get => validMask?.root2DPosition == true;
+            set
+            {
+                validMask ??= new KimodoSampleChannelMask();
+                validMask.root2DPosition = value;
+                validMask.NormalizeDependencies();
+            }
+        }
         public string constraintType = "constraint";
         // Non-empty for samples authored by the new mode-aware marker. Empty
         // samples retain the legacy resolver behavior for command-only data.
         public string constraintMode;
         public double sampleTime;
-        public bool hasRootHeading = true;
+        [Obsolete("Use validMask.root2DHeading. This compatibility property is not serialized.")]
+        public bool hasRootHeading
+        {
+            get => validMask?.root2DHeading == true;
+            set
+            {
+                validMask ??= new KimodoSampleChannelMask();
+                validMask.root2DHeading = value && validMask.root2DPosition;
+            }
+        }
         public KimodoConstraintMask mask;
 
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
@@ -228,11 +247,9 @@ namespace TimelineInject
             root2DOverride = root2DOverride != null
                 ? new CharacterPoseTransform { t = root2DOverride.t, q = root2DOverride.q }
                 : null,
-            hasRoot2DOverride = hasRoot2DOverride,
             constraintType = this.constraintType,
             constraintMode = this.constraintMode,
             sampleTime = sampleTime,
-            hasRootHeading = hasRootHeading,
             mask = mask?.Clone()
         };
     }

@@ -88,3 +88,11 @@
 - 检查：Unity CLI FullDemo 编译成功，退出码 0；生产代码仅剩 `KimodoRawMotionUtility` 的底层临时构建返回值，不再进入 SampleResult。
 - 尚未完成：CharacterPose、constraintType、hasRootHeading、hasRoot2DOverride 等历史字段仍有大量调用；真实 Effector solver 尚未实现。
 - 下一步：提交 CP10；继续清理 hasRoot* 与 constraintType 前，先建立派生 accessor，避免一次性破坏协议族导出。
+
+## CP11 — Root2D 有效性派生化
+
+- 状态：已完成，待提交。
+- 已完成：`hasRoot2DOverride` 和 `hasRootHeading` 不再是独立存储状态，改为由 `validMask.root2DPosition/root2DHeading` 派生的兼容属性；heading setter 强制依赖 position。
+- 检查：Unity CLI FullDemo 编译成功，退出码 0。
+- 尚未完成：constraintType 仍用于协议族命名；CharacterPose 仍作为迁移/Unity HumanPose adapter 边界；真实 Effector solver 未实现。
+- 下一步：提交 CP11；继续将 constraintType 的内部判断迁移到 constraintMode/channel mask，保留协议导出时的局部 type。
