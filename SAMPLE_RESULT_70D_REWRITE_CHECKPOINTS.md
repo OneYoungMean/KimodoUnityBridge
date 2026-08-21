@@ -223,3 +223,12 @@
 - `SkeletonCache` 不是动画帧数据，而是骨架运行时容器；其 `bindLocalPositions`、`bindLocalRotations`、`bindWorldRotations` 和 `bindSkeletonRootWorldRotation` 保存 rest/bind 姿势基准。
 - AutoSample 后续统一链路固定为：`MuscleSample → BoneSample(FK) → 应用到 SkeletonCache 后读取世界空间 pelvis/手脚 → SampleResult`。不新增同义 `SkeletonData`，也不直接把 `BoneSample.local*` 当世界坐标。
 - 当前工作树没有产生有效代码差异；此前尝试把 effector enable 合并到 mask 已撤回，避免在结构确认前误改协议。
+
+## CP28 — 回退到 21:13 前基线并重建计划
+
+- 状态：已完成，待提交。
+- 回退：分支已回到 `618762d`（2026-08-21 21:07:19）；21:13 没有独立提交，21:14 的 `cf89c2b` 仅修改 checkpoint 文档，因此选择 618762d 作为代码基线。
+- 原因：后续 world-root/AutoSample/effector 实现混用了旧 root-space 和 HumanPose body root 语义，不能继续在其上修补。
+- 计划：重写 `SAMPLE_RESULT_70D_REWRITE_PLAN.md`，明确删除 raw root-space effector、旧 IK helper、CharacterPose 持久化旁路和重复 AutoSample/拖拽 merge，重新建立唯一 `BoneSample → SkeletonCache → world SampleResult` 链路。
+- 检查：回退后工作树干净；尚未修改生产代码。
+- 下一步：执行 Phase 1，全仓清理旧 IK 和 root-space sampling 生产调用，先提交独立 checkpoint。

@@ -1,139 +1,87 @@
-# SampleResult 70D 重构实施计划
+# SampleResult 70D 清理与重新接入计划
 
 ## 目标
 
-在 `sample-result-70d-rewrite` 分支完成一次破坏性升级：以 `KimodoMarkerSampleResult` 作为采样、Command、Preview、导出和显示之间唯一的原子数据结构，移除采样侧 `muscle + transformData` 双轨返回，统一为固定 70 维 `float` 数据，并保持既定 Root2D/Effector 解算顺序。
+从 `618762d` 重新接入最终确认的 SampleResult 70D 方案，删除旧 IK、root-space effector、重复 AutoSample/拖拽写回和 CharacterPose 中间旁路。
 
-## 已冻结的协议与语义
-
-### 70 维 sampleData 布局
+唯一采样链路：
 
 ```text
-[0..48]   body muscle 49
-[49..55]  rootTQ 7
-[56..62]  leftFootTQ 7
-[63..69]  rightFootTQ 7
+BoneSample(local bones) → SkeletonCache 重建 → 读取 Hips/手/脚 world Transform → KimodoMarkerSampleResult → command / preview / export 边界
 ```
 
-rootTQ 和 footTQ 的具体 T/Q 排列、四元数顺序、单位及坐标空间必须由常量和访问器统一定义，业务代码禁止裸索引。
+## 固定语义
 
-### 有效性与启用状态
+70D 布局：`49 muscle + 7 rootTQ + 7 leftFootTQ + 7 rightFootTQ`。
 
-- `validMask` 只表示采样数据是否存在且有效。
-- `enable` 表示约束是否启用，不能由 `validMask` 推导，也不能反向推导。
-- 无效 pose 必须将对应 mask 置为 false，不能用零值伪造有效数据。
-- Effector position/rotation 必须成对有效；缺一项则该 Effector 无效。
+`enableMask` 只表示通道是否参与；数据始终可解码，默认 muscle=0、position=0、quaternion=identity。
 
-### 解算顺序
+`root2DOverride` 始终是角色 hips 的完整 world position + world rotation，与 rootTQ 无关，优先级高于 rootTQ；无有效 override 时才使用 rootTQ。
 
-```text
-sampleData 基础 FK
-→ Root2D world position / absolute yaw 覆盖
-→ Effector world position / rotation 解算
-→ final pose / display / export
-```
+四个 effector 的 position 始终是 world position。手使用 `q-rig = q-current-in-root * inverse(q-initial-in-root)`，显示时 `q-current = q-rig * q-initial`；脚不经过 pelvis/root 空间，使用 `q-current = q-cube * q-initialFoot`。
 
-Root2D 不写入 rootTQ；只覆盖基础姿势的世界位置 X/Z 和 Y 旋转，基础 Y、pitch、roll 默认保留。
+姿势顺序：`70D FK → root2DOverride 覆盖 hips → 保留 world effector targets → display/export`。底层协议保持不变，但 IK 中间解算全部移除。
 
-### Composer 优先级
+AutoSample 从 BoneSample 重建 SkeletonCache 后读取世界 Hips/手/脚，Rig 只由 SampleResult 还原，不能反向覆盖 SampleResult。非 AutoSample 的 EditorWindow/Inspector 编辑同一份 SampleResult，拖拽只写 world root2DOverride/effectors；关闭窗口清理 preview。
 
-`KimodoTimelineConstraintMarkerSampler` 负责单个 Timeline marker 的采样；`KimodoConstraintSampleComposer` 负责 Command 层同帧约束合并。
+## 必须删除或隔离的旧逻辑
 
-- 只合并启用的约束。
-- 约束按创建顺序排序。
-- 最后创建的约束优先级最高。
-- 高优先级约束的 channel 若无效，最终 channel 保持无效，不回退到旧约束。
-- Composer 不负责 FK、Effector 解算或协议 JSON 生成。
+1. `TrySampleMarkerFromProfileSkeletonRaw` 中的 profile-root-local effector 计算。
+2. `WorldToBodyRelativeEffector`、`BodyRelativeEffectorToWorld`、旧 IK goal/endpoint 转换及生产调用。
+3. 把 `HumanPose.bodyPosition` 直接当作 hips world position。
+4. `ResolveRoot2DOverride` 用 rootTQ/CharacterPose.root 作为 Root2D fallback。
+5. CharacterPose 作为 SampleResult 持久化或场景语义来源；只允许留在 HumanPose/协议临时边界。
+6. 先生成 root-space CharacterPose、再通过 `TryEncode` 回写 SampleResult 的旁路。
+7. AutoSample 和拖拽分别维护 root/effector 数据的重复 merge。
+8. 没有明确 HumanPose 边界时，用 `SkeletonRootWorldPosition` 伪装 rootTQ 为 hips world 的 fallback。
 
-## 实施阶段与提交点
+## 分阶段实施
 
-### Phase 0：基线与计划
+### Phase 0：回退基线与计划
 
-- 在新分支保存当前 IK 清理成果。
-- 提交本计划和 checkpoint 日志。
-- 记录 Unity/FullDemo 当前编译基线。
+分支回到 `618762d`；后续错误实现仅保留在历史 commit 中，不重新合并。
 
-提交：`checkpoint: sample-result rewrite baseline and plan`
+提交：`checkpoint: reset canonical sample rewrite baseline`
 
-### Phase 1：核心数据模型
+### Phase 1：清理旧坐标和 IK 旁路
 
-- 新建或重构 `KimodoMarkerSampleResult`。
-- 固定 `SampleDataLength = 70` 及四段 offset/count 常量。
-- 增加安全访问器/编解码器，禁止调用方裸索引。
-- 建立 `validMask` 的语义粒度。
-- 将 enable 保持为独立状态，避免与 mask 混淆。
-- 保留 `sampleTime` 和 `constraintMode`。
-- 移除 SampleResult 中的 rawData、sourceRootWorldPose、冗余 CharacterPose/root 字段。
+删除 raw profile-root effector 坐标计算、旧 IK helper/生产调用，并扫描 `IK`、`goalPosition`、`WorldToBody`、`profileRootJoint` 残余调用。
 
-提交：`checkpoint: add canonical 70d sample result`
+提交：`checkpoint: remove legacy ik and root-space sampling`
 
-### Phase 2：采样与 Adapter
+### Phase 2：唯一 world 采样入口
 
-- 修改所有采样 API，使其返回 70 维 `sampleData` 和 valid mask。
-- 扩展 `CharacterPoseMuscleAdapter`：
-  - 49 维 body muscle ↔ Unity HumanPose；
-  - 目标骨架 muscle handle ↔ rootTQ/footTQ；
-  - FK 重建结果重新编码为 70 维。
-- 删除采样侧 transformData 旁路。
-- 对无效 pose 做显式 mask 处理。
+应用 BoneSample 后只从 SkeletonCache Transform 读取 world Hips/手/脚，写入 70D、完整 world root2DOverride、world effectors；统一手/脚旋转转换，不执行 IK；增加一致性断言。
 
-提交：`checkpoint: migrate sampling to 70d sample data`
+提交：`checkpoint: rebuild sample result from world skeleton targets`
 
-### Phase 3：Composer 与约束合成
+### Phase 3：统一 AutoSample 与编辑写回
 
-- 实现同帧 SampleResult 分组。
-- 按创建顺序实现最后创建优先。
-- 明确 channel 级 mask 合并和 invalid 不回退规则。
-- 支持 FullBody、Root2D、Effector、Mix。
-- Composer 返回新对象，不原地修改输入。
+AutoSample 单向 SampleResult → Rig；非 AutoSample Rig → SampleResult，只写 world root2DOverride/effectors；Window 和 Inspector 共用同一 utility，删除重复 merge。
 
-提交：`checkpoint: implement last-created constraint composition`
+提交：`checkpoint: unify autosample and editor sample writeback`
 
-### Phase 4：解算、Preview、Generate、Export
+### Phase 4：Composer/Preview/Export 边界
 
-- 统一基础 FK → Root2D → Effector 的姿势链路。
-- 保证 Preview、FullBody sampling、Generate、底层 export 使用同一套顺序。
-- Root2D/Effector 使用 world space。
-- 保持协议字段完整性，禁止输出半缺失 Effector。
-- 关闭窗口时继续正确清理 Preview 状态。
+Composer 只按 enableMask/creationOrder 合并，不做 FK 或 IK；Root2D 只在协议投影时转换；Preview 使用统一 world SampleResult；Export 只在唯一协议边界转换。
 
-提交：`checkpoint: apply canonical pose solve pipeline`
+提交：`checkpoint: isolate protocol boundary from canonical sample`
 
-### Phase 5：测试与验证
+### Phase 5：验证
 
-- 对因破坏性升级暂时失效的旧测试做显式 Ignore/条件屏蔽，不删除。
-- 增加 70 维布局、mask/enable、rootTQ/footTQ、Composer 优先级和解算顺序测试。
-- 验证 FullBody sampling 无异常。
-- 验证 Generate 正常。
-- 使用 Unity FullDemo 编译验证。
+重写 70D、BoneSample、world target、AutoSample、拖拽写回测试；实际验证 AutoSample 开关前后 Hips/四个 effector world Transform 一致；FullBody sampling、Generate、Unity 2022.3 编译通过。
 
-提交：`checkpoint: restore regression coverage and build verification`
-
-## 每个 checkpoint 必须记录
-
-写入 `SAMPLE_RESULT_70D_REWRITE_CHECKPOINTS.md`：
-
-- 提交 hash 和日期；
-- 当前阶段；
-- 已完成内容；
-- 尚未完成内容；
-- 已执行的检查命令及结果；
-- 下一次恢复时的第一步。
+提交：`checkpoint: verify world sample pipeline`
 
 ## 恢复规则
 
-如果中途掉线，先读取本文件和 checkpoint 日志，再运行：
+恢复时执行：
 
 ```powershell
 git status --short --branch
 git log --oneline -8
+Get-Content SAMPLE_RESULT_70D_REWRITE_PLAN.md
+Get-Content SAMPLE_RESULT_70D_REWRITE_CHECKPOINTS.md -Tail 120
 ```
 
-不得跳过未完成阶段，也不得把多个阶段的未验证修改合并成一个无法回滚的提交。
-
-## 暂不做的事情
-
-- 不恢复旧 CharacterPose 作为核心原子类型。
-- 不对 70 维数组直接做通用插值。
-- 不重新引入旧 Playable IK 中间链路。
-- 不修改 `C:\tmp\KimodoUnityBridge_FullDemo-main` 项目，只用于编译验证。
+每个阶段必须先编译、记录 checkpoint、单独提交，再进入下一阶段。
