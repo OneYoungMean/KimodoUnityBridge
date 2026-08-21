@@ -111,12 +111,6 @@ namespace KimodoBridge
             result.sampleData = sampleData;
             result.validMask = validMask;
             result.enabled = true;
-            if (CharacterPoseMuscleAdapter.TryFromSampleData(sampleData, out CharacterPose canonicalPose, out _))
-            {
-                // Temporary compatibility projection for legacy editor code;
-                // new sampling consumers must read sampleData/validMask.
-                result.characterPose = canonicalPose;
-            }
             if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
                 return true;

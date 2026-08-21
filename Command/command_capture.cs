@@ -1157,10 +1157,11 @@ namespace CharacterAnimationCli.Unity.Command
             TimelineCharacterRecord character,
             KimodoMarkerSampleResult sample)
         {
-            if (sample?.characterPose == null || !sample.characterPose.TryValidate(out _)) return;
+            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose canonicalPose, out _) ||
+                !canonicalPose.TryValidate(out _)) return;
             Animator animator = preview.GetComponentInChildren<Animator>(true);
             if (animator == null || !KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar)) return;
-            HumanPose pose = CharacterPoseMuscleAdapter.ToMuscleSample(sample.characterPose).pose;
+            HumanPose pose = CharacterPoseMuscleAdapter.ToMuscleSample(canonicalPose).pose;
             using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
             {
                 handler.SetHumanPose(ref pose);
@@ -1881,11 +1882,13 @@ namespace CharacterAnimationCli.Unity.Command
             Animator animator = preview.GetComponentInChildren<Animator>(true)
                 ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
             animator.runtimeAnimatorController = null;
-            Vector3 position = sample.characterPose != null ? sample.characterPose.root.t : Vector3.zero;
-            Quaternion rotation = sample.characterPose != null ? sample.characterPose.root.q : Quaternion.identity;
-            if (!root2DOnly && sample.characterPose != null && sample.characterPose.TryValidate(out _))
+            bool hasPose = KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose canonicalPose, out _) &&
+                canonicalPose.TryValidate(out _);
+            Vector3 position = hasPose ? canonicalPose.root.t : Vector3.zero;
+            Quaternion rotation = hasPose ? canonicalPose.root.q : Quaternion.identity;
+            if (!root2DOnly && hasPose)
             {
-                HumanPose pose = CharacterPoseMuscleAdapter.ToMuscleSample(sample.characterPose).pose;
+                HumanPose pose = CharacterPoseMuscleAdapter.ToMuscleSample(canonicalPose).pose;
                 using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
                 {
                     handler.SetHumanPose(ref pose);

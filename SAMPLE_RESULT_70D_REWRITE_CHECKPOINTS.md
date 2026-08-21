@@ -144,3 +144,11 @@
 - 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-composer-migration.log`；`git diff --check` 通过。
 - 尚未完成：Command、Preview、Editor sampling 仍有旧属性调用；兼容 bridge 继续保留直到这些调用迁移完毕。
 - 下一步：迁移 Command/Runtime generation 的 canonical pose 读取，随后清理 Preview 的重复 pose 合成逻辑。
+
+## CP18 — Command/Runtime Generation 迁移
+
+- 状态：已完成，待提交。
+- 已完成：Command 的 canonical pose 读取/写入、root2d 构建、session 持久化、preview pose 应用，以及 RawMotion/Retarget marker 创建均改用 70 维 `sampleData` 和显式 pose 转换边界；Runtime marker sampling 不再回写 `characterPose` 兼容字段。
+- 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-command-migration.log`；`git diff --check` 通过。
+- 尚未完成：Editor Preview、Clip Bake、Timeline sampler 和 sampling editor utility 仍有旧字段调用；兼容桥接仍需保留。
+- 下一步：迁移 Editor Preview 的 pose cache/writeback，重点保证关闭窗口时 preview 状态清理和 Root2D/Effector 显示使用同一 canonical sample。

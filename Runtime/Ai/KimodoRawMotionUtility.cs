@@ -1104,17 +1104,27 @@ namespace KimodoBridge
             string resolvedConstraintType = string.IsNullOrWhiteSpace(constraintType)
                 ? FullBodyConstraintType
                 : constraintType;
+            CharacterAnimationCli.Unity.CharacterPose pose = new CharacterAnimationCli.Unity.CharacterPose
+            {
+                root = new CharacterAnimationCli.Unity.CharacterPoseTransform { t = rootPosition, q = rootRotation }
+            };
             sample = new KimodoMarkerSampleResult
             {
-                characterPose = new CharacterAnimationCli.Unity.CharacterPose
-                {
-                    root = new CharacterAnimationCli.Unity.CharacterPoseTransform { t = rootPosition, q = rootRotation }
-                },
                 constraintType = "constraint",
                 sampleTime = sampleTime,
                 mask = KimodoConstraintMask.ForType(resolvedConstraintType),
-                hasRootHeading = true
+                validMask = new KimodoSampleChannelMask
+                {
+                    rootTQ = true,
+                    root2DPosition = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase),
+                    root2DHeading = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase)
+                }
             };
+            KimodoSampleResultPoseUtility.TryEncode(sample, pose, out _);
+            if (!sample.validMask.root2DPosition)
+            {
+                sample.validMask.rootTQ = true;
+            }
             return true;
         }
 

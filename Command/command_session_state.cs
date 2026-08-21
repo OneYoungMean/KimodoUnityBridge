@@ -1517,15 +1517,19 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 result["global_frame"] = globalFrame;
             }
+            bool hasPose = KimodoSampleResultPoseUtility.TryDecode(
+                marker.SampleData,
+                out CharacterPose pose,
+                out _);
             if (marker.ConstraintType == "constraint" &&
                 !KimodoConstraintMask.Resolve(marker.SampleData.mask, marker.SampleData.constraintType).muscle &&
                 !KimodoConstraintMask.Resolve(marker.SampleData.mask, marker.SampleData.constraintType).AnyEndEffector &&
-                marker.SampleData.characterPose != null)
+                hasPose)
             {
-                Vector3 forward = marker.SampleData.characterPose.root.q * Vector3.forward;
+                Vector3 forward = pose.root.q * Vector3.forward;
                 result["position"] = new JArray(
-                    marker.SampleData.characterPose.root.t.x,
-                    marker.SampleData.characterPose.root.t.z);
+                    pose.root.t.x,
+                    pose.root.t.z);
                 result["heading"] = new JArray(forward.x, forward.z);
             }
             else

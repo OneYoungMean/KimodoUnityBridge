@@ -640,7 +640,6 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 pose = decoded;
             }
-            pose ??= sample?.characterPose;
             if (pose == null)
             {
                 throw new InvalidOperationException("Pose source has no valid 70-value sampleData payload.");
@@ -661,8 +660,10 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new ArgumentNullException(nameof(sample));
             }
-            sample.characterPose = pose.Clone();
-            sample.sampleData = CharacterPoseMuscleAdapter.ToSampleData(pose);
+            if (!KimodoSampleResultPoseUtility.TryEncode(sample, pose.Clone(), out string encodeError))
+            {
+                throw new InvalidOperationException(encodeError);
+            }
             sample.validMask ??= new KimodoSampleChannelMask();
             sample.validMask.muscle49 = true;
             sample.validMask.rootTQ = true;

@@ -784,6 +784,7 @@ namespace CharacterAnimationCli.Unity.Command
                 : new CharacterPose();
             bool hasPosition = value?["position"] != null;
             bool hasHeading = value?["heading"] != null;
+            bool hasRootPose = value?["pose"] is JObject;
             if (hasPosition != hasHeading)
             {
                 throw new InvalidOperationException($"constraints[{constraintIndex}].root2d requires position and heading together.");
@@ -805,14 +806,29 @@ namespace CharacterAnimationCli.Unity.Command
                 throw new InvalidOperationException($"constraints[{constraintIndex}].root2d requires pose or position plus heading.");
             }
 
-            return new KimodoMarkerSampleResult
+            var result = new KimodoMarkerSampleResult
             {
                 constraintType = "root2d",
+                constraintMode = "root2d",
                 mask = KimodoConstraintMask.ForType("root2d"),
-                characterPose = pose,
-                hasRootHeading = true,
-                sampleTime = sampleTime
+                sampleTime = sampleTime,
+                root2DOverride = new CharacterPoseTransform
+                {
+                    t = pose.root.t,
+                    q = pose.root.q
+                },
+                validMask = new KimodoSampleChannelMask
+                {
+                    root2DPosition = hasPosition || hasRootPose,
+                    root2DHeading = hasPosition || hasRootPose
+                }
             };
+            KimodoSampleResultPoseUtility.TryEncode(result, pose, out _);
+            result.validMask.muscle49 = false;
+            result.validMask.rootTQ = false;
+            result.validMask.leftFootTQ = false;
+            result.validMask.rightFootTQ = false;
+            return result;
         }
 
         private static KimodoMarkerSampleResult BuildProfilePoseConstraint(
@@ -847,7 +863,10 @@ namespace CharacterAnimationCli.Unity.Command
             }
             converted.constraintType = constraintType;
             converted.mask = KimodoConstraintMask.ForType(constraintType);
-            converted.characterPose = CharacterPoseMuscleAdapter.FromMuscleSample(targetMuscleSample, targetCache);
+            KimodoSampleResultPoseUtility.TryEncode(
+                converted,
+                CharacterPoseMuscleAdapter.FromMuscleSample(targetMuscleSample, targetCache),
+                out _);
             converted.sampleTime = sampleTime;
             return converted;
         }

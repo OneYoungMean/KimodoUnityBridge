@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using KimodoBridge;
 using KimodoBridge.Editor;
+using TimelineInject;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Playables;
@@ -266,14 +267,18 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     foreach (KimodoConstraintMarker marker in character.PoseCacheTrack.GetMarkers().OfType<KimodoConstraintMarker>())
                     {
+                        CharacterPose markerPose = marker.SampleData != null &&
+                            KimodoSampleResultPoseUtility.TryDecode(marker.SampleData, out CharacterPose decodedPose, out _)
+                            ? decodedPose
+                            : null;
                         poses.Add(new JObject
                         {
                             ["character"] = character.Name,
                             ["track"] = character.PoseCacheTrack.name,
                             ["marker_id"] = marker.name ?? string.Empty,
                             ["frame"] = Mathf.RoundToInt((float)(marker.time * SessionFrameRate)),
-                            ["data"] = marker.SampleData?.characterPose != null
-                                ? CharacterPoseJson.ToJson(marker.SampleData.characterPose)
+                            ["data"] = markerPose != null
+                                ? CharacterPoseJson.ToJson(markerPose)
                                 : new JObject()
                         });
                     }
