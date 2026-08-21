@@ -168,3 +168,11 @@
 - 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-preview-migration.log`；`git diff --check` 通过。
 - 尚未完成：Clip Bake 与 Timeline marker sampler/UI sampling 仍有旧属性访问；SampleResult compatibility bridge 还不能删除。
 - 下一步：迁移 Clip Bake 的 root/Root2D 读写和 Timeline sampler 的 Root2D 写入，随后清理 UI sampling 的重复 CharacterPose 合成。
+
+## CP21 — Clip Bake Root2D 迁移
+
+- 状态：已完成，待提交。
+- 已完成：Clip constraint bake 的 loop 首尾 pose 解码、Root2D/fullbody 合并、Root2D sample 创建改用 `sampleData`/`root2DOverride`/`validMask`；不再直接读写 `characterPose` 或 `hasRoot*`。
+- 检查：Unity CLI FullDemo 编译成功，日志：`C:\tmp\unity-compile-bake-migration3.log`；`git diff --check` 通过。
+- 尚未完成：Timeline marker sampler 与 UI sampling 仍存在兼容访问；旧 bridge 仍需保留。
+- 下一步：迁移 Timeline sampler 的 Root2D 写入和 UI sampling 的 effector/pose 合并，之后运行完整编译并评估是否可物理删除 bridge。

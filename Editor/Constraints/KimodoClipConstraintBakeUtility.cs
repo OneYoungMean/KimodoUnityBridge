@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using KimodoBridge;
+using CharacterAnimationCli.Unity;
 using TimelineInject;
 using UnityEngine;
 
@@ -479,10 +480,10 @@ namespace KimodoBridge.Editor
                 $"[Kimodo][GenerateLoop] loop anchors and visible FullBody boundaries: " +
                 $"head frame=0 posXZ=({head.root2DOverride.t.x:F4}, {head.root2DOverride.t.z:F4}) " +
                 $"rotationY={head.root2DOverride.q.eulerAngles.y:F3}°, " +
-                $"visible start FullBody frame={runtimeTrimStartFrame} posXZ=({visibleStart.characterPose.root.t.x:F4}, {visibleStart.characterPose.root.t.z:F4}) " +
-                $"rotationY={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(visibleStart.characterPose.root.q).eulerAngles.y:F3}°, " +
-                $"terminal FullBody frame={terminalFrame} posXZ=({terminal.characterPose.root.t.x:F4}, {terminal.characterPose.root.t.z:F4}) " +
-                $"rotationY={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(terminal.characterPose.root.q).eulerAngles.y:F3}°, " +
+                $"visible start FullBody frame={runtimeTrimStartFrame} posXZ=({RequirePose(visibleStart).root.t.x:F4}, {RequirePose(visibleStart).root.t.z:F4}) " +
+                $"rotationY={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(RequirePose(visibleStart).root.q).eulerAngles.y:F3}°, " +
+                $"terminal FullBody frame={terminalFrame} posXZ=({RequirePose(terminal).root.t.x:F4}, {RequirePose(terminal).root.t.z:F4}) " +
+                $"rotationY={KimodoConstraintNormalizationUtility.ResolvePlanarRotation(RequirePose(terminal).root.q).eulerAngles.y:F3}°, " +
                 $"tail frame={runtimeFrameCount - 1} posXZ=({tail.root2DOverride.t.x:F4}, {tail.root2DOverride.t.z:F4}) " +
                 $"rotationY={tail.root2DOverride.q.eulerAngles.y:F3}°.");
             return KimodoConstraintJsonExporter.ToConstraintsJson(
@@ -501,7 +502,7 @@ namespace KimodoBridge.Editor
             int runtimeFrameCount,
             float frameRate)
         {
-            if (firstFrame?.characterPose?.root == null || tailFrame?.characterPose?.root == null)
+            if (!TryGetPoses(firstFrame, tailFrame, out CharacterPose firstPose, out CharacterPose tailPose))
             {
                 throw new InvalidOperationException("Loop constraint requires valid first and tail poses.");
             }
@@ -517,10 +518,10 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("Loop terminal frame is outside the runtime range.");
             }
 
-            var firstRoot = firstFrame.characterPose.root;
-            var tailRoot = tailFrame.hasRoot2DOverride && tailFrame.root2DOverride != null
+            var firstRoot = firstPose.root;
+            var tailRoot = tailFrame.validMask?.root2DPosition == true && tailFrame.root2DOverride != null
                 ? tailFrame.root2DOverride
-                : tailFrame.characterPose.root;
+                : tailPose.root;
             Vector3 planarDelta = tailRoot.t - firstRoot.t;
             planarDelta.y = 0f;
             float sourceSpanFrames = targetFrameCount - 1f;
@@ -557,14 +558,14 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult tailFrame,
             double sampleTimeSeconds)
         {
-            if (firstFrame?.characterPose?.root == null || tailFrame?.characterPose?.root == null)
+            if (!TryGetPoses(firstFrame, tailFrame, out CharacterPose firstPose, out CharacterPose tailPose))
             {
                 throw new InvalidOperationException("Loop terminal constraint requires valid first and tail poses.");
             }
 
-            var tailRoot = tailFrame.hasRoot2DOverride && tailFrame.root2DOverride != null
+            var tailRoot = tailFrame.validMask?.root2DPosition == true && tailFrame.root2DOverride != null
                 ? tailFrame.root2DOverride
-                : tailFrame.characterPose.root;
+                : tailPose.root;
             KimodoMarkerSampleResult sample = BuildLoopFullBodyConstraintSample(firstFrame, sampleTimeSeconds);
             MergeRoot2DIntoFullBody(sample, tailRoot);
             return sample;
@@ -579,8 +580,8 @@ namespace KimodoBridge.Editor
             sample.mask = KimodoConstraintMask.ForType("fullbody");
             sample.sampleTime = sampleTimeSeconds;
             sample.root2DOverride = null;
-            sample.hasRoot2DOverride = false;
-            sample.hasRootHeading = false;
+            sample.validMask.root2DPosition = false;
+            sample.validMask.root2DHeading = false;
             return sample;
         }
 
@@ -588,15 +589,15 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult fullBody,
             CharacterAnimationCli.Unity.CharacterPoseTransform root2D)
         {
-            if (fullBody?.characterPose?.root == null || root2D == null)
+            if (!KimodoSampleResultPoseUtility.TryDecode(fullBody, out CharacterPose fullPose, out _) || root2D == null)
             {
                 throw new InvalidOperationException("Loop FullBody/Root2D merge requires valid roots.");
             }
 
-            var fullBodyRoot = fullBody.characterPose.root;
+            var fullBodyRoot = fullPose.root;
             fullBodyRoot.t = new Vector3(root2D.t.x, fullBodyRoot.t.y, root2D.t.z);
             fullBodyRoot.q = MergeRootHeading(fullBodyRoot.q, root2D.q);
-            fullBody.sampleData = KimodoBridge.CharacterPoseMuscleAdapter.ToSampleData(fullBody.characterPose);
+            KimodoSampleResultPoseUtility.TryEncode(fullBody, fullPose, out _);
             fullBody.validMask ??= new KimodoSampleChannelMask();
             fullBody.validMask.muscle49 = true;
             fullBody.validMask.rootTQ = true;
@@ -621,16 +622,35 @@ namespace KimodoBridge.Editor
             sample.constraintType = "root2d";
             sample.mask = KimodoConstraintMask.ForType("root2d");
             sample.sampleTime = sampleTimeSeconds;
-            sample.characterPose.root.t = position;
-            sample.characterPose.root.q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(heading);
+            CharacterPose pose = RequirePose(sample);
+            pose.root.t = position;
+            pose.root.q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(heading);
             sample.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
             {
                 t = position,
-                q = sample.characterPose.root.q
+                q = pose.root.q
             };
-            sample.hasRoot2DOverride = true;
-            sample.hasRootHeading = true;
+            sample.validMask.root2DPosition = true;
+            sample.validMask.root2DHeading = true;
+            KimodoSampleResultPoseUtility.TryEncode(sample, pose, out _);
             return sample;
+        }
+
+        private static CharacterPose RequirePose(KimodoMarkerSampleResult sample)
+        {
+            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose pose, out string error))
+                throw new InvalidOperationException(error);
+            return pose;
+        }
+
+        private static bool TryGetPoses(KimodoMarkerSampleResult first, KimodoMarkerSampleResult tail,
+            out CharacterPose firstPose, out CharacterPose tailPose)
+        {
+            firstPose = null;
+            tailPose = null;
+            bool firstValid = KimodoSampleResultPoseUtility.TryDecode(first, out firstPose, out _);
+            bool tailValid = KimodoSampleResultPoseUtility.TryDecode(tail, out tailPose, out _);
+            return firstValid && tailValid;
         }
 
         internal static string AppendConstraintsJson(string baseJson, string additionalJson)
