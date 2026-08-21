@@ -54,6 +54,27 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(mask.root2DHeading, Is.False);
         }
 
+        [Test]
+        public void Composer_MixExpandsBackToProtocolFamilies()
+        {
+            KimodoMarkerSampleResult sample = CreateFullBody(1, 0.5f, true);
+            sample.constraintMode = "mix";
+            sample.mask.rootPosition = true;
+            sample.mask.rootHeading = true;
+            sample.validMask.root2DPosition = true;
+            sample.validMask.root2DHeading = true;
+            sample.hasRoot2DOverride = true;
+            sample.root2DOverride.t = new Vector3(3f, 0f, 4f);
+
+            var expanded = KimodoConstraintSampleComposer.ExpandProtocolSamples(
+                new[] { sample },
+                60.0);
+
+            Assert.That(expanded, Is.Not.Empty);
+            Assert.That(expanded.Exists(item => item.constraintType == "fullbody"), Is.True);
+            Assert.That(expanded.Exists(item => item.constraintType == "root2d"), Is.True);
+        }
+
         private static KimodoMarkerSampleResult CreateFullBody(
             long creationOrder,
             float firstMuscle,
@@ -73,6 +94,7 @@ namespace KimodoBridge.Editor.Tests
                 },
                 constraintMode = "fullbody",
                 constraintType = "fullbody",
+                mask = new KimodoConstraintMask { muscle = valid },
                 sampleTime = 0,
                 creationOrder = creationOrder,
                 enabled = true

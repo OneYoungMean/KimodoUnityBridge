@@ -48,3 +48,11 @@
 - 检查：Unity CLI FullDemo 编译成功，退出码 0；EditMode 测试命令成功退出，但当前 FullDemo 测试报告 testcasecount=0（包内测试未被该项目测试程序集发现），因此不能视为运行时测试通过。
 - 尚未完成：完整旧测试迁移、实际 Effector solver、FullBody sampling/Generate 场景级回归。
 - 下一步：提交 CP5；后续恢复时优先处理测试程序集发现问题或在包测试环境执行测试，然后再决定是否清理兼容 CharacterPose 字段。
+
+## CP6 — Mix 协议展开修正
+
+- 状态：已完成，待提交。
+- 已完成：`constraintMode=mix` 的 canonical SampleResult 可重新展开为 fullbody/root2d/effector 协议族；保持 Root2D 独立覆盖；新增 Mix 展开回归测试。
+- 检查：Unity CLI FullDemo 编译成功，退出码 0；EditMode 命令仍因 FullDemo 未发现包内测试而报告 testcasecount=0。
+- 尚未完成：CharacterPose/rawData 兼容字段清理、真实 Effector 解算和场景级 Generate/FullBody sampling 验证。
+- 下一步：提交 CP6；继续处理旧协议字段迁移时，优先移除 SampleResult 的 rawData/sourceRootWorldPose，并修复所有生产调用方。

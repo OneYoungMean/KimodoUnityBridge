@@ -91,6 +91,8 @@ namespace TimelineInject
                 CopyEffectorChannel(ordered, result, SampleChannel.LeftFootEffector);
                 CopyEffectorChannel(ordered, result, SampleChannel.RightFootEffector);
                 result.validMask.NormalizeDependencies();
+                result.hasRoot2DOverride = result.validMask.root2DPosition;
+                result.hasRootHeading = result.validMask.root2DHeading;
                 result.mask = ToLegacyMask(result.validMask);
                 if (KimodoSampleDataLayout.TryDecodeCharacterPose(
                         result.sampleData,
@@ -341,6 +343,10 @@ namespace TimelineInject
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double frameRate)
         {
+            if (HasMixSamples(samples))
+            {
+                return ExpandCanonicalSamples(samples, frameRate);
+            }
             if (HasModeAwareSamples(samples))
             {
                 return ExpandModeAwareSamples(samples, frameRate);
@@ -396,6 +402,40 @@ namespace TimelineInject
                         output.Add(projected);
                     }
                 }
+            }
+            return output;
+        }
+
+        private static bool HasMixSamples(IReadOnlyList<KimodoMarkerSampleResult> samples)
+        {
+            if (samples == null) return false;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (string.Equals(samples[i]?.constraintMode, "mix", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static List<KimodoMarkerSampleResult> ExpandCanonicalSamples(
+            IReadOnlyList<KimodoMarkerSampleResult> samples,
+            double frameRate)
+        {
+            var output = new List<KimodoMarkerSampleResult>();
+            foreach (KimodoMarkerSampleResult canonical in ComposeCanonicalSamples(samples, frameRate))
+            {
+                if (canonical == null) continue;
+                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
+                    canonical.mask,
+                    "constraint");
+                AppendProtocolSamples(
+                    output,
+                    canonical,
+                    canonical.characterPose,
+                    canonical.characterPose != null,
+                    mask);
             }
             return output;
         }
