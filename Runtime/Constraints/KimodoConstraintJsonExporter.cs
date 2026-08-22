@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-namespace TimelineInject
+namespace KimodoBridge
 {
     public static class KimodoFrameTimeUtility
     {

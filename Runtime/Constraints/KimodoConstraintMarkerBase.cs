@@ -1,5 +1,6 @@
 using System;
 using CharacterAnimationCli.Unity;
+using KimodoBridge;
 using TimelineInject;
 using UnityEngine;
 using UnityEngine.Timeline;

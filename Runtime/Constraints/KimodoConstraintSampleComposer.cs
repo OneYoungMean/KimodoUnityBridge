@@ -4,7 +4,7 @@ using CharacterAnimationCli.Unity;
 using KimodoBridge;
 using UnityEngine;
 
-namespace TimelineInject
+namespace KimodoBridge
 {
     /// <summary>Runtime-independent canonical constraint composition.  Editor
     /// and runtime convert this result to a rig only at their respective edges.</summary>

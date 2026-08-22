@@ -2,7 +2,7 @@ using System;
 using CharacterAnimationCli.Unity;
 using UnityEngine;
 
-namespace TimelineInject
+namespace KimodoBridge
 {
     /// <summary>
     /// Canonical 70-float sample layout. The payload is deliberately fixed;

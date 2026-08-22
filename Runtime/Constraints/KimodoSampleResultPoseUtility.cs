@@ -1,7 +1,7 @@
 using CharacterAnimationCli.Unity;
 using KimodoBridge;
 
-namespace TimelineInject
+namespace KimodoBridge
 {
     /// <summary>
     /// Explicit conversion boundary for APIs that still need a temporary

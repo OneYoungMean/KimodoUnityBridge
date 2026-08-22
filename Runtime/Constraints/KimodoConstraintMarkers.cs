@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using CharacterAnimationCli.Unity;
 using UnityEngine;
 
-namespace TimelineInject
+namespace KimodoBridge
 {
     public interface IKimodoConstraintPreviewSelectable
     {
