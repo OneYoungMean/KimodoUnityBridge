@@ -498,3 +498,9 @@
 - 已完成：`ConstraintInternal.Build` 对完整 FullBody/Mix SampleResult 按 `enableMask` 展开 effectors，底层可一次得到 FullBody、Root2D、EndEffector 内部约束数组；上层不再单独发送 effector。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-autosample-boundary-pass3.log`。
 - 下一批：把现有公开 JSON 导出调用统一改为直接消费 `ConstraintInternal[]`，并继续收拢 InOut/Generate 里的 Avatar 与 RetargetSkeleton 生产依赖。
+
+## CP61 — 明确 ConstraintInternal 选择入口
+
+- 已完成：新增 `KimodoConstraintInternal.GetConstraintInternal(sample, modelType, exportContext)` 作为唯一约束选择入口；`Build` 仅保留为兼容别名。
+- 已完成：所有 canonical JSON 导出路径通过该入口取得内部约束数组，再执行协议合并，effector 不再由上层单独导出。
+- 复核：预览上层已无 `PoseCacheRenderContext.SourceAvatar`；InOut/Timeline 采样中的 `SourceAvatar` 仍是采样边界所需的 Timeline 源 Avatar，尚未下沉到 internal，下一批继续处理。
