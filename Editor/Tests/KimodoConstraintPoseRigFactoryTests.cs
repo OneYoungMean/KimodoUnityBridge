@@ -54,7 +54,6 @@ namespace KimodoBridge.Editor.Tests
             finally
             {
                 rig?.TargetCache?.Dispose();
-                rig?.ProfileCache?.Dispose();
                 if (rig?.GeneratedMaterials != null)
                 {
                     for (int i = 0; i < rig.GeneratedMaterials.Count; i++)

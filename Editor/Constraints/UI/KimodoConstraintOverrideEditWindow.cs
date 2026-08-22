@@ -652,10 +652,6 @@ namespace KimodoBridge.Editor
             if (invalidContext || marker == null) return;
             EnsureSceneDragUndo();
             KimodoConstraintPoseCache.RestoreNonRootBoneTranslations(context, editEntryId);
-            KimodoConstraintMarkerEditorUtility.LogDragMuscleSnapshot(
-                marker,
-                context,
-                editEntryId);
             string sampleError = string.Empty;
             if (KimodoConstraintPoseCache.TryBuildSampleFromContext(
                     context,

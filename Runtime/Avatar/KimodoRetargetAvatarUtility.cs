@@ -518,67 +518,6 @@ namespace KimodoBridge
             return map;
         }
 
-        public static bool TryGetProfileRootJointTransform(
-            Dictionary<string, Transform> nameMap,
-            string modelName,
-            out Transform profileRootJoint)
-        {
-            profileRootJoint = null;
-            if (nameMap == null)
-            {
-                return false;
-            }
-
-            string profileRootJointName = KimodoRigProfileDatabase.GetProfileRootJointNameForModel(modelName);
-            if (string.IsNullOrWhiteSpace(profileRootJointName))
-            {
-                return false;
-            }
-
-            return nameMap.TryGetValue(profileRootJointName, out profileRootJoint) && profileRootJoint != null;
-        }
-
-        public static bool TryApplyMarkerSampleToTransformMap(
-            TimelineInject.KimodoMarkerSampleResult sample,
-            string modelName,
-            Transform root,
-            Dictionary<string, Transform> nameMap,
-            out string error)
-        {
-            error = string.Empty;
-
-            if (sample == null || root == null || nameMap == null)
-            {
-                error = "invalid sample or transform map";
-                return false;
-            }
-
-            string[] modelJointNames = KimodoRigProfileDatabase.GetJointNamesForModel(modelName);
-            if (modelJointNames == null || modelJointNames.Length == 0)
-            {
-                error = $"model joint layout not found for '{modelName}'";
-                return false;
-            }
-
-            if (sample.enableMask?.root2DPosition != true || sample.root2DOverride == null)
-            {
-                error = "Transform-map fallback requires an explicit world-space root2DOverride.";
-                return false;
-            }
-
-            // This fallback is Root2D-only. Never use sampleData.rootTQ as a
-            // hips/world transform; FK muscle reconstruction is handled by the
-            // Avatar sampling path at its caller.
-            root.position = sample.root2DOverride.t;
-            root.rotation = sample.root2DOverride.q.normalized;
-            if (TryGetProfileRootJointTransform(nameMap, modelName, out Transform profileRootJoint))
-            {
-                profileRootJoint.position = sample.root2DOverride.t;
-                profileRootJoint.rotation = sample.root2DOverride.q.normalized;
-            }
-            return true;
-        }
-
         public static string CalculateTransformPath(Transform target, Transform root, string canonicalRootBoneName, Dictionary<Transform,string> allDic)
         {
             if (target == null || root == null)

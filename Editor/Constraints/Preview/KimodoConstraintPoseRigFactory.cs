@@ -12,7 +12,6 @@ namespace KimodoBridge.Editor
         {
             public GameObject Root;
             public SkeletonCache TargetCache;
-            public SkeletonCache ProfileCache;
             public List<Material> GeneratedMaterials;
         }
 
@@ -42,7 +41,6 @@ namespace KimodoBridge.Editor
             }
 
             SkeletonCache targetCache = null;
-            SkeletonCache profileCache = null;
             List<Material> generatedMaterials = null;
             try
             {
@@ -69,39 +67,15 @@ namespace KimodoBridge.Editor
                 }
                 targetAnimator.enabled = false;
 
-                if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                        modelName,
-                        out Avatar profileAvatar,
-                        out error) ||
-                    !KimodoRetargetCoreUtility.IsValidHumanoid(profileAvatar))
-                {
-                    error = string.IsNullOrWhiteSpace(error)
-                        ? $"Profile Avatar is unavailable for '{modelName}'."
-                        : error;
-                    return false;
-                }
-
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
-                        profileAvatar,
-                        $"__KimodoConstraintProfile_{clipId}_{animatorId}",
-                        out profileCache,
-                        out error))
-                {
-                    return false;
-                }
-
                 targetCache.root.name = $"__KimodoConstraintAvatar_{clipId}_{animatorId}";
                 targetCache.root.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
-                profileCache.root.hideFlags = HideFlags.HideAndDontSave;
                 instance = new PoseRigInstance
                 {
                     Root = targetCache.root,
                     TargetCache = targetCache,
-                    ProfileCache = profileCache,
                     GeneratedMaterials = generatedMaterials
                 };
                 targetCache = null;
-                profileCache = null;
                 generatedMaterials = null;
                 return true;
             }
@@ -113,7 +87,6 @@ namespace KimodoBridge.Editor
             finally
             {
                 targetCache?.Dispose();
-                profileCache?.Dispose();
                 DestroyMaterials(generatedMaterials);
             }
         }

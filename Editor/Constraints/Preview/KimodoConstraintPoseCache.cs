@@ -57,7 +57,6 @@ namespace KimodoBridge.Editor
         public string Key;
         public Transform Root;
         public SkeletonCache TargetCache;
-        public SkeletonCache ProfileCache;
         public List<Material> GeneratedMaterials;
         public GameObject EndEffectorMarker;
         public Dictionary<HumanBodyBones, GameObject> FullBodyTargets;
@@ -113,23 +112,20 @@ namespace KimodoBridge.Editor
     {
         internal static bool TryApplyToTargetAvatar(
             KimodoMarkerSampleResult sample,
-            string modelName,
             float frameRate,
-            SkeletonCache profileCache,
             SkeletonCache targetCache,
             out string error,
             KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets? sceneTargets = null)
         {
             error = string.Empty;
-            if (sample == null || profileCache == null || targetCache == null)
+            if (sample == null || targetCache == null)
             {
-                error = "Constraint target/profile Avatar cache is unavailable.";
+                error = "Constraint target Avatar cache is unavailable.";
                 return false;
             }
 
             if (KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose canonicalPose, out error))
             {
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
                 if (!canonicalPose.TryValidate(out error))
                 {
                     return false;
@@ -153,106 +149,10 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(profileCache);
-            if (!KimodoRetargetAvatarUtility.TryApplyMarkerSampleToTransformMap(
-                    sample,
-                    modelName,
-                    profileCache.skeletonRoot,
-                    profileCache.uniqueNameMap,
-                    out error) ||
-                !KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                    profileCache,
-                    out MuscleSample profileSample,
-                    out error) ||
-                !KimodoRetargetSamplingUtility.TryRebuildPoseFromMuscles(
-                    profileSample,
-                    frameRate,
-                    profileCache,
-                    out _,
-                    out MuscleSample solvedProfileSample,
-                    out error,
-                    includeLeftHandEffector: false,
-                    includeRightHandEffector: false,
-                    includeFootEffectors: false,
-                    includeLeftFootEffector: false,
-                    includeRightFootEffector: false,
-                    sceneTargets: null) ||
-                !KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                    solvedProfileSample,
-                    frameRate,
-                    targetCache,
-                    out BoneSample targetSample,
-                    out _,
-                    out error))
-            {
-                return false;
-            }
-
-            if (!KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
-                    targetSample,
-                    targetCache,
-                    out error))
-            {
-                return false;
-            }
-
-            return true;
+            error = "SampleResult sampleData is invalid.";
+            return false;
         }
 
-        internal static bool TryResolveHumanBonePair(
-            SkeletonCache sourceCache,
-            SkeletonCache targetCache,
-            HumanBodyBones bone,
-            out Transform sourceBone,
-            out Transform targetBone)
-        {
-            sourceBone = bone != HumanBodyBones.LastBone
-                ? KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(sourceCache, bone)
-                : null;
-            targetBone = bone != HumanBodyBones.LastBone
-                ? KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(targetCache, bone)
-                : null;
-            return sourceBone != null && targetBone != null;
-        }
-
-        internal static bool TryMapHumanBonePoint(
-            SkeletonCache sourceCache,
-            SkeletonCache targetCache,
-            HumanBodyBones bone,
-            Vector3 sourcePoint,
-            out Vector3 targetPoint)
-        {
-            targetPoint = Vector3.zero;
-            if (!TryResolveHumanBonePair(
-                    sourceCache,
-                    targetCache,
-                    bone,
-                    out Transform sourceBone,
-                    out Transform targetBone))
-            {
-                return false;
-            }
-
-            targetPoint = MapPoint(
-                sourceBone,
-                sourceCache.humanScale,
-                targetBone,
-                targetCache.humanScale,
-                sourcePoint);
-            return true;
-        }
-
-        internal static Vector3 MapPoint(
-            Transform sourceBone,
-            float sourceHumanScale,
-            Transform targetBone,
-            float targetHumanScale,
-            Vector3 sourcePoint)
-        {
-            float scale = Mathf.Max(1e-6f, targetHumanScale) / Mathf.Max(1e-6f, sourceHumanScale);
-            Vector3 sourceLocal = Quaternion.Inverse(sourceBone.rotation) * (sourcePoint - sourceBone.position);
-            return targetBone.position + targetBone.rotation * (sourceLocal * scale);
-        }
     }
 
     [InitializeOnLoad]
@@ -938,58 +838,6 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        internal static bool TryCaptureDragMuscleSamples(
-            PoseCacheRenderContext context,
-            string entryId,
-            out MuscleSample virtualSkeleton,
-            out float virtualSkeletonScale,
-            out MuscleSample targetCharacter,
-            out float targetCharacterScale,
-            out string error)
-        {
-            virtualSkeleton = null;
-            virtualSkeletonScale = 0f;
-            targetCharacter = null;
-            targetCharacterScale = 0f;
-            error = string.Empty;
-            if (!TryGetSession(context, out ConstraintPosePreviewSession session) ||
-                !TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) ||
-                entry?.ProfileCache == null ||
-                entry.TargetCache == null)
-            {
-                error = "pose cache context has no active profile/target entry.";
-                return false;
-            }
-
-            bool profileWasActive = entry.ProfileCache.root.activeSelf;
-            bool targetWasActive = entry.TargetCache.root.activeSelf;
-            entry.ProfileCache.root.SetActive(true);
-            entry.TargetCache.root.SetActive(true);
-            try
-            {
-                if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                        entry.ProfileCache,
-                        out virtualSkeleton,
-                        out error) ||
-                    !KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                        entry.TargetCache,
-                        out targetCharacter,
-                        out error))
-                {
-                    return false;
-                }
-
-                virtualSkeletonScale = entry.ProfileCache.humanScale;
-                targetCharacterScale = entry.TargetCache.humanScale;
-                return true;
-            }
-            finally
-            {
-                entry.ProfileCache.root.SetActive(profileWasActive);
-                entry.TargetCache.root.SetActive(targetWasActive);
-            }
-        }
-
         internal static bool TryBuildSampleFromContext(
             PoseCacheRenderContext context,
             string markerType,
@@ -1077,7 +925,6 @@ namespace KimodoBridge.Editor
                 {
                     Root = rig.Root != null ? rig.Root.transform : null,
                     TargetCache = rig.TargetCache,
-                    ProfileCache = rig.ProfileCache,
                     GeneratedMaterials = rig.GeneratedMaterials
                 };
                 if (!ApplySampleToRig(sample, context.ModelName, transient, out error))
@@ -1429,7 +1276,6 @@ namespace KimodoBridge.Editor
                 Key = normalizedEntryId,
                 Root = rigInstance.Root != null ? rigInstance.Root.transform : null,
                 TargetCache = rigInstance.TargetCache,
-                ProfileCache = rigInstance.ProfileCache,
                 GeneratedMaterials = rigInstance.GeneratedMaterials,
                 PickingEnabled = false
             };
@@ -1486,9 +1332,6 @@ namespace KimodoBridge.Editor
             SkeletonCache targetCache = entry.TargetCache;
             entry.TargetCache = null;
             targetCache?.Dispose();
-            SkeletonCache profileCache = entry.ProfileCache;
-            entry.ProfileCache = null;
-            profileCache?.Dispose();
 
             if (targetCache == null && entry.Root != null && entry.Root.gameObject != null)
             {
@@ -1806,9 +1649,9 @@ namespace KimodoBridge.Editor
             bool applySceneTargets = true)
         {
             error = string.Empty;
-            if (sample == null || entry?.TargetCache == null || entry.ProfileCache == null)
+            if (sample == null || entry?.TargetCache == null)
             {
-                error = "Constraint target/profile Avatar cache is unavailable.";
+                error = "Constraint target Avatar cache is unavailable.";
                 return false;
             }
 
@@ -1818,9 +1661,7 @@ namespace KimodoBridge.Editor
             {
                 return KimodoConstraintSpaceConverter.TryApplyToTargetAvatar(
                     sample,
-                    modelName,
                     KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
-                    entry.ProfileCache,
                     entry.TargetCache,
                     out error,
                     sceneTargets: null);
@@ -1845,9 +1686,9 @@ namespace KimodoBridge.Editor
         {
             sample = null;
             error = string.Empty;
-            if (entry?.TargetCache == null || entry.ProfileCache == null)
+            if (entry?.TargetCache == null)
             {
-                error = "Constraint target/profile Avatar cache is unavailable.";
+                error = "Constraint target Avatar cache is unavailable.";
                 return false;
             }
 
@@ -1886,29 +1727,10 @@ namespace KimodoBridge.Editor
                 }
                 RememberEditedEffectors(entry);
                 EnableChangedConstraintChannels(entry, mask);
-                if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                        entry.TargetCache,
-                        out MuscleSample targetSample,
-                        out error))
-                {
-                    return false;
-                }
-
-                KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(entry.ProfileCache);
-                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                        targetSample,
-                        KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
-                        entry.ProfileCache,
-                        out BoneSample profileSample,
-                        out _,
-                        out error))
-                {
-                    return false;
-                }
-
+                BoneSample targetSample = KimodoRetargetSamplingUtility.CaptureBoneSample(entry.TargetCache);
                 if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
-                        profileSample,
-                        entry.ProfileCache,
+                        targetSample,
+                        entry.TargetCache,
                         modelName,
                         markerType,
                         sampleTime,
@@ -2008,12 +1830,9 @@ namespace KimodoBridge.Editor
             DestroyFullBodyTargets(entry);
             DestroyRoot2DTarget(entry);
             HumanBodyBones bone = ResolveEndEffectorBone(constraintType);
-            if (!KimodoConstraintSpaceConverter.TryResolveHumanBonePair(
-                    entry?.ProfileCache,
+            if (KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(
                     entry?.TargetCache,
-                    bone,
-                    out _,
-                    out _))
+                    bone) == null)
             {
                 if (entry?.EndEffectorMarker != null)
                 {

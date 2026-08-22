@@ -712,7 +712,7 @@ namespace CharacterAnimationCli.Unity.Command
                 // Fullbody FK sampling mutates the shared cache pose. Capture the
                 // profile root height once so later root2d constraints do not
                 // inherit the previous fullbody pose's transient hips height.
-                float targetRootHeight = ResolveTargetRootHeight(targetCache, modelName);
+                float targetRootHeight = ResolveTargetRootHeight(targetCache);
 
                 for (int i = 0; i < constraints.Count; i++)
                 {
@@ -926,16 +926,15 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        internal static float ResolveTargetRootHeight(SkeletonCache targetCache, string modelName)
+        internal static float ResolveTargetRootHeight(SkeletonCache targetCache)
         {
             if (targetCache != null &&
-                KimodoRetargetAvatarUtility.TryGetProfileRootJointTransform(
-                    targetCache.uniqueNameMap,
-                    modelName,
-                    out Transform profileRootJoint) &&
-                profileRootJoint != null)
+                targetCache.GetBonePose(
+                    HumanBodyBones.Hips,
+                    out Vector3 hipsPosition,
+                    out _))
             {
-                return profileRootJoint.position.y;
+                return hipsPosition.y;
             }
 
             return 0f;

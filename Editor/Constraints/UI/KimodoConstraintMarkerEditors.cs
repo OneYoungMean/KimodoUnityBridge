@@ -243,11 +243,6 @@ public static void ClearMarkerPoseCachePreview(KimodoConstraintMarker marker, bo
             return KimodoConstraintMarkerPosePreview.TryBuildRenderContextForMarker(marker, out context, out error);
         }
 
-        internal static void LogDragMuscleSnapshot(KimodoConstraintMarker marker, PoseCacheRenderContext renderContext, string entryId)
-        {
-            KimodoConstraintMarkerPosePreview.LogDragMuscleSnapshot(marker, renderContext, entryId);
-        }
-
         public static bool TryBuildRenderContextForPlayableClip(KimodoPlayableClip playableClip, out PoseCacheRenderContext context, out TimelineClip timelineClip, out string error, TimelineClip timelineClipOverride = null)
         {
             return KimodoConstraintMarkerPosePreview.TryBuildRenderContextForPlayableClip(playableClip, out context, out timelineClip, out error, timelineClipOverride);

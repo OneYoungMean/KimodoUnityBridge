@@ -316,3 +316,14 @@
 - 已确认：Preview 的 `ProfileCache` 来自 `KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName)` 返回的 canonical profile Avatar；它不是 Timeline 绑定角色，而是用于 profile 骨架重建和 Target→Profile 的旧中间 retarget。
 - 检查：`git diff --check` 通过；尚未运行 Unity CLI 编译。
 - 尚未完成：评估 AutoSample 是否应完全移除 Target→Profile 中间缓存，改为从目标 skeleton 的 world BoneSample 直接构建 SampleResult；需先观察本 checkpoint 后的 Hips/rootTQ 结果。
+
+## CP40 — 清理非 ToJson 的 ProfileSkeleton/旧诊断旁路
+
+- 已完成：Preview 移除 `ProfileCache` 和 Target→Profile→Target 的中间 retarget；AutoSample 直接从 TargetCache 捕获 BoneSample 并生成 SampleResult。
+- 已完成：删除 Preview 中已无生产调用的 HumanBone pair/point 映射与 humanScale 转换辅助；拖拽和显示不再保留 profile-root/local 坐标旁路。
+- 已完成：删除仅用于运行时调试显示的 `KimodoRuntimeProfileSkeletonPreview`，并移除 Runtime Motion Driver 上对应的调试字段、属性和 Inspector UI。
+- 已完成：删除未被生产代码调用的旧 `KimodoConstraintPoseDiagnostics` 肌肉统计/差异工具。
+- 已完成：Command 的 Root2D 高度只读取目标缓存 Hips 世界位置，移除无用的 modelName 参数。
+- 保留：ToJson 投影、Kimodo/ARDY 协议 joint layout/父子关系校验、SkipRetarget 模型骨骼检查路径；这些仍属于生产必要语义。
+- 检查：`git diff --check` 通过；尚未运行 Unity CLI 编译验证。
+- 下一步：提交本批次，随后做全仓非 ToJson ProfileSkeleton 引用分类和 Unity 编译/FullBody sampling/Generate 验证。

@@ -49,8 +49,6 @@ namespace KimodoBridge
         [SerializeField] private KimodoSegmentTrimTrailSettings segmentTrimTrailSettings = new KimodoSegmentTrimTrailSettings();
 
         [Header("Debug")]
-        [SerializeField, Tooltip("Editor only. Show the model's profile-skeleton FBX driven by the current source pose.")]
-        private bool drawDebugSkeleton;
         [SerializeField] private bool verboseLogging = true;
 
         private const string IdlePrompt = "idle";
@@ -74,14 +72,6 @@ namespace KimodoBridge
         public event Action<KimodoRuntimeSegmentReport> SegmentReady;
         public event Action<KimodoRuntimeSegmentReport> SegmentStarted;
         public event Action<KimodoRuntimeSegmentReport> SegmentCompleted;
-        public bool DrawDebugSkeleton
-        {
-            get => drawDebugSkeleton;
-            set => drawDebugSkeleton = value;
-        }
-        internal string DebugModelName => modelName;
-        internal Transform DebugProfileSkeletonRoot => motionPlayer?.DebugProfileSkeletonRoot;
-
         private void Reset()
         {
             Animator animator = GetComponent<Animator>();
