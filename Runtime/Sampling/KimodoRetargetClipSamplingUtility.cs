@@ -1027,8 +1027,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            CharacterPose pose = CharacterPoseMuscleAdapter.FromMuscleSample(sample, cache);
-            if (!CharacterPoseMuscleAdapter.TryToSampleData(pose, out float[] encoded, out _))
+            if (!sample.IsValid)
             {
                 // Sampling completed, but this pose must not be advertised as
                 // valid. Keep the fixed-size payload and clear all validity bits.
@@ -1036,7 +1035,11 @@ namespace KimodoBridge
                 return true;
             }
 
-            sampleData.data = encoded;
+            // The retarget sampler already produced the canonical 70D payload,
+            // including the legacy body-relative footTQ transport. Do not pass
+            // it through CharacterPose, whose scene-facing foot fields are
+            // world-space display/effector values and would overwrite footTQ.
+            sampleData.data = (float[])sample.data.Clone();
 
             enableMask.muscle49 = true;
             enableMask.rootTQ = true;

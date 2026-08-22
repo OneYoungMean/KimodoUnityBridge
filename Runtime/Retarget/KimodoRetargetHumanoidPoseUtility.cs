@@ -18,12 +18,68 @@ namespace KimodoBridge
             sample.SetRoot(pose.bodyPosition, pose.bodyRotation);
             if (cache != null)
             {
-                cache.GetBonePose(HumanBodyBones.LeftFoot, out Vector3 leftPosition, out Quaternion leftRotation);
-                cache.GetBonePose(HumanBodyBones.RightFoot, out Vector3 rightPosition, out Quaternion rightRotation);
-                sample.SetLeftFoot(leftPosition, leftRotation);
-                sample.SetRightFoot(rightPosition, rightRotation);
+                if (TryBuildFootTq(
+                    cache,
+                    pose,
+                    HumanBodyBones.LeftFoot,
+                    out Vector3 leftPosition,
+                    out Quaternion leftRotation))
+                {
+                    sample.SetLeftFoot(leftPosition, leftRotation);
+                }
+
+                if (TryBuildFootTq(
+                    cache,
+                    pose,
+                    HumanBodyBones.RightFoot,
+                    out Vector3 rightPosition,
+                    out Quaternion rightRotation))
+                {
+                    sample.SetRightFoot(rightPosition, rightRotation);
+                }
             }
             return sample;
+        }
+
+        /// <summary>
+        /// Encodes the legacy Humanoid footTQ transport. FootTQ is not a
+        /// world-space bone transform and is not an IK-effector transport:
+        /// first convert the foot bone to the avatar IK goal (post rotation
+        /// plus the avatar axis endpoint), then express that goal relative to
+        /// the HumanPose body using Unity's human-scale convention.
+        /// </summary>
+        private static bool TryBuildFootTq(
+            RetargetSkeleton cache,
+            HumanPose pose,
+            HumanBodyBones bone,
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            if (cache == null || cache.avatar == null ||
+                !cache.GetBonePose(bone, out Vector3 footBoneWorldPosition,
+                    out Quaternion footBoneWorldRotation))
+            {
+                return false;
+            }
+
+            Quaternion worldFootRotation = footBoneWorldRotation *
+                AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(cache.avatar, (int)bone);
+            float axisLength = AvatarRuntimeAccess.GetAvatarAxisLengthOrZero(
+                cache.avatar,
+                (int)bone);
+            Vector3 worldFootPosition = footBoneWorldPosition +
+                worldFootRotation * new Vector3(axisLength, 0f, 0f);
+
+            float humanScale = Mathf.Max(1e-6f, cache.humanScale);
+            Quaternion bodyRotation = pose.bodyRotation.normalized;
+            Quaternion inverseBodyRotation = Quaternion.Inverse(bodyRotation);
+            position = inverseBodyRotation *
+                (worldFootPosition - pose.bodyPosition * humanScale) /
+                humanScale;
+            rotation = (inverseBodyRotation * worldFootRotation).normalized;
+            return true;
         }
 
         internal static Transform ResolveHumanBoneTransform(RetargetSkeleton cache, HumanBodyBones bone)
