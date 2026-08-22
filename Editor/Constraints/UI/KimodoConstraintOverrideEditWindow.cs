@@ -177,9 +177,7 @@ namespace KimodoBridge.Editor
             SceneView.duringSceneGui -= OnSceneGUI;
             EditorSceneManager.sceneClosing -= OnSceneClosing;
             EditorSceneManager.activeSceneChangedInEditMode -= OnActiveSceneChanged;
-            // Close is a hard preview boundary: hide and deselect the preview
-            // group before destroying its cache so no stale preview state is
-            // left behind when Unity invokes OnDisable during domain reload.
+            // Hide and deselect the edit preview before destroying its cache.
             if (hasEditContext)
             {
                 KimodoConstraintPoseCache.SetGroupState(editContext, visible: false, selectable: false);
@@ -195,7 +193,11 @@ namespace KimodoBridge.Editor
                 KimodoConstraintPoseCache.DestroyContext(restoreContext);
             }
             RestoreTimelineWindowLock();
-            KimodoTimelinePreviewRefreshUtility.DisablePreview();
+            // The Timeline preview must remain enabled after the override
+            // window closes so the authored result stays visible in the scene.
+            KimodoTimelinePreviewRefreshUtility.TryEnablePreview();
+            KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(
+                RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
             KimodoConstraintSelectionPreviewTool.ForceRefresh();
             SceneView.RepaintAll();
 
