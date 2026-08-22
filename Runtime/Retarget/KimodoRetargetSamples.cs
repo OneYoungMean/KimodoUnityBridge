@@ -25,6 +25,12 @@ namespace KimodoBridge
         // Atomic muscle pose: 49 body muscles followed by rootTQ, leftFootTQ
         // and rightFootTQ. HumanPose is an API boundary, never stored here.
         public float[] data = KimodoSampleDataLayout.CreateBuffer();
+        /// <summary>
+        /// Unity's temporary HumanPose view of this 70D payload. The returned
+        /// value is rebuilt from <see cref="data"/> on each access; MuscleSample
+        /// remains the only stored animation representation.
+        /// </summary>
+        public HumanPose pose => CharacterPoseMuscleAdapter.ToHumanPose(this);
 
         public bool IsValid => KimodoSampleDataLayout.TryValidate(data, out _);
 
