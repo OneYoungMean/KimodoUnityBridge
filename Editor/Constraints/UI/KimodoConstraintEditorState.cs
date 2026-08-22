@@ -26,9 +26,8 @@ namespace KimodoBridge.Editor
                 if (!autoSample.boolValue)
                 {
                     EditorGUILayout.HelpBox(
-                        "Auto Sample is disabled. Enable it to synchronize the scene pose.\n" +
-                        "已关闭 Auto Sample；请打开它以同步场景姿势。",
-                        MessageType.Warning);
+                        "Auto Sample is disabled. Enable it to synchronize the scene pose.",
+                        MessageType.Info);
                 }
             }
             if (mode == null) return;
