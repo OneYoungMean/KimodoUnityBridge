@@ -2054,18 +2054,18 @@ namespace KimodoBridge.Editor
                 };
                 switch (bone)
                 {
-                    case HumanBodyBones.LeftHand: result.hands.left = target; break;
-                    case HumanBodyBones.RightHand: result.hands.right = target; break;
-                    case HumanBodyBones.LeftFoot: result.feet.left = target; break;
-                    case HumanBodyBones.RightFoot: result.feet.right = target; break;
+                    case HumanBodyBones.LeftHand: result.leftHand = target; break;
+                    case HumanBodyBones.RightHand: result.rightHand = target; break;
+                    case HumanBodyBones.LeftFoot: result.leftFoot = target; break;
+                    case HumanBodyBones.RightFoot: result.rightFoot = target; break;
                 }
             }
             if (entry.FullBodyTargets != null)
             {
-                CaptureEffector(entry, mask.leftHand, HumanBodyBones.LeftHand, result.hands);
-                CaptureEffector(entry, mask.rightHand, HumanBodyBones.RightHand, result.hands);
-                CaptureEffector(entry, mask.leftFoot, HumanBodyBones.LeftFoot, result.feet);
-                CaptureEffector(entry, mask.rightFoot, HumanBodyBones.RightFoot, result.feet);
+                CaptureEffector(entry, mask.leftHand, HumanBodyBones.LeftHand, result);
+                CaptureEffector(entry, mask.rightHand, HumanBodyBones.RightHand, result);
+                CaptureEffector(entry, mask.leftFoot, HumanBodyBones.LeftFoot, result);
+                CaptureEffector(entry, mask.rightFoot, HumanBodyBones.RightFoot, result);
             }
             return result;
         }
@@ -2074,9 +2074,9 @@ namespace KimodoBridge.Editor
             ConstraintPosePreviewEntry entry,
             bool enabled,
             HumanBodyBones bone,
-            CharacterPoseSides sides)
+            KimodoConstraintEffectors effectors)
         {
-            if (!enabled || sides == null ||
+            if (!enabled || effectors == null ||
                 !entry.FullBodyTargets.TryGetValue(bone, out GameObject target) || target == null)
             {
                 return;
@@ -2086,8 +2086,13 @@ namespace KimodoBridge.Editor
                 t = target.transform.position,
                 q = target.transform.rotation
             };
-            if (bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.LeftFoot) sides.left = value;
-            else sides.right = value;
+            switch (bone)
+            {
+                case HumanBodyBones.LeftHand: effectors.leftHand = value; break;
+                case HumanBodyBones.RightHand: effectors.rightHand = value; break;
+                case HumanBodyBones.LeftFoot: effectors.leftFoot = value; break;
+                case HumanBodyBones.RightFoot: effectors.rightFoot = value; break;
+            }
         }
 
         private static bool TryGetEffector(
@@ -2101,10 +2106,10 @@ namespace KimodoBridge.Editor
             {
                 value = bone switch
                 {
-                    HumanBodyBones.LeftHand => targets.hands?.left,
-                    HumanBodyBones.RightHand => targets.hands?.right,
-                    HumanBodyBones.LeftFoot => targets.feet?.left,
-                    HumanBodyBones.RightFoot => targets.feet?.right,
+                    HumanBodyBones.LeftHand => targets.leftHand,
+                    HumanBodyBones.RightHand => targets.rightHand,
+                    HumanBodyBones.LeftFoot => targets.leftFoot,
+                    HumanBodyBones.RightFoot => targets.rightFoot,
                     _ => null
                 };
             }

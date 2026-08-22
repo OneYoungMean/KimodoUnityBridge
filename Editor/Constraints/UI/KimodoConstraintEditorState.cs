@@ -138,10 +138,10 @@ namespace KimodoBridge.Editor
             EditorGUILayout.LabelField("FullBody Effectors", EditorStyles.boldLabel);
             using (new EditorGUI.DisabledScope(autoSample))
             {
-                DrawTransform(so.FindProperty("sampleData.effectors.hands.left"), "Left Hand Effector");
-                DrawTransform(so.FindProperty("sampleData.effectors.hands.right"), "Right Hand Effector");
-                DrawTransform(so.FindProperty("sampleData.effectors.feet.left"), "Left Foot Effector");
-                DrawTransform(so.FindProperty("sampleData.effectors.feet.right"), "Right Foot Effector");
+                DrawTransform(so.FindProperty("sampleData.effectors.leftHand"), "Left Hand Effector");
+                DrawTransform(so.FindProperty("sampleData.effectors.rightHand"), "Right Hand Effector");
+                DrawTransform(so.FindProperty("sampleData.effectors.leftFoot"), "Left Foot Effector");
+                DrawTransform(so.FindProperty("sampleData.effectors.rightFoot"), "Right Foot Effector");
             }
         }
 
@@ -163,19 +163,19 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".effectors.hands.left"),
+                so.FindProperty(root + ".effectors.leftHand"),
                 so.FindProperty(root + ".enableMask.leftHandEffector"),
                 "Left Hand Effector", autoSample);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".effectors.hands.right"),
+                so.FindProperty(root + ".effectors.rightHand"),
                 so.FindProperty(root + ".enableMask.rightHandEffector"),
                 "Right Hand Effector", autoSample);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".effectors.feet.left"),
+                so.FindProperty(root + ".effectors.leftFoot"),
                 so.FindProperty(root + ".enableMask.leftFootEffector"),
                 "Left Foot Effector", autoSample);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".effectors.feet.right"),
+                so.FindProperty(root + ".effectors.rightFoot"),
                 so.FindProperty(root + ".enableMask.rightFootEffector"),
                 "Right Foot Effector", autoSample);
         }

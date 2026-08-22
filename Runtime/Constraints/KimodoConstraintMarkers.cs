@@ -46,20 +46,26 @@ namespace TimelineInject
     [Serializable]
     public class KimodoConstraintEffectors
     {
-        public CharacterPoseSides hands = new CharacterPoseSides();
-        public CharacterPoseSides feet = new CharacterPoseSides();
+        public KimodoRigidTransform leftHand = KimodoRigidTransform.Identity;
+        public KimodoRigidTransform rightHand = KimodoRigidTransform.Identity;
+        public KimodoRigidTransform leftFoot = KimodoRigidTransform.Identity;
+        public KimodoRigidTransform rightFoot = KimodoRigidTransform.Identity;
 
         public KimodoConstraintEffectors Clone() => new KimodoConstraintEffectors
         {
-            hands = hands != null ? hands.Clone() : new CharacterPoseSides(),
-            feet = feet != null ? feet.Clone() : new CharacterPoseSides()
+            leftHand = leftHand?.Clone() ?? KimodoRigidTransform.Identity,
+            rightHand = rightHand?.Clone() ?? KimodoRigidTransform.Identity,
+            leftFoot = leftFoot?.Clone() ?? KimodoRigidTransform.Identity,
+            rightFoot = rightFoot?.Clone() ?? KimodoRigidTransform.Identity
         };
 
         public void CopyTo(CharacterPose pose)
         {
             if (pose == null) return;
-            pose.hands = hands != null ? hands.Clone() : new CharacterPoseSides();
-            pose.feet = feet != null ? feet.Clone() : new CharacterPoseSides();
+            pose.hands.left = leftHand?.Clone() ?? KimodoRigidTransform.Identity;
+            pose.hands.right = rightHand?.Clone() ?? KimodoRigidTransform.Identity;
+            pose.feet.left = leftFoot?.Clone() ?? KimodoRigidTransform.Identity;
+            pose.feet.right = rightFoot?.Clone() ?? KimodoRigidTransform.Identity;
         }
     }
 

@@ -165,10 +165,10 @@ namespace TimelineInject
 
             KimodoRigidTransform sourceTransform = channel switch
             {
-                SampleChannel.LeftHandEffector => source.effectors.hands?.left,
-                SampleChannel.RightHandEffector => source.effectors.hands?.right,
-                SampleChannel.LeftFootEffector => source.effectors.feet?.left,
-                SampleChannel.RightFootEffector => source.effectors.feet?.right,
+                SampleChannel.LeftHandEffector => source.effectors.leftHand,
+                SampleChannel.RightHandEffector => source.effectors.rightHand,
+                SampleChannel.LeftFootEffector => source.effectors.leftFoot,
+                SampleChannel.RightFootEffector => source.effectors.rightFoot,
                 _ => null
             };
             if (!IsValidTransform(sourceTransform))
@@ -176,24 +176,15 @@ namespace TimelineInject
                 SetValid(destination.enableMask, channel, false);
                 return;
             }
-            CharacterPoseSides sides = channel switch
-            {
-                SampleChannel.LeftHandEffector => destination.effectors.hands,
-                SampleChannel.RightHandEffector => destination.effectors.hands,
-                SampleChannel.LeftFootEffector => destination.effectors.feet,
-                SampleChannel.RightFootEffector => destination.effectors.feet,
-                _ => null
-            };
-            if (sides == null) return;
             KimodoRigidTransform copy = new KimodoRigidTransform
             {
                 t = sourceTransform.t,
                 q = sourceTransform.q
             };
-            if (channel == SampleChannel.LeftHandEffector) sides.left = copy;
-            else if (channel == SampleChannel.RightHandEffector) sides.right = copy;
-            else if (channel == SampleChannel.LeftFootEffector) sides.left = copy;
-            else if (channel == SampleChannel.RightFootEffector) sides.right = copy;
+            if (channel == SampleChannel.LeftHandEffector) destination.effectors.leftHand = copy;
+            else if (channel == SampleChannel.RightHandEffector) destination.effectors.rightHand = copy;
+            else if (channel == SampleChannel.LeftFootEffector) destination.effectors.leftFoot = copy;
+            else if (channel == SampleChannel.RightFootEffector) destination.effectors.rightFoot = copy;
         }
 
         private static bool Participates(KimodoMarkerSampleResult sample, SampleChannel channel)
@@ -525,26 +516,24 @@ namespace TimelineInject
                 KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source.mask, "effector");
                 result.mask ??= new KimodoConstraintMask();
                 result.effectors ??= new KimodoConstraintEffectors();
-                result.effectors.hands ??= new CharacterPoseSides();
-                result.effectors.feet ??= new CharacterPoseSides();
                 if (sourceMask.leftHand)
                 {
-                    result.effectors.hands.left = source.effectors?.hands?.left?.Clone();
+                    result.effectors.leftHand = source.effectors?.leftHand?.Clone();
                     result.mask.leftHand = true;
                 }
                 if (sourceMask.rightHand)
                 {
-                    result.effectors.hands.right = source.effectors?.hands?.right?.Clone();
+                    result.effectors.rightHand = source.effectors?.rightHand?.Clone();
                     result.mask.rightHand = true;
                 }
                 if (sourceMask.leftFoot)
                 {
-                    result.effectors.feet.left = source.effectors?.feet?.left?.Clone();
+                    result.effectors.leftFoot = source.effectors?.leftFoot?.Clone();
                     result.mask.leftFoot = true;
                 }
                 if (sourceMask.rightFoot)
                 {
-                    result.effectors.feet.right = source.effectors?.feet?.right?.Clone();
+                    result.effectors.rightFoot = source.effectors?.rightFoot?.Clone();
                     result.mask.rightFoot = true;
                 }
                 if (TryGetPose(source, out CharacterPose sourcePose, out _) &&
@@ -662,13 +651,13 @@ namespace TimelineInject
                 KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source?.mask, source?.constraintType);
                 if (source?.effectors == null) continue;
                 if (sourceMask.leftHand)
-                    merged.effectors.hands.left = source.effectors.hands.left.Clone();
+                    merged.effectors.leftHand = source.effectors.leftHand.Clone();
                 if (sourceMask.rightHand)
-                    merged.effectors.hands.right = source.effectors.hands.right.Clone();
+                    merged.effectors.rightHand = source.effectors.rightHand.Clone();
                 if (sourceMask.leftFoot)
-                    merged.effectors.feet.left = source.effectors.feet.left.Clone();
+                    merged.effectors.leftFoot = source.effectors.leftFoot.Clone();
                 if (sourceMask.rightFoot)
-                    merged.effectors.feet.right = source.effectors.feet.right.Clone();
+                    merged.effectors.rightFoot = source.effectors.rightFoot.Clone();
             }
             CopyRoot2DOverride(group, merged);
             if (hasCanonicalPose)

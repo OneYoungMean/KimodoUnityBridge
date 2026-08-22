@@ -460,10 +460,10 @@ namespace TimelineInject
             if (sample?.effectors == null) return null;
             switch ((type ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
             {
-                case "left-hand": return sample.effectors.hands?.left;
-                case "right-hand": return sample.effectors.hands?.right;
-                case "left-foot": return sample.effectors.feet?.left;
-                case "right-foot": return sample.effectors.feet?.right;
+                case "left-hand": return sample.effectors.leftHand;
+                case "right-hand": return sample.effectors.rightHand;
+                case "left-foot": return sample.effectors.leftFoot;
+                case "right-foot": return sample.effectors.rightFoot;
                 default: return null;
             }
         }

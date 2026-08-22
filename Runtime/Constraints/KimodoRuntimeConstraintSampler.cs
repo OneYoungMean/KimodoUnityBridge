@@ -36,8 +36,10 @@ namespace KimodoBridge
             sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.ForType(constraintType);
             sample.effectors ??= new KimodoConstraintEffectors();
-            sample.effectors.hands ??= new CharacterPoseSides();
-            sample.effectors.feet ??= new CharacterPoseSides();
+            sample.effectors.leftHand ??= KimodoRigidTransform.Identity;
+            sample.effectors.rightHand ??= KimodoRigidTransform.Identity;
+            sample.effectors.leftFoot ??= KimodoRigidTransform.Identity;
+            sample.effectors.rightFoot ??= KimodoRigidTransform.Identity;
             if (KimodoMarkerSamplingUtility.TryResolveEndEffectorBone(
                     constraintType,
                     out HumanBodyBones bone))
@@ -51,10 +53,10 @@ namespace KimodoBridge
                 };
                 switch (bone)
                 {
-                    case HumanBodyBones.LeftHand: sample.effectors.hands.left = target; break;
-                    case HumanBodyBones.RightHand: sample.effectors.hands.right = target; break;
-                    case HumanBodyBones.LeftFoot: sample.effectors.feet.left = target; break;
-                    case HumanBodyBones.RightFoot: sample.effectors.feet.right = target; break;
+                    case HumanBodyBones.LeftHand: sample.effectors.leftHand = target; break;
+                    case HumanBodyBones.RightHand: sample.effectors.rightHand = target; break;
+                    case HumanBodyBones.LeftFoot: sample.effectors.leftFoot = target; break;
+                    case HumanBodyBones.RightFoot: sample.effectors.rightFoot = target; break;
                 }
             }
             return true;

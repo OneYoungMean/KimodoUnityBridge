@@ -32,8 +32,10 @@ namespace TimelineInject
 
             if (sample.effectors != null)
             {
-                pose.hands = sample.effectors.hands?.Clone() ?? new CharacterPoseSides();
-                pose.feet = sample.effectors.feet?.Clone() ?? new CharacterPoseSides();
+                pose.hands.left = sample.effectors.leftHand?.Clone() ?? KimodoRigidTransform.Identity;
+                pose.hands.right = sample.effectors.rightHand?.Clone() ?? KimodoRigidTransform.Identity;
+                pose.feet.left = sample.effectors.leftFoot?.Clone() ?? KimodoRigidTransform.Identity;
+                pose.feet.right = sample.effectors.rightFoot?.Clone() ?? KimodoRigidTransform.Identity;
             }
             return true;
         }
@@ -64,8 +66,10 @@ namespace TimelineInject
             sample.enableMask.leftFootTQ = true;
             sample.enableMask.rightFootTQ = true;
             sample.effectors ??= new KimodoConstraintEffectors();
-            sample.effectors.hands = pose.hands?.Clone() ?? new CharacterPoseSides();
-            sample.effectors.feet = pose.feet?.Clone() ?? new CharacterPoseSides();
+            sample.effectors.leftHand = pose.hands?.left?.Clone() ?? KimodoRigidTransform.Identity;
+            sample.effectors.rightHand = pose.hands?.right?.Clone() ?? KimodoRigidTransform.Identity;
+            sample.effectors.leftFoot = pose.feet?.left?.Clone() ?? KimodoRigidTransform.Identity;
+            sample.effectors.rightFoot = pose.feet?.right?.Clone() ?? KimodoRigidTransform.Identity;
             return true;
         }
 

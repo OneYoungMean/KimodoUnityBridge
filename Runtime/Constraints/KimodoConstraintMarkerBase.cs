@@ -61,8 +61,10 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         }
         sampleData.enableMask ??= new KimodoSampleChannelMask();
         sampleData.effectors ??= new KimodoConstraintEffectors();
-        sampleData.effectors.hands ??= new CharacterAnimationCli.Unity.CharacterPoseSides();
-        sampleData.effectors.feet ??= new CharacterAnimationCli.Unity.CharacterPoseSides();
+        sampleData.effectors.leftHand ??= KimodoRigidTransform.Identity;
+        sampleData.effectors.rightHand ??= KimodoRigidTransform.Identity;
+        sampleData.effectors.leftFoot ??= KimodoRigidTransform.Identity;
+        sampleData.effectors.rightFoot ??= KimodoRigidTransform.Identity;
         sampleData.root2DOverride ??= KimodoRigidTransform.Identity;
         sampleData.constraintType = "constraint";
         sampleData.constraintMode = ModeProtocolName(constraintMode);

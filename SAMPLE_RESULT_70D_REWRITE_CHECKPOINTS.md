@@ -408,3 +408,11 @@
 - 已完成：修复合并后的 `PoseCacheRenderContext` 大括号、`KimodoRigidTransform` 属性 `out` 参数、marker 自赋值和元数据尾随空格。
 - 已完成：Generate 投影删除未使用的 `sourceAvatar → source RetargetSkeleton` 旁路，保留 `MuscleSample → target RetargetSkeleton → profile joints → protocol` 链路。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 独立探针编译成功，日志：`C:\tmp\kimodo-compile-probe-after-generate-cleanup.log`，Runtime/Editor/Command.Editor 均成功。
+
+## CP49 — 展平 SampleResult Effector 结构
+
+- 已完成：`KimodoConstraintEffectors` 从 `hands/feet -> CharacterPoseSides` 展平为四个直接的 `leftHand/rightHand/leftFoot/rightFoot` `KimodoRigidTransform`。
+- 已完成：Runtime 采样、Composer、协议导出、Preview 捕获、Inspector 面板和 SampleResult pose 边界同步迁移；`CharacterPoseSides` 仅保留在 Command/JSON 的临时 `CharacterPose` 边界。
+- 保持：没有接入 IK 解算；四个 effector 仍然只是 world-space transport/display 数据。
+- 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\kimodo-compile-effector-flatten.log`；`git diff --check` 通过。
+- 尚未完成：`constraintType`/旧 `mask` 双轨清理，以及 Command 层 `CharacterPose` DTO 收敛。

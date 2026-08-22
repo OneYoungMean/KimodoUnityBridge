@@ -144,8 +144,8 @@ namespace KimodoBridge.Editor
 
         private static bool HasEffectors(KimodoConstraintEffectors targets)
         {
-            return targets?.hands?.left != null || targets?.hands?.right != null ||
-                targets?.feet?.left != null || targets?.feet?.right != null;
+            return targets?.leftHand != null || targets?.rightHand != null ||
+                targets?.leftFoot != null || targets?.rightFoot != null;
         }
 
         private static string MaskSignature(KimodoConstraintMask mask)

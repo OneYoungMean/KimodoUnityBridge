@@ -98,8 +98,10 @@ namespace KimodoBridge
         {
             if (result == null) return;
             result.effectors ??= new KimodoConstraintEffectors();
-            result.effectors.hands ??= new CharacterPoseSides();
-            result.effectors.feet ??= new CharacterPoseSides();
+            result.effectors.leftHand ??= KimodoRigidTransform.Identity;
+            result.effectors.rightHand ??= KimodoRigidTransform.Identity;
+            result.effectors.leftFoot ??= KimodoRigidTransform.Identity;
+            result.effectors.rightFoot ??= KimodoRigidTransform.Identity;
             result.enableMask ??= new KimodoSampleChannelMask();
 
             Vector3 position;
@@ -114,13 +116,13 @@ namespace KimodoBridge
             result.enableMask.root2DPosition = true;
             result.enableMask.root2DHeading = true;
 
-            CaptureEffector(cache, HumanBodyBones.LeftHand, result.effectors.hands.left,
+            CaptureEffector(cache, HumanBodyBones.LeftHand, result.effectors.leftHand,
                 result.enableMask, 0, rotationMode: 0);
-            CaptureEffector(cache, HumanBodyBones.RightHand, result.effectors.hands.right,
+            CaptureEffector(cache, HumanBodyBones.RightHand, result.effectors.rightHand,
                 result.enableMask, 1, rotationMode: 0);
-            CaptureEffector(cache, HumanBodyBones.LeftFoot, result.effectors.feet.left,
+            CaptureEffector(cache, HumanBodyBones.LeftFoot, result.effectors.leftFoot,
                 result.enableMask, 2, rotationMode: 1);
-            CaptureEffector(cache, HumanBodyBones.RightFoot, result.effectors.feet.right,
+            CaptureEffector(cache, HumanBodyBones.RightFoot, result.effectors.rightFoot,
                 result.enableMask, 3, rotationMode: 1);
             result.enableMask.NormalizeDependencies();
         }
