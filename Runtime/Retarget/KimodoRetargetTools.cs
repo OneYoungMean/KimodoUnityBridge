@@ -189,7 +189,10 @@ namespace KimodoBridge
                             KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                             out BoneSample[] targetBoneSamples,
                             out error,
-                            applyMotionXToDelta: true))
+                            // The source is the canonical muscle clip whose
+                            // RootTQ must remain absolute while being read
+                            // back into target bone samples.
+                            applyMotionXToDelta: false))
                     {
                         return false;
                     }

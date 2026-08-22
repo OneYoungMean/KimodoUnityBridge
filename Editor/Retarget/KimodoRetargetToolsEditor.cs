@@ -250,7 +250,10 @@ namespace KimodoBridge.Editor
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                         out BoneSample[] boneSamples,
                         out error,
-                        applyMotionXToDelta: true))
+                        // Read RootTQ as an absolute HumanPose channel from
+                        // the canonical muscle clip; do not consume it as
+                        // MotionX delta during final clip generation.
+                        applyMotionXToDelta: false))
                 {
                     return false;
                 }
