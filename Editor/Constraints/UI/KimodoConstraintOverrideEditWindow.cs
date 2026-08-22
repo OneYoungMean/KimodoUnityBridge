@@ -650,7 +650,10 @@ namespace KimodoBridge.Editor
 
         private void WriteBackPoseChanges(PoseCacheRenderContext context)
         {
-            if (invalidContext || marker == null) return;
+            // AutoSample is a read-only projection: Timeline -> SampleResult ->
+            // target skeleton -> rig. Only authored (non-auto) markers may
+            // write world-space rig edits back into SampleResult.
+            if (invalidContext || marker == null || marker.autoSample) return;
             EnsureSceneDragUndo();
             KimodoConstraintPoseCache.RestoreNonRootBoneTranslations(context, editEntryId);
             string sampleError = string.Empty;

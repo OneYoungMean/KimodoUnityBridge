@@ -90,10 +90,20 @@ namespace KimodoBridge
                      string.Equals(mode, "constraint", StringComparison.OrdinalIgnoreCase))
             {
                 result.Add(new KimodoFullBodyConstraintInternal(sample, modelType, exportContext));
+                KimodoConstraintMask channels = KimodoConstraintMask.FromSample(sample);
+                AddEffectors(result, sample, modelType, exportContext, channels);
             }
             else
             {
-                result.Add(new KimodoEndEffectorConstraintInternal(sample, modelType, exportContext, mode));
+                KimodoConstraintMask channels = KimodoConstraintMask.FromSample(sample);
+                AddEffectors(result, sample, modelType, exportContext, channels);
+                if (result.Count == 0 && mode == "effector")
+                {
+                    AddEffectors(result, sample, modelType, exportContext, new KimodoConstraintMask
+                    {
+                        leftHand = true
+                    });
+                }
             }
             return result.ToArray();
         }

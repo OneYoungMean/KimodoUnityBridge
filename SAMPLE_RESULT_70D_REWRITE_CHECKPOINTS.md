@@ -490,3 +490,11 @@
 - 结果：Preview/Rig 与目标 RetargetSkeleton 已统一；源 Timeline 角色只保留在采样链路。当前目标 Avatar 资源只提供骨架时，预览显示骨架与 gizmo，不复制源角色网格。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-target-rig-pass2.log`。
 - 已知：旧的 `KimodoConstraintPoseRigFactoryTests` 仍验证“克隆源网格”语义，需按破坏性升级后的目标骨架语义重写或屏蔽。
+
+## CP60 — AutoSample 只读边界与完整 SampleResult 内部展开
+
+- 已完成：编辑窗口的 Rig 回写入口增加明确的 `marker.autoSample` 只读边界；AutoSample 下不会再执行 Rig → SampleResult 的写回。
+- 已完成：非 AutoSample 仍只写回世界空间 `root2DOverride` 与四个 `effectors`，不从拖拽 Rig 反算并覆盖 70D MuscleSample。
+- 已完成：`ConstraintInternal.Build` 对完整 FullBody/Mix SampleResult 按 `enableMask` 展开 effectors，底层可一次得到 FullBody、Root2D、EndEffector 内部约束数组；上层不再单独发送 effector。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-autosample-boundary-pass3.log`。
+- 下一批：把现有公开 JSON 导出调用统一改为直接消费 `ConstraintInternal[]`，并继续收拢 InOut/Generate 里的 Avatar 与 RetargetSkeleton 生产依赖。
