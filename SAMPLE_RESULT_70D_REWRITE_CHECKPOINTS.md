@@ -595,3 +595,11 @@
 
 - Unity 2022.3.62f3c1 package probe 编译成功：`C:\tmp\kimodo-compile-preview-boundary-name-pass14.log`。
 - 当前生产路径中的 Avatar/RetargetSkeleton 引用已按边界分类；未再发现 UI 或外部约束请求将 Avatar 作为数据语义向上层传递。
+
+## CP76 — 统一 evaluated skeleton 到 MuscleSample（全量入口复核）
+
+- 已完成：`TryCaptureEvaluatedMuscleSample` 作为 evaluated `RetargetSkeleton` → `HumanPose` → 70D `MuscleSample` 的唯一生产采样入口；同一帧统一生成 49 muscle、rootTQ、leftFootTQ、rightFootTQ。
+- 已完成：`MuscleClip → PlayableGraph → HumanPose`、`BoneSample → target RetargetSkeleton → MuscleSample`、Runtime constraint capture、Command pose constraint、Timeline marker sampling 均经 `TryCaptureMuscleSample/TryCaptureSampleData` 收敛到该入口。
+- 已完成：Command profile retarget 不再经过 `CharacterPose` 回写 70D `sampleData`，直接保留目标骨架重新采样得到的 canonical `MuscleSample`，避免缓存骨骼 world foot 字段覆盖历史 footTQ 公式。
+- 保持：`CharacterPoseMuscleAdapter.FromMuscleSample(sample, cache)` 仅用于 Command/JSON 显示边界，缓存骨骼字段不会反向写入 `MuscleSample`；footEffector 仍未接入 footTQ 或 IK solver。
+- 检查：已提交 `2bc2aa5 checkpoint: preserve canonical retarget muscle sample`；下一步执行全仓生产入口扫描与 Unity package probe 编译。
