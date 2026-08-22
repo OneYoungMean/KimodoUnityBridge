@@ -342,6 +342,14 @@
 - 当前分支提交：`04c4ae5`；工作树保留用户此前 quick-server 启动脚本改动，未混入本分支 checkpoint。
 - 追加清理：Runtime ToJson 投影中未使用的 legacy `KimodoConstraintMask` 局部变量已删除。
 
+## CP43 — 删除 AutoSample 数据缓存
+
+- 分支：`samplecache-removal`，独立 worktree：`C:\\nvlab\\Character_Animation_CLI_Unity-samplecache-removal`。
+- 已删除：`AutoSampleCache`、签名快照、缓存命中/失败结果及对应的失效逻辑。
+- 修改：AutoSample 每次刷新都重新走 Timeline 采样入口；`forceRefresh` 仅保留为调用兼容参数，不再控制 AutoSample 数据缓存。
+- 保留：当前采样调用所需的临时 Avatar/骨架实例；它们不是跨刷新数据缓存。
+- 检查：`git diff --check` 通过；Timeline 采样缓存尚未移除。
+
 ## CP43 — MuscleSample 统一为 70D 原子数据
 
 - 已完成：`MuscleSample` 不再存储 `HumanPose` 或独立的 foot position/rotation 字段，内部统一为固定 70D `data`：49 body muscle + rootTQ7 + leftFootTQ7 + rightFootTQ7。

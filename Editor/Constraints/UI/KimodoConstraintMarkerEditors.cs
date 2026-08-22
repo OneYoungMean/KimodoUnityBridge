@@ -86,7 +86,7 @@ namespace KimodoBridge.Editor
 
         internal static void ClearSamplingCaches()
         {
-            KimodoConstraintMarkerSampling.ClearCaches();
+            // AutoSample is evaluated directly on every refresh; no sampled-data cache remains.
         }
 
 internal static void DrawEnabledField(SerializedObject so)
