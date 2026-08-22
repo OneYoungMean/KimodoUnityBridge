@@ -55,60 +55,6 @@ namespace KimodoBridge
             return Mathf.Clamp(effectiveLastFrameIndex, 1, lastFrameIndex);
         }
 
-        public static List<KimodoMarkerSampleResult> BuildConstraintOverlapPoses(
-            KimodoRawMotionData motion,
-            string modelName,
-            int effectiveLastFrameIndex,
-            KimodoSegmentOverlapHeadSettings settings,
-            bool allowPartialJoints)
-        {
-            var samples = new List<KimodoMarkerSampleResult>();
-            if (motion == null || motion.FrameCount <= 0)
-            {
-                return samples;
-            }
-
-            settings ??= new KimodoSegmentOverlapHeadSettings();
-            float frameRate = ResolveFrameRate(motion);
-            int overlapStartFrameIndex = ResolveOverlapStartFrameIndex(motion, effectiveLastFrameIndex, settings, frameRate);
-            int windowFrameCount = Mathf.Max(1, effectiveLastFrameIndex - overlapStartFrameIndex + 1);
-            int sampleCount = Mathf.Clamp(settings.SampleCount, 1, windowFrameCount);
-
-            for (int sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++)
-            {
-                int sourceFrameIndex = sampleCount == 1
-                    ? effectiveLastFrameIndex
-                    : Mathf.RoundToInt(Mathf.Lerp(overlapStartFrameIndex, effectiveLastFrameIndex, sampleIndex / (float)(sampleCount - 1)));
-                sourceFrameIndex = Mathf.Clamp(sourceFrameIndex, overlapStartFrameIndex, effectiveLastFrameIndex);
-
-                if (!KimodoRawMotionUtility.TryExtractMarkerSample(
-                        motion,
-                        modelName,
-                        sourceFrameIndex,
-                        out KimodoMarkerSampleResult sample,
-                        out string _,
-                        "fullbody",
-                        (effectiveLastFrameIndex - sourceFrameIndex) / Mathf.Max(1e-6f, frameRate),
-                        allowPartialJoints))
-                {
-                    continue;
-                }
-
-                if (samples.Count > 0)
-                {
-                    KimodoMarkerSampleResult previous = samples[samples.Count - 1];
-                    if (Mathf.Approximately((float)previous.sampleTime, (float)sample.sampleTime))
-                    {
-                        continue;
-                    }
-                }
-
-                samples.Add(sample);
-            }
-
-            return samples;
-        }
-
         internal static List<KimodoConstraintInternalData> BuildConstraintOverlapInternalData(
             KimodoRawMotionData motion,
             string modelName,

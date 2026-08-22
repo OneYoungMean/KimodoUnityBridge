@@ -468,3 +468,8 @@
 - 已完成：`KimodoRawMotionMetadata` 删除未被消费的 `TailPose`；`TryAnalyze/TryAnalyzeGenerationResult` 只解析 RawMotion 的帧与根位置，不再隐式创建尾帧 SampleResult。
 - 已完成：Runtime segment metadata 与 overlap 的内部约束路径完全分离；RawMotion 的 constraint_internal 构建只在需要协议帧时发生。
 - 检查：`git diff --check` 通过；Unity 宿主编译仍待空闲验证。
+
+## CP57 — 删除 Runtime overlap 的旧 SampleResult 生成器
+
+- 已完成：移除不再有生产调用的 `BuildConstraintOverlapPoses`；Runtime overlap 只保留 `KimodoConstraintInternalData` 生成器，避免两套 RawMotion overlap 语义重新分叉。
+- 检查：`git diff --check` 通过；Unity 宿主编译仍待空闲验证。
