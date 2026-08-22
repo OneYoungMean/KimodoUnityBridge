@@ -500,8 +500,8 @@ namespace KimodoBridge.Editor
             int runtimeFrameCount,
             float frameRate)
         {
-            if (!TryGetRoot2D(firstFrame, out CharacterPoseTransform firstRoot) ||
-                !TryGetRoot2D(tailFrame, out CharacterPoseTransform tailRoot))
+            if (!TryGetRoot2D(firstFrame, out KimodoRigidTransform firstRoot) ||
+                !TryGetRoot2D(tailFrame, out KimodoRigidTransform tailRoot))
             {
                 throw new InvalidOperationException("Loop constraint requires explicit world root2D overrides.");
             }
@@ -554,7 +554,7 @@ namespace KimodoBridge.Editor
             double sampleTimeSeconds)
         {
             if (!TryGetRoot2D(firstFrame, out _) ||
-                !TryGetRoot2D(tailFrame, out CharacterPoseTransform tailRoot))
+                !TryGetRoot2D(tailFrame, out KimodoRigidTransform tailRoot))
             {
                 throw new InvalidOperationException("Loop terminal constraint requires explicit world root2D overrides.");
             }
@@ -580,14 +580,14 @@ namespace KimodoBridge.Editor
 
         private static void MergeRoot2DIntoFullBody(
             KimodoMarkerSampleResult fullBody,
-            CharacterAnimationCli.Unity.CharacterPoseTransform root2D)
+            CharacterAnimationCli.Unity.KimodoRigidTransform root2D)
         {
             if (fullBody == null || root2D == null)
             {
                 throw new InvalidOperationException("Loop FullBody/Root2D merge requires a world root2D override.");
             }
 
-            fullBody.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+            fullBody.root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
             {
                 t = root2D.t,
                 q = root2D.q
@@ -611,7 +611,7 @@ namespace KimodoBridge.Editor
             sample.constraintType = "root2d";
             sample.mask = KimodoConstraintMask.ForType("root2d");
             sample.sampleTime = sampleTimeSeconds;
-            sample.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+            sample.root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
             {
                 t = position,
                 q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(heading)
@@ -627,10 +627,10 @@ namespace KimodoBridge.Editor
 
         private static bool TryGetRoot2D(
             KimodoMarkerSampleResult sample,
-            out CharacterAnimationCli.Unity.CharacterPoseTransform root)
+            out CharacterAnimationCli.Unity.KimodoRigidTransform root)
         {
             root = sample?.root2DOverride;
-            return sample != null && sample.enableMask?.root2DPosition == true && root != null;
+            return sample != null && sample.enableMask?.root2DPosition == true;
         }
 
         internal static string AppendConstraintsJson(string baseJson, string additionalJson)

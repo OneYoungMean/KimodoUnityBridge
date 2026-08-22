@@ -812,7 +812,7 @@ namespace CharacterAnimationCli.Unity.Command
                 constraintMode = "root2d",
                 mask = KimodoConstraintMask.ForType("root2d"),
                 sampleTime = sampleTime,
-                root2DOverride = new CharacterPoseTransform
+                root2DOverride = new KimodoRigidTransform
                 {
                     t = pose.root.t,
                     q = pose.root.q

@@ -346,7 +346,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 sampleTime = 1.0,
                 characterPose = authored,
                 hasRoot2DOverride = true,
-                root2DOverride = new CharacterPoseTransform
+                root2DOverride = new KimodoRigidTransform
                 {
                     t = new Vector3(7f, 0f, 8f),
                     q = Quaternion.Euler(0f, 90f, 0f)
@@ -407,7 +407,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 constraintType = "constraint",
                 characterPose = pose,
                 hasRoot2DOverride = true,
-                root2DOverride = new CharacterPoseTransform
+                root2DOverride = new KimodoRigidTransform
                 {
                     t = new Vector3(8f, 99f, 9f),
                     q = Quaternion.Euler(0f, 140f, 0f)
@@ -440,7 +440,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 constraintType = "constraint",
                 characterPose = pose,
                 hasRoot2DOverride = true,
-                root2DOverride = new CharacterPoseTransform
+                root2DOverride = new KimodoRigidTransform
                 {
                     t = new Vector3(8f, 99f, 9f),
                     q = Quaternion.Euler(0f, 140f, 0f)
@@ -609,7 +609,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 {
                     characterPose = authored,
                     hasRoot2DOverride = true,
-                    root2DOverride = new CharacterPoseTransform
+                    root2DOverride = new KimodoRigidTransform
                     {
                         t = new Vector3(7f, 0f, 8f),
                         q = Quaternion.Euler(0f, 30f, 0f)
@@ -660,7 +660,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             CollectionAssert.DoesNotContain(bones, HumanBodyBones.Hips);
         }
 
-        private static void AssertTransform(CharacterPoseTransform actual, Vector3 expectedT, Quaternion expectedQ)
+        private static void AssertTransform(KimodoRigidTransform actual, Vector3 expectedT, Quaternion expectedQ)
         {
             Assert.That(Vector3.Distance(actual.t, expectedT), Is.LessThan(1e-6f));
             Assert.That(Quaternion.Angle(actual.q, expectedQ), Is.LessThan(1e-4f));

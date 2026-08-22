@@ -48,7 +48,6 @@ namespace CharacterAnimationCli.Unity.Command
             JObject root = arguments["root"] as JObject ?? throw new InvalidOperationException("root must be an object.");
             KimodoMarkerSampleResult sample = marker.SampleData;
             CharacterPose pose = RequireCanonicalPose(sample).Clone();
-            sample.root2DOverride ??= new CharacterPoseTransform();
             if (root["position"] is JArray position)
             {
                 sample.root2DOverride.t = ReadVector3(position, "root.position");
@@ -132,8 +131,8 @@ namespace CharacterAnimationCli.Unity.Command
             int count = 0;
             foreach (string endEffector in endEffectors)
             {
-                CharacterPoseTransform originTransform = GetEndEffector(origin, endEffector);
-                CharacterPoseTransform targetTransform = GetEndEffector(target, endEffector);
+                KimodoRigidTransform originTransform = GetEndEffector(origin, endEffector);
+                KimodoRigidTransform targetTransform = GetEndEffector(target, endEffector);
                 if (components.Contains("position"))
                 {
                     positionDelta += (origin.root.t + originTransform.t) - (target.root.t + targetTransform.t);
@@ -504,7 +503,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
         };
 
-        private static JObject TransformJson(CharacterPoseTransform transform) => new JObject
+        private static JObject TransformJson(KimodoRigidTransform transform) => new JObject
         {
             ["position"] = new JArray(transform.t.x, transform.t.y, transform.t.z),
             ["rotation"] = new JArray(transform.q.x, transform.q.y, transform.q.z, transform.q.w)
@@ -546,7 +545,7 @@ namespace CharacterAnimationCli.Unity.Command
             return values.ToArray();
         }
 
-        private static CharacterPoseTransform GetEndEffector(CharacterPose pose, string endEffector)
+        private static KimodoRigidTransform GetEndEffector(CharacterPose pose, string endEffector)
         {
             return endEffector switch
             {

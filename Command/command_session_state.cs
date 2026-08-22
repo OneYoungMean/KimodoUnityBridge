@@ -824,8 +824,8 @@ namespace CharacterAnimationCli.Unity.Command
                 float smallest = float.MaxValue;
                 foreach (string endEffector in new[] { "left_hand", "right_hand", "left_foot", "right_foot" })
                 {
-                    CharacterPoseTransform originTransform = GetEndEffector(originPose, endEffector);
-                    CharacterPoseTransform targetTransform = GetEndEffector(targetPose, endEffector);
+                    KimodoRigidTransform originTransform = GetEndEffector(originPose, endEffector);
+                    KimodoRigidTransform targetTransform = GetEndEffector(targetPose, endEffector);
                     Vector3 delta = (targetPose.root.t + targetTransform.t) - (originPose.root.t + originTransform.t);
                     float distance = delta.magnitude;
                     if (distance < smallest)

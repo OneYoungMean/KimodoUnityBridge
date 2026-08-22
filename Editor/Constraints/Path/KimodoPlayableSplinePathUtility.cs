@@ -159,7 +159,7 @@ namespace KimodoBridge.Editor
                 {
                     constraintType = Root2DConstraintType,
                     sampleTime = timelineClip.start + (durationSeconds * t),
-                    root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                    root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
                     {
                         t = new Vector3(worldPosition.x, 0f, worldPosition.z) / sourceHumanScale,
                         q = Quaternion.LookRotation(worldForward, Vector3.up)

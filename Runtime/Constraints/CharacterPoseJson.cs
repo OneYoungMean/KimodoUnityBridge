@@ -127,7 +127,7 @@ namespace CharacterAnimationCli.Unity
             return result;
         }
 
-        private static JObject TransformToJson(CharacterPoseTransform value)
+        private static JObject TransformToJson(KimodoRigidTransform value)
         {
             return new JObject
             {
@@ -136,8 +136,8 @@ namespace CharacterAnimationCli.Unity
             };
         }
 
-        private static CharacterPoseTransform PatchTransform(
-            CharacterPoseTransform current,
+        private static KimodoRigidTransform PatchTransform(
+            KimodoRigidTransform current,
             JObject patch,
             string name)
         {
@@ -151,7 +151,7 @@ namespace CharacterAnimationCli.Unity
                 throw new InvalidOperationException($"{name} patch must contain t or q.");
             }
 
-            var result = current != null ? current.Clone() : new CharacterPoseTransform();
+            var result = current;
             if (patch["t"] != null)
             {
                 result.t = ReadVector3(patch["t"], $"{name}.t");

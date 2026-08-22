@@ -133,7 +133,7 @@ namespace KimodoBridge.Editor
 
             sample = new KimodoMarkerSampleResult
             {
-                root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
                 { t = kimodoPosition / Mathf.Max(1e-6f, request.KimodoHumanScale), q = worldPlanarRotation },
                 constraintType = "constraint",
                 constraintMode = "root2d",

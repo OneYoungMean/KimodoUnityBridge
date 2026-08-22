@@ -95,7 +95,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 characterPose = new CharacterPose
                 {
-                    root = new CharacterPoseTransform
+                    root = new KimodoRigidTransform
                     {
                         t = new Vector3(1f, 2f, 3f),
                         q = Quaternion.Euler(0f, 10f, 0f)
@@ -107,7 +107,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 characterPose = new CharacterPose
                 {
-                    root = new CharacterPoseTransform
+                    root = new KimodoRigidTransform
                     {
                         t = new Vector3(9f, 2f, 8f),
                         q = Quaternion.Euler(0f, 75f, 0f)
@@ -135,7 +135,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 characterPose = new CharacterPose
                 {
-                    root = new CharacterPoseTransform
+                    root = new KimodoRigidTransform
                     {
                         t = new Vector3(1f, 2f, 3f),
                         q = Quaternion.Euler(0f, 10f, 0f)
@@ -147,7 +147,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 characterPose = new CharacterPose
                 {
-                    root = new CharacterPoseTransform
+                    root = new KimodoRigidTransform
                     {
                         t = new Vector3(5f, 4f, 11f),
                         q = Quaternion.Euler(0f, 50f, 0f)
@@ -217,7 +217,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 characterPose = new CharacterPose
                 {
-                    root = new CharacterPoseTransform
+                    root = new KimodoRigidTransform
                     {
                         t = new Vector3(0.25f, 0.9f, -0.5f),
                         q = Quaternion.Euler(0f, 10f, 0f)
@@ -229,7 +229,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 characterPose = new CharacterPose
                 {
-                    root = new CharacterPoseTransform
+                    root = new KimodoRigidTransform
                     {
                         t = new Vector3(0.5f, 0.9f, 1.7f),
                         q = Quaternion.Euler(0f, 20f, 0f)

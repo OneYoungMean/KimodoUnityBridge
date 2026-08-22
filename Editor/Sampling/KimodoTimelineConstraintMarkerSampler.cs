@@ -729,7 +729,7 @@ namespace KimodoBridge.Editor
             Quaternion planarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(targetRootRotation);
             sample.enableMask.root2DPosition = true;
             sample.enableMask.root2DHeading = true;
-            sample.root2DOverride = new CharacterPoseTransform { t = targetRootPosition, q = planarRotation };
+            sample.root2DOverride = new KimodoRigidTransform { t = targetRootPosition, q = planarRotation };
             sample.constraintType = "constraint";
             sample.sampleTime = exportedSampleTime;
         }

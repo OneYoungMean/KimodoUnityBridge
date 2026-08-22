@@ -39,12 +39,10 @@ namespace KimodoBridge
             return normalized;
         }
 
-        private static CharacterAnimationCli.Unity.CharacterPoseTransform CloneTransform(
-            CharacterAnimationCli.Unity.CharacterPoseTransform value)
+        private static CharacterAnimationCli.Unity.KimodoRigidTransform CloneTransform(
+            CharacterAnimationCli.Unity.KimodoRigidTransform value)
         {
-            return value != null
-                ? new CharacterAnimationCli.Unity.CharacterPoseTransform { t = value.t, q = value.q }
-                : new CharacterAnimationCli.Unity.CharacterPoseTransform();
+            return value != null ? value.Clone() : new CharacterAnimationCli.Unity.KimodoRigidTransform();
         }
 
         private static string ResolveFixedEndEffectorJointName(string constraintType)
@@ -129,8 +127,8 @@ namespace KimodoBridge
         }
 
         private static void CopyTransform(
-            CharacterAnimationCli.Unity.CharacterPoseTransform source,
-            CharacterAnimationCli.Unity.CharacterPoseTransform destination)
+            CharacterAnimationCli.Unity.KimodoRigidTransform source,
+            CharacterAnimationCli.Unity.KimodoRigidTransform destination)
         {
             destination.t = source.t;
             destination.q = source.q;

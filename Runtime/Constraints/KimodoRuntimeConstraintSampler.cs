@@ -42,7 +42,7 @@ namespace KimodoBridge
                     constraintType,
                     out HumanBodyBones bone))
             {
-                CharacterAnimationCli.Unity.CharacterPoseTransform target = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                CharacterAnimationCli.Unity.KimodoRigidTransform target = new CharacterAnimationCli.Unity.KimodoRigidTransform
                 {
                     // Effector positions are protocol world coordinates. They
                     // must not be reconstructed from rootTQ or root-local data.
@@ -89,9 +89,9 @@ namespace KimodoBridge
             // would apply the same translation a second time during generation.
             sample.constraintType = "constraint";
             sample.mask = KimodoConstraintMask.ForType(KimodoRuntimeConstraints.Root2DType);
-            if (sample.root2DOverride != null)
+            if (sample.enableMask?.root2DPosition == true)
             {
-                sample.root2DOverride = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                sample.root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
                 {
                     t = new Vector3(
                         targetWorldPosition.x,
@@ -104,7 +104,7 @@ namespace KimodoBridge
             sample.enableMask.root2DHeading = worldHeading.HasValue && sample.enableMask.root2DPosition;
             if (worldHeading.HasValue)
             {
-                if (sample.root2DOverride != null)
+                if (sample.enableMask?.root2DPosition == true)
                 {
                     sample.root2DOverride.q = Quaternion.LookRotation(
                         new Vector3(worldHeading.Value.x, 0f, worldHeading.Value.y),

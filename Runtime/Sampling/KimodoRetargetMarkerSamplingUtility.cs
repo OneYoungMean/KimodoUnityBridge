@@ -97,14 +97,9 @@ namespace KimodoBridge
             KimodoMarkerSampleResult result)
         {
             if (result == null) return;
-            result.root2DOverride ??= new CharacterPoseTransform();
             result.effectors ??= new KimodoConstraintEffectors();
             result.effectors.hands ??= new CharacterPoseSides();
             result.effectors.feet ??= new CharacterPoseSides();
-            result.effectors.hands.left ??= new CharacterPoseTransform();
-            result.effectors.hands.right ??= new CharacterPoseTransform();
-            result.effectors.feet.left ??= new CharacterPoseTransform();
-            result.effectors.feet.right ??= new CharacterPoseTransform();
             result.enableMask ??= new KimodoSampleChannelMask();
 
             Vector3 position;
@@ -133,12 +128,11 @@ namespace KimodoBridge
         private static void CaptureEffector(
             SkeletonCache cache,
             HumanBodyBones bone,
-            CharacterPoseTransform target,
+            KimodoRigidTransform target,
             KimodoSampleChannelMask enableMask,
             int index,
             int rotationMode)
         {
-            target ??= new CharacterPoseTransform();
             if (cache != null && cache.GetBonePose(bone, out Vector3 position, out Quaternion rotation))
             {
                 target.t = position;

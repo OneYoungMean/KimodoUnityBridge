@@ -3,30 +3,50 @@ using UnityEngine;
 
 namespace CharacterAnimationCli.Unity
 {
+    /// <summary>Minimal position/rotation value with no hierarchy or IK semantics.</summary>
     [Serializable]
-    public sealed class CharacterPoseTransform
+    public sealed class KimodoRigidTransform
     {
-        public Vector3 t;
-        public Quaternion q = Quaternion.identity;
+        public Vector3 position;
+        public Quaternion rotation;
 
-        internal CharacterPoseTransform Clone()
+        public Vector3 t
         {
-            return new CharacterPoseTransform { t = t, q = q };
+            get => position;
+            set => position = value;
         }
+
+        public Quaternion q
+        {
+            get => rotation;
+            set => rotation = value;
+        }
+
+        public static KimodoRigidTransform Identity => new KimodoRigidTransform
+        {
+            position = Vector3.zero,
+            rotation = Quaternion.identity
+        };
+
+        public KimodoRigidTransform Clone() => new KimodoRigidTransform
+        {
+            position = position,
+            rotation = rotation
+        };
     }
 
     [Serializable]
     public sealed class CharacterPoseSides
     {
-        public CharacterPoseTransform left = new CharacterPoseTransform();
-        public CharacterPoseTransform right = new CharacterPoseTransform();
+        public KimodoRigidTransform left = KimodoRigidTransform.Identity;
+        public KimodoRigidTransform right = KimodoRigidTransform.Identity;
 
         internal CharacterPoseSides Clone()
         {
             return new CharacterPoseSides
             {
-                left = left != null ? left.Clone() : new CharacterPoseTransform(),
-                right = right != null ? right.Clone() : new CharacterPoseTransform()
+                left = left.Clone(),
+                right = right.Clone()
             };
         }
     }
@@ -42,7 +62,7 @@ namespace CharacterAnimationCli.Unity
         public const int MuscleCount = 49;
 
         public float[] muscles = new float[MuscleCount];
-        public CharacterPoseTransform root = new CharacterPoseTransform();
+        public KimodoRigidTransform root = KimodoRigidTransform.Identity;
         public CharacterPoseSides hands = new CharacterPoseSides();
         public CharacterPoseSides feet = new CharacterPoseSides();
 
@@ -51,7 +71,7 @@ namespace CharacterAnimationCli.Unity
             var copy = new CharacterPose
             {
                 muscles = muscles != null ? (float[])muscles.Clone() : null,
-                root = root != null ? root.Clone() : null,
+                root = root.Clone(),
                 hands = hands != null ? hands.Clone() : null,
                 feet = feet != null ? feet.Clone() : null
             };
@@ -94,13 +114,8 @@ namespace CharacterAnimationCli.Unity
             return true;
         }
 
-        private static bool TryValidateTransform(CharacterPoseTransform value, string name, out string error)
+        private static bool TryValidateTransform(KimodoRigidTransform value, string name, out string error)
         {
-            if (value == null)
-            {
-                error = $"{name} is required.";
-                return false;
-            }
             if (!IsFinite(value.t.x) || !IsFinite(value.t.y) || !IsFinite(value.t.z))
             {
                 error = $"{name}.t must contain finite values.";

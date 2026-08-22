@@ -1106,7 +1106,7 @@ namespace KimodoBridge
                 : constraintType;
             CharacterAnimationCli.Unity.CharacterPose pose = new CharacterAnimationCli.Unity.CharacterPose
             {
-                root = new CharacterAnimationCli.Unity.CharacterPoseTransform { t = rootPosition, q = rootRotation }
+                root = new CharacterAnimationCli.Unity.KimodoRigidTransform { t = rootPosition, q = rootRotation }
             };
             sample = new KimodoMarkerSampleResult
             {

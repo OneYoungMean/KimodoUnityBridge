@@ -560,7 +560,7 @@ namespace KimodoBridge.Editor.Tests
                     sampleTime = 0.0,
                     characterPose = new CharacterAnimationCli.Unity.CharacterPose
                     {
-                        root = new CharacterAnimationCli.Unity.CharacterPoseTransform
+                        root = new CharacterAnimationCli.Unity.KimodoRigidTransform
                         {
                             t = new Vector3(2f, 3f, 4f),
                             q = Quaternion.identity

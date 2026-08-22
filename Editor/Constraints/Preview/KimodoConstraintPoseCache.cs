@@ -1746,7 +1746,7 @@ namespace KimodoBridge.Editor
                     if (rootTargetChanged && entry.FullBodyTargets.TryGetValue(
                             HumanBodyBones.Hips, out GameObject rootTarget) && rootTarget != null)
                     {
-                        sample.root2DOverride = new CharacterPoseTransform
+                        sample.root2DOverride = new KimodoRigidTransform
                         {
                             t = rootTarget.transform.position,
                             q = rootTarget.transform.rotation
@@ -2018,7 +2018,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            captured.root2DOverride = new CharacterPoseTransform
+            captured.root2DOverride = new KimodoRigidTransform
             {
                 t = authored.root2DOverride.t,
                 q = authored.root2DOverride.q
@@ -2210,7 +2210,7 @@ namespace KimodoBridge.Editor
             if (entry.EndEffectorMarker != null)
             {
                 HumanBodyBones bone = ResolveEndEffectorBone(markerType);
-                CharacterPoseTransform target = new CharacterPoseTransform
+                KimodoRigidTransform target = new KimodoRigidTransform
                 {
                     t = entry.EndEffectorMarker.transform.position,
                     q = entry.EndEffectorMarker.transform.rotation
@@ -2244,7 +2244,7 @@ namespace KimodoBridge.Editor
             {
                 return;
             }
-            var value = new CharacterPoseTransform
+            var value = new KimodoRigidTransform
             {
                 t = target.transform.position,
                 q = target.transform.rotation
@@ -2259,7 +2259,7 @@ namespace KimodoBridge.Editor
             out Vector3 position,
             out Quaternion rotation)
         {
-            CharacterPoseTransform value = null;
+            KimodoRigidTransform value = null;
             if (targets != null)
             {
                 value = bone switch

@@ -1915,8 +1915,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             position = Vector3.zero;
             rotation = Quaternion.identity;
-            if (sample == null || sample.enableMask?.root2DPosition != true ||
-                sample.root2DOverride == null)
+            if (sample == null || sample.enableMask?.root2DPosition != true)
             {
                 return false;
             }

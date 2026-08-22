@@ -130,7 +130,7 @@ namespace KimodoBridge.Editor
 
         private static string Root2DOverrideSignature(KimodoMarkerSampleResult sample)
         {
-            return sample?.enableMask?.root2DPosition == true && sample.root2DOverride != null
+            return sample?.enableMask?.root2DPosition == true
                 ? JsonUtility.ToJson(sample.root2DOverride)
                 : string.Empty;
         }
