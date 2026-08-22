@@ -578,3 +578,9 @@
 - 已移除 `KimodoTimelineSamplingSession.SourceHumanScale` 及其缓存字段；Timeline 采样只保留源骨架用于读取原始姿势、目标骨架用于重定向，不再向外暴露源尺度。
 - 保持原始采样 API 的兼容参数不变，但它们不参与 70D 数据或 world-space 约束结果计算。
 - 检查：`git diff --check` 通过；下一步执行 Unity package probe 编译。
+
+## CP73 — 移除编辑窗口的 Avatar 校验旁路
+
+- `KimodoConstraintOverrideEditWindow` 不再解析 Timeline 源 Avatar 或额外加载 profile Avatar；编辑窗口只校验 Animator/marker/目标预览上下文，Rig 始终由目标模型骨架提供。
+- 采样阶段仍在 Timeline sampler 内部解析源 Avatar；该边界不再向上层编辑状态泄漏。
+- 检查：待本批提交后执行 Unity package probe 编译。

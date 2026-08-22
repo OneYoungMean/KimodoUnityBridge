@@ -578,30 +578,10 @@ namespace KimodoBridge.Editor
                     KimodoEditorObjectIdUtility.ObjectFromId(editContext.AnimatorId) as Animator;
                 if (sourceAnimator == null || !KimodoConstraintMarkerEditorUtility.TryGetMarkerTrack(
                         marker,
-                        out UnityEngine.Timeline.TrackAsset sourceTrack))
+                        out _))
                 {
                     context = default;
                     error = "The edited character rig was deleted or no longer matches its Avatar. Reopen the edit window.";
-                    return false;
-                }
-
-                KimodoLocalAvatarUtility.AvatarResolveResult sourceAvatarResult =
-                    KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(sourceTrack, sourceAnimator);
-                if (!sourceAvatarResult.IsHumanoid || sourceAvatarResult.Avatar == null)
-                {
-                    context = default;
-                    error = "The edited rig Avatar was deleted or is no longer valid. Reopen the edit window.";
-                    return false;
-                }
-
-                if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                        editContext.ModelName,
-                        out Avatar profileAvatar,
-                        out _)
-                    || !KimodoRetargetCoreUtility.IsValidHumanoid(profileAvatar))
-                {
-                    context = default;
-                    error = "The edited rig profile Avatar was deleted or is no longer valid. Reopen the edit window.";
                     return false;
                 }
 
