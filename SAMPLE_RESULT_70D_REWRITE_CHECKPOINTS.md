@@ -626,5 +626,3 @@
 - 接收侧：Generate 的 MuscleClip 采样、单帧 MuscleSample 重建和 MuscleSample→BoneSample retarget 读取均关闭 MotionX-to-Delta；`RootT/RootQ` 作为绝对 HumanPose 通道进入 `GetHumanPose`，再生成目标骨骼曲线。
 - 写入侧保持：`WriteRetargetMuscleCurves` 继续写入完整 `RootT/RootQ`，未改变 footTQ 或 footEffector 语义。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志 `C:\tmp\kimodo-root-tq-absolute-pass.log`。
-
-补充：ClipConstraint 的脚部合并输出读取同样关闭 MotionX-to-Delta，避免该旁路重新吞掉绝对 RootTQ。

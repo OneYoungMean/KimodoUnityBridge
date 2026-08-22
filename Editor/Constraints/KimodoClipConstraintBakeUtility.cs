@@ -116,10 +116,7 @@ namespace KimodoBridge.Editor
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                         out samplingContext,
                         out error,
-                        // The merged clip carries absolute RootTQ. Keep the
-                        // root transform intact while reading its evaluated
-                        // skeleton output.
-                        applyMotionXToDelta: false,
+                        applyMotionXToDelta: true,
                         includeLeftFootEffector: useLeftFoot,
                         includeRightFootEffector: useRightFoot))
                 {
