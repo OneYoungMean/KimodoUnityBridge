@@ -208,9 +208,15 @@ namespace KimodoBridge.Editor
                 error = "Timeline director or Animator is missing.";
                 return false;
             }
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(context.SourceAvatar))
+
+            KimodoLocalAvatarUtility.AvatarResolveResult sourceAvatarResult =
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(context.Track, context.Animator);
+            Avatar sourceAvatar = sourceAvatarResult.Avatar;
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
             {
-                error = "Timeline source avatar is null/invalid/non-humanoid.";
+                error = string.IsNullOrWhiteSpace(sourceAvatarResult.Error)
+                    ? "Timeline source avatar is null/invalid/non-humanoid."
+                    : sourceAvatarResult.Error;
                 return false;
             }
             if (!KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
@@ -239,7 +245,7 @@ namespace KimodoBridge.Editor
             {
                 evaluationScope = KimodoTimelineEvaluationScope.Begin(context.Director);
                 if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
-                        context.SourceAvatar,
+                        sourceAvatar,
                         "KimodoTimelineSamplingSession_SourcePose",
                         out sourceSamplingCache,
                         out error))

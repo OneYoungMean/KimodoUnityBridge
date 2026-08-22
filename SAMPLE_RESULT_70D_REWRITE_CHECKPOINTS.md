@@ -550,3 +550,10 @@
 - 保留：`ResolveHumanScale` 仅恢复给最终 retarget clip 烘焙使用，不再参与 Root2D/Effector/FullBody 约束 JSON。
 - 结果：约束导出路径不再向上层暴露目标 Avatar；目标骨架/Avatar 只由 ConstraintInternal projector 和实际 retarget 管线持有。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-inout-cleanup-pass9.log`。
+
+## CP69 — 移除 Timeline InOut 上下文的 SourceAvatar
+
+- 已完成：`KimodoTimelineInOutConstraintContext` 不再保存 `SourceAvatar`；Timeline 采样器根据 `Track + Animator` 在内部临时解析源 Avatar。
+- 已完成：Timeline InOut boundary 路径不再把 Avatar 从 Adapter 传给 Request；非 Timeline 的独立 clip boundary 仍保留显式 `request.SourceAvatar` 作为采样输入。
+- 已完成：Marker AutoSample 采样上下文同步移除 SourceAvatar 字段，避免 UI/上下文持有 Avatar。
+- 检查：首次编译发现 MarkerSampling 初始化残留后已修正；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-timeline-avatar-boundary-pass10b.log`。

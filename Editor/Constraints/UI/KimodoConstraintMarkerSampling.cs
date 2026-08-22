@@ -53,15 +53,6 @@ namespace KimodoBridge.Editor
             }
 
             TimelineClip referenceClip = FindReferenceClip(track, marker.time, activeClip: null);
-            KimodoLocalAvatarUtility.AvatarResolveResult sourceAvatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, animator);
-            Avatar sourceAvatar = sourceAvatarResult.Avatar;
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
-            {
-                error = $"Resolve source avatar failed: {sourceAvatarResult.Error}";
-                return false;
-            }
-
             double sampleTime = marker.time;
             var timelineContext = new KimodoTimelineInOutConstraintContext
             {
@@ -69,7 +60,6 @@ namespace KimodoBridge.Editor
                 Track = track,
                 Director = director,
                 Animator = animator,
-                SourceAvatar = sourceAvatar,
                 ModelName = ResolveModelName(referenceClip)
             };
             string samplingType = "fullbody";

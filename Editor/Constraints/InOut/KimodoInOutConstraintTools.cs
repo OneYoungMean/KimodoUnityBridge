@@ -34,12 +34,6 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(request.SourceAvatar))
-            {
-                error = "Source avatar is null/invalid/non-humanoid.";
-                return false;
-            }
-
             if (request.TimelineContext != null)
             {
                 // ponytail: Timeline already resolves clip ranges, blends and offsets.
@@ -49,6 +43,12 @@ namespace KimodoBridge.Editor
                     out endSample,
                     out warning,
                     out error);
+            }
+
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(request.SourceAvatar))
+            {
+                error = "Source avatar is null/invalid/non-humanoid.";
+                return false;
             }
 
             if (request.EnableBegin &&

@@ -15,7 +15,6 @@ namespace KimodoBridge.Editor
         public TrackAsset Track;
         public PlayableDirector Director;
         public Animator Animator;
-        public Avatar SourceAvatar;
         public string ModelName = KimodoMotionModelProfiles.DefaultModelName;
         public TimelineClip PreviousTimelineClip;
         public TimelineClip NextTimelineClip;
@@ -175,15 +174,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, animator);
-            Avatar sourceAvatar = avatarResult.Avatar;
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
-            {
-                error = $"Resolve source avatar failed: {avatarResult.Error}";
-                return false;
-            }
-
             TryResolveNeighborTimelineClips(sourceClip, out TimelineClip previousTimelineClip, out TimelineClip nextTimelineClip);
 
             context = new KimodoTimelineInOutConstraintContext
@@ -192,7 +182,6 @@ namespace KimodoBridge.Editor
                 Track = track,
                 Director = director,
                 Animator = animator,
-                SourceAvatar = sourceAvatar,
                 ModelName = KimodoMotionModelProfiles.NormalizeName((sourceClip.asset as KimodoPlayableClip)?.bridgeModelName),
                 PreviousTimelineClip = previousTimelineClip,
                 NextTimelineClip = nextTimelineClip
@@ -411,7 +400,6 @@ namespace KimodoBridge.Editor
                 Mode = mode,
                 EnableBegin = enableBegin,
                 EnableEnd = enableEnd,
-                SourceAvatar = context.SourceAvatar,
                 ModelName = context.ModelName,
                 GenerationFrames = KimodoInOutConstraintTools.ClampFrameCount(generationFrames),
                 AutoBeginAnchor = autoBeginAnchor,
