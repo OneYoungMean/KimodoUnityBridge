@@ -106,7 +106,7 @@ namespace KimodoBridge.Editor
             }
             KimodoEditorGenerateOutputPlan outputPlanSnapshot = KimodoTimelineGenerationOutputPlanner.Capture(
                 clip,
-                externalConstraint?.RetargetAvatar,
+                explicitRetargetAvatar: null,
                 resolvedModelName,
                 outputBindingObject);
             List<KimodoClipConstraint> clipConstraints = KimodoTimelineClipConstraintBuilder.Build(

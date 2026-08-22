@@ -12,8 +12,6 @@ namespace KimodoBridge
             string constraintType,
             string jointName,
             Vector3 targetWorldPosition,
-            Vector3 currentWorldBodyPosition,
-            Quaternion modelToWorldRotation,
             float sampleTime,
             out KimodoMarkerSampleResult sample,
             out string error)
@@ -67,8 +65,6 @@ namespace KimodoBridge
             Vector2 targetWorldPosition,
             Vector2? worldHeading,
             Vector3 currentWorldPosition,
-            Quaternion modelToWorldRotation,
-            float targetHumanScale,
             float sampleTime,
             out KimodoMarkerSampleResult sample,
             out string error)
@@ -152,12 +148,15 @@ namespace KimodoBridge
                 return false;
             }
 
-            KimodoSampleResultPoseUtility.TryEncode(
-                sample,
-                CharacterPoseMuscleAdapter.FromMuscleSample(
-                    muscleSample,
-                    player.ConstraintRetargetSkeleton),
-                out _);
+            // The evaluated sampler already owns the canonical 70D payload,
+            // including body-relative footTQ. Do not round-trip through
+            // CharacterPose, which exposes scene/world foot values and would
+            // overwrite the transport channels.
+            sample.sampleData = muscleSample.Clone();
+            sample.enableMask.muscle49 = true;
+            sample.enableMask.rootTQ = true;
+            sample.enableMask.leftFootTQ = true;
+            sample.enableMask.rightFootTQ = true;
             return true;
         }
     }

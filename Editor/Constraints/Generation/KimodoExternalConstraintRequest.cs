@@ -10,7 +10,6 @@ namespace KimodoBridge.Editor
         public bool Enabled;
         public bool IncludeTimelineConstraints;
         public string AnalysisOptionsJson;
-        public Avatar RetargetAvatar;
         public List<KimodoMarkerSampleResult> ConstraintSamples = new List<KimodoMarkerSampleResult>();
     }
 }

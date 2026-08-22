@@ -557,3 +557,11 @@
 - 已完成：Timeline InOut boundary 路径不再把 Avatar 从 Adapter 传给 Request；非 Timeline 的独立 clip boundary 仍保留显式 `request.SourceAvatar` 作为采样输入。
 - 已完成：Marker AutoSample 采样上下文同步移除 SourceAvatar 字段，避免 UI/上下文持有 Avatar。
 - 检查：首次编译发现 MarkerSampling 初始化残留后已修正；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-timeline-avatar-boundary-pass10b.log`。
+
+## CP70 — 清理上层 Avatar 旁路与 Root2D 尺度旧逻辑
+
+- 已移除 `KimodoExternalConstraintRequest.RetargetAvatar`；外部约束请求不再携带 Avatar，Generate 的目标 Avatar 只由正式 retarget output plan 决定。
+- 已移除 Runtime 约束导出对 `SourceHumanScale` 的依赖；Root2D/Effector 继续直接使用 world-space 值，不再带入源模型尺度。
+- 已移除 Runtime Root2D 采样器中未参与结果的模型旋转、目标尺度参数，以及旧的 `ToModelTarget`（该方法仍按旧模型局部/尺度语义计算，生产链路已无调用）。
+- 已保留真正的 Avatar 边界：Timeline/独立 Clip 原始采样、通用 Generate retarget plan，以及 ConstraintInternal 内部的目标骨架投影。
+- 检查：`git diff --check` 通过；Unity 编译待本批提交后执行。

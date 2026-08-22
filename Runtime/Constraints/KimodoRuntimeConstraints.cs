@@ -206,25 +206,6 @@ namespace KimodoBridge
             return Mathf.Clamp(duration, minimumDurationSeconds, maximumDurationSeconds);
         }
 
-        internal static Vector2 ToModelTarget(
-            Vector3 currentModelRootPosition,
-            Vector3 constraintModelOrigin,
-            Vector3 currentWorldPosition,
-            Quaternion modelToWorldRotation,
-            Vector3 targetWorldPosition,
-            float sourceHumanScale = 1f,
-            float targetHumanScale = 1f)
-        {
-            Vector2 localDelta = ToModelOffset(
-                currentWorldPosition,
-                modelToWorldRotation,
-                targetWorldPosition);
-            float scale = Mathf.Max(1e-6f, sourceHumanScale) / Mathf.Max(1e-6f, targetHumanScale);
-            return new Vector2(
-                currentModelRootPosition.x + localDelta.x * scale - constraintModelOrigin.x,
-                currentModelRootPosition.z + localDelta.y * scale - constraintModelOrigin.z);
-        }
-
         internal static Vector2 ToModelOffset(
             Vector3 currentWorldPosition,
             Quaternion modelToWorldRotation,

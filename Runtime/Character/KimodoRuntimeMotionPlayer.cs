@@ -31,7 +31,6 @@ namespace KimodoBridge
                 0f,
                 currentSegment.LastRootPosition.z - currentSegment.FirstRootPosition.z)
             : lastCompletedWorldOffset;
-        public float SourceHumanScale => sourceCache != null ? Mathf.Max(1e-6f, sourceCache.humanScale) : 1f;
         public Transform ConstraintSkeletonRoot => sourceCache != null ? sourceCache.skeletonRoot : null;
         internal RetargetSkeleton ConstraintRetargetSkeleton => sourceCache;
         public int LastCompletedSegmentIndex { get; private set; } = -1;
