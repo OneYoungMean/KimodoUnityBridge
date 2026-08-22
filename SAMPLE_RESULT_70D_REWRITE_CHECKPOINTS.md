@@ -359,6 +359,13 @@
 - 保留：一次调用内部为完成 Retarget 所需的临时 AnimationClip；它不跨调用保存，也不作为 cache 复用。
 - 检查：`git diff --check` 通过；FullDemo csproj 仍引用原 worktree，尚未对新 worktree 做有效 Unity 编译。
 
+## CP45 — 删除 Preview 采样缓存状态
+
+- 已删除：Preview entry 的 `BaseSample`/render signature/签名命中状态；每次 `RenderBatch` 都直接使用当前输入 SampleData 重建预览。
+- 已删除：`EditedEffectors`、`RememberEditedEffectors` 及其跨刷新保留逻辑；拖拽状态只由当前 Rig Transform 的 `hasChanged` 表示并回写 SampleResult。
+- 保留：Preview session、entry、TargetCache 和 gizmo 对象仅用于当前窗口/场景对象生命周期，不保存采样结果缓存。
+- 检查：`git diff --check` 通过；Unity CLI 编译待执行。
+
 ## CP43 — MuscleSample 统一为 70D 原子数据
 
 - 已完成：`MuscleSample` 不再存储 `HumanPose` 或独立的 foot position/rotation 字段，内部统一为固定 70D `data`：49 body muscle + rootTQ7 + leftFootTQ7 + rightFootTQ7。
