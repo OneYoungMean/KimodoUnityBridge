@@ -350,6 +350,15 @@
 - 保留：当前采样调用所需的临时 Avatar/骨架实例；它们不是跨刷新数据缓存。
 - 检查：`git diff --check` 通过；Timeline 采样缓存尚未移除。
 
+## CP44 — 删除 Timeline 采样缓存
+
+- 已删除：`KimodoTimelineConstraintClipCache` 的 Entries、cache key/range、失效和 stale 清理逻辑；不再按时间桶复用临时 BoneClip。
+- 已删除：`KimodoTimelineConstraintCacheEntry` 的持久 TargetCache、Clip 和 target sampling session。
+- 修改：单帧 AutoSample 直接创建 `KimodoTimelineSamplingSession`，按当前采样时间捕获 `BoneSample`，生成 SampleResult 后立即释放临时会话。
+- 修改：批量采样会话不再保存 `sampledMusclePoses`，每次请求的时间点都直接评估 Timeline 并采样。
+- 保留：一次调用内部为完成 Retarget 所需的临时 AnimationClip；它不跨调用保存，也不作为 cache 复用。
+- 检查：`git diff --check` 通过；FullDemo csproj 仍引用原 worktree，尚未对新 worktree 做有效 Unity 编译。
+
 ## CP43 — MuscleSample 统一为 70D 原子数据
 
 - 已完成：`MuscleSample` 不再存储 `HumanPose` 或独立的 foot position/rotation 字段，内部统一为固定 70D `data`：49 body muscle + rootTQ7 + leftFootTQ7 + rightFootTQ7。

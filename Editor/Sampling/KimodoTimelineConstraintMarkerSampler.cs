@@ -43,257 +43,8 @@ namespace KimodoBridge.Editor
         }
     }
 
-    internal readonly struct KimodoTimelineConstraintCacheRange
+    internal static class KimodoTimelineConstraintSampler
     {
-        internal readonly int StartFrame;
-        internal readonly int EndFrame;
-        internal readonly int BakedStartFrame;
-        internal readonly int BakedEndFrame;
-        internal readonly float FrameRate;
-
-        internal KimodoTimelineConstraintCacheRange(
-            int startFrame,
-            int endFrame,
-            int bakedStartFrame,
-            int bakedEndFrame,
-            float frameRate)
-        {
-            StartFrame = startFrame;
-            EndFrame = endFrame;
-            BakedStartFrame = bakedStartFrame;
-            BakedEndFrame = bakedEndFrame;
-            FrameRate = frameRate;
-        }
-
-        internal int BakedFrameCount => Mathf.Max(2, BakedEndFrame - BakedStartFrame + 1);
-
-        internal float ResolveLocalSampleTime(double timelineTime)
-        {
-            float localTime = (float)(Math.Max(0.0, timelineTime) - BakedStartFrame / FrameRate);
-            return Mathf.Clamp(localTime, 0f, (BakedFrameCount - 1) / FrameRate);
-        }
-    }
-
-    internal readonly struct KimodoTimelineConstraintCacheKey : IEquatable<KimodoTimelineConstraintCacheKey>
-    {
-        internal readonly int TrackId;
-        internal readonly int AnimatorId;
-        internal readonly int AvatarId;
-        internal readonly int AvatarDirtyCount;
-        internal readonly int StartFrame;
-        internal readonly int EndFrame;
-        internal readonly float FrameRate;
-        internal readonly string ModelName;
-        internal readonly int SourceSignature;
-        internal readonly Vector3 TrackOffsetPosition;
-        internal readonly Quaternion TrackOffsetRotation;
-
-        internal KimodoTimelineConstraintCacheKey(
-            int trackId,
-            int animatorId,
-            int avatarId,
-            KimodoTimelineConstraintCacheRange range,
-            string modelName,
-            int sourceSignature = 0,
-            Vector3 trackOffsetPosition = default,
-            Quaternion trackOffsetRotation = default,
-            int avatarDirtyCount = 0)
-        {
-            TrackId = trackId;
-            AnimatorId = animatorId;
-            AvatarId = avatarId;
-            AvatarDirtyCount = avatarDirtyCount;
-            StartFrame = range.StartFrame;
-            EndFrame = range.EndFrame;
-            FrameRate = range.FrameRate;
-            ModelName = modelName ?? string.Empty;
-            SourceSignature = sourceSignature;
-            TrackOffsetPosition = trackOffsetPosition;
-            TrackOffsetRotation = trackOffsetRotation == default
-                ? Quaternion.identity
-                : trackOffsetRotation.normalized;
-        }
-
-        public bool Equals(KimodoTimelineConstraintCacheKey other)
-        {
-            return TrackId == other.TrackId &&
-                AnimatorId == other.AnimatorId &&
-                AvatarId == other.AvatarId &&
-                AvatarDirtyCount == other.AvatarDirtyCount &&
-                StartFrame == other.StartFrame &&
-                EndFrame == other.EndFrame &&
-                FrameRate.Equals(other.FrameRate) &&
-                SourceSignature == other.SourceSignature &&
-                TrackOffsetPosition.Equals(other.TrackOffsetPosition) &&
-                TrackOffsetRotation.Equals(other.TrackOffsetRotation) &&
-                string.Equals(ModelName, other.ModelName, StringComparison.Ordinal);
-        }
-
-        public override bool Equals(object obj)
-        {
-            return obj is KimodoTimelineConstraintCacheKey other && Equals(other);
-        }
-
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                int hash = TrackId;
-                hash = hash * 397 ^ AnimatorId;
-                hash = hash * 397 ^ AvatarId;
-                hash = hash * 397 ^ AvatarDirtyCount;
-                hash = hash * 397 ^ StartFrame;
-                hash = hash * 397 ^ EndFrame;
-                hash = hash * 397 ^ FrameRate.GetHashCode();
-                hash = hash * 397 ^ SourceSignature;
-                hash = hash * 397 ^ TrackOffsetPosition.GetHashCode();
-                hash = hash * 397 ^ TrackOffsetRotation.GetHashCode();
-                hash = hash * 397 ^ StringComparer.Ordinal.GetHashCode(ModelName ?? string.Empty);
-                return hash;
-            }
-        }
-    }
-
-    internal sealed class KimodoTimelineConstraintCacheEntry : IDisposable
-    {
-        internal AnimationClip Clip;
-        internal SkeletonCache TargetCache;
-        private KimodoRetargetClipSamplingUtility.ClipSamplingSession targetSession;
-        private float lastSampleLocalTime;
-        private bool hasLastSampleLocalTime;
-
-        internal bool TrySampleTargetBone(float localTime, out BoneSample sample, out string error)
-        {
-            sample = null;
-            error = string.Empty;
-            if (Clip == null)
-            {
-                error = "Timeline constraint cache clip is null.";
-                return false;
-            }
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(TargetCache, out error))
-            {
-                return false;
-            }
-
-            if (hasLastSampleLocalTime && localTime + 1e-6f < lastSampleLocalTime)
-            {
-                ResetTargetSession();
-            }
-            if (!EnsureTargetSession(out error))
-            {
-                return false;
-            }
-
-            if (KimodoRetargetSamplingUtility.TrySampleBoneClipSession(
-                    targetSession,
-                    localTime,
-                    out sample,
-                    out error))
-            {
-                lastSampleLocalTime = localTime;
-                hasLastSampleLocalTime = true;
-                return true;
-            }
-
-            ResetTargetSession();
-            if (!EnsureTargetSession(out string retryError) ||
-                !KimodoRetargetSamplingUtility.TrySampleBoneClipSession(
-                    targetSession,
-                    localTime,
-                    out sample,
-                    out retryError))
-            {
-                error = string.IsNullOrWhiteSpace(retryError) ? error : retryError;
-                return false;
-            }
-
-            lastSampleLocalTime = localTime;
-            hasLastSampleLocalTime = true;
-            error = string.Empty;
-            return true;
-        }
-
-        private bool EnsureTargetSession(out string error)
-        {
-            error = string.Empty;
-            if (targetSession != null)
-            {
-                return true;
-            }
-
-            bool created = KimodoRetargetClipSamplingUtility.ClipSamplingSession.TryCreate(
-                Clip,
-                TargetCache,
-                "KimodoTimelineConstraintCache_TargetBoneSampler",
-                KimodoRetargetClipSamplingUtility.ClipSamplingMode.RawTransform,
-                out targetSession,
-                out error);
-            hasLastSampleLocalTime = false;
-            return created;
-        }
-
-        private void ResetTargetSession()
-        {
-            targetSession?.Dispose();
-            targetSession = null;
-            hasLastSampleLocalTime = false;
-        }
-
-        public void Dispose()
-        {
-            ResetTargetSession();
-            TargetCache?.Dispose();
-            TargetCache = null;
-            if (Clip != null)
-            {
-                UnityEngine.Object.DestroyImmediate(Clip);
-                Clip = null;
-            }
-        }
-    }
-
-    internal static class KimodoTimelineConstraintClipCache
-    {
-        private const int GuardFrames = 1;
-        private static readonly Dictionary<KimodoTimelineConstraintCacheKey, KimodoTimelineConstraintCacheEntry> Entries =
-            new Dictionary<KimodoTimelineConstraintCacheKey, KimodoTimelineConstraintCacheEntry>();
-
-        static KimodoTimelineConstraintClipCache()
-        {
-            AssemblyReloadEvents.beforeAssemblyReload += Clear;
-            EditorApplication.quitting += Clear;
-        }
-
-        internal static KimodoTimelineConstraintCacheRange ResolveRange(
-            double timelineTime,
-            double trackEndTime,
-            int cacheTimeFrames,
-            float frameRate = KimodoMotionModelProfiles.DefaultFrameRate)
-        {
-            float fps = Mathf.Max(1f, frameRate);
-            int bucketFrames = Mathf.Max(1, cacheTimeFrames);
-            int trackEndFrame = Mathf.Max(
-                1,
-                KimodoFrameTimeUtility.SecondsToFrameCount(
-                    Math.Max(trackEndTime, 1.0 / fps),
-                    fps));
-            int sampleFrame = Mathf.Clamp(
-                ResolveTimelineSampleFrame(timelineTime, fps),
-                0,
-                trackEndFrame - 1);
-            int startFrame = sampleFrame / bucketFrames * bucketFrames;
-            int endFrame = Mathf.Min(startFrame + bucketFrames, trackEndFrame);
-            int bakedStartFrame = Mathf.Max(0, startFrame - GuardFrames);
-            int bakedEndFrame = Mathf.Min(trackEndFrame, endFrame + GuardFrames - 1);
-            return new KimodoTimelineConstraintCacheRange(
-                startFrame,
-                endFrame,
-                bakedStartFrame,
-                bakedEndFrame,
-                fps);
-        }
-
         internal static float ResolveTimelineFrameRate(KimodoTimelineInOutConstraintContext context)
         {
             TimelineAsset timelineAsset = context?.Director?.playableAsset as TimelineAsset ??
@@ -303,116 +54,6 @@ namespace KimodoBridge.Editor
             return (float)Math.Max(1.0, frameRate);
         }
 
-        internal static int ComputeSamplingSourceSignature(TrackAsset track)
-        {
-            unchecked
-            {
-                int hash = 17;
-                // Track DirtyIndex also changes when constraint markers write sampled data.
-                // Hash only state that can change the evaluated animation pose.
-                hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(track);
-                if (track == null)
-                {
-                    return hash;
-                }
-
-                hash = hash * 31 + (track.muted ? 1 : 0);
-                hash = AppendObjectSignature(hash, track.curves);
-                if (track is AnimationTrack animationTrack)
-                {
-                    hash = hash * 31 + animationTrack.trackOffset.GetHashCode();
-                    hash = hash * 31 + animationTrack.position.GetHashCode();
-                    hash = hash * 31 + animationTrack.rotation.GetHashCode();
-                    hash = hash * 31 + animationTrack.matchTargetFields.GetHashCode();
-                    hash = hash * 31 + (animationTrack.applyAvatarMask ? 1 : 0);
-                    hash = AppendObjectSignature(hash, animationTrack.avatarMask);
-                    hash = AppendObjectSignature(hash, animationTrack.infiniteClip);
-                    hash = hash * 31 + animationTrack.infiniteClipOffsetPosition.GetHashCode();
-                    hash = hash * 31 + animationTrack.infiniteClipOffsetRotation.GetHashCode();
-                    hash = hash * 31 + animationTrack.infiniteClipPreExtrapolation.GetHashCode();
-                    hash = hash * 31 + animationTrack.infiniteClipPostExtrapolation.GetHashCode();
-                }
-
-                foreach (TimelineClip clip in track.GetClips())
-                {
-                    if (clip == null)
-                    {
-                        continue;
-                    }
-
-                    hash = hash * 31 + clip.start.GetHashCode();
-                    hash = hash * 31 + clip.duration.GetHashCode();
-                    hash = hash * 31 + clip.clipIn.GetHashCode();
-                    hash = hash * 31 + clip.timeScale.GetHashCode();
-                    hash = hash * 31 + clip.easeInDuration.GetHashCode();
-                    hash = hash * 31 + clip.easeOutDuration.GetHashCode();
-                    hash = hash * 31 + clip.blendInDuration.GetHashCode();
-                    hash = hash * 31 + clip.blendOutDuration.GetHashCode();
-                    hash = hash * 31 + clip.blendInCurveMode.GetHashCode();
-                    hash = hash * 31 + clip.blendOutCurveMode.GetHashCode();
-                    hash = AppendCurveSignature(hash, clip.mixInCurve);
-                    hash = AppendCurveSignature(hash, clip.mixOutCurve);
-                    hash = hash * 31 + clip.preExtrapolationMode.GetHashCode();
-                    hash = hash * 31 + clip.postExtrapolationMode.GetHashCode();
-                    hash = AppendObjectSignature(hash, clip.curves);
-                    if (clip.asset is AnimationPlayableAsset animationAsset)
-                    {
-                        hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(animationAsset);
-                        hash = AppendObjectSignature(hash, animationAsset.clip);
-                        hash = hash * 31 + animationAsset.position.GetHashCode();
-                        hash = hash * 31 + animationAsset.rotation.GetHashCode();
-                        hash = hash * 31 + (animationAsset.removeStartOffset ? 1 : 0);
-                        hash = hash * 31 + (animationAsset.applyFootIK ? 1 : 0);
-                        hash = hash * 31 + (animationAsset.useTrackMatchFields ? 1 : 0);
-                        hash = hash * 31 + animationAsset.matchTargetFields.GetHashCode();
-                        hash = hash * 31 + animationAsset.loop.GetHashCode();
-                    }
-                    else
-                    {
-                        hash = AppendObjectSignature(hash, clip.asset);
-                    }
-                }
-
-                return hash;
-            }
-        }
-
-        private static int AppendObjectSignature(int hash, UnityEngine.Object value)
-        {
-            unchecked
-            {
-                hash = hash * 31 + KimodoUnityObjectIdUtility.IdHash(value);
-                return hash * 31 + (value != null ? EditorUtility.GetDirtyCount(value) : 0);
-            }
-        }
-
-        private static int AppendCurveSignature(int hash, AnimationCurve curve)
-        {
-            unchecked
-            {
-                if (curve == null)
-                {
-                    return hash * 31;
-                }
-
-                hash = hash * 31 + curve.preWrapMode.GetHashCode();
-                hash = hash * 31 + curve.postWrapMode.GetHashCode();
-                int keyCount = curve.length;
-                hash = hash * 31 + keyCount;
-                for (int i = 0; i < keyCount; i++)
-                {
-                    Keyframe key = curve[i];
-                    hash = hash * 31 + key.time.GetHashCode();
-                    hash = hash * 31 + key.value.GetHashCode();
-                    hash = hash * 31 + key.inTangent.GetHashCode();
-                    hash = hash * 31 + key.outTangent.GetHashCode();
-                    hash = hash * 31 + key.inWeight.GetHashCode();
-                    hash = hash * 31 + key.outWeight.GetHashCode();
-                    hash = hash * 31 + key.weightedMode.GetHashCode();
-                }
-                return hash;
-            }
-        }
 
         internal static int ResolveTimelineSampleFrame(double timelineTime, float frameRate)
         {
@@ -463,254 +104,38 @@ namespace KimodoBridge.Editor
             float timelineFrameRate = ResolveTimelineFrameRate(context);
             double exactTimelineTime = Math.Max(0.0, timelineTime);
             double timelineSampleTime = ResolveTimelineSampleTime(exactTimelineTime, timelineFrameRate);
-            if (!TryGetOrCreatePoseClip(
+            if (!KimodoTimelineSamplingSession.TryCreate(
                     context,
-                    timelineSampleTime,
-                    timelineFrameRate,
                     modelName,
-                    forceRefresh,
-                    out KimodoTimelineConstraintCacheEntry entry,
-                    out KimodoTimelineConstraintCacheRange range,
+                    out KimodoTimelineSamplingSession sampler,
                     out error))
             {
                 return false;
             }
-
-            float localSampleTime = range.ResolveLocalSampleTime(exactTimelineTime);
-            if (!entry.TrySampleTargetBone(localSampleTime, out BoneSample targetSample, out error))
+            try
             {
-                return false;
-            }
+                if (!sampler.TryCaptureTargetBoneSamples(
+                        new[] { timelineSampleTime },
+                        timelineFrameRate,
+                        out BoneSample[] targetSamples,
+                        out error) ||
+                    targetSamples == null || targetSamples.Length == 0)
+                {
+                    return false;
+                }
 
-            if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
-                    targetSample,
-                    entry.TargetCache,
+                return KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                    targetSamples[0],
+                    sampler.TargetCache,
                     modelName,
                     markerType,
                     exportedSampleTime,
                     out sample,
-                    out error))
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        internal static void Clear()
-        {
-            foreach (KimodoTimelineConstraintCacheEntry entry in Entries.Values)
-            {
-                entry?.Dispose();
-            }
-            Entries.Clear();
-        }
-
-        private static bool TryGetOrCreatePoseClip(
-            KimodoTimelineInOutConstraintContext context,
-            double timelineTime,
-            float frameRate,
-            string modelName,
-            bool forceRefresh,
-            out KimodoTimelineConstraintCacheEntry entry,
-            out KimodoTimelineConstraintCacheRange range,
-            out string error)
-        {
-            entry = null;
-            range = default;
-            error = string.Empty;
-            if (context?.Track == null || context.Director == null || context.Animator == null)
-            {
-                error = "Timeline track, director or Animator is missing.";
-                return false;
-            }
-
-            int cacheTimeFrames = KimodoPlayableClipGenerationSettings.instance.TimelineConstraintCacheTimeFrames;
-            range = ResolveRange(
-                timelineTime,
-                ResolveSamplingEndTime(context, timelineTime, frameRate),
-                cacheTimeFrames,
-                frameRate);
-            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
-                context.Track,
-                context.Animator,
-                out Vector3 trackOffsetPosition,
-                out Quaternion trackOffsetRotation);
-            var key = new KimodoTimelineConstraintCacheKey(
-                KimodoUnityObjectIdUtility.IdHash(context.Track),
-                KimodoUnityObjectIdUtility.IdHash(context.Animator),
-                KimodoUnityObjectIdUtility.IdHash(context.SourceAvatar),
-                range,
-                modelName,
-                ComputeSamplingSourceSignature(context.Track),
-                trackOffsetPosition,
-                trackOffsetRotation,
-                context.SourceAvatar != null ? EditorUtility.GetDirtyCount(context.SourceAvatar) : 0);
-            if (forceRefresh)
-            {
-                Invalidate(key);
-            }
-            RemoveStaleEntries(key);
-            if (Entries.TryGetValue(key, out entry) && entry?.Clip != null)
-            {
-                return true;
-            }
-
-            if (!KimodoTimelineSamplingSession.TryCreate(context, modelName, out KimodoTimelineSamplingSession sampler, out error))
-            {
-                return false;
-            }
-
-            AnimationClip clip = null;
-            SkeletonCache targetCache = null;
-            try
-            {
-                var timelineTimes = new double[range.BakedFrameCount];
-                for (int i = 0; i < range.BakedFrameCount; i++)
-                {
-                    int sampleFrame = Mathf.Min(range.BakedStartFrame + i, range.BakedEndFrame);
-                    timelineTimes[i] = sampleFrame / range.FrameRate;
-                }
-                Func<AnimationClip, string, string> debugWriteback =
-                    KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips
-                        ? (clipToWrite, label) => WriteDebugResampledClip(clipToWrite, key, label)
-                        : null;
-                if (!sampler.TryCaptureTargetBoneSamples(
-                        timelineTimes,
-                        range.FrameRate,
-                        out BoneSample[] targetSamples,
-                        out error,
-                        debugWriteback))
-                {
-                    return false;
-                }
-
-                if (!KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
-                        targetSamples,
-                        range.FrameRate,
-                        out clip,
-                        out error))
-                {
-                    return false;
-                }
-
-                if (debugWriteback != null)
-                {
-                    string writebackError = debugWriteback(clip, "TargetBoneClip");
-                    if (!string.IsNullOrWhiteSpace(writebackError))
-                    {
-                        error = writebackError;
-                        return false;
-                    }
-                }
-
-                if (!KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
-                        null,
-                        modelName,
-                        out Avatar targetAvatar,
-                        out error))
-                {
-                    return false;
-                }
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
-                        targetAvatar,
-                        "KimodoTimelineConstraintCache_TargetSampler",
-                        out targetCache,
-                        out error))
-                {
-                    return false;
-                }
-
-                clip.name = "KimodoTimelineConstraintCache";
-                entry = new KimodoTimelineConstraintCacheEntry
-                {
-                    Clip = clip,
-                    TargetCache = targetCache
-                };
-                Entries[key] = entry;
-                clip = null;
-                targetCache = null;
-                return true;
+                    out error);
             }
             finally
             {
                 sampler.Dispose();
-                targetCache?.Dispose();
-                if (clip != null)
-                {
-                    UnityEngine.Object.DestroyImmediate(clip);
-                }
-            }
-        }
-
-        private static string WriteDebugResampledClip(
-            AnimationClip sourceClip,
-            KimodoTimelineConstraintCacheKey key,
-            string label)
-        {
-            if (sourceClip == null)
-            {
-                return "Cannot write a null resampled clip.";
-            }
-
-            string assetName = $"TimelineConstraint_{key.TrackId}_{key.AnimatorId}_{key.StartFrame}_{key.EndFrame}_{label}";
-            if (!KimodoEditorClipWritebackService.TryWriteGeneratedCacheAnimationClipAsset(
-                    sourceClip,
-                    assetName,
-                    out AnimationClip savedClip,
-                    out string error))
-            {
-                return $"Write resampled {label} clip failed: {error}";
-            }
-
-            KimodoPlayableClipGenerationSettings.DebugLog($"[Kimodo][TimelineSample] Wrote resampled {label}: '{AssetDatabase.GetAssetPath(savedClip)}'.");
-            return string.Empty;
-        }
-
-        internal static bool Invalidate(KimodoTimelineConstraintCacheKey key)
-        {
-            if (!Entries.TryGetValue(key, out KimodoTimelineConstraintCacheEntry entry))
-            {
-                return false;
-            }
-
-            entry?.Dispose();
-            return Entries.Remove(key);
-        }
-
-        internal static void RemoveStaleEntries(KimodoTimelineConstraintCacheKey current)
-        {
-            List<KimodoTimelineConstraintCacheKey> stale = null;
-            foreach (KeyValuePair<KimodoTimelineConstraintCacheKey, KimodoTimelineConstraintCacheEntry> pair in Entries)
-            {
-                KimodoTimelineConstraintCacheKey key = pair.Key;
-                if (key.TrackId != current.TrackId)
-                {
-                    continue;
-                }
-                if (key.AnimatorId == current.AnimatorId &&
-                    key.SourceSignature == current.SourceSignature &&
-                    key.AvatarId == current.AvatarId &&
-                    key.AvatarDirtyCount == current.AvatarDirtyCount &&
-                    key.FrameRate.Equals(current.FrameRate) &&
-                    key.TrackOffsetPosition.Equals(current.TrackOffsetPosition) &&
-                    key.TrackOffsetRotation.Equals(current.TrackOffsetRotation) &&
-                    string.Equals(key.ModelName, current.ModelName, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                pair.Value?.Dispose();
-                stale ??= new List<KimodoTimelineConstraintCacheKey>();
-                stale.Add(key);
-            }
-            if (stale == null)
-            {
-                return;
-            }
-            for (int i = 0; i < stale.Count; i++)
-            {
-                Entries.Remove(stale[i]);
             }
         }
 
@@ -734,37 +159,6 @@ namespace KimodoBridge.Editor
             sample.sampleTime = exportedSampleTime;
         }
 
-        internal static double ResolveSamplingEndTime(
-            KimodoTimelineInOutConstraintContext context,
-            double timelineTime,
-            float frameRate = KimodoMotionModelProfiles.DefaultFrameRate)
-        {
-            double endTime = context?.SourceClip != null ? context.SourceClip.end : 0.0;
-            if (context?.Track != null)
-            {
-                foreach (TimelineClip clip in context.Track.GetClips())
-                {
-                    if (clip != null)
-                    {
-                        endTime = Math.Max(endTime, clip.end);
-                    }
-                }
-            }
-
-            PlayableAsset playableAsset = context?.Director != null ? context.Director.playableAsset : null;
-            if (playableAsset != null && !double.IsNaN(playableAsset.duration) && !double.IsInfinity(playableAsset.duration))
-            {
-                endTime = Math.Max(endTime, playableAsset.duration);
-            }
-
-            double frameDuration = 1.0 / Mathf.Max(1f, frameRate);
-            if (timelineTime >= endTime - 1e-9)
-            {
-                endTime = Math.Max(endTime, timelineTime + frameDuration);
-            }
-
-            return Math.Max(endTime, frameDuration);
-        }
     }
 
     internal sealed class KimodoTimelineSamplingSession : IDisposable
@@ -776,7 +170,6 @@ namespace KimodoBridge.Editor
         private readonly float sourceHumanScale;
         private readonly KimodoTimelineEvaluationScope evaluationScope;
         private readonly DirectorWrapMode originalWrapMode;
-        private readonly Dictionary<int, MuscleSample> sampledMusclePoses = new Dictionary<int, MuscleSample>();
         private bool disposed;
 
         private KimodoTimelineSamplingSession(
@@ -942,12 +335,11 @@ namespace KimodoBridge.Editor
 
             try
             {
-                float frameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
+                float frameRate = KimodoTimelineConstraintSampler.ResolveTimelineFrameRate(context);
                 int sampleCount = timelineTimes.Count;
                 samples = new MuscleSample[sampleCount];
-                var missingFrames = new List<int>();
-                var missingTimes = new List<double>();
-                var pendingFrames = new HashSet<int>();
+                int clipSampleCount = Mathf.Max(2, sampleCount);
+                var poseSamples = new BoneSample[clipSampleCount];
                 for (int i = 0; i < sampleCount; i++)
                 {
                     double timelineTime = timelineTimes[i];
@@ -958,29 +350,6 @@ namespace KimodoBridge.Editor
                         return false;
                     }
 
-                    int sampleFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(timelineTime, frameRate);
-                    if (sampledMusclePoses.TryGetValue(sampleFrame, out MuscleSample cached))
-                    {
-                        samples[i] = KimodoRetargetSamplingUtility.CloneMuscleSample(cached);
-                    }
-                    else if (pendingFrames.Add(sampleFrame))
-                    {
-                        missingFrames.Add(sampleFrame);
-                        missingTimes.Add(KimodoTimelinePreviewRefreshUtility.TimelineFrameToTime(sampleFrame, frameRate));
-                    }
-                }
-
-                if (missingTimes.Count == 0)
-                {
-                    return true;
-                }
-
-                int clipSampleCount = Mathf.Max(2, missingTimes.Count);
-                var poseSamples = new BoneSample[clipSampleCount];
-                for (int i = 0; i < missingTimes.Count; i++)
-                {
-                    int sampleFrame = missingFrames[i];
-                    double timelineTime = missingTimes[i];
                     evaluationScope.EvaluateAt(Math.Max(0.0, timelineTime));
                     if (!TryCaptureSourceBoneSample(
                             context.Animator.transform,
@@ -993,9 +362,9 @@ namespace KimodoBridge.Editor
                         return false;
                     }
                 }
-                for (int i = missingTimes.Count; i < clipSampleCount; i++)
+                for (int i = sampleCount; i < clipSampleCount; i++)
                 {
-                    poseSamples[i] = poseSamples[missingTimes.Count - 1];
+                    poseSamples[i] = poseSamples[sampleCount - 1];
                 }
 
                 AnimationClip poseClip = null;
@@ -1029,14 +398,9 @@ namespace KimodoBridge.Editor
                         return false;
                     }
 
-                    for (int i = 0; i < missingTimes.Count; i++)
-                    {
-                        sampledMusclePoses[missingFrames[i]] = KimodoRetargetSamplingUtility.CloneMuscleSample(decoded[i]);
-                    }
                     for (int i = 0; i < sampleCount; i++)
                     {
-                        int sampleFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(timelineTimes[i], frameRate);
-                        samples[i] = KimodoRetargetSamplingUtility.CloneMuscleSample(sampledMusclePoses[sampleFrame]);
+                        samples[i] = KimodoRetargetSamplingUtility.CloneMuscleSample(decoded[i]);
                     }
                     return true;
                 }
@@ -1384,13 +748,13 @@ namespace KimodoBridge.Editor
 
                 try
                 {
-                    float frameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
+                    float frameRate = KimodoTimelineConstraintSampler.ResolveTimelineFrameRate(context);
                     var uniqueFrames = new List<int>();
                     var frameToSample = new Dictionary<int, int>();
                     var markerSampleIndices = new int[sampledMarkerIndices.Count];
                     for (int i = 0; i < sampledMarkerIndices.Count; i++)
                     {
-                        int frame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(
+                                int frame = KimodoTimelineConstraintSampler.ResolveTimelineSampleFrame(
                             markers[sampledMarkerIndices[i]].time,
                             frameRate);
                         if (!frameToSample.TryGetValue(frame, out int sampleIndex))
@@ -1446,7 +810,7 @@ namespace KimodoBridge.Editor
             samples.AddRange(resolvedSamples);
             KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(
                 samples,
-                KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context));
+                KimodoTimelineConstraintSampler.ResolveTimelineFrameRate(context));
             return true;
         }
 

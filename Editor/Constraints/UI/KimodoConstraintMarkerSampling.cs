@@ -73,7 +73,7 @@ namespace KimodoBridge.Editor
                 ModelName = ResolveModelName(referenceClip)
             };
             string samplingType = "fullbody";
-            if (!KimodoTimelineConstraintClipCache.TrySampleMarker(
+            if (!KimodoTimelineConstraintSampler.TrySampleMarker(
                     timelineContext,
                     sampleTime,
                     sampleTime,
@@ -86,11 +86,11 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            float timelineFrameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(timelineContext);
-            int timelineFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(
+            float timelineFrameRate = KimodoTimelineConstraintSampler.ResolveTimelineFrameRate(timelineContext);
+            int timelineFrame = KimodoTimelineConstraintSampler.ResolveTimelineSampleFrame(
                 sampleTime,
                 timelineFrameRate);
-            double timelineSampleTime = KimodoTimelineConstraintClipCache.ResolveTimelineSampleTime(
+            double timelineSampleTime = KimodoTimelineConstraintSampler.ResolveTimelineSampleTime(
                 sampleTime,
                 timelineFrameRate);
             KimodoPlayableClipGenerationSettings.DebugLog(
