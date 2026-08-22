@@ -1,4 +1,5 @@
 using CharacterAnimationCli.Unity;
+using KimodoBridge;
 
 namespace TimelineInject
 {
@@ -21,7 +22,7 @@ namespace TimelineInject
                 return false;
             }
 
-            if (!KimodoSampleDataLayout.TryDecodeCharacterPose(
+            if (!CharacterPoseMuscleAdapter.TryFromSampleData(
                     sample.sampleData,
                     out pose,
                     out error))
@@ -48,8 +49,8 @@ namespace TimelineInject
                 error = "SampleResult is null.";
                 return false;
             }
-            sample.sampleData ??= new KimodoBridge.MuscleSample();
-            if (!KimodoSampleDataLayout.TryEncodeCharacterPose(
+            sample.sampleData ??= new MuscleSample();
+            if (!CharacterPoseMuscleAdapter.TryToSampleData(
                     pose,
                     sample.sampleData,
                     out error))

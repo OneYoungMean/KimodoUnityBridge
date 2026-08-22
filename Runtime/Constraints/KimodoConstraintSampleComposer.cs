@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using CharacterAnimationCli.Unity;
+using KimodoBridge;
 using UnityEngine;
 
 namespace TimelineInject
@@ -87,7 +88,7 @@ namespace TimelineInject
                 result.enableMask.NormalizeDependencies();
                 result.enableMask.NormalizeDependencies();
                 result.mask = ToLegacyMask(result.enableMask);
-                if (KimodoSampleDataLayout.TryDecodeCharacterPose(
+                if (CharacterPoseMuscleAdapter.TryFromSampleData(
                         result.sampleData,
                         out CharacterPose canonicalPose,
                         out _))

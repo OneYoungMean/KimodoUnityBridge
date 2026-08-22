@@ -370,3 +370,10 @@
 - 已完成：`TimelineInject/Runtime/Timeline.asmref` 指向 `KimodoTool`，使 70D `MuscleSample` 与 `KimodoMarkerSampleResult` 在同一 Runtime 程序集内编译，消除 `KimodoSampleData.cs` 对 `KimodoBridge.MuscleSample` 的程序集不可见错误。
 - 保持：`CharacterPose`/JSON 仍作为兼容边界保留；本批次未触碰 Preview/cache 或缓存清理分支内容。
 - 检查：`git diff --check` 通过；FullDemo 的 Unity CLI 验证被外部项目缺失 `com.unity.pipeline@0.4.0-exp.1` 阻断，未产生有效 C# 编译结论。
+
+## CP47 — CharacterPose 编解码唯一入口
+
+- 已完成：删除 `KimodoSampleDataLayout` 中重复的 `CharacterPose` 编码/解码实现；该类现在只负责 70D 布局、校验和 Transform 原始读写。
+- 已完成：`CharacterPoseMuscleAdapter` 成为唯一的 `MuscleSample ↔ CharacterPose` 编解码入口；Composer 与 SampleResult pose utility 已统一改用该入口。
+- 保持：`MuscleSample.pose` 仍通过同一 Adapter 生成临时 `HumanPose`，不新增持久数据副本。
+- 检查：全仓已无 `KimodoSampleDataLayout.TryDecodeCharacterPose/TryEncodeCharacterPose` 调用；`git diff --check` 通过。

@@ -54,20 +54,20 @@ namespace KimodoBridge
 
             var result = new CharacterPose
             {
-                root = new CharacterPoseTransform
+                root = new KimodoRigidTransform
                 {
                     t = ReadRootPosition(sample),
                     q = ReadRootRotation(sample)
                 },
                 hands = new CharacterPoseSides
                 {
-                    left = new CharacterPoseTransform { t = leftHandPosition, q = leftHandRotation },
-                    right = new CharacterPoseTransform { t = rightHandPosition, q = rightHandRotation }
+                    left = new KimodoRigidTransform { t = leftHandPosition, q = leftHandRotation },
+                    right = new KimodoRigidTransform { t = rightHandPosition, q = rightHandRotation }
                 },
                 feet = new CharacterPoseSides
                 {
-                    left = new CharacterPoseTransform { t = leftFootPosition, q = leftFootRotation },
-                    right = new CharacterPoseTransform { t = rightFootPosition, q = rightFootRotation }
+                    left = new KimodoRigidTransform { t = leftFootPosition, q = leftFootRotation },
+                    right = new KimodoRigidTransform { t = rightFootPosition, q = rightFootRotation }
                 }
             };
 
@@ -165,7 +165,48 @@ namespace KimodoBridge
             out CharacterPose pose,
             out string error)
         {
-            return TryFromSampleData(sample?.data, out pose, out error);
+            pose = null;
+            if (sample == null)
+            {
+                error = "Muscle sample is null.";
+                return false;
+            }
+
+            if (!KimodoSampleDataLayout.TryValidate(sample.data, out error))
+            {
+                return false;
+            }
+
+            pose = new CharacterPose();
+            Array.Copy(
+                sample.data,
+                KimodoSampleDataLayout.BodyMuscleOffset,
+                pose.muscles,
+                0,
+                KimodoSampleDataLayout.BodyMuscleCount);
+            KimodoSampleDataLayout.GetTransform(
+                sample.data,
+                KimodoSampleDataLayout.RootTqOffset,
+                out pose.root.t,
+                out pose.root.q);
+            KimodoSampleDataLayout.GetTransform(
+                sample.data,
+                KimodoSampleDataLayout.LeftFootTqOffset,
+                out pose.feet.left.t,
+                out pose.feet.left.q);
+            KimodoSampleDataLayout.GetTransform(
+                sample.data,
+                KimodoSampleDataLayout.RightFootTqOffset,
+                out pose.feet.right.t,
+                out pose.feet.right.q);
+
+            if (!pose.TryValidate(out error))
+            {
+                pose = null;
+                return false;
+            }
+
+            return true;
         }
 
         public static bool TryToSampleData(
@@ -177,46 +218,11 @@ namespace KimodoBridge
             {
                 return false;
             }
-            sample ??= throw new ArgumentNullException(nameof(sample));
+            if (sample == null)
+            {
+                throw new ArgumentNullException(nameof(sample));
+            }
             sample.data = data;
-            return true;
-        }
-
-        public static bool TryFromSampleData(
-            float[] data,
-            out CharacterPose pose,
-            out string error)
-        {
-            pose = null;
-            if (!KimodoSampleDataLayout.TryValidate(data, out error))
-            {
-                return false;
-            }
-
-            pose = new CharacterPose();
-            Array.Copy(data, KimodoSampleDataLayout.BodyMuscleOffset,
-                pose.muscles, 0, KimodoSampleDataLayout.BodyMuscleCount);
-            KimodoSampleDataLayout.GetTransform(
-                data,
-                KimodoSampleDataLayout.RootTqOffset,
-                out pose.root.t,
-                out pose.root.q);
-            KimodoSampleDataLayout.GetTransform(
-                data,
-                KimodoSampleDataLayout.LeftFootTqOffset,
-                out pose.feet.left.t,
-                out pose.feet.left.q);
-            KimodoSampleDataLayout.GetTransform(
-                data,
-                KimodoSampleDataLayout.RightFootTqOffset,
-                out pose.feet.right.t,
-                out pose.feet.right.q);
-
-            if (!pose.TryValidate(out error))
-            {
-                pose = null;
-                return false;
-            }
             return true;
         }
 
