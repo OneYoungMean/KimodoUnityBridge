@@ -340,3 +340,4 @@
 - 未发现新的可删除生产 ProfileSkeleton 调用。`Editor/Tests/KimodoTimelinePoseSamplerTests.cs` 仍整体 `#if false`，其中的旧 raw/profile 测试不进入生产编译，暂不为历史测试重建已删除语义。
 - 构建尝试：在 `C:\tmp\KimodoUnityBridge_FullDemo-main` 执行 `dotnet build KimodoTool.Editor.csproj --no-restore`；失败原因为 FullDemo 的 Unity Test Framework 缺少 NUnit 引用（约 603 个外部 `NUnit` 错误），不是本批次代码错误证据。
 - 当前分支提交：`04c4ae5`；工作树保留用户此前 quick-server 启动脚本改动，未混入本分支 checkpoint。
+- 追加清理：Runtime ToJson 投影中未使用的 legacy `KimodoConstraintMask` 局部变量已删除。

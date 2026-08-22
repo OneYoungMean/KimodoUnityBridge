@@ -67,7 +67,6 @@ namespace KimodoBridge
                 {
                     throw new InvalidOperationException($"Constraint source Avatar cache failed: {error}");
                 }
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
                 float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
                 MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToMuscleSample(pose);
                 MuscleSample projectedMuscleSample;
