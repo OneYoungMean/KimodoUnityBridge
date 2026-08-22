@@ -7,8 +7,8 @@ using UnityEngine;
 namespace KimodoBridge
 {
     /// <summary>
-    /// Projects a canonical CharacterPose onto the model's protocol skeleton.
-    /// Runtime generation must use this instead of the root-only exporter fallback.
+    /// Projects the canonical 70D MuscleSample onto the model's protocol skeleton.
+    /// Generate never reconstructs the command-layer CharacterPose here.
     /// </summary>
     public static class KimodoRuntimeConstraintExportProjector
     {
@@ -25,21 +25,10 @@ namespace KimodoBridge
             string modelName,
             Avatar sourceAvatar)
         {
-            CharacterAnimationCli.Unity.CharacterPose pose = null;
-            if (sample != null && sample.enableMask?.muscle49 == true &&
-                CharacterPoseMuscleAdapter.TryFromSampleData(
-                    sample.sampleData,
-                    out CharacterAnimationCli.Unity.CharacterPose decoded,
-                    out _))
+            if (sample?.sampleData == null || !sample.sampleData.IsValid ||
+                sample.enableMask?.muscle49 != true)
             {
-                pose = decoded;
-            }
-            string poseError = null;
-            if (pose == null || !pose.TryValidate(out poseError))
-            {
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(poseError)
-                    ? "Constraint pose is invalid."
-                    : poseError);
+                throw new InvalidOperationException("Constraint MuscleSample is invalid.");
             }
 
             if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
@@ -68,7 +57,7 @@ namespace KimodoBridge
                     throw new InvalidOperationException($"Constraint source Avatar cache failed: {error}");
                 }
                 float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
-                MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToMuscleSample(pose);
+                MuscleSample sourceSample = sample.sampleData.Clone();
                 MuscleSample projectedMuscleSample;
                 if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                         sourceSample,
@@ -112,7 +101,6 @@ namespace KimodoBridge
                 {
                     rootPositionMeters = joints[0].position,
                     localJointAngles = result,
-                    projectedPose = CharacterPoseMuscleAdapter.FromMuscleSample(projectedMuscleSample, cache)
                 };
             }
             finally

@@ -86,9 +86,6 @@ namespace TimelineInject
     {
         public Vector3 rootPositionMeters;
         public List<Vector3> localJointAngles;
-        // FK pose reconstructed from the current muscle data. Effector values
-        // are exported from this pose, never from authored target gizmos.
-        public CharacterAnimationCli.Unity.CharacterPose projectedPose;
     }
 
     /// <summary>Avatar/retarget data used only while projecting canonical
@@ -432,7 +429,7 @@ namespace TimelineInject
                 }
             };
 
-            CharacterAnimationCli.Unity.CharacterPoseTransform goal = ResolveEndEffectorGoal(
+            CharacterAnimationCli.Unity.KimodoRigidTransform goal = ResolveEndEffectorGoal(
                 sample,
                 sample.constraintType);
             if (goal != null)
@@ -456,7 +453,7 @@ namespace TimelineInject
             }
         }
 
-        private static CharacterAnimationCli.Unity.CharacterPoseTransform ResolveEndEffectorGoal(
+        private static CharacterAnimationCli.Unity.KimodoRigidTransform ResolveEndEffectorGoal(
             KimodoMarkerSampleResult sample,
             string type)
         {

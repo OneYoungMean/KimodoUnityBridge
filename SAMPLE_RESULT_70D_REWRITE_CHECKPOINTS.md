@@ -356,3 +356,10 @@
 - 已完成：`KimodoConstraintRawData` 改为内部类型 `KimodoConstraintInternalData`。
 - 已完成：RawMotion 导出入口改为内部 `TryBuildConstraintInternalData`，不再把 RawMotion 暴露为公开 constraint 数据结构。
 - 说明：当前只完成边界命名和可见性收敛；RawMotion 直接对接内部约束发送通道仍需在下一阶段接入，避免继续经过公开 constraint JSON。
+
+## CP45 — Generate 投影链路改用 70D MuscleSample
+
+- 已完成：Runtime Generate 的约束投影不再把 `KimodoMarkerSampleResult.sampleData` 解码为 Command 层 `CharacterPose`，直接克隆并重定向固定 70D `MuscleSample`。
+- 已完成：生成投影结果不再携带未使用的 `projectedPose` CharacterPose 回传字段；协议输出仍由同一 profile skeleton 的 FK 结果生成轴角和根位置。
+- 保持：Editor Generate 的协议 JSON、KMB attachment 和现有 retarget 写出流程不变；Preview/cache 路径暂未继续清理，等待用户提交集中缓存清理后再接入。
+- 检查：`git diff --check` 通过；Unity 编译待用户缓存提交后执行。
