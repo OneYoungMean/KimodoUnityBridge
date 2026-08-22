@@ -1,4 +1,5 @@
 using System;
+using CharacterAnimationCli.Unity;
 using TimelineInject;
 using UnityEngine;
 using UnityEngine.Timeline;
@@ -62,7 +63,7 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         sampleData.effectors ??= new KimodoConstraintEffectors();
         sampleData.effectors.hands ??= new CharacterAnimationCli.Unity.CharacterPoseSides();
         sampleData.effectors.feet ??= new CharacterAnimationCli.Unity.CharacterPoseSides();
-        sampleData.root2DOverride = sampleData.root2DOverride;
+        sampleData.root2DOverride ??= KimodoRigidTransform.Identity;
         sampleData.constraintType = "constraint";
         sampleData.constraintMode = ModeProtocolName(constraintMode);
         sampleData.sampleTime = Math.Max(0.0, time);

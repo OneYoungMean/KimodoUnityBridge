@@ -401,3 +401,10 @@
 - 已完成：`CharacterPoseMuscleAdapter` 成为唯一的 `MuscleSample ↔ CharacterPose` 编解码入口；Composer 与 SampleResult pose utility 已统一改用该入口。
 - 保持：`MuscleSample.pose` 仍通过同一 Adapter 生成临时 `HumanPose`，不新增持久数据副本。
 - 检查：全仓已无 `KimodoSampleDataLayout.TryDecodeCharacterPose/TryEncodeCharacterPose` 调用；`git diff --check` 通过。
+
+## CP48 — 合并缓存清理版本并恢复编译
+
+- 已完成：当前分支先保存 WIP `b900c37`，再合入 `samplecache-removal`，合并提交为 `97b718e`；缓存清理版本优先保留，未把两套 Preview 缓存逻辑混合恢复。
+- 已完成：修复合并后的 `PoseCacheRenderContext` 大括号、`KimodoRigidTransform` 属性 `out` 参数、marker 自赋值和元数据尾随空格。
+- 已完成：Generate 投影删除未使用的 `sourceAvatar → source RetargetSkeleton` 旁路，保留 `MuscleSample → target RetargetSkeleton → profile joints → protocol` 链路。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 独立探针编译成功，日志：`C:\tmp\kimodo-compile-probe-after-generate-cleanup.log`，Runtime/Editor/Command.Editor 均成功。

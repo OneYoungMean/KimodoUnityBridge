@@ -38,6 +38,7 @@ namespace KimodoBridge.Editor
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(trackId) + ":" +
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(KimodoUnityObjectIdUtility.IdHash(sourceAvatar));
             }
+        }
 
     internal sealed class PoseCacheRenderItem
     {

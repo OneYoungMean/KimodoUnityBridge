@@ -187,18 +187,24 @@ namespace KimodoBridge
             KimodoSampleDataLayout.GetTransform(
                 sample.data,
                 KimodoSampleDataLayout.RootTqOffset,
-                out pose.root.t,
-                out pose.root.q);
+                out Vector3 rootPosition,
+                out Quaternion rootRotation);
             KimodoSampleDataLayout.GetTransform(
                 sample.data,
                 KimodoSampleDataLayout.LeftFootTqOffset,
-                out pose.feet.left.t,
-                out pose.feet.left.q);
+                out Vector3 leftFootPosition,
+                out Quaternion leftFootRotation);
             KimodoSampleDataLayout.GetTransform(
                 sample.data,
                 KimodoSampleDataLayout.RightFootTqOffset,
-                out pose.feet.right.t,
-                out pose.feet.right.q);
+                out Vector3 rightFootPosition,
+                out Quaternion rightFootRotation);
+            pose.root.t = rootPosition;
+            pose.root.q = rootRotation;
+            pose.feet.left.t = leftFootPosition;
+            pose.feet.left.q = leftFootRotation;
+            pose.feet.right.t = rightFootPosition;
+            pose.feet.right.q = rightFootRotation;
 
             if (!pose.TryValidate(out error))
             {

@@ -13,17 +13,15 @@ namespace KimodoBridge
     public static class KimodoRuntimeConstraintExportProjector
     {
         public static Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> Create(
-            string modelName,
-            Avatar sourceAvatar = null)
+            string modelName)
         {
             string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
-            return sample => Project(sample, resolvedModelName, sourceAvatar);
+            return sample => Project(sample, resolvedModelName);
         }
 
         private static KimodoConstraintProjectedPose Project(
             KimodoMarkerSampleResult sample,
-            string modelName,
-            Avatar sourceAvatar)
+            string modelName)
         {
             if (sample?.sampleData == null || !sample.sampleData.IsValid ||
                 sample.enableMask?.muscle49 != true)
@@ -44,18 +42,8 @@ namespace KimodoBridge
                 throw new InvalidOperationException($"Constraint pose projection failed: {error}");
             }
 
-            RetargetSkeleton sourceCache = null;
             try
             {
-                if (KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar) &&
-                    !KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
-                        sourceAvatar,
-                        "KimodoRuntimeConstraintSourceProfile",
-                        out sourceCache,
-                        out error))
-                {
-                    throw new InvalidOperationException($"Constraint source Avatar cache failed: {error}");
-                }
                 float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
                 MuscleSample sourceSample = sample.sampleData.Clone();
                 MuscleSample projectedMuscleSample;
@@ -105,7 +93,6 @@ namespace KimodoBridge
             }
             finally
             {
-                sourceCache?.Dispose();
                 cache.Dispose();
             }
         }
