@@ -505,3 +505,10 @@
 - 已完成：所有 canonical JSON 导出路径通过该入口取得内部约束数组，再执行协议合并，effector 不再由上层单独导出。
 - 复核：预览上层已无 `PoseCacheRenderContext.SourceAvatar`；InOut/Timeline 采样中的 `SourceAvatar` 仍是采样边界所需的 Timeline 源 Avatar，尚未下沉到 internal，下一批继续处理。
 - 修正：effector mode 在没有对应 `enableMask` 通道时不再臆造左手 effector，保持空约束并要求上层提供明确通道。
+
+## CP62 — AutoSample Rig 只读效器显示
+
+- 已明确：AutoSample 下 Rig 的 hips、手、脚目标均为 Preview 关节的只读显示；不会因为 Scene 拖拽调用 Rig → SampleResult 回写，也不会更新 `SampleResult.effectors`。
+- 已完成：AutoSample gizmo 统一关闭 selectable/editable 状态；非 AutoSample 仍允许拖拽并写回 world-space `root2DOverride`/effectors。
+- 已完成：只读路径会清除暂态 `pendingEndEffectorWriteback`/`pendingRootWriteback` 和 Transform change 标记，避免不可编辑目标残留状态。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-autosample-readonly-pass4.log`。

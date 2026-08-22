@@ -217,8 +217,7 @@ namespace KimodoBridge.Editor
                 return;
             }
             bool editable = windowOpen && entry.SourceMarker != null &&
-                (entry.SourceMarker.ConstraintMode == KimodoConstraintMode.FullBody ||
-                 bone != HumanBodyBones.Hips || !entry.SourceMarker.autoSample);
+                !entry.SourceMarker.autoSample;
             if (editable && Selection.activeTransform == transform)
             {
                 EditorGUI.BeginChangeCheck();
@@ -1403,6 +1402,8 @@ namespace KimodoBridge.Editor
                 return;
             }
 
+            selectable &= entry.SourceMarker?.autoSample != true;
+
                     SetEffectorGizmoSelectable(entry.EndEffectorMarker, selectable);
             if (entry.FullBodyTargets != null)
             {
@@ -1775,7 +1776,7 @@ namespace KimodoBridge.Editor
             }
 
             marker.localScale = Vector3.one * EndEffectorTargetSize;
-            SetEndEffectorMarkerSelectable(entry, entry.PickingEnabled);
+            SetEndEffectorMarkerSelectable(entry, entry.PickingEnabled && entry.SourceMarker?.autoSample != true);
             entry.EndEffectorMarker.SetActive(true);
             marker.hasChanged = false;
         }
@@ -1825,7 +1826,7 @@ namespace KimodoBridge.Editor
                     target.transform.localScale = Vector3.one * (bone == HumanBodyBones.Hips
                         ? 0.1f
                         : EndEffectorTargetSize);
-                    SetEffectorGizmoSelectable(target, entry.PickingEnabled);
+                    SetEffectorGizmoSelectable(target, entry.PickingEnabled && entry.SourceMarker?.autoSample != true);
                     target.SetActive(true);
                     target.transform.hasChanged = false;
                     continue;
@@ -1870,7 +1871,7 @@ namespace KimodoBridge.Editor
                 target.transform.localScale = Vector3.one * (bone == HumanBodyBones.Hips
                     ? 0.1f
                     : EndEffectorTargetSize);
-                SetEffectorGizmoSelectable(target, entry.PickingEnabled);
+                SetEffectorGizmoSelectable(target, entry.PickingEnabled && entry.SourceMarker?.autoSample != true);
                 target.SetActive(true);
                 target.transform.hasChanged = false;
             }
@@ -1968,7 +1969,7 @@ namespace KimodoBridge.Editor
                 target.transform.hasChanged = false;
             }
             target.transform.localScale = Vector3.one * 0.1f;
-            SetEffectorGizmoSelectable(target, entry.PickingEnabled);
+            SetEffectorGizmoSelectable(target, entry.PickingEnabled && entry.SourceMarker?.autoSample != true);
             target.SetActive(true);
             target.transform.hasChanged = false;
         }

@@ -6,7 +6,7 @@ namespace KimodoBridge.Editor.Tests
     public sealed class KimodoConstraintPoseRigFactoryTests
     {
         [Test]
-        public void PoseRigClone_CopiesStaticMeshRenderer()
+        public void PoseRig_UsesModelTargetSkeleton()
         {
             Assert.That(
                 KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
@@ -27,29 +27,19 @@ namespace KimodoBridge.Editor.Tests
             KimodoConstraintPoseRigFactory.PoseRigInstance rig = null;
             try
             {
-                GameObject sourceVisual = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                sourceVisual.name = "StaticVisual";
-                sourceVisual.transform.SetParent(source.animator.transform, false);
-                Mesh sourceMesh = sourceVisual.GetComponent<MeshFilter>().sharedMesh;
-                sourceVisual.GetComponent<MeshRenderer>().sortingOrder = 7;
-
                 Assert.That(
                     KimodoConstraintPoseRigFactory.TryCreatePoseRig(
                         KimodoMotionModelProfiles.DefaultModelName,
                         clipId: 1,
                         animatorId: KimodoUnityObjectIdUtility.IdHash(source.animator),
-                        sourceAvatar: avatar,
                         out rig,
                         out error),
                     Is.True,
                     error);
 
-                Transform cloneVisual = rig.Root.transform.Find("StaticVisual");
-                Assert.That(cloneVisual, Is.Not.Null);
-                MeshRenderer cloneRenderer = cloneVisual.GetComponent<MeshRenderer>();
-                Assert.That(cloneRenderer, Is.Not.Null);
-                Assert.That(cloneVisual.GetComponent<MeshFilter>().sharedMesh, Is.SameAs(sourceMesh));
-                Assert.That(cloneRenderer.sortingOrder, Is.EqualTo(7));
+                Assert.That(rig.TargetCache, Is.Not.Null);
+                Assert.That(rig.TargetCache.avatar, Is.Not.Null);
+                Assert.That(rig.TargetCache.animator.GetBoneTransform(HumanBodyBones.Hips), Is.Not.Null);
             }
             finally
             {
