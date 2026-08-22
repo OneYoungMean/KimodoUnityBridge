@@ -191,7 +191,15 @@ namespace TimelineInject
         // FullBody owns rootTQ in sampleData. Root2D is kept separately so its
         // X/Z and heading override cannot destroy FullBody Y, pitch or roll.
         public KimodoRigidTransform root2DOverride = KimodoRigidTransform.Identity;
-        public string constraintType = "constraint";
+        // Protocol expansion uses a transient type (fullbody/root2d/effector
+        // family). Authored SampleResult data persists only constraintMode;
+        // the old constraintType field was redundant serialized state.
+        [NonSerialized] private string protocolType;
+        public string constraintType
+        {
+            get => string.IsNullOrWhiteSpace(protocolType) ? "constraint" : protocolType;
+            set => protocolType = value;
+        }
         // Non-empty for samples authored by the new mode-aware marker. Empty
         // samples retain the legacy resolver behavior for command-only data.
         public string constraintMode;
@@ -205,7 +213,7 @@ namespace TimelineInject
             creationOrder = creationOrder,
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
             root2DOverride = root2DOverride.Clone(),
-            constraintType = this.constraintType,
+            protocolType = protocolType,
             constraintMode = this.constraintMode,
             sampleTime = sampleTime
         };

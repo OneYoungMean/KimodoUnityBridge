@@ -447,3 +447,10 @@
 - 已完成：Generate 的 RawMotion 全身约束改为直接调用 `TryBuildConstraintInternalData`，在编辑器边界一次性生成 FullBody 协议 JSON；不再经过 RawMotion → MarkerSampleResult → profile projection 的往返。
 - 保持：Runtime overlap/marker 仍返回 SampleResult，因为它们需要 Timeline Composer 的时间和 channel 合成；这不是 Generate 的 RawMotion 协议发送路径。
 - 检查：`git diff --check` 通过；Unity 场景编译待 package 宿主可用时执行。
+
+## CP54 — 移除 canonical constraintType 持久字段
+
+- 已完成：`KimodoMarkerSampleResult` 不再序列化 `constraintType`；canonical 持久语义只保留 `constraintMode`。
+- 已完成：协议展开仍使用同名的 transient protocol type，Clone 会保留它，因此 fullbody/root2d/effector 协议输出行为不变。
+- 保持：Command/旧协议调用方暂时继续使用 `constraintType` 属性，后续可逐步改成显式 protocol expansion API；不会再产生 Timeline 资产中的第二套持久模式字段。
+- 检查：`git diff --check` 通过；Unity 场景编译待 package 宿主可用时执行。
