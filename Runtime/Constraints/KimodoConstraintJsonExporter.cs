@@ -242,10 +242,15 @@ namespace KimodoBridge
             for (int i = 0; i < samples.Count; i++)
             {
                 KimodoMarkerSampleResult sample = samples[i];
-                KimodoConstraintJson json = BuildConstraint(sample, exportContext, clipStartSeconds, clipDurationSeconds, exportFps);
-                if (json != null)
+                KimodoConstraintInternal[] internals = KimodoConstraintInternal.Build(
+                    sample,
+                    KimodoConstraintRigType.Unknown,
+                    exportContext);
+                for (int internalIndex = 0; internalIndex < internals.Length; internalIndex++)
                 {
-                    output.Add(json);
+                    KimodoConstraintJson json = internals[internalIndex].ToJsonObject(
+                        clipStartSeconds, clipDurationSeconds, exportFps);
+                    if (json != null) output.Add(json);
                 }
             }
 
@@ -264,28 +269,13 @@ namespace KimodoBridge
                 return null;
             }
 
-            string type = sample.constraintType ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(type))
-            {
-                return null;
-            }
-
-            if (string.Equals(type, "constraint", StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            if (string.Equals(type, "root2d", StringComparison.OrdinalIgnoreCase))
-            {
-                return BuildRoot2D(sample, exportContext, clipStartSeconds, clipDurationSeconds, exportFps);
-            }
-
-            if (string.Equals(type, "fullbody", StringComparison.OrdinalIgnoreCase))
-            {
-                return BuildFullBody(sample, exportContext, clipStartSeconds, clipDurationSeconds, exportFps);
-            }
-
-            return BuildEndEffector(sample, exportContext, clipStartSeconds, clipDurationSeconds, exportFps);
+            KimodoConstraintInternal[] internals = KimodoConstraintInternal.Build(
+                sample,
+                KimodoConstraintRigType.Unknown,
+                exportContext);
+            return internals.Length == 0
+                ? null
+                : internals[0].ToJsonObject(clipStartSeconds, clipDurationSeconds, exportFps);
         }
 
         public static List<KimodoConstraintJson> BuildConstraints(
@@ -305,7 +295,7 @@ namespace KimodoBridge
             return mergeByType ? MergeConstraintsByType(constraints) : constraints;
         }
 
-        private static KimodoConstraintJson BuildRoot2D(
+        internal static KimodoConstraintJson BuildRoot2DInternal(
             KimodoMarkerSampleResult sample,
             KimodoConstraintExportContext exportContext,
             double clipStartSeconds,
@@ -334,7 +324,7 @@ namespace KimodoBridge
             throw new InvalidOperationException("Root2D world override is invalid.");
         }
 
-        private static KimodoConstraintJson BuildFullBody(
+        internal static KimodoConstraintJson BuildFullBodyInternal(
             KimodoMarkerSampleResult sample,
             KimodoConstraintExportContext exportContext,
             double clipStartSeconds,
@@ -385,9 +375,10 @@ namespace KimodoBridge
             return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
-        private static KimodoConstraintJson BuildEndEffector(
+        internal static KimodoConstraintJson BuildEndEffectorInternal(
             KimodoMarkerSampleResult sample,
             KimodoConstraintExportContext exportContext,
+            string jointType,
             double clipStartSeconds,
             double? clipDurationSeconds,
             double exportFps)
@@ -412,9 +403,9 @@ namespace KimodoBridge
             Vector3 kimodoRoot = new Vector3(-rootPositionMeters.x, rootPositionMeters.y, rootPositionMeters.z);
             var json = new KimodoConstraintJson
             {
-                type = sample.constraintType,
+                type = jointType,
                 frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
-                joint_names = new List<string> { ResolveEndEffectorJointName(sample.constraintType) },
+                joint_names = new List<string> { ResolveEndEffectorJointName(jointType) },
                 smooth_root_2d = new List<float[]>
                 {
                     new[] { kimodoRoot.x, kimodoRoot.z }
@@ -431,7 +422,7 @@ namespace KimodoBridge
 
             CharacterAnimationCli.Unity.KimodoRigidTransform goal = ResolveEndEffectorGoal(
                 sample,
-                sample.constraintType);
+                jointType);
             if (goal != null)
             {
                 Vector3 worldTarget = goal.t * humanScale;

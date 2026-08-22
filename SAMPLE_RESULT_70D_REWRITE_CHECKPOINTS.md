@@ -473,3 +473,11 @@
 
 - 已完成：移除不再有生产调用的 `BuildConstraintOverlapPoses`；Runtime overlap 只保留 `KimodoConstraintInternalData` 生成器，避免两套 RawMotion overlap 语义重新分叉。
 - 检查：`git diff --check` 通过；Unity 宿主编译仍待空闲验证。
+
+## CP58 — 引入最小 ConstraintInternal 约束类型
+
+- 已完成：新增内部抽象 `KimodoConstraintInternal`，以及 `KimodoFullBodyConstraintInternal`、`KimodoRoot2DConstraintInternal`、`KimodoEndEffectorConstraintInternal` 三种具体约束。
+- 已完成：`KimodoConstraintInternal.Build(sample, modelType, exportContext)` 根据 `constraintMode`、协议展开类型和 `enableMask` 返回有序内部约束数组；Mix 顺序固定为 FullBody、Root2D、EndEffector。
+- 已完成：`KimodoConstraintJsonExporter` 改由内部约束数组统一构建 JSON；原有 JSON 字段和坐标转换逻辑保持不变，暂未改变 Avatar/RetargetSkeleton 的实际来源。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-constraint-internal-pass1.log`。
+- 下一批：将目标 Avatar/RetargetSkeleton 创建收回 ConstraintInternal，Preview/Rig 只使用同一目标骨架句柄，并清理上层 `SourceAvatar` 依赖。
