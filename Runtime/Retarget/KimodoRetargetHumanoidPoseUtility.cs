@@ -6,7 +6,7 @@ namespace KimodoBridge
 {
     internal static class KimodoRetargetHumanoidPoseUtility
     {
-        internal static MuscleSample BuildMuscleSampleFromPose(SkeletonCache cache, HumanPose pose)
+        internal static MuscleSample BuildMuscleSampleFromPose(RetargetSkeleton cache, HumanPose pose)
         {
             var sample = new MuscleSample();
             float[] muscles = pose.muscles ?? Array.Empty<float>();
@@ -26,7 +26,7 @@ namespace KimodoBridge
             return sample;
         }
 
-        internal static Transform ResolveHumanBoneTransform(SkeletonCache cache, HumanBodyBones bone)
+        internal static Transform ResolveHumanBoneTransform(RetargetSkeleton cache, HumanBodyBones bone)
         {
             if (cache == null)
             {

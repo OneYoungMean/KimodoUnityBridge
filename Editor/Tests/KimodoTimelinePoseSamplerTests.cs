@@ -91,15 +91,15 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoConstraintAvatarlessBindingTest",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);
 
-            SkeletonCache expectedTarget = null;
+            RetargetSkeleton expectedTarget = null;
             try
             {
                 Assert.That(
@@ -140,7 +140,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
 
-                KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(source);
+                KimodoRetargetClipSamplingUtility.ResetRetargetSkeletonPose(source);
                 Assert.That(
                     KimodoRetargetAvatarUtility.TryApplyMarkerSampleToTransformMap(
                         sample,
@@ -158,7 +158,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
                 Assert.That(
-                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         avatar,
                         "KimodoConstraintAvatarlessExpectedTarget",
                         out expectedTarget,
@@ -176,7 +176,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
                 Assert.That(
-                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
                         expectedBoneSample,
                         expectedTarget,
                         out error),
@@ -298,10 +298,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoConstraintCustomAvatarTest",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);
@@ -340,10 +340,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoTrackFirstAvatarTest",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);
@@ -440,10 +440,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoBatchRetargetTest",
-                    out SkeletonCache cache,
+                    out RetargetSkeleton cache,
                     out error),
                 Is.True,
                 error);
@@ -528,10 +528,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoTimelineAvatarlessSource",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);
@@ -622,7 +622,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
                 Assert.That(source.animator.avatar, Is.Null, "Timeline sampling must not mutate the binding Animator Avatar.");
-                var sourceIntermediate = (SkeletonCache)typeof(KimodoTimelineSamplingSession)
+                var sourceIntermediate = (RetargetSkeleton)typeof(KimodoTimelineSamplingSession)
                     .GetField("sourceSamplingCache", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?.GetValue(sampler);
                 Assert.That(sourceIntermediate, Is.Not.Null);
@@ -662,7 +662,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
                 Assert.That(
-                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
                         targetSamples[0],
                         sampler.TargetCache,
                         out error),
@@ -702,7 +702,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
                 Assert.That(
-                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
                         roundTripSamples[0],
                         sourceIntermediate,
                         out error),
@@ -749,10 +749,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoEndConstraintTargetTest",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);
@@ -817,10 +817,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoFullBodyTargetsTest",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);
@@ -998,10 +998,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     $"KimodoTimeline{goal}IkTest",
-                    out SkeletonCache cache,
+                    out RetargetSkeleton cache,
                     out error),
                 Is.True,
                 error);
@@ -1061,10 +1061,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoTimelineSolvedIkCurveChannels",
-                    out SkeletonCache cache,
+                    out RetargetSkeleton cache,
                     out error),
                 Is.True,
                 error);
@@ -1128,18 +1128,18 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoTimelineFkOnlySource",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoTimelineFkOnlyTarget",
-                    out SkeletonCache target,
+                    out RetargetSkeleton target,
                     out error),
                 Is.True,
                 error);
@@ -1162,7 +1162,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
 
-                KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(target);
+                KimodoRetargetClipSamplingUtility.ResetRetargetSkeletonPose(target);
                 HumanPose expectedPose = input.pose;
                 target.poseHandler.SetHumanPose(ref expectedPose);
                 Transform expectedLeftFoot = target.animator.GetBoneTransform(HumanBodyBones.LeftFoot);
@@ -1237,18 +1237,18 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoSelfRetargetSource",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoSelfRetargetTarget",
-                    out SkeletonCache target,
+                    out RetargetSkeleton target,
                     out error),
                 Is.True,
                 error);
@@ -1326,10 +1326,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoEndConstraintHandIkTest",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);
@@ -1509,10 +1509,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoTimelineFootIkRootSpaceTest",
-                    out SkeletonCache cache,
+                    out RetargetSkeleton cache,
                     out error),
                 Is.True,
                 error);
@@ -1551,10 +1551,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoTimelineSingleFrameFootIkTest",
-                    out SkeletonCache cache,
+                    out RetargetSkeleton cache,
                     out error),
                 Is.True,
                 error);
@@ -1595,7 +1595,7 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(target.IsValid, Is.True);
                 Assert.That(targetMuscle, Is.Not.Null);
                 Assert.That(
-                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                    KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
                         target,
                         cache,
                         out error),
@@ -1622,10 +1622,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoTimelineHumanPoseRootTest",
-                    out SkeletonCache cache,
+                    out RetargetSkeleton cache,
                     out error),
                 Is.True,
                 error);
@@ -1783,10 +1783,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoTimelineOffsetPlayableTest",
-                    out SkeletonCache cache,
+                    out RetargetSkeleton cache,
                     out error),
                 Is.True,
                 error);
@@ -2238,10 +2238,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoAvatarlessEndEffectorTest",
-                    out SkeletonCache cache,
+                    out RetargetSkeleton cache,
                     out error),
                 Is.True,
                 error);
@@ -2377,20 +2377,20 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoConstraintRoundTrip_Source",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);
 
-            SkeletonCache somaFromConstraint = null;
-            SkeletonCache somaFromRestoredConstraint = null;
+            RetargetSkeleton somaFromConstraint = null;
+            RetargetSkeleton somaFromRestoredConstraint = null;
             try
             {
                 Assert.That(
-                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         avatar,
                         "KimodoConstraintRoundTrip_FirstSoma",
                         out somaFromConstraint,
@@ -2398,7 +2398,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
                 Assert.That(
-                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         avatar,
                         "KimodoConstraintRoundTrip_SecondSoma",
                         out somaFromRestoredConstraint,
@@ -2715,10 +2715,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoConstraintAnchorTargetAvatarTest",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);

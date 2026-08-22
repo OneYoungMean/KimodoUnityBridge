@@ -157,7 +157,7 @@ namespace KimodoBridge.Editor.Tests
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoArdyAutoHistoryRequestTest");
-            SkeletonCache skeleton = null;
+            RetargetSkeleton skeleton = null;
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
@@ -201,7 +201,7 @@ namespace KimodoBridge.Editor.Tests
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoArdyManualHistoryRequestTest");
-            SkeletonCache skeleton = null;
+            RetargetSkeleton skeleton = null;
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
@@ -244,7 +244,7 @@ namespace KimodoBridge.Editor.Tests
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoGenerationRequestOptionsTest");
-            SkeletonCache skeleton = null;
+            RetargetSkeleton skeleton = null;
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
@@ -302,7 +302,7 @@ namespace KimodoBridge.Editor.Tests
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoLoopGenerationRequestTest");
-            SkeletonCache skeleton = null;
+            RetargetSkeleton skeleton = null;
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
@@ -343,7 +343,7 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
-        private static SkeletonCache BindTestSkeleton(
+        private static RetargetSkeleton BindTestSkeleton(
             PlayableDirector director,
             AnimationTrack track,
             string rootName)
@@ -356,10 +356,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     rootName,
-                    out SkeletonCache skeleton,
+                    out RetargetSkeleton skeleton,
                     out error),
                 Is.True,
                 error);

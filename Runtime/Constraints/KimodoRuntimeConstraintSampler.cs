@@ -145,7 +145,7 @@ namespace KimodoBridge
             };
 
             if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                    player.ConstraintSkeletonCache,
+                    player.ConstraintRetargetSkeleton,
                     out MuscleSample muscleSample,
                     out error))
             {
@@ -157,7 +157,7 @@ namespace KimodoBridge
                 sample,
                 CharacterPoseMuscleAdapter.FromMuscleSample(
                     muscleSample,
-                    player.ConstraintSkeletonCache),
+                    player.ConstraintRetargetSkeleton),
                 out _);
             return true;
         }

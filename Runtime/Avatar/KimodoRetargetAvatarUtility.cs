@@ -59,10 +59,10 @@ namespace KimodoBridge
             return true;
         }
 
-        internal static bool TryBuildSkeletonCache(
+        internal static bool TryBuildRetargetSkeleton(
             Avatar avatar,
             string rootName,
-            out SkeletonCache cache,
+            out RetargetSkeleton cache,
             out string error)
         {
             cache = null;
@@ -76,7 +76,7 @@ namespace KimodoBridge
 
             if (!TryCreateVirtualSkeleton(
                     avatar,
-                    string.IsNullOrWhiteSpace(rootName) ? "KimodoSkeletonCache" : rootName,
+                    string.IsNullOrWhiteSpace(rootName) ? "KimodoRetargetSkeleton" : rootName,
                     animatorEnabled: true,
                     applyRootMotion: true,
                     out GameObject root,
@@ -86,7 +86,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            return TryBuildOwnedSkeletonCache(avatar, root, animator, out cache, out error);
+            return TryBuildOwnedRetargetSkeleton(avatar, root, animator, out cache, out error);
         }
 
         internal static bool TryBuildSkeletonInstance(
@@ -96,7 +96,7 @@ namespace KimodoBridge
             out string error)
         {
             skeleton = null;
-            if (!TryBuildSkeletonCache(avatar, rootName, out SkeletonCache cache, out error))
+            if (!TryBuildRetargetSkeleton(avatar, rootName, out RetargetSkeleton cache, out error))
             {
                 return false;
             }
@@ -105,10 +105,10 @@ namespace KimodoBridge
             return true;
         }
 
-        internal static bool TryBuildOwnedSkeletonCache(
+        internal static bool TryBuildOwnedRetargetSkeleton(
             GameObject root,
             Animator animator,
-            out SkeletonCache cache,
+            out RetargetSkeleton cache,
             out string error)
         {
             cache = null;
@@ -127,7 +127,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            return TryBuildOwnedSkeletonCache(avatar, root, animator, out cache, out error);
+            return TryBuildOwnedRetargetSkeleton(avatar, root, animator, out cache, out error);
         }
 
         internal static bool TryBuildOwnedSkeletonInstance(
@@ -137,7 +137,7 @@ namespace KimodoBridge
             out string error)
         {
             skeleton = null;
-            if (!TryBuildOwnedSkeletonCache(root, animator, out SkeletonCache cache, out error))
+            if (!TryBuildOwnedRetargetSkeleton(root, animator, out RetargetSkeleton cache, out error))
             {
                 return false;
             }
@@ -146,11 +146,11 @@ namespace KimodoBridge
             return true;
         }
 
-        private static bool TryBuildOwnedSkeletonCache(
+        private static bool TryBuildOwnedRetargetSkeleton(
             Avatar avatar,
             GameObject root,
             Animator animator,
-            out SkeletonCache cache,
+            out RetargetSkeleton cache,
             out string error)
         {
             cache = null;
@@ -178,7 +178,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            cache = new SkeletonCache
+            cache = new RetargetSkeleton
             {
                 avatar = avatar,
                 root = root,
@@ -203,7 +203,7 @@ namespace KimodoBridge
             return true;
         }
 
-        internal static bool ValidateRetargetCache(SkeletonCache cache, out string error)
+        internal static bool ValidateRetargetSkeleton(RetargetSkeleton cache, out string error)
         {
             error = string.Empty;
 
@@ -407,7 +407,7 @@ namespace KimodoBridge
         }
 
         internal static bool TryGetUniqueCachedTransformByName(
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             string name,
             out Transform result,
             out bool ambiguous)

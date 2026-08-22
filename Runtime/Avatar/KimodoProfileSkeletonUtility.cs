@@ -7,7 +7,7 @@ namespace KimodoBridge
     {
         public static bool TryResolveProfileSkeleton(
             string modelName,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             out string[] jointNames,
             out int[] parentIndices,
             out Transform[] jointTransforms,
@@ -19,7 +19,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(cache, out error))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(cache, out error))
             {
                 return false;
             }

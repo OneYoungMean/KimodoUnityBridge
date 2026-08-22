@@ -38,7 +38,7 @@ namespace KimodoBridge
 
         internal static bool TryBuildMarkerSampleResultFromBoneSample(
             BoneSample sample,
-            SkeletonCache targetCache,
+            RetargetSkeleton targetCache,
             string modelName,
             string markerType,
             double sampleTime,
@@ -53,12 +53,12 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out error))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(targetCache, out error))
             {
                 return false;
             }
 
-            if (!KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(sample, targetCache, out error))
+            if (!KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(sample, targetCache, out error))
             {
                 return false;
             }
@@ -93,7 +93,7 @@ namespace KimodoBridge
         /// Transform world values, never HumanPose body-space values.
         /// </summary>
         internal static void CaptureWorldTargets(
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             KimodoMarkerSampleResult result)
         {
             if (result == null) return;
@@ -131,7 +131,7 @@ namespace KimodoBridge
         }
 
         private static void CaptureEffector(
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             HumanBodyBones bone,
             CharacterPoseTransform target,
             KimodoSampleChannelMask enableMask,
@@ -159,7 +159,7 @@ namespace KimodoBridge
         }
 
         internal static Quaternion ResolveEffectorTransportRotation(
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             HumanBodyBones bone,
             Quaternion currentWorld,
             int rotationMode)

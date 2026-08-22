@@ -77,8 +77,8 @@ namespace KimodoBridge
             out string error,
             Action<string> debugLog = null)
         {
-            SkeletonCache sourceCache = null;
-            SkeletonCache targetCache = null;
+            RetargetSkeleton sourceCache = null;
+            RetargetSkeleton targetCache = null;
             try
             {
                 targetClip = sourceClip;
@@ -113,19 +113,19 @@ namespace KimodoBridge
                 bool needsSourceCache = exportMuscleClip && !sourceClip.isHumanMotion;
                 bool needsTargetCache = !exportMuscleClip;
 
-                if (needsSourceCache && !KimodoRetargetAvatarUtility.ValidateRetargetCache(sourceCache, out _))
+                if (needsSourceCache && !KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(sourceCache, out _))
                 {
                     sourceCache = null;
-                    if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(sourceAvatar, "KimodoRetargetTools_SourceClipBatch", out sourceCache, out error))
+                    if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(sourceAvatar, "KimodoRetargetTools_SourceClipBatch", out sourceCache, out error))
                     {
                         return false;
                     }
                 }
 
-                if (needsTargetCache && !KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out _))
+                if (needsTargetCache && !KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(targetCache, out _))
                 {
                     targetCache = null;
-                    if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(targetAvatar, "KimodoRetargetTools_TargetClipBatch", out targetCache, out error))
+                    if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(targetAvatar, "KimodoRetargetTools_TargetClipBatch", out targetCache, out error))
                     {
                         return false;
                     }

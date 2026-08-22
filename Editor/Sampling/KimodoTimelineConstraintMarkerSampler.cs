@@ -164,7 +164,7 @@ namespace KimodoBridge.Editor
     internal sealed class KimodoTimelineSamplingSession : IDisposable
     {
         private readonly KimodoTimelineInOutConstraintContext context;
-        private readonly SkeletonCache sourceSamplingCache;
+        private readonly RetargetSkeleton sourceSamplingCache;
         private readonly string[] sourceBonePaths;
         private readonly Transform[] sourceBoneTransforms;
         private readonly float sourceHumanScale;
@@ -174,11 +174,11 @@ namespace KimodoBridge.Editor
 
         private KimodoTimelineSamplingSession(
             KimodoTimelineInOutConstraintContext context,
-            SkeletonCache sourceSamplingCache,
+            RetargetSkeleton sourceSamplingCache,
             string[] sourceBonePaths,
             Transform[] sourceBoneTransforms,
             float sourceHumanScale,
-            SkeletonCache targetCache,
+            RetargetSkeleton targetCache,
             KimodoTimelineEvaluationScope evaluationScope,
             DirectorWrapMode originalWrapMode)
         {
@@ -192,7 +192,7 @@ namespace KimodoBridge.Editor
             this.originalWrapMode = originalWrapMode;
         }
 
-        internal SkeletonCache TargetCache { get; }
+        internal RetargetSkeleton TargetCache { get; }
         internal float SourceHumanScale => sourceHumanScale;
 
         internal static bool TryCreate(
@@ -221,16 +221,16 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
-            if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+            if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     targetAvatar,
                     "KimodoTimelineSamplingSession_Target",
-                    out SkeletonCache targetCache,
+                    out RetargetSkeleton targetCache,
                     out error))
             {
                 return false;
             }
 
-            SkeletonCache sourceSamplingCache = null;
+            RetargetSkeleton sourceSamplingCache = null;
             string[] sourceBonePaths = null;
             Transform[] sourceBoneTransforms = null;
             DirectorWrapMode originalWrapMode = context.Director.extrapolationMode;
@@ -238,7 +238,7 @@ namespace KimodoBridge.Editor
             try
             {
                 evaluationScope = KimodoTimelineEvaluationScope.Begin(context.Director);
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         context.SourceAvatar,
                         "KimodoTimelineSamplingSession_SourcePose",
                         out sourceSamplingCache,
@@ -307,7 +307,7 @@ namespace KimodoBridge.Editor
             }
 
             // RootTQ is not part of the muscle sampling transport. The
-            // canonical world root is captured later from SkeletonCache and
+            // canonical world root is captured later from RetargetSkeleton and
             // written to root2DOverride; legacy anchor normalization is kept
             // in the signature only for call-site compatibility.
             sample = samples[0];
@@ -448,7 +448,7 @@ namespace KimodoBridge.Editor
 
         private static bool TryBuildSourceBoneTransforms(
             Transform sourceRoot,
-            SkeletonCache sourceSamplingCache,
+            RetargetSkeleton sourceSamplingCache,
             out string[] sourceBonePaths,
             out Transform[] sourceBoneTransforms,
             out string error)
@@ -456,7 +456,7 @@ namespace KimodoBridge.Editor
             sourceBonePaths = null;
             sourceBoneTransforms = null;
             error = string.Empty;
-            if (sourceRoot == null || !KimodoRetargetAvatarUtility.ValidateRetargetCache(sourceSamplingCache, out error))
+            if (sourceRoot == null || !KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(sourceSamplingCache, out error))
             {
                 return false;
             }
@@ -531,7 +531,7 @@ namespace KimodoBridge.Editor
 
         private static bool TryCaptureSourceBoneSample(
             Transform sourceRoot,
-            SkeletonCache sourceSamplingCache,
+            RetargetSkeleton sourceSamplingCache,
             string[] sourceBonePaths,
             Transform[] sourceBoneTransforms,
             out BoneSample sample,

@@ -21,7 +21,7 @@ namespace KimodoBridge
             return FromMuscleSample(sample, null);
         }
 
-        public static CharacterPose FromMuscleSample(MuscleSample sample, SkeletonCache cache)
+        public static CharacterPose FromMuscleSample(MuscleSample sample, RetargetSkeleton cache)
         {
             if (sample == null)
             {
@@ -153,7 +153,7 @@ namespace KimodoBridge
             return KimodoSampleDataLayout.TryValidate(data, out error);
         }
 
-        public static float[] ToSampleData(MuscleSample sample, SkeletonCache cache = null)
+        public static float[] ToSampleData(MuscleSample sample, RetargetSkeleton cache = null)
         {
             return ToSampleData(FromMuscleSample(sample, cache));
         }

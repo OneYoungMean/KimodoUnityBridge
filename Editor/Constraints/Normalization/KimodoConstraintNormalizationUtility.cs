@@ -54,10 +54,10 @@ namespace KimodoBridge.Editor
         internal static float ResolveHumanScale(Avatar avatar)
         {
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar) ||
-                !KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                !KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoConstraintScaleProbe",
-                    out SkeletonCache cache,
+                    out RetargetSkeleton cache,
                     out _))
             {
                 return 1f;

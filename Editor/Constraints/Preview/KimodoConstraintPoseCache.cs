@@ -55,7 +55,7 @@ namespace KimodoBridge.Editor
     {
         public string Key;
         public Transform Root;
-        public SkeletonCache TargetCache;
+        public RetargetSkeleton TargetCache;
         public List<Material> GeneratedMaterials;
         public GameObject EndEffectorMarker;
         public Dictionary<HumanBodyBones, GameObject> FullBodyTargets;
@@ -107,7 +107,7 @@ namespace KimodoBridge.Editor
         internal static bool TryApplyToTargetAvatar(
             KimodoMarkerSampleResult sample,
             float frameRate,
-            SkeletonCache targetCache,
+            RetargetSkeleton targetCache,
             out string error)
         {
             error = string.Empty;
@@ -131,7 +131,7 @@ namespace KimodoBridge.Editor
                         out _,
                         out error,
                     sceneTargets: null) ||
-                    !KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                    !KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
                         canonicalTargetSample,
                         targetCache,
                         out error))
@@ -1310,7 +1310,7 @@ namespace KimodoBridge.Editor
             }
             DestroyFullBodyTargets(entry);
 
-            SkeletonCache targetCache = entry.TargetCache;
+            RetargetSkeleton targetCache = entry.TargetCache;
             entry.TargetCache = null;
             targetCache?.Dispose();
 

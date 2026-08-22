@@ -11,7 +11,7 @@ namespace KimodoBridge.Editor
         internal sealed class PoseRigInstance
         {
             public GameObject Root;
-            public SkeletonCache TargetCache;
+            public RetargetSkeleton TargetCache;
             public List<Material> GeneratedMaterials;
         }
 
@@ -40,7 +40,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            SkeletonCache targetCache = null;
+            RetargetSkeleton targetCache = null;
             List<Material> generatedMaterials = null;
             try
             {
@@ -57,7 +57,7 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (!KimodoRetargetAvatarUtility.TryBuildOwnedSkeletonCache(
+                if (!KimodoRetargetAvatarUtility.TryBuildOwnedRetargetSkeleton(
                         targetRoot,
                         targetAnimator,
                         out targetCache,

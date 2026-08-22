@@ -16,10 +16,10 @@ namespace KimodoBridge.Editor.Tests
                 Is.True,
                 error);
             Assert.That(
-                KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoStaticMeshPreviewTest",
-                    out SkeletonCache source,
+                    out RetargetSkeleton source,
                     out error),
                 Is.True,
                 error);

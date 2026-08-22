@@ -88,7 +88,7 @@ namespace KimodoBridge.Editor
                 for (int frame = 0; frame < frameCount; frame++)
                 {
                     token.ThrowIfCancellationRequested();
-                    if (!KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                    if (!KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
                             samples[frame],
                             sampler.TargetCache,
                             out error))

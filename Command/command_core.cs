@@ -694,13 +694,13 @@ namespace CharacterAnimationCli.Unity.Command
             }
             NormalizeConstraintObjects(constraints);
             var samples = new List<KimodoMarkerSampleResult>(constraints.Count * 3);
-            SkeletonCache targetCache = null;
+            RetargetSkeleton targetCache = null;
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             double originalSessionTime = session.Director.time;
             try
             {
                 if (constraints.Count > 0 &&
-                    !KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    !KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         targetAvatar,
                         "KimodoCommandPoseConstraints",
                         out targetCache,
@@ -775,7 +775,7 @@ namespace CharacterAnimationCli.Unity.Command
         private static KimodoMarkerSampleResult BuildRoot2DConstraint(
             JObject value,
             float targetRootHeight,
-            SkeletonCache targetCache,
+            RetargetSkeleton targetCache,
             double sampleTime,
             int constraintIndex)
         {
@@ -833,7 +833,7 @@ namespace CharacterAnimationCli.Unity.Command
         private static KimodoMarkerSampleResult BuildProfilePoseConstraint(
             JObject value,
             string constraintType,
-            SkeletonCache targetCache,
+            RetargetSkeleton targetCache,
             string modelName,
             float frameRate,
             double sampleTime,
@@ -926,7 +926,7 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        internal static float ResolveTargetRootHeight(SkeletonCache targetCache)
+        internal static float ResolveTargetRootHeight(RetargetSkeleton targetCache)
         {
             if (targetCache != null &&
                 targetCache.GetBonePose(
@@ -949,7 +949,7 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static bool TrySampleDirectSkeletonConstraint(
             TimelineCharacterRecord source,
-            SkeletonCache targetCache,
+            RetargetSkeleton targetCache,
             string modelName,
             string constraintType,
             double sampleTime,
@@ -958,7 +958,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             sample = null;
             error = string.Empty;
-            if (source?.Root == null || !KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out error))
+            if (source?.Root == null || !KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(targetCache, out error))
             {
                 return false;
             }
@@ -989,7 +989,7 @@ namespace CharacterAnimationCli.Unity.Command
                 return false;
             }
 
-            KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(targetCache);
+            KimodoRetargetClipSamplingUtility.ResetRetargetSkeletonPose(targetCache);
             for (int i = 0; i < targetCache.bonePaths.Length; i++)
             {
                 if (sourceByPath.TryGetValue(targetCache.bonePaths[i], out Transform sourceTransform) &&
@@ -1106,7 +1106,7 @@ namespace CharacterAnimationCli.Unity.Command
 
         private static bool TrySamplePoseConstraint(
             ResolvedCharacter pose,
-            SkeletonCache targetCache,
+            RetargetSkeleton targetCache,
             string modelName,
             string constraintType,
             double sampleTime,
@@ -1115,7 +1115,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             sample = null;
             error = string.Empty;
-            if (pose.Animator == null || !KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out error))
+            if (pose.Animator == null || !KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(targetCache, out error))
             {
                 return false;
             }
@@ -1128,7 +1128,7 @@ namespace CharacterAnimationCli.Unity.Command
                     poseHandler.GetHumanPose(ref humanPose);
                 }
                 KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref humanPose);
-                KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(targetCache);
+                KimodoRetargetClipSamplingUtility.ResetRetargetSkeletonPose(targetCache);
                 targetCache.poseHandler.SetHumanPose(ref humanPose);
                 BoneSample targetSample = KimodoRetargetSamplingUtility.CaptureBoneSample(targetCache);
                 if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(

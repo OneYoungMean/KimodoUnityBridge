@@ -35,7 +35,7 @@ namespace KimodoBridge.Editor
             }
 
             Avatar avatar = null;
-            SkeletonCache cache = null;
+            RetargetSkeleton cache = null;
             AnimationClip baselineClip = null;
             AnimationClip constrainedClip = null;
             AnimationClip mergedClip = null;
@@ -54,7 +54,7 @@ namespace KimodoBridge.Editor
                     }
                     return false;
                 }
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         avatar,
                         "KimodoClipConstraintFootTQ",
                         out cache,
