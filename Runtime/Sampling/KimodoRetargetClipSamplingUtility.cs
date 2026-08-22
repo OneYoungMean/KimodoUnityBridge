@@ -613,9 +613,7 @@ namespace KimodoBridge
                 CloneMuscleSample,
                 out samples,
                 out error,
-                // RootTQ is an absolute HumanPose channel. Do not convert it
-                // to MotionX delta before GetHumanPose reads the sample.
-                applyMotionXToDelta: false);
+                applyMotionXToDelta: true);
         }
 
         internal static bool TrySampleTargetFromSingleMuscleSample(
@@ -738,7 +736,7 @@ namespace KimodoBridge
                     KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                     out context,
                     out error,
-                    applyMotionXToDelta: false);
+                    applyMotionXToDelta: true);
                 if (!builtContext ||
                     !KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(context, 0f, out error))
                 {
@@ -843,7 +841,7 @@ namespace KimodoBridge
                         KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                         out context,
                         out error,
-                        applyMotionXToDelta: false))
+                        applyMotionXToDelta: true))
                 {
                     return false;
                 }
