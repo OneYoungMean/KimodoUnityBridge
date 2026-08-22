@@ -512,3 +512,10 @@
 - 已完成：AutoSample gizmo 统一关闭 selectable/editable 状态；非 AutoSample 仍允许拖拽并写回 world-space `root2DOverride`/effectors。
 - 已完成：只读路径会清除暂态 `pendingEndEffectorWriteback`/`pendingRootWriteback` 和 Transform change 标记，避免不可编辑目标残留状态。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-autosample-readonly-pass4.log`。
+
+## CP63 — Generate/InOut 使用目标 Avatar 尺度
+
+- 已修正：`KimodoInOutConstraintComposer` 和 `KimodoEditorConstraintProvider` 不再使用 Timeline 源 `SourceAvatar` 计算导出 `humanScale`。
+- 已修正：导出上下文现在按 `modelName` 解析目标 Avatar，再用于 Root2D、FullBody、Effector 的协议尺度；源 Avatar 仅保留给 Timeline 原始采样。
+- 结果：目标 Rig、ConstraintInternal 投影和 Generate 协议使用同一目标模型尺度，切断了源 Avatar → 目标约束的旧尺度旁路。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-target-scale-pass5.log`。

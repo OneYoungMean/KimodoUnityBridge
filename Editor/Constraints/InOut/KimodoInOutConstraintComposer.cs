@@ -75,10 +75,19 @@ namespace KimodoBridge.Editor
             double clipDurationSeconds = KimodoInOutConstraintTools.ResolveConstraintClipDurationSeconds(
                 request.GenerationFrames,
                 generationFrameRate);
+            float targetHumanScale = 1f;
+            if (KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
+                    null,
+                    request.ModelName,
+                    out Avatar targetAvatar,
+                    out _))
+            {
+                targetHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(targetAvatar);
+            }
             built.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                 built.CombinedSamples,
                 new KimodoConstraintExportContext(
-                    KimodoConstraintNormalizationUtility.ResolveHumanScale(request.SourceAvatar),
+                    targetHumanScale,
                     KimodoConstraintExportProjector.Create(request.ModelName)),
                 clipStartSeconds: 0.0,
                 clipDurationSeconds: clipDurationSeconds,
