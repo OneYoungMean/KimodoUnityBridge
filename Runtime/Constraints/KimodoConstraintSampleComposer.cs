@@ -191,11 +191,10 @@ namespace TimelineInject
         {
             string mode = (sample.constraintMode ?? sample.constraintType ?? string.Empty)
                 .Trim().ToLowerInvariant().Replace('_', '-');
-            bool fullBody = mode == "fullbody" || mode == "constraint" || mode == "mix" ||
-                sample.mask?.muscle == true || sample.enableMask?.muscle49 == true;
-            bool root2D = mode == "root2d" || mode == "mix" || sample.enableMask?.root2DPosition == true ||
-                sample.enableMask?.root2DPosition == true;
-            bool effector = mode == "effector" || sample.mask?.AnyEndEffector == true;
+            KimodoConstraintMask channels = KimodoConstraintMask.FromSample(sample);
+            bool fullBody = mode == "fullbody" || mode == "constraint" || mode == "mix" || channels.muscle;
+            bool root2D = mode == "root2d" || mode == "mix" || channels.rootPosition;
+            bool effector = mode == "effector" || channels.AnyEndEffector;
             return channel switch
             {
                 SampleChannel.Muscle49 => fullBody,
@@ -204,10 +203,10 @@ namespace TimelineInject
                 SampleChannel.RightFootTQ => fullBody,
                 SampleChannel.Root2DPosition => root2D,
                 SampleChannel.Root2DHeading => root2D,
-                SampleChannel.LeftHandEffector => effector && (sample.mask?.leftHand == true || sample.enableMask?.leftHandEffector == true),
-                SampleChannel.RightHandEffector => effector && (sample.mask?.rightHand == true || sample.enableMask?.rightHandEffector == true),
-                SampleChannel.LeftFootEffector => effector && (sample.mask?.leftFoot == true || sample.enableMask?.leftFootEffector == true),
-                SampleChannel.RightFootEffector => effector && (sample.mask?.rightFoot == true || sample.enableMask?.rightFootEffector == true),
+                SampleChannel.LeftHandEffector => effector && channels.leftHand,
+                SampleChannel.RightHandEffector => effector && channels.rightHand,
+                SampleChannel.LeftFootEffector => effector && channels.leftFoot,
+                SampleChannel.RightFootEffector => effector && channels.rightFoot,
                 _ => false
             };
         }
@@ -370,7 +369,7 @@ namespace TimelineInject
                             merged,
                             canonical,
                             hasCanonicalPose,
-                            KimodoConstraintMask.Resolve(merged.mask, merged.constraintType));
+                            KimodoConstraintMask.FromSample(merged));
                     }
                     continue;
                 }
@@ -378,7 +377,7 @@ namespace TimelineInject
                 for (int i = 0; i < group.Count; i++)
                 {
                     KimodoMarkerSampleResult source = group[i];
-                    KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source.mask, source.constraintType);
+                    KimodoConstraintMask mask = KimodoConstraintMask.FromSample(source);
                     if (group.Count == 1)
                     {
                         output.Add(source.Clone());
@@ -419,9 +418,7 @@ namespace TimelineInject
             foreach (KimodoMarkerSampleResult canonical in ComposeCanonicalSamples(samples, frameRate))
             {
                 if (canonical == null) continue;
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
-                    canonical.mask,
-                    "constraint");
+                KimodoConstraintMask mask = KimodoConstraintMask.FromSample(canonical);
                 bool hasPose = TryGetPose(canonical, out CharacterPose canonicalPose, out _);
                 AppendProtocolSamples(
                     output,
@@ -474,7 +471,7 @@ namespace TimelineInject
 
                 if (effectorSample != null)
                 {
-                    KimodoConstraintMask mask = KimodoConstraintMask.Resolve(effectorSample.mask, "effector");
+                    KimodoConstraintMask mask = KimodoConstraintMask.FromSample(effectorSample);
                     AppendEffectorSample(output, effectorSample, mask.leftHand, "left-hand");
                     AppendEffectorSample(output, effectorSample, mask.rightHand, "right-hand");
                     AppendEffectorSample(output, effectorSample, mask.leftFoot, "left-foot");
@@ -513,7 +510,7 @@ namespace TimelineInject
                     continue;
                 }
 
-                KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source.mask, "effector");
+                KimodoConstraintMask sourceMask = KimodoConstraintMask.FromSample(source);
                 result.mask ??= new KimodoConstraintMask();
                 result.effectors ??= new KimodoConstraintEffectors();
                 if (sourceMask.leftHand)
@@ -620,7 +617,7 @@ namespace TimelineInject
                 KimodoMarkerSampleResult source = group[i];
                 if (source == null) continue;
                 if (seed == null || SeedPriority(source) > SeedPriority(seed)) seed = source;
-                KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source.mask, source.constraintType);
+                KimodoConstraintMask sourceMask = KimodoConstraintMask.FromSample(source);
                 mask.muscle |= sourceMask.muscle;
                 mask.rootPosition |= sourceMask.rootPosition;
                 mask.rootHeading |= sourceMask.rootHeading;
@@ -648,7 +645,7 @@ namespace TimelineInject
             for (int i = 0; i < group.Count; i++)
             {
                 KimodoMarkerSampleResult source = group[i];
-                KimodoConstraintMask sourceMask = KimodoConstraintMask.Resolve(source?.mask, source?.constraintType);
+                KimodoConstraintMask sourceMask = KimodoConstraintMask.FromSample(source);
                 if (source?.effectors == null) continue;
                 if (sourceMask.leftHand)
                     merged.effectors.leftHand = source.effectors.leftHand.Clone();
@@ -688,7 +685,7 @@ namespace TimelineInject
             for (int i = 0; i < samples.Count; i++)
             {
                 KimodoMarkerSampleResult source = samples[i];
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source?.mask, source?.constraintType);
+                KimodoConstraintMask mask = KimodoConstraintMask.FromSample(source);
                 if (TryGetPose(source, out CharacterPose sourcePose, out _) &&
                     mask.muscle)
                 {
@@ -720,7 +717,7 @@ namespace TimelineInject
         {
             if (sample == null) return -1;
             bool hasPose = TryGetPose(sample, out _, out _);
-            KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
+            KimodoConstraintMask mask = KimodoConstraintMask.FromSample(sample);
             if (hasPose && mask.muscle) return 3;
             return hasPose ? 1 : 0;
         }
@@ -732,7 +729,7 @@ namespace TimelineInject
             {
                 KimodoMarkerSampleResult sample = samples[i];
                 if (sample == null) continue;
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType);
+            KimodoConstraintMask mask = KimodoConstraintMask.FromSample(sample);
                 if (TryGetPose(sample, out _, out _) && mask.muscle)
                 {
                     seed = sample;

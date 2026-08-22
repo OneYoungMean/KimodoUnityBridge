@@ -416,3 +416,10 @@
 - 保持：没有接入 IK 解算；四个 effector 仍然只是 world-space transport/display 数据。
 - 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\kimodo-compile-effector-flatten.log`；`git diff --check` 通过。
 - 尚未完成：`constraintType`/旧 `mask` 双轨清理，以及 Command 层 `CharacterPose` DTO 收敛。
+
+## CP50 — Canonical channel mask resolution
+
+- 已完成：新增 `KimodoConstraintMask.FromSample`，优先从 `SampleResult.enableMask` 推导有效通道；仅对没有任何 enable bit 的旧样本回退到 legacy `mask`。
+- 已完成：Runtime overlap/upsert 与 canonical Composer 的通道参与、协议展开选择改用统一解析入口，减少 `mask` 与 `enableMask` 并行判断。
+- 保持：`mask` 字段和协议 `constraintType` 尚未物理删除，仍作为旧资产/协议展开兼容边界保留。
+- 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\kimodo-compile-mask-centralization.log`；`git diff --check` 通过。
