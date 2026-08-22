@@ -115,33 +115,29 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose canonicalPose, out error))
+            if (sample.sampleData == null || !sample.sampleData.IsValid)
             {
-                if (!canonicalPose.TryValidate(out error))
-                {
-                    return false;
-                }
-                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                        CharacterPoseMuscleAdapter.ToMuscleSample(canonicalPose),
-                        frameRate,
-                        targetCache,
-                        out BoneSample canonicalTargetSample,
-                        out _,
-                        out error,
-                    sceneTargets: null) ||
-                    !KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
-                        canonicalTargetSample,
-                        targetCache,
-                        out error))
-                {
-                    return false;
-                }
-
-                return true;
+                error = "SampleResult MuscleSample is invalid.";
+                return false;
             }
 
-            error = "SampleResult sampleData is invalid.";
-            return false;
+            if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                    sample.sampleData,
+                    frameRate,
+                    targetCache,
+                    out BoneSample canonicalTargetSample,
+                    out _,
+                    out error,
+                sceneTargets: null) ||
+                !KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
+                    canonicalTargetSample,
+                    targetCache,
+                    out error))
+            {
+                return false;
+            }
+
+            return true;
         }
 
     }

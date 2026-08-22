@@ -519,3 +519,9 @@
 - 已修正：导出上下文现在按 `modelName` 解析目标 Avatar，再用于 Root2D、FullBody、Effector 的协议尺度；源 Avatar 仅保留给 Timeline 原始采样。
 - 结果：目标 Rig、ConstraintInternal 投影和 Generate 协议使用同一目标模型尺度，切断了源 Avatar → 目标约束的旧尺度旁路。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-target-scale-pass5.log`。
+
+## CP64 — Preview 直接应用 70D MuscleSample
+
+- 已完成：Preview 的目标骨架应用逻辑删除 `SampleResult → CharacterPose → MuscleSample` 往返，直接使用 `SampleResult.sampleData` 70D `MuscleSample` 重建 `BoneSample` 并应用到唯一目标 `RetargetSkeleton`。
+- 结果：Preview 不再依赖 Command 层 `CharacterPose` 解释 rootTQ；原子采样链路统一为 `SampleResult → MuscleSample → BoneSample → target RetargetSkeleton`。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-preview-musclesample-pass6.log`。
