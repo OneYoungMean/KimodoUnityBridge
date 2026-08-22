@@ -536,3 +536,10 @@
 ## CP66 — 更新内部边界注释
 
 - 已完成：更新导出上下文和投影结果注释，明确 Root2D/Effector 使用 world-space，`humanScale` 仅为旧调用兼容字段，不再暗示上层应做尺度换算。
+
+## CP67 — 清理 InOut AutoBegin 尺度旁路
+
+- 已完成：移除 `KimodoInOutConstraintRequest.SourceHumanScale` 与 `KimodoHumanScale`，不再保存两套 Avatar 尺度。
+- 已完成：AutoBegin Root2D 直接写入 Timeline offset 的 world-space X/Z 和 heading；不再经过源/目标 humanScale 比值或除法。
+- 已完成：InOut 导出上下文不再通过 Avatar 构造，只保留内部 projector；源 Avatar 仍仅由采样工具用于原始边界采样。
+- 检查：首次编译发现构造函数重载问题后已修正；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-inout-worldspace-pass8b.log`。

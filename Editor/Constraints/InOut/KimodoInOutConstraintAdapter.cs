@@ -406,17 +406,6 @@ namespace KimodoBridge.Editor
                 return null;
             }
 
-            float sourceHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(context.SourceAvatar);
-            float kimodoHumanScale = 1f;
-            if (KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
-                    null,
-                    context.ModelName,
-                    out Avatar targetAvatar,
-                    out _))
-            {
-                kimodoHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(targetAvatar);
-            }
-
             return new KimodoInOutConstraintRequest
             {
                 Mode = mode,
@@ -424,8 +413,6 @@ namespace KimodoBridge.Editor
                 EnableEnd = enableEnd,
                 SourceAvatar = context.SourceAvatar,
                 ModelName = context.ModelName,
-                SourceHumanScale = sourceHumanScale,
-                KimodoHumanScale = kimodoHumanScale,
                 GenerationFrames = KimodoInOutConstraintTools.ClampFrameCount(generationFrames),
                 AutoBeginAnchor = autoBeginAnchor,
                 DeferNormalization = deferNormalization,

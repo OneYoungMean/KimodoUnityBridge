@@ -21,8 +21,6 @@ namespace KimodoBridge.Editor
         public bool EnableEnd;
         public Avatar SourceAvatar;
         public string ModelName = KimodoMotionModelProfiles.DefaultModelName;
-        public float SourceHumanScale = 1f;
-        public float KimodoHumanScale = 1f;
         public int GenerationFrames = 1;
         public bool AutoBeginAnchor;
         public bool DeferNormalization;

@@ -75,20 +75,12 @@ namespace KimodoBridge.Editor
             double clipDurationSeconds = KimodoInOutConstraintTools.ResolveConstraintClipDurationSeconds(
                 request.GenerationFrames,
                 generationFrameRate);
-            float targetHumanScale = 1f;
-            if (KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
-                    null,
-                    request.ModelName,
-                    out Avatar targetAvatar,
-                    out _))
-            {
-                targetHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(targetAvatar);
-            }
             built.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                 built.CombinedSamples,
-                new KimodoConstraintExportContext(
-                    targetHumanScale,
-                    KimodoConstraintExportProjector.Create(request.ModelName)),
+                new KimodoConstraintExportContext
+                {
+                    projectedPoseProjector = KimodoConstraintExportProjector.Create(request.ModelName)
+                },
                 clipStartSeconds: 0.0,
                 clipDurationSeconds: clipDurationSeconds,
                 exportFps: generationFrameRate);
@@ -135,15 +127,12 @@ namespace KimodoBridge.Editor
                 out Vector3 worldPosition,
                 out Quaternion worldRotation);
             Quaternion worldPlanarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(worldRotation);
-            float scale = Mathf.Max(1e-6f, request.KimodoHumanScale) /
-                Mathf.Max(1e-6f, request.SourceHumanScale);
-            Vector3 kimodoPosition = new Vector3(worldPosition.x, 0f, worldPosition.z) * scale;
             Vector3 forward = worldPlanarRotation * Vector3.forward;
 
             sample = new KimodoMarkerSampleResult
             {
                 root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
-                { t = kimodoPosition / Mathf.Max(1e-6f, request.KimodoHumanScale), q = worldPlanarRotation },
+                { t = new Vector3(worldPosition.x, 0f, worldPosition.z), q = worldPlanarRotation },
                 constraintType = "constraint",
                 constraintMode = "root2d",
                 sampleTime = 0.0,
