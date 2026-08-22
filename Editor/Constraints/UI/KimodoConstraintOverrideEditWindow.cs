@@ -42,7 +42,7 @@ namespace KimodoBridge.Editor
         // Constraint authoring no longer displays or edits these Euler values.
         internal static HumanBodyBones[] BuildMuscleEulerBones()
         {
-            return CharacterPoseMuscleAdapter.UnityBodyMuscleIndices
+            return KimodoMuscleSampleHumanPoseAdapter.UnityBodyMuscleIndices
                 .Select(HumanTrait.BoneFromMuscle)
                 .Where(index => index >= 0 && index < (int)HumanBodyBones.LastBone)
                 .Select(index => (HumanBodyBones)index)

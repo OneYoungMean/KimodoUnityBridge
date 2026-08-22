@@ -936,17 +936,15 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException($"Loop pass 1 raw tail-frame sampling failed: {tailError}");
             }
 
-            string firstPoseError = string.Empty;
-            string tailPoseError = string.Empty;
-            if (!KimodoSampleResultPoseUtility.TryDecode(firstFrame, out CharacterPose firstPose, out firstPoseError) ||
-                !KimodoSampleResultPoseUtility.TryDecode(tailFrame, out CharacterPose tailPose, out tailPoseError))
+            if (firstFrame.sampleData == null || tailFrame.sampleData == null ||
+                !firstFrame.sampleData.IsValid || !tailFrame.sampleData.IsValid)
             {
-                throw new InvalidOperationException($"Loop pass 1 sampleData decode failed: {firstPoseError}{tailPoseError}");
+                throw new InvalidOperationException("Loop pass 1 sampleData is invalid.");
             }
-            Vector3 firstPosition = firstPose.root.t;
-            Vector3 tailPosition = tailPose.root.t;
+            firstFrame.sampleData.GetRoot(out Vector3 firstPosition, out Quaternion _);
+            tailFrame.sampleData.GetRoot(out Vector3 tailPosition, out Quaternion tailRotation);
             float tailRotationY = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(
-                tailPose.root.q).eulerAngles.y;
+                tailRotation).eulerAngles.y;
             KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][GenerateLoop] raw pass-1 root: " +
                 $"firstPosXZ=({firstPosition.x:F4}, {firstPosition.z:F4}), " +

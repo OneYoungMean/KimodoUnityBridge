@@ -31,8 +31,8 @@ namespace KimodoBridge.Editor
             var order = new List<int>();
             for (int index = 0; index < muscles.arraySize; index++)
             {
-                int traitIndex = index < CharacterPoseMuscleAdapter.UnityBodyMuscleIndices.Length
-                    ? CharacterPoseMuscleAdapter.UnityBodyMuscleIndices[index]
+                int traitIndex = index < KimodoMuscleSampleHumanPoseAdapter.UnityBodyMuscleIndices.Length
+                    ? KimodoMuscleSampleHumanPoseAdapter.UnityBodyMuscleIndices[index]
                     : index;
                 int bone = traitIndex >= 0 && traitIndex < HumanTrait.MuscleCount
                     ? HumanTrait.BoneFromMuscle(traitIndex)
