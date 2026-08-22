@@ -723,13 +723,12 @@ namespace KimodoBridge.Editor
             }
             throw new InvalidOperationException("Constraint JSON must be an array or object.");
         }
-            private static KimodoConstraintExportContext ResolveExportContext(string modelName)
+        private static KimodoConstraintExportContext ResolveExportContext(string modelName)
         {
-            return KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(null, modelName, out Avatar avatar, out _)
-                ? new KimodoConstraintExportContext(
-                    KimodoConstraintNormalizationUtility.ResolveHumanScale(avatar),
-                    KimodoConstraintExportProjector.Create(modelName))
-                : new KimodoConstraintExportContext();
+            return new KimodoConstraintExportContext
+            {
+                projectedPoseProjector = KimodoConstraintExportProjector.Create(modelName)
+            };
         }
 }
 

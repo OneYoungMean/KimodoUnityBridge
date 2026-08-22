@@ -710,16 +710,12 @@ namespace KimodoBridge.Editor
         {
             if (timelineClip != null &&
                 KimodoInOutConstraintAdapter.TryResolveTimelineContext(timelineClip, out KimodoTimelineInOutConstraintContext context, out _) &&
-                context != null &&
-                KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
-                    null,
-                    context.ModelName,
-                    out Avatar targetAvatar,
-                    out _))
+                context != null)
             {
-                return new KimodoConstraintExportContext(
-                    KimodoConstraintNormalizationUtility.ResolveHumanScale(targetAvatar),
-                    KimodoConstraintExportProjector.Create(context.ModelName));
+                return new KimodoConstraintExportContext
+                {
+                    projectedPoseProjector = KimodoConstraintExportProjector.Create(context.ModelName)
+                };
             }
             return new KimodoConstraintExportContext();
         }

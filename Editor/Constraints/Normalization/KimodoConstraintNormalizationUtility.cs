@@ -51,12 +51,14 @@ namespace KimodoBridge.Editor
                 : Quaternion.identity;
         }
 
+        // Retarget clip baking still needs the target humanoid scale. This is
+        // not used by world-space constraint export.
         internal static float ResolveHumanScale(Avatar avatar)
         {
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar) ||
                 !KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
-                    "KimodoConstraintScaleProbe",
+                    "KimodoRetargetClipScaleProbe",
                     out RetargetSkeleton cache,
                     out _))
             {

@@ -543,3 +543,10 @@
 - 已完成：AutoBegin Root2D 直接写入 Timeline offset 的 world-space X/Z 和 heading；不再经过源/目标 humanScale 比值或除法。
 - 已完成：InOut 导出上下文不再通过 Avatar 构造，只保留内部 projector；源 Avatar 仍仅由采样工具用于原始边界采样。
 - 检查：首次编译发现构造函数重载问题后已修正；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-inout-worldspace-pass8b.log`。
+
+## CP68 — 移除 Generate 约束导出的 Avatar 尺度探针
+
+- 已完成：Editor Generate、ClipConstraint Bake、PlayableClip Generate 的约束导出上下文不再加载目标 Avatar 计算 `humanScale`；改为直接交给内部 projector。
+- 保留：`ResolveHumanScale` 仅恢复给最终 retarget clip 烘焙使用，不再参与 Root2D/Effector/FullBody 约束 JSON。
+- 结果：约束导出路径不再向上层暴露目标 Avatar；目标骨架/Avatar 只由 ConstraintInternal projector 和实际 retarget 管线持有。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-inout-cleanup-pass9.log`。
