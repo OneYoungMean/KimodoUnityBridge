@@ -1128,11 +1128,11 @@ namespace KimodoBridge
             return true;
         }
 
-        public static bool TryBuildConstraintRawData(
+        internal static bool TryBuildConstraintInternalData(
             KimodoRawMotionData motion,
             string modelName,
             int frameIndex,
-            out KimodoConstraintRawData rawData,
+            out KimodoConstraintInternalData rawData,
             out string error)
         {
             rawData = null;
@@ -1188,7 +1188,7 @@ namespace KimodoBridge
                     KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(localRotation));
             }
 
-            rawData = new KimodoConstraintRawData
+            rawData = new KimodoConstraintInternalData
             {
                 rootPosition = rootPosition,
                 localJointAxisAngles = localJointAxisAngles

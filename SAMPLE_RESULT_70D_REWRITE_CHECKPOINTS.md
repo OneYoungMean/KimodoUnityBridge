@@ -350,3 +350,9 @@
 - 保留：协议层 `KimodoSampleDataLayout` 的 float[70] 编码作为传输格式适配，不再作为内部动画原子对象。
 - 尚未完成：CharacterPose/CharacterPoseTransform/CharacterPoseSides 的生产适配移除，以及 RawMotion→constraint_internal 直连。
 - 检查：`git diff --check` 通过；FullDemo dotnet 构建当前被外部 Unity Test Framework/NUnit 和缺失 Unity 生成 DLL 阻断，未形成有效生产编译结论。
+
+## CP44 — RawMotion 内部约束边界命名
+
+- 已完成：`KimodoConstraintRawData` 改为内部类型 `KimodoConstraintInternalData`。
+- 已完成：RawMotion 导出入口改为内部 `TryBuildConstraintInternalData`，不再把 RawMotion 暴露为公开 constraint 数据结构。
+- 说明：当前只完成边界命名和可见性收敛；RawMotion 直接对接内部约束发送通道仍需在下一阶段接入，避免继续经过公开 constraint JSON。

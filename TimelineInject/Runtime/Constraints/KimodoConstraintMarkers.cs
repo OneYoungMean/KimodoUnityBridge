@@ -118,12 +118,12 @@ namespace TimelineInject
     /// the constraint JSON exporter applies the protocol conversion.
     /// </summary>
     [Serializable]
-    public sealed class KimodoConstraintRawData
+    internal sealed class KimodoConstraintInternalData
     {
         public Vector3 rootPosition;
         public List<Vector3> localJointAxisAngles = new List<Vector3>();
 
-        public KimodoConstraintRawData Clone() => new KimodoConstraintRawData
+        public KimodoConstraintInternalData Clone() => new KimodoConstraintInternalData
         {
             rootPosition = rootPosition,
             localJointAxisAngles = localJointAxisAngles != null
