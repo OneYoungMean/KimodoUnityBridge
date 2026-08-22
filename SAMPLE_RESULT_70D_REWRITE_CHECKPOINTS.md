@@ -504,3 +504,4 @@
 - 已完成：新增 `KimodoConstraintInternal.GetConstraintInternal(sample, modelType, exportContext)` 作为唯一约束选择入口；`Build` 仅保留为兼容别名。
 - 已完成：所有 canonical JSON 导出路径通过该入口取得内部约束数组，再执行协议合并，effector 不再由上层单独导出。
 - 复核：预览上层已无 `PoseCacheRenderContext.SourceAvatar`；InOut/Timeline 采样中的 `SourceAvatar` 仍是采样边界所需的 Timeline 源 Avatar，尚未下沉到 internal，下一批继续处理。
+- 修正：effector mode 在没有对应 `enableMask` 通道时不再臆造左手 effector，保持空约束并要求上层提供明确通道。
