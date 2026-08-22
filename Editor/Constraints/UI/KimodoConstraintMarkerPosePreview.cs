@@ -47,13 +47,6 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
             TimelineClip referenceClip = KimodoConstraintMarkerSampling.FindReferenceClip(track, marker.time, clipRange);
             KimodoPlayableClip playableClip = referenceClip?.asset as KimodoPlayableClip;
             string modelName = KimodoConstraintMarkerSampling.ResolveModelName(referenceClip);
-            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, animator);
-            if (!avatarResult.IsHumanoid || avatarResult.Avatar == null)
-            {
-                error = $"Resolve source avatar failed: {avatarResult.Error}";
-                return false;
-            }
             KimodoConstraintRigType rigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName);
             int clipContextId = playableClip != null
                 ? KimodoUnityObjectIdUtility.IdHash(playableClip)
@@ -65,8 +58,7 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
                 KimodoUnityObjectIdUtility.IdHash(animator),
                 KimodoUnityObjectIdUtility.IdHash(track),
                 modelName,
-                rigType,
-                avatarResult.Avatar);
+                rigType);
             return true;
         }
 
@@ -117,21 +109,13 @@ public static bool TryBuildRenderContextForPlayableClip(
             string modelName = string.IsNullOrWhiteSpace(playableClip.bridgeModelName)
                 ? "Kimodo-SOMA-RP-v1"
                 : playableClip.bridgeModelName.Trim();
-            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, animator);
-            if (!avatarResult.IsHumanoid || avatarResult.Avatar == null)
-            {
-                error = $"Resolve source avatar failed: {avatarResult.Error}";
-                return false;
-            }
             KimodoConstraintRigType rigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName);
             context = new PoseCacheRenderContext(
                 KimodoUnityObjectIdUtility.IdHash(playableClip),
                 KimodoUnityObjectIdUtility.IdHash(animator),
                 KimodoUnityObjectIdUtility.IdHash(track),
                 modelName,
-                rigType,
-                avatarResult.Avatar);
+                rigType);
             return true;
         }
 

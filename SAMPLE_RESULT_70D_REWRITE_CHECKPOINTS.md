@@ -481,3 +481,12 @@
 - 已完成：`KimodoConstraintJsonExporter` 改由内部约束数组统一构建 JSON；原有 JSON 字段和坐标转换逻辑保持不变，暂未改变 Avatar/RetargetSkeleton 的实际来源。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-constraint-internal-pass1.log`。
 - 下一批：将目标 Avatar/RetargetSkeleton 创建收回 ConstraintInternal，Preview/Rig 只使用同一目标骨架句柄，并清理上层 `SourceAvatar` 依赖。
+
+## CP59 — Preview Rig 改用唯一目标 Avatar 骨架
+
+- 已完成：`KimodoConstraintPoseRigFactory` 不再接收或克隆 Timeline 绑定角色的 Avatar；改为按 `modelName` 从 Resources 加载目标 Avatar，并创建唯一目标 `RetargetSkeleton`。
+- 已完成：`PoseCacheRenderContext` 删除 `SourceAvatar` 字段和预览上下文中的 Avatar 哈希；Marker Preview 不再为绘制 Rig 解析 Timeline Avatar。
+- 已完成：编辑窗口的源 Avatar 校验改为仅在需要采样时临时解析，不再把源 Avatar 存入预览上下文。
+- 结果：Preview/Rig 与目标 RetargetSkeleton 已统一；源 Timeline 角色只保留在采样链路。当前目标 Avatar 资源只提供骨架时，预览显示骨架与 gizmo，不复制源角色网格。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-target-rig-pass2.log`。
+- 已知：旧的 `KimodoConstraintPoseRigFactoryTests` 仍验证“克隆源网格”语义，需按破坏性升级后的目标骨架语义重写或屏蔽。
