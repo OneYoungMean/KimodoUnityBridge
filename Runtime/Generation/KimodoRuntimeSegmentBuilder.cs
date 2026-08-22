@@ -41,21 +41,20 @@ namespace KimodoBridge
                     $"Failed to read effective tail root position for frame {effectiveLastFrameIndex}.");
             }
 
-            List<KimodoMarkerSampleResult> overlap = isArdy
-                ? new List<KimodoMarkerSampleResult>()
+            List<KimodoConstraintInternalData> overlap = isArdy
+                ? new List<KimodoConstraintInternalData>()
                 : BuildOverlap(
                     metadata.Motion,
                     modelName,
                     effectiveLastFrameIndex,
-                    overlapHead,
-                    allowPartialJoints);
+                    overlapHead);
 
             return new KimodoRuntimeGeneratedSegment
             {
                 Index = segmentIndex,
                 PromptText = prompt,
                 Motion = metadata.Motion,
-                ConstraintOverlapPoses = overlap,
+                ConstraintOverlapInternalData = overlap,
                 FirstRootPosition = metadata.FirstRootPosition,
                 LastRootPosition = effectiveLastRootPosition,
                 WorldAccumulatedOffset = Vector3.zero,
@@ -161,37 +160,34 @@ namespace KimodoBridge
                 return metadata;
             }, token);
 
-        private static List<KimodoMarkerSampleResult> BuildOverlap(
+        private static List<KimodoConstraintInternalData> BuildOverlap(
             KimodoRawMotionData motion,
             string modelName,
             int effectiveLastFrameIndex,
-            KimodoSegmentOverlapHeadSettings overlapHead,
-            bool allowPartialJoints)
+            KimodoSegmentOverlapHeadSettings overlapHead)
         {
-            if (!KimodoRawMotionUtility.TryExtractMarkerSample(
+            List<KimodoConstraintInternalData> overlap =
+                KimodoRuntimeSegmentAnalysisUtility.BuildConstraintOverlapInternalData(
                     motion,
                     modelName,
                     effectiveLastFrameIndex,
-                    out KimodoMarkerSampleResult tailPose,
-                    out string error,
-                    KimodoRuntimeConstraints.FullBodyType,
-                    0.0,
-                    allowPartialJoints))
-            {
-                throw new InvalidOperationException(error);
-            }
-
-            List<KimodoMarkerSampleResult> overlap =
-                KimodoRuntimeSegmentAnalysisUtility.BuildConstraintOverlapPoses(
-                    motion,
-                    modelName,
-                    effectiveLastFrameIndex,
-                    overlapHead,
-                    allowPartialJoints);
+                    overlapHead);
             if (overlap.Count == 0)
             {
-                tailPose.sampleTime = 0.0;
-                overlap.Add(tailPose);
+                if (KimodoRawMotionUtility.TryBuildConstraintInternalData(
+                        motion,
+                        modelName,
+                        effectiveLastFrameIndex,
+                        out KimodoConstraintInternalData tail,
+                        out string error))
+                {
+                    tail.sampleTime = 0.0;
+                    overlap.Add(tail);
+                }
+                else
+                {
+                    throw new InvalidOperationException(error);
+                }
             }
 
             return overlap;

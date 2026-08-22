@@ -454,3 +454,11 @@
 - 已完成：协议展开仍使用同名的 transient protocol type，Clone 会保留它，因此 fullbody/root2d/effector 协议输出行为不变。
 - 保持：Command/旧协议调用方暂时继续使用 `constraintType` 属性，后续可逐步改成显式 protocol expansion API；不会再产生 Timeline 资产中的第二套持久模式字段。
 - 检查：`git diff --check` 通过；Unity 场景编译待 package 宿主可用时执行。
+
+## CP55 — Runtime RawMotion overlap 直连 constraint_internal
+
+- 已完成：Runtime segment overlap 不再保存 `KimodoMarkerSampleResult`，改为 `KimodoConstraintInternalData`（根位置、profile 局部轴角、采样时间）。
+- 已完成：Runtime Generate 将普通用户约束继续交给 Composer/JSON exporter，将 RawMotion overlap 直接追加为 FullBody 协议记录；没有 RawMotion→SampleResult→profile projector 往返。
+- 已完成：编辑器 Generate 的 RawMotion FullBody bake 与 Runtime overlap 使用同一内部数据转换语义。
+- 保持：Timeline/Inspector authored constraint 仍使用 SampleResult，这是用户编辑数据，不属于 RawMotion 内部边界。
+- 检查：`git diff --check` 通过；当前 Unity 宿主受已有 Unity 进程占用，未取得新的 batch 编译日志，需在宿主空闲后执行编译。

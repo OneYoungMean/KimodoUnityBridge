@@ -109,6 +109,56 @@ namespace KimodoBridge
             return samples;
         }
 
+        internal static List<KimodoConstraintInternalData> BuildConstraintOverlapInternalData(
+            KimodoRawMotionData motion,
+            string modelName,
+            int effectiveLastFrameIndex,
+            KimodoSegmentOverlapHeadSettings settings)
+        {
+            var frames = new List<KimodoConstraintInternalData>();
+            if (motion == null || motion.FrameCount <= 0)
+            {
+                return frames;
+            }
+
+            settings ??= new KimodoSegmentOverlapHeadSettings();
+            float frameRate = ResolveFrameRate(motion);
+            int overlapStart = ResolveOverlapStartFrameIndex(motion, effectiveLastFrameIndex, settings, frameRate);
+            int windowCount = Mathf.Max(1, effectiveLastFrameIndex - overlapStart + 1);
+            int sampleCount = Mathf.Clamp(settings.SampleCount, 1, windowCount);
+            for (int sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++)
+            {
+                int sourceFrame = sampleCount == 1
+                    ? effectiveLastFrameIndex
+                    : Mathf.RoundToInt(Mathf.Lerp(
+                        overlapStart,
+                        effectiveLastFrameIndex,
+                        sampleIndex / (float)(sampleCount - 1)));
+                sourceFrame = Mathf.Clamp(sourceFrame, overlapStart, effectiveLastFrameIndex);
+                if (!KimodoRawMotionUtility.TryBuildConstraintInternalData(
+                        motion,
+                        modelName,
+                        sourceFrame,
+                        out KimodoConstraintInternalData frame,
+                        out string _))
+                {
+                    continue;
+                }
+
+                frame.sampleTime = (effectiveLastFrameIndex - sourceFrame) /
+                    Mathf.Max(1e-6f, frameRate);
+                if (frames.Count > 0 && Mathf.Approximately(
+                        (float)frames[frames.Count - 1].sampleTime,
+                        (float)frame.sampleTime))
+                {
+                    continue;
+                }
+                frames.Add(frame);
+            }
+
+            return frames;
+        }
+
         private static int ResolveOverlapStartFrameIndex(
             KimodoRawMotionData motion,
             int effectiveLastFrameIndex,

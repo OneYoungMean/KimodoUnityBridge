@@ -14,7 +14,7 @@ namespace KimodoBridge
         internal const string RightFootType = "right-foot";
         internal const string Root2DType = "root2d";
 
-        private readonly List<KimodoMarkerSampleResult> overlap = new List<KimodoMarkerSampleResult>();
+        private readonly List<KimodoConstraintInternalData> overlap = new List<KimodoConstraintInternalData>();
         private readonly List<KimodoMarkerSampleResult> staged = new List<KimodoMarkerSampleResult>();
         private readonly List<KimodoMarkerSampleResult> pending = new List<KimodoMarkerSampleResult>();
 
@@ -65,7 +65,7 @@ namespace KimodoBridge
             overlap.Clear();
         }
 
-        internal void SetOverlap(IReadOnlyList<KimodoMarkerSampleResult> samples)
+        internal void SetOverlap(IReadOnlyList<KimodoConstraintInternalData> samples)
         {
             overlap.Clear();
             if (samples == null)
@@ -90,21 +90,6 @@ namespace KimodoBridge
             bool includeOverlap,
             float duration)
         {
-            KimodoMarkerSampleResult overlapFullBody = null;
-            if (includeOverlap)
-            {
-                KimodoMarkerSampleResult terminal = FindEarliestOverlap();
-                if (terminal != null)
-                {
-                    // The previous segment's terminal pose is already a
-                    // complete FullBody anchor. Keep it as-is so protocol
-                    // expansion does not synthesize a Root2D companion.
-                    terminal.constraintType = FullBodyType;
-                    terminal.sampleTime = 0.0;
-                    overlapFullBody = terminal;
-                }
-            }
-
             var result = new List<KimodoMarkerSampleResult>();
             for (int i = 0; i < pending.Count; i++)
             {
@@ -119,12 +104,28 @@ namespace KimodoBridge
             List<KimodoMarkerSampleResult> merged = KimodoConstraintSampleComposer.ComposeCanonicalSamples(
                 result,
                 KimodoMotionModelProfiles.DefaultFrameRate);
-            if (overlapFullBody != null)
-            {
-                merged.Add(overlapFullBody);
-                merged.Sort((left, right) => left.sampleTime.CompareTo(right.sampleTime));
-            }
             return merged;
+        }
+
+        internal List<KimodoConstraintInternalData> BuildOverlapForGeneration(bool includeOverlap)
+        {
+            if (!includeOverlap || overlap.Count == 0)
+            {
+                return new List<KimodoConstraintInternalData>();
+            }
+
+            KimodoConstraintInternalData earliest = overlap[0];
+            for (int i = 1; i < overlap.Count; i++)
+            {
+                if (overlap[i].sampleTime < earliest.sampleTime)
+                {
+                    earliest = overlap[i];
+                }
+            }
+
+            KimodoConstraintInternalData result = earliest.Clone();
+            result.sampleTime = 0.0;
+            return new List<KimodoConstraintInternalData> { result };
         }
 
         internal void CompleteGeneration(bool isArdy) => CompleteGeneration(isArdy, PendingRevision);
@@ -135,20 +136,6 @@ namespace KimodoBridge
             {
                 pending.Clear();
             }
-        }
-
-        private KimodoMarkerSampleResult FindEarliestOverlap()
-        {
-            KimodoMarkerSampleResult earliest = null;
-            for (int i = 0; i < overlap.Count; i++)
-            {
-                if (earliest == null || overlap[i].sampleTime < earliest.sampleTime)
-                {
-                    earliest = overlap[i];
-                }
-            }
-
-            return earliest?.Clone();
         }
 
         private static void Upsert(

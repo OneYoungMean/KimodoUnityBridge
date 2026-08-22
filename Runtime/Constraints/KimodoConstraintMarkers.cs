@@ -162,13 +162,15 @@ namespace TimelineInject
     {
         public Vector3 rootPosition;
         public List<Vector3> localJointAxisAngles = new List<Vector3>();
+        public double sampleTime;
 
         public KimodoConstraintInternalData Clone() => new KimodoConstraintInternalData
         {
             rootPosition = rootPosition,
             localJointAxisAngles = localJointAxisAngles != null
                 ? new List<Vector3>(localJointAxisAngles)
-                : null
+                : null,
+            sampleTime = sampleTime
         };
     }
 

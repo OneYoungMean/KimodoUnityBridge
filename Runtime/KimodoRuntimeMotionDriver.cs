@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using TimelineInject;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -145,7 +147,7 @@ namespace KimodoBridge
 
             if (loopHint && !KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
-                constraints.SetOverlap(startedSegment.ConstraintOverlapPoses);
+                constraints.SetOverlap(startedSegment.ConstraintOverlapInternalData);
             }
             else
             {
@@ -707,22 +709,42 @@ namespace KimodoBridge
             List<KimodoMarkerSampleResult> activeConstraints = constraints.BuildForGeneration(
                 isArdy,
                 isArdy ? motionPlayer.PlaybackTimeAsDouble : 0.0,
-                includeOverlap: loopHint && !isArdy,
+                includeOverlap: false,
                 generationDuration);
-            if (activeConstraints.Count == 0)
+            List<KimodoConstraintInternalData> overlap = constraints.BuildOverlapForGeneration(
+                includeOverlap: loopHint && !isArdy);
+            if (activeConstraints.Count == 0 && overlap.Count == 0)
             {
                 return string.Empty;
             }
 
-            string futureConstraints = KimodoConstraintJsonExporter.ToConstraintsJson(
-                activeConstraints,
-                new KimodoConstraintExportContext(
-                    motionPlayer != null ? motionPlayer.SourceHumanScale : 1f,
-                    KimodoRuntimeConstraintExportProjector.Create(modelName)),
-                0.0,
-                generationDuration,
-                isArdy ? ardyProfile.SourceFps : KimodoMotionModelProfiles.DefaultFrameRate);
-            return futureConstraints;
+            string futureConstraints = activeConstraints.Count == 0
+                ? string.Empty
+                : KimodoConstraintJsonExporter.ToConstraintsJson(
+                    activeConstraints,
+                    new KimodoConstraintExportContext(
+                        motionPlayer != null ? motionPlayer.SourceHumanScale : 1f,
+                        KimodoRuntimeConstraintExportProjector.Create(modelName)),
+                    0.0,
+                    generationDuration,
+                    isArdy ? ardyProfile.SourceFps : KimodoMotionModelProfiles.DefaultFrameRate);
+            if (overlap.Count == 0)
+            {
+                return futureConstraints;
+            }
+
+            JArray combined = string.IsNullOrWhiteSpace(futureConstraints)
+                ? new JArray()
+                : JArray.Parse(futureConstraints);
+            JArray internalConstraints = KimodoConstraintInternalJsonExporter.ToJsonArray(
+                overlap,
+                isArdy ? ardyProfile.SourceFps : KimodoMotionModelProfiles.DefaultFrameRate,
+                generationDuration);
+            foreach (JToken constraint in internalConstraints)
+            {
+                combined.Add(constraint);
+            }
+            return combined.ToString(Formatting.Indented);
         }
 
         private async Task RefreshUpcomingGenerationAsync(
