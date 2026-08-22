@@ -603,3 +603,10 @@
 - 已完成：Command profile retarget 不再经过 `CharacterPose` 回写 70D `sampleData`，直接保留目标骨架重新采样得到的 canonical `MuscleSample`，避免缓存骨骼 world foot 字段覆盖历史 footTQ 公式。
 - 保持：`CharacterPoseMuscleAdapter.FromMuscleSample(sample, cache)` 仅用于 Command/JSON 显示边界，缓存骨骼字段不会反向写入 `MuscleSample`；footEffector 仍未接入 footTQ 或 IK solver。
 - 检查：已提交 `2bc2aa5 checkpoint: preserve canonical retarget muscle sample`；下一步执行全仓生产入口扫描与 Unity package probe 编译。
+
+## CP77 — Retarget MuscleClip 保留完整 70D
+
+- 已修复：正式 retarget 输出 `WriteMuscleSampleToMuscleClip` 原先误用 49-muscle-only writer，现改为 `WriteRetargetMuscleCurves`，完整写入 49 muscle、RootT/RootQ、LeftFootT/Q、RightFootT/Q。
+- 已修正：临时通道命名由旧的 `includeFootIkGoals` 改为 `includeFootTqChannels`，明确这些曲线是 70D footTQ 的 retarget transport，不是 footEffector IK。
+- 保持：纯 body-muscle clip 的 `WriteBodyMuscleCurves` 仍可显式使用，但不再被 retarget 生产路径调用。
+- 检查：已提交 `b5521f1 fix: keep root and foot tq in retarget muscle clips`；`git diff --check` 通过；Unity package probe 使用 `C:\tmp\KimodoCompileProbe`，日志 `C:\tmp\kimodo-compile-unified-retarget.log`，退出码 0。
