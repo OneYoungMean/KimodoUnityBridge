@@ -525,9 +525,7 @@ namespace KimodoBridge.Editor
             }
             if (entry?.EndEffectorMarker != null && entry.EndEffectorMarker.transform.hasChanged) return true;
             if (entry?.FullBodyTargets == null) return false;
-            KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
-                entry.SampleData?.mask,
-                entry.SampleData?.constraintType);
+            KimodoConstraintMask mask = KimodoConstraintMask.FromSample(entry.SampleData);
             foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
             {
                 if (item.Key != HumanBodyBones.Hips &&
@@ -1595,7 +1593,7 @@ namespace KimodoBridge.Editor
             entry.TargetCache.root.SetActive(true);
             try
             {
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(entry.SampleData?.mask, markerType).Clone();
+                KimodoConstraintMask mask = KimodoConstraintMask.FromSample(entry.SampleData).Clone();
                 bool rootTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.Hips, mask);
                 bool leftHandTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.LeftHand, mask);
                 bool rightHandTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.RightHand, mask);
@@ -1795,9 +1793,7 @@ namespace KimodoBridge.Editor
                 solvedSample);
 
             entry.FullBodyTargets ??= new Dictionary<HumanBodyBones, GameObject>();
-            KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
-                entry.SampleData?.mask,
-                entry.SampleData?.constraintType);
+            KimodoConstraintMask mask = KimodoConstraintMask.FromSample(entry.SampleData);
             for (int i = 0; i < FullBodyTargetBones.Length; i++)
             {
                 HumanBodyBones bone = FullBodyTargetBones[i];
@@ -2165,9 +2161,7 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
-            KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
-                entry.SampleData?.mask,
-                entry.SampleData?.constraintType);
+            KimodoConstraintMask mask = KimodoConstraintMask.FromSample(entry.SampleData);
             foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
             {
                 if (HasFullBodyTargetTransformChanged(entry, item.Key, item.Value, mask))

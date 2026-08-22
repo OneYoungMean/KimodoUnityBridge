@@ -423,3 +423,10 @@
 - 已完成：Runtime overlap/upsert 与 canonical Composer 的通道参与、协议展开选择改用统一解析入口，减少 `mask` 与 `enableMask` 并行判断。
 - 保持：`mask` 字段和协议 `constraintType` 尚未物理删除，仍作为旧资产/协议展开兼容边界保留。
 - 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\kimodo-compile-mask-centralization.log`；`git diff --check` 通过。
+
+## CP51 — Preview/Command 通道读取迁移
+
+- 已完成：Preview target change detection、target sample rebuild 和 Command root-only 判断改用 `KimodoConstraintMask.FromSample`。
+- 结果：新生产路径不再直接从 `SampleResult.mask` 判断有效通道；旧 mask 仍只通过统一兼容入口参与老资产迁移。
+- 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\kimodo-compile-mask-preview-migration.log`；`git diff --check` 通过。
+- 尚未完成：编辑器采样归一化和 Generate 协议边界仍保留必要的 legacy mask/type 写入，下一批继续区分“协议字段”和“内部字段”。

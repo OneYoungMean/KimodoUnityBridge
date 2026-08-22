@@ -1522,8 +1522,8 @@ namespace CharacterAnimationCli.Unity.Command
                 out CharacterPose pose,
                 out _);
             if (marker.ConstraintType == "constraint" &&
-                !KimodoConstraintMask.Resolve(marker.SampleData.mask, marker.SampleData.constraintType).muscle &&
-                !KimodoConstraintMask.Resolve(marker.SampleData.mask, marker.SampleData.constraintType).AnyEndEffector &&
+                !KimodoConstraintMask.FromSample(marker.SampleData).muscle &&
+                !KimodoConstraintMask.FromSample(marker.SampleData).AnyEndEffector &&
                 hasPose)
             {
                 Vector3 forward = pose.root.q * Vector3.forward;
