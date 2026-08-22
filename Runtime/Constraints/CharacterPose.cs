@@ -1,4 +1,5 @@
 using System;
+using KimodoBridge;
 using UnityEngine;
 
 namespace CharacterAnimationCli.Unity
@@ -61,6 +62,13 @@ namespace CharacterAnimationCli.Unity
     {
         public const int MuscleCount = 49;
 
+        // Command-layer sampling metadata. These fields identify where the
+        // pose came from; the 70D MuscleSample remains the atomic animation
+        // payload used by Runtime/Retarget.
+        [NonSerialized] public string sampledTrack;
+        [NonSerialized] public double sampledTime;
+        [NonSerialized] public MuscleSample muscleSample;
+
         public float[] muscles = new float[MuscleCount];
         public KimodoRigidTransform root = KimodoRigidTransform.Identity;
         public CharacterPoseSides hands = new CharacterPoseSides();
@@ -73,7 +81,10 @@ namespace CharacterAnimationCli.Unity
                 muscles = muscles != null ? (float[])muscles.Clone() : null,
                 root = root.Clone(),
                 hands = hands != null ? hands.Clone() : null,
-                feet = feet != null ? feet.Clone() : null
+                feet = feet != null ? feet.Clone() : null,
+                sampledTrack = sampledTrack,
+                sampledTime = sampledTime,
+                muscleSample = muscleSample?.Clone()
             };
             return copy;
         }

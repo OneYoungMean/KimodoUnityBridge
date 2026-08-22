@@ -325,6 +325,8 @@ namespace CharacterAnimationCli.Unity.Command
                 for (int index = 0; index < samples.Length; index++)
                 {
                     poses[index] = CharacterPoseMuscleAdapter.FromMuscleSample(samples[index], sampler.TargetCache);
+                    poses[index].sampledTrack = character.Track != null ? character.Track.name : string.Empty;
+                    poses[index].sampledTime = sampleTimes[index];
                 }
                 return poses;
             }
@@ -385,6 +387,8 @@ namespace CharacterAnimationCli.Unity.Command
                         throw new InvalidOperationException($"Timeline pose sampling failed: {error}");
                     }
                     poses[index] = CharacterPoseMuscleAdapter.FromMuscleSample(sample, cache);
+                    poses[index].sampledTrack = character.Track != null ? character.Track.name : string.Empty;
+                    poses[index].sampledTime = timelineTime;
                 }
                 return poses;
             }

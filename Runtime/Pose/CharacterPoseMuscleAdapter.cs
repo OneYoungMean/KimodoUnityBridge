@@ -54,6 +54,7 @@ namespace KimodoBridge
 
             var result = new CharacterPose
             {
+                muscleSample = sample.Clone(),
                 root = new KimodoRigidTransform
                 {
                     t = ReadRootPosition(sample),
