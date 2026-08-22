@@ -55,7 +55,7 @@ namespace KimodoBridge
         /// returned order is the protocol application order: fullbody, root2d,
         /// then end-effectors.
         /// </summary>
-        internal static KimodoConstraintInternal[] Build(
+        internal static KimodoConstraintInternal[] GetConstraintInternal(
             KimodoMarkerSampleResult sample,
             KimodoConstraintRigType modelType,
             KimodoConstraintExportContext exportContext)
@@ -106,6 +106,14 @@ namespace KimodoBridge
                 }
             }
             return result.ToArray();
+        }
+
+        internal static KimodoConstraintInternal[] Build(
+            KimodoMarkerSampleResult sample,
+            KimodoConstraintRigType modelType,
+            KimodoConstraintExportContext exportContext)
+        {
+            return GetConstraintInternal(sample, modelType, exportContext);
         }
 
         private static void AddEffectors(

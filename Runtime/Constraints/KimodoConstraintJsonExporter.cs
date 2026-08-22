@@ -242,7 +242,7 @@ namespace KimodoBridge
             for (int i = 0; i < samples.Count; i++)
             {
                 KimodoMarkerSampleResult sample = samples[i];
-                KimodoConstraintInternal[] internals = KimodoConstraintInternal.Build(
+                KimodoConstraintInternal[] internals = KimodoConstraintInternal.GetConstraintInternal(
                     sample,
                     KimodoConstraintRigType.Unknown,
                     exportContext);
@@ -269,7 +269,7 @@ namespace KimodoBridge
                 return null;
             }
 
-            KimodoConstraintInternal[] internals = KimodoConstraintInternal.Build(
+            KimodoConstraintInternal[] internals = KimodoConstraintInternal.GetConstraintInternal(
                 sample,
                 KimodoConstraintRigType.Unknown,
                 exportContext);
