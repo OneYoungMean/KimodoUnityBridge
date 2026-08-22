@@ -860,10 +860,16 @@ namespace CharacterAnimationCli.Unity.Command
                 throw new InvalidOperationException($"Convert constraints[{constraintIndex}] failed: {convertError}");
             }
             converted.constraintType = constraintType;
-            KimodoSampleResultPoseUtility.TryEncode(
-                converted,
-                CharacterPoseMuscleAdapter.FromMuscleSample(targetMuscleSample, targetCache),
-                out _);
+            // Retarget sampling already returned the canonical 70D payload,
+            // including the evaluated body-relative footTQ channels. Do not
+            // round-trip through CharacterPose, whose cached foot fields are
+            // scene/world values and would overwrite footTQ.
+            converted.sampleData = targetMuscleSample?.Clone() ?? new MuscleSample();
+            converted.enableMask ??= new KimodoSampleChannelMask();
+            converted.enableMask.muscle49 = true;
+            converted.enableMask.rootTQ = true;
+            converted.enableMask.leftFootTQ = true;
+            converted.enableMask.rightFootTQ = true;
             converted.sampleTime = sampleTime;
             return converted;
         }
@@ -1140,6 +1146,20 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     return false;
                 }
+
+                if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                        targetCache,
+                        out MuscleSample evaluatedSample,
+                        out error))
+                {
+                    return false;
+                }
+                sample.sampleData = evaluatedSample;
+                sample.enableMask ??= new KimodoSampleChannelMask();
+                sample.enableMask.muscle49 = true;
+                sample.enableMask.rootTQ = true;
+                sample.enableMask.leftFootTQ = true;
+                sample.enableMask.rightFootTQ = true;
 
                 return true;
             }
