@@ -311,7 +311,7 @@
 
 ## CP39 — 切断 Root2D→RootTQ 旧旁路并中和 Preview 根节点
 
-- 已完成：Composer 的 `ApplyRoot2DOverlay`、`CopyRoot2D` 已移除；Root2DOverride 保持独立 world-space hips 数据，不再写入 `CharacterPose.root`/70D rootTQ。
+- 已完成：Composer 的 `ApplyRoot2DOverlay`、`CopyRoot2D` 以及 Root2D protocol sample 对 `CharacterPose.root` 的旧写回已移除；Root2DOverride 保持独立 world-space hips 数据，不再写入 70D rootTQ。
 - 已完成：Preview 可见 Avatar clone 的 skeleton root 初始化为 position/rotation/scale identity，避免源 Animator 的场景变换和 lossyScale 对 muscle-space rootTQ 产生第二次变换。
 - 已确认：Preview 的 `ProfileCache` 来自 `KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName)` 返回的 canonical profile Avatar；它不是 Timeline 绑定角色，而是用于 profile 骨架重建和 Target→Profile 的旧中间 retarget。
 - 检查：`git diff --check` 通过；尚未运行 Unity CLI 编译。

@@ -825,14 +825,6 @@ namespace TimelineInject
                 sample.enableMask.leftFootTQ = false;
                 sample.enableMask.rightFootTQ = false;
             }
-            if (string.Equals(type, "root2d", StringComparison.OrdinalIgnoreCase) &&
-                source.enableMask?.root2DPosition == true && source.root2DOverride != null &&
-                TryGetPose(sample, out CharacterPose protocolPose, out _))
-            {
-                protocolPose.root.t = source.root2DOverride.t;
-                protocolPose.root.q = source.root2DOverride.q;
-                KimodoSampleResultPoseUtility.TryEncode(sample, protocolPose, out _);
-            }
             sample.mask = KimodoConstraintMask.ForType(type);
             output.Add(sample);
             return sample;
