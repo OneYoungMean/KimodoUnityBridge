@@ -532,3 +532,7 @@
 - 已修正：Spline Root2D waypoint 不再除以 Timeline 源 Avatar 的 `humanScale`，避免“写入一次、导出再缩放一次”的等比位移偏移。
 - 保持：FullBody 由目标 RetargetSkeleton 投影得到的 root/joint 数据不变；`humanScale` 字段仅作为旧导出上下文兼容字段保留。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-world-space-export-pass7.log`。
+
+## CP66 — 更新内部边界注释
+
+- 已完成：更新导出上下文和投影结果注释，明确 Root2D/Effector 使用 world-space，`humanScale` 仅为旧调用兼容字段，不再暗示上层应做尺度换算。

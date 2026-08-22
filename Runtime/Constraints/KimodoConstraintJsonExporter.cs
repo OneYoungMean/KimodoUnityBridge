@@ -80,16 +80,17 @@ namespace KimodoBridge
     }
 
     /// <summary>Result of projecting a canonical pose through the profile
-    /// humanoid. RootPositionMeters is the position of the profile Hips joint
-    /// after the muscle clip has been evaluated.</summary>
+    /// humanoid. RootPositionMeters is the world-space position of the profile
+    /// Hips joint after the muscle clip has been evaluated.</summary>
     public sealed class KimodoConstraintProjectedPose
     {
         public Vector3 rootPositionMeters;
         public List<Vector3> localJointAngles;
     }
 
-    /// <summary>Avatar/retarget data used only while projecting canonical
-    /// normalized CharacterPose values into metre-based protocol positions.</summary>
+    /// <summary>Retarget projection callbacks used at the internal protocol
+    /// boundary. Root2D and end-effector transforms are already world-space;
+    /// humanScale remains only for compatibility with older callers.</summary>
     public sealed class KimodoConstraintExportContext
     {
         public float humanScale = 1f;
