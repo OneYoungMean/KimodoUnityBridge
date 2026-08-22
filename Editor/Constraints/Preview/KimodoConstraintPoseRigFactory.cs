@@ -137,8 +137,11 @@ namespace KimodoBridge.Editor
             {
                 root = CloneTransformHierarchy(sourceAnimator.transform, null, transformMap).gameObject;
                 root.name = $"__KimodoConstraintAvatar_{clipId}_{animatorId}";
-                root.transform.SetPositionAndRotation(sourceAnimator.transform.position, sourceAnimator.transform.rotation);
-                root.transform.localScale = sourceAnimator.transform.lossyScale;
+                // Preview retargeting receives muscle-space absolute rootTQ.
+                // Keep the preview skeleton root neutral so scene placement or
+                // lossyScale cannot add a second root transform to that value.
+                root.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+                root.transform.localScale = Vector3.one;
 
                 Material previewMaterial = CreatePreviewMaterial();
                 if (previewMaterial != null)

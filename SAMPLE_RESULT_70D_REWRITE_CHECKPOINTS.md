@@ -308,3 +308,11 @@
 - 已完成：FullBody rig 的 Hips gizmo 优先使用 `entry.BaseSample.root2DOverride`，因此 Root2DOverride 仍会输出并绘制到 rig，但不会改变虚拟角色绘制结果。
 - 结论：此前的 root delta 是预览附加变换，不属于 retarget；当前采样/重建链路不再使用该附加层。
 - 检查：Unity 2022.3.62f3c1 CLI 编译成功，日志：`C:\tmp\unity-compile-root-override-display-only.log`；无 C# 编译错误，退出码 0；`git diff --check` 通过。
+
+## CP39 — 切断 Root2D→RootTQ 旧旁路并中和 Preview 根节点
+
+- 已完成：Composer 的 `ApplyRoot2DOverlay`、`CopyRoot2D` 已移除；Root2DOverride 保持独立 world-space hips 数据，不再写入 `CharacterPose.root`/70D rootTQ。
+- 已完成：Preview 可见 Avatar clone 的 skeleton root 初始化为 position/rotation/scale identity，避免源 Animator 的场景变换和 lossyScale 对 muscle-space rootTQ 产生第二次变换。
+- 已确认：Preview 的 `ProfileCache` 来自 `KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName)` 返回的 canonical profile Avatar；它不是 Timeline 绑定角色，而是用于 profile 骨架重建和 Target→Profile 的旧中间 retarget。
+- 检查：`git diff --check` 通过；尚未运行 Unity CLI 编译。
+- 尚未完成：评估 AutoSample 是否应完全移除 Target→Profile 中间缓存，改为从目标 skeleton 的 world BoneSample 直接构建 SampleResult；需先观察本 checkpoint 后的 Hips/rootTQ 结果。

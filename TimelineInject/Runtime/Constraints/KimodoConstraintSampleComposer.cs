@@ -468,17 +468,9 @@ namespace TimelineInject
                 KimodoMarkerSampleResult fullBody = LastModeSample(group, "fullbody");
                 KimodoMarkerSampleResult effectorSample = MergeEffectorModeSamples(group);
 
-                if (root != null && fullBody != null)
-                {
-                    ApplyRoot2DOverlay(root, fullBody);
-                }
-                if (root != null && effectorSample != null)
-                {
-                    ApplyRoot2DOverlay(root, effectorSample);
-                }
-
                 // Keep the protocol family separate. A Root2D record remains
-                // an explicit input even when it also overlays FullBody/effector data.
+                // an explicit input. Root2D is world-space hips data and must
+                // never be baked into the muscle/rootTQ payload.
                 if (root != null)
                 {
                     KimodoMarkerSampleResult rootSample = root.Clone();
@@ -583,26 +575,6 @@ namespace TimelineInject
             sample.constraintType = type;
             sample.mask = KimodoConstraintMask.ForType(type);
             output.Add(sample);
-        }
-
-        private static void ApplyRoot2DOverlay(
-            KimodoMarkerSampleResult rootSample,
-            KimodoMarkerSampleResult targetSample)
-        {
-            if (!TryGetPose(rootSample, out CharacterPose root, out _) ||
-                !TryGetPose(targetSample, out CharacterPose target, out _))
-            {
-                return;
-            }
-
-            Quaternion targetYaw = PlanarRotation(target.root.q);
-            Quaternion rootYaw = PlanarRotation(root.root.q);
-            target.root.t = new Vector3(root.root.t.x, target.root.t.y, root.root.t.z);
-            if (rootSample.enableMask?.root2DHeading == true)
-            {
-                target.root.q = rootYaw * Quaternion.Inverse(targetYaw) * target.root.q;
-            }
-            KimodoSampleResultPoseUtility.TryEncode(targetSample, target, out _);
         }
 
         /// <summary>Composes same-frame samples into the one Marker format used
@@ -793,49 +765,9 @@ namespace TimelineInject
                 ? seedPose.Clone()
                 : new CharacterPose();
 
-            // Root2D modifies only the root transport payload. Effector targets are
-            // independent scene-space data and are merged separately.
-            CopyRoot2D(samples, composed);
+            // Root2D is an independent world-space hips channel. It must not
+            // modify the muscle/rootTQ payload used by retargeting.
             return composed;
-        }
-
-        private static bool CopyRoot2D(List<KimodoMarkerSampleResult> samples, CharacterPose target)
-        {
-            bool changed = false;
-            // The seed pose is the FullBody base. A unified marker's separate
-            // Root2D values (or a legacy root2d record) are an internal planar
-            // parent transform: Root2D * FullBody(with X/Z and yaw cleared).
-            for (int i = 0; i < samples.Count; i++)
-            {
-                KimodoMarkerSampleResult source = samples[i];
-                if (source == null) continue;
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(source.mask, source.constraintType);
-                if (!IsRoot2D(source) && source.enableMask?.root2DPosition != true) continue;
-                CharacterPoseTransform root = ResolveRoot2DOverride(source);
-                if (root == null) continue;
-                if (mask.rootPosition)
-                {
-                    Quaternion overrideYaw = PlanarRotation(root.q);
-                    target.root.t = new Vector3(root.t.x, 0f, root.t.z) +
-                        overrideYaw * new Vector3(0f, target.root.t.y, 0f);
-                    changed = true;
-                }
-                if (mask.rootHeading && source.enableMask?.root2DHeading == true)
-                {
-                    Quaternion fullBodyYaw = PlanarRotation(target.root.q);
-                    target.root.q = PlanarRotation(root.q) * Quaternion.Inverse(fullBodyYaw) * target.root.q;
-                    changed = true;
-                }
-            }
-            return changed;
-        }
-
-        private static Quaternion PlanarRotation(Quaternion rotation)
-        {
-            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward, Vector3.up)
-                : Quaternion.identity;
         }
 
         private static CharacterPoseTransform ResolveRoot2DOverride(KimodoMarkerSampleResult sample)
