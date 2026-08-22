@@ -23,7 +23,7 @@ namespace KimodoBridge
                 ? sample.Clone()
                 : authored?.Clone() ?? new KimodoMarkerSampleResult();
             normalized.sampleTime = marker.time;
-            normalized.constraintType = "constraint";
+            normalized.constraintMode = "constraint";
             normalized.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
                 ? "root2d"
                 : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
@@ -83,9 +83,9 @@ namespace KimodoBridge
             Transform profileSkeletonRoot,
             string constraintType = "fullbody")
         {
-            var pose = new CharacterAnimationCli.Unity.CharacterPose();
             var result = new KimodoMarkerSampleResult
             {
+                sampleData = new MuscleSample(),
                 enableMask = new KimodoSampleChannelMask
                 {
                     muscle49 = true,
@@ -93,18 +93,11 @@ namespace KimodoBridge
                     leftFootTQ = true,
                     rightFootTQ = true
                 },
-                constraintType = "constraint",
+                constraintMode = "constraint",
                 sampleTime = 0d,
             };
-            KimodoSampleResultPoseUtility.TryEncode(result, pose, out _);
+            result.sampleData.SetRoot(Vector3.zero, Quaternion.identity);
             return result;
-        }
-
-        internal static void ComposeCharacterPosesAtSameFrame(
-            IReadOnlyList<KimodoMarkerSampleResult> samples,
-            double frameRate)
-        {
-            KimodoConstraintSampleComposer.ComposeCharacterPosesAtSameFrame(samples, frameRate);
         }
 
         /// <summary>Expands the single-marker representation into the unchanged

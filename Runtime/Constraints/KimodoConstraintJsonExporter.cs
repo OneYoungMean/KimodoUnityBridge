@@ -90,28 +90,14 @@ namespace KimodoBridge
 
     /// <summary>Retarget projection callbacks used at the internal protocol
     /// boundary. Root2D and end-effector transforms are already world-space;
-    /// humanScale remains only for compatibility with older callers.</summary>
+    /// World-space constraint export context. FootTQ scale conversion is kept
+    /// inside the retarget sampling boundary and is not part of this context.</summary>
     public sealed class KimodoConstraintExportContext
     {
-        public float humanScale = 1f;
-        public Func<CharacterAnimationCli.Unity.CharacterPose, List<Vector3>> localJointAngleProjector;
+        public Func<KimodoMarkerSampleResult, List<Vector3>> localJointAngleProjector;
         public Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> projectedPoseProjector;
 
         public KimodoConstraintExportContext() { }
-        public KimodoConstraintExportContext(float humanScale,
-            Func<CharacterAnimationCli.Unity.CharacterPose, List<Vector3>> localJointAngleProjector = null)
-        {
-            this.humanScale = Mathf.Max(1e-6f, humanScale);
-            this.localJointAngleProjector = localJointAngleProjector;
-        }
-
-        public KimodoConstraintExportContext(float humanScale,
-            Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> projectedPoseProjector)
-        {
-            this.humanScale = Mathf.Max(1e-6f, humanScale);
-            this.projectedPoseProjector = projectedPoseProjector;
-        }
-        internal float HumanScale => Mathf.Max(1e-6f, humanScale);
 
         internal bool TryBuildProjectedPose(
             KimodoMarkerSampleResult sample,
@@ -137,10 +123,6 @@ namespace KimodoBridge
                 return true;
             }
 
-            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterAnimationCli.Unity.CharacterPose pose, out error))
-            {
-                return false;
-            }
             // The canonical rootTQ channel is not a hips/world transform.
             // Only an explicit world-space Root2D override may provide the
             // protocol root when no skeleton projector is available.
@@ -148,12 +130,10 @@ namespace KimodoBridge
                 sample.root2DOverride != null
                 ? sample.root2DOverride.t
                 : Vector3.zero;
-            pose.root.t = Vector3.zero;
-            pose.root.q = Quaternion.identity;
-            return TryBuildLocalJointAngles(pose, out localAngles, out error);
+            return TryBuildLocalJointAngles(sample, out localAngles, out error);
         }
 
-        internal bool TryBuildLocalJointAngles(CharacterAnimationCli.Unity.CharacterPose pose, out List<Vector3> localAngles, out string error)
+        internal bool TryBuildLocalJointAngles(KimodoMarkerSampleResult sample, out List<Vector3> localAngles, out string error)
         {
             localAngles = null;
             error = string.Empty;
@@ -161,11 +141,11 @@ namespace KimodoBridge
             {
                 localAngles = new List<Vector3>
                 {
-                    KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(pose.root.q)
+                    Vector3.zero
                 };
                 return true;
             }
-            localAngles = localJointAngleProjector(pose);
+            localAngles = localJointAngleProjector(sample);
             if (localAngles == null || localAngles.Count == 0)
             {
                 error = "Model skeleton projector returned no joints.";
@@ -470,8 +450,9 @@ namespace KimodoBridge
             rootPositionMeters = Vector3.zero;
             localAxisAngles = null;
             error = string.Empty;
-            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out _, out error))
+            if (sample?.sampleData == null || !sample.sampleData.IsValid)
             {
+                error = "Constraint MuscleSample is invalid.";
                 return false;
             }
 

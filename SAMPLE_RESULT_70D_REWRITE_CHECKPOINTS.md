@@ -610,3 +610,12 @@
 - 已修正：临时通道命名由旧的 `includeFootIkGoals` 改为 `includeFootTqChannels`，明确这些曲线是 70D footTQ 的 retarget transport，不是 footEffector IK。
 - 保持：纯 body-muscle clip 的 `WriteBodyMuscleCurves` 仍可显式使用，但不再被 retarget 生产路径调用。
 - 检查：已提交 `b5521f1 fix: keep root and foot tq in retarget muscle clips`；`git diff --check` 通过；Unity package probe 使用 `C:\tmp\KimodoCompileProbe`，日志 `C:\tmp\kimodo-compile-unified-retarget.log`，退出码 0。
+
+## CP78 — CharacterPose 下沉 Command 与 Runtime 约束链路清理
+
+- 已完成：`CharacterPose`、其 JSON/adapter/采样结果辅助文件移动到 Command；Runtime 原子链路只保留 `KimodoMarkerSampleResult → MuscleSample → BoneSample`，并新增 Runtime-only `KimodoRigidTransform` 与 HumanPose adapter。
+- 已完成：Runtime constraint composer 改为直接合并 70D `MuscleSample`、enableMask、Root2D 和 world-space effectors；不再依赖 Command `CharacterPose`。
+- 已完成：生产代码移除 `KimodoMarkerSampleResult.constraintType` 读写，统一使用 `constraintMode`；协议 type 仅作为内部展开模式。
+- 已完成：Generate/Retarget 删除 Timeline planar offset 补偿及通用 humanScale 参数；全仓生产代码仅 FootTQ 局部公式读取 `Animator.humanScale`。
+- 检查：`git diff --check` 通过；Unity package probe 编译成功，日志 `C:\tmp\kimodo-compile-cleanup2.log`。
+- 保持：Command/旧 Editor 测试中的协议字段仍需后续批量迁移或按破坏性升级屏蔽；当前未修改用户已有 `Command/command_core.cs` 其他工作内容。

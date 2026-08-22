@@ -104,25 +104,6 @@ namespace KimodoBridge.Editor
             AnimationClip targetClip,
             out string error)
         {
-            return TryBakeMuscleClipToClip(
-                sourceClip,
-                sourceAvatar,
-                targetClip,
-                Vector3.zero,
-                Quaternion.identity,
-                1f,
-                out error);
-        }
-
-        public static bool TryBakeMuscleClipToClip(
-            AnimationClip sourceClip,
-            Avatar sourceAvatar,
-            AnimationClip targetClip,
-            Vector3 targetPlanarOffset,
-            Quaternion targetPlanarRotation,
-            float targetHumanScale,
-            out string error)
-        {
             error = string.Empty;
             if (sourceClip == null || targetClip == null)
             {
@@ -142,9 +123,6 @@ namespace KimodoBridge.Editor
                 if (!TryGetOrCreateEditorMuscleClipInternal(
                         sourceClip,
                         sourceAvatar,
-                        targetPlanarOffset,
-                        targetPlanarRotation,
-                        targetHumanScale,
                         forceRefresh: false,
                         out muscleClip,
                         out float muscleFrameRate,
@@ -234,9 +212,6 @@ namespace KimodoBridge.Editor
             if (!TryGetOrCreateEditorMuscleClipInternal(
                     sourceClip,
                     sourceAvatar,
-                    Vector3.zero,
-                    Quaternion.identity,
-                    1f,
                     forceRefresh,
                     out sourceHumanoidClip,
                     out float sourceFrameRate,
@@ -408,9 +383,6 @@ namespace KimodoBridge.Editor
         private static bool TryGetOrCreateEditorMuscleClipInternal(
             AnimationClip sourceClip,
             Avatar sourceAvatar,
-            Vector3 targetPlanarOffset,
-            Quaternion targetPlanarRotation,
-            float targetHumanScale,
             bool forceRefresh,
             out AnimationClip muscleClip,
             out float frameRate,
@@ -432,12 +404,11 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            bool hasTimelineOffset = HasTimelinePlanarOffset(targetPlanarOffset, targetPlanarRotation);
             if (!TryPrepareEditorClipCache(
                     sourceClip,
                     KimodoRetargetEditorCacheUtility.MuscleCacheType,
                     null,
-                    forceRefresh || hasTimelineOffset,
+                    forceRefresh,
                     out string cacheName,
                     out muscleClip,
                     out frameRate,
@@ -482,13 +453,6 @@ namespace KimodoBridge.Editor
                 {
                     return false;
                 }
-                RemoveTimelinePlanarOffsetFromMuscleSamples(
-                    samples,
-                    targetPlanarOffset,
-                    targetPlanarRotation,
-                    sourceCache.humanScale,
-                    targetHumanScale);
-
                 bool persist = KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips;
                 AnimationClip writableClip;
                 if (persist)
@@ -536,53 +500,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        internal static void RemoveTimelinePlanarOffsetFromMuscleSamples(
-            IReadOnlyList<MuscleSample> samples,
-            Vector3 targetPlanarOffset,
-            Quaternion targetPlanarRotation,
-            float sourceHumanScale,
-            float targetHumanScale)
-        {
-            if (samples == null || samples.Count == 0)
-            {
-                return;
-            }
-
-            Quaternion targetYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(targetPlanarRotation);
-            if (!HasTimelinePlanarOffset(targetPlanarOffset, targetYaw))
-            {
-                return;
-            }
-
-            float sourceScale = Mathf.Max(1e-6f, sourceHumanScale);
-            float targetScale = Mathf.Max(1e-6f, targetHumanScale);
-            Vector3 sourcePlanarOffsetMeters =
-                new Vector3(targetPlanarOffset.x, 0f, targetPlanarOffset.z) / targetScale * sourceScale;
-            Quaternion inverseTargetYaw = Quaternion.Inverse(targetYaw);
-
-            for (int i = 0; i < samples.Count; i++)
-            {
-                MuscleSample sample = samples[i];
-                if (sample == null)
-                {
-                    continue;
-                }
-
-                CharacterPoseMuscleAdapter.ToHumanPose(sample, out HumanPose pose);
-                Vector3 sourceMeters = pose.bodyPosition * sourceScale;
-                sourceMeters = inverseTargetYaw * (sourceMeters - sourcePlanarOffsetMeters);
-                pose.bodyPosition = sourceMeters / sourceScale;
-                pose.bodyRotation = (inverseTargetYaw * pose.bodyRotation).normalized;
-                sample.SetRoot(pose.bodyPosition, pose.bodyRotation);
-            }
-        }
-
-        private static bool HasTimelinePlanarOffset(Vector3 targetPlanarOffset, Quaternion targetPlanarRotation)
-        {
-            Quaternion targetYaw = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(targetPlanarRotation);
-            return new Vector2(targetPlanarOffset.x, targetPlanarOffset.z).sqrMagnitude > 1e-8f ||
-                Quaternion.Angle(targetYaw, Quaternion.identity) > 1e-4f;
-        }
 
         public static bool TryApplyCurveFilterToClip(
             AnimationClip sourceClip,

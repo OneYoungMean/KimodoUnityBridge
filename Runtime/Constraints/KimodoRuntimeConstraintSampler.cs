@@ -31,7 +31,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            sample.constraintType = "constraint";
+            sample.constraintMode = "constraint";
             sample.effectors ??= new KimodoConstraintEffectors();
             sample.effectors.leftHand ??= KimodoRigidTransform.Identity;
             sample.effectors.rightHand ??= KimodoRigidTransform.Identity;
@@ -84,7 +84,7 @@ namespace KimodoBridge
             // (normally the overlap FullBody frame 0). Keep this target in
             // absolute model space; subtracting NextSegmentRootOrigin here
             // would apply the same translation a second time during generation.
-            sample.constraintType = "constraint";
+            sample.constraintMode = "constraint";
             if (sample.enableMask?.root2DPosition == true)
             {
                 sample.root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
@@ -134,7 +134,7 @@ namespace KimodoBridge
 
             sample = new KimodoMarkerSampleResult
             {
-                constraintType = "constraint",
+                constraintMode = "constraint",
                 sampleTime = sampleTime,
                 enableMask = new KimodoSampleChannelMask()
             };

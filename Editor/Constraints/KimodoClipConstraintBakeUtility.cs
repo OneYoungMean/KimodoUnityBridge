@@ -614,7 +614,7 @@ namespace KimodoBridge.Editor
             double sampleTimeSeconds)
         {
             KimodoMarkerSampleResult sample = source.Clone();
-            sample.constraintType = "fullbody";
+            sample.constraintMode = "fullbody";
             sample.sampleTime = sampleTimeSeconds;
             sample.root2DOverride = null;
             sample.enableMask.root2DPosition = false;
@@ -652,7 +652,7 @@ namespace KimodoBridge.Editor
             double sampleTimeSeconds)
         {
             KimodoMarkerSampleResult sample = source.Clone();
-            sample.constraintType = "root2d";
+            sample.constraintMode = "root2d";
             sample.sampleTime = sampleTimeSeconds;
             sample.root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
             {

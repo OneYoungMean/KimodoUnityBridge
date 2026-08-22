@@ -59,14 +59,6 @@ namespace KimodoBridge
             rightFoot = rightFoot?.Clone() ?? KimodoRigidTransform.Identity
         };
 
-        public void CopyTo(CharacterPose pose)
-        {
-            if (pose == null) return;
-            pose.leftHand = leftHand?.Clone() ?? KimodoRigidTransform.Identity;
-            pose.rightHand = rightHand?.Clone() ?? KimodoRigidTransform.Identity;
-            pose.leftFoot = leftFoot?.Clone() ?? KimodoRigidTransform.Identity;
-            pose.rightFoot = rightFoot?.Clone() ?? KimodoRigidTransform.Identity;
-        }
     }
 
     /// <summary>Channels owned by one canonical constraint pose.  The protocol
@@ -144,7 +136,7 @@ namespace KimodoBridge
                 };
             }
 
-            string mode = (sample.constraintMode ?? sample.constraintType ?? string.Empty)
+            string mode = sample.constraintMode ?? string.Empty
                 .Trim().ToLowerInvariant().Replace('_', '-');
             return mode == string.Empty || mode == "constraint"
                 ? ForType("fullbody")
@@ -193,18 +185,10 @@ namespace KimodoBridge
         // FullBody owns rootTQ in sampleData. Root2D is kept separately so its
         // X/Z and heading override cannot destroy FullBody Y, pitch or roll.
         public KimodoRigidTransform root2DOverride = KimodoRigidTransform.Identity;
-        // Protocol expansion uses a transient type (fullbody/root2d/effector
-        // family). Authored SampleResult data persists only constraintMode;
-        // the old constraintType field was redundant serialized state.
-        [NonSerialized] private string protocolType;
-        public string constraintType
-        {
-            get => string.IsNullOrWhiteSpace(protocolType) ? "constraint" : protocolType;
-            set => protocolType = value;
-        }
-        // Non-empty for samples authored by the new mode-aware marker. Empty
-        // samples retain the legacy resolver behavior for command-only data.
-        public string constraintMode;
+        // One mode is the only persisted constraint semantic. Protocol
+        // expansion uses transient clones with this same field set to the
+        // emitted family (fullbody/root2d/left-foot, etc.).
+        public string constraintMode = "constraint";
         public double sampleTime;
 
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
@@ -215,7 +199,6 @@ namespace KimodoBridge
             creationOrder = creationOrder,
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
             root2DOverride = root2DOverride.Clone(),
-            protocolType = protocolType,
             constraintMode = this.constraintMode,
             sampleTime = sampleTime
         };

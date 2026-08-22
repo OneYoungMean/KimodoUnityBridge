@@ -155,7 +155,7 @@ namespace KimodoBridge.Editor
             sample.enableMask.root2DPosition = true;
             sample.enableMask.root2DHeading = true;
             sample.root2DOverride = new KimodoRigidTransform { t = targetRootPosition, q = planarRotation };
-            sample.constraintType = "constraint";
+            sample.constraintMode = "constraint";
             sample.sampleTime = exportedSampleTime;
         }
 
@@ -807,9 +807,6 @@ namespace KimodoBridge.Editor
             }
 
             samples.AddRange(resolvedSamples);
-            KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(
-                samples,
-                KimodoTimelineConstraintSampler.ResolveTimelineFrameRate(context));
             return true;
         }
 

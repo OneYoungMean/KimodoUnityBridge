@@ -24,7 +24,7 @@ namespace KimodoBridge.Editor
                     sample != null &&
                     sample.sampleTime >= 0.0 &&
                     sample.sampleTime < anchorWindowSeconds &&
-                    IsAnchorConstraintType(sample.constraintType))
+                    IsAnchorConstraintType(sample.constraintMode))
                 {
                     return true;
                 }
@@ -49,30 +49,6 @@ namespace KimodoBridge.Editor
             return forward.sqrMagnitude > 1e-8f
                 ? Quaternion.LookRotation(forward.normalized, Vector3.up)
                 : Quaternion.identity;
-        }
-
-        // Retarget clip baking still needs the target humanoid scale. This is
-        // not used by world-space constraint export.
-        internal static float ResolveHumanScale(Avatar avatar)
-        {
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar) ||
-                !KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
-                    avatar,
-                    "KimodoRetargetClipScaleProbe",
-                    out RetargetSkeleton cache,
-                    out _))
-            {
-                return 1f;
-            }
-
-            try
-            {
-                return Mathf.Max(1e-6f, cache.humanScale);
-            }
-            finally
-            {
-                cache.Dispose();
-            }
         }
 
         internal static void NormalizeRootPose(

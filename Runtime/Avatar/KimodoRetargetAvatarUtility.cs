@@ -189,7 +189,6 @@ namespace KimodoBridge
                 canonicalRootBoneName = canonicalRootBoneName,
                 animator = animator,
                 poseHandler = new HumanPoseHandler(avatar, root.transform),
-                humanScale = Mathf.Max(1e-6f, animator.humanScale),
                 bonePaths = bonePaths,
                 boneTransforms = boneTransforms,
                 bonePathMap = bonePathMap,

@@ -30,7 +30,7 @@ namespace KimodoBridge
         /// value is rebuilt from <see cref="data"/> on each access; MuscleSample
         /// remains the only stored animation representation.
         /// </summary>
-        public HumanPose pose => CharacterPoseMuscleAdapter.ToHumanPose(this);
+        public HumanPose pose => KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(this);
 
         public bool IsValid => KimodoSampleDataLayout.TryValidate(data, out _);
 
@@ -74,7 +74,6 @@ namespace KimodoBridge
         public Avatar Avatar => cache.avatar;
         public Animator Animator => cache.animator;
         public Transform Root => cache.skeletonRoot;
-        public float HumanScale => cache.humanScale;
         public bool IsReady => cache.IsReady;
 
         public void ResetToBindPose()
@@ -132,7 +131,6 @@ namespace KimodoBridge
         public string canonicalRootBoneName;
         public Animator animator;
         public HumanPoseHandler poseHandler;
-        public float humanScale;
         public string[] bonePaths;
         public Transform[] boneTransforms;
         public Dictionary<string, Transform> bonePathMap;
@@ -241,7 +239,6 @@ namespace KimodoBridge
             canonicalRootBoneName = null;
             animator = null;
             poseHandler = null;
-            humanScale = 0f;
             bonePaths = null;
             boneTransforms = null;
             bonePathMap = null;

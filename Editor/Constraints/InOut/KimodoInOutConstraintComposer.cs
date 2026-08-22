@@ -133,7 +133,7 @@ namespace KimodoBridge.Editor
             {
                 root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
                 { t = new Vector3(worldPosition.x, 0f, worldPosition.z), q = worldPlanarRotation },
-                constraintType = "constraint",
+                constraintMode = "constraint",
                 constraintMode = "root2d",
                 sampleTime = 0.0,
                 enableMask = new KimodoSampleChannelMask

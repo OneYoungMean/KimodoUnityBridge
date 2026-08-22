@@ -1092,14 +1092,11 @@ namespace KimodoBridge
             string resolvedConstraintType = string.IsNullOrWhiteSpace(constraintType)
                 ? FullBodyConstraintType
                 : constraintType;
-            CharacterAnimationCli.Unity.CharacterPose pose = new CharacterAnimationCli.Unity.CharacterPose
-            {
-                root = new CharacterAnimationCli.Unity.KimodoRigidTransform { t = rootPosition, q = rootRotation }
-            };
             sample = new KimodoMarkerSampleResult
             {
-                constraintType = "constraint",
+                constraintMode = "constraint",
                 sampleTime = sampleTime,
+                sampleData = new MuscleSample(),
                 enableMask = new KimodoSampleChannelMask
                 {
                     rootTQ = true,
@@ -1107,7 +1104,7 @@ namespace KimodoBridge
                     root2DHeading = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase)
                 }
             };
-            KimodoSampleResultPoseUtility.TryEncode(sample, pose, out _);
+            sample.sampleData.SetRoot(rootPosition, rootRotation);
             if (!sample.enableMask.root2DPosition)
             {
                 sample.enableMask.rootTQ = true;

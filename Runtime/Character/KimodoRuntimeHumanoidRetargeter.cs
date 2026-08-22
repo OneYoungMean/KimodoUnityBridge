@@ -110,7 +110,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            HumanPose pose = CharacterPoseMuscleAdapter.ToHumanPose(sample);
+            HumanPose pose = KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(sample);
             for (int i = 0; i < targets.Count; i++)
             {
                 TargetState state = targets[i];

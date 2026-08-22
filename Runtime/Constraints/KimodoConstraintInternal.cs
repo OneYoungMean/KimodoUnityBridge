@@ -128,7 +128,7 @@ namespace KimodoBridge
 
         private static string ResolveMode(KimodoMarkerSampleResult sample)
         {
-            string protocol = sample.constraintType;
+            string protocol = sample.constraintMode;
             bool specificProtocol = string.Equals(protocol, "root2d", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(protocol, "fullbody", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(protocol, "left-hand", StringComparison.OrdinalIgnoreCase) ||
@@ -138,7 +138,7 @@ namespace KimodoBridge
             string mode = specificProtocol ? protocol : sample.constraintMode;
             if (string.IsNullOrWhiteSpace(mode) || string.Equals(mode, "constraint", StringComparison.OrdinalIgnoreCase))
             {
-                mode = sample.constraintType;
+                mode = sample.constraintMode;
             }
             return string.IsNullOrWhiteSpace(mode) ? "fullbody" : mode.Trim().ToLowerInvariant().Replace('_', '-');
         }

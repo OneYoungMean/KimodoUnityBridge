@@ -311,7 +311,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            sampledPose.constraintType = FullBodyConstraintType;
+            sampledPose.constraintMode = FullBodyConstraintType;
             sampledPose.sampleTime = exportedSampleTime;
             sample = sampledPose;
             return true;

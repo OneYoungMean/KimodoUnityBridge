@@ -50,9 +50,9 @@ namespace KimodoBridge
         {
             var sample = new MuscleSample();
             float[] muscles = pose.muscles ?? Array.Empty<float>();
-            for (int i = 0; i < CharacterPoseMuscleAdapter.UnityBodyMuscleIndices.Length; i++)
+            for (int i = 0; i < KimodoMuscleSampleHumanPoseAdapter.UnityBodyMuscleIndices.Length; i++)
             {
-                int unityIndex = CharacterPoseMuscleAdapter.UnityBodyMuscleIndices[i];
+                int unityIndex = KimodoMuscleSampleHumanPoseAdapter.UnityBodyMuscleIndices[i];
                 sample.data[i] = unityIndex < muscles.Length ? muscles[unityIndex] : 0f;
             }
             sample.SetRoot(pose.bodyPosition, pose.bodyRotation);
@@ -112,7 +112,7 @@ namespace KimodoBridge
             Vector3 worldFootPosition = footBoneWorldPosition +
                 worldFootRotation * new Vector3(axisLength, 0f, 0f);
 
-            float humanScale = Mathf.Max(1e-6f, cache.humanScale);
+            float humanScale = Mathf.Max(1e-6f, cache.animator != null ? cache.animator.humanScale : 1f);
             Quaternion bodyRotation = pose.bodyRotation.normalized;
             Quaternion inverseBodyRotation = Quaternion.Inverse(bodyRotation);
             position = inverseBodyRotation *

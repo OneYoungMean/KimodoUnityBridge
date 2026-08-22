@@ -684,7 +684,7 @@ namespace CharacterAnimationCli.Unity.Command
             sample.enableMask.rootTQ = true;
             sample.enableMask.leftFootTQ = true;
             sample.enableMask.rightFootTQ = true;
-            sample.constraintType = "constraint";
+            sample.constraintMode = "constraint";
         }
 
         private readonly struct PoseLocator

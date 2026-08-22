@@ -116,8 +116,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            return string.Equals(left.constraintType ?? string.Empty, right.constraintType ?? string.Empty, System.StringComparison.Ordinal) &&
-                string.Equals(left.constraintMode ?? string.Empty, right.constraintMode ?? string.Empty, System.StringComparison.Ordinal) &&
+            return string.Equals(left.constraintMode ?? string.Empty, right.constraintMode ?? string.Empty, System.StringComparison.Ordinal) &&
                 string.Equals(SampleDataSignature(left), SampleDataSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(EffectorsSignature(left), EffectorsSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(Root2DOverrideSignature(left), Root2DOverrideSignature(right), System.StringComparison.Ordinal) &&

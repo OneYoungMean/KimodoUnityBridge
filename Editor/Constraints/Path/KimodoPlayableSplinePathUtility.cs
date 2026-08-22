@@ -156,7 +156,7 @@ namespace KimodoBridge.Editor
 
                 var sample = new KimodoMarkerSampleResult
                 {
-                    constraintType = Root2DConstraintType,
+                    constraintMode = Root2DConstraintType,
                     sampleTime = timelineClip.start + (durationSeconds * t),
                     root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
                     {

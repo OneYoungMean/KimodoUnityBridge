@@ -8,7 +8,7 @@ namespace KimodoBridge
     internal static class KimodoRetargetClipWriter
     {
         // Unity's remaining humanoid muscles cover jaw, eyes and fingers.
-        private static readonly int[] GeneratedMuscleIndices = CharacterPoseMuscleAdapter.UnityBodyMuscleIndices;
+        private static readonly int[] GeneratedMuscleIndices = KimodoMuscleSampleHumanPoseAdapter.UnityBodyMuscleIndices;
 
         /// <summary>Writes only the 49 body-muscle channels for callers that
         /// explicitly need a muscle-only clip. Retarget output must use
@@ -100,7 +100,7 @@ namespace KimodoBridge
                 }
 
                 float time = frame / frameRate;
-                HumanPose pose = CharacterPoseMuscleAdapter.ToHumanPose(sample);
+                HumanPose pose = KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(sample);
                 if (includeRootTransform)
                 {
                     Quaternion rootRotation = ResolveContinuousRotation(

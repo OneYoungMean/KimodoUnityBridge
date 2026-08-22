@@ -30,7 +30,6 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
             EnsureSampleData();
             constraintMode = value;
             sampleData.constraintMode = ModeProtocolName(value);
-            sampleData.constraintType = "constraint";
         }
     }
 
@@ -67,7 +66,6 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         sampleData.effectors.leftFoot ??= KimodoRigidTransform.Identity;
         sampleData.effectors.rightFoot ??= KimodoRigidTransform.Identity;
         sampleData.root2DOverride ??= KimodoRigidTransform.Identity;
-        sampleData.constraintType = "constraint";
         sampleData.constraintMode = ModeProtocolName(constraintMode);
         sampleData.sampleTime = Math.Max(0.0, time);
         if (initializeDefaults)

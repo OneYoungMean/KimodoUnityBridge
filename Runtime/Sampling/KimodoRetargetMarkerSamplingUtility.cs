@@ -189,7 +189,7 @@ namespace KimodoBridge
         {
             return new KimodoMarkerSampleResult
             {
-                constraintType = "constraint",
+                constraintMode = "constraint",
                 sampleTime = sampleTime,
                 enableMask = new KimodoSampleChannelMask()
             };

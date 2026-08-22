@@ -114,19 +114,10 @@ namespace KimodoBridge.Editor
 
             ThrowIfCanceled(request);
             request.Progress?.Invoke(KimodoBridgeCommandStage.Retarget, "Retargeting...");
-            ResolveTimelinePlanarOffset(
-                request,
-                outputPlan,
-                out Vector3 targetPlanarOffset,
-                out Quaternion targetPlanarRotation,
-                out float targetHumanScale);
             if (!KimodoRetargetToolsEditor.TryBakeMuscleClipToClip(
                     request.TargetClip,
                     outputPlan.OriginRetargetAvatar,
                     request.TargetClip,
-                    targetPlanarOffset,
-                    targetPlanarRotation,
-                    targetHumanScale,
                     out string muscleCacheError))
             {
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(muscleCacheError)
@@ -178,45 +169,6 @@ namespace KimodoBridge.Editor
             return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
         }
 
-        private static void ResolveTimelinePlanarOffset(
-            KimodoEditorGenerateRequest request,
-            KimodoEditorGenerateOutputPlan outputPlan,
-            out Vector3 targetPlanarOffset,
-            out Quaternion targetPlanarRotation,
-            out float targetHumanScale)
-        {
-            targetPlanarOffset = Vector3.zero;
-            targetPlanarRotation = Quaternion.identity;
-            targetHumanScale = 1f;
-
-            TrackAsset track = request?.TimelineClipSnapshot?.GetParentTrack();
-            if (track == null)
-            {
-                return;
-            }
-
-            Animator animator = null;
-            if (request.TimelineDirectorSnapshot != null)
-            {
-                UnityEngine.Object binding = request.TimelineDirectorSnapshot.GetGenericBinding(track);
-                animator = binding as Animator ??
-                    (binding as GameObject)?.GetComponentInChildren<Animator>(true);
-            }
-
-            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
-                track,
-                animator,
-                out Vector3 trackPosition,
-                out Quaternion trackRotation);
-
-            targetPlanarOffset = new Vector3(trackPosition.x, 0f, trackPosition.z);
-            targetPlanarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(trackRotation);
-
-            if (KimodoRetargetCoreUtility.IsValidHumanoid(outputPlan?.TargetRetargetAvatar))
-            {
-                targetHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(outputPlan.TargetRetargetAvatar);
-            }
-        }
 
         internal static async Task<KimodoBridgeCommandResult> ExecuteRuntimePipelineAsync(
             KimodoEditorGenerateRequest request,

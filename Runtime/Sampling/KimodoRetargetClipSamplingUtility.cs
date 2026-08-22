@@ -440,11 +440,6 @@ namespace KimodoBridge
             animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             animator.Rebind();
 
-            if (desiredAvatar != null)
-            {
-                cache.humanScale = Mathf.Max(1e-6f, animator.humanScale);
-            }
-
             return true;
         }
 
@@ -463,10 +458,6 @@ namespace KimodoBridge
             animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             animator.Rebind();
 
-            if (avatar != null)
-            {
-                cache.humanScale = Mathf.Max(1e-6f, animator.humanScale);
-            }
         }
 
     }
