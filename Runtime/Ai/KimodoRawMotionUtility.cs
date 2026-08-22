@@ -142,19 +142,16 @@ namespace KimodoBridge
         internal KimodoRawMotionMetadata(
             KimodoRawMotionData motion,
             Vector3 firstRootPosition,
-            Vector3 lastRootPosition,
-            KimodoMarkerSampleResult tailPose)
+            Vector3 lastRootPosition)
         {
             Motion = motion;
             FirstRootPosition = firstRootPosition;
             LastRootPosition = lastRootPosition;
-            TailPose = tailPose;
         }
 
         public KimodoRawMotionData Motion { get; }
         public Vector3 FirstRootPosition { get; }
         public Vector3 LastRootPosition { get; }
-        public KimodoMarkerSampleResult TailPose { get; }
     }
 
     public static class KimodoRawMotionUtility
@@ -752,6 +749,10 @@ namespace KimodoBridge
         {
             metadata = null;
             error = string.Empty;
+            _ = modelName;
+            _ = constraintType;
+            _ = sampleTime;
+            _ = allowPartialJoints;
             if (motion == null)
             {
                 error = "Motion data is null.";
@@ -770,23 +771,10 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!TryExtractTailMarkerSample(
-                    motion,
-                    modelName,
-                    out KimodoMarkerSampleResult tailPose,
-                    out error,
-                    constraintType,
-                    sampleTime,
-                    allowPartialJoints))
-            {
-                return false;
-            }
-
             metadata = new KimodoRawMotionMetadata(
                 motion,
                 firstRootPosition,
-                lastRootPosition,
-                tailPose);
+                lastRootPosition);
             return true;
         }
 

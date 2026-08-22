@@ -462,3 +462,9 @@
 - 已完成：编辑器 Generate 的 RawMotion FullBody bake 与 Runtime overlap 使用同一内部数据转换语义。
 - 保持：Timeline/Inspector authored constraint 仍使用 SampleResult，这是用户编辑数据，不属于 RawMotion 内部边界。
 - 检查：`git diff --check` 通过；当前 Unity 宿主受已有 Unity 进程占用，未取得新的 batch 编译日志，需在宿主空闲后执行编译。
+
+## CP56 — 清理 RawMotion metadata 的隐式 SampleResult
+
+- 已完成：`KimodoRawMotionMetadata` 删除未被消费的 `TailPose`；`TryAnalyze/TryAnalyzeGenerationResult` 只解析 RawMotion 的帧与根位置，不再隐式创建尾帧 SampleResult。
+- 已完成：Runtime segment metadata 与 overlap 的内部约束路径完全分离；RawMotion 的 constraint_internal 构建只在需要协议帧时发生。
+- 检查：`git diff --check` 通过；Unity 宿主编译仍待空闲验证。

@@ -125,8 +125,7 @@ namespace KimodoBridge
             return new KimodoRawMotionMetadata(
                 motion,
                 firstRootPosition,
-                lastRootPosition,
-                null);
+                lastRootPosition);
         }
 
         private static Task<KimodoRawMotionMetadata> ReadKimodoMetadataAsync(
