@@ -63,14 +63,14 @@ namespace KimodoBridge
 
     public sealed class KimodoSkeletonInstance : IDisposable
     {
-        private readonly SkeletonCache cache;
+        private readonly RetargetSkeleton cache;
 
-        internal KimodoSkeletonInstance(SkeletonCache cache)
+        internal KimodoSkeletonInstance(RetargetSkeleton cache)
         {
             this.cache = cache ?? throw new ArgumentNullException(nameof(cache));
         }
 
-        public SkeletonCache Cache => cache;
+        public RetargetSkeleton Cache => cache;
         public Avatar Avatar => cache.avatar;
         public Animator Animator => cache.animator;
         public Transform Root => cache.skeletonRoot;
@@ -79,7 +79,7 @@ namespace KimodoBridge
 
         public void ResetToBindPose()
         {
-            KimodoRetargetClipSamplingUtility.ResetSkeletonCachePose(cache);
+            KimodoRetargetClipSamplingUtility.ResetRetargetSkeletonPose(cache);
         }
 
         public BoneSample CaptureBoneSample()
@@ -89,7 +89,7 @@ namespace KimodoBridge
 
         public bool TryApplyBoneSample(BoneSample sample, out string error)
         {
-            return KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(sample, cache, out error);
+            return KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(sample, cache, out error);
         }
 
         public bool TryCaptureMuscleSample(out MuscleSample sample, out string error)
@@ -121,7 +121,7 @@ namespace KimodoBridge
         }
     }
 
-    public sealed class SkeletonCache : IDisposable
+    public sealed class RetargetSkeleton : IDisposable
     {
         public Avatar avatar;
         public GameObject root;

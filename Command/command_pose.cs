@@ -337,11 +337,11 @@ namespace CharacterAnimationCli.Unity.Command
             int startFrame,
             int frameCount)
         {
-            SkeletonCache cache = null;
+            RetargetSkeleton cache = null;
             KimodoRetargetClipSamplingUtility.ClipSamplingSession session = null;
             try
             {
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         character.Avatar,
                         "KimodoCharacterPoseSampler",
                         out cache,

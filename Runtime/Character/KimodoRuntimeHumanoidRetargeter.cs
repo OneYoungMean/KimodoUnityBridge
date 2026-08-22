@@ -95,7 +95,7 @@ namespace KimodoBridge
         }
 
         internal bool TryApplyPose(
-            SkeletonCache sourceCache,
+            RetargetSkeleton sourceCache,
             Transform sourceHipsBone,
             out string error)
         {

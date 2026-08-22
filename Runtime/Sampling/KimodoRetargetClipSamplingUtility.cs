@@ -41,7 +41,7 @@ namespace KimodoBridge
         {
             private bool disposed;
 
-            public SkeletonCache cache;
+            public RetargetSkeleton cache;
             public PlayableGraph graph;
             public AnimationClipPlayable clipPlayable;
             public bool restoreAnimatorAvatar;
@@ -98,7 +98,7 @@ namespace KimodoBridge
 
             internal static bool TryCreate(
                 AnimationClip clip,
-                SkeletonCache cache,
+                RetargetSkeleton cache,
                 string rootName,
                 ClipSamplingMode samplingMode,
                 out ClipSamplingSession session,
@@ -163,7 +163,7 @@ namespace KimodoBridge
             }
         }
 
-        internal static void CaptureSkeletonBindPose(SkeletonCache cache)
+        internal static void CaptureSkeletonBindPose(RetargetSkeleton cache)
         {
             if (cache == null || cache.root == null || cache.boneTransforms == null)
             {
@@ -200,9 +200,9 @@ namespace KimodoBridge
 
         }
 
-        internal static void ResetSkeletonCachePose(SkeletonCache cache)
+        internal static void ResetRetargetSkeletonPose(RetargetSkeleton cache)
         {
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(cache, out _))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(cache, out _))
             {
                 return;
             }
@@ -253,7 +253,7 @@ namespace KimodoBridge
 
         internal static bool TryBuildHumanoidClipSamplingContext(
             AnimationClip clip,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             string rootName,
             ClipSamplingMode samplingMode,
             out ClipSamplingContext context,
@@ -284,7 +284,7 @@ namespace KimodoBridge
 
         internal static bool TryBuildClipSamplingContext(
             AnimationClip clip,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             string rootName,
             ClipSamplingMode samplingMode,
             out ClipSamplingContext context,
@@ -306,7 +306,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(cache, out error))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(cache, out error))
             {
                 return false;
             }
@@ -406,7 +406,7 @@ namespace KimodoBridge
         }
 
         internal static bool TryConfigureAnimatorForClipSampling(
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             ClipSamplingMode samplingMode,
             out Avatar originalAnimatorAvatar,
             out bool restoreAnimatorAvatar,
@@ -416,7 +416,7 @@ namespace KimodoBridge
             restoreAnimatorAvatar = false;
             error = string.Empty;
 
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(cache, out error))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(cache, out error))
             {
                 return false;
             }
@@ -432,7 +432,7 @@ namespace KimodoBridge
             Avatar desiredAvatar = samplingMode == ClipSamplingMode.Humanoid ? cache.avatar : null;
             restoreAnimatorAvatar = !ReferenceEquals(originalAnimatorAvatar, desiredAvatar);
 
-            ResetSkeletonCachePose(cache);
+            ResetRetargetSkeletonPose(cache);
             animator.avatar = desiredAvatar;
             animator.runtimeAnimatorController = null;
             animator.applyRootMotion = true;
@@ -448,7 +448,7 @@ namespace KimodoBridge
             return true;
         }
 
-        internal static void RestoreAnimatorAfterClipSampling(SkeletonCache cache, Avatar avatar)
+        internal static void RestoreAnimatorAfterClipSampling(RetargetSkeleton cache, Avatar avatar)
         {
             if (cache?.animator == null)
             {
@@ -479,7 +479,7 @@ namespace KimodoBridge
 
         internal static bool SampleBoneClipToBoneSample(
             AnimationClip clip,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             float sampleTime,
             out BoneSample sample,
             out string error)
@@ -495,7 +495,7 @@ namespace KimodoBridge
 
         internal static bool SampleBoneClipToBoneSample(
             AnimationClip clip,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             float sampleTime,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out BoneSample sample,
@@ -533,7 +533,7 @@ namespace KimodoBridge
             Avatar sourceAvatar,
             string rootName,
             AnimationClip providedSourceHumanoidClip,
-            ref SkeletonCache sourceCache,
+            ref RetargetSkeleton sourceCache,
             out AnimationClip sourceHumanoidClip,
             out string error)
         {
@@ -551,10 +551,10 @@ namespace KimodoBridge
                 return true;
             }
 
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(sourceCache, out _))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(sourceCache, out _))
             {
                 sourceCache = null;
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(sourceAvatar, rootName, out sourceCache, out error))
+                if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(sourceAvatar, rootName, out sourceCache, out error))
                 {
                     return false;
                 }
@@ -584,7 +584,7 @@ namespace KimodoBridge
 
         internal static bool TryCollectBoneSamplesFromClip(
             AnimationClip clip,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             int frameCount,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out BoneSample[] samples,
@@ -606,7 +606,7 @@ namespace KimodoBridge
 
         internal static bool TryCollectMuscleSamplesFromClip(
             AnimationClip clip,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             int frameCount,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out MuscleSample[] samples,
@@ -628,7 +628,7 @@ namespace KimodoBridge
         internal static bool TrySampleTargetFromSingleMuscleSample(
             MuscleSample sourceSample,
             float frameRate,
-            SkeletonCache targetCache,
+            RetargetSkeleton targetCache,
             out BoneSample targetSample,
             out MuscleSample targetMuscleSample,
             out string error,
@@ -648,7 +648,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out error))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(targetCache, out error))
             {
                 return false;
             }
@@ -667,14 +667,14 @@ namespace KimodoBridge
             }
 
             targetSample = targetSamples[0];
-            if (!TryApplyBoneSampleToSkeletonCache(targetSample, targetCache, out error))
+            if (!TryApplyBoneSampleToRetargetSkeleton(targetSample, targetCache, out error))
             {
                 targetSample = null;
                 return false;
             }
 
             if (sceneTargets.HasValue && sceneTargets.Value.Any &&
-                !TryApplySceneTargetsToSkeletonCache(targetCache, sceneTargets.Value, out error))
+                !TryApplySceneTargetsToRetargetSkeleton(targetCache, sceneTargets.Value, out error))
             {
                 targetSample = null;
                 return false;
@@ -700,7 +700,7 @@ namespace KimodoBridge
         internal static bool TryRebuildPoseFromMuscles(
             MuscleSample sourceSample,
             float frameRate,
-            SkeletonCache sourceCache,
+            RetargetSkeleton sourceCache,
             out BoneSample solvedBoneSample,
             out MuscleSample solvedMuscleSample,
             out string error,
@@ -719,7 +719,7 @@ namespace KimodoBridge
                 error = "Source muscle sample is null.";
                 return false;
             }
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(sourceCache, out error))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(sourceCache, out error))
             {
                 return false;
             }
@@ -759,7 +759,7 @@ namespace KimodoBridge
                 }
 
                 if (sceneTargets.HasValue && sceneTargets.Value.Any &&
-                    !TryApplySceneTargetsToSkeletonCache(sourceCache, sceneTargets.Value, out error))
+                    !TryApplySceneTargetsToRetargetSkeleton(sourceCache, sceneTargets.Value, out error))
                 {
                     return false;
                 }
@@ -794,7 +794,7 @@ namespace KimodoBridge
         internal static bool TryRetargetMuscleSamplesToBoneSamples(
             IReadOnlyList<MuscleSample> sourceSamples,
             float frameRate,
-            SkeletonCache targetCache,
+            RetargetSkeleton targetCache,
             out BoneSample[] targetSamples,
             out string error,
             Func<AnimationClip, string, string> writebackClip = null)
@@ -809,7 +809,7 @@ namespace KimodoBridge
                 error = "Source muscle samples are empty.";
                 return false;
             }
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(targetCache, out error))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(targetCache, out error))
             {
                 return false;
             }
@@ -928,7 +928,7 @@ namespace KimodoBridge
                     Mathf.Max(1f, frameRate)) + 1);
         }
 
-        internal static bool TryApplyBoneSampleToSkeletonCache(BoneSample sample, SkeletonCache cache, out string error)
+        internal static bool TryApplyBoneSampleToRetargetSkeleton(BoneSample sample, RetargetSkeleton cache, out string error)
         {
             error = string.Empty;
 
@@ -937,7 +937,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(cache, out error))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(cache, out error))
             {
                 return false;
             }
@@ -987,12 +987,12 @@ namespace KimodoBridge
             return true;
         }
 
-        internal static bool TryCaptureMuscleSample(SkeletonCache cache, out MuscleSample sample, out string error)
+        internal static bool TryCaptureMuscleSample(RetargetSkeleton cache, out MuscleSample sample, out string error)
         {
             sample = null;
             error = string.Empty;
 
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(cache, out error))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(cache, out error))
             {
                 return false;
             }
@@ -1013,7 +1013,7 @@ namespace KimodoBridge
         }
 
         internal static bool TryCaptureSampleData(
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             out MuscleSample sampleData,
             out KimodoSampleChannelMask enableMask,
             out string error)
@@ -1045,13 +1045,13 @@ namespace KimodoBridge
             return true;
         }
 
-        private static bool TryApplySceneTargetsToSkeletonCache(
-            SkeletonCache cache,
+        private static bool TryApplySceneTargetsToRetargetSkeleton(
+            RetargetSkeleton cache,
             KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets targets,
             out string error)
         {
             error = string.Empty;
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetCache(cache, out error))
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(cache, out error))
             {
                 return false;
             }
@@ -1068,7 +1068,7 @@ namespace KimodoBridge
         }
 
         private static void ApplySceneTarget(
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             HumanBodyBones bone,
             bool enabled,
             Transform target)
@@ -1158,7 +1158,7 @@ namespace KimodoBridge
 
         private static bool TrySampleFromClip<TSample>(
             AnimationClip clip,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             float sampleTime,
             string rootName,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
@@ -1192,7 +1192,7 @@ namespace KimodoBridge
 
         private static bool TryCollectSamplesFromClip<TSample>(
             AnimationClip clip,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             int frameCount,
             string rootName,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
@@ -1275,7 +1275,7 @@ namespace KimodoBridge
             return TryCaptureMuscleSample(context.cache, out sample, out error);
         }
 
-        internal static BoneSample CaptureBoneSample(SkeletonCache cache)
+        internal static BoneSample CaptureBoneSample(RetargetSkeleton cache)
         {
             var sample = new BoneSample
             {

@@ -99,7 +99,7 @@ namespace KimodoBridge.Editor
             warning = string.Empty;
             error = string.Empty;
             if (request.EnableBegin &&
-                !KimodoTimelineConstraintClipCache.TrySampleMarker(
+                !KimodoTimelineConstraintSampler.TrySampleMarker(
                     request.TimelineContext,
                     ResolveTimelineBoundaryTime(request, isBegin: true),
                     0.0,
@@ -112,7 +112,7 @@ namespace KimodoBridge.Editor
             }
 
             if (request.EnableEnd &&
-                !KimodoTimelineConstraintClipCache.TrySampleMarker(
+                !KimodoTimelineConstraintSampler.TrySampleMarker(
                     request.TimelineContext,
                     ResolveTimelineBoundaryTime(request, isBegin: false),
                     ResolveConstraintEndSampleTimeSeconds(
@@ -136,7 +136,7 @@ namespace KimodoBridge.Editor
         internal static double ResolveTimelineBoundaryTime(KimodoInOutConstraintRequest request, bool isBegin)
         {
             KimodoTimelineInOutConstraintContext context = request.TimelineContext;
-            float frameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(context);
+            float frameRate = KimodoTimelineConstraintSampler.ResolveTimelineFrameRate(context);
             double oneFrame = 1.0 / frameRate;
             if (request.Mode == KimodoInOutConstraintMode.Outside)
             {

@@ -35,20 +35,20 @@ namespace KimodoBridge
                     modelName,
                     out Avatar avatar,
                     out string error) ||
-                !KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                !KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     avatar,
                     "KimodoRuntimeConstraintExportProfile",
-                    out SkeletonCache cache,
+                    out RetargetSkeleton cache,
                     out error))
             {
                 throw new InvalidOperationException($"Constraint pose projection failed: {error}");
             }
 
-            SkeletonCache sourceCache = null;
+            RetargetSkeleton sourceCache = null;
             try
             {
                 if (KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar) &&
-                    !KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    !KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         sourceAvatar,
                         "KimodoRuntimeConstraintSourceProfile",
                         out sourceCache,

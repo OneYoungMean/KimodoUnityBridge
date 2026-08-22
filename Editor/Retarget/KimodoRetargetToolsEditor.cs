@@ -250,10 +250,10 @@ namespace KimodoBridge.Editor
                 frameRate = sourceFrameRate;
             }
 
-            SkeletonCache targetCache = null;
+            RetargetSkeleton targetCache = null;
             try
             {
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(targetAvatar, "KimodoRetargetToolsEditor_TargetBoneCache", out targetCache, out error))
+                if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(targetAvatar, "KimodoRetargetToolsEditor_TargetBoneCache", out targetCache, out error))
                 {
                     return false;
                 }
@@ -371,10 +371,10 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            SkeletonCache targetCache = null;
+            RetargetSkeleton targetCache = null;
             try
             {
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(targetAvatar, "KimodoMarkerEditorBoneCacheSample", out targetCache, out error))
+                if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(targetAvatar, "KimodoMarkerEditorBoneCacheSample", out targetCache, out error))
                 {
                     return false;
                 }
@@ -454,10 +454,10 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            SkeletonCache sourceCache = null;
+            RetargetSkeleton sourceCache = null;
             try
             {
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(sourceAvatar, "KimodoRetargetToolsEditor_SourceMuscleCache", out sourceCache, out error))
+                if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(sourceAvatar, "KimodoRetargetToolsEditor_SourceMuscleCache", out sourceCache, out error))
                 {
                     return false;
                 }

@@ -49,8 +49,6 @@ namespace KimodoBridge.Editor
             if (forceRefreshRequested)
             {
                 forceRefreshRequested = false;
-                KimodoTimelineConstraintClipCache.Clear();
-                KimodoConstraintMarkerEditorUtility.ClearSamplingCaches();
             }
 
             var groups = new Dictionary<string, List<PoseCacheRenderItem>>(StringComparer.Ordinal);
@@ -112,15 +110,11 @@ namespace KimodoBridge.Editor
 
         private static void OnSceneClosing(Scene _, bool __)
         {
-            KimodoTimelineConstraintClipCache.Clear();
-            KimodoConstraintMarkerEditorUtility.ClearSamplingCaches();
             Clear();
         }
 
         private static void OnActiveSceneChanged(Scene _, Scene __)
         {
-            KimodoTimelineConstraintClipCache.Clear();
-            KimodoConstraintMarkerEditorUtility.ClearSamplingCaches();
             Clear();
             ScheduleRefresh();
         }

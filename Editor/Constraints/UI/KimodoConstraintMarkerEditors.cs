@@ -84,11 +84,6 @@ namespace KimodoBridge.Editor
             return KimodoConstraintMarkerSampling.TryRefreshMarkerCache(marker, out error);
         }
 
-        internal static void ClearSamplingCaches()
-        {
-            KimodoConstraintMarkerSampling.ClearCaches();
-        }
-
 internal static void DrawEnabledField(SerializedObject so)
         {
             SerializedProperty enabled = so?.FindProperty("constraintEnabled");

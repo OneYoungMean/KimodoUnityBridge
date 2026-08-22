@@ -37,8 +37,7 @@ namespace KimodoBridge.Editor
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(animatorId) + ":" +
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(trackId) + ":" +
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(KimodoUnityObjectIdUtility.IdHash(sourceAvatar));
-        }
-    }
+            }
 
     internal sealed class PoseCacheRenderItem
     {
@@ -56,21 +55,16 @@ namespace KimodoBridge.Editor
     {
         public string Key;
         public Transform Root;
-        public SkeletonCache TargetCache;
+        public RetargetSkeleton TargetCache;
         public List<Material> GeneratedMaterials;
         public GameObject EndEffectorMarker;
         public Dictionary<HumanBodyBones, GameObject> FullBodyTargets;
         public KimodoConstraintMarker SourceMarker;
-        public KimodoMarkerSampleResult BaseSample;
+        // Current frame sample used to rebuild the preview rig. This is not a
+        // sampling cache; it is replaced on every RenderBatch pass.
+        public KimodoMarkerSampleResult SampleData;
         public bool PickingEnabled;
         public bool ShowVirtualAvatar = true;
-        public bool HasRenderSignature;
-        public int RenderSignature;
-        // Transform.hasChanged is cleared after each writeback. Keep the
-        // authored target state separately so a refresh cannot snap a rig
-        // back to the bone while the edit window is still active.
-        public readonly HashSet<HumanBodyBones> EditedEffectors =
-            new HashSet<HumanBodyBones>();
     }
 
     internal sealed class ConstraintPosePreviewSession : IDisposable
@@ -113,7 +107,7 @@ namespace KimodoBridge.Editor
         internal static bool TryApplyToTargetAvatar(
             KimodoMarkerSampleResult sample,
             float frameRate,
-            SkeletonCache targetCache,
+            RetargetSkeleton targetCache,
             out string error)
         {
             error = string.Empty;
@@ -137,7 +131,7 @@ namespace KimodoBridge.Editor
                         out _,
                         out error,
                     sceneTargets: null) ||
-                    !KimodoRetargetSamplingUtility.TryApplyBoneSampleToSkeletonCache(
+                    !KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
                         canonicalTargetSample,
                         targetCache,
                         out error))
@@ -359,21 +353,11 @@ namespace KimodoBridge.Editor
                 }
 
                 entry.SourceMarker = item.SourceMarker;
-                if (entry.SourceMarker?.autoSample != false &&
-                    !HasLiveEffectorChanges(entry))
-                {
-                    // AutoSample owns the rig coordinates. A previous manual
-                    // edit must not pin the targets when the timeline pose
-                    // advances.
-                    entry.EditedEffectors.Clear();
-                }
                 KimodoConstraintMode renderMode = ResolveRenderMode(item);
                 entry.ShowVirtualAvatar = renderMode != KimodoConstraintMode.Root2D;
 
-                int renderSignature = ComputeRenderSignature(item, context.ModelName);
-                if (!entry.HasRenderSignature || entry.RenderSignature != renderSignature)
                 {
-                    entry.BaseSample = item.SampleData.Clone();
+                    entry.SampleData = item.SampleData.Clone();
                     KimodoMarkerSampleResult renderSample =
                         KimodoConstraintSampleComposer.ResolveUnifiedSample(item.SampleData);
                     var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -415,8 +399,6 @@ namespace KimodoBridge.Editor
                     }
 
                     ApplyConstraintColoring(entry, highlightedJoints, item.PreviewColor);
-                    entry.RenderSignature = renderSignature;
-                    entry.HasRenderSignature = true;
                     changed = true;
                 }
 
@@ -543,8 +525,8 @@ namespace KimodoBridge.Editor
             if (entry?.EndEffectorMarker != null && entry.EndEffectorMarker.transform.hasChanged) return true;
             if (entry?.FullBodyTargets == null) return false;
             KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
-                entry.BaseSample?.mask,
-                entry.BaseSample?.constraintType);
+                entry.SampleData?.mask,
+                entry.SampleData?.constraintType);
             foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
             {
                 if (item.Key != HumanBodyBones.Hips &&
@@ -1328,7 +1310,7 @@ namespace KimodoBridge.Editor
             }
             DestroyFullBodyTargets(entry);
 
-            SkeletonCache targetCache = entry.TargetCache;
+            RetargetSkeleton targetCache = entry.TargetCache;
             entry.TargetCache = null;
             targetCache?.Dispose();
 
@@ -1558,88 +1540,6 @@ namespace KimodoBridge.Editor
             }
         }
 
-        internal static int ComputeRenderSignature(PoseCacheRenderItem item, string modelName)
-        {
-            unchecked
-            {
-                int hash = 17;
-                AddHash(ref hash, modelName);
-                AddHash(ref hash, item?.ConstraintType);
-                AddHash(ref hash, item != null ? (int)ResolveRenderMode(item) : -1);
-                AddHash(ref hash, item != null ? item.PreviewColor.GetHashCode() : 0);
-                AddHash(ref hash, item != null && item.Visible ? 1 : 0);
-                // AutoSample changes the source of truth (timeline pose vs
-                // authored rig targets), so it must invalidate the cached
-                // render even when the payload values are unchanged.
-                AddHash(ref hash, item?.SourceMarker == null
-                    ? 0
-                    : (item.SourceMarker.autoSample ? 1 : 2));
-                KimodoMarkerSampleResult sample = item?.SampleData;
-                if (sample != null)
-                {
-                    AddHash(ref hash, sample.sampleData?.data != null ? string.Join(",", sample.sampleData.data) : string.Empty);
-                    AddHash(ref hash, sample.effectors != null ? JsonUtility.ToJson(sample.effectors) : string.Empty);
-                    AddHash(ref hash, sample.enableMask?.root2DPosition == true && sample.root2DOverride != null
-                        ? JsonUtility.ToJson(sample.root2DOverride)
-                        : string.Empty);
-                    AddHash(ref hash, sample.constraintType);
-                    AddHash(ref hash, sample.sampleTime.GetHashCode());
-                    AddHash(ref hash, MaskSignature(sample.mask));
-                    AddHash(ref hash, sample.enableMask?.root2DHeading == true ? 1 : 0);
-                    AddHash(ref hash, sample.enableMask?.root2DPosition == true ? 1 : 0);
-                }
-                AddHash(ref hash, item?.HighlightJoints);
-                return hash;
-            }
-        }
-
-        private static void AddHash(ref int hash, int value)
-        {
-            unchecked
-            {
-                hash = hash * 31 + value;
-            }
-        }
-
-        private static void AddHash(ref int hash, string value)
-        {
-            AddHash(ref hash, StringComparer.Ordinal.GetHashCode(value ?? string.Empty));
-        }
-
-        private static string MaskSignature(KimodoConstraintMask mask) => mask == null
-            ? string.Empty
-            : $"{mask.muscle}:{mask.rootPosition}:{mask.rootHeading}:{mask.leftFoot}:{mask.rightFoot}:{mask.leftHand}:{mask.rightHand}";
-
-        private static void AddHash(ref int hash, IReadOnlyList<string> values)
-        {
-            int count = values != null ? values.Count : 0;
-            AddHash(ref hash, count);
-            for (int i = 0; i < count; i++)
-            {
-                AddHash(ref hash, values[i]);
-            }
-        }
-
-        private static void AddHash(ref int hash, IReadOnlyList<Vector3> values)
-        {
-            int count = values != null ? values.Count : 0;
-            AddHash(ref hash, count);
-            for (int i = 0; i < count; i++)
-            {
-                AddHash(ref hash, values[i].GetHashCode());
-            }
-        }
-
-        private static void AddHash(ref int hash, IReadOnlyList<int> values)
-        {
-            int count = values != null ? values.Count : 0;
-            AddHash(ref hash, count);
-            for (int i = 0; i < count; i++)
-            {
-                AddHash(ref hash, values[i]);
-            }
-        }
-
         private static bool ApplySampleToRig(
             KimodoMarkerSampleResult sample,
             string modelName,
@@ -1694,7 +1594,7 @@ namespace KimodoBridge.Editor
             entry.TargetCache.root.SetActive(true);
             try
             {
-                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(entry.BaseSample?.mask, markerType).Clone();
+                KimodoConstraintMask mask = KimodoConstraintMask.Resolve(entry.SampleData?.mask, markerType).Clone();
                 bool rootTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.Hips, mask);
                 bool leftHandTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.LeftHand, mask);
                 bool rightHandTargetChanged = HasChangedFullBodyTarget(entry, HumanBodyBones.RightHand, mask);
@@ -1705,7 +1605,6 @@ namespace KimodoBridge.Editor
                     HumanBodyBones endEffectorBone = ResolveEndEffectorBone(markerType);
                     if (endEffectorBone != HumanBodyBones.LastBone)
                     {
-                        entry.EditedEffectors.Add(endEffectorBone);
                         switch (endEffectorBone)
                         {
                             case HumanBodyBones.LeftHand:
@@ -1723,7 +1622,6 @@ namespace KimodoBridge.Editor
                         }
                     }
                 }
-                RememberEditedEffectors(entry);
                 EnableChangedConstraintChannels(entry, mask);
                 BoneSample targetSample = KimodoRetargetSamplingUtility.CaptureBoneSample(entry.TargetCache);
                 if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
@@ -1742,7 +1640,7 @@ namespace KimodoBridge.Editor
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase))
                 {
                     sample.mask = mask.Clone();
-                    sample.enableMask.root2DHeading = mask.rootHeading && entry.BaseSample.enableMask?.root2DHeading == true;
+                    sample.enableMask.root2DHeading = mask.rootHeading && entry.SampleData.enableMask?.root2DHeading == true;
                     if (rootTargetChanged && entry.FullBodyTargets.TryGetValue(
                             HumanBodyBones.Hips, out GameObject rootTarget) && rootTarget != null)
                     {
@@ -1850,13 +1748,7 @@ namespace KimodoBridge.Editor
             }
 
             Transform marker = entry.EndEffectorMarker.transform;
-            bool preserveEditedTarget = marker.hasChanged ||
-                (entry.SourceMarker?.autoSample == false &&
-                     entry.EditedEffectors.Contains(bone));
-            if (preserveEditedTarget && marker.hasChanged)
-            {
-                entry.EditedEffectors.Add(bone);
-            }
+            bool preserveEditedTarget = marker.hasChanged;
             marker.SetParent(null, true);
             Transform bodyPart = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(
                 entry.TargetCache,
@@ -1872,7 +1764,7 @@ namespace KimodoBridge.Editor
                 Vector3 targetPosition = bodyPart.position;
                 Quaternion targetRotation = ResolveEffectorRotation(entry, bone, bodyPart);
                 if (entry.SourceMarker?.autoSample == false &&
-                    TryGetEffector(entry.BaseSample?.effectors, bone,
+                    TryGetEffector(entry.SampleData?.effectors, bone,
                         out Vector3 savedPosition, out Quaternion savedRotation))
                 {
                     targetPosition = savedPosition;
@@ -1903,8 +1795,8 @@ namespace KimodoBridge.Editor
 
             entry.FullBodyTargets ??= new Dictionary<HumanBodyBones, GameObject>();
             KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
-                entry.BaseSample?.mask,
-                entry.BaseSample?.constraintType);
+                entry.SampleData?.mask,
+                entry.SampleData?.constraintType);
             for (int i = 0; i < FullBodyTargetBones.Length; i++)
             {
                 HumanBodyBones bone = FullBodyTargetBones[i];
@@ -1929,12 +1821,9 @@ namespace KimodoBridge.Editor
                 }
 
                 bool preserveEditedTarget = !createdTarget &&
-                    (target.transform.hasChanged ||
-                     (entry.SourceMarker?.autoSample == false &&
-                      entry.EditedEffectors.Contains(bone)));
+                    target.transform.hasChanged;
                 if (preserveEditedTarget)
                 {
-                    entry.EditedEffectors.Add(bone);
                     target.transform.localScale = Vector3.one * (bone == HumanBodyBones.Hips
                         ? 0.1f
                         : EndEffectorTargetSize);
@@ -1947,12 +1836,12 @@ namespace KimodoBridge.Editor
                 if (bone == HumanBodyBones.Hips)
                 {
                     target.transform.SetParent(null, true);
-                    if (entry.BaseSample?.enableMask?.root2DPosition == true &&
-                             entry.BaseSample.root2DOverride != null)
+                    if (entry.SampleData?.enableMask?.root2DPosition == true &&
+                             entry.SampleData.root2DOverride != null)
                     {
                         target.transform.SetPositionAndRotation(
-                            entry.BaseSample.root2DOverride.t,
-                            entry.BaseSample.root2DOverride.q);
+                            entry.SampleData.root2DOverride.t,
+                            entry.SampleData.root2DOverride.q);
                     }
                     else if (solvedSample?.enableMask?.root2DPosition == true &&
                              solvedSample.root2DOverride != null)
@@ -1963,7 +1852,7 @@ namespace KimodoBridge.Editor
                     }
                 }
                 else if (entry.SourceMarker?.autoSample == false &&
-                    TryGetEffector(entry.BaseSample?.effectors, bone,
+                    TryGetEffector(entry.SampleData?.effectors, bone,
                         out Vector3 savedPosition, out Quaternion savedRotation))
                 {
                     target.transform.SetParent(null, true);
@@ -2010,7 +1899,7 @@ namespace KimodoBridge.Editor
             ConstraintPosePreviewEntry entry,
             KimodoMarkerSampleResult captured)
         {
-            KimodoMarkerSampleResult authored = entry?.BaseSample;
+            KimodoMarkerSampleResult authored = entry?.SampleData;
             if (authored?.enableMask?.root2DPosition != true ||
                 authored.root2DOverride == null ||
                 captured == null)
@@ -2049,8 +1938,8 @@ namespace KimodoBridge.Editor
         private static void UpdateRoot2DTarget(ConstraintPosePreviewEntry entry)
         {
             if (entry?.TargetCache == null ||
-                entry.BaseSample?.enableMask?.root2DPosition != true ||
-                entry.BaseSample.root2DOverride == null)
+                entry.SampleData?.enableMask?.root2DPosition != true ||
+                entry.SampleData.root2DOverride == null)
             {
                 return;
             }
@@ -2076,8 +1965,8 @@ namespace KimodoBridge.Editor
             if (createdTarget || !target.transform.hasChanged)
             {
                 target.transform.SetPositionAndRotation(
-                    entry.BaseSample.root2DOverride.t,
-                    entry.BaseSample.root2DOverride.q);
+                    entry.SampleData.root2DOverride.t,
+                    entry.SampleData.root2DOverride.q);
                 target.transform.hasChanged = false;
             }
             target.transform.localScale = Vector3.one * 0.1f;
@@ -2109,59 +1998,6 @@ namespace KimodoBridge.Editor
             target.SetPositionAndRotation(
                 bodyPart.position,
                 ResolveEffectorRotation(entry, bone, bodyPart));
-        }
-
-        private static void RememberEditedEffectors(ConstraintPosePreviewEntry entry)
-        {
-            if (entry == null)
-            {
-                return;
-            }
-
-            if (entry.EndEffectorMarker != null && entry.EndEffectorMarker.transform.hasChanged)
-            {
-                HumanBodyBones bone = ResolveEndEffectorBone(entry.SourceMarker?.ConstraintType);
-                if (bone != HumanBodyBones.LastBone)
-                {
-                    entry.EditedEffectors.Add(bone);
-                }
-            }
-
-            if (entry.FullBodyTargets == null)
-            {
-                return;
-            }
-
-            foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
-            {
-                if (item.Value != null && item.Value.transform.hasChanged)
-                {
-                    entry.EditedEffectors.Add(item.Key);
-                }
-            }
-        }
-
-        private static bool HasLiveEffectorChanges(ConstraintPosePreviewEntry entry)
-        {
-            if (entry?.EndEffectorMarker != null &&
-                entry.EndEffectorMarker.transform.hasChanged)
-            {
-                return true;
-            }
-
-            if (entry?.FullBodyTargets == null)
-            {
-                return false;
-            }
-
-            foreach (GameObject target in entry.FullBodyTargets.Values)
-            {
-                if (target != null && target.transform.hasChanged)
-                {
-                    return true;
-                }
-            }
-            return false;
         }
 
         private static Quaternion ResolveEffectorRotation(
@@ -2324,8 +2160,8 @@ namespace KimodoBridge.Editor
                 return false;
             }
             KimodoConstraintMask mask = KimodoConstraintMask.Resolve(
-                entry.BaseSample?.mask,
-                entry.BaseSample?.constraintType);
+                entry.SampleData?.mask,
+                entry.SampleData?.constraintType);
             foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
             {
                 if (HasFullBodyTargetTransformChanged(entry, item.Key, item.Value, mask))

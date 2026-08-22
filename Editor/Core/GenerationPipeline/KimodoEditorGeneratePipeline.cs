@@ -448,11 +448,11 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            SkeletonCache cache = null;
+            RetargetSkeleton cache = null;
             AnimationClip trimmedClip = null;
             try
             {
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         samplingAvatar,
                         "KimodoArdyRetargetedGuardTrim",
                         out cache,
@@ -523,7 +523,7 @@ namespace KimodoBridge.Editor
 
         private static bool TryCollectBoneSamplesFromClipRange(
             AnimationClip clip,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             int frameCount,
             float sampleStartTime,
             float sampleFrameRate,
@@ -569,7 +569,7 @@ namespace KimodoBridge.Editor
 
         private static bool TryCollectMuscleSamplesFromClipRange(
             AnimationClip clip,
-            SkeletonCache cache,
+            RetargetSkeleton cache,
             int frameCount,
             float sampleStartTime,
             float sampleFrameRate,

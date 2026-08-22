@@ -9,7 +9,7 @@ namespace KimodoBridge
         private readonly Queue<KimodoRuntimeGeneratedSegment> queuedSegments = new Queue<KimodoRuntimeGeneratedSegment>();
 
         private KimodoRawMotionPlaybackBinding sourceBinding;
-        private SkeletonCache sourceCache;
+        private RetargetSkeleton sourceCache;
         private string sourceCacheModelName;
         private Transform sourceRootJoint;
         private Transform sourceHipsBone;
@@ -33,7 +33,7 @@ namespace KimodoBridge
             : lastCompletedWorldOffset;
         public float SourceHumanScale => sourceCache != null ? Mathf.Max(1e-6f, sourceCache.humanScale) : 1f;
         public Transform ConstraintSkeletonRoot => sourceCache != null ? sourceCache.skeletonRoot : null;
-        internal SkeletonCache ConstraintSkeletonCache => sourceCache;
+        internal RetargetSkeleton ConstraintRetargetSkeleton => sourceCache;
         public int LastCompletedSegmentIndex { get; private set; } = -1;
         public double PlaybackTimeAsDouble => timeSeconds;
         public float BufferedDurationSeconds
@@ -236,7 +236,7 @@ namespace KimodoBridge
             }
 
             DisposeSourceRetargetCache();
-            if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+            if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     sourceAvatar,
                     "KimodoRuntimeMotionDriver_SourceConstraint",
                     out sourceCache,
@@ -424,7 +424,7 @@ namespace KimodoBridge
             if (sourceCache == null || !string.Equals(sourceCacheModelName, modelName, StringComparison.OrdinalIgnoreCase))
             {
                 DisposeSourceRetargetCache();
-                if (!KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         sourceAvatar,
                         "KimodoRuntimeMotionDriver_SourceRetarget",
                         out sourceCache,

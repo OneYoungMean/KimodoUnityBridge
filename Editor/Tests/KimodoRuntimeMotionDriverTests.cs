@@ -1337,7 +1337,7 @@ namespace KimodoBridge.Editor.Tests
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoTimelineRequestLengthTest");
-            SkeletonCache skeleton = null;
+            RetargetSkeleton skeleton = null;
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
@@ -1353,7 +1353,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True,
                     error);
                 Assert.That(
-                    KimodoRetargetAvatarUtility.TryBuildSkeletonCache(
+                    KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         avatar,
                         "KimodoTimelineRequestLengthSkeleton",
                         out skeleton,

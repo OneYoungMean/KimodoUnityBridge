@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using CharacterAnimationCli.Unity;
 using TimelineInject;
 using UnityEditor;
@@ -13,41 +12,7 @@ namespace KimodoBridge.Editor
     internal static class KimodoConstraintMarkerSampling
     {
         private const string DefaultBridgeModelName = "Kimodo-SOMA-RP-v1";
-        private static readonly Dictionary<int, AutoSampleCacheEntry> AutoSampleCache = new Dictionary<int, AutoSampleCacheEntry>();
-
-        private struct MarkerSamplingContext
-        {
-            public TrackAsset Track;
-            public Animator Animator;
-            public Avatar SourceAvatar;
-            public string ModelName;
-            public int CacheTimeFrames;
-        }
-
-private sealed class AutoSampleCacheEntry
-        {
-            public AutoSampleSignatureSnapshot Snapshot;
-            public bool Success;
-            public string Error;
-        }
-
-private struct AutoSampleSignatureSnapshot
-        {
-            public string ConstraintType;
-            public double GlobalTime;
-            public string ModelName;
-            public int TrackId;
-            public int AnimatorId;
-            public int SourceAvatarId;
-            public int SourceAvatarDirtyCount;
-            public int SourceSignature;
-            public int CacheTimeFrames;
-            public Vector3 TrackOffsetPosition;
-            public Quaternion TrackOffsetRotation;
-            public bool HasRootHeading;
-        }
-
-public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, bool forceRefresh, out string error)
+        public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, bool forceRefresh, out string error)
         {
             error = string.Empty;
             if (marker == null)
@@ -97,24 +62,6 @@ public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, 
                 return false;
             }
 
-            MarkerSamplingContext context = new MarkerSamplingContext
-            {
-                Track = track,
-                Animator = animator,
-                SourceAvatar = sourceAvatar,
-                ModelName = ResolveModelName(referenceClip),
-                CacheTimeFrames = KimodoPlayableClipGenerationSettings.instance.TimelineConstraintCacheTimeFrames
-            };
-
-            int id = KimodoUnityObjectIdUtility.IdHash(marker);
-            if (!forceRefresh &&
-                AutoSampleCache.TryGetValue(id, out AutoSampleCacheEntry cached) &&
-                AutoSampleSnapshotMatches(marker, context, cached.Snapshot))
-            {
-                error = cached.Error ?? string.Empty;
-                return cached.Success;
-            }
-
             double sampleTime = marker.time;
             var timelineContext = new KimodoTimelineInOutConstraintContext
             {
@@ -123,33 +70,27 @@ public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, 
                 Director = director,
                 Animator = animator,
                 SourceAvatar = sourceAvatar,
-                ModelName = context.ModelName
+                ModelName = ResolveModelName(referenceClip)
             };
             string samplingType = "fullbody";
-            if (!KimodoTimelineConstraintClipCache.TrySampleMarker(
+            if (!KimodoTimelineConstraintSampler.TrySampleMarker(
                     timelineContext,
                     sampleTime,
                     sampleTime,
                     samplingType,
-                    context.ModelName,
+                    ResolveModelName(referenceClip),
                     forceRefresh,
                     out KimodoMarkerSampleResult sample,
                     out error))
             {
-                AutoSampleCache[id] = new AutoSampleCacheEntry
-                {
-                    Snapshot = BuildAutoSampleSnapshot(marker, context, marker.SampleData),
-                    Success = false,
-                    Error = error ?? string.Empty
-                };
                 return false;
             }
 
-            float timelineFrameRate = KimodoTimelineConstraintClipCache.ResolveTimelineFrameRate(timelineContext);
-            int timelineFrame = KimodoTimelineConstraintClipCache.ResolveTimelineSampleFrame(
+            float timelineFrameRate = KimodoTimelineConstraintSampler.ResolveTimelineFrameRate(timelineContext);
+            int timelineFrame = KimodoTimelineConstraintSampler.ResolveTimelineSampleFrame(
                 sampleTime,
                 timelineFrameRate);
-            double timelineSampleTime = KimodoTimelineConstraintClipCache.ResolveTimelineSampleTime(
+            double timelineSampleTime = KimodoTimelineConstraintSampler.ResolveTimelineSampleTime(
                 sampleTime,
                 timelineFrameRate);
             KimodoPlayableClipGenerationSettings.DebugLog(
@@ -171,33 +112,14 @@ public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, 
             if (preview == null)
             {
                 error = "failed to build marker sample";
-                AutoSampleCache[id] = new AutoSampleCacheEntry
-                {
-                    Snapshot = BuildAutoSampleSnapshot(marker, context, marker.SampleData),
-                    Success = false,
-                    Error = error
-                };
                 return false;
             }
 
             if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
                     marker, preview, out error))
             {
-                AutoSampleCache[id] = new AutoSampleCacheEntry
-                {
-                    Snapshot = BuildAutoSampleSnapshot(marker, context, marker.SampleData),
-                    Success = false,
-                    Error = error ?? string.Empty
-                };
                 return false;
             }
-
-            AutoSampleCache[id] = new AutoSampleCacheEntry
-            {
-                Snapshot = BuildAutoSampleSnapshot(marker, context, preview),
-                Success = true,
-                Error = string.Empty
-            };
             return true;
         }
 
@@ -221,69 +143,8 @@ internal static bool TryRefreshMarkerCache(KimodoConstraintMarker marker, out st
             return true;
         }
 
-        internal static void ClearCaches()
-        {
-            AutoSampleCache.Clear();
-        }
-
         internal static void ClearMarkerCache(KimodoConstraintMarker marker)
         {
-            if (marker != null) AutoSampleCache.Remove(KimodoUnityObjectIdUtility.IdHash(marker));
-        }
-
-private static AutoSampleSignatureSnapshot BuildAutoSampleSnapshot(
-            KimodoConstraintMarker marker,
-            MarkerSamplingContext context,
-            KimodoMarkerSampleResult sample = null)
-        {
-            KimodoMarkerSampleResult source = sample ?? marker?.SampleData;
-            double globalTime = marker != null ? Math.Max(0.0, marker.time) : 0.0;
-            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
-                context.Track,
-                context.Animator,
-                out Vector3 trackOffsetPosition,
-                out Quaternion trackOffsetRotation);
-            return new AutoSampleSignatureSnapshot
-            {
-                ConstraintType = marker != null ? marker.ConstraintType ?? string.Empty : string.Empty,
-                GlobalTime = globalTime,
-                ModelName = context.ModelName ?? string.Empty,
-                TrackId = KimodoUnityObjectIdUtility.IdHash(context.Track),
-                AnimatorId = KimodoUnityObjectIdUtility.IdHash(context.Animator),
-                SourceAvatarId = KimodoUnityObjectIdUtility.IdHash(context.SourceAvatar),
-                SourceAvatarDirtyCount = context.SourceAvatar != null ? EditorUtility.GetDirtyCount(context.SourceAvatar) : 0,
-                SourceSignature = KimodoTimelineConstraintClipCache.ComputeSamplingSourceSignature(context.Track),
-                CacheTimeFrames = context.CacheTimeFrames,
-                TrackOffsetPosition = trackOffsetPosition,
-                TrackOffsetRotation = trackOffsetRotation,
-                HasRootHeading = source?.enableMask?.root2DHeading == true
-            };
-        }
-
-private static bool AutoSampleSnapshotMatches(
-            KimodoConstraintMarker marker,
-            MarkerSamplingContext context,
-            AutoSampleSignatureSnapshot snapshot)
-        {
-            KimodoMarkerSampleResult sample = marker != null ? marker.SampleData : null;
-            double globalTime = marker != null ? Math.Max(0.0, marker.time) : 0.0;
-            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
-                context.Track,
-                context.Animator,
-                out Vector3 trackOffsetPosition,
-                out Quaternion trackOffsetRotation);
-            return string.Equals(snapshot.ConstraintType ?? string.Empty, marker != null ? marker.ConstraintType ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
-                Math.Abs(snapshot.GlobalTime - globalTime) <= 1e-9 &&
-                string.Equals(snapshot.ModelName ?? string.Empty, context.ModelName ?? string.Empty, StringComparison.Ordinal) &&
-                snapshot.TrackId == KimodoUnityObjectIdUtility.IdHash(context.Track) &&
-                snapshot.AnimatorId == KimodoUnityObjectIdUtility.IdHash(context.Animator) &&
-                snapshot.SourceAvatarId == KimodoUnityObjectIdUtility.IdHash(context.SourceAvatar) &&
-                snapshot.SourceAvatarDirtyCount == (context.SourceAvatar != null ? EditorUtility.GetDirtyCount(context.SourceAvatar) : 0) &&
-                snapshot.SourceSignature == KimodoTimelineConstraintClipCache.ComputeSamplingSourceSignature(context.Track) &&
-                snapshot.CacheTimeFrames == context.CacheTimeFrames &&
-                Vector3Approximately(snapshot.TrackOffsetPosition, trackOffsetPosition) &&
-                QuaternionApproximately(snapshot.TrackOffsetRotation, trackOffsetRotation) &&
-                snapshot.HasRootHeading == (sample?.enableMask?.root2DHeading == true);
         }
 
 internal static string ResolveModelName(TimelineClip clipRange)
