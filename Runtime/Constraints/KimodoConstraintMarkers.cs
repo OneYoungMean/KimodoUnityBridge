@@ -116,6 +116,37 @@ namespace TimelineInject
             // normalized once to the default unified full-body channel set.
             return value ?? ForType("fullbody");
         }
+
+        /// <summary>
+        /// Resolves the effective protocol channels from the canonical sample.
+        /// New samples use enableMask; the legacy mask is consulted only when
+        /// the payload has no enabled channel at all, preserving old assets
+        /// while keeping one production read path.
+        /// </summary>
+        public static KimodoConstraintMask FromSample(KimodoMarkerSampleResult sample)
+        {
+            if (sample == null)
+            {
+                return new KimodoConstraintMask();
+            }
+
+            KimodoSampleChannelMask enabled = sample.enableMask;
+            if (enabled != null && enabled.Any)
+            {
+                return new KimodoConstraintMask
+                {
+                    muscle = enabled.muscle49,
+                    rootPosition = enabled.root2DPosition,
+                    rootHeading = enabled.root2DHeading,
+                    leftFoot = enabled.leftFootEffector,
+                    rightFoot = enabled.rightFootEffector,
+                    leftHand = enabled.leftHandEffector,
+                    rightHand = enabled.rightHandEffector
+                };
+            }
+
+            return Resolve(sample.mask, sample.constraintMode ?? sample.constraintType);
+        }
     }
 
     /// <summary>

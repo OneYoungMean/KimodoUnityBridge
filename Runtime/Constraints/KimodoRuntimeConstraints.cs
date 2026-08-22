@@ -156,13 +156,13 @@ namespace KimodoBridge
             List<KimodoMarkerSampleResult> samples,
             KimodoMarkerSampleResult sample)
         {
-            bool isWaypoint = KimodoConstraintMask.Resolve(sample.mask, sample.constraintType).rootPosition;
+            bool isWaypoint = KimodoConstraintMask.FromSample(sample).rootPosition;
             for (int i = samples.Count - 1; i >= 0; i--)
             {
                 KimodoMarkerSampleResult existing = samples[i];
                 if (existing == null ||
                     (isWaypoint
-                        ? KimodoConstraintMask.Resolve(existing.mask, existing.constraintType).rootPosition &&
+                        ? KimodoConstraintMask.FromSample(existing).rootPosition &&
                           Math.Abs(existing.sampleTime - sample.sampleTime) <= 1e-6
                         : SameChannels(existing, sample)))
                 {
@@ -180,8 +180,8 @@ namespace KimodoBridge
                 return false;
             }
 
-            KimodoConstraintMask a = KimodoConstraintMask.Resolve(left.mask, left.constraintType);
-            KimodoConstraintMask b = KimodoConstraintMask.Resolve(right.mask, right.constraintType);
+            KimodoConstraintMask a = KimodoConstraintMask.FromSample(left);
+            KimodoConstraintMask b = KimodoConstraintMask.FromSample(right);
             return a.muscle == b.muscle &&
                    a.rootPosition == b.rootPosition &&
                    a.rootHeading == b.rootHeading &&
