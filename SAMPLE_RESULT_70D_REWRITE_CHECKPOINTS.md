@@ -572,3 +572,9 @@
 - 该入口在同一次 evaluated `RetargetSkeleton` 状态中读取 `HumanPose` 并构建 70D `MuscleSample`，避免 rootTQ、footTQ 与骨骼数据来自不同转换阶段。
 - 该改动不新增原子数据结构，仍保持 `SampleResult → MuscleSample → BoneSample` 链路。
 - 检查：已通过 Unity package probe 编译：`C:\tmp\kimodo-compile-constraint-avatar-cleanup-pass11.log`。
+
+## CP72 — 删除 Timeline 采样器残留的源 Avatar 尺度状态
+
+- 已移除 `KimodoTimelineSamplingSession.SourceHumanScale` 及其缓存字段；Timeline 采样只保留源骨架用于读取原始姿势、目标骨架用于重定向，不再向外暴露源尺度。
+- 保持原始采样 API 的兼容参数不变，但它们不参与 70D 数据或 world-space 约束结果计算。
+- 检查：`git diff --check` 通过；下一步执行 Unity package probe 编译。

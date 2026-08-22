@@ -167,7 +167,6 @@ namespace KimodoBridge.Editor
         private readonly RetargetSkeleton sourceSamplingCache;
         private readonly string[] sourceBonePaths;
         private readonly Transform[] sourceBoneTransforms;
-        private readonly float sourceHumanScale;
         private readonly KimodoTimelineEvaluationScope evaluationScope;
         private readonly DirectorWrapMode originalWrapMode;
         private bool disposed;
@@ -177,7 +176,6 @@ namespace KimodoBridge.Editor
             RetargetSkeleton sourceSamplingCache,
             string[] sourceBonePaths,
             Transform[] sourceBoneTransforms,
-            float sourceHumanScale,
             RetargetSkeleton targetCache,
             KimodoTimelineEvaluationScope evaluationScope,
             DirectorWrapMode originalWrapMode)
@@ -186,15 +184,12 @@ namespace KimodoBridge.Editor
             this.sourceSamplingCache = sourceSamplingCache;
             this.sourceBonePaths = sourceBonePaths;
             this.sourceBoneTransforms = sourceBoneTransforms;
-            this.sourceHumanScale = sourceHumanScale;
             TargetCache = targetCache;
             this.evaluationScope = evaluationScope;
             this.originalWrapMode = originalWrapMode;
         }
 
         internal RetargetSkeleton TargetCache { get; }
-        internal float SourceHumanScale => sourceHumanScale;
-
         internal static bool TryCreate(
             KimodoTimelineInOutConstraintContext context,
             string modelName,
@@ -253,7 +248,6 @@ namespace KimodoBridge.Editor
                     targetCache.Dispose();
                     return false;
                 }
-                float sourceHumanScale = sourceSamplingCache.humanScale;
                 if (!TryBuildSourceBoneTransforms(
                         context.Animator.transform,
                         sourceSamplingCache,
@@ -272,7 +266,6 @@ namespace KimodoBridge.Editor
                     sourceSamplingCache,
                     sourceBonePaths,
                     sourceBoneTransforms,
-                    sourceHumanScale,
                     targetCache,
                     evaluationScope,
                     originalWrapMode);
