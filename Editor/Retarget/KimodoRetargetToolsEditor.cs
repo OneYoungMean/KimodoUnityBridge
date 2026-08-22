@@ -568,12 +568,12 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                HumanPose pose = sample.pose;
+                CharacterPoseMuscleAdapter.ToHumanPose(sample, out HumanPose pose);
                 Vector3 sourceMeters = pose.bodyPosition * sourceScale;
                 sourceMeters = inverseTargetYaw * (sourceMeters - sourcePlanarOffsetMeters);
                 pose.bodyPosition = sourceMeters / sourceScale;
                 pose.bodyRotation = (inverseTargetYaw * pose.bodyRotation).normalized;
-                sample.pose = pose;
+                sample.SetRoot(pose.bodyPosition, pose.bodyRotation);
             }
         }
 
@@ -1051,8 +1051,8 @@ namespace KimodoBridge.Editor
                 return "dynamicMuscles=unknown";
             }
 
-            float[] first = samples[0].pose.muscles;
-            float[] last = samples[samples.Count - 1].pose.muscles;
+            float[] first = samples[0].data;
+            float[] last = samples[samples.Count - 1].data;
             int count = Mathf.Min(first?.Length ?? 0, last?.Length ?? 0);
             int dynamic = 0;
             for (int i = 0; i < count; i++)

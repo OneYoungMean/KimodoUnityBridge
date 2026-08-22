@@ -53,8 +53,11 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     {
         sampleData ??= new KimodoMarkerSampleResult();
         bool initializeDefaults = string.IsNullOrWhiteSpace(sampleData.constraintMode) && sampleData.mask == null;
-        sampleData.sampleData = KimodoSampleDataLayout.IsValidLength(sampleData.sampleData)
-            ? sampleData.sampleData : KimodoSampleDataLayout.CreateBuffer();
+        sampleData.sampleData ??= new KimodoBridge.MuscleSample();
+        if (!KimodoSampleDataLayout.IsValid(sampleData.sampleData))
+        {
+            sampleData.sampleData = new KimodoBridge.MuscleSample();
+        }
         sampleData.enableMask ??= new KimodoSampleChannelMask();
         sampleData.effectors ??= new KimodoConstraintEffectors();
         sampleData.effectors.hands ??= new CharacterAnimationCli.Unity.CharacterPoseSides();

@@ -1014,11 +1014,11 @@ namespace KimodoBridge
 
         internal static bool TryCaptureSampleData(
             SkeletonCache cache,
-            out float[] sampleData,
+            out MuscleSample sampleData,
             out KimodoSampleChannelMask enableMask,
             out string error)
         {
-            sampleData = KimodoSampleDataLayout.CreateBuffer();
+            sampleData = new MuscleSample();
             enableMask = new KimodoSampleChannelMask();
             error = string.Empty;
 
@@ -1028,13 +1028,15 @@ namespace KimodoBridge
             }
 
             CharacterPose pose = CharacterPoseMuscleAdapter.FromMuscleSample(sample, cache);
-            if (!CharacterPoseMuscleAdapter.TryToSampleData(pose, out sampleData, out _))
+            if (!CharacterPoseMuscleAdapter.TryToSampleData(pose, out float[] encoded, out _))
             {
                 // Sampling completed, but this pose must not be advertised as
                 // valid. Keep the fixed-size payload and clear all validity bits.
                 error = string.Empty;
                 return true;
             }
+
+            sampleData.data = encoded;
 
             enableMask.muscle49 = true;
             enableMask.rootTQ = true;
@@ -1327,22 +1329,7 @@ namespace KimodoBridge
                 return null;
             }
 
-            HumanPose pose = source.pose;
-            if (pose.muscles != null)
-            {
-                float[] muscles = new float[pose.muscles.Length];
-                Array.Copy(pose.muscles, muscles, pose.muscles.Length);
-                pose.muscles = muscles;
-            }
-
-            return new MuscleSample
-            {
-                pose = pose,
-                leftFootPosition = source.leftFootPosition,
-                leftFootRotation = source.leftFootRotation,
-                rightFootPosition = source.rightFootPosition,
-                rightFootRotation = source.rightFootRotation
-            };
+            return source.Clone();
         }
 
 

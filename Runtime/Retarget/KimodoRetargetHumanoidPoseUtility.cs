@@ -8,14 +8,21 @@ namespace KimodoBridge
     {
         internal static MuscleSample BuildMuscleSampleFromPose(SkeletonCache cache, HumanPose pose)
         {
-            var sample = new MuscleSample
+            var sample = new MuscleSample();
+            float[] muscles = pose.muscles ?? Array.Empty<float>();
+            for (int i = 0; i < CharacterPoseMuscleAdapter.UnityBodyMuscleIndices.Length; i++)
             {
-                pose = pose,
-                leftFootPosition = Vector3.zero,
-                leftFootRotation = Quaternion.identity,
-                rightFootPosition = Vector3.zero,
-                rightFootRotation = Quaternion.identity
-            };
+                int unityIndex = CharacterPoseMuscleAdapter.UnityBodyMuscleIndices[i];
+                sample.data[i] = unityIndex < muscles.Length ? muscles[unityIndex] : 0f;
+            }
+            sample.SetRoot(pose.bodyPosition, pose.bodyRotation);
+            if (cache != null)
+            {
+                cache.GetBonePose(HumanBodyBones.LeftFoot, out Vector3 leftPosition, out Quaternion leftRotation);
+                cache.GetBonePose(HumanBodyBones.RightFoot, out Vector3 rightPosition, out Quaternion rightRotation);
+                sample.SetLeftFoot(leftPosition, leftRotation);
+                sample.SetRightFoot(rightPosition, rightRotation);
+            }
             return sample;
         }
 

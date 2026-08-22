@@ -137,7 +137,7 @@ namespace TimelineInject
     {
         // Canonical payload. Legacy fields below are being removed in later
         // migration phases; new code must use sampleData and enableMask.
-        public float[] sampleData = KimodoSampleDataLayout.CreateBuffer();
+        public KimodoBridge.MuscleSample sampleData = new KimodoBridge.MuscleSample();
         public KimodoSampleChannelMask enableMask = new KimodoSampleChannelMask();
         public bool enabled = true;
         // Composer uses this as the explicit creation-order tie breaker.
@@ -160,7 +160,7 @@ namespace TimelineInject
 
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
         {
-            sampleData = sampleData != null ? (float[])sampleData.Clone() : KimodoSampleDataLayout.CreateBuffer(),
+            sampleData = sampleData?.Clone() ?? new KimodoBridge.MuscleSample(),
             enableMask = enableMask?.Clone() ?? new KimodoSampleChannelMask(),
             enabled = enabled,
             creationOrder = creationOrder,

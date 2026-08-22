@@ -101,8 +101,7 @@ namespace KimodoBridge
                 }
 
                 float time = frame / frameRate;
-                HumanPose pose = sample.pose;
-                EnsureHumanPoseMuscles(ref pose);
+                HumanPose pose = CharacterPoseMuscleAdapter.ToHumanPose(sample);
                 if (includeRootTransform)
                 {
                     Quaternion rootRotation = ResolveContinuousRotation(
@@ -114,10 +113,12 @@ namespace KimodoBridge
                 }
                 if (includeFootIkGoals)
                 {
-                    AddVector3Key(time, sample.leftFootPosition, leftFootTx, leftFootTy, leftFootTz);
-                    AddQuaternionKey(time, sample.leftFootRotation, leftFootQx, leftFootQy, leftFootQz, leftFootQw);
-                    AddVector3Key(time, sample.rightFootPosition, rightFootTx, rightFootTy, rightFootTz);
-                    AddQuaternionKey(time, sample.rightFootRotation, rightFootQx, rightFootQy, rightFootQz, rightFootQw);
+                    sample.GetLeftFoot(out Vector3 leftFootPosition, out Quaternion leftFootRotation);
+                    sample.GetRightFoot(out Vector3 rightFootPosition, out Quaternion rightFootRotation);
+                    AddVector3Key(time, leftFootPosition, leftFootTx, leftFootTy, leftFootTz);
+                    AddQuaternionKey(time, leftFootRotation, leftFootQx, leftFootQy, leftFootQz, leftFootQw);
+                    AddVector3Key(time, rightFootPosition, rightFootTx, rightFootTy, rightFootTz);
+                    AddQuaternionKey(time, rightFootRotation, rightFootQx, rightFootQy, rightFootQz, rightFootQw);
                 }
                 for (int muscle = 0; muscle < muscleCurves.Length; muscle++)
                 {

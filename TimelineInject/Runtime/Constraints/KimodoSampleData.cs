@@ -22,6 +22,20 @@ namespace TimelineInject
 
         public static float[] CreateBuffer() => new float[SampleDataLength];
 
+        public static bool IsValid(KimodoBridge.MuscleSample sample) =>
+            sample != null && TryValidate(sample.data, out _);
+
+        public static KimodoBridge.MuscleSample FromBuffer(float[] data)
+        {
+            return new KimodoBridge.MuscleSample
+            {
+                data = data != null ? (float[])data.Clone() : CreateBuffer()
+            };
+        }
+
+        public static float[] ToBuffer(KimodoBridge.MuscleSample sample) =>
+            sample?.data != null ? (float[])sample.data.Clone() : CreateBuffer();
+
         public static bool IsValidLength(float[] data) =>
             data != null && data.Length == SampleDataLength;
 
@@ -70,6 +84,29 @@ namespace TimelineInject
             }
 
             error = string.Empty;
+            return true;
+        }
+
+        public static bool TryValidate(KimodoBridge.MuscleSample sample, out string error) =>
+            TryValidate(sample?.data, out error);
+
+        public static bool TryDecodeCharacterPose(
+            KimodoBridge.MuscleSample sample,
+            out CharacterPose pose,
+            out string error) =>
+            TryDecodeCharacterPose(sample?.data, out pose, out error);
+
+        public static bool TryEncodeCharacterPose(
+            CharacterPose pose,
+            KimodoBridge.MuscleSample sample,
+            out string error)
+        {
+            if (!TryEncodeCharacterPose(pose, out float[] data, out error))
+            {
+                return false;
+            }
+            sample ??= throw new ArgumentNullException(nameof(sample));
+            sample.data = data;
             return true;
         }
 

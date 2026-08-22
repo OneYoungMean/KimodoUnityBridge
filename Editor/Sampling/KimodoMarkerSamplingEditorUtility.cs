@@ -50,9 +50,9 @@ namespace KimodoBridge.Editor
                 normalized.mask.rightFoot |= requestedMask.rightFoot;
             }
 
-            if (writeSampledCharacterPose && KimodoSampleDataLayout.IsValidLength(sample.sampleData))
+            if (writeSampledCharacterPose && KimodoSampleDataLayout.IsValid(sample.sampleData))
             {
-                normalized.sampleData = (float[])sample.sampleData.Clone();
+                normalized.sampleData = sample.sampleData.Clone();
                 normalized.enableMask = sample.enableMask?.Clone() ?? new KimodoSampleChannelMask();
             }
 
@@ -125,7 +125,7 @@ namespace KimodoBridge.Editor
 
         private static string SampleDataSignature(KimodoMarkerSampleResult sample)
         {
-            return sample?.sampleData != null ? string.Join(",", sample.sampleData) : string.Empty;
+            return sample?.sampleData?.data != null ? string.Join(",", sample.sampleData.data) : string.Empty;
         }
 
         private static string Root2DOverrideSignature(KimodoMarkerSampleResult sample)

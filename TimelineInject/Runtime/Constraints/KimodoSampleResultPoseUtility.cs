@@ -48,15 +48,15 @@ namespace TimelineInject
                 error = "SampleResult is null.";
                 return false;
             }
+            sample.sampleData ??= new KimodoBridge.MuscleSample();
             if (!KimodoSampleDataLayout.TryEncodeCharacterPose(
                     pose,
-                    out float[] encoded,
+                    sample.sampleData,
                     out error))
             {
                 return false;
             }
 
-            sample.sampleData = encoded;
             sample.enableMask ??= new KimodoSampleChannelMask();
             sample.enableMask.muscle49 = true;
             sample.enableMask.rootTQ = true;

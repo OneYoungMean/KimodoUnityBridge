@@ -341,3 +341,12 @@
 - 构建尝试：在 `C:\tmp\KimodoUnityBridge_FullDemo-main` 执行 `dotnet build KimodoTool.Editor.csproj --no-restore`；失败原因为 FullDemo 的 Unity Test Framework 缺少 NUnit 引用（约 603 个外部 `NUnit` 错误），不是本批次代码错误证据。
 - 当前分支提交：`04c4ae5`；工作树保留用户此前 quick-server 启动脚本改动，未混入本分支 checkpoint。
 - 追加清理：Runtime ToJson 投影中未使用的 legacy `KimodoConstraintMask` 局部变量已删除。
+
+## CP43 — MuscleSample 统一为 70D 原子数据
+
+- 已完成：`MuscleSample` 不再存储 `HumanPose` 或独立的 foot position/rotation 字段，内部统一为固定 70D `data`：49 body muscle + rootTQ7 + leftFootTQ7 + rightFootTQ7。
+- 已完成：`KimodoMarkerSampleResult.sampleData` 改为 `MuscleSample`；Clone、Composer、采样结果、Inspector hash 和 marker normalization 已同步使用同一对象。
+- 已完成：retarget clip writer、Humanoid retargeter、FootT/Q bake、muscle clone 等路径改为从 70D 读取/写入；HumanPose 只在 Unity API 边界临时构建。
+- 保留：协议层 `KimodoSampleDataLayout` 的 float[70] 编码作为传输格式适配，不再作为内部动画原子对象。
+- 尚未完成：CharacterPose/CharacterPoseTransform/CharacterPoseSides 的生产适配移除，以及 RawMotion→constraint_internal 直连。
+- 检查：`git diff --check` 通过；FullDemo dotnet 构建当前被外部 Unity Test Framework/NUnit 和缺失 Unity 生成 DLL 阻断，未形成有效生产编译结论。

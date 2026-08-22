@@ -1577,7 +1577,7 @@ namespace KimodoBridge.Editor
                 KimodoMarkerSampleResult sample = item?.SampleData;
                 if (sample != null)
                 {
-                    AddHash(ref hash, sample.sampleData != null ? string.Join(",", sample.sampleData) : string.Empty);
+                    AddHash(ref hash, sample.sampleData?.data != null ? string.Join(",", sample.sampleData.data) : string.Empty);
                     AddHash(ref hash, sample.effectors != null ? JsonUtility.ToJson(sample.effectors) : string.Empty);
                     AddHash(ref hash, sample.enableMask?.root2DPosition == true && sample.root2DOverride != null
                         ? JsonUtility.ToJson(sample.root2DOverride)

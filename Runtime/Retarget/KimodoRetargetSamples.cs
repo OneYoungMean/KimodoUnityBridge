@@ -19,13 +19,40 @@ namespace KimodoBridge
             boneNames.Length == localRotations.Length;
     }
 
+    [Serializable]
     public sealed class MuscleSample
     {
-        public HumanPose pose;
-        public Vector3 leftFootPosition;
-        public Quaternion leftFootRotation;
-        public Vector3 rightFootPosition;
-        public Quaternion rightFootRotation;
+        // Atomic muscle pose: 49 body muscles followed by rootTQ, leftFootTQ
+        // and rightFootTQ. HumanPose is an API boundary, never stored here.
+        public float[] data = KimodoSampleDataLayout.CreateBuffer();
+
+        public bool IsValid => KimodoSampleDataLayout.TryValidate(data, out _);
+
+        public MuscleSample Clone()
+        {
+            return new MuscleSample
+            {
+                data = data != null ? (float[])data.Clone() : KimodoSampleDataLayout.CreateBuffer()
+            };
+        }
+
+        public void GetRoot(out Vector3 position, out Quaternion rotation) =>
+            KimodoSampleDataLayout.GetTransform(data, KimodoSampleDataLayout.RootTqOffset, out position, out rotation);
+
+        public void GetLeftFoot(out Vector3 position, out Quaternion rotation) =>
+            KimodoSampleDataLayout.GetTransform(data, KimodoSampleDataLayout.LeftFootTqOffset, out position, out rotation);
+
+        public void GetRightFoot(out Vector3 position, out Quaternion rotation) =>
+            KimodoSampleDataLayout.GetTransform(data, KimodoSampleDataLayout.RightFootTqOffset, out position, out rotation);
+
+        public void SetRoot(Vector3 position, Quaternion rotation) =>
+            KimodoSampleDataLayout.SetTransform(data, KimodoSampleDataLayout.RootTqOffset, position, rotation.normalized);
+
+        public void SetLeftFoot(Vector3 position, Quaternion rotation) =>
+            KimodoSampleDataLayout.SetTransform(data, KimodoSampleDataLayout.LeftFootTqOffset, position, rotation.normalized);
+
+        public void SetRightFoot(Vector3 position, Quaternion rotation) =>
+            KimodoSampleDataLayout.SetTransform(data, KimodoSampleDataLayout.RightFootTqOffset, position, rotation.normalized);
     }
 
     public sealed class KimodoSkeletonInstance : IDisposable
@@ -65,7 +92,7 @@ namespace KimodoBridge
         }
 
         public bool TryCaptureSampleData(
-            out float[] sampleData,
+            out MuscleSample sampleData,
             out KimodoSampleChannelMask enableMask,
             out string error)
         {

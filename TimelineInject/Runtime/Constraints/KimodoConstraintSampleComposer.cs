@@ -153,8 +153,8 @@ namespace TimelineInject
             if (source == null) return;
             bool valid = source.enableMask != null && IsValid(source.enableMask, channel);
             SetValid(destination.enableMask, channel, valid);
-            if (!valid || !KimodoSampleDataLayout.IsValidLength(source.sampleData)) return;
-            Array.Copy(source.sampleData, offset, destination.sampleData, offset, count);
+            if (!valid || !KimodoSampleDataLayout.IsValid(source.sampleData)) return;
+            Array.Copy(source.sampleData.data, offset, destination.sampleData.data, offset, count);
         }
 
         private static void CopyEffectorChannel(

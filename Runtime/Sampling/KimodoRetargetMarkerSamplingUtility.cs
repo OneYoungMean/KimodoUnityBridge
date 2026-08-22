@@ -67,7 +67,7 @@ namespace KimodoBridge
 
             if (!KimodoRetargetSamplingUtility.TryCaptureSampleData(
                     targetCache,
-                    out float[] sampleData,
+                out MuscleSample sampleData,
                     out KimodoSampleChannelMask enableMask,
                     out error))
             {

@@ -32,10 +32,16 @@ namespace KimodoBridge
             Quaternion leftHandRotation = Quaternion.identity;
             Vector3 rightHandPosition = Vector3.zero;
             Quaternion rightHandRotation = Quaternion.identity;
-            Vector3 leftFootPosition = sample.leftFootPosition;
-            Quaternion leftFootRotation = sample.leftFootRotation;
-            Vector3 rightFootPosition = sample.rightFootPosition;
-            Quaternion rightFootRotation = sample.rightFootRotation;
+            KimodoSampleDataLayout.GetTransform(
+                sample.data,
+                KimodoSampleDataLayout.LeftFootTqOffset,
+                out Vector3 leftFootPosition,
+                out Quaternion leftFootRotation);
+            KimodoSampleDataLayout.GetTransform(
+                sample.data,
+                KimodoSampleDataLayout.RightFootTqOffset,
+                out Vector3 rightFootPosition,
+                out Quaternion rightFootRotation);
             if (cache != null)
             {
                 cache.GetBonePose(HumanBodyBones.LeftHand, out leftHandPosition, out leftHandRotation);
@@ -50,8 +56,8 @@ namespace KimodoBridge
             {
                 root = new CharacterPoseTransform
                 {
-                    t = sample.pose.bodyPosition,
-                    q = sample.pose.bodyRotation
+                    t = ReadRootPosition(sample),
+                    q = ReadRootRotation(sample)
                 },
                 hands = new CharacterPoseSides
                 {
@@ -65,14 +71,38 @@ namespace KimodoBridge
                 }
             };
 
-            float[] source = sample.pose.muscles;
             for (int i = 0; i < UnityBodyMuscleIndices.Length; i++)
             {
                 int sourceIndex = UnityBodyMuscleIndices[i];
-                result.muscles[i] = source != null && sourceIndex < source.Length ? source[sourceIndex] : 0f;
+                result.muscles[i] = i < KimodoSampleDataLayout.BodyMuscleCount
+                    ? sample.data[i] : 0f;
             }
 
             return result;
+        }
+
+        internal static HumanPose ToHumanPose(MuscleSample sample)
+        {
+            if (sample == null || !sample.IsValid)
+            {
+                throw new ArgumentException("MuscleSample must contain a valid 70D payload.", nameof(sample));
+            }
+
+            var pose = new HumanPose
+            {
+                muscles = new float[HumanTrait.MuscleCount]
+            };
+            for (int i = 0; i < UnityBodyMuscleIndices.Length; i++)
+            {
+                pose.muscles[UnityBodyMuscleIndices[i]] = sample.data[i];
+            }
+            sample.GetRoot(out pose.bodyPosition, out pose.bodyRotation);
+            return pose;
+        }
+
+        internal static void ToHumanPose(MuscleSample sample, out HumanPose pose)
+        {
+            pose = ToHumanPose(sample);
         }
 
         /// <summary>Encodes the canonical body/root/foot payload into the
@@ -130,6 +160,28 @@ namespace KimodoBridge
 
         /// <summary>Decodes valid 70-value data into the legacy CharacterPose
         /// adapter boundary. Hand effectors remain separate channels.</summary>
+        public static bool TryFromSampleData(
+            MuscleSample sample,
+            out CharacterPose pose,
+            out string error)
+        {
+            return TryFromSampleData(sample?.data, out pose, out error);
+        }
+
+        public static bool TryToSampleData(
+            CharacterPose pose,
+            MuscleSample sample,
+            out string error)
+        {
+            if (!TryToSampleData(pose, out float[] data, out error))
+            {
+                return false;
+            }
+            sample ??= throw new ArgumentNullException(nameof(sample));
+            sample.data = data;
+            return true;
+        }
+
         public static bool TryFromSampleData(
             float[] data,
             out CharacterPose pose,
@@ -202,20 +254,33 @@ namespace KimodoBridge
                 unityMuscles[UnityBodyMuscleIndices[i]] = pose.muscles[i];
             }
 
-            var sample = new MuscleSample
+            var sample = new MuscleSample();
+            for (int i = 0; i < UnityBodyMuscleIndices.Length; i++)
             {
-                pose = new HumanPose
-                {
-                    bodyPosition = includeTransformChannels ? pose.root.t : Vector3.zero,
-                    bodyRotation = includeTransformChannels ? pose.root.q.normalized : Quaternion.identity,
-                    muscles = unityMuscles
-                },
-                leftFootPosition = includeTransformChannels ? pose.feet.left.t : Vector3.zero,
-                leftFootRotation = includeTransformChannels ? pose.feet.left.q.normalized : Quaternion.identity,
-                rightFootPosition = includeTransformChannels ? pose.feet.right.t : Vector3.zero,
-                rightFootRotation = includeTransformChannels ? pose.feet.right.q.normalized : Quaternion.identity
-            };
+                sample.data[i] = pose.muscles[i];
+            }
+            sample.SetRoot(
+                includeTransformChannels ? pose.root.t : Vector3.zero,
+                includeTransformChannels ? pose.root.q : Quaternion.identity);
+            sample.SetLeftFoot(
+                includeTransformChannels ? pose.feet.left.t : Vector3.zero,
+                includeTransformChannels ? pose.feet.left.q : Quaternion.identity);
+            sample.SetRightFoot(
+                includeTransformChannels ? pose.feet.right.t : Vector3.zero,
+                includeTransformChannels ? pose.feet.right.q : Quaternion.identity);
             return sample;
+        }
+
+        private static Vector3 ReadRootPosition(MuscleSample sample)
+        {
+            sample.GetRoot(out Vector3 position, out _);
+            return position;
+        }
+
+        private static Quaternion ReadRootRotation(MuscleSample sample)
+        {
+            sample.GetRoot(out _, out Quaternion rotation);
+            return rotation;
         }
     }
 }

@@ -93,13 +93,13 @@ namespace KimodoBridge.Editor
                     MuscleSample constrainedSample = constrainedSamples[frame];
                     if (useLeftFoot)
                     {
-                        sample.leftFootPosition = constrainedSample.leftFootPosition;
-                        sample.leftFootRotation = constrainedSample.leftFootRotation;
+                        constrainedSample.GetLeftFoot(out Vector3 position, out Quaternion rotation);
+                        sample.SetLeftFoot(position, rotation);
                     }
                     if (useRightFoot)
                     {
-                        sample.rightFootPosition = constrainedSample.rightFootPosition;
-                        sample.rightFootRotation = constrainedSample.rightFootRotation;
+                        constrainedSample.GetRightFoot(out Vector3 position, out Quaternion rotation);
+                        sample.SetRightFoot(position, rotation);
                     }
                     mergedSamples[frame] = sample;
                 }

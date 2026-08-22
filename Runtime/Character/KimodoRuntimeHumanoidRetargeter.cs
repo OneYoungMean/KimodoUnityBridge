@@ -110,8 +110,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            HumanPose pose = sample.pose;
-            KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
+            HumanPose pose = CharacterPoseMuscleAdapter.ToHumanPose(sample);
             for (int i = 0; i < targets.Count; i++)
             {
                 TargetState state = targets[i];

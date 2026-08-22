@@ -30,9 +30,9 @@ namespace KimodoBridge
             normalized.enabled = marker.constraintEnabled;
             normalized.mask = KimodoConstraintMask.Resolve(authored?.mask, "constraint").Clone();
             if (!useSampledValues && sample != null &&
-                KimodoSampleDataLayout.IsValidLength(sample.sampleData))
+                KimodoSampleDataLayout.IsValid(sample.sampleData))
             {
-                normalized.sampleData = (float[])sample.sampleData.Clone();
+                normalized.sampleData = sample.sampleData.Clone();
             }
             normalized.enableMask ??= new KimodoSampleChannelMask();
             normalized.enableMask.NormalizeDependencies();
