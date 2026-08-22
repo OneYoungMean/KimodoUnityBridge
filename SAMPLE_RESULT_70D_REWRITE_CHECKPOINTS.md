@@ -333,3 +333,10 @@
 - 已完成：`KimodoConstraintSpaceConverter` 重命名为 `KimodoConstraintSampleApplier`；当前逻辑只负责 canonical SampleResult→MuscleSample→BoneSample→TargetCache，不再伪装成空间转换器。
 - 已完成：删除未使用的 `HumanoidEffectorSceneTargets` 参数，Preview 应用路径不再携带潜在 IK/effector 解算入口。
 - 检查：`git diff --check` 通过；Unity CLI 编译仍待执行。
+
+## CP42 — 非 ToJson 引用复核与构建边界记录
+
+- 复核保留路径：`KimodoRawMotionUtility` 用于 RawMotion 的 Kimodo/ARDY joint 映射；`KimodoEditorClipUtility`/Generation Planner 用于 SkipRetarget 前的模型骨骼校验；`KimodoClipConstraintEncoder`、`KimodoClipConstraintBakeUtility`、`ArdyEditorHistoryEncoder` 用于协议关节布局/父子关系；`KimodoRuntimeConstraintExportProjector` 位于 Runtime ToJson 投影路径。
+- 未发现新的可删除生产 ProfileSkeleton 调用。`Editor/Tests/KimodoTimelinePoseSamplerTests.cs` 仍整体 `#if false`，其中的旧 raw/profile 测试不进入生产编译，暂不为历史测试重建已删除语义。
+- 构建尝试：在 `C:\tmp\KimodoUnityBridge_FullDemo-main` 执行 `dotnet build KimodoTool.Editor.csproj --no-restore`；失败原因为 FullDemo 的 Unity Test Framework 缺少 NUnit 引用（约 603 个外部 `NUnit` 错误），不是本批次代码错误证据。
+- 当前分支提交：`04c4ae5`；工作树保留用户此前 quick-server 启动脚本改动，未混入本分支 checkpoint。
