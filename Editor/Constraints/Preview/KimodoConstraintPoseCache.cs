@@ -102,7 +102,7 @@ namespace KimodoBridge.Editor
 
     internal static class KimodoConstraintSampleApplier
     {
-        internal static bool TryApplyToTargetAvatar(
+        internal static bool TryApplyToTargetSkeleton(
             KimodoMarkerSampleResult sample,
             float frameRate,
             RetargetSkeleton targetCache,
@@ -111,7 +111,7 @@ namespace KimodoBridge.Editor
             error = string.Empty;
             if (sample == null || targetCache == null)
             {
-                error = "Constraint target Avatar cache is unavailable.";
+                error = "Constraint target skeleton cache is unavailable.";
                 return false;
             }
 
@@ -860,7 +860,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            return TryBuildSampleFromTargetAvatar(
+            return TryBuildSampleFromTargetSkeleton(
                 entry,
                 context.ModelName,
                 markerType,
@@ -915,7 +915,7 @@ namespace KimodoBridge.Editor
                     : null;
                 if (hips == null)
                 {
-                    error = "Target Avatar Hips is unavailable.";
+                    error = "Target skeleton Hips is unavailable.";
                     return false;
                 }
 
@@ -1548,7 +1548,7 @@ namespace KimodoBridge.Editor
             error = string.Empty;
             if (sample == null || entry?.TargetCache == null)
             {
-                error = "Constraint target Avatar cache is unavailable.";
+                error = "Constraint target skeleton cache is unavailable.";
                 return false;
             }
 
@@ -1556,7 +1556,7 @@ namespace KimodoBridge.Editor
             entry.TargetCache.root.SetActive(true);
             try
             {
-                return KimodoConstraintSampleApplier.TryApplyToTargetAvatar(
+                return KimodoConstraintSampleApplier.TryApplyToTargetSkeleton(
                     sample,
                     KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
                     entry.TargetCache,
@@ -1572,7 +1572,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static bool TryBuildSampleFromTargetAvatar(
+        private static bool TryBuildSampleFromTargetSkeleton(
             ConstraintPosePreviewEntry entry,
             string modelName,
             string markerType,
@@ -1584,7 +1584,7 @@ namespace KimodoBridge.Editor
             error = string.Empty;
             if (entry?.TargetCache == null)
             {
-                error = "Constraint target Avatar cache is unavailable.";
+                error = "Constraint target skeleton cache is unavailable.";
                 return false;
             }
 

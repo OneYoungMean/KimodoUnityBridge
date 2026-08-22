@@ -584,3 +584,9 @@
 - `KimodoConstraintOverrideEditWindow` 不再解析 Timeline 源 Avatar 或额外加载 profile Avatar；编辑窗口只校验 Animator/marker/目标预览上下文，Rig 始终由目标模型骨架提供。
 - 采样阶段仍在 Timeline sampler 内部解析源 Avatar；该边界不再向上层编辑状态泄漏。
 - 检查：待本批提交后执行 Unity package probe 编译。
+
+## CP74 — 预览骨架边界命名清理
+
+- 预览采样/写回辅助方法不再使用 `TargetAvatar` 命名，统一表达为目标 `RetargetSkeleton`；相关错误信息也不再把缓存误称为 Avatar。
+- 不改变 Preview 的数据流：AutoSample 仍为 SampleResult → 目标骨架 → Rig，非 AutoSample 才允许 Rig → SampleResult。
+- 检查：`git diff --check` 通过；待提交后执行 Unity package probe 编译。
