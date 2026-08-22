@@ -768,7 +768,6 @@ namespace CharacterAnimationCli.Unity.Command
                 session.Director.Evaluate();
                 targetCache?.Dispose();
             }
-            KimodoMarkerSamplingUtility.ComposeCharacterPosesAtSameFrame(samples, SessionFrameRate);
             return samples;
         }
 
@@ -797,8 +796,7 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     throw new InvalidOperationException($"constraints[{constraintIndex}].root2d.heading must be non-zero.");
                 }
-                float humanScale = targetCache != null ? Mathf.Max(1e-6f, targetCache.humanScale) : 1f;
-                pose.root.t = new Vector3(position.x, targetRootHeight, position.y) / humanScale;
+                pose.root.t = new Vector3(position.x, targetRootHeight, position.y);
                 pose.root.q = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up);
             }
             else if (value?["pose"] == null)
@@ -808,7 +806,6 @@ namespace CharacterAnimationCli.Unity.Command
 
             var result = new KimodoMarkerSampleResult
             {
-                constraintType = "root2d",
                 constraintMode = "root2d",
                 sampleTime = sampleTime,
                 root2DOverride = new KimodoRigidTransform
@@ -859,7 +856,7 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new InvalidOperationException($"Convert constraints[{constraintIndex}] failed: {convertError}");
             }
-            converted.constraintType = constraintType;
+            converted.constraintMode = constraintType;
             // Retarget sampling already returned the canonical 70D payload,
             // including the evaluated body-relative footTQ channels. Do not
             // round-trip through CharacterPose, whose cached foot fields are
