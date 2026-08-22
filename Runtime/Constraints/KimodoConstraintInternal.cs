@@ -97,13 +97,6 @@ namespace KimodoBridge
             {
                 KimodoConstraintMask channels = KimodoConstraintMask.FromSample(sample);
                 AddEffectors(result, sample, modelType, exportContext, channels);
-                if (result.Count == 0 && mode == "effector")
-                {
-                    AddEffectors(result, sample, modelType, exportContext, new KimodoConstraintMask
-                    {
-                        leftHand = true
-                    });
-                }
             }
             return result.ToArray();
         }
