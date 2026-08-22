@@ -565,3 +565,10 @@
 - 已移除 Runtime Root2D 采样器中未参与结果的模型旋转、目标尺度参数，以及旧的 `ToModelTarget`（该方法仍按旧模型局部/尺度语义计算，生产链路已无调用）。
 - 已保留真正的 Avatar 边界：Timeline/独立 Clip 原始采样、通用 Generate retarget plan，以及 ConstraintInternal 内部的目标骨架投影。
 - 检查：`git diff --check` 通过；Unity 编译待本批提交后执行。
+
+## CP71 — 统一 evaluated skeleton 到 MuscleSample 的采样入口
+
+- 已将 `KimodoRetargetSamplingUtility.TryCaptureMuscleSample` 收拢到 `KimodoRetargetHumanoidPoseUtility.TryCaptureEvaluatedMuscleSample`。
+- 该入口在同一次 evaluated `RetargetSkeleton` 状态中读取 `HumanPose` 并构建 70D `MuscleSample`，避免 rootTQ、footTQ 与骨骼数据来自不同转换阶段。
+- 该改动不新增原子数据结构，仍保持 `SampleResult → MuscleSample → BoneSample` 链路。
+- 检查：已通过 Unity package probe 编译：`C:\tmp\kimodo-compile-constraint-avatar-cleanup-pass11.log`。

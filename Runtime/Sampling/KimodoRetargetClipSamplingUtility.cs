@@ -989,27 +989,10 @@ namespace KimodoBridge
 
         internal static bool TryCaptureMuscleSample(RetargetSkeleton cache, out MuscleSample sample, out string error)
         {
-            sample = null;
-            error = string.Empty;
-
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(cache, out error))
-            {
-                return false;
-            }
-
-            try
-            {
-                var pose = new HumanPose();
-                cache.poseHandler.GetHumanPose(ref pose);
-                KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
-                sample = KimodoRetargetHumanoidPoseUtility.BuildMuscleSampleFromPose(cache, pose);
-                return sample != null;
-            }
-            catch (Exception ex)
-            {
-                error = ex.Message;
-                return false;
-            }
+            return KimodoRetargetHumanoidPoseUtility.TryCaptureEvaluatedMuscleSample(
+                cache,
+                out sample,
+                out error);
         }
 
         internal static bool TryCaptureSampleData(

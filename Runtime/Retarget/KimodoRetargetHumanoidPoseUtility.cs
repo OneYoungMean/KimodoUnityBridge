@@ -6,6 +6,46 @@ namespace KimodoBridge
 {
     internal static class KimodoRetargetHumanoidPoseUtility
     {
+        /// <summary>
+        /// Captures the canonical 70D sample from one already evaluated
+        /// retarget skeleton. HumanPose and the world bones are read from the
+        /// same evaluation, so rootTQ and footTQ cannot come from different
+        /// frames or from a later CharacterPose conversion.
+        /// </summary>
+        internal static bool TryCaptureEvaluatedMuscleSample(
+            RetargetSkeleton cache,
+            out MuscleSample sample,
+            out string error)
+        {
+            sample = null;
+            error = string.Empty;
+            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(cache, out error))
+            {
+                return false;
+            }
+
+            try
+            {
+                var pose = new HumanPose();
+                cache.poseHandler.GetHumanPose(ref pose);
+                KimodoRetargetClipWriter.EnsureHumanPoseMuscles(ref pose);
+                sample = BuildMuscleSampleFromPose(cache, pose);
+                if (sample == null || !sample.IsValid)
+                {
+                    sample = null;
+                    error = "Evaluated retarget skeleton produced an invalid 70D muscle sample.";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
         internal static MuscleSample BuildMuscleSampleFromPose(RetargetSkeleton cache, HumanPose pose)
         {
             var sample = new MuscleSample();
