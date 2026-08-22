@@ -681,7 +681,6 @@ namespace CharacterAnimationCli.Unity.Command
             sample.enableMask.leftFootTQ = true;
             sample.enableMask.rightFootTQ = true;
             sample.constraintType = "constraint";
-            sample.mask = KimodoConstraintMask.Resolve(sample.mask, "constraint");
         }
 
         private readonly struct PoseLocator

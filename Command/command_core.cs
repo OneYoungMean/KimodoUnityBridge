@@ -810,7 +810,6 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 constraintType = "root2d",
                 constraintMode = "root2d",
-                mask = KimodoConstraintMask.ForType("root2d"),
                 sampleTime = sampleTime,
                 root2DOverride = new KimodoRigidTransform
                 {
@@ -861,7 +860,6 @@ namespace CharacterAnimationCli.Unity.Command
                 throw new InvalidOperationException($"Convert constraints[{constraintIndex}] failed: {convertError}");
             }
             converted.constraintType = constraintType;
-            converted.mask = KimodoConstraintMask.ForType(constraintType);
             KimodoSampleResultPoseUtility.TryEncode(
                 converted,
                 CharacterPoseMuscleAdapter.FromMuscleSample(targetMuscleSample, targetCache),

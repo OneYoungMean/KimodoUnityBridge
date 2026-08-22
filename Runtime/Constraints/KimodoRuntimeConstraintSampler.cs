@@ -34,7 +34,6 @@ namespace KimodoBridge
             }
 
             sample.constraintType = "constraint";
-            sample.mask = KimodoConstraintMask.ForType(constraintType);
             sample.effectors ??= new KimodoConstraintEffectors();
             sample.effectors.leftHand ??= KimodoRigidTransform.Identity;
             sample.effectors.rightHand ??= KimodoRigidTransform.Identity;
@@ -90,7 +89,6 @@ namespace KimodoBridge
             // absolute model space; subtracting NextSegmentRootOrigin here
             // would apply the same translation a second time during generation.
             sample.constraintType = "constraint";
-            sample.mask = KimodoConstraintMask.ForType(KimodoRuntimeConstraints.Root2DType);
             if (sample.enableMask?.root2DPosition == true)
             {
                 sample.root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
@@ -142,7 +140,6 @@ namespace KimodoBridge
             {
                 constraintType = "constraint",
                 sampleTime = sampleTime,
-                mask = KimodoConstraintMask.ForType(constraintType),
                 enableMask = new KimodoSampleChannelMask()
             };
 

@@ -455,7 +455,6 @@ namespace CharacterAnimationCli.Unity.Command
                 }
 
                 KimodoMarkerSampleResult markerSample = sample.Clone();
-                markerSample.mask = KimodoConstraintMask.Resolve(markerSample.mask, sample.constraintType);
                 markerSample.constraintType = "constraint";
                 marker.SampleData = markerSample;
                 if (createdMarker)

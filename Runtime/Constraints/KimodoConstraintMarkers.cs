@@ -119,9 +119,8 @@ namespace TimelineInject
 
         /// <summary>
         /// Resolves the effective protocol channels from the canonical sample.
-        /// New samples use enableMask; the legacy mask is consulted only when
-        /// the payload has no enabled channel at all, preserving old assets
-        /// while keeping one production read path.
+        /// New samples use enableMask as the sole validity source. A missing
+        /// mask is treated as an old boundary object and inferred from mode.
         /// </summary>
         public static KimodoConstraintMask FromSample(KimodoMarkerSampleResult sample)
         {
@@ -131,7 +130,7 @@ namespace TimelineInject
             }
 
             KimodoSampleChannelMask enabled = sample.enableMask;
-            if (enabled != null && enabled.Any)
+            if (enabled != null)
             {
                 return new KimodoConstraintMask
                 {
@@ -145,7 +144,11 @@ namespace TimelineInject
                 };
             }
 
-            return Resolve(sample.mask, sample.constraintMode ?? sample.constraintType);
+            string mode = (sample.constraintMode ?? sample.constraintType ?? string.Empty)
+                .Trim().ToLowerInvariant().Replace('_', '-');
+            return mode == string.Empty || mode == "constraint"
+                ? ForType("fullbody")
+                : ForType(mode);
         }
     }
 
@@ -193,7 +196,6 @@ namespace TimelineInject
         // samples retain the legacy resolver behavior for command-only data.
         public string constraintMode;
         public double sampleTime;
-        public KimodoConstraintMask mask;
 
         public KimodoMarkerSampleResult Clone() => new KimodoMarkerSampleResult
         {
@@ -205,8 +207,7 @@ namespace TimelineInject
             root2DOverride = root2DOverride.Clone(),
             constraintType = this.constraintType,
             constraintMode = this.constraintMode,
-            sampleTime = sampleTime,
-            mask = mask?.Clone()
+            sampleTime = sampleTime
         };
     }
 

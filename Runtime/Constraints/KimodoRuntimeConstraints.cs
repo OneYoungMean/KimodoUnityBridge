@@ -100,7 +100,6 @@ namespace KimodoBridge
                     // complete FullBody anchor. Keep it as-is so protocol
                     // expansion does not synthesize a Root2D companion.
                     terminal.constraintType = FullBodyType;
-                    terminal.mask = KimodoConstraintMask.ForType(FullBodyType);
                     terminal.sampleTime = 0.0;
                     overlapFullBody = terminal;
                 }

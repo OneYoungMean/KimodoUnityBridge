@@ -28,7 +28,6 @@ namespace KimodoBridge
                 ? "root2d"
                 : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
             normalized.enabled = marker.constraintEnabled;
-            normalized.mask = KimodoConstraintMask.Resolve(authored?.mask, "constraint").Clone();
             if (!useSampledValues && sample != null &&
                 KimodoSampleDataLayout.IsValid(sample.sampleData))
             {
@@ -96,7 +95,6 @@ namespace KimodoBridge
                 },
                 constraintType = "constraint",
                 sampleTime = 0d,
-                mask = KimodoConstraintMask.Resolve(null, "constraint")
             };
             KimodoSampleResultPoseUtility.TryEncode(result, pose, out _);
             return result;

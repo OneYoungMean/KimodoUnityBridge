@@ -35,19 +35,22 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            // Normalization preserves the authored mask; a Scene drag is the
+            // Normalization preserves channel validity; a Scene drag is the
             // explicit editor path that may promote newly changed channels.
-            if (sample.mask != null)
+            if (sample.enableMask != null)
             {
-                KimodoConstraintMask requestedMask = KimodoConstraintMask.Resolve(
-                    sample.mask,
-                    sample.constraintType);
-                normalized.mask.rootPosition |= requestedMask.rootPosition;
-                normalized.mask.rootHeading |= requestedMask.rootHeading;
-                normalized.mask.leftHand |= requestedMask.leftHand;
-                normalized.mask.rightHand |= requestedMask.rightHand;
-                normalized.mask.leftFoot |= requestedMask.leftFoot;
-                normalized.mask.rightFoot |= requestedMask.rightFoot;
+                normalized.enableMask ??= new KimodoSampleChannelMask();
+                normalized.enableMask.muscle49 |= sample.enableMask.muscle49;
+                normalized.enableMask.rootTQ |= sample.enableMask.rootTQ;
+                normalized.enableMask.leftFootTQ |= sample.enableMask.leftFootTQ;
+                normalized.enableMask.rightFootTQ |= sample.enableMask.rightFootTQ;
+                normalized.enableMask.root2DPosition |= sample.enableMask.root2DPosition;
+                normalized.enableMask.root2DHeading |= sample.enableMask.root2DHeading;
+                normalized.enableMask.leftHandEffector |= sample.enableMask.leftHandEffector;
+                normalized.enableMask.rightHandEffector |= sample.enableMask.rightHandEffector;
+                normalized.enableMask.leftFootEffector |= sample.enableMask.leftFootEffector;
+                normalized.enableMask.rightFootEffector |= sample.enableMask.rightFootEffector;
+                normalized.enableMask.NormalizeDependencies();
             }
 
             if (writeSampledCharacterPose && KimodoSampleDataLayout.IsValid(sample.sampleData))
@@ -118,7 +121,6 @@ namespace KimodoBridge.Editor
                 string.Equals(SampleDataSignature(left), SampleDataSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(EffectorsSignature(left), EffectorsSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(Root2DOverrideSignature(left), Root2DOverrideSignature(right), System.StringComparison.Ordinal) &&
-                string.Equals(MaskSignature(left.mask), MaskSignature(right.mask), System.StringComparison.Ordinal) &&
                 left.enableMask?.root2DHeading == right.enableMask?.root2DHeading &&
                 left.enableMask?.root2DPosition == right.enableMask?.root2DPosition;
         }
@@ -146,13 +148,6 @@ namespace KimodoBridge.Editor
         {
             return targets?.leftHand != null || targets?.rightHand != null ||
                 targets?.leftFoot != null || targets?.rightFoot != null;
-        }
-
-        private static string MaskSignature(KimodoConstraintMask mask)
-        {
-            return mask == null
-                ? string.Empty
-                : $"{mask.muscle}:{mask.rootPosition}:{mask.rootHeading}:{mask.leftFoot}:{mask.rightFoot}:{mask.leftHand}:{mask.rightHand}";
         }
 
         private static bool StringListsEqual(System.Collections.Generic.IReadOnlyList<string> left, System.Collections.Generic.IReadOnlyList<string> right)

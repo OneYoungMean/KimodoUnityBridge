@@ -53,7 +53,7 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     private void EnsureSampleData()
     {
         sampleData ??= new KimodoMarkerSampleResult();
-        bool initializeDefaults = string.IsNullOrWhiteSpace(sampleData.constraintMode) && sampleData.mask == null;
+        bool initializeDefaults = string.IsNullOrWhiteSpace(sampleData.constraintMode);
         sampleData.sampleData ??= new KimodoBridge.MuscleSample();
         if (!KimodoSampleDataLayout.IsValid(sampleData.sampleData))
         {
@@ -71,7 +71,6 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         sampleData.sampleTime = Math.Max(0.0, time);
         if (initializeDefaults)
         {
-            sampleData.mask = KimodoConstraintMask.ForType(sampleData.constraintMode);
             if (constraintMode == KimodoConstraintMode.Root2D)
             {
                 sampleData.enableMask.root2DPosition = true;
@@ -85,7 +84,6 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
                 sampleData.enableMask.rightFootTQ = true;
             }
         }
-        sampleData.mask ??= KimodoConstraintMask.ForType(sampleData.constraintMode);
         sampleData.enableMask.NormalizeDependencies();
     }
 

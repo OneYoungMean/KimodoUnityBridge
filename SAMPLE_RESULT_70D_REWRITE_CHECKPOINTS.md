@@ -430,3 +430,11 @@
 - 结果：新生产路径不再直接从 `SampleResult.mask` 判断有效通道；旧 mask 仍只通过统一兼容入口参与老资产迁移。
 - 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\kimodo-compile-mask-preview-migration.log`；`git diff --check` 通过。
 - 尚未完成：编辑器采样归一化和 Generate 协议边界仍保留必要的 legacy mask/type 写入，下一批继续区分“协议字段”和“内部字段”。
+
+## CP52 — 移除 SampleResult legacy mask 存储
+
+- 已完成：从 `KimodoMarkerSampleResult` 删除独立 `mask` 字段；内部生产路径统一使用 `enableMask` 和 `constraintMode`。
+- 已完成：Runtime sampling、Composer、Preview、Command、Root2D/FullBody/Effector marker 创建路径移除对 SampleResult mask 的写入；协议层自己的 `KimodoClipConstraint.mask` 未改动。
+- 已完成：`KimodoSampleDataTests` 改用 `MuscleSample` 70D 对象，不再构造旧 SampleResult mask。
+- 保持：`KimodoConstraintMask` 作为协议通道投影/临时计算结构保留，不再作为 SampleResult 持久数据。
+- 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\kimodo-compile-mask-removal-pass4.log`；`git diff --check` 通过。

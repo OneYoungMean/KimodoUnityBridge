@@ -1112,7 +1112,6 @@ namespace KimodoBridge
             {
                 constraintType = "constraint",
                 sampleTime = sampleTime,
-                mask = KimodoConstraintMask.ForType(resolvedConstraintType),
                 enableMask = new KimodoSampleChannelMask
                 {
                     rootTQ = true,

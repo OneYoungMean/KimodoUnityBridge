@@ -557,11 +557,18 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            sample.mask ??= new KimodoConstraintMask();
+            KimodoConstraintMask mask = KimodoConstraintMask.FromSample(sample);
             bool rootChanged = entry.FullBodyTargets != null &&
                 entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject rootTarget) &&
-                HasFullBodyTargetTransformChanged(entry, HumanBodyBones.Hips, rootTarget, sample.mask);
-            EnableChangedConstraintChannels(entry, sample.mask);
+                HasFullBodyTargetTransformChanged(entry, HumanBodyBones.Hips, rootTarget, mask);
+            EnableChangedConstraintChannels(entry, mask);
+            sample.enableMask ??= new KimodoSampleChannelMask();
+            sample.enableMask.root2DPosition |= mask.rootPosition;
+            sample.enableMask.root2DHeading |= mask.rootHeading;
+            sample.enableMask.leftHandEffector |= mask.leftHand;
+            sample.enableMask.rightHandEffector |= mask.rightHand;
+            sample.enableMask.leftFootEffector |= mask.leftFoot;
+            sample.enableMask.rightFootEffector |= mask.rightFoot;
             if (rootChanged)
             {
                 sample.enableMask ??= new KimodoSampleChannelMask();
@@ -1638,7 +1645,6 @@ namespace KimodoBridge.Editor
                 sample.effectors = CaptureEffectorsFromEntry(entry, mask, markerType);
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase))
                 {
-                    sample.mask = mask.Clone();
                     sample.enableMask.root2DHeading = mask.rootHeading && entry.SampleData.enableMask?.root2DHeading == true;
                     if (rootTargetChanged && entry.FullBodyTargets.TryGetValue(
                             HumanBodyBones.Hips, out GameObject rootTarget) && rootTarget != null)

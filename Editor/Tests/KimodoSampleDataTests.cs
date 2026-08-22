@@ -59,8 +59,6 @@ namespace KimodoBridge.Editor.Tests
         {
             KimodoMarkerSampleResult sample = CreateFullBody(1, 0.5f, true);
             sample.constraintMode = "mix";
-            sample.mask.rootPosition = true;
-            sample.mask.rootHeading = true;
             sample.enableMask.root2DPosition = true;
             sample.enableMask.root2DHeading = true;
             sample.enableMask.root2DPosition = true;
@@ -84,7 +82,7 @@ namespace KimodoBridge.Editor.Tests
             data[KimodoSampleDataLayout.BodyMuscleOffset] = firstMuscle;
             return new KimodoMarkerSampleResult
             {
-                sampleData = data,
+                sampleData = KimodoSampleDataLayout.FromBuffer(data),
                 enableMask = new KimodoSampleChannelMask
                 {
                     muscle49 = valid,
@@ -94,7 +92,6 @@ namespace KimodoBridge.Editor.Tests
                 },
                 constraintMode = "fullbody",
                 constraintType = "fullbody",
-                mask = new KimodoConstraintMask { muscle = valid },
                 sampleTime = 0,
                 creationOrder = creationOrder,
                 enabled = true

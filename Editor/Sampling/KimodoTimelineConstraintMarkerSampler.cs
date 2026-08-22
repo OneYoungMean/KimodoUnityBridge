@@ -829,7 +829,7 @@ namespace KimodoBridge.Editor
             }
             KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][ConstraintExport] marker='{marker.ConstraintType}' time={marker.time:F3} mode={mode} " +
-                $"mask={sample.mask?.muscle}:{sample.mask?.rootPosition}:{sample.mask?.AnyEndEffector} hasHeading={sample.enableMask?.root2DHeading == true}");
+                $"channels={KimodoConstraintMask.FromSample(sample).muscle}:{KimodoConstraintMask.FromSample(sample).rootPosition}:{KimodoConstraintMask.FromSample(sample).AnyEndEffector} hasHeading={sample.enableMask?.root2DHeading == true}");
             return true;
         }
 

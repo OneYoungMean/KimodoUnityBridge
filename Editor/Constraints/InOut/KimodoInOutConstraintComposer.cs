@@ -138,7 +138,6 @@ namespace KimodoBridge.Editor
                 constraintType = "constraint",
                 constraintMode = "root2d",
                 sampleTime = 0.0,
-                mask = KimodoConstraintMask.ForType(Root2DConstraintType),
                 enableMask = new KimodoSampleChannelMask
                 {
                     root2DPosition = true,

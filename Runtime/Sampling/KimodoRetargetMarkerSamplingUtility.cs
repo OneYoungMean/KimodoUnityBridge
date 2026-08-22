@@ -191,7 +191,6 @@ namespace KimodoBridge
             {
                 constraintType = "constraint",
                 sampleTime = sampleTime,
-                mask = KimodoConstraintMask.ForType(markerType),
                 enableMask = new KimodoSampleChannelMask()
             };
         }

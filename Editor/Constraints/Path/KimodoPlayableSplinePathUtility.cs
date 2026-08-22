@@ -164,7 +164,6 @@ namespace KimodoBridge.Editor
                         t = new Vector3(worldPosition.x, 0f, worldPosition.z) / sourceHumanScale,
                         q = Quaternion.LookRotation(worldForward, Vector3.up)
                     },
-                    mask = KimodoConstraintMask.ForType(Root2DConstraintType),
                     enableMask = new KimodoSampleChannelMask
                     {
                         root2DPosition = true,

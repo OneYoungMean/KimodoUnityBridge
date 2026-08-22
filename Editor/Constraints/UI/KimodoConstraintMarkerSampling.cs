@@ -106,7 +106,6 @@ namespace KimodoBridge.Editor
                 sample.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
                     ? "root2d"
                     : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
-                sample.mask = KimodoConstraintMask.Resolve(marker.SampleData.mask, "constraint").Clone();
             }
             KimodoMarkerSampleResult preview = MergeAutoSampledChannels(marker, sample);
             if (preview == null)
