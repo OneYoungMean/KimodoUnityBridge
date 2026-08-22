@@ -130,7 +130,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            float sourceHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(context.SourceAvatar);
             int lastFrame = Mathf.Max(0, generationFrames - 1);
             int sampleCount = lastFrame == 0 ? 1 : clip.SplineWaypointCount;
             double durationSeconds = lastFrame / Mathf.Max(1f, generationFrameRate);
@@ -161,7 +160,7 @@ namespace KimodoBridge.Editor
                     sampleTime = timelineClip.start + (durationSeconds * t),
                     root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
                     {
-                        t = new Vector3(worldPosition.x, 0f, worldPosition.z) / sourceHumanScale,
+                        t = new Vector3(worldPosition.x, 0f, worldPosition.z),
                         q = Quaternion.LookRotation(worldForward, Vector3.up)
                     },
                     enableMask = new KimodoSampleChannelMask

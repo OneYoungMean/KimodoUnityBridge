@@ -525,3 +525,10 @@
 - 已完成：Preview 的目标骨架应用逻辑删除 `SampleResult → CharacterPose → MuscleSample` 往返，直接使用 `SampleResult.sampleData` 70D `MuscleSample` 重建 `BoneSample` 并应用到唯一目标 `RetargetSkeleton`。
 - 结果：Preview 不再依赖 Command 层 `CharacterPose` 解释 rootTQ；原子采样链路统一为 `SampleResult → MuscleSample → BoneSample → target RetargetSkeleton`。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-preview-musclesample-pass6.log`。
+
+## CP65 — Root2D/Effector 世界坐标不再重复缩放
+
+- 已修正：Root2D override 和 EndEffector target 在协议导出时不再乘 `humanScale`；它们按约定直接使用 Rig/Preview 产生的 world-space 值，仅执行 Kimodo 坐标轴转换。
+- 已修正：Spline Root2D waypoint 不再除以 Timeline 源 Avatar 的 `humanScale`，避免“写入一次、导出再缩放一次”的等比位移偏移。
+- 保持：FullBody 由目标 RetargetSkeleton 投影得到的 root/joint 数据不变；`humanScale` 字段仅作为旧导出上下文兼容字段保留。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 package probe 编译成功，日志：`C:\tmp\kimodo-compile-world-space-export-pass7.log`。

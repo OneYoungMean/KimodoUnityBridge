@@ -145,7 +145,7 @@ namespace KimodoBridge
             // protocol root when no skeleton projector is available.
             rootPositionMeters = sample.enableMask?.root2DPosition == true &&
                 sample.root2DOverride != null
-                ? sample.root2DOverride.t * HumanScale
+                ? sample.root2DOverride.t
                 : Vector3.zero;
             pose.root.t = Vector3.zero;
             pose.root.q = Quaternion.identity;
@@ -305,8 +305,8 @@ namespace KimodoBridge
             if (sample != null && sample.enableMask?.root2DPosition == true &&
                 sample.root2DOverride != null)
             {
-                float humanScale = (exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale;
-                Vector3 root = sample.root2DOverride.t * humanScale;
+                _ = exportContext ?? throw new ArgumentNullException(nameof(exportContext));
+                Vector3 root = sample.root2DOverride.t;
                 Vector3 forward = sample.root2DOverride.q * Vector3.forward;
                 var canonical = new KimodoConstraintJson
                 {
@@ -399,7 +399,7 @@ namespace KimodoBridge
             {
                 throw new InvalidOperationException($"End-effector constraint pose projection failed: {error}");
             }
-            float humanScale = (exportContext ?? throw new ArgumentNullException(nameof(exportContext))).HumanScale;
+            _ = exportContext ?? throw new ArgumentNullException(nameof(exportContext));
             Vector3 kimodoRoot = new Vector3(-rootPositionMeters.x, rootPositionMeters.y, rootPositionMeters.z);
             var json = new KimodoConstraintJson
             {
@@ -425,7 +425,7 @@ namespace KimodoBridge
                 jointType);
             if (goal != null)
             {
-                Vector3 worldTarget = goal.t * humanScale;
+                Vector3 worldTarget = goal.t;
                 json.target_positions = new List<float[]> { new[] { -worldTarget.x, worldTarget.y, worldTarget.z } };
             }
 
