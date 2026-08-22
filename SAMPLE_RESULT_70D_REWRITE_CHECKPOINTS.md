@@ -327,3 +327,9 @@
 - 保留：ToJson 投影、Kimodo/ARDY 协议 joint layout/父子关系校验、SkipRetarget 模型骨骼检查路径；这些仍属于生产必要语义。
 - 检查：`git diff --check` 通过；尚未运行 Unity CLI 编译验证。
 - 下一步：提交本批次，随后做全仓非 ToJson ProfileSkeleton 引用分类和 Unity 编译/FullBody sampling/Generate 验证。
+
+## CP41 — 收敛 Preview Sample 应用命名
+
+- 已完成：`KimodoConstraintSpaceConverter` 重命名为 `KimodoConstraintSampleApplier`；当前逻辑只负责 canonical SampleResult→MuscleSample→BoneSample→TargetCache，不再伪装成空间转换器。
+- 已完成：删除未使用的 `HumanoidEffectorSceneTargets` 参数，Preview 应用路径不再携带潜在 IK/effector 解算入口。
+- 检查：`git diff --check` 通过；Unity CLI 编译仍待执行。

@@ -108,14 +108,13 @@ namespace KimodoBridge.Editor
         }
     }
 
-    internal static class KimodoConstraintSpaceConverter
+    internal static class KimodoConstraintSampleApplier
     {
         internal static bool TryApplyToTargetAvatar(
             KimodoMarkerSampleResult sample,
             float frameRate,
             SkeletonCache targetCache,
-            out string error,
-            KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets? sceneTargets = null)
+            out string error)
         {
             error = string.Empty;
             if (sample == null || targetCache == null)
@@ -1659,12 +1658,11 @@ namespace KimodoBridge.Editor
             entry.TargetCache.root.SetActive(true);
             try
             {
-                return KimodoConstraintSpaceConverter.TryApplyToTargetAvatar(
+                return KimodoConstraintSampleApplier.TryApplyToTargetAvatar(
                     sample,
                     KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
                     entry.TargetCache,
-                    out error,
-                    sceneTargets: null);
+                    out error);
             }
             finally
             {
