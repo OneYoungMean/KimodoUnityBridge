@@ -363,3 +363,10 @@
 - 已完成：生成投影结果不再携带未使用的 `projectedPose` CharacterPose 回传字段；协议输出仍由同一 profile skeleton 的 FK 结果生成轴角和根位置。
 - 保持：Editor Generate 的协议 JSON、KMB attachment 和现有 retarget 写出流程不变；Preview/cache 路径暂未继续清理，等待用户提交集中缓存清理后再接入。
 - 检查：`git diff --check` 通过；Unity 编译待用户缓存提交后执行。
+
+## CP46 — SampleResult Runtime 程序集迁移
+
+- 已完成：`KimodoSampleData`、`KimodoConstraintMarkers` 及其运行时 SampleResult/composer/exporter 边界文件移入 `Runtime` 路径。
+- 已完成：`TimelineInject/Runtime/Timeline.asmref` 指向 `KimodoTool`，使 70D `MuscleSample` 与 `KimodoMarkerSampleResult` 在同一 Runtime 程序集内编译，消除 `KimodoSampleData.cs` 对 `KimodoBridge.MuscleSample` 的程序集不可见错误。
+- 保持：`CharacterPose`/JSON 仍作为兼容边界保留；本批次未触碰 Preview/cache 或缓存清理分支内容。
+- 检查：`git diff --check` 通过；FullDemo 的 Unity CLI 验证被外部项目缺失 `com.unity.pipeline@0.4.0-exp.1` 阻断，未产生有效 C# 编译结论。
