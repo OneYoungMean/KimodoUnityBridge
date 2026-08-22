@@ -10,13 +10,12 @@ namespace KimodoBridge
         // Unity's remaining humanoid muscles cover jaw, eyes and fingers.
         private static readonly int[] GeneratedMuscleIndices = CharacterPoseMuscleAdapter.UnityBodyMuscleIndices;
 
-        /// <summary>Writes the 49 body-muscle channels for standalone muscle
-        /// clips. The retarget transport uses
-        /// <see cref="WriteRetargetMuscleCurves"/> so root/foot channels are
-        /// preserved there without changing this export-only contract.</summary>
+        /// <summary>Writes only the 49 body-muscle channels for callers that
+        /// explicitly need a muscle-only clip. Retarget output must use
+        /// <see cref="WriteRetargetMuscleCurves"/> instead.</summary>
         internal static bool WriteBodyMuscleCurves(IReadOnlyList<MuscleSample> samples, AnimationClip clip, out string error)
         {
-            return WriteMuscleCurves(samples, clip, out error, includeRootTransform: false, includeFootIkGoals: false);
+            return WriteMuscleCurves(samples, clip, out error, includeRootTransform: false, includeFootTqChannels: false);
         }
 
         /// <summary>
@@ -30,7 +29,7 @@ namespace KimodoBridge
             AnimationClip clip,
             out string error)
         {
-            return WriteMuscleCurves(samples, clip, out error, includeRootTransform: true, includeFootIkGoals: true);
+            return WriteMuscleCurves(samples, clip, out error, includeRootTransform: true, includeFootTqChannels: true);
         }
 
         private static bool WriteMuscleCurves(
@@ -38,7 +37,7 @@ namespace KimodoBridge
             AnimationClip clip,
             out string error,
             bool includeRootTransform,
-            bool includeFootIkGoals)
+            bool includeFootTqChannels)
         {
             if (!ValidateWriteInputs(samples, clip, "Muscle", out error))
             {
@@ -68,20 +67,20 @@ namespace KimodoBridge
             AnimationCurve rootQy = includeRootTransform ? new AnimationCurve() : null;
             AnimationCurve rootQz = includeRootTransform ? new AnimationCurve() : null;
             AnimationCurve rootQw = includeRootTransform ? new AnimationCurve() : null;
-            AnimationCurve leftFootTx = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootTy = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootTz = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootQx = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootQy = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootQz = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve leftFootQw = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootTx = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootTy = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootTz = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootQx = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootQy = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootQz = includeFootIkGoals ? new AnimationCurve() : null;
-            AnimationCurve rightFootQw = includeFootIkGoals ? new AnimationCurve() : null;
+            AnimationCurve leftFootTx = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve leftFootTy = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve leftFootTz = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve leftFootQx = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve leftFootQy = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve leftFootQz = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve leftFootQw = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve rightFootTx = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve rightFootTy = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve rightFootTz = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve rightFootQx = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve rightFootQy = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve rightFootQz = includeFootTqChannels ? new AnimationCurve() : null;
+            AnimationCurve rightFootQw = includeFootTqChannels ? new AnimationCurve() : null;
 
             var muscleCurves = new AnimationCurve[GeneratedMuscleIndices.Length];
             for (int i = 0; i < muscleCurves.Length; i++)
@@ -111,7 +110,7 @@ namespace KimodoBridge
                     AddVector3Key(time, pose.bodyPosition, rootTx, rootTy, rootTz);
                     AddQuaternionKey(time, rootRotation, rootQx, rootQy, rootQz, rootQw);
                 }
-                if (includeFootIkGoals)
+                if (includeFootTqChannels)
                 {
                     sample.GetLeftFoot(out Vector3 leftFootPosition, out Quaternion leftFootRotation);
                     sample.GetRightFoot(out Vector3 rightFootPosition, out Quaternion rightFootRotation);
@@ -133,7 +132,7 @@ namespace KimodoBridge
                 SetAnimatorVector3Curves(clip, "RootT", rootTx, rootTy, rootTz);
                 SetAnimatorQuaternionCurves(clip, "RootQ", rootQx, rootQy, rootQz, rootQw);
             }
-            if (includeFootIkGoals)
+            if (includeFootTqChannels)
             {
                 SetAnimatorVector3Curves(clip, "LeftFootT", leftFootTx, leftFootTy, leftFootTz);
                 SetAnimatorQuaternionCurves(clip, "LeftFootQ", leftFootQx, leftFootQy, leftFootQz, leftFootQw);

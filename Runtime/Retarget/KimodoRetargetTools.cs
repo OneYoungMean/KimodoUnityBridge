@@ -30,7 +30,10 @@ namespace KimodoBridge
             }
 
             clip.ClearCurves();
-            if (!KimodoRetargetClipWriter.WriteBodyMuscleCurves(samples, clip, out error))
+            // Retarget output is the complete atomic 70D payload. Writing
+            // only the 49 body muscles here drops rootTQ/footTQ before the
+            // next HumanPose evaluation and recreates the old split path.
+            if (!KimodoRetargetClipWriter.WriteRetargetMuscleCurves(samples, clip, out error))
             {
                 return false;
             }
