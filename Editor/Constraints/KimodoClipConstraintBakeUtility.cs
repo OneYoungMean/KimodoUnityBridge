@@ -429,30 +429,75 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("FullBody bake requires motion keyframes.");
             }
 
-            var samples = new List<KimodoMarkerSampleResult>(frames.Count);
+            var frameIndices = new List<int>(frames.Count);
+            var smoothRoot2D = new List<float[]>(frames.Count);
+            var rootPositions = new List<float[]>(frames.Count);
+            var localJointRotations = new List<float[][]>(frames.Count);
             for (int index = 0; index < frames.Count; index++)
             {
                 int frame = Mathf.Clamp(frames[index], 0, Mathf.Max(0, motion.FrameCount - 1));
-                if (!KimodoRawMotionUtility.TryExtractMarkerSample(
+                if (!KimodoRawMotionUtility.TryBuildConstraintInternalData(
                         motion,
                         modelName,
                         frame,
-                        out KimodoMarkerSampleResult sample,
-                        out string error,
-                        "fullbody",
-                        sampleTimeOffsetSeconds + frame / motion.FrameRate))
+                        out KimodoConstraintInternalData internalData,
+                        out string error))
                 {
                     throw new InvalidOperationException($"FullBody bake sample failed at frame {frame}: {error}");
                 }
-                samples.Add(sample);
+
+                Vector3 protocolRoot = new Vector3(
+                    -internalData.rootPosition.x,
+                    internalData.rootPosition.y,
+                    internalData.rootPosition.z);
+                int protocolFrame = KimodoFrameTimeUtility.SecondsToFrameIndex(
+                    sampleTimeOffsetSeconds + frame / motion.FrameRate,
+                    motion.FrameRate);
+                if (clipDurationSeconds.HasValue)
+                {
+                    int maxFrame = Mathf.Max(
+                        0,
+                        KimodoFrameTimeUtility.SecondsToFrameCount(
+                            clipDurationSeconds.Value,
+                            motion.FrameRate) - 1);
+                    protocolFrame = Mathf.Clamp(protocolFrame, 0, maxFrame);
+                }
+                frameIndices.Add(protocolFrame);
+                smoothRoot2D.Add(new[] { protocolRoot.x, protocolRoot.z });
+                rootPositions.Add(new[] { protocolRoot.x, protocolRoot.y, protocolRoot.z });
+
+                var rotations = new float[internalData.localJointAxisAngles.Count][];
+                for (int joint = 0; joint < rotations.Length; joint++)
+                {
+                    Vector3 axisAngle = ToProtocolAxisAngle(internalData.localJointAxisAngles[joint]);
+                    rotations[joint] = new[] { axisAngle.x, axisAngle.y, axisAngle.z };
+                }
+                localJointRotations.Add(rotations);
             }
 
-            return KimodoConstraintJsonExporter.ToConstraintsJson(
-                samples,
-                ResolveExportContext(modelName),
-                0.0,
-                clipDurationSeconds ?? motion.DurationSeconds,
-                motion.FrameRate);
+            var constraint = new KimodoConstraintJson
+            {
+                type = "fullbody",
+                frame_indices = frameIndices,
+                smooth_root_2d = smoothRoot2D,
+                root_positions = rootPositions,
+                local_joints_rot = localJointRotations
+            };
+            return JsonConvert.SerializeObject(
+                new[] { constraint },
+                Formatting.Indented,
+                new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
+        }
+
+        private static Vector3 ToProtocolAxisAngle(Vector3 unityAxisAngle)
+        {
+            Quaternion unityLocal = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(unityAxisAngle);
+            Quaternion protocolLocal = new Quaternion(
+                unityLocal.x,
+                -unityLocal.y,
+                -unityLocal.z,
+                unityLocal.w);
+            return KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(protocolLocal);
         }
 
         internal static string BuildLoopConstraintJson(

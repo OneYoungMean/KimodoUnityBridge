@@ -62,10 +62,10 @@ namespace TimelineInject
         public void CopyTo(CharacterPose pose)
         {
             if (pose == null) return;
-            pose.hands.left = leftHand?.Clone() ?? KimodoRigidTransform.Identity;
-            pose.hands.right = rightHand?.Clone() ?? KimodoRigidTransform.Identity;
-            pose.feet.left = leftFoot?.Clone() ?? KimodoRigidTransform.Identity;
-            pose.feet.right = rightFoot?.Clone() ?? KimodoRigidTransform.Identity;
+            pose.leftHand = leftHand?.Clone() ?? KimodoRigidTransform.Identity;
+            pose.rightHand = rightHand?.Clone() ?? KimodoRigidTransform.Identity;
+            pose.leftFoot = leftFoot?.Clone() ?? KimodoRigidTransform.Identity;
+            pose.rightFoot = rightFoot?.Clone() ?? KimodoRigidTransform.Identity;
         }
     }
 

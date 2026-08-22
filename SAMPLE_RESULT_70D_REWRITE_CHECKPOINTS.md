@@ -438,3 +438,12 @@
 - 已完成：`KimodoSampleDataTests` 改用 `MuscleSample` 70D 对象，不再构造旧 SampleResult mask。
 - 保持：`KimodoConstraintMask` 作为协议通道投影/临时计算结构保留，不再作为 SampleResult 持久数据。
 - 检查：Unity 2022.3.62f3c1 编译成功，日志：`C:\tmp\kimodo-compile-mask-removal-pass4.log`；`git diff --check` 通过。
+
+## CP53 — Command CharacterPose 与 RawMotion 内部协议直连
+
+- 已完成：`CharacterPose` 仅作为 Command/JSON/HumanPose 边界 DTO 保留；采样轨道、采样时间和 canonical `MuscleSample` 作为非序列化命令元数据保存。
+- 已完成：移除 `CharacterPoseSides`，四个效器改为 `CharacterPose.leftHand/rightHand/leftFoot/rightFoot` 四个 `KimodoRigidTransform`；JSON 仍保持原有 `hands`/`feet` 协议形状，因此协议不变。
+- 已完成：`TryFromSampleData` 与 `FromMuscleSample` 都保留同一份 70D `MuscleSample` 克隆，避免 Command 层再次拆分/重建原子动画数据。
+- 已完成：Generate 的 RawMotion 全身约束改为直接调用 `TryBuildConstraintInternalData`，在编辑器边界一次性生成 FullBody 协议 JSON；不再经过 RawMotion → MarkerSampleResult → profile projection 的往返。
+- 保持：Runtime overlap/marker 仍返回 SampleResult，因为它们需要 Timeline Composer 的时间和 channel 合成；这不是 Generate 的 RawMotion 协议发送路径。
+- 检查：`git diff --check` 通过；Unity 场景编译待 package 宿主可用时执行。

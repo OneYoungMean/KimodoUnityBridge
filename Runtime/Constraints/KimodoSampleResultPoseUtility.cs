@@ -32,10 +32,10 @@ namespace TimelineInject
 
             if (sample.effectors != null)
             {
-                pose.hands.left = sample.effectors.leftHand?.Clone() ?? KimodoRigidTransform.Identity;
-                pose.hands.right = sample.effectors.rightHand?.Clone() ?? KimodoRigidTransform.Identity;
-                pose.feet.left = sample.effectors.leftFoot?.Clone() ?? KimodoRigidTransform.Identity;
-                pose.feet.right = sample.effectors.rightFoot?.Clone() ?? KimodoRigidTransform.Identity;
+                pose.leftHand = sample.effectors.leftHand?.Clone() ?? KimodoRigidTransform.Identity;
+                pose.rightHand = sample.effectors.rightHand?.Clone() ?? KimodoRigidTransform.Identity;
+                pose.leftFoot = sample.effectors.leftFoot?.Clone() ?? KimodoRigidTransform.Identity;
+                pose.rightFoot = sample.effectors.rightFoot?.Clone() ?? KimodoRigidTransform.Identity;
             }
             return true;
         }
@@ -66,10 +66,10 @@ namespace TimelineInject
             sample.enableMask.leftFootTQ = true;
             sample.enableMask.rightFootTQ = true;
             sample.effectors ??= new KimodoConstraintEffectors();
-            sample.effectors.leftHand = pose.hands?.left?.Clone() ?? KimodoRigidTransform.Identity;
-            sample.effectors.rightHand = pose.hands?.right?.Clone() ?? KimodoRigidTransform.Identity;
-            sample.effectors.leftFoot = pose.feet?.left?.Clone() ?? KimodoRigidTransform.Identity;
-            sample.effectors.rightFoot = pose.feet?.right?.Clone() ?? KimodoRigidTransform.Identity;
+            sample.effectors.leftHand = pose.leftHand?.Clone() ?? KimodoRigidTransform.Identity;
+            sample.effectors.rightHand = pose.rightHand?.Clone() ?? KimodoRigidTransform.Identity;
+            sample.effectors.leftFoot = pose.leftFoot?.Clone() ?? KimodoRigidTransform.Identity;
+            sample.effectors.rightFoot = pose.rightFoot?.Clone() ?? KimodoRigidTransform.Identity;
             return true;
         }
 

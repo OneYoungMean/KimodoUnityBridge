@@ -60,16 +60,10 @@ namespace KimodoBridge
                     t = ReadRootPosition(sample),
                     q = ReadRootRotation(sample)
                 },
-                hands = new CharacterPoseSides
-                {
-                    left = new KimodoRigidTransform { t = leftHandPosition, q = leftHandRotation },
-                    right = new KimodoRigidTransform { t = rightHandPosition, q = rightHandRotation }
-                },
-                feet = new CharacterPoseSides
-                {
-                    left = new KimodoRigidTransform { t = leftFootPosition, q = leftFootRotation },
-                    right = new KimodoRigidTransform { t = rightFootPosition, q = rightFootRotation }
-                }
+                leftHand = new KimodoRigidTransform { t = leftHandPosition, q = leftHandRotation },
+                rightHand = new KimodoRigidTransform { t = rightHandPosition, q = rightHandRotation },
+                leftFoot = new KimodoRigidTransform { t = leftFootPosition, q = leftFootRotation },
+                rightFoot = new KimodoRigidTransform { t = rightFootPosition, q = rightFootRotation }
             };
 
             for (int i = 0; i < UnityBodyMuscleIndices.Length; i++)
@@ -144,13 +138,13 @@ namespace KimodoBridge
             KimodoSampleDataLayout.SetTransform(
                 data,
                 KimodoSampleDataLayout.LeftFootTqOffset,
-                pose.feet.left.t,
-                pose.feet.left.q.normalized);
+                pose.leftFoot.t,
+                pose.leftFoot.q.normalized);
             KimodoSampleDataLayout.SetTransform(
                 data,
                 KimodoSampleDataLayout.RightFootTqOffset,
-                pose.feet.right.t,
-                pose.feet.right.q.normalized);
+                pose.rightFoot.t,
+                pose.rightFoot.q.normalized);
             return KimodoSampleDataLayout.TryValidate(data, out error);
         }
 
@@ -178,7 +172,13 @@ namespace KimodoBridge
                 return false;
             }
 
-            pose = new CharacterPose();
+            pose = new CharacterPose
+            {
+                // CharacterPose is a command/JSON boundary DTO, but retain
+                // the canonical atomic payload so callers do not need to
+                // reconstruct it from the legacy split fields.
+                muscleSample = sample.Clone()
+            };
             Array.Copy(
                 sample.data,
                 KimodoSampleDataLayout.BodyMuscleOffset,
@@ -202,10 +202,10 @@ namespace KimodoBridge
                 out Quaternion rightFootRotation);
             pose.root.t = rootPosition;
             pose.root.q = rootRotation;
-            pose.feet.left.t = leftFootPosition;
-            pose.feet.left.q = leftFootRotation;
-            pose.feet.right.t = rightFootPosition;
-            pose.feet.right.q = rightFootRotation;
+            pose.leftFoot.t = leftFootPosition;
+            pose.leftFoot.q = leftFootRotation;
+            pose.rightFoot.t = rightFootPosition;
+            pose.rightFoot.q = rightFootRotation;
 
             if (!pose.TryValidate(out error))
             {
@@ -276,11 +276,11 @@ namespace KimodoBridge
                 includeTransformChannels ? pose.root.t : Vector3.zero,
                 includeTransformChannels ? pose.root.q : Quaternion.identity);
             sample.SetLeftFoot(
-                includeTransformChannels ? pose.feet.left.t : Vector3.zero,
-                includeTransformChannels ? pose.feet.left.q : Quaternion.identity);
+                includeTransformChannels ? pose.leftFoot.t : Vector3.zero,
+                includeTransformChannels ? pose.leftFoot.q : Quaternion.identity);
             sample.SetRightFoot(
-                includeTransformChannels ? pose.feet.right.t : Vector3.zero,
-                includeTransformChannels ? pose.feet.right.q : Quaternion.identity);
+                includeTransformChannels ? pose.rightFoot.t : Vector3.zero,
+                includeTransformChannels ? pose.rightFoot.q : Quaternion.identity);
             return sample;
         }
 

@@ -23,13 +23,13 @@ namespace CharacterAnimationCli.Unity
                 ["root"] = TransformToJson(pose.root),
                 ["hands"] = new JObject
                 {
-                    ["left"] = TransformToJson(pose.hands.left),
-                    ["right"] = TransformToJson(pose.hands.right)
+                    ["left"] = TransformToJson(pose.leftHand),
+                    ["right"] = TransformToJson(pose.rightHand)
                 },
                 ["feet"] = new JObject
                 {
-                    ["left"] = TransformToJson(pose.feet.left),
-                    ["right"] = TransformToJson(pose.feet.right)
+                    ["left"] = TransformToJson(pose.leftFoot),
+                    ["right"] = TransformToJson(pose.rightFoot)
                 }
             };
         }
@@ -94,11 +94,11 @@ namespace CharacterAnimationCli.Unity
                 }
                 if (hands["left"] != null)
                 {
-                    result.hands.left = PatchTransform(result.hands.left, hands["left"] as JObject, "hands.left");
+                    result.leftHand = PatchTransform(result.leftHand, hands["left"] as JObject, "hands.left");
                 }
                 if (hands["right"] != null)
                 {
-                    result.hands.right = PatchTransform(result.hands.right, hands["right"] as JObject, "hands.right");
+                    result.rightHand = PatchTransform(result.rightHand, hands["right"] as JObject, "hands.right");
                 }
             }
             if (patch["feet"] != null)
@@ -112,11 +112,11 @@ namespace CharacterAnimationCli.Unity
                 }
                 if (feet["left"] != null)
                 {
-                    result.feet.left = PatchTransform(result.feet.left, feet["left"] as JObject, "feet.left");
+                    result.leftFoot = PatchTransform(result.leftFoot, feet["left"] as JObject, "feet.left");
                 }
                 if (feet["right"] != null)
                 {
-                    result.feet.right = PatchTransform(result.feet.right, feet["right"] as JObject, "feet.right");
+                    result.rightFoot = PatchTransform(result.rightFoot, feet["right"] as JObject, "feet.right");
                 }
             }
 

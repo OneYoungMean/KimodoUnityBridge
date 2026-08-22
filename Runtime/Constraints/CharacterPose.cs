@@ -36,22 +36,6 @@ namespace CharacterAnimationCli.Unity
         };
     }
 
-    [Serializable]
-    public sealed class CharacterPoseSides
-    {
-        public KimodoRigidTransform left = KimodoRigidTransform.Identity;
-        public KimodoRigidTransform right = KimodoRigidTransform.Identity;
-
-        internal CharacterPoseSides Clone()
-        {
-            return new CharacterPoseSides
-            {
-                left = left.Clone(),
-                right = right.Clone()
-            };
-        }
-    }
-
     /// <summary>
     /// Canonical Unity pose payload. Its channels have the same meaning as a
     /// canonical pose: body muscles plus Root; hand/foot values are effector
@@ -71,8 +55,10 @@ namespace CharacterAnimationCli.Unity
 
         public float[] muscles = new float[MuscleCount];
         public KimodoRigidTransform root = KimodoRigidTransform.Identity;
-        public CharacterPoseSides hands = new CharacterPoseSides();
-        public CharacterPoseSides feet = new CharacterPoseSides();
+        public KimodoRigidTransform leftHand = KimodoRigidTransform.Identity;
+        public KimodoRigidTransform rightHand = KimodoRigidTransform.Identity;
+        public KimodoRigidTransform leftFoot = KimodoRigidTransform.Identity;
+        public KimodoRigidTransform rightFoot = KimodoRigidTransform.Identity;
 
         public CharacterPose Clone()
         {
@@ -80,8 +66,10 @@ namespace CharacterAnimationCli.Unity
             {
                 muscles = muscles != null ? (float[])muscles.Clone() : null,
                 root = root.Clone(),
-                hands = hands != null ? hands.Clone() : null,
-                feet = feet != null ? feet.Clone() : null,
+                leftHand = leftHand?.Clone() ?? KimodoRigidTransform.Identity,
+                rightHand = rightHand?.Clone() ?? KimodoRigidTransform.Identity,
+                leftFoot = leftFoot?.Clone() ?? KimodoRigidTransform.Identity,
+                rightFoot = rightFoot?.Clone() ?? KimodoRigidTransform.Identity,
                 sampledTrack = sampledTrack,
                 sampledTime = sampledTime,
                 muscleSample = muscleSample?.Clone()
@@ -107,16 +95,14 @@ namespace CharacterAnimationCli.Unity
             }
 
             if (!TryValidateTransform(root, "root", out error) ||
-                hands == null ||
-                !TryValidateTransform(hands.left, "hands.left", out error) ||
-                !TryValidateTransform(hands.right, "hands.right", out error) ||
-                feet == null ||
-                !TryValidateTransform(feet.left, "feet.left", out error) ||
-                !TryValidateTransform(feet.right, "feet.right", out error))
+                !TryValidateTransform(leftHand, "leftHand", out error) ||
+                !TryValidateTransform(rightHand, "rightHand", out error) ||
+                !TryValidateTransform(leftFoot, "leftFoot", out error) ||
+                !TryValidateTransform(rightFoot, "rightFoot", out error))
             {
                 if (string.IsNullOrWhiteSpace(error))
                 {
-                    error = hands == null ? "hands is required." : "feet is required.";
+                    error = "Effector transforms are required.";
                 }
                 return false;
             }

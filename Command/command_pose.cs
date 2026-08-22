@@ -495,16 +495,16 @@ namespace CharacterAnimationCli.Unity.Command
                 ["position"] = new JArray(pose.root.t.x, pose.root.t.y, pose.root.t.z),
                 ["rotation"] = new JArray(pose.root.q.x, pose.root.q.y, pose.root.q.z, pose.root.q.w)
             },
-            ["hands"] = new JObject
-            {
-                ["left"] = TransformJson(pose.hands.left),
-                ["right"] = TransformJson(pose.hands.right)
-            },
-            ["feet"] = new JObject
-            {
-                ["left"] = TransformJson(pose.feet.left),
-                ["right"] = TransformJson(pose.feet.right)
-            }
+                ["hands"] = new JObject
+                {
+                ["left"] = TransformJson(pose.leftHand),
+                ["right"] = TransformJson(pose.rightHand)
+                },
+                ["feet"] = new JObject
+                {
+                ["left"] = TransformJson(pose.leftFoot),
+                ["right"] = TransformJson(pose.rightFoot)
+                }
         };
 
         private static JObject TransformJson(KimodoRigidTransform transform) => new JObject
@@ -553,10 +553,10 @@ namespace CharacterAnimationCli.Unity.Command
         {
             return endEffector switch
             {
-                "left_hand" => pose.hands.left,
-                "right_hand" => pose.hands.right,
-                "left_foot" => pose.feet.left,
-                "right_foot" => pose.feet.right,
+                "left_hand" => pose.leftHand,
+                "right_hand" => pose.rightHand,
+                "left_foot" => pose.leftFoot,
+                "right_foot" => pose.rightFoot,
                 _ => throw new InvalidOperationException($"Unsupported end effector '{endEffector}'.")
             };
         }
