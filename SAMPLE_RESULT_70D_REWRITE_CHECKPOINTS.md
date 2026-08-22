@@ -590,3 +590,8 @@
 - 预览采样/写回辅助方法不再使用 `TargetAvatar` 命名，统一表达为目标 `RetargetSkeleton`；相关错误信息也不再把缓存误称为 Avatar。
 - 不改变 Preview 的数据流：AutoSample 仍为 SampleResult → 目标骨架 → Rig，非 AutoSample 才允许 Rig → SampleResult。
 - 检查：`git diff --check` 通过；待提交后执行 Unity package probe 编译。
+
+## CP75 — 验证预览边界命名清理
+
+- Unity 2022.3.62f3c1 package probe 编译成功：`C:\tmp\kimodo-compile-preview-boundary-name-pass14.log`。
+- 当前生产路径中的 Avatar/RetargetSkeleton 引用已按边界分类；未再发现 UI 或外部约束请求将 Avatar 作为数据语义向上层传递。
