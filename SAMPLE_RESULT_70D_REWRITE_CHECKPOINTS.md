@@ -645,3 +645,12 @@
 - 已修正：FullBody 显示 muscle values 与四个 effector 的 position/rotation，FullBody 不显示 Enable；Effector 模式才显示每个 effector 的 Enable，且非 AutoSample 下 Enable 不会锁住位置/旋转编辑。
 - 已修正：打开窗口初始 focus 改为 Preview 虚拟角色骨架根节点，避免无渲染边界的 gizmo 导致 SceneView 过度放大。
 - 检查：`git diff --check` 通过；待提交后执行/确认 Unity package 编译。
+
+## CP82 — 清理 Constraint UI / EditWindow 旧兼容逻辑
+
+- 已移除：`DrawConstraintPayload`/`DrawConstraintPanels` 无 marker 兼容重载、未使用的 `IsFullBodyAutoSample` 与 `DrawPropertyIfExists`。
+- 已移除：旧 Muscle Euler UI 测试入口 `BuildMuscleEulerBones` 及其已禁用测试；Constraint 编辑不再保留 Euler 面板兼容接口。
+- 已移除：空实现的 marker cache 清理旁路及其调用；当前 Preview cache 由 SelectionPreview/PoseCache 生命周期直接管理。
+- 已移除：EditorWindow 中旧的 selectedFullBodyTarget、gizmo focus fallback、GetOpenWindow/HasAnyOpenWindow 和 target-selection 兼容状态；窗口只聚焦虚拟角色 Preview 根节点，Scene 写回仍保留。
+- 保持：Inspector 与 EditorWindow 继续共享同一个 payload 绘制入口；AutoSample、Marker Time、Scene drag writeback 的现有行为未重构。
+- 检查：Unity 脚本重编译成功；`git diff --check` 通过。数值字段绑定问题暂按要求未处理。

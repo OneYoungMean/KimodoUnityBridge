@@ -1,6 +1,7 @@
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
@@ -10,13 +11,6 @@ namespace KimodoBridge.Editor
         internal static bool IsAutoSample(SerializedObject so)
         {
             return so?.FindProperty("autoSample")?.boolValue == true;
-        }
-
-        internal static bool IsFullBodyAutoSample(SerializedObject so) => IsAutoSample(so);
-
-        internal static void DrawConstraintPanels(SerializedObject so)
-        {
-            DrawConstraintPanels(so, null);
         }
 
         internal static void DrawConstraintPanels(SerializedObject so, IMarker marker)
@@ -65,11 +59,6 @@ namespace KimodoBridge.Editor
 
         // The edit window's framed payload is the canonical presentation for
         // both surfaces. Keep the visual container and guidance in one place.
-        internal static void DrawConstraintPayload(SerializedObject so)
-        {
-            DrawConstraintPayload(so, null);
-        }
-
         internal static void DrawConstraintPayload(SerializedObject so, IMarker marker)
         {
             if (so == null) return;

@@ -88,7 +88,6 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            KimodoConstraintMarkerSampling.ClearMarkerCache(marker);
             EditorUtility.SetDirty(marker);
 
             if (marker.parent is UnityEngine.Object parentObject)

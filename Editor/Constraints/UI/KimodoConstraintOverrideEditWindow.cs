@@ -1,11 +1,11 @@
 using TimelineInject;
 using System;
-using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEditor.Timeline;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
@@ -30,30 +30,12 @@ namespace KimodoBridge.Editor
         private string invalidContextError;
         private ulong editSceneHandle;
         private bool editSceneCaptured;
-        [SerializeField] private HumanBodyBones selectedFullBodyTarget = HumanBodyBones.LastBone;
         private Vector2 scroll;
         private string lastError;
         private double lastRenderedMarkerTime = double.NaN;
         private bool lastRenderedAutoSample;
 
-        internal KimodoConstraintMarker TargetMarker => marker;
-
-        // Kept for existing editor tests and callers during the UI migration.
-        // Constraint authoring no longer displays or edits these Euler values.
-        internal static HumanBodyBones[] BuildMuscleEulerBones()
-        {
-            return KimodoMuscleSampleHumanPoseAdapter.UnityBodyMuscleIndices
-                .Select(HumanTrait.BoneFromMuscle)
-                .Where(index => index >= 0 && index < (int)HumanBodyBones.LastBone)
-                .Select(index => (HumanBodyBones)index)
-                .Where(bone => bone != HumanBodyBones.Hips)
-                .Distinct()
-                .ToArray();
-        }
-
-        internal static void ShowWindow(
-            KimodoConstraintMarker marker,
-            HumanBodyBones selectedTarget = HumanBodyBones.LastBone)
+        internal static void ShowWindow(KimodoConstraintMarker marker)
         {
             if (marker == null || !marker.constraintEnabled)
             {
@@ -68,7 +50,6 @@ namespace KimodoBridge.Editor
             var window = GetWindow<KimodoConstraintOverrideEditWindow>(true, "Kimodo Constraint Edit");
             window.minSize = new Vector2(420f, 260f);
             window.marker = marker;
-            window.selectedFullBodyTarget = selectedTarget;
             window.lastError = string.Empty;
             window.invalidContext = false;
             window.invalidContextError = string.Empty;
@@ -85,29 +66,9 @@ namespace KimodoBridge.Editor
             if (marker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out _))
             {
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                FocusSelectionOnEditTarget(marker, context, window.editEntryId, HumanBodyBones.Hips);
+                FocusSelectionOnEditTarget(context, window.editEntryId);
             }
-            QueueHipFocus(window, marker);
-        }
-
-        internal static KimodoConstraintOverrideEditWindow GetOpenWindow()
-        {
-            if (currentWindow != null)
-            {
-                return currentWindow;
-            }
-
-            KimodoConstraintOverrideEditWindow[] windows = Resources.FindObjectsOfTypeAll<KimodoConstraintOverrideEditWindow>();
-            for (int i = 0; i < windows.Length; i++)
-            {
-                if (windows[i] != null)
-                {
-                    currentWindow = windows[i];
-                    return currentWindow;
-                }
-            }
-
-            return null;
+            QueuePreviewFocus(window, marker);
         }
 
         internal static bool IsOpenForMarker(KimodoConstraintMarker marker)
@@ -129,11 +90,6 @@ namespace KimodoBridge.Editor
             return false;
         }
 
-        internal static bool HasAnyOpenWindow()
-        {
-            return Resources.FindObjectsOfTypeAll<KimodoConstraintOverrideEditWindow>().Length > 0;
-        }
-
         private void OnEnable()
         {
             currentWindow = this;
@@ -150,7 +106,7 @@ namespace KimodoBridge.Editor
                 {
                     KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
                     KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
-                    FocusSelectionOnEditTarget(marker, context, editEntryId, selectedFullBodyTarget);
+                    FocusSelectionOnEditTarget(context, editEntryId);
                 }
             }
             LockTimelineWindow();
@@ -373,7 +329,7 @@ namespace KimodoBridge.Editor
                 if (KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out string poseError))
                 {
                     KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                    RestoreEndEffectorTargetSelection(marker, context, editEntryId, selectedFullBodyTarget);
+                    RestoreEndEffectorTargetSelection(context, editEntryId);
                     lastError = string.Empty;
                 }
                 else
@@ -533,7 +489,7 @@ namespace KimodoBridge.Editor
 
             KimodoConstraintPoseCache.SetGroupState(editContext, visible: true, selectable: true);
             KimodoConstraintPoseCache.ClearTransformChanges(editContext, editEntryId);
-            FocusSelectionOnEditTarget(target, editContext, editEntryId, selectedFullBodyTarget);
+            FocusSelectionOnEditTarget(editContext, editEntryId);
         }
 
         private bool TryGetEditContext(out PoseCacheRenderContext context, out string error)
@@ -676,7 +632,7 @@ namespace KimodoBridge.Editor
                         KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out poseError))
                     {
                         KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                        RestoreEndEffectorTargetSelection(marker, context, editEntryId, selectedFullBodyTarget);
+                        RestoreEndEffectorTargetSelection(context, editEntryId);
                         lastError = string.Empty;
                         refreshSceneAfterDrag |= sceneDragActive;
                     }
@@ -835,25 +791,9 @@ namespace KimodoBridge.Editor
                 string.Equals(left.ModelName, right.ModelName, System.StringComparison.Ordinal);
         }
 
-        private static void DrawPropertyIfExists(SerializedObject so, string name)
-        {
-            if (so == null || string.IsNullOrWhiteSpace(name))
-            {
-                return;
-            }
-
-            SerializedProperty prop = so.FindProperty(name);
-            if (prop != null)
-            {
-                EditorGUILayout.PropertyField(prop, true);
-            }
-        }
-
         private static void FocusSelectionOnEditTarget(
-            KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
-            string entryId,
-            HumanBodyBones selectedTarget = HumanBodyBones.LastBone)
+            string entryId)
         {
             // The controller gizmos have no renderable bounds, so framing one
             // can zoom the Scene view to an unusably large scale. Focus the
@@ -870,50 +810,6 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (selectedTarget != HumanBodyBones.LastBone &&
-                KimodoConstraintPoseCache.TryGetFullBodyTarget(
-                    context,
-                    entryId,
-                    selectedTarget,
-                    out GameObject selectedTargetObject) &&
-                selectedTargetObject != null)
-            {
-                Selection.activeGameObject = selectedTargetObject;
-                EditorGUIUtility.PingObject(selectedTargetObject);
-                Tools.current = Tool.Move;
-                FrameSelectedSceneView();
-                return;
-            }
-
-            if (KimodoConstraintPoseCache.TryGetFullBodyTarget(
-                    context,
-                    entryId,
-                    HumanBodyBones.Hips,
-                    out GameObject pelvisTarget) &&
-                pelvisTarget != null)
-            {
-                Selection.activeGameObject = pelvisTarget;
-                EditorGUIUtility.PingObject(pelvisTarget);
-                Tools.current = Tool.Move;
-                FrameSelectedSceneView();
-                return;
-            }
-
-            if (marker is KimodoConstraintMarker &&
-                KimodoConstraintPoseCache.TryGetEndEffectorTarget(
-                    context,
-                    entryId,
-                    out GameObject endEffectorTarget) &&
-                endEffectorTarget != null)
-            {
-                Selection.activeGameObject = endEffectorTarget;
-                EditorGUIUtility.PingObject(endEffectorTarget);
-                Tools.current = Tool.Move;
-                FrameSelectedSceneView();
-                return;
-            }
-
-            return;
         }
 
         private static void FrameSelectedSceneView()
@@ -940,7 +836,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static void QueueHipFocus(
+        private static void QueuePreviewFocus(
             KimodoConstraintOverrideEditWindow window,
             KimodoConstraintMarker marker)
         {
@@ -956,26 +852,15 @@ namespace KimodoBridge.Editor
                 }
 
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                FocusSelectionOnEditTarget(marker, context, window.editEntryId, HumanBodyBones.Hips);
+                FocusSelectionOnEditTarget(context, window.editEntryId);
             };
         }
 
         private static void RestoreEndEffectorTargetSelection(
-            KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
-            string entryId,
-            HumanBodyBones selectedTarget = HumanBodyBones.LastBone)
+            string entryId)
         {
-            if (selectedTarget != HumanBodyBones.LastBone &&
-                KimodoConstraintPoseCache.TryGetFullBodyTarget(context, entryId, selectedTarget, out GameObject fullBodyTarget) &&
-                fullBodyTarget != null)
-            {
-                Selection.activeGameObject = fullBodyTarget;
-                return;
-            }
-
-            if (marker is KimodoConstraintMarker &&
-                KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject target) &&
+            if (KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject target) &&
                 target != null)
             {
                 Selection.activeGameObject = target;

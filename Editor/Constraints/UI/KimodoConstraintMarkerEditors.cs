@@ -120,7 +120,6 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
 
             if (marker is KimodoConstraintMarker kimodoMarker)
             {
-                ClearMarkerEditorCaches(kimodoMarker);
                 kimodoMarker.time = globalTime;
                 if (kimodoMarker.autoSample)
                 {
@@ -130,8 +129,7 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
                     }
                 }
                 // AutoSample=false keeps the authored muscle/IK payload. The
-                // preview still needs a render pass after a time edit, but it
-                // must not clear/invoke the timeline sampling caches.
+                // preview still needs a render pass after a time edit.
                 if (kimodoMarker.autoSample)
                 {
                     KimodoConstraintSelectionPreviewTool.ForceRefresh();
@@ -196,11 +194,7 @@ public static void NotifyInspectorChanged(KimodoConstraintMarker marker)
         {
             if (marker != null)
             {
-                if (marker.constraintEnabled)
-                {
-                    ClearMarkerEditorCaches(marker);
-                }
-                else
+                if (!marker.constraintEnabled)
                 {
                     ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
                 }
@@ -217,8 +211,6 @@ public static void ClearMarkerPoseCachePreview(KimodoConstraintMarker marker, bo
                 return;
             }
 
-            ClearMarkerEditorCaches(marker);
-
             if (keepIfOverrideWindowOpen && KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker))
             {
                 return;
@@ -226,11 +218,6 @@ public static void ClearMarkerPoseCachePreview(KimodoConstraintMarker marker, bo
 
             KimodoConstraintSelectionPreviewTool.ForceRefresh();
             SceneView.RepaintAll();
-        }
-
-        internal static void ClearMarkerEditorCaches(KimodoConstraintMarker marker)
-        {
-            KimodoConstraintMarkerSampling.ClearMarkerCache(marker);
         }
 
         public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker, out PoseCacheRenderContext context, out string error)

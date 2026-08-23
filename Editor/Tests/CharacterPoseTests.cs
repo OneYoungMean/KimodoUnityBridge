@@ -1,7 +1,6 @@
 #if false
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using CharacterAnimationCli.Unity;
 using KimodoBridge;
 using Newtonsoft.Json.Linq;
@@ -648,16 +647,6 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
             {
                 UnityEngine.Object.DestroyImmediate(marker);
             }
-        }
-
-        [Test]
-        public void MuscleEulerUi_UsesTheDistinctBonesBehindThe49Muscles()
-        {
-            HumanBodyBones[] bones = KimodoBridge.Editor.KimodoConstraintOverrideEditWindow.BuildMuscleEulerBones();
-
-            Assert.That(bones, Is.Not.Empty);
-            Assert.That(bones.Distinct().Count(), Is.EqualTo(bones.Length));
-            CollectionAssert.DoesNotContain(bones, HumanBodyBones.Hips);
         }
 
         private static void AssertTransform(KimodoRigidTransform actual, Vector3 expectedT, Quaternion expectedQ)

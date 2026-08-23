@@ -132,10 +132,6 @@ internal static bool TryRefreshMarkerCache(KimodoConstraintMarker marker, out st
             return true;
         }
 
-        internal static void ClearMarkerCache(KimodoConstraintMarker marker)
-        {
-        }
-
 internal static string ResolveModelName(TimelineClip clipRange)
         {
             KimodoPlayableClip playableClip = clipRange != null ? clipRange.asset as KimodoPlayableClip : null;
