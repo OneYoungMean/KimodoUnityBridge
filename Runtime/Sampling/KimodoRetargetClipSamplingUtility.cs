@@ -10,21 +10,6 @@ namespace KimodoBridge
 {
     internal static class KimodoRetargetClipSamplingUtility
     {
-        // Canonical world-space effector targets consumed after FK sampling.
-        internal struct HumanoidEffectorSceneTargets
-        {
-            internal bool leftHand;
-            internal bool rightHand;
-            internal bool leftFoot;
-            internal bool rightFoot;
-            internal Transform leftHandTransform;
-            internal Transform rightHandTransform;
-            internal Transform leftFootTransform;
-            internal Transform rightFootTransform;
-
-            internal bool Any => leftHand || rightHand || leftFoot || rightFoot;
-        }
-
         internal enum ClipSamplingMode
         {
             Humanoid = 0,
@@ -262,10 +247,10 @@ namespace KimodoBridge
             bool includeLeftHandEffector = false,
             bool includeRightHandEffector = false,
             bool includeLeftFootEffector = false,
-            bool includeRightFootEffector = false,
-            HumanoidEffectorSceneTargets? sceneTargets = null)
+            bool includeRightFootEffector = false)
         {
-            // TODO(IK rewrite): retain the API for callers, but sample FK only.
+            // Compatibility flags remain accepted at this boundary; sampling is
+            // intentionally FK-only and never consumes external IK targets.
             return TryBuildClipSamplingContext(
                 clip,
                 cache,
@@ -278,8 +263,7 @@ namespace KimodoBridge
                 includeLeftHandEffector: false,
                 includeRightHandEffector: false,
                 includeLeftFootEffector: false,
-                includeRightFootEffector: false,
-                sceneTargets: null);
+                includeRightFootEffector: false);
         }
 
         internal static bool TryBuildClipSamplingContext(
@@ -294,8 +278,7 @@ namespace KimodoBridge
             bool includeLeftHandEffector = false,
             bool includeRightHandEffector = false,
             bool includeLeftFootEffector = false,
-            bool includeRightFootEffector = false,
-            HumanoidEffectorSceneTargets? sceneTargets = null)
+            bool includeRightFootEffector = false)
         {
             context = null;
             error = string.Empty;
@@ -627,8 +610,7 @@ namespace KimodoBridge
             bool includeRightHandEffector = false,
             bool includeFootEffectors = false,
             bool includeLeftFootEffector = false,
-            bool includeRightFootEffector = false,
-            KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets? sceneTargets = null)
+            bool includeRightFootEffector = false)
         {
             targetSample = null;
             targetMuscleSample = null;
@@ -664,18 +646,6 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (sceneTargets.HasValue && sceneTargets.Value.Any &&
-                !TryApplySceneTargetsToRetargetSkeleton(targetCache, sceneTargets.Value, out error))
-            {
-                targetSample = null;
-                return false;
-            }
-
-            if (sceneTargets.HasValue && sceneTargets.Value.Any)
-            {
-                targetSample = CaptureBoneSample(targetCache);
-            }
-
             if (!TryCaptureMuscleSample(targetCache, out targetMuscleSample, out error))
             {
                 return false;
@@ -699,8 +669,7 @@ namespace KimodoBridge
             bool includeRightHandEffector = false,
             bool includeFootEffectors = false,
             bool includeLeftFootEffector = false,
-            bool includeRightFootEffector = false,
-            KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets? sceneTargets = null)
+            bool includeRightFootEffector = false)
         {
             solvedBoneSample = null;
             solvedMuscleSample = null;
@@ -749,25 +718,7 @@ namespace KimodoBridge
                     return false;
                 }
 
-                if (sceneTargets.HasValue && sceneTargets.Value.Any &&
-                    !TryApplySceneTargetsToRetargetSkeleton(sourceCache, sceneTargets.Value, out error))
-                {
-                    return false;
-                }
-
-                if (sceneTargets.HasValue && sceneTargets.Value.Any &&
-                    !TryCaptureMuscleSample(sourceCache, out solvedPoseSample, out error))
-                {
-                    return false;
-                }
-
-                if (sceneTargets.HasValue && sceneTargets.Value.Any)
-                {
-                    solvedBoneSample = CaptureBoneSample(sourceCache);
-                }
-
-                // The rebuilt skeleton provides the canonical muscle pose after
-                // the optional effector pass.
+                // The rebuilt skeleton provides the canonical FK muscle pose.
                 solvedMuscleSample = solvedPoseSample;
                 return true;
             }
@@ -1020,45 +971,6 @@ namespace KimodoBridge
             enableMask.leftFootTQ = true;
             enableMask.rightFootTQ = true;
             return true;
-        }
-
-        private static bool TryApplySceneTargetsToRetargetSkeleton(
-            RetargetSkeleton cache,
-            KimodoRetargetClipSamplingUtility.HumanoidEffectorSceneTargets targets,
-            out string error)
-        {
-            error = string.Empty;
-            if (!KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(cache, out error))
-            {
-                return false;
-            }
-
-            ApplySceneTarget(cache, HumanBodyBones.LeftHand, targets.leftHand,
-                targets.leftHandTransform);
-            ApplySceneTarget(cache, HumanBodyBones.RightHand, targets.rightHand,
-                targets.rightHandTransform);
-            ApplySceneTarget(cache, HumanBodyBones.LeftFoot, targets.leftFoot,
-                targets.leftFootTransform);
-            ApplySceneTarget(cache, HumanBodyBones.RightFoot, targets.rightFoot,
-                targets.rightFootTransform);
-            return true;
-        }
-
-        private static void ApplySceneTarget(
-            RetargetSkeleton cache,
-            HumanBodyBones bone,
-            bool enabled,
-            Transform target)
-        {
-            if (!enabled || target == null || cache.humanBoneTransforms == null ||
-                !cache.humanBoneTransforms.TryGetValue(bone, out Transform destination) ||
-                destination == null)
-            {
-                return;
-            }
-
-            destination.SetPositionAndRotation(target.position, target.rotation);
-            destination.hasChanged = true;
         }
 
         internal static bool TryCreateTransientMuscleClip(

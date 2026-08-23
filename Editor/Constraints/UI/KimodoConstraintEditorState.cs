@@ -114,22 +114,22 @@ namespace KimodoBridge.Editor
             DrawEndEffectorPanel(
                 so,
                 root + ".effectors.leftHand",
-                showEnable ? so.FindProperty(root + ".enableMask.leftHandEffector") : null,
+                so.FindProperty(root + ".enableMask.leftHandEffector"),
                 "Left Hand Effector", autoSample, showEnable);
             DrawEndEffectorPanel(
                 so,
                 root + ".effectors.rightHand",
-                showEnable ? so.FindProperty(root + ".enableMask.rightHandEffector") : null,
+                so.FindProperty(root + ".enableMask.rightHandEffector"),
                 "Right Hand Effector", autoSample, showEnable);
             DrawEndEffectorPanel(
                 so,
                 root + ".effectors.leftFoot",
-                showEnable ? so.FindProperty(root + ".enableMask.leftFootEffector") : null,
+                so.FindProperty(root + ".enableMask.leftFootEffector"),
                 "Left Foot Effector", autoSample, showEnable);
             DrawEndEffectorPanel(
                 so,
                 root + ".effectors.rightFoot",
-                showEnable ? so.FindProperty(root + ".enableMask.rightFootEffector") : null,
+                so.FindProperty(root + ".enableMask.rightFootEffector"),
                 "Right Foot Effector", autoSample, showEnable);
         }
 
@@ -150,9 +150,12 @@ namespace KimodoBridge.Editor
             // hide authored values while a non-AutoSample marker is edited.
             using (new EditorGUI.DisabledScope(autoSample))
             {
-                DrawTransform(
+                if (DrawTransform(
                     so.FindProperty(transformPath),
-                    label);
+                    label) && !showEnable && enabled != null)
+                {
+                    enabled.boolValue = true;
+                }
             }
             EditorGUILayout.EndVertical();
         }

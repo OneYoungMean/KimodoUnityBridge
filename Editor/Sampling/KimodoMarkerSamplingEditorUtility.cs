@@ -69,6 +69,16 @@ namespace KimodoBridge.Editor
                 normalized.effectors = sample.effectors.Clone();
             }
 
+            // Root2D handles edit the same canonical world-space payload as
+            // effectors. Preserve that edit explicitly because normalization
+            // starts from the marker's authored sample for non-AutoSample
+            // markers.
+            if (sample.root2DOverride != null &&
+                (!marker.autoSample || sample.enableMask?.root2DPosition == true))
+            {
+                normalized.root2DOverride = sample.root2DOverride.Clone();
+            }
+
             bool changed = !AreSamplesEquivalent(marker.SampleData, normalized);
             if (!changed)
             {

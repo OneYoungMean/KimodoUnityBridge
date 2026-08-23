@@ -668,3 +668,11 @@
 - 已移除：`KimodoConstraintMarkerEditorUtility` 与 `KimodoConstraintMarkerPosePreview` 对外暴露的直接 render wrapper；Preview 渲染现在只由统一 coordinator 调用。
 - 保持：Context 构造仍由 `KimodoConstraintMarkerPosePreview` 提供，真正的 selection/edit entry 生命周期由 `KimodoConstraintSelectionPreviewTool` 管理。
 - 检查：`git diff --check` 通过；数值字段绑定问题仍未处理。
+
+## CP85 — Handle 作为 SampleResult 唯一编辑入口
+
+- 已确认：Scene Handle 直接修改预览条目的 `SampleResult`，不再通过辅助 Transform 或外部角色 Rig 作为数据桥。
+- 已修正：Root2D Handle 的 world position/rotation 写回会显式保留到 `root2DOverride`，避免下一次规范化时丢失。
+- 已修正：FullBody 不显示 Enable，但四个 effector Handle 始终可见；首次实际编辑某个 effector 时自动启用对应 `enableMask` 通道。
+- 已移除：`HumanoidEffectorSceneTargets` 及其 `sceneTargets → RetargetSkeleton` 的旧 Transform 写入旁路；采样 API 保留兼容参数但始终 FK-only。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 独立临时工程编译成功，日志：`C:\tmp\kimodo-compile-handle-ik-phase1.log`。

@@ -142,8 +142,7 @@ namespace KimodoBridge.Editor
                     targetCache,
                     out BoneSample canonicalTargetSample,
                     out _,
-                    out error,
-                sceneTargets: null) ||
+                    out error) ||
                 !KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
                     canonicalTargetSample,
                     targetCache,
@@ -204,8 +203,7 @@ namespace KimodoBridge.Editor
                     }
 
                     KimodoSampleChannelMask mask = entry.SampleData.enableMask;
-                    if (entry.SampleData.root2DOverride != null &&
-                        (mask == null || mask.root2DPosition))
+                    if (entry.SampleData.root2DOverride != null)
                     {
                         DrawSampleHandle(
                             entry,
@@ -222,14 +220,15 @@ namespace KimodoBridge.Editor
                         continue;
                     }
 
+                    bool showAllEffectors = entry.ConstraintMode == KimodoConstraintMode.FullBody;
                     DrawEffectorHandle(entry, HumanBodyBones.LeftHand, entry.SampleData.effectors.leftHand,
-                        mask?.leftHandEffector == true);
+                        showAllEffectors || mask?.leftHandEffector == true);
                     DrawEffectorHandle(entry, HumanBodyBones.RightHand, entry.SampleData.effectors.rightHand,
-                        mask?.rightHandEffector == true);
+                        showAllEffectors || mask?.rightHandEffector == true);
                     DrawEffectorHandle(entry, HumanBodyBones.LeftFoot, entry.SampleData.effectors.leftFoot,
-                        mask?.leftFootEffector == true);
+                        showAllEffectors || mask?.leftFootEffector == true);
                     DrawEffectorHandle(entry, HumanBodyBones.RightFoot, entry.SampleData.effectors.rightFoot,
-                        mask?.rightFootEffector == true);
+                        showAllEffectors || mask?.rightFootEffector == true);
                 }
             }
         }
@@ -269,8 +268,10 @@ namespace KimodoBridge.Editor
                 Quaternion rotated = Handles.RotationHandle(rotation, moved);
                 if (EditorGUI.EndChangeCheck())
                 {
+                    bool rotationChanged = Quaternion.Angle(rotated, rotation) > 1e-4f;
                     value.position = moved;
                     value.rotation = rotated;
+                    PromoteHandleChannel(entry.SampleData, bone, rotationChanged);
                     entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
                 }
             }
@@ -280,6 +281,26 @@ namespace KimodoBridge.Editor
             }
 
             Handles.Label(position + Vector3.up * size, label);
+        }
+
+        private static void PromoteHandleChannel(
+            KimodoMarkerSampleResult sample,
+            HumanBodyBones bone,
+            bool rotationChanged)
+        {
+            if (sample == null) return;
+            sample.enableMask ??= new KimodoSampleChannelMask();
+            switch (bone)
+            {
+                case HumanBodyBones.Hips:
+                    sample.enableMask.root2DPosition = true;
+                    sample.enableMask.root2DHeading |= rotationChanged;
+                    break;
+                case HumanBodyBones.LeftHand: sample.enableMask.leftHandEffector = true; break;
+                case HumanBodyBones.RightHand: sample.enableMask.rightHandEffector = true; break;
+                case HumanBodyBones.LeftFoot: sample.enableMask.leftFootEffector = true; break;
+                case HumanBodyBones.RightFoot: sample.enableMask.rightFootEffector = true; break;
+            }
         }
 
         internal static bool TryGetOrCreateSession(
