@@ -46,6 +46,18 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         }
     }
 
+    public KimodoConstraintEffectors GetEffectors()
+    {
+        EnsureSampleData();
+        return sampleData.effectors.Clone();
+    }
+
+    public void SetEffectors(KimodoConstraintEffectors value)
+    {
+        EnsureSampleData();
+        sampleData.effectors = value?.Clone() ?? new KimodoConstraintEffectors();
+    }
+
     public void CommitSampleData() => EnsureSampleData();
     private void OnEnable() => EnsureSampleData();
     private void OnValidate() => EnsureSampleData();

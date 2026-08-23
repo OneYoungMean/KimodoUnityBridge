@@ -40,16 +40,24 @@ namespace KimodoBridge.Editor
             }
         }
 
-    internal sealed class PoseCacheRenderItem
+    internal class PoseCacheRenderItem
     {
         public string EntryId;
         public KimodoMarkerSampleResult SampleData;
         public string ConstraintType;
         public KimodoConstraintMode ConstraintMode = KimodoConstraintMode.FullBody;
+        public bool AutoSample = true;
+        public bool HandlesEnabled;
         public List<string> HighlightJoints;
         public Color PreviewColor = Color.white;
         public bool Visible = true;
-        public KimodoConstraintMarker SourceMarker;
+        public Action<KimodoMarkerSampleResult> OnSampleChanged;
+    }
+
+    // Generic preview input. The renderer does not know whether the request
+    // came from the Inspector, EditWindow, or another editor surface.
+    internal sealed class ConstraintPreviewRequest : PoseCacheRenderItem
+    {
     }
 
     internal sealed class ConstraintPosePreviewEntry
@@ -58,14 +66,20 @@ namespace KimodoBridge.Editor
         public Transform Root;
         public RetargetSkeleton TargetCache;
         public List<Material> GeneratedMaterials;
+        [Obsolete("Scene handles now edit SampleData directly.")]
         public GameObject EndEffectorMarker;
+        [Obsolete("Scene handles now edit SampleData directly.")]
         public Dictionary<HumanBodyBones, GameObject> FullBodyTargets;
-        public KimodoConstraintMarker SourceMarker;
+        public KimodoConstraintMode ConstraintMode = KimodoConstraintMode.FullBody;
+        public bool AutoSample = true;
+        public bool HandlesEnabled;
         // Current frame sample used to rebuild the preview rig. This is not a
         // sampling cache; it is replaced on every RenderBatch pass.
         public KimodoMarkerSampleResult SampleData;
         public bool PickingEnabled;
         public bool ShowVirtualAvatar = true;
+        public bool Visible = true;
+        public Action<KimodoMarkerSampleResult> OnSampleChanged;
     }
 
     internal sealed class ConstraintPosePreviewSession : IDisposable
@@ -186,58 +200,88 @@ namespace KimodoBridge.Editor
                 if (session?.IsDisposed == true) continue;
                 foreach (ConstraintPosePreviewEntry entry in session.Entries.Values)
                 {
-                    if (entry?.FullBodyTargets == null) continue;
-                    foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
+                    if (entry == null || !entry.HandlesEnabled || !entry.Visible || entry.SampleData == null)
                     {
-                        DrawTargetHandle(entry, item.Key, item.Value);
+                        continue;
                     }
+
+                    KimodoSampleChannelMask mask = entry.SampleData.enableMask;
+                    if (entry.SampleData.root2DOverride != null &&
+                        (mask == null || mask.root2DPosition))
+                    {
+                        DrawSampleHandle(
+                            entry,
+                            HumanBodyBones.Hips,
+                            entry.SampleData.root2DOverride,
+                            Color.white,
+                            "Root2D",
+                            isRoot: true);
+                    }
+
+                    if (entry.ConstraintMode == KimodoConstraintMode.Root2D ||
+                        entry.SampleData.effectors == null)
+                    {
+                        continue;
+                    }
+
+                    DrawEffectorHandle(entry, HumanBodyBones.LeftHand, entry.SampleData.effectors.leftHand,
+                        mask?.leftHandEffector == true);
+                    DrawEffectorHandle(entry, HumanBodyBones.RightHand, entry.SampleData.effectors.rightHand,
+                        mask?.rightHandEffector == true);
+                    DrawEffectorHandle(entry, HumanBodyBones.LeftFoot, entry.SampleData.effectors.leftFoot,
+                        mask?.leftFootEffector == true);
+                    DrawEffectorHandle(entry, HumanBodyBones.RightFoot, entry.SampleData.effectors.rightFoot,
+                        mask?.rightFootEffector == true);
                 }
             }
         }
 
-        private static void DrawTargetHandle(ConstraintPosePreviewEntry entry, HumanBodyBones bone, GameObject target)
+        private static void DrawEffectorHandle(
+            ConstraintPosePreviewEntry entry,
+            HumanBodyBones bone,
+            KimodoRigidTransform value,
+            bool enabled)
         {
-            if (target == null || !target.activeInHierarchy) return;
-            Transform transform = target.transform;
-            Vector3 position = transform.position;
-            bool root2D = entry.SourceMarker?.ConstraintMode == KimodoConstraintMode.Root2D;
-            float size = bone == HumanBodyBones.Hips
-                ? 0.1f
-                : HandleUtility.GetHandleSize(position) * 0.09f;
-            if (bone != HumanBodyBones.Hips) size = Mathf.Max(EndEffectorTargetSize, size);
-            Handles.color = root2D && bone == HumanBodyBones.Hips
-                ? Color.white
-                : bone == HumanBodyBones.Hips ? FullBodyRootColor : TargetColor(bone);
-            Handles.CapFunction cap = !root2D && (bone == HumanBodyBones.Hips || bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand)
-                ? Handles.SphereHandleCap : Handles.CubeHandleCap;
-            bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(entry.SourceMarker);
-            if (!windowOpen)
-            {
-                return;
-            }
-            bool editable = windowOpen && entry.SourceMarker != null &&
-                !entry.SourceMarker.autoSample;
-            if (editable && Selection.activeTransform == transform)
+            if (!enabled || value == null) return;
+            DrawSampleHandle(entry, bone, value, TargetColor(bone), bone.ToString(), isRoot: false);
+        }
+
+        private static void DrawSampleHandle(
+            ConstraintPosePreviewEntry entry,
+            HumanBodyBones bone,
+            KimodoRigidTransform value,
+            Color color,
+            string label,
+            bool isRoot)
+        {
+            Vector3 position = value.position;
+            Quaternion rotation = value.rotation;
+            float size = isRoot
+                ? Mathf.Max(0.1f, HandleUtility.GetHandleSize(position) * 0.1f)
+                : Mathf.Max(EndEffectorTargetSize, HandleUtility.GetHandleSize(position) * 0.09f);
+            Handles.color = color;
+            Handles.CapFunction cap = isRoot || bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand
+                ? Handles.SphereHandleCap
+                : Handles.CubeHandleCap;
+
+            if (!entry.AutoSample)
             {
                 EditorGUI.BeginChangeCheck();
                 Vector3 moved = Handles.FreeMoveHandle(position, size, Vector3.zero, cap);
-                Quaternion rotated = Handles.RotationHandle(transform.rotation, moved);
-                if (EditorGUI.EndChangeCheck()) transform.SetPositionAndRotation(moved, rotated);
-            }
-            else if (editable)
-            {
-                if (Handles.Button(position, transform.rotation, size, size * 1.25f, cap))
+                Quaternion rotated = Handles.RotationHandle(rotation, moved);
+                if (EditorGUI.EndChangeCheck())
                 {
-                    Selection.activeGameObject = target;
-                    Tools.current = Tool.Move;
+                    value.position = moved;
+                    value.rotation = rotated;
+                    entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
                 }
             }
             else
             {
-                cap(0, position, transform.rotation, size, EventType.Repaint);
+                cap(0, position, rotation, size, EventType.Repaint);
             }
-            Handles.Label(position + Vector3.up * size,
-                bone == HumanBodyBones.Hips ? root2D ? "Root2D" : "Root Position / Rotation" : bone.ToString());
+
+            Handles.Label(position + Vector3.up * size, label);
         }
 
         internal static bool TryGetOrCreateSession(
@@ -348,7 +392,11 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                entry.SourceMarker = item.SourceMarker;
+                entry.ConstraintMode = item.ConstraintMode;
+                entry.AutoSample = item.AutoSample;
+                entry.HandlesEnabled = item.HandlesEnabled;
+                entry.Visible = item.Visible;
+                entry.OnSampleChanged = item.OnSampleChanged;
                 KimodoConstraintMode renderMode = ResolveRenderMode(item);
                 entry.ShowVirtualAvatar = renderMode != KimodoConstraintMode.Root2D;
 
@@ -359,7 +407,7 @@ namespace KimodoBridge.Editor
                     var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
 
-                    if (entry.SourceMarker?.autoSample != false)
+                    if (entry.AutoSample)
                     {
                         // AutoSample flow is deliberately two-phase:
                         // timeline/muscles -> FK avatar -> rig transforms ->
@@ -377,7 +425,6 @@ namespace KimodoBridge.Editor
                             error = $"pose cache FK render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
                             return false;
                         }
-                        UpdateEndEffectorMarker(entry, item.ConstraintType, renderMode);
                         if (!ApplySampleToRig(renderSample, context.ModelName, entry, out error))
                         {
                             error = $"pose cache effector render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
@@ -391,7 +438,6 @@ namespace KimodoBridge.Editor
                             error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
                             return false;
                         }
-                        UpdateEndEffectorMarker(entry, item.ConstraintType, renderMode);
                     }
 
                     ApplyConstraintColoring(entry, highlightedJoints, item.PreviewColor);
@@ -430,6 +476,17 @@ namespace KimodoBridge.Editor
                 SceneView.RepaintAll();
             }
             return true;
+        }
+
+        internal static bool RenderConstraintPreview(
+            PoseCacheRenderContext context,
+            ConstraintPreviewRequest request,
+            out string error)
+        {
+            return RenderBatch(
+                context,
+                request == null ? null : new PoseCacheRenderItem[] { request },
+                out error);
         }
 
         internal static void SetGroupState(PoseCacheRenderContext context, bool visible, bool selectable)
@@ -815,7 +872,7 @@ namespace KimodoBridge.Editor
             UpdateEndEffectorMarker(
                 entry,
                 constraintType,
-                entry.SourceMarker != null ? entry.SourceMarker.ConstraintMode : KimodoConstraintMode.Effector);
+                entry.ConstraintMode);
             SceneView.RepaintAll();
             return true;
         }
@@ -1304,13 +1361,6 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (entry.EndEffectorMarker != null)
-            {
-                UnityEngine.Object.DestroyImmediate(entry.EndEffectorMarker);
-                entry.EndEffectorMarker = null;
-            }
-            DestroyFullBodyTargets(entry);
-
             RetargetSkeleton targetCache = entry.TargetCache;
             entry.TargetCache = null;
             targetCache?.Dispose();
@@ -1348,22 +1398,7 @@ namespace KimodoBridge.Editor
                 entry.Root.gameObject.SetActive(avatarVisible);
                 changed = true;
             }
-            if (entry.EndEffectorMarker != null && entry.EndEffectorMarker.activeSelf != visible)
-            {
-                entry.EndEffectorMarker.SetActive(visible);
-                changed = true;
-            }
-            if (entry.FullBodyTargets != null)
-            {
-                foreach (GameObject target in entry.FullBodyTargets.Values)
-                {
-                    if (target != null && target.activeSelf != visible)
-                    {
-                        target.SetActive(visible);
-                        changed = true;
-                    }
-                }
-            }
+            entry.Visible = visible;
             return changed;
         }
 
@@ -1374,11 +1409,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (entry.PickingEnabled == selectable)
-            {
-                SetEndEffectorMarkerSelectable(entry, selectable);
-                return;
-            }
+            if (entry.PickingEnabled == selectable) return;
 
             entry.PickingEnabled = selectable;
             try
@@ -1393,53 +1424,6 @@ namespace KimodoBridge.Editor
             entry.Root.gameObject.hideFlags = selectable
                 ? HideFlags.DontSave
                 : HideFlags.HideInHierarchy | HideFlags.DontSave;
-            SetEndEffectorMarkerSelectable(entry, selectable);
-        }
-
-        private static void SetEndEffectorMarkerSelectable(ConstraintPosePreviewEntry entry, bool selectable)
-        {
-            if (entry == null)
-            {
-                return;
-            }
-
-            selectable &= entry.SourceMarker?.autoSample != true;
-
-                    SetEffectorGizmoSelectable(entry.EndEffectorMarker, selectable);
-            if (entry.FullBodyTargets != null)
-            {
-                foreach (GameObject target in entry.FullBodyTargets.Values)
-                {
-                    SetEffectorGizmoSelectable(target, selectable);
-                }
-            }
-        }
-
-        private static void SetEffectorGizmoSelectable(GameObject target, bool selectable)
-        {
-            if (target == null)
-            {
-                return;
-            }
-
-            target.hideFlags = selectable
-                ? HideFlags.DontSave
-                : HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
-            try
-            {
-                if (selectable)
-                {
-                    SceneVisibilityManager.instance.EnablePicking(target, false);
-                }
-                else
-                {
-                    SceneVisibilityManager.instance.DisablePicking(target, false);
-                }
-            }
-            catch
-            {
-                // Scene visibility may be unavailable during editor shutdown.
-            }
         }
 
         private static void ApplyEntryState(ConstraintPosePreviewEntry entry, bool visible, bool selectable)
@@ -1765,7 +1749,7 @@ namespace KimodoBridge.Editor
             {
                 Vector3 targetPosition = bodyPart.position;
                 Quaternion targetRotation = ResolveEffectorRotation(entry, bone, bodyPart);
-                if (entry.SourceMarker?.autoSample == false &&
+                if (!entry.AutoSample &&
                     TryGetEffector(entry.SampleData?.effectors, bone,
                         out Vector3 savedPosition, out Quaternion savedRotation))
                 {
@@ -1777,7 +1761,7 @@ namespace KimodoBridge.Editor
             }
 
             marker.localScale = Vector3.one * EndEffectorTargetSize;
-            SetEndEffectorMarkerSelectable(entry, entry.PickingEnabled && entry.SourceMarker?.autoSample != true);
+            SetEndEffectorMarkerSelectable(entry, entry.PickingEnabled && !entry.AutoSample);
             entry.EndEffectorMarker.SetActive(true);
             marker.hasChanged = false;
         }
@@ -1827,7 +1811,7 @@ namespace KimodoBridge.Editor
                     target.transform.localScale = Vector3.one * (bone == HumanBodyBones.Hips
                         ? 0.1f
                         : EndEffectorTargetSize);
-                    SetEffectorGizmoSelectable(target, entry.PickingEnabled && entry.SourceMarker?.autoSample != true);
+                    SetEffectorGizmoSelectable(target, entry.PickingEnabled && !entry.AutoSample);
                     target.SetActive(true);
                     target.transform.hasChanged = false;
                     continue;
@@ -1851,7 +1835,7 @@ namespace KimodoBridge.Editor
                             solvedSample.root2DOverride.q);
                     }
                 }
-                else if (entry.SourceMarker?.autoSample == false &&
+                else if (!entry.AutoSample &&
                     IsEffectorChannelEnabled(mask, bone) &&
                     TryGetEffector(entry.SampleData?.effectors, bone,
                         out Vector3 savedPosition, out Quaternion savedRotation))
@@ -1859,21 +1843,21 @@ namespace KimodoBridge.Editor
                     target.transform.SetParent(null, true);
                     target.transform.SetPositionAndRotation(savedPosition, savedRotation);
                 }
-                else if (entry.SourceMarker?.autoSample == false)
+                else if (!entry.AutoSample)
                 {
                     // If AutoSample was just disabled, no authored world
                     // target may exist yet. Initialize it from the sampled
                     // bone instead of leaving the new target at (0,0,0).
                     SetTargetToFollowBodyPart(entry, bone, target.transform, bodyPart);
                 }
-                else if (entry.SourceMarker?.autoSample != false)
+                else if (entry.AutoSample)
                 {
                     SetTargetToFollowBodyPart(entry, bone, target.transform, bodyPart);
                 }
                 target.transform.localScale = Vector3.one * (bone == HumanBodyBones.Hips
                     ? 0.1f
                     : EndEffectorTargetSize);
-                SetEffectorGizmoSelectable(target, entry.PickingEnabled && entry.SourceMarker?.autoSample != true);
+                SetEffectorGizmoSelectable(target, entry.PickingEnabled && !entry.AutoSample);
                 target.SetActive(true);
                 target.transform.hasChanged = false;
             }
@@ -1971,7 +1955,7 @@ namespace KimodoBridge.Editor
                 target.transform.hasChanged = false;
             }
             target.transform.localScale = Vector3.one * 0.1f;
-            SetEffectorGizmoSelectable(target, entry.PickingEnabled && entry.SourceMarker?.autoSample != true);
+            SetEffectorGizmoSelectable(target, entry.PickingEnabled && !entry.AutoSample);
             target.SetActive(true);
             target.transform.hasChanged = false;
         }

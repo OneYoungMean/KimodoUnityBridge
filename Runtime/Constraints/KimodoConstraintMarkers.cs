@@ -198,7 +198,7 @@ namespace KimodoBridge
             enabled = enabled,
             creationOrder = creationOrder,
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
-            root2DOverride = root2DOverride.Clone(),
+            root2DOverride = root2DOverride?.Clone() ?? KimodoRigidTransform.Identity,
             constraintMode = this.constraintMode,
             sampleTime = sampleTime
         };

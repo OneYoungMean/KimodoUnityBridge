@@ -5,7 +5,8 @@ using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
-    // Single source of truth for the mode-aware Constraint inspector.
+    // Shared mode-aware Constraint payload drawing used by the Inspector
+    // Editor and the EditorWindow-created instance of that Editor.
     internal static class KimodoConstraintEditorState
     {
         internal static bool IsAutoSample(SerializedObject so)
@@ -57,8 +58,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        // The edit window's framed payload is the canonical presentation for
-        // both surfaces. Keep the visual container and guidance in one place.
+        // The framed payload is the canonical presentation for both surfaces.
         internal static void DrawConstraintPayload(SerializedObject so, IMarker marker)
         {
             if (so == null) return;
@@ -70,27 +70,16 @@ namespace KimodoBridge.Editor
             EditorGUILayout.EndVertical();
         }
 
-        // Inspector and the persistent edit window commit the same payload;
-        // keep the serialized apply/dirty transition in one place.
-        internal static bool ApplyConstraintPanels(SerializedObject so, KimodoConstraintMarker marker)
-        {
-            if (so == null) return false;
-            bool changed = so.ApplyModifiedProperties();
-            if (changed)
-            {
-                KimodoConstraintMarkerEditorUtility.NotifyInspectorChanged(marker);
-            }
-            return changed;
-        }
-
         private static void DrawRoot2D(SerializedObject so)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            SerializedProperty root = so.FindProperty("sampleData.root2DOverride");
             SerializedProperty allowHeading = so.FindProperty("sampleData.enableMask.root2DHeading");
             using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
-                if (DrawTransform(root, "Root Position / Rotation"))
+                if (DrawTransform(
+                        so.FindProperty("sampleData.root2DOverride.position"),
+                        so.FindProperty("sampleData.root2DOverride.rotation"),
+                        "Root Position / Rotation"))
                 {
                     SerializedProperty positionEnabled = so.FindProperty("sampleData.enableMask.root2DPosition");
                     if (positionEnabled != null)
@@ -114,14 +103,13 @@ namespace KimodoBridge.Editor
         private static void DrawFullBody(SerializedObject so)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            SerializedProperty pose = so.FindProperty("sampleData.sampleData");
+            SerializedProperty pose = so.FindProperty("sampleData.sampleData.data");
             using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
                 DrawMuscleValues(pose);
             }
-            DrawEffectorPanels(so, "sampleData", "FullBody Effectors", IsAutoSample(so), showEnable: false);
             EditorGUILayout.HelpBox(
-                "FullBody always exports its four effectors with the muscle pose. Dragging a Scene gizmo writes target data and never rewrites muscles.",
+                "FullBody edits the muscle pose. Root2D remains available above; effector values are edited in Effector mode.",
                 MessageType.None);
             EditorGUILayout.EndVertical();
         }
@@ -142,25 +130,30 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".effectors.leftHand"),
+                so,
+                root + ".effectors.leftHand",
                 showEnable ? so.FindProperty(root + ".enableMask.leftHandEffector") : null,
                 "Left Hand Effector", autoSample, showEnable);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".effectors.rightHand"),
+                so,
+                root + ".effectors.rightHand",
                 showEnable ? so.FindProperty(root + ".enableMask.rightHandEffector") : null,
                 "Right Hand Effector", autoSample, showEnable);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".effectors.leftFoot"),
+                so,
+                root + ".effectors.leftFoot",
                 showEnable ? so.FindProperty(root + ".enableMask.leftFootEffector") : null,
                 "Left Foot Effector", autoSample, showEnable);
             DrawEndEffectorPanel(
-                so.FindProperty(root + ".effectors.rightFoot"),
+                so,
+                root + ".effectors.rightFoot",
                 showEnable ? so.FindProperty(root + ".enableMask.rightFootEffector") : null,
                 "Right Foot Effector", autoSample, showEnable);
         }
 
         private static void DrawEndEffectorPanel(
-            SerializedProperty transform,
+            SerializedObject so,
+            string transformPath,
             SerializedProperty enabled,
             string label,
             bool autoSample,
@@ -175,7 +168,10 @@ namespace KimodoBridge.Editor
             // hide authored values while a non-AutoSample marker is edited.
             using (new EditorGUI.DisabledScope(autoSample))
             {
-                DrawTransform(transform, "Target Position / Rotation");
+                DrawTransform(
+                    so.FindProperty(transformPath + ".position"),
+                    so.FindProperty(transformPath + ".rotation"),
+                    "Target Position / Rotation");
             }
             EditorGUILayout.EndVertical();
         }
@@ -185,13 +181,14 @@ namespace KimodoBridge.Editor
             KimodoConstraintMuscleValueGUI.Draw(muscles);
         }
 
-        private static bool DrawTransform(SerializedProperty transform, string label)
+        private static bool DrawTransform(
+            SerializedProperty position,
+            SerializedProperty rotation,
+            string label)
         {
-            if (transform == null) return false;
+            if (position == null && rotation == null) return false;
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
-            SerializedProperty position = transform.FindPropertyRelative("t");
-            SerializedProperty rotation = transform.FindPropertyRelative("q");
             EditorGUI.BeginChangeCheck();
             if (position != null) EditorGUILayout.PropertyField(position, new GUIContent("Position"));
             if (rotation != null) EditorGUILayout.PropertyField(rotation, new GUIContent("Rotation"));

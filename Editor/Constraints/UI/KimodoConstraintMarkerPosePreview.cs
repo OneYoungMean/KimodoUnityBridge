@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using CharacterAnimationCli.Unity;
 using TimelineInject;
 using UnityEditor;
@@ -70,80 +68,58 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
             return true;
         }
 
-public static bool TryBuildRenderContextForPlayableClip(
-            KimodoPlayableClip playableClip,
-            out PoseCacheRenderContext context,
-            out TimelineClip timelineClip,
-            out string error,
-            TimelineClip timelineClipOverride = null)
-        {
-            context = default;
-            timelineClip = null;
-            error = string.Empty;
-            if (playableClip == null)
-            {
-                error = "playable clip is null";
-                return false;
-            }
-
-            timelineClip = timelineClipOverride ?? KimodoTimelineClipResolver.FindTimelineClipForAsset(playableClip);
-            if (timelineClip == null)
-            {
-                error = "timeline clip not found for playable clip";
-                return false;
-            }
-
-            TrackAsset track = timelineClip.GetParentTrack();
-            if (track == null)
-            {
-                error = "parent track not found";
-                return false;
-            }
-
-            PlayableDirector director = TimelineEditor.inspectedDirector;
-            if (director == null)
-            {
-                error = "Timeline inspected director is null";
-                return false;
-            }
-
-            Animator animator = director.GetGenericBinding(track) as Animator;
-            if (animator == null)
-            {
-                error = "animation track has no animator binding";
-                return false;
-            }
-
-            string modelName = string.IsNullOrWhiteSpace(playableClip.bridgeModelName)
-                ? "Kimodo-SOMA-RP-v1"
-                : playableClip.bridgeModelName.Trim();
-            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(track, animator);
-            if (!avatarResult.IsHumanoid || avatarResult.Avatar == null)
-            {
-                error = $"Resolve source avatar failed: {avatarResult.Error}";
-                return false;
-            }
-            KimodoConstraintRigType rigType = KimodoRigProfileDatabase.ResolveRigTypeFromModelName(modelName);
-            context = new PoseCacheRenderContext(
-                KimodoUnityObjectIdUtility.IdHash(playableClip),
-                KimodoUnityObjectIdUtility.IdHash(animator),
-                KimodoUnityObjectIdUtility.IdHash(track),
-                modelName,
-                rigType,
-                avatarResult.Avatar);
-            return true;
-        }
-
-        internal static bool TryRenderMarkerToPoseCache(
+        internal static bool TryRenderMarkerPreview(
             KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
             out string error)
         {
-            return TryRenderMarkerToPoseCache(marker, context, out _, out error);
+            return TryRenderMarkerPreview(marker, context, out _, out error);
         }
 
-        private static bool TryRenderMarkerToPoseCache(
+        internal static bool TryBuildMarkerPreviewRequest(
+            KimodoConstraintMarker marker,
+            PoseCacheRenderContext context,
+            string entryId,
+            Color previewColor,
+            bool handlesEnabled,
+            out ConstraintPreviewRequest item,
+            out string error)
+        {
+            item = null;
+            if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(
+                    marker,
+                    marker.SampleData,
+                    out KimodoMarkerSampleResult normalizedSample,
+                    out error))
+            {
+                return false;
+            }
+
+            item = new ConstraintPreviewRequest
+            {
+                EntryId = entryId,
+                SampleData = normalizedSample,
+                ConstraintType = marker.ConstraintType,
+                ConstraintMode = marker.ConstraintMode,
+                AutoSample = marker.autoSample,
+                HandlesEnabled = handlesEnabled,
+                HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
+                PreviewColor = previewColor,
+                Visible = true,
+                OnSampleChanged = changedSample =>
+                {
+                    if (marker.autoSample || changedSample == null) return;
+                    if (KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
+                            marker, changedSample, out _))
+                    {
+                        KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
+                    }
+                },
+            };
+            return true;
+        }
+
+        private static bool TryRenderMarkerPreview(
             KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
             out KimodoMarkerSampleResult sample,
@@ -151,27 +127,19 @@ public static bool TryBuildRenderContextForPlayableClip(
         {
             sample = null;
             error = string.Empty;
-            string entryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker);
-
-            if (!KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(marker, marker.SampleData, out KimodoMarkerSampleResult normalizedSample, out error))
+            if (!TryBuildMarkerPreviewRequest(
+                    marker,
+                    context,
+                    KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker),
+                    Color.white,
+                    true,
+                    out ConstraintPreviewRequest item,
+                    out error))
             {
                 return false;
             }
-
-            sample = normalizedSample;
-
-            var item = new PoseCacheRenderItem
-            {
-                EntryId = entryId,
-                SampleData = normalizedSample,
-                ConstraintType = marker.ConstraintType,
-                ConstraintMode = marker.ConstraintMode,
-                HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
-                Visible = true,
-                SourceMarker = marker
-            };
-            var batch = new List<PoseCacheRenderItem>(1) { item };
-            if (!KimodoConstraintPoseCache.RenderBatch(context, batch, out error))
+            sample = item.SampleData;
+            if (!KimodoConstraintPoseCache.RenderConstraintPreview(context, item, out error))
             {
                 return false;
             }

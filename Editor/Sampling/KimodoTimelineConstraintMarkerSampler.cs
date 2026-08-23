@@ -79,27 +79,6 @@ namespace KimodoBridge.Editor
             out KimodoMarkerSampleResult sample,
             out string error)
         {
-            return TrySampleMarker(
-                context,
-                timelineTime,
-                exportedSampleTime,
-                markerType,
-                modelName,
-                forceRefresh: false,
-                out sample,
-                out error);
-        }
-
-        internal static bool TrySampleMarker(
-            KimodoTimelineInOutConstraintContext context,
-            double timelineTime,
-            double exportedSampleTime,
-            string markerType,
-            string modelName,
-            bool forceRefresh,
-            out KimodoMarkerSampleResult sample,
-            out string error)
-        {
             sample = null;
             float timelineFrameRate = ResolveTimelineFrameRate(context);
             double exactTimelineTime = Math.Max(0.0, timelineTime);

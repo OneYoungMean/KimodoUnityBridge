@@ -285,10 +285,10 @@ namespace KimodoBridge.Editor
                       previousInOutMode != inOutConstraintModeProp.enumValueIndex));
                 if (refreshClicked || wasReEnabled)
                 {
-                    KimodoConstraintSelectionPreviewTool.ForceRefresh();
+                    KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
                 }
             }
-            KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
+            KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
 
             DrawSplinePathSection(timelineClip);
 

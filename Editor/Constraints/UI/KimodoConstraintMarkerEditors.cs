@@ -6,7 +6,6 @@ using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
-using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
@@ -74,14 +73,9 @@ namespace KimodoBridge.Editor
                 timeFrame >= startFrame && timeFrame < endFrame;
         }
 
-        public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, bool forceRefresh, out string error)
+        public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, out string error)
         {
-            return KimodoConstraintMarkerSampling.TryUpdateAutoSampleMarkerData(marker, forceRefresh, out error);
-        }
-
-        public static bool TryRefreshMarkerCache(KimodoConstraintMarker marker, out string error)
-        {
-            return KimodoConstraintMarkerSampling.TryRefreshMarkerCache(marker, out error);
+            return KimodoConstraintMarkerSampling.TryUpdateAutoSampleMarkerData(marker, out error);
         }
 
 internal static void DrawEnabledField(SerializedObject so)
@@ -96,7 +90,7 @@ internal static void DrawEnabledField(SerializedObject so)
             EditorGUILayout.PropertyField(enabled, new GUIContent("Enabled"));
             if (!wasEnabled && enabled.boolValue)
             {
-                KimodoConstraintSelectionPreviewTool.ForceRefresh();
+                KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
             }
         }
 
@@ -123,21 +117,14 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
                 kimodoMarker.time = globalTime;
                 if (kimodoMarker.autoSample)
                 {
-                    if (!TryUpdateAutoSampleMarkerData(kimodoMarker, forceRefresh: true, out string sampleError))
+                    if (!TryUpdateAutoSampleMarkerData(kimodoMarker, out string sampleError))
                     {
                         Debug.LogWarning($"[Kimodo][ConstraintMarker] Auto sample after marker move failed: {sampleError}");
                     }
                 }
                 // AutoSample=false keeps the authored muscle/IK payload. The
                 // preview still needs a render pass after a time edit.
-                if (kimodoMarker.autoSample)
-                {
-                    KimodoConstraintSelectionPreviewTool.ForceRefresh();
-                }
-                else
-                {
-                    KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
-                }
+                KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
                 SceneView.RepaintAll();
             }
 
@@ -190,13 +177,13 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
             }
         }
 
-public static void NotifyInspectorChanged(KimodoConstraintMarker marker)
+        public static void NotifyInspectorChanged(KimodoConstraintMarker marker)
         {
             if (marker != null)
             {
                 if (!marker.constraintEnabled)
                 {
-                    ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
+                    ClearMarkerPreview(marker, keepIfOverrideWindowOpen: false);
                 }
                 EditorUtility.SetDirty(marker);
             }
@@ -204,7 +191,7 @@ public static void NotifyInspectorChanged(KimodoConstraintMarker marker)
             SceneView.RepaintAll();
         }
 
-public static void ClearMarkerPoseCachePreview(KimodoConstraintMarker marker, bool keepIfOverrideWindowOpen)
+        public static void ClearMarkerPreview(KimodoConstraintMarker marker, bool keepIfOverrideWindowOpen)
         {
             if (marker == null)
             {
@@ -216,7 +203,7 @@ public static void ClearMarkerPoseCachePreview(KimodoConstraintMarker marker, bo
                 return;
             }
 
-            KimodoConstraintSelectionPreviewTool.ForceRefresh();
+            KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
             SceneView.RepaintAll();
         }
 
@@ -225,12 +212,7 @@ public static void ClearMarkerPoseCachePreview(KimodoConstraintMarker marker, bo
             return KimodoConstraintMarkerPosePreview.TryBuildRenderContextForMarker(marker, out context, out error);
         }
 
-        public static bool TryBuildRenderContextForPlayableClip(KimodoPlayableClip playableClip, out PoseCacheRenderContext context, out TimelineClip timelineClip, out string error, TimelineClip timelineClipOverride = null)
-        {
-            return KimodoConstraintMarkerPosePreview.TryBuildRenderContextForPlayableClip(playableClip, out context, out timelineClip, out error, timelineClipOverride);
-        }
-
-public static void DrawOverrideEditButton(SerializedObject so, KimodoConstraintMarker marker)
+        public static void DrawEditButton(SerializedObject so, KimodoConstraintMarker marker)
         {
             if (so == null || marker == null)
             {
@@ -239,16 +221,7 @@ public static void DrawOverrideEditButton(SerializedObject so, KimodoConstraintM
 
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker);
             using (new EditorGUI.DisabledScope(!marker.constraintEnabled))
-            using (new EditorGUILayout.HorizontalScope())
             {
-                if (GUILayout.Button(new GUIContent("Refresh Cache", "Force re-sample the marker pose and rebuild the preview cache."), GUILayout.Height(22f)))
-                {
-                    if (!TryRefreshMarkerCache(marker, out string refreshError))
-                    {
-                        Debug.LogWarning($"[Kimodo][ConstraintMarker] Refresh cache failed: {refreshError}");
-                    }
-                }
-
                 string label = windowOpen ? "Reopen Edit" : "Edit";
                 if (GUILayout.Button(new GUIContent(label, "Open the constraint edit window."), GUILayout.Height(22f)))
                 {
@@ -337,7 +310,7 @@ public static void DrawOverrideEditButton(SerializedObject so, KimodoConstraintM
                 Undo.RegisterCompleteObjectUndo(track, "Delete Kimodo Constraint Marker");
             }
 
-            ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
+            ClearMarkerPreview(marker, keepIfOverrideWindowOpen: false);
             track.DeleteMarker(marker);
 
             if (markerObject != null)

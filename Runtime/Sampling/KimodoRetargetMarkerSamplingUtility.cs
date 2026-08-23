@@ -178,9 +178,12 @@ namespace KimodoBridge
         {
             return new KimodoMarkerSampleResult
             {
+                sampleData = new MuscleSample(),
                 constraintMode = "constraint",
                 sampleTime = sampleTime,
-                enableMask = new KimodoSampleChannelMask()
+                enableMask = new KimodoSampleChannelMask(),
+                effectors = new KimodoConstraintEffectors(),
+                root2DOverride = KimodoRigidTransform.Identity
             };
         }
     }

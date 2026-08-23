@@ -19,30 +19,24 @@ namespace KimodoBridge.Editor
         private static readonly Dictionary<string, EditPreviewRegistration> EditPreviews =
             new Dictionary<string, EditPreviewRegistration>(StringComparer.Ordinal);
         private static bool refreshQueued;
-        private static bool forceRefreshRequested;
+        private static readonly Color SelectionPreviewColor = new Color(0.48f, 0.76f, 1f);
 
         static KimodoConstraintSelectionPreviewTool()
         {
-            Selection.selectionChanged += ScheduleRefresh;
-            Undo.undoRedoPerformed += ScheduleRefresh;
+            Selection.selectionChanged += SchedulePreviewUpdate;
+            Undo.undoRedoPerformed += SchedulePreviewUpdate;
             EditorApplication.quitting += Clear;
             AssemblyReloadEvents.beforeAssemblyReload += Clear;
             EditorSceneManager.sceneClosing += OnSceneClosing;
             EditorSceneManager.activeSceneChangedInEditMode += OnActiveSceneChanged;
-            ScheduleRefresh();
+            SchedulePreviewUpdate();
         }
 
-        internal static void ScheduleRefresh()
+        internal static void SchedulePreviewUpdate()
         {
             if (refreshQueued) return;
             refreshQueued = true;
-            EditorApplication.delayCall += Refresh;
-        }
-
-        internal static void ForceRefresh()
-        {
-            forceRefreshRequested = true;
-            ScheduleRefresh();
+            EditorApplication.delayCall += UpdateSelectionPreview;
         }
 
         internal static bool TryBeginEditPreview(
@@ -75,7 +69,17 @@ namespace KimodoBridge.Editor
                 EditPreviews.Remove(context.ContextKey);
             }
 
-            if (!KimodoConstraintMarkerPosePreview.TryRenderMarkerToPoseCache(
+            // Populate the marker's canonical SampleResult before the Window
+            // creates the shared Inspector editor. Otherwise the first draw
+            // can expose default/empty Root2D and effector fields even though
+            // the Timeline pose is available for sampling.
+            if (marker.autoSample &&
+                !KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(marker, out error))
+            {
+                return false;
+            }
+
+            if (!KimodoConstraintMarkerPosePreview.TryRenderMarkerPreview(
                     marker,
                     context,
                     out error))
@@ -87,7 +91,7 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        internal static bool TryRefreshEditPreview(
+        internal static bool TryRenderEditPreview(
             KimodoConstraintMarker marker,
             PoseCacheRenderContext context,
             out string error)
@@ -105,10 +109,38 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            return KimodoConstraintMarkerPosePreview.TryRenderMarkerToPoseCache(
+            return KimodoConstraintMarkerPosePreview.TryRenderMarkerPreview(
                 marker,
                 context,
                 out error);
+        }
+
+        internal static bool TryUpdateMarkerPreview(
+            KimodoConstraintMarker marker,
+            PoseCacheRenderContext editContext,
+            bool renderEditPreview,
+            out string error)
+        {
+            error = string.Empty;
+            if (marker == null)
+            {
+                error = "marker is null";
+                return false;
+            }
+
+            if (marker.autoSample &&
+                !KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(marker, out error))
+            {
+                return false;
+            }
+
+            if (renderEditPreview)
+            {
+                return TryRenderEditPreview(marker, editContext, out error);
+            }
+
+            SchedulePreviewUpdate();
+            return true;
         }
 
         internal static void EndEditPreview(
@@ -125,14 +157,9 @@ namespace KimodoBridge.Editor
             SceneView.RepaintAll();
         }
 
-        private static void Refresh()
+        private static void UpdateSelectionPreview()
         {
             refreshQueued = false;
-            if (forceRefreshRequested)
-            {
-                forceRefreshRequested = false;
-            }
-
             var groups = new Dictionary<string, List<PoseCacheRenderItem>>(StringComparer.Ordinal);
             var contexts = new Dictionary<string, PoseCacheRenderContext>(StringComparer.Ordinal);
             UnityEngine.Object[] selected = Selection.objects;
@@ -141,12 +168,17 @@ namespace KimodoBridge.Editor
                 KimodoConstraintMarker marker = selected[i] as KimodoConstraintMarker;
                 if (marker == null || !marker.constraintEnabled ||
                     KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker) ||
-                    !KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(
-                        marker, forceRefresh: false, out _ ) ||
+                    !KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(marker, out _ ) ||
                     !KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(
                         marker, out PoseCacheRenderContext context, out _) ||
-                    !KimodoMarkerSamplingUtility.TryNormalizeConstraintMarkerSample(
-                        marker, marker.SampleData, out KimodoMarkerSampleResult sample, out _))
+                    !KimodoConstraintMarkerPosePreview.TryBuildMarkerPreviewRequest(
+                        marker,
+                        context,
+                        "marker:" + KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker),
+                        SelectionPreviewColor,
+                        false,
+                        out ConstraintPreviewRequest item,
+                        out _))
                 {
                     continue;
                 }
@@ -156,17 +188,7 @@ namespace KimodoBridge.Editor
                     groups.Add(context.ContextKey, items = new List<PoseCacheRenderItem>());
                     contexts.Add(context.ContextKey, context);
                 }
-                items.Add(new PoseCacheRenderItem
-                {
-                    EntryId = "marker:" + KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker),
-                    SampleData = sample,
-                    ConstraintType = marker.ConstraintType,
-                    ConstraintMode = marker.ConstraintMode,
-                    HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
-                    PreviewColor = new Color(0.48f, 0.76f, 1f),
-                    Visible = true,
-                    SourceMarker = marker
-                });
+                items.Add(item);
             }
 
             foreach (KeyValuePair<string, PoseCacheRenderContext> previous in RenderedContexts)
@@ -198,7 +220,7 @@ namespace KimodoBridge.Editor
         private static void OnActiveSceneChanged(Scene _, Scene __)
         {
             Clear();
-            ScheduleRefresh();
+            SchedulePreviewUpdate();
         }
 
         private static void Clear()

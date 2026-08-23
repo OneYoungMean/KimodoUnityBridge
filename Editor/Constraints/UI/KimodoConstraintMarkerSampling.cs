@@ -12,7 +12,7 @@ namespace KimodoBridge.Editor
     internal static class KimodoConstraintMarkerSampling
     {
         private const string DefaultBridgeModelName = "Kimodo-SOMA-RP-v1";
-        public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, bool forceRefresh, out string error)
+        public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, out string error)
         {
             error = string.Empty;
             if (marker == null)
@@ -23,7 +23,7 @@ namespace KimodoBridge.Editor
 
             if (!marker.constraintEnabled)
             {
-                KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
+                KimodoConstraintMarkerEditorUtility.ClearMarkerPreview(marker, keepIfOverrideWindowOpen: false);
                 return true;
             }
 
@@ -69,7 +69,6 @@ namespace KimodoBridge.Editor
                     sampleTime,
                     samplingType,
                     ResolveModelName(referenceClip),
-                    forceRefresh,
                     out KimodoMarkerSampleResult sample,
                     out error))
             {
@@ -117,19 +116,6 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult sampled)
         {
             return sampled?.Clone() ?? marker?.SampleData?.Clone() ?? new KimodoMarkerSampleResult();
-        }
-
-internal static bool TryRefreshMarkerCache(KimodoConstraintMarker marker, out string error)
-        {
-            error = string.Empty;
-            if (!TryUpdateAutoSampleMarkerData(marker, forceRefresh: true, out error))
-            {
-                return false;
-            }
-
-            KimodoConstraintSelectionPreviewTool.ScheduleRefresh();
-            SceneView.RepaintAll();
-            return true;
         }
 
 internal static string ResolveModelName(TimelineClip clipRange)
@@ -185,14 +171,5 @@ internal static TimelineClip FindReferenceClip(TrackAsset track, double timeline
             return nearestKimodo ?? activeClip;
         }
 
-        private static bool Vector3Approximately(Vector3 left, Vector3 right)
-        {
-            return (left - right).sqrMagnitude <= 1e-10f;
-        }
-
-        private static bool QuaternionApproximately(Quaternion left, Quaternion right)
-        {
-            return Mathf.Abs(Quaternion.Dot(left, right)) >= 1f - 1e-10f;
-        }
     }
 }
