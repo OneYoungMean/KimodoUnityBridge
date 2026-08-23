@@ -37,8 +37,31 @@ namespace KimodoBridge
             }
 
             sample.GetRoot(out pose.bodyPosition, out pose.bodyRotation);
+            // Old/default samples can contain an all-zero root quaternion.
+            // Unity accepts the float payload but produces NaN transforms
+            // while evaluating the Humanoid clip. Use the neutral rotation at
+            // this API boundary instead of letting NaN reach a Transform.
+            float rotationMagnitude = pose.bodyRotation.x * pose.bodyRotation.x +
+                pose.bodyRotation.y * pose.bodyRotation.y +
+                pose.bodyRotation.z * pose.bodyRotation.z +
+                pose.bodyRotation.w * pose.bodyRotation.w;
+            if (!IsFinite(pose.bodyRotation) || rotationMagnitude < 1e-8f)
+            {
+                pose.bodyRotation = Quaternion.identity;
+            }
+            else
+            {
+                pose.bodyRotation = pose.bodyRotation.normalized;
+            }
             return pose;
         }
+
+        private static bool IsFinite(Quaternion value) =>
+            IsFinite(value.x) && IsFinite(value.y) &&
+            IsFinite(value.z) && IsFinite(value.w);
+
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
 
         internal static void EnsureMuscles(ref HumanPose pose)
         {

@@ -11,12 +11,36 @@ namespace KimodoBridge
         public Vector3[] localPositions;
         public Quaternion[] localRotations;
 
-        public bool IsValid =>
-            boneNames != null &&
-            localPositions != null &&
-            localRotations != null &&
-            boneNames.Length == localPositions.Length &&
-            boneNames.Length == localRotations.Length;
+        public bool IsValid
+        {
+            get
+            {
+                if (boneNames == null || localPositions == null || localRotations == null ||
+                    boneNames.Length != localPositions.Length ||
+                    boneNames.Length != localRotations.Length)
+                {
+                    return false;
+                }
+
+                for (int i = 0; i < localPositions.Length; i++)
+                {
+                    Vector3 position = localPositions[i];
+                    Quaternion rotation = localRotations[i];
+                    if (!IsFinite(position.x) || !IsFinite(position.y) ||
+                        !IsFinite(position.z) || !IsFinite(rotation.x) ||
+                        !IsFinite(rotation.y) || !IsFinite(rotation.z) ||
+                        !IsFinite(rotation.w))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        }
+
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
     }
 
     [Serializable]
