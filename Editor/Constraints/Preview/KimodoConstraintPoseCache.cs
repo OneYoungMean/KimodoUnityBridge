@@ -136,16 +136,12 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                    sample.sampleData,
+            if (!KimodoConstraintPosePipeline.TryApply(
+                    sample,
                     frameRate,
                     targetCache,
-                    out BoneSample canonicalTargetSample,
                     out _,
-                    out error) ||
-                !KimodoRetargetSamplingUtility.TryApplyBoneSampleToRetargetSkeleton(
-                    canonicalTargetSample,
-                    targetCache,
+                    out _,
                     out error))
             {
                 return false;

@@ -676,3 +676,12 @@
 - 已修正：FullBody 不显示 Enable，但四个 effector Handle 始终可见；首次实际编辑某个 effector 时自动启用对应 `enableMask` 通道。
 - 已移除：`HumanoidEffectorSceneTargets` 及其 `sceneTargets → RetargetSkeleton` 的旧 Transform 写入旁路；采样 API 保留兼容参数但始终 FK-only。
 - 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 独立临时工程编译成功，日志：`C:\tmp\kimodo-compile-handle-ik-phase1.log`。
+
+## CP86 — 统一 FullBody、Root2D 与 Effector IK 姿态流程
+
+- 已新增统一 Runtime Pipeline：`FullBody FK → Root2D world override → SampleResult effector IK`。
+- Preview 与 Runtime Constraint projector 共同调用该 Pipeline，避免两侧产生不同姿态。
+- IK job 只接收 `SampleResult` 中的 world target position 与 transport rotation，未绑定 `TransformSceneHandle`，也不读取或写回外部 Rig。
+- Root2D position 与 heading 保持独立：`root2DPosition` 控制 hips world 位移，`root2DHeading` 控制旋转覆盖。
+- 手/脚 transport rotation 在进入 IK job 前统一还原为内部骨架 world rotation。
+- 检查：Unity 2022.3.62f3c1 独立临时工程编译通过，日志：`C:\tmp\kimodo-compile-ik-pipeline-2.log`。

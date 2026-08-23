@@ -45,21 +45,16 @@ namespace KimodoBridge
             try
             {
                 float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
-                MuscleSample sourceSample = sample.sampleData.Clone();
-                MuscleSample projectedMuscleSample;
-                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                        sourceSample,
+                if (!KimodoConstraintPosePipeline.TryApply(
+                        sample,
                         frameRate,
                         cache,
                         out _,
-                        out projectedMuscleSample,
+                        out _,
                         out error))
                 {
                     throw new InvalidOperationException($"Constraint pose projection failed: {error}");
                 }
-
-                // IK/effector values are retained for protocol compatibility only.
-                // Projection deliberately sends the FK pose reconstructed from muscles.
 
                 if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
                         modelName,
@@ -72,7 +67,7 @@ namespace KimodoBridge
                     throw new InvalidOperationException($"Constraint profile skeleton failed: {error}");
                 }
 
-                if (joints == null || joints.Length == 0 || joints[0] == null || projectedMuscleSample == null)
+                if (joints == null || joints.Length == 0 || joints[0] == null)
                 {
                     throw new InvalidOperationException("Constraint profile skeleton has no Hips joint after projection.");
                 }

@@ -172,6 +172,27 @@ namespace KimodoBridge
             return currentInRoot * Quaternion.Inverse(initialInRoot);
         }
 
+        internal static Quaternion ResolveEffectorWorldRotation(
+            RetargetSkeleton cache,
+            HumanBodyBones bone,
+            Quaternion transport,
+            int rotationMode)
+        {
+            if (cache == null ||
+                !cache.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
+            {
+                return transport.normalized;
+            }
+
+            if (rotationMode == 1 || cache.skeletonRoot == null)
+            {
+                return (transport * initialWorld).normalized;
+            }
+
+            Quaternion initialInRoot = Quaternion.Inverse(cache.bindSkeletonRootWorldRotation) * initialWorld;
+            return (cache.skeletonRoot.rotation * transport * initialInRoot).normalized;
+        }
+
         private static KimodoMarkerSampleResult CreateSampleShell(
             string markerType,
             double sampleTime)
