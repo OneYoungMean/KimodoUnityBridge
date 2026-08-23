@@ -6,7 +6,7 @@ namespace KimodoBridge
 {
     /// <summary>
     /// Canonical 70-float sample layout. The payload is deliberately fixed;
-    /// channel validity is carried separately by KimodoSampleChannelMask.
+    /// channel enablement and validity are carried by separate KimodoConstraintMask values.
     /// Each transform is translation (x,y,z) followed by quaternion (x,y,z,w).
     /// </summary>
     public static class KimodoSampleDataLayout
@@ -97,44 +97,5 @@ namespace KimodoBridge
                 throw new ArgumentException("sampleData must be a valid 70-value buffer.", nameof(data));
             }
         }
-    }
-
-    [Serializable]
-    public sealed class KimodoSampleChannelMask
-    {
-        public bool muscle49;
-        public bool rootTQ;
-        public bool leftFootTQ;
-        public bool rightFootTQ;
-        public bool root2DPosition;
-        public bool root2DHeading;
-        public bool leftHandEffector;
-        public bool rightHandEffector;
-        public bool leftFootEffector;
-        public bool rightFootEffector;
-
-        public KimodoSampleChannelMask Clone() => (KimodoSampleChannelMask)MemberwiseClone();
-
-        public void NormalizeDependencies()
-        {
-            if (!root2DPosition)
-            {
-                root2DHeading = false;
-            }
-        }
-
-        public bool IsValidForEffector(int index) => index switch
-        {
-            0 => leftHandEffector,
-            1 => rightHandEffector,
-            2 => leftFootEffector,
-            3 => rightFootEffector,
-            _ => false
-        };
-
-        public bool Any => muscle49 || rootTQ || leftFootTQ || rightFootTQ ||
-            root2DPosition || root2DHeading || leftHandEffector ||
-            rightHandEffector || leftFootEffector || rightFootEffector;
-
     }
 }

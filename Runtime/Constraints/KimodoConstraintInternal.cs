@@ -51,9 +51,9 @@ namespace KimodoBridge
         }
 
         /// <summary>
-        /// Selects the protocol constraints for one canonical sample. The
-        /// returned order is the protocol application order: fullbody, root2d,
-        /// then end-effectors.
+        /// Selects the protocol constraints for one canonical sample.
+        /// Mix applies one family per frame: fullbody, otherwise all enabled
+        /// effectors, otherwise root2d.
         /// </summary>
         internal static KimodoConstraintInternal[] GetConstraintInternal(
             KimodoMarkerSampleResult sample,
@@ -65,33 +65,35 @@ namespace KimodoBridge
                 return Array.Empty<KimodoConstraintInternal>();
             }
 
-            string mode = ResolveMode(sample);
-            var result = new List<KimodoConstraintInternal>(3);
+            string mode = NormalizeMode(sample.constraintMode);
+            var result = new List<KimodoConstraintInternal>(4);
             if (string.Equals(mode, "mix", StringComparison.OrdinalIgnoreCase))
             {
                 if (KimodoConstraintMask.IsActive(sample, "muscle"))
                 {
                     result.Add(new KimodoFullBodyConstraintInternal(sample, modelType, exportContext));
+                    return result.ToArray();
                 }
-                if (KimodoConstraintMask.IsActive(sample, "rootposition") ||
-                    KimodoConstraintMask.IsActive(sample, "rootheading"))
+                AddEffectors(result, sample, modelType, exportContext);
+                if (result.Count > 0)
+                {
+                    return result.ToArray();
+                }
+                if (KimodoConstraintMask.IsActive(sample, "rootposition"))
                 {
                     result.Add(new KimodoRoot2DConstraintInternal(sample, modelType, exportContext));
                 }
-                AddEffectors(result, sample, modelType, exportContext);
                 return result.ToArray();
             }
 
             if (string.Equals(mode, "root2d", StringComparison.OrdinalIgnoreCase))
             {
-                if (KimodoConstraintMask.IsActive(sample, "rootposition") ||
-                    KimodoConstraintMask.IsActive(sample, "rootheading"))
+                if (KimodoConstraintMask.IsActive(sample, "rootposition"))
                 {
                     result.Add(new KimodoRoot2DConstraintInternal(sample, modelType, exportContext));
                 }
             }
-            else if (string.Equals(mode, "fullbody", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(mode, "constraint", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(mode, "fullbody", StringComparison.OrdinalIgnoreCase))
             {
                 if (KimodoConstraintMask.IsActive(sample, "muscle"))
                 {
@@ -107,7 +109,7 @@ namespace KimodoBridge
                 {
                     AddEffector(result, sample, modelType, exportContext, mode);
                 }
-                else
+                else if (string.Equals(mode, "effector", StringComparison.OrdinalIgnoreCase))
                 {
                     AddEffectors(result, sample, modelType, exportContext);
                 }
@@ -154,21 +156,12 @@ namespace KimodoBridge
             }
         }
 
-        private static string ResolveMode(KimodoMarkerSampleResult sample)
+        internal static string NormalizeMode(string value)
         {
-            string protocol = sample.constraintMode;
-            bool specificProtocol = string.Equals(protocol, "root2d", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(protocol, "fullbody", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(protocol, "left-hand", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(protocol, "right-hand", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(protocol, "left-foot", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(protocol, "right-foot", StringComparison.OrdinalIgnoreCase);
-            string mode = specificProtocol ? protocol : sample.constraintMode;
-            if (string.IsNullOrWhiteSpace(mode) || string.Equals(mode, "constraint", StringComparison.OrdinalIgnoreCase))
-            {
-                mode = sample.constraintMode;
-            }
-            return string.IsNullOrWhiteSpace(mode) ? "fullbody" : mode.Trim().ToLowerInvariant().Replace('_', '-');
+            string mode = (value ?? string.Empty)
+                .Trim().ToLowerInvariant().Replace('_', '-');
+            if (mode == string.Empty || mode == "constraint") return "fullbody";
+            return mode == "ik" ? "effector" : mode;
         }
     }
 

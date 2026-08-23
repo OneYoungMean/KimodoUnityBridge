@@ -39,24 +39,36 @@ namespace KimodoBridge.Editor
             // explicit editor path that may promote newly changed channels.
             if (sample.enableMask != null)
             {
-                normalized.enableMask ??= new KimodoSampleChannelMask();
-                normalized.enableMask.muscle49 |= sample.enableMask.muscle49;
+                normalized.enableMask ??= new KimodoConstraintMask();
+                normalized.validMask ??= new KimodoConstraintMask();
+                KimodoConstraintMask sourceValid = KimodoConstraintMask.FromSample(sample);
+                normalized.enableMask.muscle |= sample.enableMask.muscle;
+                normalized.validMask.muscle |= sourceValid.muscle;
                 normalized.enableMask.rootTQ |= sample.enableMask.rootTQ;
+                normalized.validMask.rootTQ |= sourceValid.rootTQ;
                 normalized.enableMask.leftFootTQ |= sample.enableMask.leftFootTQ;
+                normalized.validMask.leftFootTQ |= sourceValid.leftFootTQ;
                 normalized.enableMask.rightFootTQ |= sample.enableMask.rightFootTQ;
-                normalized.enableMask.root2DPosition |= sample.enableMask.root2DPosition;
-                normalized.enableMask.root2DHeading |= sample.enableMask.root2DHeading;
-                normalized.enableMask.leftHandEffector |= sample.enableMask.leftHandEffector;
-                normalized.enableMask.rightHandEffector |= sample.enableMask.rightHandEffector;
-                normalized.enableMask.leftFootEffector |= sample.enableMask.leftFootEffector;
-                normalized.enableMask.rightFootEffector |= sample.enableMask.rightFootEffector;
-                normalized.enableMask.NormalizeDependencies();
+                normalized.validMask.rightFootTQ |= sourceValid.rightFootTQ;
+                normalized.enableMask.rootPosition |= sample.enableMask.rootPosition;
+                normalized.validMask.rootPosition |= sourceValid.rootPosition;
+                normalized.enableMask.rootHeading |= sample.enableMask.rootHeading;
+                normalized.validMask.rootHeading |= sourceValid.rootHeading;
+                normalized.enableMask.leftHand |= sample.enableMask.leftHand;
+                normalized.validMask.leftHand |= sourceValid.leftHand;
+                normalized.enableMask.rightHand |= sample.enableMask.rightHand;
+                normalized.validMask.rightHand |= sourceValid.rightHand;
+                normalized.enableMask.leftFoot |= sample.enableMask.leftFoot;
+                normalized.validMask.leftFoot |= sourceValid.leftFoot;
+                normalized.enableMask.rightFoot |= sample.enableMask.rightFoot;
+                normalized.validMask.rightFoot |= sourceValid.rightFoot;
             }
 
             if (writeSampledCharacterPose && KimodoSampleDataLayout.IsValid(sample.sampleData))
             {
                 normalized.sampleData = sample.sampleData.Clone();
-                normalized.enableMask = sample.enableMask?.Clone() ?? new KimodoSampleChannelMask();
+                normalized.enableMask = sample.enableMask?.Clone() ?? new KimodoConstraintMask();
+                normalized.validMask = KimodoConstraintMask.FromSample(sample);
             }
 
             // Scene edits author effector targets separately from the canonical pose.
@@ -74,7 +86,7 @@ namespace KimodoBridge.Editor
             // starts from the marker's authored sample for non-AutoSample
             // markers.
             if (sample.rootOverride != null &&
-                (!marker.autoSample || sample.enableMask?.root2DPosition == true))
+                (!marker.autoSample || KimodoConstraintMask.IsActive(sample, "rootposition")))
             {
                 normalized.rootOverride = sample.rootOverride.Clone();
             }
@@ -129,8 +141,8 @@ namespace KimodoBridge.Editor
                 string.Equals(SampleDataSignature(left), SampleDataSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(EffectorsSignature(left), EffectorsSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(Root2DOverrideSignature(left), Root2DOverrideSignature(right), System.StringComparison.Ordinal) &&
-                left.enableMask?.root2DHeading == right.enableMask?.root2DHeading &&
-                left.enableMask?.root2DPosition == right.enableMask?.root2DPosition;
+                string.Equals(MaskSignature(left.enableMask), MaskSignature(right.enableMask), System.StringComparison.Ordinal) &&
+                string.Equals(MaskSignature(left.validMask), MaskSignature(right.validMask), System.StringComparison.Ordinal);
         }
 
         private static string SampleDataSignature(KimodoMarkerSampleResult sample)
@@ -138,9 +150,12 @@ namespace KimodoBridge.Editor
             return sample?.sampleData?.data != null ? string.Join(",", sample.sampleData.data) : string.Empty;
         }
 
+        private static string MaskSignature(KimodoConstraintMask mask) =>
+            mask != null ? JsonUtility.ToJson(mask) : string.Empty;
+
         private static string Root2DOverrideSignature(KimodoMarkerSampleResult sample)
         {
-            return sample?.enableMask?.root2DPosition == true
+            return KimodoConstraintMask.IsActive(sample, "rootposition")
                 ? JsonUtility.ToJson(sample.root2DOverride)
                 : string.Empty;
         }

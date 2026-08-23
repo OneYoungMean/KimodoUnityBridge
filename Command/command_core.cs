@@ -740,23 +740,25 @@ namespace CharacterAnimationCli.Unity.Command
 
             var result = new KimodoMarkerSampleResult
             {
-                // Command constraints are canonical mix samples. The lower
-                // protocol composer selects root2d from these enable/valid
-                // channels instead of branching in the command layer.
-                constraintMode = "mix",
+                constraintMode = "root2d",
                 sampleTime = sampleTime,
                 root2DOverride = new KimodoRigidTransform
                 {
                     t = pose.root.t,
                     q = pose.root.q
                 },
-                enableMask = new KimodoSampleChannelMask
+                enableMask = new KimodoConstraintMask
                 {
-                    root2DPosition = hasPosition || hasRootPose,
-                    root2DHeading = hasPosition || hasRootPose
+                    rootPosition = hasPosition || hasRootPose,
+                    rootHeading = hasPosition || hasRootPose
+                },
+                validMask = new KimodoConstraintMask
+                {
+                    rootPosition = hasPosition || hasRootPose,
+                    rootHeading = hasPosition || hasRootPose
                 }
             };
-            result.enableMask.muscle49 = false;
+            result.enableMask.muscle = false;
             result.enableMask.rootTQ = false;
             result.enableMask.leftFootTQ = false;
             result.enableMask.rightFootTQ = false;
@@ -793,19 +795,18 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new InvalidOperationException($"Convert constraints[{constraintIndex}] failed: {convertError}");
             }
-            // FullBody keeps its internal IK target mask but is not a mix
-            // wire sample. Explicit end-effectors use mix so the captured
-            // body remains available to the lower protocol composer.
+            // Captured body data remains available for projection, while mode
+            // alone prevents it from becoming a wire-level FullBody family.
             bool fullBodyConstraint = string.Equals(
                 constraintType, "fullbody", StringComparison.OrdinalIgnoreCase);
-            converted.constraintMode = fullBodyConstraint ? "fullbody" : "mix";
+            converted.constraintMode = fullBodyConstraint ? "fullbody" : "effector";
             // Retarget sampling already returned the canonical 70D payload,
             // including the evaluated body-relative footTQ channels. Do not
             // round-trip through CharacterPose, whose cached foot fields are
             // scene/world values and would overwrite footTQ.
             converted.sampleData = targetMuscleSample?.Clone() ?? new MuscleSample();
-            converted.enableMask ??= new KimodoSampleChannelMask();
-            converted.enableMask.muscle49 = true;
+            converted.enableMask ??= new KimodoConstraintMask();
+            converted.enableMask.muscle = true;
             converted.enableMask.rootTQ = true;
             converted.enableMask.leftFootTQ = true;
             converted.enableMask.rightFootTQ = true;
@@ -819,10 +820,10 @@ namespace CharacterAnimationCli.Unity.Command
                 constraintType, "right-foot", StringComparison.OrdinalIgnoreCase);
             if (!fullBodyConstraint)
             {
-                converted.enableMask.leftHandEffector = leftHandConstraint;
-                converted.enableMask.rightHandEffector = rightHandConstraint;
-                converted.enableMask.leftFootEffector = leftFootConstraint;
-                converted.enableMask.rightFootEffector = rightFootConstraint;
+                converted.enableMask.leftHand = leftHandConstraint;
+                converted.enableMask.rightHand = rightHandConstraint;
+                converted.enableMask.leftFoot = leftFootConstraint;
+                converted.enableMask.rightFoot = rightFootConstraint;
                 converted.validMask.leftHand &= leftHandConstraint;
                 converted.validMask.rightHand &= rightHandConstraint;
                 converted.validMask.leftFoot &= leftFootConstraint;
@@ -1069,11 +1070,16 @@ namespace CharacterAnimationCli.Unity.Command
                     return false;
                 }
                 sample.sampleData = evaluatedSample;
-                sample.enableMask ??= new KimodoSampleChannelMask();
-                sample.enableMask.muscle49 = true;
+                sample.enableMask ??= new KimodoConstraintMask();
+                sample.enableMask.muscle = true;
                 sample.enableMask.rootTQ = true;
                 sample.enableMask.leftFootTQ = true;
                 sample.enableMask.rightFootTQ = true;
+                sample.validMask ??= new KimodoConstraintMask();
+                sample.validMask.muscle = true;
+                sample.validMask.rootTQ = true;
+                sample.validMask.leftFootTQ = true;
+                sample.validMask.rightFootTQ = true;
 
                 return true;
             }

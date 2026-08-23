@@ -24,7 +24,7 @@ namespace KimodoBridge
             string modelName)
         {
             if (sample?.sampleData == null || !sample.sampleData.IsValid ||
-                sample.enableMask?.muscle49 != true)
+                !KimodoConstraintMask.FromSample(sample).muscle)
             {
                 throw new InvalidOperationException("Constraint MuscleSample is invalid.");
             }

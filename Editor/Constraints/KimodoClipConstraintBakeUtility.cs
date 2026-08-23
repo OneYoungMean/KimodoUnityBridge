@@ -610,8 +610,10 @@ namespace KimodoBridge.Editor
             sample.constraintMode = "fullbody";
             sample.sampleTime = sampleTimeSeconds;
             sample.root2DOverride = null;
-            sample.enableMask.root2DPosition = false;
-            sample.enableMask.root2DHeading = false;
+            sample.enableMask.rootPosition = false;
+            sample.enableMask.rootHeading = false;
+            sample.validMask.rootPosition = false;
+            sample.validMask.rootHeading = false;
             return sample;
         }
 
@@ -629,13 +631,20 @@ namespace KimodoBridge.Editor
                 t = root2D.t,
                 q = root2D.q
             };
-            fullBody.enableMask ??= new KimodoSampleChannelMask();
-            fullBody.enableMask.muscle49 = true;
+            fullBody.enableMask ??= new KimodoConstraintMask();
+            fullBody.enableMask.muscle = true;
             fullBody.enableMask.rootTQ = true;
             fullBody.enableMask.leftFootTQ = true;
             fullBody.enableMask.rightFootTQ = true;
-            fullBody.enableMask.root2DPosition = true;
-            fullBody.enableMask.root2DHeading = true;
+            fullBody.enableMask.rootPosition = true;
+            fullBody.enableMask.rootHeading = true;
+            fullBody.validMask ??= new KimodoConstraintMask();
+            fullBody.validMask.muscle = true;
+            fullBody.validMask.rootTQ = true;
+            fullBody.validMask.leftFootTQ = true;
+            fullBody.validMask.rightFootTQ = true;
+            fullBody.validMask.rootPosition = true;
+            fullBody.validMask.rootHeading = true;
         }
 
         private static KimodoMarkerSampleResult BuildLoopRoot2DConstraintSample(
@@ -652,12 +661,18 @@ namespace KimodoBridge.Editor
                 t = position,
                 q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(heading)
             };
-            sample.enableMask.root2DPosition = true;
-            sample.enableMask.root2DHeading = true;
-            sample.enableMask.muscle49 = false;
+            sample.enableMask.rootPosition = true;
+            sample.enableMask.rootHeading = true;
+            sample.enableMask.muscle = false;
             sample.enableMask.rootTQ = false;
             sample.enableMask.leftFootTQ = false;
             sample.enableMask.rightFootTQ = false;
+            sample.validMask.rootPosition = true;
+            sample.validMask.rootHeading = true;
+            sample.validMask.muscle = false;
+            sample.validMask.rootTQ = false;
+            sample.validMask.leftFootTQ = false;
+            sample.validMask.rightFootTQ = false;
             return sample;
         }
 
@@ -666,7 +681,7 @@ namespace KimodoBridge.Editor
             out CharacterAnimationCli.Unity.KimodoRigidTransform root)
         {
             root = sample?.root2DOverride;
-            return sample != null && sample.enableMask?.root2DPosition == true;
+            return KimodoConstraintMask.IsActive(sample, "rootposition");
         }
 
         internal static string AppendConstraintsJson(string baseJson, string additionalJson)

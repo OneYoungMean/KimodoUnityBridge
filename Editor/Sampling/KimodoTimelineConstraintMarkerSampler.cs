@@ -131,10 +131,13 @@ namespace KimodoBridge.Editor
 
             targetRootRotation.Normalize();
             Quaternion planarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(targetRootRotation);
-            sample.enableMask.root2DPosition = true;
-            sample.enableMask.root2DHeading = true;
+            sample.enableMask.rootPosition = true;
+            sample.enableMask.rootHeading = true;
+            sample.validMask ??= new KimodoConstraintMask();
+            sample.validMask.rootPosition = true;
+            sample.validMask.rootHeading = true;
             sample.root2DOverride = new KimodoRigidTransform { t = targetRootPosition, q = planarRotation };
-            sample.constraintMode = "constraint";
+            sample.constraintMode = "root2d";
             sample.sampleTime = exportedSampleTime;
         }
 
@@ -803,7 +806,7 @@ namespace KimodoBridge.Editor
             }
             KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][ConstraintExport] marker='{marker.ConstraintType}' time={marker.time:F3} mode={mode} " +
-                $"channels={KimodoConstraintMask.FromSample(sample).muscle}:{KimodoConstraintMask.FromSample(sample).rootPosition}:{KimodoConstraintMask.FromSample(sample).AnyEndEffector} hasHeading={sample.enableMask?.root2DHeading == true}");
+                $"channels={KimodoConstraintMask.FromSample(sample).muscle}:{KimodoConstraintMask.FromSample(sample).rootPosition}:{KimodoConstraintMask.FromSample(sample).AnyEndEffector} hasHeading={KimodoConstraintMask.IsActive(sample, "rootheading")}");
             return true;
         }
 

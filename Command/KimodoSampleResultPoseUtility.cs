@@ -60,11 +60,16 @@ namespace KimodoBridge
                 return false;
             }
 
-            sample.enableMask ??= new KimodoSampleChannelMask();
-            sample.enableMask.muscle49 = true;
+            sample.enableMask ??= new KimodoConstraintMask();
+            sample.enableMask.muscle = true;
             sample.enableMask.rootTQ = true;
             sample.enableMask.leftFootTQ = true;
             sample.enableMask.rightFootTQ = true;
+            sample.validMask ??= new KimodoConstraintMask();
+            sample.validMask.muscle = true;
+            sample.validMask.rootTQ = true;
+            sample.validMask.leftFootTQ = true;
+            sample.validMask.rightFootTQ = true;
             sample.effectors ??= new KimodoConstraintEffectors();
             sample.effectors.leftHand = pose.leftHand?.Clone() ?? KimodoRigidTransform.Identity;
             sample.effectors.rightHand = pose.rightHand?.Clone() ?? KimodoRigidTransform.Identity;

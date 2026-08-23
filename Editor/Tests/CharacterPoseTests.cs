@@ -571,7 +571,7 @@ namespace CharacterAnimationCli.Unity.Editor.Tests
                 Assert.That(marker.SampleData.mask.leftHand, Is.True);
                 Assert.That(marker.SampleData.mask.rightFoot, Is.True);
                 Assert.That(marker.SampleData.characterPose.hands.left.t, Is.EqualTo(new Vector3(1f, 2f, 3f)));
-                List<KimodoMarkerSampleResult> samples = KimodoConstraintSampleComposer.ExpandProtocolSamples(
+                List<KimodoMarkerSampleResult> samples = KimodoConstraintSampleComposer.ComposeCanonicalSamples(
                     new[] { marker.SampleData },
                     30.0);
                 Assert.That(

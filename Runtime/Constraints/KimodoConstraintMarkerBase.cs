@@ -65,13 +65,17 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     private void EnsureSampleData()
     {
         sampleData ??= new KimodoMarkerSampleResult();
-        bool initializeDefaults = string.IsNullOrWhiteSpace(sampleData.constraintMode);
+        bool initializeDefaults = string.IsNullOrWhiteSpace(sampleData.constraintMode) ||
+            string.Equals(sampleData.constraintMode, "constraint", StringComparison.OrdinalIgnoreCase) &&
+            (sampleData.enableMask == null || sampleData.enableMask.IsEmpty) &&
+            (sampleData.validMask == null || sampleData.validMask.IsEmpty);
         sampleData.sampleData ??= new KimodoBridge.MuscleSample();
         if (!KimodoSampleDataLayout.IsValid(sampleData.sampleData))
         {
             sampleData.sampleData = new KimodoBridge.MuscleSample();
         }
-        sampleData.enableMask ??= new KimodoSampleChannelMask();
+        sampleData.enableMask ??= new KimodoConstraintMask();
+        sampleData.validMask ??= new KimodoConstraintMask();
         sampleData.effectors ??= new KimodoConstraintEffectors();
         sampleData.effectors.leftHand ??= KimodoRigidTransform.Identity;
         sampleData.effectors.rightHand ??= KimodoRigidTransform.Identity;
@@ -84,18 +88,23 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         {
             if (constraintMode == KimodoConstraintMode.Root2D)
             {
-                sampleData.enableMask.root2DPosition = true;
-                sampleData.enableMask.root2DHeading = true;
+                sampleData.enableMask.rootPosition = true;
+                sampleData.enableMask.rootHeading = true;
+                sampleData.validMask.rootPosition = true;
+                sampleData.validMask.rootHeading = true;
             }
             else
             {
-                sampleData.enableMask.muscle49 = constraintMode == KimodoConstraintMode.FullBody;
+                sampleData.enableMask.muscle = constraintMode == KimodoConstraintMode.FullBody;
                 sampleData.enableMask.rootTQ = true;
                 sampleData.enableMask.leftFootTQ = true;
                 sampleData.enableMask.rightFootTQ = true;
+                sampleData.validMask.muscle = constraintMode == KimodoConstraintMode.FullBody;
+                sampleData.validMask.rootTQ = true;
+                sampleData.validMask.leftFootTQ = true;
+                sampleData.validMask.rightFootTQ = true;
             }
         }
-        sampleData.enableMask.NormalizeDependencies();
     }
 
     private static KimodoConstraintMode ResolveMode(string value, KimodoConstraintMode fallback)

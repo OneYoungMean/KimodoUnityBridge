@@ -11,8 +11,8 @@ namespace KimodoBridge.Editor.Tests
         [Test]
         public void DeferredAutoBegin_RealConstraintBeatsSyntheticConstraint()
         {
-            var synthetic = new KimodoMarkerSampleResult { constraintType = "root2d", sampleTime = 0.0 };
-            var real = new KimodoMarkerSampleResult { constraintType = "fullbody", sampleTime = 0.5 };
+            var synthetic = new KimodoMarkerSampleResult { constraintMode = "root2d", sampleTime = 0.0 };
+            var real = new KimodoMarkerSampleResult { constraintMode = "fullbody", sampleTime = 0.5 };
 
             Assert.That(
                 KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
@@ -36,7 +36,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 var sample = new KimodoMarkerSampleResult
                 {
-                    constraintType = "root2d",
+                    constraintMode = "root2d",
                     sampleTime = 1.0,
                 };
 
@@ -49,7 +49,7 @@ namespace KimodoBridge.Editor.Tests
                     Is.True);
 
                 Assert.That(result.CombinedSamples, Has.Count.EqualTo(2));
-                Assert.That(result.CombinedSamples[0].constraintType, Is.EqualTo("root2d"));
+                Assert.That(result.CombinedSamples[0].constraintMode, Is.EqualTo("root2d"));
                 Assert.That(result.CombinedSamples[0].sampleTime, Is.EqualTo(0.0).Within(1e-6));
                 Assert.That(result.HasSyntheticAutoBeginConstraint, Is.True);
             }
@@ -67,7 +67,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 var realAnchor = new KimodoMarkerSampleResult
                 {
-                    constraintType = "fullbody",
+                    constraintMode = "fullbody",
                     sampleTime = 0.75
                 };
 

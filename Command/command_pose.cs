@@ -62,13 +62,16 @@ namespace CharacterAnimationCli.Unity.Command
             }
             bool hasPosition = root["position"] is JArray;
             bool hasRotation = root["rotation"] is JArray;
-            sample.enableMask ??= new KimodoSampleChannelMask();
-            if (hasRotation && !hasPosition && !sample.enableMask.root2DPosition)
+            sample.enableMask ??= new KimodoConstraintMask();
+            if (hasRotation && !hasPosition && !KimodoConstraintMask.IsActive(sample, "rootposition"))
             {
                 throw new InvalidOperationException("root.rotation requires an existing or supplied root.position.");
             }
-            sample.enableMask.root2DPosition |= hasPosition;
-            sample.enableMask.root2DHeading = hasRotation && sample.enableMask.root2DPosition;
+            sample.enableMask.rootPosition |= hasPosition;
+            sample.enableMask.rootHeading = hasRotation && sample.enableMask.rootPosition;
+            sample.validMask ??= new KimodoConstraintMask();
+            sample.validMask.rootPosition |= hasPosition;
+            sample.validMask.rootHeading = hasRotation && sample.validMask.rootPosition;
             pose.root.t = sample.root2DOverride.t;
             pose.root.q = sample.root2DOverride.q;
             marker.CommitSampleData();
@@ -647,7 +650,7 @@ namespace CharacterAnimationCli.Unity.Command
         private static CharacterPose RequireCanonicalPose(KimodoMarkerSampleResult sample)
         {
             CharacterPose pose = null;
-            if (sample != null && sample.enableMask?.muscle49 == true &&
+            if (KimodoConstraintMask.IsActive(sample, "muscle") &&
                 CharacterPoseMuscleAdapter.TryFromSampleData(
                     sample.sampleData,
                     out CharacterPose decoded,
@@ -679,8 +682,8 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new InvalidOperationException(encodeError);
             }
-            sample.enableMask ??= new KimodoSampleChannelMask();
-            sample.enableMask.muscle49 = true;
+            sample.enableMask ??= new KimodoConstraintMask();
+            sample.enableMask.muscle = true;
             sample.enableMask.rootTQ = true;
             sample.enableMask.leftFootTQ = true;
             sample.enableMask.rightFootTQ = true;

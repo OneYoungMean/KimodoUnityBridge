@@ -71,7 +71,7 @@ namespace KimodoBridge
             out string error)
         {
             error = string.Empty;
-            if (sample.enableMask?.root2DPosition != true ||
+            if (!KimodoConstraintMask.IsActive(sample, "rootposition") ||
                 sample.rootOverride == null)
             {
                 return true;
@@ -278,11 +278,10 @@ namespace KimodoBridge
                 return true;
             }
 
-            KimodoSampleChannelMask mask = sample.enableMask;
-            any |= job.solveLeftHand = mask?.leftHandEffector == true;
-            any |= job.solveRightHand = mask?.rightHandEffector == true;
-            any |= job.solveLeftFoot = mask?.leftFootEffector == true;
-            any |= job.solveRightFoot = mask?.rightFootEffector == true;
+            any |= job.solveLeftHand = KimodoConstraintMask.IsActive(sample, "lefthand");
+            any |= job.solveRightHand = KimodoConstraintMask.IsActive(sample, "righthand");
+            any |= job.solveLeftFoot = KimodoConstraintMask.IsActive(sample, "leftfoot");
+            any |= job.solveRightFoot = KimodoConstraintMask.IsActive(sample, "rightfoot");
 
             if (!TryResolveTarget(sample.effectors.leftHand, job.solveLeftHand,
                     HumanBodyBones.LeftHand, out job.leftHandPosition, out job.leftHandRotation, out error) ||

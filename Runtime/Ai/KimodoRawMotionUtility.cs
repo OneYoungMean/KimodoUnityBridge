@@ -1094,14 +1094,14 @@ namespace KimodoBridge
                 : constraintType;
             sample = new KimodoMarkerSampleResult
             {
-                constraintMode = "constraint",
+                constraintMode = resolvedConstraintType,
                 sampleTime = sampleTime,
                 sampleData = new MuscleSample(),
-                enableMask = new KimodoSampleChannelMask
+                enableMask = new KimodoConstraintMask
                 {
                     rootTQ = true,
-                    root2DPosition = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase),
-                    root2DHeading = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase)
+                    rootPosition = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase),
+                    rootHeading = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase)
                 },
                 validMask = new KimodoConstraintMask
                 {
@@ -1111,7 +1111,7 @@ namespace KimodoBridge
                 }
             };
             sample.sampleData.SetRoot(rootPosition, rootRotation);
-            if (!sample.enableMask.root2DPosition)
+            if (!sample.enableMask.rootPosition)
             {
                 sample.enableMask.rootTQ = true;
             }

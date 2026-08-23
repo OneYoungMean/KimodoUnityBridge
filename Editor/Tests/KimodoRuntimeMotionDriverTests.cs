@@ -1157,26 +1157,35 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ConstraintJson_EndEffectorOmitsManualTargetPositionPendingIk()
+        public void ConstraintJson_EndEffectorExportsExplicitWorldTarget()
         {
-            Quaternion rootRotation = Quaternion.Euler(0f, 90f, 0f);
+            Vector3 target = new Vector3(1f, 2f, 3f);
             var targeted = new KimodoMarkerSampleResult
             {
-                constraintType = "left-hand",
+                constraintMode = "effector",
                 sampleTime = 1.0,
+                enableMask = new KimodoConstraintMask { leftHand = true },
+                validMask = new KimodoConstraintMask { leftHand = true },
+                effectors = new KimodoConstraintEffectors
                 {
-                    KimodoRuntimeUtility.QuaternionToAxisAngleVector(rootRotation)
+                    leftHand = new KimodoRigidTransform { t = target, q = Quaternion.identity }
                 }
             };
             JArray constraints = JArray.Parse(
                 KimodoConstraintJsonExporter.ToConstraintsJson(
                     new[] { targeted },
-                    new KimodoConstraintExportContext(),
+                    new KimodoConstraintExportContext
+                    {
+                        localJointAngleProjector = _ => new List<Vector3> { Vector3.zero }
+                    },
                     clipDurationSeconds: 4.0,
                     exportFps: 30.0));
 
             JToken positions = constraints[0]["target_positions"];
-            Assert.That(positions, Is.Null);
+            Assert.That(positions, Is.Not.Null);
+            Assert.That((float)positions[0][0], Is.EqualTo(-target.x));
+            Assert.That((float)positions[0][1], Is.EqualTo(target.y));
+            Assert.That((float)positions[0][2], Is.EqualTo(target.z));
         }
 
         [Test]

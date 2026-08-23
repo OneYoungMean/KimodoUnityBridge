@@ -135,13 +135,18 @@ namespace KimodoBridge.Editor
                 { t = new Vector3(worldPosition.x, 0f, worldPosition.z), q = worldPlanarRotation },
                 constraintMode = "root2d",
                 sampleTime = 0.0,
-                enableMask = new KimodoSampleChannelMask
+                enableMask = new KimodoConstraintMask
                 {
-                    root2DPosition = true,
-                    root2DHeading = true
+                    rootPosition = true,
+                    rootHeading = true
+                },
+                validMask = new KimodoConstraintMask
+                {
+                    rootPosition = true,
+                    rootHeading = true
                 }
             };
-            sample.enableMask.muscle49 = false;
+            sample.enableMask.muscle = false;
             sample.enableMask.rootTQ = false;
             sample.enableMask.leftFootTQ = false;
             sample.enableMask.rightFootTQ = false;

@@ -33,7 +33,7 @@ namespace KimodoBridge
 
             // Runtime command samples combine the captured body with the
             // explicitly enabled target channel.
-            sample.constraintMode = "mix";
+            sample.constraintMode = "effector";
             sample.effectors ??= new KimodoConstraintEffectors();
             sample.effectors.leftHand ??= KimodoRigidTransform.Identity;
             sample.effectors.rightHand ??= KimodoRigidTransform.Identity;
@@ -54,22 +54,22 @@ namespace KimodoBridge
                 {
                     case HumanBodyBones.LeftHand:
                         sample.effectors.leftHand = target;
-                        sample.enableMask.leftHandEffector = true;
+                        sample.enableMask.leftHand = true;
                         sample.validMask.leftHand = true;
                         break;
                     case HumanBodyBones.RightHand:
                         sample.effectors.rightHand = target;
-                        sample.enableMask.rightHandEffector = true;
+                        sample.enableMask.rightHand = true;
                         sample.validMask.rightHand = true;
                         break;
                     case HumanBodyBones.LeftFoot:
                         sample.effectors.leftFoot = target;
-                        sample.enableMask.leftFootEffector = true;
+                        sample.enableMask.leftFoot = true;
                         sample.validMask.leftFoot = true;
                         break;
                     case HumanBodyBones.RightFoot:
                         sample.effectors.rightFoot = target;
-                        sample.enableMask.rightFootEffector = true;
+                        sample.enableMask.rightFoot = true;
                         sample.validMask.rightFoot = true;
                         break;
                 }
@@ -102,8 +102,8 @@ namespace KimodoBridge
             // FullBody frame 0. Keep it in
             // absolute model space; subtracting NextSegmentRootOrigin here
             // would apply the same translation a second time during generation.
-            sample.constraintMode = "mix";
-            sample.enableMask.root2DPosition = true;
+            sample.constraintMode = "root2d";
+            sample.enableMask.rootPosition = true;
             sample.validMask.rootPosition = true;
             sample.rootOverride ??= CharacterAnimationCli.Unity.KimodoRigidTransform.Identity;
             Quaternion capturedRootRotation = sample.rootOverride.q;
@@ -117,11 +117,11 @@ namespace KimodoBridge
                 // heading projection is applied only by protocol export.
                 q = capturedRootRotation
             };
-            sample.enableMask.root2DHeading = worldHeading.HasValue && sample.enableMask.root2DPosition;
-            sample.validMask.rootHeading = sample.enableMask.root2DHeading;
+            sample.enableMask.rootHeading = worldHeading.HasValue && sample.enableMask.rootPosition;
+            sample.validMask.rootHeading = sample.enableMask.rootHeading;
             if (worldHeading.HasValue)
             {
-                if (sample.enableMask?.root2DPosition == true)
+                if (KimodoConstraintMask.IsActive(sample, "rootposition"))
                 {
                     Vector3 currentForward = sample.rootOverride.q * Vector3.forward;
                     currentForward.y = 0f;
@@ -168,7 +168,7 @@ namespace KimodoBridge
             {
                 constraintMode = "constraint",
                 sampleTime = sampleTime,
-                enableMask = new KimodoSampleChannelMask(),
+                enableMask = new KimodoConstraintMask(),
                 validMask = new KimodoConstraintMask()
             };
 
@@ -186,7 +186,7 @@ namespace KimodoBridge
             // CharacterPose, which exposes scene/world foot values and would
             // overwrite the transport channels.
             sample.sampleData = muscleSample.Clone();
-            sample.enableMask.muscle49 = true;
+            sample.enableMask.muscle = true;
             sample.enableMask.rootTQ = true;
             sample.enableMask.leftFootTQ = true;
             sample.enableMask.rightFootTQ = true;

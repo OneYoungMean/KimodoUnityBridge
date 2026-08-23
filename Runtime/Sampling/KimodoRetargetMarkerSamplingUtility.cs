@@ -57,7 +57,7 @@ namespace KimodoBridge
             if (!KimodoRetargetSamplingUtility.TryCaptureSampleData(
                     targetCache,
                 out MuscleSample sampleData,
-                    out KimodoSampleChannelMask enableMask,
+                    out KimodoConstraintMask enableMask,
                     out error))
             {
                 result = null;
@@ -68,7 +68,7 @@ namespace KimodoBridge
             result.enableMask = enableMask;
             result.validMask = new KimodoConstraintMask
             {
-                muscle = enableMask.muscle49,
+                muscle = enableMask.muscle,
                 rootTQ = enableMask.rootTQ,
                 leftFootTQ = enableMask.leftFootTQ,
                 rightFootTQ = enableMask.rightFootTQ
@@ -99,7 +99,7 @@ namespace KimodoBridge
             result.effectors.rightHand ??= KimodoRigidTransform.Identity;
             result.effectors.leftFoot ??= KimodoRigidTransform.Identity;
             result.effectors.rightFoot ??= KimodoRigidTransform.Identity;
-            result.enableMask ??= new KimodoSampleChannelMask();
+            result.enableMask ??= new KimodoConstraintMask();
             result.validMask ??= new KimodoConstraintMask();
 
             Vector3 position;
@@ -111,8 +111,8 @@ namespace KimodoBridge
             }
             result.rootOverride.t = position;
             result.rootOverride.q = rotation;
-            result.enableMask.root2DPosition = true;
-            result.enableMask.root2DHeading = true;
+            result.enableMask.rootPosition = true;
+            result.enableMask.rootHeading = true;
             result.validMask.rootPosition = true;
             result.validMask.rootHeading = true;
 
@@ -124,14 +124,13 @@ namespace KimodoBridge
                 result.enableMask, result.validMask, 2, rotationMode: 1);
             CaptureEffector(cache, HumanBodyBones.RightFoot, result.effectors.rightFoot,
                 result.enableMask, result.validMask, 3, rotationMode: 1);
-            result.enableMask.NormalizeDependencies();
         }
 
         private static void CaptureEffector(
             RetargetSkeleton cache,
             HumanBodyBones bone,
             KimodoRigidTransform target,
-            KimodoSampleChannelMask enableMask,
+            KimodoConstraintMask enableMask,
             KimodoConstraintMask validMask,
             int index,
             int rotationMode)
@@ -148,10 +147,10 @@ namespace KimodoBridge
             }
             switch (index)
             {
-                case 0: enableMask.leftHandEffector = true; validMask.leftHand = true; break;
-                case 1: enableMask.rightHandEffector = true; validMask.rightHand = true; break;
-                case 2: enableMask.leftFootEffector = true; validMask.leftFoot = true; break;
-                case 3: enableMask.rightFootEffector = true; validMask.rightFoot = true; break;
+                case 0: enableMask.leftHand = true; validMask.leftHand = true; break;
+                case 1: enableMask.rightHand = true; validMask.rightHand = true; break;
+                case 2: enableMask.leftFoot = true; validMask.leftFoot = true; break;
+                case 3: enableMask.rightFoot = true; validMask.rightFoot = true; break;
             }
         }
 
@@ -189,9 +188,13 @@ namespace KimodoBridge
             return new KimodoMarkerSampleResult
             {
                 sampleData = new MuscleSample(),
-                constraintMode = "constraint",
+                constraintMode = string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase)
+                    ? "fullbody"
+                    : string.Equals(markerType, "root2d", StringComparison.OrdinalIgnoreCase)
+                        ? "root2d"
+                        : "effector",
                 sampleTime = sampleTime,
-                enableMask = new KimodoSampleChannelMask(),
+                enableMask = new KimodoConstraintMask(),
                 effectors = new KimodoConstraintEffectors(),
                 rootOverride = KimodoRigidTransform.Identity
             };

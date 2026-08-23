@@ -23,7 +23,6 @@ namespace KimodoBridge
                 ? sample.Clone()
                 : authored?.Clone() ?? new KimodoMarkerSampleResult();
             normalized.sampleTime = marker.time;
-            normalized.constraintMode = "constraint";
             normalized.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
                 ? "root2d"
                 : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
@@ -33,8 +32,7 @@ namespace KimodoBridge
             {
                 normalized.sampleData = sample.sampleData.Clone();
             }
-            normalized.enableMask ??= new KimodoSampleChannelMask();
-            normalized.enableMask.NormalizeDependencies();
+            normalized.enableMask ??= new KimodoConstraintMask();
             return normalized;
         }
 
@@ -86,28 +84,34 @@ namespace KimodoBridge
             var result = new KimodoMarkerSampleResult
             {
                 sampleData = new MuscleSample(),
-                enableMask = new KimodoSampleChannelMask
+                enableMask = new KimodoConstraintMask
                 {
-                    muscle49 = true,
+                    muscle = true,
                     rootTQ = true,
                     leftFootTQ = true,
                     rightFootTQ = true
                 },
-                constraintMode = "constraint",
+                validMask = new KimodoConstraintMask
+                {
+                    muscle = true,
+                    rootTQ = true,
+                    leftFootTQ = true,
+                    rightFootTQ = true
+                },
+                constraintMode = "fullbody",
                 sampleTime = 0d,
             };
             result.sampleData.SetRoot(Vector3.zero, Quaternion.identity);
             return result;
         }
 
-        /// <summary>Expands the single-marker representation into the unchanged
-        /// QuickServer protocol families after all same-frame channels have been
-        /// resolved to one canonical pose.</summary>
+        /// <summary>Compatibility entry that returns canonical same-frame samples.
+        /// Protocol family selection occurs only in KimodoConstraintInternal.</summary>
         public static List<KimodoMarkerSampleResult> ExpandUnifiedConstraintSamples(
             IReadOnlyList<KimodoMarkerSampleResult> samples,
             double frameRate)
         {
-            return KimodoConstraintSampleComposer.ExpandProtocolSamples(samples, frameRate);
+            return KimodoConstraintSampleComposer.ComposeCanonicalSamples(samples, frameRate);
         }
 
         public static List<KimodoMarkerSampleResult> MergeAsUnifiedConstraintSamples(

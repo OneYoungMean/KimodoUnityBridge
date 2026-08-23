@@ -199,7 +199,7 @@ namespace KimodoBridge.Editor
                         continue;
                     }
 
-                    KimodoSampleChannelMask mask = entry.SampleData.enableMask;
+                    KimodoConstraintMask mask = entry.SampleData.enableMask;
                     if (entry.SampleData.rootOverride != null)
                     {
                         DrawSampleHandle(
@@ -219,13 +219,13 @@ namespace KimodoBridge.Editor
 
                     bool showAllEffectors = entry.ConstraintMode == KimodoConstraintMode.FullBody;
                     DrawEffectorHandle(entry, HumanBodyBones.LeftHand, entry.SampleData.effectors.leftHand,
-                        showAllEffectors || mask?.leftHandEffector == true);
+                        showAllEffectors || mask?.leftHand == true);
                     DrawEffectorHandle(entry, HumanBodyBones.RightHand, entry.SampleData.effectors.rightHand,
-                        showAllEffectors || mask?.rightHandEffector == true);
+                        showAllEffectors || mask?.rightHand == true);
                     DrawEffectorHandle(entry, HumanBodyBones.LeftFoot, entry.SampleData.effectors.leftFoot,
-                        showAllEffectors || mask?.leftFootEffector == true);
+                        showAllEffectors || mask?.leftFoot == true);
                     DrawEffectorHandle(entry, HumanBodyBones.RightFoot, entry.SampleData.effectors.rightFoot,
-                        showAllEffectors || mask?.rightFootEffector == true);
+                        showAllEffectors || mask?.rightFoot == true);
                 }
             }
         }
@@ -321,17 +321,20 @@ namespace KimodoBridge.Editor
             bool rotationChanged)
         {
             if (sample == null) return;
-            sample.enableMask ??= new KimodoSampleChannelMask();
+            sample.enableMask ??= new KimodoConstraintMask();
+            sample.validMask ??= new KimodoConstraintMask();
             switch (bone)
             {
                 case HumanBodyBones.Hips:
-                    sample.enableMask.root2DPosition = true;
-                    sample.enableMask.root2DHeading |= rotationChanged;
+                    sample.enableMask.rootPosition = true;
+                    sample.enableMask.rootHeading |= rotationChanged;
+                    sample.validMask.rootPosition = true;
+                    sample.validMask.rootHeading |= rotationChanged;
                     break;
-                case HumanBodyBones.LeftHand: sample.enableMask.leftHandEffector = true; break;
-                case HumanBodyBones.RightHand: sample.enableMask.rightHandEffector = true; break;
-                case HumanBodyBones.LeftFoot: sample.enableMask.leftFootEffector = true; break;
-                case HumanBodyBones.RightFoot: sample.enableMask.rightFootEffector = true; break;
+                case HumanBodyBones.LeftHand: sample.enableMask.leftHand = sample.validMask.leftHand = true; break;
+                case HumanBodyBones.RightHand: sample.enableMask.rightHand = sample.validMask.rightHand = true; break;
+                case HumanBodyBones.LeftFoot: sample.enableMask.leftFoot = sample.validMask.leftFoot = true; break;
+                case HumanBodyBones.RightFoot: sample.enableMask.rightFoot = sample.validMask.rightFoot = true; break;
             }
         }
 
@@ -1594,7 +1597,9 @@ namespace KimodoBridge.Editor
                 sample.effectors = CaptureEffectorsFromEntry(entry, mask, markerType);
                 if (string.Equals(markerType, "constraint", StringComparison.OrdinalIgnoreCase))
                 {
-                    sample.enableMask.root2DHeading = mask.rootHeading && entry.SampleData.enableMask?.root2DHeading == true;
+                    sample.enableMask.rootHeading = mask.rootHeading && entry.SampleData.enableMask?.rootHeading == true;
+                    sample.validMask.rootHeading = mask.rootHeading &&
+                        KimodoConstraintMask.FromSample(entry.SampleData).rootHeading;
                     if (rootTargetChanged && entry.FullBodyTargets.TryGetValue(
                             HumanBodyBones.Hips, out GameObject rootTarget) && rootTarget != null)
                     {
@@ -1603,7 +1608,8 @@ namespace KimodoBridge.Editor
                             t = rootTarget.transform.position,
                             q = rootTarget.transform.rotation
                         };
-                        sample.enableMask.root2DPosition = true;
+                        sample.enableMask.rootPosition = true;
+                        sample.validMask.rootPosition = true;
                     }
                     PreserveIndependentRoot2D(entry, sample);
                 }
@@ -1796,14 +1802,14 @@ namespace KimodoBridge.Editor
                 if (bone == HumanBodyBones.Hips)
                 {
                     target.transform.SetParent(null, true);
-                    if (entry.SampleData?.enableMask?.root2DPosition == true &&
+                    if (KimodoConstraintMask.IsActive(entry.SampleData, "rootposition") &&
                              entry.SampleData.rootOverride != null)
                     {
                         target.transform.SetPositionAndRotation(
                             entry.SampleData.rootOverride.t,
                             entry.SampleData.rootOverride.q);
                     }
-                    else if (solvedSample?.enableMask?.root2DPosition == true &&
+                    else if (KimodoConstraintMask.IsActive(solvedSample, "rootposition") &&
                              solvedSample.rootOverride != null)
                     {
                         target.transform.SetPositionAndRotation(
@@ -1856,7 +1862,7 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult captured)
         {
             KimodoMarkerSampleResult authored = entry?.SampleData;
-            if (authored?.enableMask?.root2DPosition != true ||
+            if (!KimodoConstraintMask.IsActive(authored, "rootposition") ||
                 authored.rootOverride == null ||
                 captured == null)
             {
@@ -1868,7 +1874,8 @@ namespace KimodoBridge.Editor
                 t = authored.rootOverride.t,
                 q = authored.rootOverride.q
             };
-            captured.enableMask.root2DPosition = true;
+            captured.enableMask.rootPosition = true;
+            captured.validMask.rootPosition = true;
         }
 
         private static PrimitiveType TargetPrimitive(HumanBodyBones bone) =>
@@ -1894,7 +1901,7 @@ namespace KimodoBridge.Editor
         private static void UpdateRoot2DTarget(ConstraintPosePreviewEntry entry)
         {
             if (entry?.TargetCache == null ||
-                entry.SampleData?.enableMask?.root2DPosition != true ||
+                !KimodoConstraintMask.IsActive(entry.SampleData, "rootposition") ||
                 entry.SampleData.rootOverride == null)
             {
                 return;

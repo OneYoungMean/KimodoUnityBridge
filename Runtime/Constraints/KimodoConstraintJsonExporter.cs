@@ -126,7 +126,7 @@ namespace KimodoBridge
             // The canonical rootTQ channel is not a hips/world transform.
             // Only the explicit world-space root override may provide the
             // protocol root when no skeleton projector is available.
-            rootPositionMeters = sample.enableMask?.root2DPosition == true &&
+            rootPositionMeters = KimodoConstraintMask.IsActive(sample, "rootposition") &&
                 sample.rootOverride != null
                 ? sample.rootOverride.t
                 : Vector3.zero;
@@ -200,7 +200,7 @@ namespace KimodoBridge
             KimodoConstraintExportContext exportContext)
         {
             return BuildConstraints(
-                KimodoConstraintSampleComposer.ExpandProtocolSamples(samples, DefaultExportFps),
+                KimodoConstraintSampleComposer.ComposeCanonicalSamples(samples, DefaultExportFps),
                 exportContext ?? throw new ArgumentNullException(nameof(exportContext)),
                 0.0,
                 null,
@@ -268,7 +268,7 @@ namespace KimodoBridge
             double exportFps = DefaultExportFps)
         {
             List<KimodoConstraintJson> constraints = BuildConstraints(
-                KimodoConstraintSampleComposer.ExpandProtocolSamples(samples, exportFps),
+                KimodoConstraintSampleComposer.ComposeCanonicalSamples(samples, exportFps),
                 exportContext,
                 clipStartSeconds,
                 clipDurationSeconds,
@@ -283,7 +283,7 @@ namespace KimodoBridge
             double? clipDurationSeconds,
             double exportFps)
         {
-            if (sample != null && sample.enableMask?.root2DPosition == true &&
+            if (KimodoConstraintMask.IsActive(sample, "rootposition") &&
                 sample.rootOverride != null)
             {
                 _ = exportContext ?? throw new ArgumentNullException(nameof(exportContext));
@@ -295,7 +295,7 @@ namespace KimodoBridge
                     frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
                     smooth_root_2d = new List<float[]> { new[] { -root.x, root.z } }
                 };
-                if (sample.enableMask?.root2DHeading == true)
+                if (KimodoConstraintMask.IsActive(sample, "rootheading"))
                 {
                     canonical.global_root_heading = new List<float[]> { new[] { forward.z, -forward.x } };
                 }
@@ -404,11 +404,10 @@ namespace KimodoBridge
             CharacterAnimationCli.Unity.KimodoRigidTransform goal = ResolveEndEffectorGoal(
                 sample,
                 jointType);
-            if (goal != null)
-            {
-                Vector3 worldTarget = goal.t;
-                json.target_positions = new List<float[]> { new[] { -worldTarget.x, worldTarget.y, worldTarget.z } };
-            }
+            if (goal == null)
+                throw new InvalidOperationException($"{jointType} is valid but its target payload is missing.");
+            Vector3 worldTarget = goal.t;
+            json.target_positions = new List<float[]> { new[] { -worldTarget.x, worldTarget.y, worldTarget.z } };
 
             return json;
         }

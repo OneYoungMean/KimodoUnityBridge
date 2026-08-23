@@ -163,13 +163,18 @@ namespace KimodoBridge.Editor
                         t = new Vector3(worldPosition.x, 0f, worldPosition.z),
                         q = Quaternion.LookRotation(worldForward, Vector3.up)
                     },
-                    enableMask = new KimodoSampleChannelMask
+                    enableMask = new KimodoConstraintMask
                     {
-                        root2DPosition = true,
-                        root2DHeading = clip.SplineIncludeHeading
+                        rootPosition = true,
+                        rootHeading = clip.SplineIncludeHeading
+                    },
+                    validMask = new KimodoConstraintMask
+                    {
+                        rootPosition = true,
+                        rootHeading = clip.SplineIncludeHeading
                     }
                 };
-                sample.enableMask.muscle49 = false;
+                sample.enableMask.muscle = false;
                 sample.enableMask.rootTQ = false;
                 sample.enableMask.leftFootTQ = false;
                 sample.enableMask.rightFootTQ = false;

@@ -1915,7 +1915,7 @@ namespace CharacterAnimationCli.Unity.Command
         {
             position = Vector3.zero;
             rotation = Quaternion.identity;
-            if (sample == null || sample.enableMask?.root2DPosition != true)
+            if (!KimodoConstraintMask.IsActive(sample, "rootposition"))
             {
                 return false;
             }

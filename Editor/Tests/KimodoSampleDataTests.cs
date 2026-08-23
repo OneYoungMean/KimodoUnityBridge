@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using NUnit.Framework;
 using TimelineInject;
 using UnityEngine;
@@ -38,20 +40,21 @@ namespace KimodoBridge.Editor.Tests
                 60.0);
 
             Assert.That(composed, Has.Count.EqualTo(1));
-            Assert.That(composed[0].enableMask.muscle49, Is.False);
-            Assert.That(composed[0].sampleData[KimodoSampleDataLayout.BodyMuscleOffset], Is.EqualTo(0f));
+            Assert.That(composed[0].enableMask.muscle, Is.False);
+            Assert.That(composed[0].sampleData.data[KimodoSampleDataLayout.BodyMuscleOffset], Is.EqualTo(0f));
         }
 
         [Test]
-        public void ChannelMask_HeadingRequiresRootPosition()
+        public void MissingValidMask_DoesNotFallBackToEnableMask()
         {
-            var mask = new KimodoSampleChannelMask
+            var sample = new KimodoMarkerSampleResult
             {
-                root2DHeading = true,
-                root2DPosition = false
+                enableMask = new KimodoConstraintMask { muscle = true },
+                validMask = null,
+                constraintMode = "fullbody"
             };
-            mask.NormalizeDependencies();
-            Assert.That(mask.root2DHeading, Is.False);
+            Assert.That(KimodoConstraintMask.FromSample(sample).muscle, Is.False);
+            Assert.That(ResolveTypes(sample), Is.Empty);
         }
 
         [Test]
@@ -67,7 +70,8 @@ namespace KimodoBridge.Editor.Tests
                     position = new Vector3(1f, 2f, 3f),
                     rotation = Quaternion.Euler(0f, 15f, 0f)
                 };
-                marker.SampleData.enableMask.root2DPosition = true;
+                marker.SampleData.enableMask.rootPosition = true;
+                marker.SampleData.validMask.rootPosition = true;
 
                 KimodoMarkerSampleResult dragged = marker.SampleData.Clone();
                 dragged.root2DOverride.position = new Vector3(8f, 9f, 10f);
@@ -90,64 +94,121 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void Composer_MixExpandsBackToProtocolFamilies()
+        public void Internal_MixFullBodyWinsAndDoesNotMutateEffectorMask()
         {
             KimodoMarkerSampleResult sample = CreateFullBody(1, 0.5f, true);
             sample.constraintMode = "mix";
-            sample.enableMask.root2DPosition = true;
-            sample.enableMask.root2DHeading = true;
-            sample.enableMask.root2DPosition = true;
+            sample.enableMask.rootPosition = true;
+            sample.enableMask.rootHeading = true;
+            sample.validMask.rootPosition = true;
+            sample.validMask.rootHeading = true;
+            EnableAllEffectors(sample);
             sample.root2DOverride.t = new Vector3(3f, 0f, 4f);
+            sample = KimodoConstraintSampleComposer.ComposeCanonicalSamples(
+                new[] { sample }, 30.0)[0];
 
-            var expanded = KimodoConstraintSampleComposer.ExpandProtocolSamples(
-                new[] { sample },
-                60.0);
-
-            Assert.That(expanded, Is.Not.Empty);
-            Assert.That(expanded.Exists(item => item.constraintMode == "fullbody"), Is.True);
-            Assert.That(expanded.Exists(item => item.constraintMode == "root2d"), Is.True);
+            CollectionAssert.AreEqual(new[] { "fullbody" }, ResolveTypes(sample));
+            Assert.That(sample.enableMask.leftHand, Is.True);
+            Assert.That(sample.enableMask.rightHand, Is.True);
+            Assert.That(sample.enableMask.leftFoot, Is.True);
+            Assert.That(sample.enableMask.rightFoot, Is.True);
         }
 
         [Test]
-        public void Composer_FullBodyDoesNotExpandInternalEffectorMask()
-        {
-            KimodoMarkerSampleResult sample = CreateFullBody(1, 0.5f, true);
-            sample.enableMask.leftHandEffector = true;
-            sample.enableMask.rightHandEffector = true;
-            sample.enableMask.leftFootEffector = true;
-            sample.enableMask.rightFootEffector = true;
-            sample.validMask = KimodoConstraintMask.ForType("fullbody");
-            sample.effectors.leftHand.t = new Vector3(1f, 2f, 3f);
-            sample.effectors.rightHand.t = new Vector3(4f, 5f, 6f);
-            sample.effectors.leftFoot.t = new Vector3(7f, 8f, 9f);
-            sample.effectors.rightFoot.t = new Vector3(10f, 11f, 12f);
-
-            var expanded = KimodoConstraintSampleComposer.ExpandProtocolSamples(
-                new[] { sample }, 60.0);
-
-            Assert.That(expanded, Has.Count.EqualTo(1));
-            Assert.That(expanded[0].constraintMode, Is.EqualTo("fullbody"));
-        }
-
-        [Test]
-        public void Composer_MixEmitsExplicitEffectorMask()
+        public void Internal_MixEmitsAllEffectorsBeforeRoot2DInFixedOrder()
         {
             KimodoMarkerSampleResult sample = CreateFullBody(1, 0.5f, true);
             sample.constraintMode = "mix";
-            sample.enableMask.leftHandEffector = true;
-            sample.validMask = new KimodoConstraintMask
+            sample.validMask.muscle = false;
+            sample.enableMask.rootPosition = true;
+            sample.validMask.rootPosition = true;
+            EnableAllEffectors(sample);
+
+            CollectionAssert.AreEqual(
+                new[] { "left-hand", "right-hand", "left-foot", "right-foot" },
+                ResolveTypes(sample));
+        }
+
+        [Test]
+        public void Internal_MixFallsThroughToRoot2DWhenHigherFamiliesAreInvalid()
+        {
+            KimodoMarkerSampleResult sample = CreateFullBody(1, 0.5f, true);
+            sample.constraintMode = "mix";
+            sample.validMask.muscle = false;
+            sample.enableMask.rootPosition = true;
+            sample.validMask.rootPosition = true;
+
+            CollectionAssert.AreEqual(new[] { "root2d" }, ResolveTypes(sample));
+        }
+
+        [Test]
+        public void Internal_ValidMaskIsNotOverriddenByPayloadHeuristics()
+        {
+            KimodoMarkerSampleResult sample = CreateFullBody(1, 0.5f, true);
+            sample.constraintMode = "effector";
+            sample.enableMask.leftHand = true;
+            sample.validMask.leftHand = true;
+            sample.effectors.leftHand.t = new Vector3(float.NaN, float.PositiveInfinity, 0f);
+
+            CollectionAssert.AreEqual(new[] { "left-hand" }, ResolveTypes(sample));
+
+            sample.validMask.leftHand = false;
+            Assert.That(ResolveTypes(sample), Is.Empty);
+        }
+
+        [Test]
+        public void Composer_KeepsEffectorSupportPoseValidWithoutEnablingFullBody()
+        {
+            KimodoMarkerSampleResult effector = CreateFullBody(1, 0.75f, true);
+            effector.constraintMode = "left-hand";
+            effector.enableMask.leftHand = true;
+            effector.validMask.leftHand = true;
+            var root = new KimodoMarkerSampleResult
             {
-                muscle = true,
-                leftHand = true
+                constraintMode = "root2d",
+                creationOrder = 2,
+                enableMask = new KimodoConstraintMask { rootPosition = true },
+                validMask = new KimodoConstraintMask { rootPosition = true }
             };
-            sample.effectors.leftHand.t = new Vector3(1f, 2f, 3f);
 
-            var expanded = KimodoConstraintSampleComposer.ExpandProtocolSamples(
-                new[] { sample }, 60.0);
+            KimodoMarkerSampleResult composed = KimodoConstraintSampleComposer.ComposeCanonicalSamples(
+                new[] { effector, root }, 30.0)[0];
 
-            Assert.That(expanded.Exists(item => item.constraintMode == "fullbody"), Is.True);
-            Assert.That(expanded.Exists(item => item.constraintMode == "left-hand"), Is.True);
-            Assert.That(expanded.Count, Is.EqualTo(2));
+            Assert.That(composed.enableMask.muscle, Is.False);
+            Assert.That(composed.validMask.muscle, Is.True);
+            Assert.That(
+                composed.sampleData.data[KimodoSampleDataLayout.BodyMuscleOffset],
+                Is.EqualTo(0.75f));
+            CollectionAssert.AreEqual(new[] { "left-hand" }, ResolveTypes(composed));
+        }
+
+        [Test]
+        public void Internal_ModeLimitsFamiliesAndRoot2DRequiresPosition()
+        {
+            KimodoMarkerSampleResult sample = CreateFullBody(1, 0.5f, true);
+            sample.enableMask.rootPosition = true;
+            sample.validMask.rootPosition = true;
+            sample.enableMask.leftHand = true;
+            sample.validMask.leftHand = true;
+
+            sample.constraintMode = "effector";
+            CollectionAssert.AreEqual(new[] { "left-hand" }, ResolveTypes(sample));
+
+            sample.constraintMode = "ik";
+            CollectionAssert.AreEqual(new[] { "left-hand" }, ResolveTypes(sample));
+
+            sample.constraintMode = "root2d";
+            CollectionAssert.AreEqual(new[] { "root2d" }, ResolveTypes(sample));
+
+            sample.enableMask.rootPosition = false;
+            sample.validMask.rootPosition = false;
+            sample.enableMask.rootHeading = true;
+            sample.validMask.rootHeading = true;
+            Assert.That(ResolveTypes(sample), Is.Empty);
+
+            KimodoMarkerSampleResult defaultMode = CreateFullBody(1, 0.5f, true);
+            defaultMode.constraintMode = string.Empty;
+            CollectionAssert.AreEqual(new[] { "fullbody" }, ResolveTypes(defaultMode));
         }
 
         private static KimodoMarkerSampleResult CreateFullBody(
@@ -160,19 +221,48 @@ namespace KimodoBridge.Editor.Tests
             return new KimodoMarkerSampleResult
             {
                 sampleData = KimodoSampleDataLayout.FromBuffer(data),
-                enableMask = new KimodoSampleChannelMask
+                enableMask = new KimodoConstraintMask
                 {
-                    muscle49 = valid,
+                    muscle = valid,
                     rootTQ = valid,
                     leftFootTQ = valid,
                     rightFootTQ = valid
                 },
                 constraintMode = "fullbody",
-                constraintMode = "fullbody",
+                validMask = new KimodoConstraintMask
+                {
+                    muscle = valid,
+                    rootTQ = valid,
+                    leftFootTQ = valid,
+                    rightFootTQ = valid
+                },
                 sampleTime = 0,
                 creationOrder = creationOrder,
                 enabled = true
             };
+        }
+
+        private static void EnableAllEffectors(KimodoMarkerSampleResult sample)
+        {
+            sample.enableMask.leftHand = sample.validMask.leftHand = true;
+            sample.enableMask.rightHand = sample.validMask.rightHand = true;
+            sample.enableMask.leftFoot = sample.validMask.leftFoot = true;
+            sample.enableMask.rightFoot = sample.validMask.rightFoot = true;
+        }
+
+        private static string[] ResolveTypes(KimodoMarkerSampleResult sample)
+        {
+            var context = new KimodoConstraintExportContext
+            {
+                localJointAngleProjector = _ => new List<Vector3> { Vector3.zero }
+            };
+            KimodoConstraintInternal[] internals = KimodoConstraintInternal.GetConstraintInternal(
+                sample,
+                KimodoConstraintRigType.Unknown,
+                context);
+            return Array.ConvertAll(
+                internals,
+                item => item.ToJsonObject(0.0, null, 30.0).type);
         }
     }
 }
