@@ -230,16 +230,6 @@ public static void ClearMarkerPoseCachePreview(KimodoConstraintMarker marker, bo
             return KimodoConstraintMarkerPosePreview.TryBuildRenderContextForPlayableClip(playableClip, out context, out timelineClip, out error, timelineClipOverride);
         }
 
-        public static bool TryRenderMarkerToPoseCache(KimodoConstraintMarker marker, out string error)
-        {
-            return KimodoConstraintMarkerPosePreview.TryRenderMarkerToPoseCache(marker, out error);
-        }
-
-        internal static bool TryRenderMarkerToPoseCache(KimodoConstraintMarker marker, PoseCacheRenderContext context, out string error)
-        {
-            return KimodoConstraintMarkerPosePreview.TryRenderMarkerToPoseCache(marker, context, out error);
-        }
-
 public static void DrawOverrideEditButton(SerializedObject so, KimodoConstraintMarker marker)
         {
             if (so == null || marker == null)

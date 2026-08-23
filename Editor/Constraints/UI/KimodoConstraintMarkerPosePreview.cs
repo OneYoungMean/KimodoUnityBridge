@@ -135,29 +135,6 @@ public static bool TryBuildRenderContextForPlayableClip(
             return true;
         }
 
-public static bool TryRenderMarkerToPoseCache(KimodoConstraintMarker marker, out string error)
-        {
-            error = string.Empty;
-            if (marker == null)
-            {
-                error = "marker is null";
-                return false;
-            }
-
-            if (!marker.constraintEnabled)
-            {
-                KimodoConstraintMarkerEditorUtility.ClearMarkerPoseCachePreview(marker, keepIfOverrideWindowOpen: false);
-                return true;
-            }
-
-            if (!TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out error))
-            {
-                return false;
-            }
-
-            return TryRenderMarkerToPoseCache(marker, context, out _, out error);
-        }
-
         internal static bool TryRenderMarkerToPoseCache(
             KimodoConstraintMarker marker,
             PoseCacheRenderContext context,

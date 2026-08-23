@@ -662,3 +662,9 @@
 - 已调整：SelectionPreview 清理、场景切换、程序集重载时同时清理 selection entries 与 edit entries，避免 EditorWindow 直接销毁共享 context。
 - 保持：EditorWindow 自己的 Scene drag、Undo、非 AutoSample 写回和 Timeline lock 状态机不变；本批不处理数值字段绑定。
 - 检查：`git diff --check` 通过；独立 batch Unity probe 受已有 Unity 实例锁等待，代码路径已完成引用扫描。
+
+## CP84 — 收紧 Preview 渲染入口
+
+- 已移除：`KimodoConstraintMarkerEditorUtility` 与 `KimodoConstraintMarkerPosePreview` 对外暴露的直接 render wrapper；Preview 渲染现在只由统一 coordinator 调用。
+- 保持：Context 构造仍由 `KimodoConstraintMarkerPosePreview` 提供，真正的 selection/edit entry 生命周期由 `KimodoConstraintSelectionPreviewTool` 管理。
+- 检查：`git diff --check` 通过；数值字段绑定问题仍未处理。
