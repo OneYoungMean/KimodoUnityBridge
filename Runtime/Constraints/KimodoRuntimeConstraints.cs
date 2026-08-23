@@ -142,13 +142,13 @@ namespace KimodoBridge
             List<KimodoMarkerSampleResult> samples,
             KimodoMarkerSampleResult sample)
         {
-            bool isWaypoint = KimodoConstraintMask.FromSample(sample).rootPosition;
+            bool isWaypoint = KimodoConstraintMask.IsActive(sample, "rootposition");
             for (int i = samples.Count - 1; i >= 0; i--)
             {
                 KimodoMarkerSampleResult existing = samples[i];
                 if (existing == null ||
                     (isWaypoint
-                        ? KimodoConstraintMask.FromSample(existing).rootPosition &&
+                        ? KimodoConstraintMask.IsActive(existing, "rootposition") &&
                           Math.Abs(existing.sampleTime - sample.sampleTime) <= 1e-6
                         : SameChannels(existing, sample)))
                 {
@@ -166,15 +166,20 @@ namespace KimodoBridge
                 return false;
             }
 
-            KimodoConstraintMask a = KimodoConstraintMask.FromSample(left);
-            KimodoConstraintMask b = KimodoConstraintMask.FromSample(right);
-            return a.muscle == b.muscle &&
-                   a.rootPosition == b.rootPosition &&
-                   a.rootHeading == b.rootHeading &&
-                   a.leftFoot == b.leftFoot &&
-                   a.rightFoot == b.rightFoot &&
-                   a.leftHand == b.leftHand &&
-                   a.rightHand == b.rightHand;
+            return KimodoConstraintMask.IsActive(left, "muscle") ==
+                       KimodoConstraintMask.IsActive(right, "muscle") &&
+                   KimodoConstraintMask.IsActive(left, "rootposition") ==
+                       KimodoConstraintMask.IsActive(right, "rootposition") &&
+                   KimodoConstraintMask.IsActive(left, "rootheading") ==
+                       KimodoConstraintMask.IsActive(right, "rootheading") &&
+                   KimodoConstraintMask.IsActive(left, "leftfoot") ==
+                       KimodoConstraintMask.IsActive(right, "leftfoot") &&
+                   KimodoConstraintMask.IsActive(left, "rightfoot") ==
+                       KimodoConstraintMask.IsActive(right, "rightfoot") &&
+                   KimodoConstraintMask.IsActive(left, "lefthand") ==
+                       KimodoConstraintMask.IsActive(right, "lefthand") &&
+                   KimodoConstraintMask.IsActive(left, "righthand") ==
+                       KimodoConstraintMask.IsActive(right, "righthand");
         }
     }
 

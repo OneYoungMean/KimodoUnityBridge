@@ -47,6 +47,7 @@ namespace KimodoBridge
                     enabled = true,
                     sampleData = new MuscleSample(),
                     enableMask = new KimodoSampleChannelMask(),
+                    validMask = new KimodoConstraintMask(),
                     effectors = new KimodoConstraintEffectors()
                 };
 
@@ -64,10 +65,13 @@ namespace KimodoBridge
                 {
                     result.rootOverride = rootPosition.rootOverride.Clone();
                     result.enableMask.root2DPosition = rootPosition.enableMask?.root2DPosition == true;
+                    result.validMask.rootPosition = KimodoConstraintMask.FromSample(rootPosition).rootPosition;
                 }
                 KimodoMarkerSampleResult rootHeading = FindLatest(ordered, SampleChannel.Root2DHeading);
                 result.enableMask.root2DHeading = result.enableMask.root2DPosition &&
                     rootHeading?.enableMask?.root2DHeading == true;
+                result.validMask.rootHeading = result.enableMask.root2DHeading &&
+                    KimodoConstraintMask.FromSample(rootHeading).rootHeading;
 
                 CopyEffectorChannel(ordered, result, SampleChannel.LeftHandEffector);
                 CopyEffectorChannel(ordered, result, SampleChannel.RightHandEffector);
@@ -93,13 +97,22 @@ namespace KimodoBridge
             foreach (KimodoMarkerSampleResult canonical in ComposeCanonicalSamples(samples, frameRate))
             {
                 if (canonical == null) continue;
-                KimodoConstraintMask mask = KimodoConstraintMask.FromSample(canonical);
-                AppendProtocolSample(output, canonical, mask.muscle, "fullbody");
-                AppendProtocolSample(output, canonical, mask.rootPosition || mask.rootHeading, "root2d");
-                AppendProtocolSample(output, canonical, mask.leftHand, "left-hand");
-                AppendProtocolSample(output, canonical, mask.rightHand, "right-hand");
-                AppendProtocolSample(output, canonical, mask.leftFoot, "left-foot");
-                AppendProtocolSample(output, canonical, mask.rightFoot, "right-foot");
+                KimodoConstraintMask valid = KimodoConstraintMask.FromSample(canonical);
+                KimodoSampleChannelMask enabled = canonical.enableMask;
+                AppendProtocolSample(output, canonical,
+                    enabled?.muscle49 == true && valid.muscle, "fullbody");
+                AppendProtocolSample(output, canonical,
+                    enabled?.root2DPosition == true && valid.rootPosition ||
+                    enabled?.root2DHeading == true && valid.rootHeading,
+                    "root2d");
+                AppendProtocolSample(output, canonical,
+                    enabled?.leftHandEffector == true && valid.leftHand, "left-hand");
+                AppendProtocolSample(output, canonical,
+                    enabled?.rightHandEffector == true && valid.rightHand, "right-hand");
+                AppendProtocolSample(output, canonical,
+                    enabled?.leftFootEffector == true && valid.leftFoot, "left-foot");
+                AppendProtocolSample(output, canonical,
+                    enabled?.rightFootEffector == true && valid.rightFoot, "right-foot");
             }
             return output;
         }
@@ -129,9 +142,10 @@ namespace KimodoBridge
         {
             KimodoMarkerSampleResult source = FindLatest(ordered, channel);
             if (source == null) return;
-            bool valid = source.enableMask != null && IsValid(source.enableMask, channel) &&
-                KimodoSampleDataLayout.IsValid(source.sampleData);
-            SetValid(destination.enableMask, channel, valid);
+            KimodoConstraintMask sourceValid = KimodoConstraintMask.FromSample(source);
+            bool valid = IsValid(sourceValid, channel) && KimodoSampleDataLayout.IsValid(source.sampleData);
+            SetValid(destination.validMask, channel, valid);
+            SetEnabled(destination.enableMask, channel, IsEnabled(source.enableMask, channel));
             if (valid) Array.Copy(source.sampleData.data, offset, destination.sampleData.data, offset, count);
         }
 
@@ -142,7 +156,8 @@ namespace KimodoBridge
         {
             KimodoMarkerSampleResult source = FindLatest(ordered, channel);
             if (source == null) return;
-            bool valid = source.enableMask != null && IsValid(source.enableMask, channel);
+            KimodoConstraintMask sourceValid = KimodoConstraintMask.FromSample(source);
+            bool valid = IsValid(sourceValid, channel);
             KimodoRigidTransform value = channel switch
             {
                 SampleChannel.LeftHandEffector => source.effectors?.leftHand,
@@ -152,7 +167,8 @@ namespace KimodoBridge
                 _ => null
             };
             valid &= IsValidTransform(value);
-            SetValid(destination.enableMask, channel, valid);
+            SetValid(destination.validMask, channel, valid);
+            SetEnabled(destination.enableMask, channel, IsEnabled(source.enableMask, channel));
             if (!valid) return;
             KimodoRigidTransform copy = value.Clone();
             switch (channel)
@@ -177,12 +193,19 @@ namespace KimodoBridge
 
         private static bool Participates(KimodoMarkerSampleResult sample, SampleChannel channel)
         {
-            KimodoConstraintMask mask = KimodoConstraintMask.FromSample(sample);
+            KimodoConstraintMask valid = KimodoConstraintMask.FromSample(sample);
+            KimodoSampleChannelMask enabled = sample.enableMask;
             string mode = (sample.constraintMode ?? string.Empty)
                 .Trim().ToLowerInvariant().Replace('_', '-');
-            bool fullBody = mode == "fullbody" || mode == "constraint" || mode == "mix" || mask.muscle;
-            bool root2D = mode == "root2d" || mode == "mix" || mask.rootPosition;
-            bool effector = mode == "effector" || mode == "ik" || mask.AnyEndEffector;
+            bool fullBody = mode == "fullbody" || mode == "constraint" || mode == "mix" ||
+                enabled?.muscle49 == true && valid.muscle;
+            bool root2D = mode == "root2d" || mode == "mix" ||
+                enabled?.root2DPosition == true && valid.rootPosition;
+            bool effector = mode == "effector" || mode == "ik" ||
+                enabled?.leftHandEffector == true && valid.leftHand ||
+                enabled?.rightHandEffector == true && valid.rightHand ||
+                enabled?.leftFootEffector == true && valid.leftFoot ||
+                enabled?.rightFootEffector == true && valid.rightFoot;
             return channel switch
             {
                 SampleChannel.Muscle49 => fullBody,
@@ -191,31 +214,47 @@ namespace KimodoBridge
                 SampleChannel.RightFootTQ => fullBody,
                 SampleChannel.Root2DPosition => root2D,
                 SampleChannel.Root2DHeading => root2D,
-                SampleChannel.LeftHandEffector => effector && mask.leftHand,
-                SampleChannel.RightHandEffector => effector && mask.rightHand,
-                SampleChannel.LeftFootEffector => effector && mask.leftFoot,
-                SampleChannel.RightFootEffector => effector && mask.rightFoot,
+                SampleChannel.LeftHandEffector => effector && enabled?.leftHandEffector == true && valid.leftHand,
+                SampleChannel.RightHandEffector => effector && enabled?.rightHandEffector == true && valid.rightHand,
+                SampleChannel.LeftFootEffector => effector && enabled?.leftFootEffector == true && valid.leftFoot,
+                SampleChannel.RightFootEffector => effector && enabled?.rightFootEffector == true && valid.rightFoot,
                 _ => false
             };
         }
 
-        private static bool IsValid(KimodoSampleChannelMask mask, SampleChannel channel) => channel switch
+        private static bool IsEnabled(KimodoSampleChannelMask mask, SampleChannel channel) => channel switch
         {
-            SampleChannel.Muscle49 => mask.muscle49,
-            SampleChannel.RootTQ => mask.rootTQ,
-            SampleChannel.LeftFootTQ => mask.leftFootTQ,
-            SampleChannel.RightFootTQ => mask.rightFootTQ,
-            SampleChannel.Root2DPosition => mask.root2DPosition,
-            SampleChannel.Root2DHeading => mask.root2DHeading,
-            SampleChannel.LeftHandEffector => mask.leftHandEffector,
-            SampleChannel.RightHandEffector => mask.rightHandEffector,
-            SampleChannel.LeftFootEffector => mask.leftFootEffector,
-            SampleChannel.RightFootEffector => mask.rightFootEffector,
+            SampleChannel.Muscle49 => mask?.muscle49 == true,
+            SampleChannel.RootTQ => mask?.rootTQ == true,
+            SampleChannel.LeftFootTQ => mask?.leftFootTQ == true,
+            SampleChannel.RightFootTQ => mask?.rightFootTQ == true,
+            SampleChannel.Root2DPosition => mask?.root2DPosition == true,
+            SampleChannel.Root2DHeading => mask?.root2DHeading == true,
+            SampleChannel.LeftHandEffector => mask?.leftHandEffector == true,
+            SampleChannel.RightHandEffector => mask?.rightHandEffector == true,
+            SampleChannel.LeftFootEffector => mask?.leftFootEffector == true,
+            SampleChannel.RightFootEffector => mask?.rightFootEffector == true,
             _ => false
         };
 
-        private static void SetValid(KimodoSampleChannelMask mask, SampleChannel channel, bool value)
+        private static bool IsValid(KimodoConstraintMask mask, SampleChannel channel) => channel switch
         {
+            SampleChannel.Muscle49 => mask?.muscle == true,
+            SampleChannel.RootTQ => mask?.rootTQ == true,
+            SampleChannel.LeftFootTQ => mask?.leftFootTQ == true,
+            SampleChannel.RightFootTQ => mask?.rightFootTQ == true,
+            SampleChannel.Root2DPosition => mask?.rootPosition == true,
+            SampleChannel.Root2DHeading => mask?.rootHeading == true,
+            SampleChannel.LeftHandEffector => mask?.leftHand == true,
+            SampleChannel.RightHandEffector => mask?.rightHand == true,
+            SampleChannel.LeftFootEffector => mask?.leftFoot == true,
+            SampleChannel.RightFootEffector => mask?.rightFoot == true,
+            _ => false
+        };
+
+        private static void SetEnabled(KimodoSampleChannelMask mask, SampleChannel channel, bool value)
+        {
+            if (mask == null) return;
             switch (channel)
             {
                 case SampleChannel.Muscle49: mask.muscle49 = value; break;
@@ -228,6 +267,24 @@ namespace KimodoBridge
                 case SampleChannel.RightHandEffector: mask.rightHandEffector = value; break;
                 case SampleChannel.LeftFootEffector: mask.leftFootEffector = value; break;
                 case SampleChannel.RightFootEffector: mask.rightFootEffector = value; break;
+            }
+        }
+
+        private static void SetValid(KimodoConstraintMask mask, SampleChannel channel, bool value)
+        {
+            if (mask == null) return;
+            switch (channel)
+            {
+                case SampleChannel.Muscle49: mask.muscle = value; break;
+                case SampleChannel.RootTQ: mask.rootTQ = value; break;
+                case SampleChannel.LeftFootTQ: mask.leftFootTQ = value; break;
+                case SampleChannel.RightFootTQ: mask.rightFootTQ = value; break;
+                case SampleChannel.Root2DPosition: mask.rootPosition = value; break;
+                case SampleChannel.Root2DHeading: mask.rootHeading = value; break;
+                case SampleChannel.LeftHandEffector: mask.leftHand = value; break;
+                case SampleChannel.RightHandEffector: mask.rightHand = value; break;
+                case SampleChannel.LeftFootEffector: mask.leftFoot = value; break;
+                case SampleChannel.RightFootEffector: mask.rightFoot = value; break;
             }
         }
 

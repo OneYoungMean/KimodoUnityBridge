@@ -1102,6 +1102,12 @@ namespace KimodoBridge
                     rootTQ = true,
                     root2DPosition = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase),
                     root2DHeading = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase)
+                },
+                validMask = new KimodoConstraintMask
+                {
+                    rootTQ = true,
+                    rootPosition = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase),
+                    rootHeading = resolvedConstraintType.Equals("root2d", StringComparison.OrdinalIgnoreCase)
                 }
             };
             sample.sampleData.SetRoot(rootPosition, rootRotation);

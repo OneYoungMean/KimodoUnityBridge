@@ -66,6 +66,13 @@ namespace KimodoBridge
 
             result.sampleData = sampleData;
             result.enableMask = enableMask;
+            result.validMask = new KimodoConstraintMask
+            {
+                muscle = enableMask.muscle49,
+                rootTQ = enableMask.rootTQ,
+                leftFootTQ = enableMask.leftFootTQ,
+                rightFootTQ = enableMask.rightFootTQ
+            };
             CaptureWorldTargets(targetCache, result);
             result.enabled = true;
             if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
@@ -93,6 +100,7 @@ namespace KimodoBridge
             result.effectors.leftFoot ??= KimodoRigidTransform.Identity;
             result.effectors.rightFoot ??= KimodoRigidTransform.Identity;
             result.enableMask ??= new KimodoSampleChannelMask();
+            result.validMask ??= new KimodoConstraintMask();
 
             Vector3 position;
             Quaternion rotation;
@@ -105,15 +113,17 @@ namespace KimodoBridge
             result.rootOverride.q = rotation;
             result.enableMask.root2DPosition = true;
             result.enableMask.root2DHeading = true;
+            result.validMask.rootPosition = true;
+            result.validMask.rootHeading = true;
 
             CaptureEffector(cache, HumanBodyBones.LeftHand, result.effectors.leftHand,
-                result.enableMask, 0, rotationMode: 0);
+                result.enableMask, result.validMask, 0, rotationMode: 0);
             CaptureEffector(cache, HumanBodyBones.RightHand, result.effectors.rightHand,
-                result.enableMask, 1, rotationMode: 0);
+                result.enableMask, result.validMask, 1, rotationMode: 0);
             CaptureEffector(cache, HumanBodyBones.LeftFoot, result.effectors.leftFoot,
-                result.enableMask, 2, rotationMode: 1);
+                result.enableMask, result.validMask, 2, rotationMode: 1);
             CaptureEffector(cache, HumanBodyBones.RightFoot, result.effectors.rightFoot,
-                result.enableMask, 3, rotationMode: 1);
+                result.enableMask, result.validMask, 3, rotationMode: 1);
             result.enableMask.NormalizeDependencies();
         }
 
@@ -122,6 +132,7 @@ namespace KimodoBridge
             HumanBodyBones bone,
             KimodoRigidTransform target,
             KimodoSampleChannelMask enableMask,
+            KimodoConstraintMask validMask,
             int index,
             int rotationMode)
         {
@@ -137,10 +148,10 @@ namespace KimodoBridge
             }
             switch (index)
             {
-                case 0: enableMask.leftHandEffector = true; break;
-                case 1: enableMask.rightHandEffector = true; break;
-                case 2: enableMask.leftFootEffector = true; break;
-                case 3: enableMask.rightFootEffector = true; break;
+                case 0: enableMask.leftHandEffector = true; validMask.leftHand = true; break;
+                case 1: enableMask.rightHandEffector = true; validMask.rightHand = true; break;
+                case 2: enableMask.leftFootEffector = true; validMask.leftFoot = true; break;
+                case 3: enableMask.rightFootEffector = true; validMask.rightFoot = true; break;
             }
         }
 

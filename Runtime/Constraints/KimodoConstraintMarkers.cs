@@ -61,12 +61,16 @@ namespace KimodoBridge
 
     }
 
-    /// <summary>Channels owned by one canonical constraint pose.  The protocol
-    /// still receives its historical fullbody/root2d/end-effector records.</summary>
+    /// <summary>Validity of one canonical constraint sample. This is distinct
+    /// from KimodoSampleChannelMask, which records authored channel enablement.
+    /// </summary>
     [Serializable]
     public sealed class KimodoConstraintMask
     {
         public bool muscle;
+        public bool rootTQ;
+        public bool leftFootTQ;
+        public bool rightFootTQ;
         public bool rootPosition;
         public bool rootHeading;
         public bool leftFoot;
@@ -100,7 +104,8 @@ namespace KimodoBridge
         }
 
         public bool AnyEndEffector => leftFoot || rightFoot || leftHand || rightHand;
-        public bool IsEmpty => !muscle && !rootPosition && !rootHeading && !AnyEndEffector;
+        public bool IsEmpty => !muscle && !rootTQ && !leftFootTQ && !rightFootTQ &&
+            !rootPosition && !rootHeading && !AnyEndEffector;
 
         public static KimodoConstraintMask Resolve(KimodoConstraintMask value, string type)
         {
@@ -110,9 +115,9 @@ namespace KimodoBridge
         }
 
         /// <summary>
-        /// Resolves the effective protocol channels from the canonical sample.
-        /// New samples use enableMask as the sole validity source. A missing
-        /// mask is treated as an old boundary object and inferred from mode.
+        /// Resolves validity channels from the canonical sample. New samples
+        /// carry this explicitly; old samples fall back to enableMask until
+        /// they are resaved.
         /// </summary>
         public static KimodoConstraintMask FromSample(KimodoMarkerSampleResult sample)
         {
@@ -121,12 +126,20 @@ namespace KimodoBridge
                 return new KimodoConstraintMask();
             }
 
+            if (sample.validMask != null)
+            {
+                return sample.validMask.Clone();
+            }
+
             KimodoSampleChannelMask enabled = sample.enableMask;
             if (enabled != null)
             {
                 return new KimodoConstraintMask
                 {
                     muscle = enabled.muscle49,
+                    rootTQ = enabled.rootTQ,
+                    leftFootTQ = enabled.leftFootTQ,
+                    rightFootTQ = enabled.rightFootTQ,
                     rootPosition = enabled.root2DPosition,
                     rootHeading = enabled.root2DHeading,
                     leftFoot = enabled.leftFootEffector,
@@ -141,6 +154,42 @@ namespace KimodoBridge
             return mode == string.Empty || mode == "constraint"
                 ? ForType("fullbody")
                 : ForType(mode);
+        }
+
+        public static bool IsEnabledAndValid(
+            KimodoMarkerSampleResult sample,
+            Func<KimodoSampleChannelMask, bool> enabledSelector,
+            Func<KimodoConstraintMask, bool> validSelector)
+        {
+            if (sample == null || enabledSelector == null || validSelector == null)
+            {
+                return false;
+            }
+
+            KimodoSampleChannelMask enabled = sample.enableMask;
+            KimodoConstraintMask valid = FromSample(sample);
+            return enabled != null && enabledSelector(enabled) && validSelector(valid);
+        }
+
+        public static bool IsActive(KimodoMarkerSampleResult sample, string channel)
+        {
+            if (sample == null) return false;
+            KimodoSampleChannelMask enabled = sample.enableMask;
+            KimodoConstraintMask valid = FromSample(sample);
+            switch ((channel ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "muscle": return enabled?.muscle49 == true && valid.muscle;
+                case "roottq": return enabled?.rootTQ == true && valid.rootTQ;
+                case "leftfoottq": return enabled?.leftFootTQ == true && valid.leftFootTQ;
+                case "rightfoottq": return enabled?.rightFootTQ == true && valid.rightFootTQ;
+                case "rootposition": return enabled?.root2DPosition == true && valid.rootPosition;
+                case "rootheading": return enabled?.root2DHeading == true && valid.rootHeading;
+                case "lefthand": return enabled?.leftHandEffector == true && valid.leftHand;
+                case "righthand": return enabled?.rightHandEffector == true && valid.rightHand;
+                case "leftfoot": return enabled?.leftFootEffector == true && valid.leftFoot;
+                case "rightfoot": return enabled?.rightFootEffector == true && valid.rightFoot;
+                default: return false;
+            }
         }
     }
 
@@ -173,6 +222,8 @@ namespace KimodoBridge
         // migration phases; new code must use sampleData and enableMask.
         public KimodoBridge.MuscleSample sampleData = new KimodoBridge.MuscleSample();
         public KimodoSampleChannelMask enableMask = new KimodoSampleChannelMask();
+        [UnityEngine.Serialization.FormerlySerializedAs("mask")]
+        public KimodoConstraintMask validMask;
         public bool enabled = true;
         // Composer uses this as the explicit creation-order tie breaker.
         // When unset, input order remains the deterministic fallback.
@@ -204,6 +255,7 @@ namespace KimodoBridge
         {
             sampleData = sampleData?.Clone() ?? new KimodoBridge.MuscleSample(),
             enableMask = enableMask?.Clone() ?? new KimodoSampleChannelMask(),
+            validMask = validMask?.Clone(),
             enabled = enabled,
             creationOrder = creationOrder,
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),

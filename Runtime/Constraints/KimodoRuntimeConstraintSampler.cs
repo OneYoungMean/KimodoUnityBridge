@@ -152,7 +152,8 @@ namespace KimodoBridge
             {
                 constraintMode = "constraint",
                 sampleTime = sampleTime,
-                enableMask = new KimodoSampleChannelMask()
+                enableMask = new KimodoSampleChannelMask(),
+                validMask = new KimodoConstraintMask()
             };
 
             if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
@@ -173,6 +174,10 @@ namespace KimodoBridge
             sample.enableMask.rootTQ = true;
             sample.enableMask.leftFootTQ = true;
             sample.enableMask.rightFootTQ = true;
+            sample.validMask.muscle = true;
+            sample.validMask.rootTQ = true;
+            sample.validMask.leftFootTQ = true;
+            sample.validMask.rightFootTQ = true;
             return true;
         }
     }

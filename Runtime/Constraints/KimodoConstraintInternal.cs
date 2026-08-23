@@ -69,34 +69,39 @@ namespace KimodoBridge
             var result = new List<KimodoConstraintInternal>(3);
             if (string.Equals(mode, "mix", StringComparison.OrdinalIgnoreCase))
             {
-                KimodoConstraintMask channels = KimodoConstraintMask.FromSample(sample);
-                if (channels.muscle)
+                if (KimodoConstraintMask.IsActive(sample, "muscle"))
                 {
                     result.Add(new KimodoFullBodyConstraintInternal(sample, modelType, exportContext));
                 }
-                if (channels.rootPosition || channels.rootHeading)
+                if (KimodoConstraintMask.IsActive(sample, "rootposition") ||
+                    KimodoConstraintMask.IsActive(sample, "rootheading"))
                 {
                     result.Add(new KimodoRoot2DConstraintInternal(sample, modelType, exportContext));
                 }
-                AddEffectors(result, sample, modelType, exportContext, channels);
+                AddEffectors(result, sample, modelType, exportContext);
                 return result.ToArray();
             }
 
             if (string.Equals(mode, "root2d", StringComparison.OrdinalIgnoreCase))
             {
-                result.Add(new KimodoRoot2DConstraintInternal(sample, modelType, exportContext));
+                if (KimodoConstraintMask.IsActive(sample, "rootposition") ||
+                    KimodoConstraintMask.IsActive(sample, "rootheading"))
+                {
+                    result.Add(new KimodoRoot2DConstraintInternal(sample, modelType, exportContext));
+                }
             }
             else if (string.Equals(mode, "fullbody", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(mode, "constraint", StringComparison.OrdinalIgnoreCase))
             {
-                result.Add(new KimodoFullBodyConstraintInternal(sample, modelType, exportContext));
-                KimodoConstraintMask channels = KimodoConstraintMask.FromSample(sample);
-                AddEffectors(result, sample, modelType, exportContext, channels);
+                if (KimodoConstraintMask.IsActive(sample, "muscle"))
+                {
+                    result.Add(new KimodoFullBodyConstraintInternal(sample, modelType, exportContext));
+                }
+                AddEffectors(result, sample, modelType, exportContext);
             }
             else
             {
-                KimodoConstraintMask channels = KimodoConstraintMask.FromSample(sample);
-                AddEffectors(result, sample, modelType, exportContext, channels);
+                AddEffectors(result, sample, modelType, exportContext);
             }
             return result.ToArray();
         }
@@ -113,16 +118,15 @@ namespace KimodoBridge
             List<KimodoConstraintInternal> result,
             KimodoMarkerSampleResult sample,
             KimodoConstraintRigType modelType,
-            KimodoConstraintExportContext exportContext,
-            KimodoConstraintMask channels)
+            KimodoConstraintExportContext exportContext)
         {
-            if (channels.leftHand)
+            if (KimodoConstraintMask.IsActive(sample, "lefthand"))
                 result.Add(new KimodoEndEffectorConstraintInternal(sample, modelType, exportContext, "left-hand"));
-            if (channels.rightHand)
+            if (KimodoConstraintMask.IsActive(sample, "righthand"))
                 result.Add(new KimodoEndEffectorConstraintInternal(sample, modelType, exportContext, "right-hand"));
-            if (channels.leftFoot)
+            if (KimodoConstraintMask.IsActive(sample, "leftfoot"))
                 result.Add(new KimodoEndEffectorConstraintInternal(sample, modelType, exportContext, "left-foot"));
-            if (channels.rightFoot)
+            if (KimodoConstraintMask.IsActive(sample, "rightfoot"))
                 result.Add(new KimodoEndEffectorConstraintInternal(sample, modelType, exportContext, "right-foot"));
         }
 
