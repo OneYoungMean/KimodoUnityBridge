@@ -261,15 +261,15 @@ namespace KimodoBridge.Editor
                 ? Handles.SphereHandleCap
                 : Handles.CubeHandleCap;
 
+            // Keep the control hot in AutoSample too. The first drag is the
+            // explicit transition to authored/manual data; the callback owns
+            // disabling AutoSample and persisting the sampled pose.
             EditorGUI.BeginChangeCheck();
             Vector3 moved = Handles.FreeMoveHandle(position, size, Vector3.zero, cap);
-            Quaternion rotated = Handles.RotationHandle(rotation, moved);
             if (EditorGUI.EndChangeCheck())
             {
-                bool rotationChanged = Quaternion.Angle(rotated, rotation) > 1e-4f;
                 value.position = moved;
-                value.rotation = rotated;
-                PromoteHandleChannel(entry.SampleData, bone, rotationChanged);
+                PromoteHandleChannel(entry.SampleData, bone, rotationChanged: false);
                 entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
             }
 

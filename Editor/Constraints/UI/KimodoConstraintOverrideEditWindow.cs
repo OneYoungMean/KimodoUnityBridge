@@ -275,16 +275,6 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            if (!sceneDragActive &&
-                (Tools.current == Tool.Move || Tools.current == Tool.Transform) &&
-                KimodoConstraintPoseCache.IsNonRootPoseTransform(
-                    context,
-                    editEntryId,
-                    Selection.activeTransform))
-            {
-                Tools.current = Tool.Rotate;
-            }
-
             if (!sceneDragActive && refreshSceneAfterDrag)
             {
                 if (KimodoConstraintSelectionPreviewTool.TryRenderEditPreview(marker, context, out string poseError))
