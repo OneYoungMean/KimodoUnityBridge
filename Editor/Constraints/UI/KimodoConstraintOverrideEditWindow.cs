@@ -26,8 +26,6 @@ namespace KimodoBridge.Editor
         private bool timelineLockCaptured;
         private bool previousTimelineLockState;
         private bool sceneDragActive;
-        private bool pendingEndEffectorWriteback;
-        private bool pendingRootWriteback;
         private int sceneDragUndoGroup = -1;
         private bool collapseSceneDragUndo;
         private bool refreshSceneAfterDrag;
@@ -112,7 +110,6 @@ namespace KimodoBridge.Editor
                 if (TryGetEditContext(out PoseCacheRenderContext context, out _))
                 {
                     KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                    KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
                     FocusSelectionOnEditTarget(context, editEntryId);
                 }
             }
@@ -179,8 +176,6 @@ namespace KimodoBridge.Editor
             hasEditContext = false;
             editEntryId = string.Empty;
             sceneDragActive = false;
-            pendingEndEffectorWriteback = false;
-            pendingRootWriteback = false;
             invalidContext = false;
             invalidContextError = string.Empty;
             editSceneCaptured = false;
@@ -264,7 +259,6 @@ namespace KimodoBridge.Editor
                     lastRenderedMarkerTime = marker.time;
                     lastRenderedAutoSample = marker.autoSample;
                     KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                    KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
                     lastError = string.Empty;
                 }
                 else
@@ -280,7 +274,6 @@ namespace KimodoBridge.Editor
                 if (KimodoConstraintSelectionPreviewTool.TryRenderEditPreview(marker, context, out string poseError))
                 {
                     KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                    RestoreEndEffectorTargetSelection(context, editEntryId);
                     lastError = string.Empty;
                 }
                 else
@@ -362,7 +355,6 @@ namespace KimodoBridge.Editor
                     KimodoConstraintSelectionPreviewTool.TryRenderEditPreview(marker, context, out poseError);
                 if (rendered)
                 {
-                    KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
                     lastError = string.Empty;
                 }
                 else
@@ -455,7 +447,6 @@ namespace KimodoBridge.Editor
 
             hasEditContext = true;
             KimodoConstraintPoseCache.SetGroupState(editContext, visible: true, selectable: true);
-            KimodoConstraintPoseCache.ClearTransformChanges(editContext, editEntryId);
             FocusSelectionOnEditTarget(editContext, editEntryId);
         }
 
@@ -542,82 +533,7 @@ namespace KimodoBridge.Editor
         {
             // Handles write the marker's SampleResult directly. There is no
             // Transform-cache commit phase anymore.
-            pendingEndEffectorWriteback = false;
-            pendingRootWriteback = false;
             CollapseSceneDragUndo();
-        }
-
-        private void WriteBackPoseChanges(PoseCacheRenderContext context)
-        {
-            return;
-#pragma warning disable CS0162
-            // AutoSample is a read-only projection: Timeline -> SampleResult ->
-            // target skeleton -> rig. Only authored (non-auto) markers may
-            // write world-space rig edits back into SampleResult.
-            if (invalidContext || marker == null) return;
-            if (marker.autoSample)
-            {
-                pendingEndEffectorWriteback = false;
-                pendingRootWriteback = false;
-                if (TryGetEditContext(out PoseCacheRenderContext readOnlyContext, out _))
-                {
-                    KimodoConstraintPoseCache.ClearTransformChanges(readOnlyContext, editEntryId);
-                }
-                return;
-            }
-            if (!TryGetEditContext(out PoseCacheRenderContext resolvedContext, out _)) return;
-            EnsureSceneDragUndo();
-            string sampleError = string.Empty;
-            if (KimodoConstraintPoseCache.TryBuildSampleFromContext(
-                    resolvedContext,
-                    editEntryId,
-                    marker.ConstraintType,
-                    marker.time,
-                    out KimodoMarkerSampleResult sample,
-                    out sampleError))
-            {
-                if (sample.effectors != null)
-                {
-                    selectedConstraint.SetEffectors(sample.effectors);
-                }
-                KimodoConstraintPoseCache.EnableChangedConstraintChannels(resolvedContext, editEntryId, sample);
-                if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
-                        marker,
-                        sample,
-                        out string writeError,
-                        writeSampledCharacterPose: true))
-                {
-                    lastError = string.IsNullOrWhiteSpace(writeError) ? "marker writeback failed." : writeError;
-                }
-                else
-                {
-                    // Rebuilding the cache during an active Scene drag would
-                    // recreate the target and reset the handle mid-drag.
-                    string poseError = string.Empty;
-                    if (sceneDragActive ||
-                        KimodoConstraintSelectionPreviewTool.TryRenderEditPreview(marker, resolvedContext, out poseError))
-                    {
-                        KimodoConstraintPoseCache.SetGroupState(resolvedContext, visible: true, selectable: true);
-                        RestoreEndEffectorTargetSelection(resolvedContext, editEntryId);
-                        lastError = string.Empty;
-                        refreshSceneAfterDrag |= sceneDragActive;
-                    }
-                    else
-                    {
-                        lastError = string.IsNullOrWhiteSpace(poseError) ? "pose preview update failed." : poseError;
-                    }
-                }
-            }
-            else if (!string.IsNullOrWhiteSpace(sampleError))
-            {
-                lastError = sampleError;
-            }
-
-            EditorUtility.SetDirty(marker);
-            KimodoConstraintPoseCache.ClearTransformChanges(resolvedContext, editEntryId);
-            pendingEndEffectorWriteback = false;
-            pendingRootWriteback = false;
-#pragma warning restore CS0162
         }
 
         private void EnsureSceneDragUndo()
@@ -721,8 +637,6 @@ namespace KimodoBridge.Editor
             sceneDragActive = false;
             CollapseSceneDragUndo();
             refreshSceneAfterDrag = false;
-            pendingEndEffectorWriteback = false;
-            pendingRootWriteback = false;
             DestroyEditPreview();
             Repaint();
             SceneView.RepaintAll();
@@ -825,17 +739,6 @@ namespace KimodoBridge.Editor
                 KimodoConstraintPoseCache.SetGroupState(window.editContext, visible: true, selectable: true);
                 FocusSelectionOnEditTarget(window.editContext, window.editEntryId);
             };
-        }
-
-        private static void RestoreEndEffectorTargetSelection(
-            PoseCacheRenderContext context,
-            string entryId)
-        {
-            if (KimodoConstraintPoseCache.TryGetEndEffectorTarget(context, entryId, out GameObject target) &&
-                target != null)
-            {
-                Selection.activeGameObject = target;
-            }
         }
 
     }

@@ -36,29 +36,6 @@ namespace KimodoBridge
             return normalized;
         }
 
-        private static KimodoUnityBridge.KimodoRigidTransform CloneTransform(
-            KimodoUnityBridge.KimodoRigidTransform value)
-        {
-            return value != null ? value.Clone() : new KimodoUnityBridge.KimodoRigidTransform();
-        }
-
-        private static string ResolveFixedEndEffectorJointName(string constraintType)
-        {
-            switch ((constraintType ?? string.Empty).Trim().ToLowerInvariant())
-            {
-                case "left-hand":
-                    return "LeftHand";
-                case "right-hand":
-                    return "RightHand";
-                case "left-foot":
-                    return "LeftFoot";
-                case "right-foot":
-                    return "RightFoot";
-                default:
-                    return string.Empty;
-            }
-        }
-
         public static bool TryNormalizeConstraintMarkerSample(
             KimodoConstraintMarker marker,
             KimodoMarkerSampleResult sample,
@@ -119,14 +96,6 @@ namespace KimodoBridge
             double frameRate)
         {
             return KimodoConstraintSampleComposer.MergeAsUnifiedSamples(samples, frameRate);
-        }
-
-        private static void CopyTransform(
-            KimodoUnityBridge.KimodoRigidTransform source,
-            KimodoUnityBridge.KimodoRigidTransform destination)
-        {
-            destination.t = source.t;
-            destination.q = source.q;
         }
 
         public static List<string> BuildHighlightJointsForConstraint(

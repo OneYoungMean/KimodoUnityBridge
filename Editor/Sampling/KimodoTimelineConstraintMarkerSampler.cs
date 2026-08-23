@@ -82,7 +82,7 @@ namespace KimodoBridge.Editor
             sample = null;
             float timelineFrameRate = ResolveTimelineFrameRate(context);
             double exactTimelineTime = Math.Max(0.0, timelineTime);
-            double timelineSampleTime = ResolveTimelineSampleTime(exactTimelineTime, timelineFrameRate);
+            int timelineSampleFrame = ResolveTimelineSampleFrame(exactTimelineTime, timelineFrameRate);
             if (!KimodoTimelineSamplingSession.TryCreate(
                     context,
                     modelName,
@@ -93,8 +93,8 @@ namespace KimodoBridge.Editor
             }
             try
             {
-                if (!sampler.TryCaptureTargetBoneSamples(
-                        new[] { timelineSampleTime },
+                if (!sampler.TryCaptureTargetBoneSamplesAtFrames(
+                        new[] { timelineSampleFrame },
                         timelineFrameRate,
                         out BoneSample[] targetSamples,
                         out error) ||
@@ -426,6 +426,35 @@ namespace KimodoBridge.Editor
                 writebackClip);
         }
 
+        internal bool TryCaptureTargetBoneSamplesAtFrames(
+            IReadOnlyList<int> timelineFrames,
+            float frameRate,
+            out BoneSample[] samples,
+            out string error,
+            Func<AnimationClip, string, string> writebackClip = null)
+        {
+            if (timelineFrames == null)
+            {
+                samples = null;
+                error = "Timeline sample frames are null.";
+                return false;
+            }
+
+            var timelineTimes = new double[timelineFrames.Count];
+            for (int i = 0; i < timelineFrames.Count; i++)
+            {
+                timelineTimes[i] = KimodoTimelinePreviewRefreshUtility.TimelineFrameToTime(
+                    Math.Max(0, timelineFrames[i]),
+                    frameRate);
+            }
+            return TryCaptureTargetBoneSamples(
+                timelineTimes,
+                frameRate,
+                out samples,
+                out error,
+                writebackClip);
+        }
+
         private static bool TryBuildSourceBoneTransforms(
             Transform sourceRoot,
             RetargetSkeleton sourceSamplingCache,
@@ -746,15 +775,8 @@ namespace KimodoBridge.Editor
                         markerSampleIndices[i] = sampleIndex;
                     }
 
-                    var timelineTimes = new double[uniqueFrames.Count];
-                    for (int i = 0; i < uniqueFrames.Count; i++)
-                    {
-                        timelineTimes[i] = KimodoTimelinePreviewRefreshUtility.TimelineFrameToTime(
-                            uniqueFrames[i],
-                            frameRate);
-                    }
-                    if (!sampler.TryCaptureTargetBoneSamples(
-                            timelineTimes,
+                    if (!sampler.TryCaptureTargetBoneSamplesAtFrames(
+                            uniqueFrames,
                             frameRate,
                             out BoneSample[] targetSamples,
                             out error))
