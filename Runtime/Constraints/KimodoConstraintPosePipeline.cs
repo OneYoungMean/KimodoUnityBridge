@@ -8,7 +8,7 @@ namespace KimodoBridge
 {
     /// <summary>
     /// One canonical constraint pose path shared by preview and protocol
-    /// projection: FK, complete world root override, then SampleResult IK
+    /// projection: FK, complete world hips override, then SampleResult IK
     /// targets. Root2D is projected only at its protocol boundary.
     /// </summary>
     internal static class KimodoConstraintPosePipeline
@@ -42,11 +42,6 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!TryApplyRootOverride(sample, cache, out error))
-            {
-                return false;
-            }
-
             if (!KimodoConstraintIkSolver.TryApply(sample, frameRate, cache, out error))
             {
                 return false;
@@ -64,37 +59,6 @@ namespace KimodoBridge
             return true;
         }
 
-        private static bool TryApplyRootOverride(
-            KimodoMarkerSampleResult sample,
-            RetargetSkeleton cache,
-            out string error)
-        {
-            error = string.Empty;
-            // The field was renamed from root2DOverride with a serialization
-            // migration, but stores the complete world hips override. Do not
-            // apply Root2D's XZ/Y projection in the pose pipeline.
-            if (sample.enableMask?.root2DPosition != true ||
-                sample.rootOverride == null)
-            {
-                return true;
-            }
-
-            Transform hips = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(
-                cache,
-                HumanBodyBones.Hips);
-            Transform root = cache.skeletonRoot;
-            if (hips == null || root == null)
-            {
-                error = "Constraint root override requires Hips and skeleton root transforms.";
-                return false;
-            }
-
-            Quaternion desiredRotation = sample.rootOverride.q.normalized;
-            Quaternion deltaRotation = desiredRotation * Quaternion.Inverse(hips.rotation);
-            root.rotation = (deltaRotation * root.rotation).normalized;
-            root.position += sample.rootOverride.t - hips.position;
-            return true;
-        }
     }
 
     /// <summary>
@@ -105,6 +69,10 @@ namespace KimodoBridge
     {
         private struct SolveJob : IAnimationJob
         {
+            public bool solveHips;
+            public TransformStreamHandle hipsHandle;
+            public Vector3 hipsPosition;
+            public Quaternion hipsRotation;
             public bool solveLeftHand;
             public bool solveRightHand;
             public bool solveLeftFoot;
@@ -128,6 +96,11 @@ namespace KimodoBridge
                 }
 
                 AnimationHumanStream human = stream.AsHuman();
+                if (solveHips)
+                {
+                    hipsHandle.SetPosition(stream, hipsPosition);
+                    hipsHandle.SetRotation(stream, hipsRotation);
+                }
                 ApplyGoal(human, AvatarIKGoal.LeftHand, solveLeftHand,
                     leftHandPosition, leftHandRotation);
                 ApplyGoal(human, AvatarIKGoal.RightHand, solveRightHand,
@@ -169,11 +142,6 @@ namespace KimodoBridge
             out string error)
         {
             error = string.Empty;
-            if (!TryBuildJob(sample, cache, out SolveJob job, out bool any, out error) || !any)
-            {
-                return string.IsNullOrEmpty(error);
-            }
-
             BoneSample input = KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
             if (!KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
                     new[] { input },
@@ -200,6 +168,11 @@ namespace KimodoBridge
                         out error))
                 {
                     return false;
+                }
+
+                if (!TryBuildJob(sample, cache, out SolveJob job, out bool any, out error) || !any)
+                {
+                    return string.IsNullOrEmpty(error);
                 }
 
                 cache.skeletonRoot.SetPositionAndRotation(rootPosition, rootRotation);
@@ -262,24 +235,42 @@ namespace KimodoBridge
             job = default;
             any = false;
             error = string.Empty;
-            if (sample?.effectors == null || cache == null)
+            if (sample == null || cache == null)
             {
                 return true;
             }
 
             KimodoSampleChannelMask mask = sample.enableMask;
+            if (mask?.root2DPosition == true && sample.rootOverride != null)
+            {
+                Transform hips = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(
+                    cache,
+                    HumanBodyBones.Hips);
+                if (hips == null || cache.animator == null)
+                {
+                    error = "Constraint root override requires an Animator Hips transform.";
+                    return false;
+                }
+
+                job.solveHips = true;
+                job.hipsHandle = cache.animator.BindStreamTransform(hips);
+                job.hipsPosition = sample.rootOverride.t;
+                job.hipsRotation = sample.rootOverride.q.normalized;
+                any = true;
+            }
+
             any |= job.solveLeftHand = mask?.leftHandEffector == true;
             any |= job.solveRightHand = mask?.rightHandEffector == true;
             any |= job.solveLeftFoot = mask?.leftFootEffector == true;
             any |= job.solveRightFoot = mask?.rightFootEffector == true;
 
-            if (!TryResolveTarget(sample.effectors.leftHand, job.solveLeftHand, cache,
+            if (!TryResolveTarget(sample.effectors?.leftHand, job.solveLeftHand, cache,
                     HumanBodyBones.LeftHand, false, out job.leftHandPosition, out job.leftHandRotation, out error) ||
-                !TryResolveTarget(sample.effectors.rightHand, job.solveRightHand, cache,
+                !TryResolveTarget(sample.effectors?.rightHand, job.solveRightHand, cache,
                     HumanBodyBones.RightHand, false, out job.rightHandPosition, out job.rightHandRotation, out error) ||
-                !TryResolveTarget(sample.effectors.leftFoot, job.solveLeftFoot, cache,
+                !TryResolveTarget(sample.effectors?.leftFoot, job.solveLeftFoot, cache,
                     HumanBodyBones.LeftFoot, true, out job.leftFootPosition, out job.leftFootRotation, out error) ||
-                !TryResolveTarget(sample.effectors.rightFoot, job.solveRightFoot, cache,
+                !TryResolveTarget(sample.effectors?.rightFoot, job.solveRightFoot, cache,
                     HumanBodyBones.RightFoot, true, out job.rightFootPosition, out job.rightFootRotation, out error))
             {
                 return false;
