@@ -261,23 +261,16 @@ namespace KimodoBridge.Editor
                 ? Handles.SphereHandleCap
                 : Handles.CubeHandleCap;
 
-            if (!entry.AutoSample)
+            EditorGUI.BeginChangeCheck();
+            Vector3 moved = Handles.FreeMoveHandle(position, size, Vector3.zero, cap);
+            Quaternion rotated = Handles.RotationHandle(rotation, moved);
+            if (EditorGUI.EndChangeCheck())
             {
-                EditorGUI.BeginChangeCheck();
-                Vector3 moved = Handles.FreeMoveHandle(position, size, Vector3.zero, cap);
-                Quaternion rotated = Handles.RotationHandle(rotation, moved);
-                if (EditorGUI.EndChangeCheck())
-                {
-                    bool rotationChanged = Quaternion.Angle(rotated, rotation) > 1e-4f;
-                    value.position = moved;
-                    value.rotation = rotated;
-                    PromoteHandleChannel(entry.SampleData, bone, rotationChanged);
-                    entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
-                }
-            }
-            else
-            {
-                cap(0, position, rotation, size, EventType.Repaint);
+                bool rotationChanged = Quaternion.Angle(rotated, rotation) > 1e-4f;
+                value.position = moved;
+                value.rotation = rotated;
+                PromoteHandleChannel(entry.SampleData, bone, rotationChanged);
+                entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
             }
 
             Handles.Label(position + Vector3.up * size, label);

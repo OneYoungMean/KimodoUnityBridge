@@ -108,10 +108,20 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
                 Visible = true,
                 OnSampleChanged = changedSample =>
                 {
-                    if (marker.autoSample || changedSample == null) return;
+                    if (changedSample == null) return;
+                    bool switchedFromAutoSample = marker.autoSample;
                     Undo.RecordObject(marker, "Edit Kimodo Constraint Handle");
+                    if (switchedFromAutoSample)
+                    {
+                        marker.autoSample = false;
+                        SceneView.lastActiveSceneView?.ShowNotification(
+                            new GUIContent("Auto Sample 已关闭；重新勾选 Auto Sample 可恢复自动采样。"));
+                    }
                     if (KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
-                            marker, changedSample, out _))
+                            marker,
+                            changedSample,
+                            out _,
+                            writeSampledCharacterPose: switchedFromAutoSample))
                     {
                         KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
                     }
