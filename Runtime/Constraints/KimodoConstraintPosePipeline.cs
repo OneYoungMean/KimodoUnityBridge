@@ -194,7 +194,6 @@ namespace KimodoBridge
                 output.SetSourcePlayable(ikPlayable);
                 graph.Play();
                 graph.Evaluate(0f);
-                cache.skeletonRoot.SetPositionAndRotation(rootPosition, rootRotation);
                 solved = KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
             }
             catch (Exception ex)
