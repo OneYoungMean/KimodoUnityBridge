@@ -117,13 +117,13 @@ namespace KimodoBridge
             result.validMask.rootHeading = true;
 
             CaptureEffector(cache, HumanBodyBones.LeftHand, result.effectors.leftHand,
-                result.enableMask, result.validMask, 0, rotationMode: 0);
+                result.enableMask, result.validMask, 0);
             CaptureEffector(cache, HumanBodyBones.RightHand, result.effectors.rightHand,
-                result.enableMask, result.validMask, 1, rotationMode: 0);
+                result.enableMask, result.validMask, 1);
             CaptureEffector(cache, HumanBodyBones.LeftFoot, result.effectors.leftFoot,
-                result.enableMask, result.validMask, 2, rotationMode: 1);
+                result.enableMask, result.validMask, 2);
             CaptureEffector(cache, HumanBodyBones.RightFoot, result.effectors.rightFoot,
-                result.enableMask, result.validMask, 3, rotationMode: 1);
+                result.enableMask, result.validMask, 3);
         }
 
         private static void CaptureEffector(
@@ -132,13 +132,12 @@ namespace KimodoBridge
             KimodoRigidTransform target,
             KimodoConstraintMask enableMask,
             KimodoConstraintMask validMask,
-            int index,
-            int rotationMode)
+            int index)
         {
             if (cache != null && cache.GetBonePose(bone, out Vector3 position, out Quaternion rotation))
             {
                 target.t = position;
-                target.q = ResolveEffectorTransportRotation(cache, bone, rotation, rotationMode);
+                target.q = ResolveEffectorTransportRotation(cache, bone, rotation);
             }
             else
             {
@@ -157,28 +156,16 @@ namespace KimodoBridge
         internal static Quaternion ResolveEffectorTransportRotation(
             RetargetSkeleton cache,
             HumanBodyBones bone,
-            Quaternion currentWorld,
-            int rotationMode)
+            Quaternion currentWorld)
         {
             if (cache == null || !cache.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
             {
                 return currentWorld;
             }
 
-            if (rotationMode == 1)
-            {
-                // Foot q is the final rotation sent directly to IKGoal.
-                return currentWorld * Quaternion.Inverse(initialWorld);
-            }
-
-            if (cache.skeletonRoot == null)
-            {
-                return currentWorld * Quaternion.Inverse(initialWorld);
-            }
-
-            Quaternion currentInRoot = Quaternion.Inverse(cache.skeletonRoot.rotation) * currentWorld;
-            // Hand q is the final rotation sent directly to IKGoal.
-            return currentInRoot * Quaternion.Inverse(initialWorld);
+            // This world-space delta is the final rotation sent directly to
+            // AnimationHumanStream.SetGoalRotation for every effector.
+            return currentWorld * Quaternion.Inverse(initialWorld);
         }
 
         private static KimodoMarkerSampleResult CreateSampleShell(

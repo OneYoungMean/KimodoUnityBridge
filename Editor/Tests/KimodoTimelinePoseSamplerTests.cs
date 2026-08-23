@@ -1024,12 +1024,7 @@ namespace KimodoBridge.Editor.Tests
                         cache,
                         out _,
                         out MuscleSample solved,
-                        out error,
-                        includeLeftHandEffector: goal == AvatarIKGoal.LeftHand,
-                        includeRightHandEffector: goal == AvatarIKGoal.RightHand,
-                        includeFootEffectors: goal == AvatarIKGoal.LeftFoot || goal == AvatarIKGoal.RightFoot,
-                        includeLeftFootEffector: goal == AvatarIKGoal.LeftFoot,
-                        includeRightFootEffector: goal == AvatarIKGoal.RightFoot),
+                        out error),
                     Is.True,
                     error);
                 Assert.That(solved, Is.Not.Null);
@@ -1092,12 +1087,7 @@ namespace KimodoBridge.Editor.Tests
                         cache,
                         out _,
                         out MuscleSample solved,
-                        out error,
-                        includeLeftHandEffector: true,
-                        includeRightHandEffector: true,
-                        includeFootEffectors: true,
-                        includeLeftFootEffector: true,
-                        includeRightFootEffector: true),
+                        out error),
                     Is.True,
                     error);
 

@@ -243,14 +243,8 @@ namespace KimodoBridge
             ClipSamplingMode samplingMode,
             out ClipSamplingContext context,
             out string error,
-            bool applyMotionXToDelta = true,
-            bool includeLeftHandEffector = false,
-            bool includeRightHandEffector = false,
-            bool includeLeftFootEffector = false,
-            bool includeRightFootEffector = false)
+            bool applyMotionXToDelta = true)
         {
-            // Compatibility flags remain accepted at this boundary; sampling is
-            // intentionally FK-only and never consumes external IK targets.
             return TryBuildClipSamplingContext(
                 clip,
                 cache,
@@ -258,12 +252,7 @@ namespace KimodoBridge
                 samplingMode,
                 out context,
                 out error,
-                applyMotionXToDelta,
-                includeFootEffectors: false,
-                includeLeftHandEffector: false,
-                includeRightHandEffector: false,
-                includeLeftFootEffector: false,
-                includeRightFootEffector: false);
+                applyMotionXToDelta);
         }
 
         internal static bool TryBuildClipSamplingContext(
@@ -273,12 +262,7 @@ namespace KimodoBridge
             ClipSamplingMode samplingMode,
             out ClipSamplingContext context,
             out string error,
-            bool applyMotionXToDelta = true,
-            bool includeFootEffectors = false,
-            bool includeLeftHandEffector = false,
-            bool includeRightHandEffector = false,
-            bool includeLeftFootEffector = false,
-            bool includeRightFootEffector = false)
+            bool applyMotionXToDelta = true)
         {
             context = null;
             error = string.Empty;
@@ -605,12 +589,7 @@ namespace KimodoBridge
             RetargetSkeleton targetCache,
             out BoneSample targetSample,
             out MuscleSample targetMuscleSample,
-            out string error,
-            bool includeLeftHandEffector = false,
-            bool includeRightHandEffector = false,
-            bool includeFootEffectors = false,
-            bool includeLeftFootEffector = false,
-            bool includeRightFootEffector = false)
+            out string error)
         {
             targetSample = null;
             targetMuscleSample = null;
@@ -664,12 +643,7 @@ namespace KimodoBridge
             RetargetSkeleton sourceCache,
             out BoneSample solvedBoneSample,
             out MuscleSample solvedMuscleSample,
-            out string error,
-            bool includeLeftHandEffector = false,
-            bool includeRightHandEffector = false,
-            bool includeFootEffectors = false,
-            bool includeLeftFootEffector = false,
-            bool includeRightFootEffector = false)
+            out string error)
         {
             solvedBoneSample = null;
             solvedMuscleSample = null;

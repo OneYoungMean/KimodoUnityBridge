@@ -1976,8 +1976,7 @@ namespace KimodoBridge.Editor
             Quaternion transport = KimodoRetargetMarkerSamplingUtility.ResolveEffectorTransportRotation(
                 entry.TargetCache,
                 bone,
-                bodyPart.rotation,
-                bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot ? 1 : 0);
+                bodyPart.rotation);
             // The handle uses the same effector coordinate that is serialized
             // and sent directly to AnimationHumanStream.SetGoalRotation.
             return transport;
