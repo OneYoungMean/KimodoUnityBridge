@@ -63,10 +63,10 @@ namespace KimodoBridge.Editor
             window.Show();
             window.Focus();
             KimodoConstraintSelectionPreviewTool.ForceRefresh();
-            if (marker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out _))
+            if (window.hasEditContext)
             {
-                KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                FocusSelectionOnEditTarget(context, window.editEntryId);
+                KimodoConstraintPoseCache.SetGroupState(window.editContext, visible: true, selectable: true);
+                FocusSelectionOnEditTarget(window.editContext, window.editEntryId);
             }
             QueuePreviewFocus(window, marker);
         }
@@ -140,15 +140,6 @@ namespace KimodoBridge.Editor
                 KimodoConstraintPoseCache.SetGroupState(editContext, visible: false, selectable: false);
             }
             DestroyEditPreview();
-            if (!hasEditContext && !invalidContext &&
-                restoreMarker != null &&
-                KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(
-                    restoreMarker,
-                    out PoseCacheRenderContext restoreContext,
-                    out _))
-            {
-                KimodoConstraintPoseCache.DestroyContext(restoreContext);
-            }
             RestoreTimelineWindowLock();
             // The Timeline preview must remain enabled after the override
             // window closes so the authored result stays visible in the scene.
@@ -265,7 +256,7 @@ namespace KimodoBridge.Editor
                     KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(
                         marker, forceRefresh: true, out sampleError);
                 if (sampleReady &&
-                    KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(
+                    KimodoConstraintSelectionPreviewTool.TryRefreshEditPreview(
                         marker, context, out poseError))
                 {
                     lastRenderedMarkerTime = marker.time;
@@ -326,7 +317,7 @@ namespace KimodoBridge.Editor
 
             if (!sceneDragActive && refreshSceneAfterDrag)
             {
-                if (KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out string poseError))
+                if (KimodoConstraintSelectionPreviewTool.TryRefreshEditPreview(marker, context, out string poseError))
                 {
                     KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
                     RestoreEndEffectorTargetSelection(context, editEntryId);
@@ -413,7 +404,7 @@ namespace KimodoBridge.Editor
             {
                 string poseError = string.Empty;
                 bool rendered = TryGetEditContext(out PoseCacheRenderContext context, out poseError) &&
-                    KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out poseError);
+                    KimodoConstraintSelectionPreviewTool.TryRefreshEditPreview(marker, context, out poseError);
                 if (rendered)
                 {
                     KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
@@ -471,22 +462,19 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            editEntryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(target);
-            if (!KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(target, out editContext, out string contextError))
-            {
-                lastError = contextError;
-                return;
-            }
-
-            hasEditContext = true;
             lastRenderedMarkerTime = target.time;
             lastRenderedAutoSample = target.autoSample;
-            if (!KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(target, editContext, out string renderError))
+            if (!KimodoConstraintSelectionPreviewTool.TryBeginEditPreview(
+                    target,
+                    out editContext,
+                    out editEntryId,
+                    out string renderError))
             {
                 lastError = renderError;
                 return;
             }
 
+            hasEditContext = true;
             KimodoConstraintPoseCache.SetGroupState(editContext, visible: true, selectable: true);
             KimodoConstraintPoseCache.ClearTransformChanges(editContext, editEntryId);
             FocusSelectionOnEditTarget(editContext, editEntryId);
@@ -629,7 +617,7 @@ namespace KimodoBridge.Editor
                     // recreate the target and reset the handle mid-drag.
                     string poseError = string.Empty;
                     if (sceneDragActive ||
-                        KimodoConstraintMarkerEditorUtility.TryRenderMarkerToPoseCache(marker, context, out poseError))
+                        KimodoConstraintSelectionPreviewTool.TryRefreshEditPreview(marker, context, out poseError))
                     {
                         KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
                         RestoreEndEffectorTargetSelection(context, editEntryId);
@@ -768,13 +756,9 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(editEntryId))
+            if (hasEditContext && !string.IsNullOrWhiteSpace(editEntryId))
             {
-                KimodoConstraintPoseCache.DestroyEntry(editContext, editEntryId);
-            }
-            else
-            {
-                KimodoConstraintPoseCache.DestroyContext(editContext);
+                KimodoConstraintSelectionPreviewTool.EndEditPreview(editContext, editEntryId);
             }
 
             hasEditContext = false;
@@ -842,17 +826,14 @@ namespace KimodoBridge.Editor
         {
             EditorApplication.delayCall += () =>
             {
-                if (window == null || window.marker != marker || marker == null || !marker.constraintEnabled ||
-                    !KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(
-                        marker,
-                        out PoseCacheRenderContext context,
-                        out _))
+                if (window == null || window.marker != marker || marker == null ||
+                    !marker.constraintEnabled || !window.hasEditContext)
                 {
                     return;
                 }
 
-                KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                FocusSelectionOnEditTarget(context, window.editEntryId);
+                KimodoConstraintPoseCache.SetGroupState(window.editContext, visible: true, selectable: true);
+                FocusSelectionOnEditTarget(window.editContext, window.editEntryId);
             };
         }
 

@@ -16,6 +16,8 @@ namespace KimodoBridge.Editor
         private const string EntryPrefix = "selection:";
         private static readonly Dictionary<string, PoseCacheRenderContext> RenderedContexts =
             new Dictionary<string, PoseCacheRenderContext>();
+        private static readonly Dictionary<string, EditPreviewRegistration> EditPreviews =
+            new Dictionary<string, EditPreviewRegistration>(StringComparer.Ordinal);
         private static bool refreshQueued;
         private static bool forceRefreshRequested;
 
@@ -41,6 +43,86 @@ namespace KimodoBridge.Editor
         {
             forceRefreshRequested = true;
             ScheduleRefresh();
+        }
+
+        internal static bool TryBeginEditPreview(
+            KimodoConstraintMarker marker,
+            out PoseCacheRenderContext context,
+            out string entryId,
+            out string error)
+        {
+            context = default;
+            entryId = string.Empty;
+            error = string.Empty;
+            if (marker == null)
+            {
+                error = "marker is null";
+                return false;
+            }
+
+            if (!KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(
+                    marker,
+                    out context,
+                    out error))
+            {
+                return false;
+            }
+
+            entryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker);
+            if (EditPreviews.TryGetValue(context.ContextKey, out EditPreviewRegistration previous))
+            {
+                KimodoConstraintPoseCache.DestroyEntry(context, previous.EntryId);
+                EditPreviews.Remove(context.ContextKey);
+            }
+
+            if (!KimodoConstraintMarkerPosePreview.TryRenderMarkerToPoseCache(
+                    marker,
+                    context,
+                    out error))
+            {
+                return false;
+            }
+
+            EditPreviews[context.ContextKey] = new EditPreviewRegistration(context, entryId);
+            return true;
+        }
+
+        internal static bool TryRefreshEditPreview(
+            KimodoConstraintMarker marker,
+            PoseCacheRenderContext context,
+            out string error)
+        {
+            error = string.Empty;
+            if (marker == null)
+            {
+                error = "marker is null";
+                return false;
+            }
+
+            if (!EditPreviews.ContainsKey(context.ContextKey))
+            {
+                error = "edit preview is not registered";
+                return false;
+            }
+
+            return KimodoConstraintMarkerPosePreview.TryRenderMarkerToPoseCache(
+                marker,
+                context,
+                out error);
+        }
+
+        internal static void EndEditPreview(
+            PoseCacheRenderContext context,
+            string entryId)
+        {
+            if (string.IsNullOrWhiteSpace(entryId))
+            {
+                return;
+            }
+
+            KimodoConstraintPoseCache.DestroyEntry(context, entryId);
+            EditPreviews.Remove(context.ContextKey);
+            SceneView.RepaintAll();
         }
 
         private static void Refresh()
@@ -126,6 +208,24 @@ namespace KimodoBridge.Editor
                 KimodoConstraintPoseCache.DestroyEntriesInScope(context.Value, EntryPrefix);
             }
             RenderedContexts.Clear();
+
+            foreach (EditPreviewRegistration edit in EditPreviews.Values)
+            {
+                KimodoConstraintPoseCache.DestroyEntry(edit.Context, edit.EntryId);
+            }
+            EditPreviews.Clear();
+        }
+
+        private sealed class EditPreviewRegistration
+        {
+            internal readonly PoseCacheRenderContext Context;
+            internal readonly string EntryId;
+
+            internal EditPreviewRegistration(PoseCacheRenderContext context, string entryId)
+            {
+                Context = context;
+                EntryId = entryId;
+            }
         }
     }
 }

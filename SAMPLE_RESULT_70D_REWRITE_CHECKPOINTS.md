@@ -654,3 +654,11 @@
 - 已移除：EditorWindow 中旧的 selectedFullBodyTarget、gizmo focus fallback、GetOpenWindow/HasAnyOpenWindow 和 target-selection 兼容状态；窗口只聚焦虚拟角色 Preview 根节点，Scene 写回仍保留。
 - 保持：Inspector 与 EditorWindow 继续共享同一个 payload 绘制入口；AutoSample、Marker Time、Scene drag writeback 的现有行为未重构。
 - 检查：Unity 脚本重编译成功；`git diff --check` 通过。数值字段绑定问题暂按要求未处理。
+
+## CP83 — 合并 Inspector/EditorWindow Preview 生命周期
+
+- 已新增：`KimodoConstraintSelectionPreviewTool` 统一管理 EditWindow Preview 的 begin/refresh/end 生命周期，并登记 edit entry。
+- 已调整：EditorWindow 不再直接调用 PoseCache render/destroy；字段变化、Marker Time/AutoSample 更新、Scene 写回后的重渲染均走统一 Preview coordinator。
+- 已调整：SelectionPreview 清理、场景切换、程序集重载时同时清理 selection entries 与 edit entries，避免 EditorWindow 直接销毁共享 context。
+- 保持：EditorWindow 自己的 Scene drag、Undo、非 AutoSample 写回和 Timeline lock 状态机不变；本批不处理数值字段绑定。
+- 检查：`git diff --check` 通过；独立 batch Unity probe 受已有 Unity 实例锁等待，代码路径已完成引用扫描。
