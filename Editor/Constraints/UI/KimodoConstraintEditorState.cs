@@ -16,6 +16,11 @@ namespace KimodoBridge.Editor
 
         internal static void DrawConstraintPanels(SerializedObject so)
         {
+            DrawConstraintPanels(so, null);
+        }
+
+        internal static void DrawConstraintPanels(SerializedObject so, IMarker marker)
+        {
             if (so == null) return;
 
             SerializedProperty mode = so.FindProperty("constraintMode");
@@ -36,18 +41,18 @@ namespace KimodoBridge.Editor
                 mode,
                 new GUIContent("Constraint Mode", "Only the selected mode is sampled, displayed, and exported."));
 
-            // Root2DOverride is a shared world-space channel.  It must remain
-            // visible while editing FullBody/Effector as well; otherwise the
-            // hips source silently disappears from the unified payload.
-            if ((KimodoConstraintMode)mode.enumValueIndex != KimodoConstraintMode.Root2D)
+            if (marker != null)
             {
-                DrawRoot2DOverride(so);
+                KimodoConstraintMarkerEditorUtility.DrawMarkerTimeField(so, marker);
             }
+
+            // Root2D is part of the canonical constraint payload and remains
+            // visible in every mode, including FullBody and Effector.
+            DrawRoot2D(so);
 
             switch ((KimodoConstraintMode)mode.enumValueIndex)
             {
                 case KimodoConstraintMode.Root2D:
-                    DrawRoot2D(so);
                     break;
                 case KimodoConstraintMode.Effector:
                     DrawEffectors(so, "sampleData");
@@ -62,9 +67,14 @@ namespace KimodoBridge.Editor
         // both surfaces. Keep the visual container and guidance in one place.
         internal static void DrawConstraintPayload(SerializedObject so)
         {
+            DrawConstraintPayload(so, null);
+        }
+
+        internal static void DrawConstraintPayload(SerializedObject so, IMarker marker)
+        {
             if (so == null) return;
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            DrawConstraintPanels(so);
+            DrawConstraintPanels(so, marker);
             EditorGUILayout.HelpBox(
                 "Muscle values are the authoritative body-pose data. Scene target drags write back to the same canonical pose.",
                 MessageType.None);
@@ -91,7 +101,14 @@ namespace KimodoBridge.Editor
             SerializedProperty allowHeading = so.FindProperty("sampleData.enableMask.root2DHeading");
             using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
-                DrawTransform(root, "Root Position / Rotation");
+                if (DrawTransform(root, "Root Position / Rotation"))
+                {
+                    SerializedProperty positionEnabled = so.FindProperty("sampleData.enableMask.root2DPosition");
+                    if (positionEnabled != null)
+                    {
+                        positionEnabled.boolValue = true;
+                    }
+                }
                 if (allowHeading != null)
                 {
                     EditorGUILayout.PropertyField(
@@ -99,20 +116,8 @@ namespace KimodoBridge.Editor
                         new GUIContent("Allow Heading", "Export Root2D heading and use it as FullBody yaw overlay."));
                 }
             }
-            EditorGUILayout.HelpBox("Root2D mode draws only the root marker and exports only root2d.", MessageType.None);
-            EditorGUILayout.EndVertical();
-        }
-
-        private static void DrawRoot2DOverride(SerializedObject so)
-        {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            SerializedProperty root = so.FindProperty("sampleData.root2DOverride");
-            using (new EditorGUI.DisabledScope(IsAutoSample(so)))
-            {
-                DrawTransform(root, "Root Position / Rotation");
-            }
             EditorGUILayout.HelpBox(
-                "Root2DOverride is the world-space hips position/rotation and is applied before effectors.",
+                "Root2D position/rotation is always part of the constraint payload and is applied before mode-specific data.",
                 MessageType.None);
             EditorGUILayout.EndVertical();
         }
@@ -125,91 +130,61 @@ namespace KimodoBridge.Editor
             {
                 DrawMuscleValues(pose);
             }
-            DrawFullBodyEffectors(so, IsAutoSample(so));
+            DrawEffectorPanels(so, "sampleData", "FullBody Effectors", IsAutoSample(so), showEnable: false);
             EditorGUILayout.HelpBox(
                 "FullBody always exports its four effectors with the muscle pose. Dragging a Scene gizmo writes target data and never rewrites muscles.",
                 MessageType.None);
             EditorGUILayout.EndVertical();
         }
 
-        private static void DrawFullBodyEffectors(SerializedObject so, bool autoSample)
-        {
-            EditorGUILayout.LabelField("FullBody Effectors", EditorStyles.boldLabel);
-            DrawFullBodyEffector(so, "leftHand", "Left Hand Effector", autoSample);
-            DrawFullBodyEffector(so, "rightHand", "Right Hand Effector", autoSample);
-            DrawFullBodyEffector(so, "leftFoot", "Left Foot Effector", autoSample);
-            DrawFullBodyEffector(so, "rightFoot", "Right Foot Effector", autoSample);
-        }
-
-        private static void DrawFullBodyEffector(
-            SerializedObject so,
-            string channel,
-            string label,
-            bool autoSample)
-        {
-            SerializedProperty enabled = so.FindProperty("sampleData.enableMask." + channel + "Effector");
-            SerializedProperty transform = so.FindProperty("sampleData.effectors." + channel);
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            if (enabled != null)
-            {
-                EditorGUILayout.PropertyField(enabled, new GUIContent(label + " Enable"));
-            }
-            // Non-AutoSample exposes every authored value, even when a channel
-            // is currently disabled; the enable flag controls export only.
-            using (new EditorGUI.DisabledScope(autoSample))
-            {
-                DrawTransform(transform, "Target Position / Rotation");
-            }
-            EditorGUILayout.EndVertical();
-        }
-
         private static void DrawEffectors(SerializedObject so, string root)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.HelpBox(
-                "Effectors keep the last sampled reference pose when Auto Sample is disabled. Only target channels are editable.",
-                MessageType.None);
-            DrawIkTargetPanels(so, root, "Effectors", IsAutoSample(so));
+            DrawEffectorPanels(so, root, "Effectors", IsAutoSample(so), showEnable: true);
             EditorGUILayout.EndVertical();
         }
 
-        private static void DrawIkTargetPanels(
+        private static void DrawEffectorPanels(
             SerializedObject so,
             string root,
             string label,
-            bool autoSample)
+            bool autoSample,
+            bool showEnable)
         {
             EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
             DrawEndEffectorPanel(
                 so.FindProperty(root + ".effectors.leftHand"),
-                so.FindProperty(root + ".enableMask.leftHandEffector"),
-                "Left Hand Effector", autoSample);
+                showEnable ? so.FindProperty(root + ".enableMask.leftHandEffector") : null,
+                "Left Hand Effector", autoSample, showEnable);
             DrawEndEffectorPanel(
                 so.FindProperty(root + ".effectors.rightHand"),
-                so.FindProperty(root + ".enableMask.rightHandEffector"),
-                "Right Hand Effector", autoSample);
+                showEnable ? so.FindProperty(root + ".enableMask.rightHandEffector") : null,
+                "Right Hand Effector", autoSample, showEnable);
             DrawEndEffectorPanel(
                 so.FindProperty(root + ".effectors.leftFoot"),
-                so.FindProperty(root + ".enableMask.leftFootEffector"),
-                "Left Foot Effector", autoSample);
+                showEnable ? so.FindProperty(root + ".enableMask.leftFootEffector") : null,
+                "Left Foot Effector", autoSample, showEnable);
             DrawEndEffectorPanel(
                 so.FindProperty(root + ".effectors.rightFoot"),
-                so.FindProperty(root + ".enableMask.rightFootEffector"),
-                "Right Foot Effector", autoSample);
+                showEnable ? so.FindProperty(root + ".enableMask.rightFootEffector") : null,
+                "Right Foot Effector", autoSample, showEnable);
         }
 
         private static void DrawEndEffectorPanel(
             SerializedProperty transform,
             SerializedProperty enabled,
             string label,
-            bool autoSample)
+            bool autoSample,
+            bool showEnable)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            if (enabled != null)
+            if (showEnable && enabled != null)
             {
                 EditorGUILayout.PropertyField(enabled, new GUIContent(label + " Enable"));
             }
-            using (new EditorGUI.DisabledScope(autoSample || enabled == null || !enabled.boolValue))
+            // Channel enable controls export in Effector mode; it must not
+            // hide authored values while a non-AutoSample marker is edited.
+            using (new EditorGUI.DisabledScope(autoSample))
             {
                 DrawTransform(transform, "Target Position / Rotation");
             }

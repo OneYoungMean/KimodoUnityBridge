@@ -636,3 +636,12 @@
 - 已修正：FullBody UI 为四个手/脚 effector 分别显示 Enable 开关；非 AutoSample 下所有 position/rotation 字段均可编辑，Enable 仅控制通道导出，AutoSample 继续保持只读。
 - 已补充：SceneView 聚焦在 Unity 域重载期间对暂未初始化 Inspector 的 `NullReferenceException` 安全忽略，保留正常编辑器中的 Hips focus。
 - 检查：`git diff --check` 通过；Unity package probe 已完成脚本重编译且未发现 C# 编译错误（临时项目已有 Unity 实例占用，完整 batch 退出由锁等待）。
+
+## CP81 — 统一 Inspector/编辑窗口 Constraint 面板
+
+- 已修正：Inspector 与 Constraint Edit Window 共用同一个带 marker 参数的 `DrawConstraintPayload`，不再各自维护字段面板。
+- 已统一顺序：`AutoSample → ConstraintMode → Marker Time → Root2D → 模式内容`；两边均显示 `Marker Time (seconds)`。
+- 已修正：Root2D 面板始终显示，位置/旋转在非 AutoSample 下可编辑并写回；编辑时自动确保 Root2D position channel 有效。
+- 已修正：FullBody 显示 muscle values 与四个 effector 的 position/rotation，FullBody 不显示 Enable；Effector 模式才显示每个 effector 的 Enable，且非 AutoSample 下 Enable 不会锁住位置/旋转编辑。
+- 已修正：打开窗口初始 focus 改为 Preview 虚拟角色骨架根节点，避免无渲染边界的 gizmo 导致 SceneView 过度放大。
+- 检查：`git diff --check` 通过；待提交后执行/确认 Unity package 编译。

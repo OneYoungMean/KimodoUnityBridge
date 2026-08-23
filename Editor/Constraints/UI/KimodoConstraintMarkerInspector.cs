@@ -95,7 +95,6 @@ internal abstract class KimodoConstraintStandardMarkerEditorBase : UnityEditor.E
             EditorGUILayout.Space(4f);
 
             DrawCommonHeader(TypeLabel);
-            DrawMarkerTime();
 
             KimodoConstraintMarker markerTarget = target as KimodoConstraintMarker;
             bool windowOpen = KimodoConstraintOverrideEditWindow.IsOpenForMarker(markerTarget);
@@ -128,11 +127,6 @@ internal abstract class KimodoConstraintStandardMarkerEditorBase : UnityEditor.E
             EditorGUILayout.Space(4f);
         }
 
-        private void DrawMarkerTime()
-        {
-            KimodoConstraintMarkerEditorUtility.DrawMarkerTimeField(serializedObject, target as IMarker);
-        }
-
         protected abstract void DrawFields(bool readOnly);
     }
 
@@ -141,12 +135,11 @@ internal abstract class KimodoConstraintStandardMarkerEditorBase : UnityEditor.E
     {
         protected override string TypeLabel => "Constraint";
         protected override string TipText =>
-            "Edit one canonical pose: fixed Root Position/Rotation, FullBody muscle values, and four limb effectors. " +
-            "Root2D overrides remain command-only internal data.";
+            "Edit one canonical pose: Root Position/Rotation, FullBody muscle values, and four limb effectors.";
 
         protected override void DrawFields(bool readOnly)
         {
-            KimodoConstraintEditorState.DrawConstraintPayload(serializedObject);
+            KimodoConstraintEditorState.DrawConstraintPayload(serializedObject, target as IMarker);
         }
     }
 }

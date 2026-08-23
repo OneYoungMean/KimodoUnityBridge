@@ -451,7 +451,7 @@ namespace KimodoBridge.Editor
             var so = new SerializedObject(marker);
             so.Update();
 
-            KimodoConstraintEditorState.DrawConstraintPayload(so);
+            KimodoConstraintEditorState.DrawConstraintPayload(so, marker as IMarker);
 
             if (KimodoConstraintEditorState.ApplyConstraintPanels(so, marker))
             {
@@ -855,6 +855,21 @@ namespace KimodoBridge.Editor
             string entryId,
             HumanBodyBones selectedTarget = HumanBodyBones.LastBone)
         {
+            // The controller gizmos have no renderable bounds, so framing one
+            // can zoom the Scene view to an unusably large scale. Focus the
+            // actual Preview character instead; its hierarchy gives SceneView
+            // meaningful bounds.
+            if (KimodoConstraintPoseCache.TryGetRootBone(context, entryId, out Transform rootBone) &&
+                rootBone != null &&
+                rootBone.gameObject != null)
+            {
+                Selection.activeGameObject = rootBone.gameObject;
+                EditorGUIUtility.PingObject(rootBone.gameObject);
+                Tools.current = Tool.Move;
+                FrameSelectedSceneView();
+                return;
+            }
+
             if (selectedTarget != HumanBodyBones.LastBone &&
                 KimodoConstraintPoseCache.TryGetFullBodyTarget(
                     context,
@@ -898,15 +913,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (!KimodoConstraintPoseCache.TryGetRootBone(context, entryId, out Transform rootBone) ||
-                rootBone == null ||
-                rootBone.gameObject == null)
-            {
-                return;
-            }
-
-            Selection.activeGameObject = rootBone.gameObject;
-            EditorGUIUtility.PingObject(rootBone.gameObject);
+            return;
         }
 
         private static void FrameSelectedSceneView()
