@@ -1,4 +1,4 @@
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using KimodoBridge;
 
 namespace KimodoBridge

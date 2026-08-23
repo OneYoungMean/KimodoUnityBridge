@@ -9,7 +9,7 @@ using UnityEditor.Animations;
 using UnityEngine;
 using UnityEngine.Timeline;
 
-namespace CharacterAnimationCli.Unity.Command
+namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {

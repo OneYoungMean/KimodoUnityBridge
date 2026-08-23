@@ -1,14 +1,14 @@
 ---
-name: character-animation-cli-unity-zh
-description: 通过维护中的 Character Animation CLI Unity 命令发现、生成、分析、比较并迭代人形动画。
+name: kimodo-unity-bridge-zh
+description: 通过维护中的 KimodoUnityBridge 命令发现、生成、分析、比较并迭代人形动画。
 ---
 
-# Character Animation CLI Unity
+# KimodoUnityBridge
 
 使用公开 Editor 入口：
 
 ```csharp
-using CharacterAnimationCli.Unity.Command;
+using KimodoUnityBridge.Command;
 string schema = command_dispatcher.GetCommandDefinitionsJson();
 string result = command_dispatcher.Invoke(commandName, argumentsJson);
 ```

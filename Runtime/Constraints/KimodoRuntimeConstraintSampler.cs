@@ -1,5 +1,5 @@
 using TimelineInject;
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using UnityEngine;
 
 namespace KimodoBridge
@@ -43,7 +43,7 @@ namespace KimodoBridge
                     constraintType,
                     out HumanBodyBones bone))
             {
-                CharacterAnimationCli.Unity.KimodoRigidTransform target = new CharacterAnimationCli.Unity.KimodoRigidTransform
+                KimodoUnityBridge.KimodoRigidTransform target = new KimodoUnityBridge.KimodoRigidTransform
                 {
                     // Effector positions are protocol world coordinates. They
                     // must not be reconstructed from rootTQ or root-local data.
@@ -105,9 +105,9 @@ namespace KimodoBridge
             sample.constraintMode = "root2d";
             sample.enableMask.rootPosition = true;
             sample.validMask.rootPosition = true;
-            sample.rootOverride ??= CharacterAnimationCli.Unity.KimodoRigidTransform.Identity;
+            sample.rootOverride ??= KimodoUnityBridge.KimodoRigidTransform.Identity;
             Quaternion capturedRootRotation = sample.rootOverride.q;
-            sample.rootOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
+            sample.rootOverride = new KimodoUnityBridge.KimodoRigidTransform
             {
                 t = new Vector3(
                     targetWorldPosition.x,

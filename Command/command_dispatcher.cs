@@ -1,4 +1,4 @@
-namespace CharacterAnimationCli.Unity.Command
+namespace KimodoUnityBridge.Command
 {
     /// <summary>
     /// Framework-neutral command discovery and dispatch entry point.

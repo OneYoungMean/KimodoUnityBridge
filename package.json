@@ -1,6 +1,6 @@
 {
-  "name": "com.nvlab.character-animation-cli-unity",
-  "displayName": "Character Animation CLI Unity",
+  "name": "com.unity.kimodo_unity_motion_tools",
+  "displayName": "KimodoUnityBridge",
   "version": "0.1.0",
   "description": "Unity character-animation commands, Timeline authoring, retargeting, and local motion generation",
   "unity": "2022.3",
@@ -22,7 +22,7 @@
   "samples": [
     {
       "displayName": "Light Sample",
-      "description": "Light sample scene and generated clips for Character Animation CLI Unity.",
+      "description": "Light sample scene and generated clips for KimodoUnityBridge.",
       "path": "LightSample~"
     }
   ],

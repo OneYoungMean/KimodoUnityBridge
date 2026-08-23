@@ -2,7 +2,7 @@ using System.Linq;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
-namespace CharacterAnimationCli.Unity.Command.Tests
+namespace KimodoUnityBridge.Command.Tests
 {
     public sealed class CommandVNextTests
     {

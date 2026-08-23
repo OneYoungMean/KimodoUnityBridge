@@ -2300,7 +2300,7 @@ namespace KimodoBridge.Editor.Tests
         {
             var sample = new TimelineInject.KimodoMarkerSampleResult
             {
-                characterPose = new CharacterAnimationCli.Unity.CharacterPose(),
+                characterPose = new KimodoUnityBridge.CharacterPose(),
                 constraintType = "fullbody",
                 sampleTime = 1.0,
             };

@@ -131,7 +131,7 @@ namespace KimodoBridge.Editor
 
             sample = new KimodoMarkerSampleResult
             {
-                root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
+                root2DOverride = new KimodoUnityBridge.KimodoRigidTransform
                 { t = new Vector3(worldPosition.x, 0f, worldPosition.z), q = worldPlanarRotation },
                 constraintMode = "root2d",
                 sampleTime = 0.0,

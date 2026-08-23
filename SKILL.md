@@ -1,14 +1,14 @@
 ---
-name: character-animation-cli-unity
-description: Discover, generate, analyze, compare, and refine humanoid animation through the maintained Character Animation CLI Unity commands.
+name: kimodo-unity-bridge
+description: Discover, generate, analyze, compare, and refine humanoid animation through the maintained KimodoUnityBridge commands.
 ---
 
-# Character Animation CLI Unity
+# KimodoUnityBridge
 
 Use the public Editor entry point:
 
 ```csharp
-using CharacterAnimationCli.Unity.Command;
+using KimodoUnityBridge.Command;
 string schema = command_dispatcher.GetCommandDefinitionsJson();
 string result = command_dispatcher.Invoke(commandName, argumentsJson);
 ```

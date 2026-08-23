@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using KimodoBridge;
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using TimelineInject;
 using UnityEngine;
 
@@ -619,14 +619,14 @@ namespace KimodoBridge.Editor
 
         private static void MergeRoot2DIntoFullBody(
             KimodoMarkerSampleResult fullBody,
-            CharacterAnimationCli.Unity.KimodoRigidTransform root2D)
+            KimodoUnityBridge.KimodoRigidTransform root2D)
         {
             if (fullBody == null || root2D == null)
             {
                 throw new InvalidOperationException("Loop FullBody/Root2D merge requires a world root2D override.");
             }
 
-            fullBody.root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
+            fullBody.root2DOverride = new KimodoUnityBridge.KimodoRigidTransform
             {
                 t = root2D.t,
                 q = root2D.q
@@ -656,7 +656,7 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult sample = source.Clone();
             sample.constraintMode = "root2d";
             sample.sampleTime = sampleTimeSeconds;
-            sample.root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
+            sample.root2DOverride = new KimodoUnityBridge.KimodoRigidTransform
             {
                 t = position,
                 q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(heading)
@@ -678,7 +678,7 @@ namespace KimodoBridge.Editor
 
         private static bool TryGetRoot2D(
             KimodoMarkerSampleResult sample,
-            out CharacterAnimationCli.Unity.KimodoRigidTransform root)
+            out KimodoUnityBridge.KimodoRigidTransform root)
         {
             root = sample?.root2DOverride;
             return KimodoConstraintMask.IsActive(sample, "rootposition");

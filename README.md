@@ -1,4 +1,4 @@
-# Character Animation CLI Unity
+# KimodoUnityBridge
 
 Kimodo adds local AI humanoid animation generation to an existing Unity project. It supports prompt-driven motion, pose and end-effector constraints, analysis, baking, retargeting, Animator content, Timeline authoring, and runtime motion playback.
 
@@ -19,7 +19,7 @@ In Unity Package Manager, choose **Add package from disk** and select this repos
 For a local manifest dependency, use:
 
 ```json
-"com.nvlab.character-animation-cli-unity": "file:C:/nvlab/Character_Animation_CLI_Unity"
+"com.unity.kimodo_unity_motion_tools": "file:C:/nvlab/KimodoUnityBridge"
 ```
 
 ## Minimal start
@@ -33,7 +33,7 @@ Runtime diagnostics are written to `NvlabKimodoQuickServer~/log/setup.log` and `
 
 ## AI agents
 
-Install the package into the target project, then read the English section of [TOOLS.md](TOOLS.md). Discover current commands through `CharacterAnimationCli.Unity.Command.command_dispatcher` and `kimodo_help` before execution.
+Install the package into the target project, then read the English section of [TOOLS.md](TOOLS.md). Discover current commands through `KimodoUnityBridge.Command.command_dispatcher` and `kimodo_help` before execution.
 
 ## Links
 

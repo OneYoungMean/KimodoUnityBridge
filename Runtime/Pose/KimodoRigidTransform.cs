@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace CharacterAnimationCli.Unity
+namespace KimodoUnityBridge
 {
     /// <summary>Minimal position/rotation value with no hierarchy or IK semantics.</summary>
     [Serializable]

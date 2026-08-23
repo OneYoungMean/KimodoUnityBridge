@@ -2,7 +2,7 @@ using System;
 using KimodoBridge;
 using UnityEngine;
 
-namespace CharacterAnimationCli.Unity
+namespace KimodoUnityBridge
 {
     /// <summary>
     /// Canonical Unity pose payload. Its channels have the same meaning as a

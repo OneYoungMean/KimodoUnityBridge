@@ -6,7 +6,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using KimodoBridge;
 using KimodoBridge.Editor;
 using TimelineInject;
@@ -14,7 +14,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Playables;
 
-namespace CharacterAnimationCli.Unity.Command
+namespace KimodoUnityBridge.Command
 {
     /// <summary>
     /// Shared implementation behind the framework-neutral Kimodo command entry points.

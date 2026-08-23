@@ -2,7 +2,7 @@ using System;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
-namespace CharacterAnimationCli.Unity
+namespace KimodoUnityBridge
 {
     public static class CharacterPoseJson
     {

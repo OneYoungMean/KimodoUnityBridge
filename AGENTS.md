@@ -2,7 +2,7 @@
 
 ## Stable rules
 
-- The maintained package is **Character Animation CLI Unity**. The public Editor entry point is `Command/command_dispatcher.cs`.
+- The maintained package is **KimodoUnityBridge**. The public Editor entry point is `Command/command_dispatcher.cs`.
 - Treat `GetCommandDefinitionsJson()`, `kimodo_help`, and returned errors as the command and parameter authority. Runtime behavior outranks prose.
 - Preserve unrelated worktree changes. Modify only files required by the requested task. Do not commit or push unless the user explicitly asks.
 

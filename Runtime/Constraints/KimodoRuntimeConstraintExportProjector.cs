@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using TimelineInject;
 using UnityEngine;
 

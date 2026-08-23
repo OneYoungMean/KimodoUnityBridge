@@ -1,4 +1,4 @@
-namespace CharacterAnimationCli.Unity.Command
+namespace KimodoUnityBridge.Command
 {
     /// <summary>vNext Session lifecycle and content commands.</summary>
     public static class command_session

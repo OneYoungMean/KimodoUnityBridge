@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using KimodoBridge;
 using KimodoBridge.Editor;
 using TimelineInject;
@@ -13,7 +13,7 @@ using UnityEditor.Timeline;
 using UnityEngine;
 using UnityEngine.Timeline;
 
-namespace CharacterAnimationCli.Unity.Command
+namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;

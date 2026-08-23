@@ -1,5 +1,5 @@
 using System;
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using UnityEngine;
 
 namespace KimodoBridge

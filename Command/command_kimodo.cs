@@ -1,4 +1,4 @@
-namespace CharacterAnimationCli.Unity.Command
+namespace KimodoUnityBridge.Command
 {
     /// <summary>vNext Kimodo command facade. command_dispatcher remains the public discovery endpoint.</summary>
     public static class command_kimodo

@@ -344,7 +344,7 @@
 
 ## CP43 — 删除 AutoSample 数据缓存
 
-- 分支：`samplecache-removal`，独立 worktree：`C:\\nvlab\\Character_Animation_CLI_Unity-samplecache-removal`。
+- 分支：`samplecache-removal`，独立 worktree：`C:\\nvlab\\KimodoUnityBridge-samplecache-removal`。
 - 已删除：`AutoSampleCache`、签名快照、缓存命中/失败结果及对应的失效逻辑。
 - 修改：AutoSample 每次刷新都重新走 Timeline 采样入口；`forceRefresh` 仅保留为调用兼容参数，不再控制 AutoSample 数据缓存。
 - 保留：当前采样调用所需的临时 Avatar/骨架实例；它们不是跨刷新数据缓存。

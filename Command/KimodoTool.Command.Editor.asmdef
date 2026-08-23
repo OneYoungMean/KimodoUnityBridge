@@ -1,6 +1,6 @@
 {
     "name": "KimodoTool.Command.Editor",
-    "rootNamespace": "CharacterAnimationCli.Unity.Command",
+    "rootNamespace": "KimodoUnityBridge.Command",
     "references": [
         "GUID:54f114e602d205743a02438efbf668d9",
         "GUID:ff86ae37735575640ba2ef5dc2b53cc9",

@@ -7,13 +7,13 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using KimodoBridge;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
 
-namespace CharacterAnimationCli.Unity.Command
+namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
@@ -1431,7 +1431,7 @@ namespace CharacterAnimationCli.Unity.Command
             int minZ = Mathf.FloorToInt(bounds.min.z / tileSize) - 1;
             int maxZ = Mathf.FloorToInt(bounds.max.z / tileSize) + 1;
             Texture2D gridTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(
-                "Packages/com.nvlab.character-animation-cli-unity/Editor/Model/UVCheckGrid.png")
+                "Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/UVCheckGrid.png")
                 ?? AssetDatabase.LoadAssetAtPath<Texture2D>("Editor/Model/UVCheckGrid.png");
 
             for (int x = minX; x <= maxX; x++)

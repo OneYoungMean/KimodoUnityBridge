@@ -1,6 +1,6 @@
 #if false
 using System.Collections.Generic;
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using TimelineInject;

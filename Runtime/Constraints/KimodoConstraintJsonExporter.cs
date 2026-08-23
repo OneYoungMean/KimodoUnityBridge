@@ -401,7 +401,7 @@ namespace KimodoBridge
                 }
             };
 
-            CharacterAnimationCli.Unity.KimodoRigidTransform goal = ResolveEndEffectorGoal(
+            KimodoUnityBridge.KimodoRigidTransform goal = ResolveEndEffectorGoal(
                 sample,
                 jointType);
             if (goal == null)
@@ -424,7 +424,7 @@ namespace KimodoBridge
             }
         }
 
-        private static CharacterAnimationCli.Unity.KimodoRigidTransform ResolveEndEffectorGoal(
+        private static KimodoUnityBridge.KimodoRigidTransform ResolveEndEffectorGoal(
             KimodoMarkerSampleResult sample,
             string type)
         {

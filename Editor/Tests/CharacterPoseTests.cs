@@ -1,14 +1,14 @@
 #if false
 using System;
 using System.Collections.Generic;
-using CharacterAnimationCli.Unity;
+using KimodoUnityBridge;
 using KimodoBridge;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using TimelineInject;
 using UnityEngine;
 
-namespace CharacterAnimationCli.Unity.Editor.Tests
+namespace KimodoUnityBridge.Editor.Tests
 {
     public sealed class CharacterPoseTests
     {

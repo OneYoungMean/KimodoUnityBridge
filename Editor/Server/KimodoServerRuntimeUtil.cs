@@ -248,7 +248,7 @@ namespace KimodoBridge.Editor
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
                 using (var client = new WebClient())
                 {
-                    client.Headers.Add("User-Agent", "CharacterAnimationCliUnity");
+                    client.Headers.Add("User-Agent", "KimodoUnityBridge");
                     client.DownloadFile(RuntimeRepoArchiveUrl, tempZip);
                 }
 
@@ -425,8 +425,8 @@ namespace KimodoBridge.Editor
             string candidate1 = string.IsNullOrWhiteSpace(resolvedPackagePath)
                 ? string.Empty
                 : Path.GetFullPath(Path.Combine(resolvedPackagePath, "NvlabKimodoQuickServer~"));
-            string candidate2 = Path.GetFullPath(Path.Combine(projectRoot, "Library", "PackageCache", "com.nvlab.character-animation-cli-unity", "NvlabKimodoQuickServer~"));
-            string candidate3 = Path.GetFullPath(Path.Combine(projectRoot, "..", "..", "Character_Animation_CLI_Unity", "NvlabKimodoQuickServer~"));
+            string candidate2 = Path.GetFullPath(Path.Combine(projectRoot, "Library", "PackageCache", "com.unity.kimodo_unity_motion_tools", "NvlabKimodoQuickServer~"));
+            string candidate3 = Path.GetFullPath(Path.Combine(projectRoot, "..", "..", "KimodoUnityBridge", "NvlabKimodoQuickServer~"));
             return Directory.Exists(candidate1)
                 ? candidate1
                 : (Directory.Exists(candidate2) ? candidate2 : candidate3);

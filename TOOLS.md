@@ -1,4 +1,4 @@
-# Character Animation CLI Unity — AI operational contract / AI 操作契约
+# KimodoUnityBridge — AI operational contract / AI 操作契约
 
 Use the live command schema for exact parameters. This document keeps only shared workflow and evidence rules.
 
@@ -6,7 +6,7 @@ Use the live command schema for exact parameters. This document keeps only share
 
 ### 1. Entry and session
 
-Use `CharacterAnimationCli.Unity.Command.command_dispatcher`. Start with `kimodo_help({})`, then `session_get_or_create({"name":"<stable name>"})`. A new Session is empty: add the scene Humanoid with `session_add({"kind":"character",...})`, then add project Clips or Animator content explicitly. Save the returned Session, character, and Clip names exactly.
+Use `KimodoUnityBridge.Command.command_dispatcher`. Start with `kimodo_help({})`, then `session_get_or_create({"name":"<stable name>"})`. A new Session is empty: add the scene Humanoid with `session_add({"kind":"character",...})`, then add project Clips or Animator content explicitly. Save the returned Session, character, and Clip names exactly.
 
 ### 2. Time, immutability, and async generation
 
@@ -48,7 +48,7 @@ Visual status is `passed`, `needs_revision`, or `not_verified`. `passed` require
 
 ### 1. 入口与 Session
 
-使用 `CharacterAnimationCli.Unity.Command.command_dispatcher`。先调用 `kimodo_help({})`，再调用 `session_get_or_create({"name":"<稳定名称>"})`。新 Session 为空：用 `session_add({"kind":"character",...})` 显式加入场景 Humanoid，再显式加入项目 Clip 或 Animator。原样保存返回的 Session、角色和 Clip 名称。
+使用 `KimodoUnityBridge.Command.command_dispatcher`。先调用 `kimodo_help({})`，再调用 `session_get_or_create({"name":"<稳定名称>"})`。新 Session 为空：用 `session_add({"kind":"character",...})` 显式加入场景 Humanoid，再显式加入项目 Clip 或 Animator。原样保存返回的 Session、角色和 Clip 名称。
 
 ### 2. 时间、不可变性与异步生成
 

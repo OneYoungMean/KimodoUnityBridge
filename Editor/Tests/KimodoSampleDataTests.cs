@@ -65,7 +65,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 marker.autoSample = false;
                 marker.ConstraintMode = KimodoConstraintMode.Root2D;
-                marker.SampleData.root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
+                marker.SampleData.root2DOverride = new KimodoUnityBridge.KimodoRigidTransform
                 {
                     position = new Vector3(1f, 2f, 3f),
                     rotation = Quaternion.Euler(0f, 15f, 0f)
