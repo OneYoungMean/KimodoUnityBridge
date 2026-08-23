@@ -208,59 +208,6 @@ namespace CharacterAnimationCli.Unity.Command
             }
         }
 
-        public static string ListCharacters(string argumentsJson = "{}")
-        {
-            return Execute(argumentsJson, arguments =>
-            {
-                bool includeProjectAssets = arguments.Value<bool?>("include_project_assets") ?? false;
-                int maxResults = Mathf.Clamp(arguments.Value<int?>("max_results") ?? 100, 1, 1000);
-                var characters = new JArray();
-                var seen = new HashSet<string>(StringComparer.Ordinal);
-
-                Animator[] sceneAnimators = Resources.FindObjectsOfTypeAll<Animator>();
-                for (int i = 0; i < sceneAnimators.Length && characters.Count < maxResults; i++)
-                {
-                    Animator animator = sceneAnimators[i];
-                    if (animator == null || EditorUtility.IsPersistent(animator) ||
-                        animator.gameObject == null || !animator.gameObject.scene.IsValid())
-                    {
-                        continue;
-                    }
-
-                    if (KimodoRetargetCoreUtility.IsValidHumanoid(animator.avatar))
-                    {
-                        AddCharacter(characters, seen, animator.gameObject, animator, "scene", animator.avatar);
-                    }
-                }
-
-                if (includeProjectAssets)
-                {
-                    string[] guids = AssetDatabase.FindAssets("t:GameObject", new[] { "Assets" });
-                    for (int i = 0; i < guids.Length && characters.Count < maxResults; i++)
-                    {
-                        string path = AssetDatabase.GUIDToAssetPath(guids[i]);
-                        GameObject root = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-                        Animator animator = root != null ? root.GetComponentInChildren<Animator>(true) : null;
-                        if (animator == null)
-                        {
-                            continue;
-                        }
-
-                        if (KimodoRetargetCoreUtility.IsValidHumanoid(animator.avatar))
-                        {
-                            AddCharacter(characters, seen, root, animator, "project", animator.avatar);
-                        }
-                    }
-                }
-
-                return Ok(new JObject
-                {
-                    ["characters"] = characters,
-                    ["count"] = characters.Count
-                });
-            });
-        }
-
         public static string ListModels(string argumentsJson = "{}")
         {
             return Execute(argumentsJson, _ =>
@@ -276,20 +223,6 @@ namespace CharacterAnimationCli.Unity.Command
                 var result = new JObject(response);
                 result.Remove("status");
                 result["count"] = (result["configs"] as JArray)?.Count ?? 0;
-                return Ok(result);
-            });
-        }
-
-        public static string GetServerHelp(string argumentsJson = "{}")
-        {
-            return Execute(argumentsJson, _ =>
-            {
-                EnsureCanManageServer();
-                JObject response = KimodoBridgeService.Shared.GetServerHelpAsync(
-                    null,
-                    CancellationToken.None).GetAwaiter().GetResult();
-                var result = new JObject(response);
-                result.Remove("status");
                 return Ok(result);
             });
         }
@@ -514,10 +447,6 @@ namespace CharacterAnimationCli.Unity.Command
                 {
                     throw new InvalidOperationException("duration_frames must be a positive integer at 60 FPS.");
                 }
-                if (arguments["constraints"] is JArray suppliedConstraints)
-                {
-                    NormalizeConstraintObjects(suppliedConstraints);
-                }
                 bool loopRequested = arguments.Value<bool?>("loop") ??
                     prompt.IndexOf("loop", StringComparison.OrdinalIgnoreCase) >= 0;
                 bool loopFallback = loopRequested && durationFrames > 300;
@@ -692,7 +621,6 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new InvalidOperationException("constraints must be an array.");
             }
-            NormalizeConstraintObjects(constraints);
             var samples = new List<KimodoMarkerSampleResult>(constraints.Count * 3);
             RetargetSkeleton targetCache = null;
             TimelineSessionRecord session = RequireCurrentTimelineSession();
@@ -719,6 +647,12 @@ namespace CharacterAnimationCli.Unity.Command
                     if (constraints[i] is not JObject constraint)
                     {
                         throw new InvalidOperationException($"constraints[{i}] must be an object.");
+                    }
+                    if (constraint["type"] != null || constraint["pose"] != null ||
+                        constraint["position"] != null || constraint["heading"] != null)
+                    {
+                        throw new InvalidOperationException(
+                            $"constraints[{i}] uses the removed legacy shape; use fullbody, root2d, or end-effector fields.");
                     }
                     int relativeFrame = RequiredNonNegativeFrame(constraint, "frame");
                     if (relativeFrame >= durationFrames)
@@ -881,50 +815,6 @@ namespace CharacterAnimationCli.Unity.Command
             JObject poseResult = ReadPose(locator);
             return CharacterPoseJson.Parse(poseResult["data"] as JObject
                 ?? throw new InvalidOperationException($"{path}.pose data is unavailable."));
-        }
-
-        internal static void NormalizeConstraintObjects(JArray constraints)
-        {
-            if (constraints == null) return;
-            for (int i = 0; i < constraints.Count; i++)
-            {
-                if (constraints[i] is not JObject constraint)
-                {
-                    throw new InvalidOperationException($"constraints[{i}] must be an object.");
-                }
-                if (constraint["type"] == null) continue;
-
-                string type = RequiredStringValue(constraint, "type").Trim().ToLowerInvariant();
-                if (type != "fullbody" && type != "root2d" &&
-                    type != "left_hand" && type != "right_hand" &&
-                    type != "left_foot" && type != "right_foot")
-                {
-                    throw new InvalidOperationException($"constraints[{i}].type is not supported.");
-                }
-                if (constraint.Properties().Any(property =>
-                        property.Name != "frame" && property.Name != "type" &&
-                        property.Name != "pose" && property.Name != "position" && property.Name != "heading"))
-                {
-                    throw new InvalidOperationException($"constraints[{i}] mixes legacy constraint fields with unsupported properties.");
-                }
-                if (constraint[type] != null)
-                {
-                    throw new InvalidOperationException($"constraints[{i}] cannot mix legacy type with sparse constraint fields.");
-                }
-
-                var value = new JObject();
-                if (constraint["pose"] != null) value["pose"] = constraint["pose"].DeepClone();
-                if (type == "root2d")
-                {
-                    if (constraint["position"] != null) value["position"] = constraint["position"].DeepClone();
-                    if (constraint["heading"] != null) value["heading"] = constraint["heading"].DeepClone();
-                }
-                constraint.Remove("type");
-                constraint.Remove("pose");
-                constraint.Remove("position");
-                constraint.Remove("heading");
-                constraint[type] = value;
-            }
         }
 
         internal static float ResolveTargetRootHeight(RetargetSkeleton targetCache)
@@ -1223,29 +1113,6 @@ namespace CharacterAnimationCli.Unity.Command
                     : $"AnimationClip name '{name}' is ambiguous; use a unique project clip name.");
             }
             return matches[0];
-        }
-
-        private static void AddCharacter(
-            JArray output,
-            HashSet<string> seen,
-            GameObject root,
-            Animator animator,
-            string source,
-            Avatar resolvedAvatar)
-        {
-            string reference = source == "project" ? AssetDatabase.GetAssetPath(root) : GetObjectReference(root);
-            if (string.IsNullOrWhiteSpace(reference) || !seen.Add(reference))
-            {
-                return;
-            }
-
-            output.Add(new JObject
-            {
-                ["name"] = root.name,
-                ["source"] = source,
-                ["avatar"] = resolvedAvatar != null ? resolvedAvatar.name : string.Empty,
-                ["active"] = root.activeInHierarchy
-            });
         }
 
         private static string GetObjectReference(UnityEngine.Object target)
@@ -1835,7 +1702,7 @@ namespace CharacterAnimationCli.Unity.Command
                 ["additionalProperties"] = false,
                 ["properties"] = new JObject
                 {
-                    ["frame"] = new JObject { ["type"] = "integer", ["description"] = "Relative frame in the generated clip at 60 FPS." },
+                    ["frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0, ["description"] = "Relative frame in the generated clip at 60 FPS." },
                     ["fullbody"] = fullBody,
                     ["root2d"] = root2D,
                     ["left_hand"] = endEffector.DeepClone(),
@@ -1852,29 +1719,11 @@ namespace CharacterAnimationCli.Unity.Command
                     new JObject { ["required"] = new JArray("left_foot") },
                     new JObject { ["required"] = new JArray("right_foot") })
             };
-            var legacyItem = new JObject
-            {
-                ["type"] = "object",
-                ["additionalProperties"] = false,
-                ["properties"] = new JObject
-                {
-                    ["frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 },
-                    ["type"] = new JObject
-                    {
-                        ["type"] = "string",
-                        ["enum"] = new JArray("fullbody", "root2d", "left_hand", "right_hand", "left_foot", "right_foot")
-                    },
-                    ["pose"] = poseLocator.DeepClone(),
-                    ["position"] = vector2.DeepClone(),
-                    ["heading"] = vector2.DeepClone()
-                },
-                ["required"] = new JArray("frame", "type")
-            };
             return new PropertyDefinition(name, new JObject
             {
                 ["type"] = "array",
-                ["description"] = description + " The sparse same-frame form is authoritative; the legacy {frame,type,pose} form remains accepted for compatibility.",
-                ["items"] = new JObject { ["oneOf"] = new JArray(sparseItem, legacyItem) }
+                ["description"] = description,
+                ["items"] = sparseItem
             }, false);
         }
 

@@ -73,11 +73,5 @@ namespace KimodoBridge
             return true;
         }
 
-        public static CharacterPose DecodeOrDefault(KimodoMarkerSampleResult sample)
-        {
-            return TryDecode(sample, out CharacterPose pose, out _)
-                ? pose
-                : new CharacterPose();
-        }
     }
 }

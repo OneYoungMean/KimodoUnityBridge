@@ -148,19 +148,6 @@ namespace KimodoBridge
             await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
         }
 
-        internal async Task<JObject> GetServerHelpAsync(
-            Action<string> progress,
-            CancellationToken token)
-        {
-            ThrowIfStopRequested();
-            await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
-            BridgeProtocolResponse response = await protocolClient.GetHelpAsync(
-                currentHost,
-                currentPort,
-                token).ConfigureAwait(false);
-            return RequireDoneResponse(response, "Bridge help returned no response.", "Bridge help request failed.");
-        }
-
         internal async Task<JObject> ListModelConfigurationsAsync(
             string model,
             string textEncoderMode,
