@@ -10,7 +10,6 @@ namespace KimodoBridge
     {
         internal static bool TryResolveTargetAvatar(
             Avatar explicitTargetAvatar,
-            string modelName,
             out Avatar targetAvatar,
             out string error)
         {
@@ -22,17 +21,7 @@ namespace KimodoBridge
                 return true;
             }
 
-            string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
-            if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(resolvedModelName, out Avatar resolvedAvatar, out string targetError) &&
-                KimodoRetargetCoreUtility.IsValidHumanoid(resolvedAvatar))
-            {
-                targetAvatar = resolvedAvatar;
-                return true;
-            }
-
-            error = string.IsNullOrWhiteSpace(targetError)
-                ? "Failed to resolve target avatar."
-                : $"Resolve target avatar failed: {targetError}";
+            error = "An explicit target avatar is required; profile avatar fallback is disabled.";
             return false;
         }
 

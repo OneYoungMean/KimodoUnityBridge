@@ -204,24 +204,16 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            KimodoLocalAvatarUtility.AvatarResolveResult sourceAvatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(context.Track, context.Animator);
-            Avatar sourceAvatar = sourceAvatarResult.Avatar;
+            // Timeline sampling is performed on the bound character.  The
+            // model/profile avatar belongs below this boundary (ConstraintInternal
+            // projection), and must not be substituted for the character avatar.
+            Avatar sourceAvatar = context.Animator.avatar;
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
             {
-                error = string.IsNullOrWhiteSpace(sourceAvatarResult.Error)
-                    ? "Timeline source avatar is null/invalid/non-humanoid."
-                    : sourceAvatarResult.Error;
+                error = "Timeline binding Animator avatar is null/invalid/non-humanoid.";
                 return false;
             }
-            if (!KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
-                    null,
-                    modelName,
-                    out Avatar targetAvatar,
-                    out error))
-            {
-                return false;
-            }
+            Avatar targetAvatar = sourceAvatar;
             if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     targetAvatar,
                     "KimodoTimelineSamplingSession_Target",

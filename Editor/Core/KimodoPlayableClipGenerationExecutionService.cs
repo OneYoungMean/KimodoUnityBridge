@@ -1032,11 +1032,23 @@ namespace KimodoBridge.Editor
                     baseline.MotionData,
                     constrainedMotion,
                     baselineRequest.RuntimeTrimStartFrame);
+                Avatar characterAvatar = null;
+                if (baselineRequest.TimelineClipSnapshot != null &&
+                    KimodoInOutConstraintAdapter.TryResolveTimelineContext(
+                        baselineRequest.TimelineClipSnapshot,
+                        out KimodoTimelineInOutConstraintContext timelineContext,
+                        out _))
+                {
+                    characterAvatar = timelineContext.Animator != null
+                        ? timelineContext.Animator.avatar
+                        : null;
+                }
                 KimodoRawMotionData merged;
                 if (!KimodoClipConstraintBakeUtility.TryMergeHumanoidFootEffectorMotion(
                         baseline.MotionData,
                         alignedConstraint,
                         clipConstraint.mask,
+                        characterAvatar,
                         modelName,
                         out merged,
                         out string footMergeError))

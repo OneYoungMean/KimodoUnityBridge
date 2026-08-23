@@ -15,6 +15,7 @@ namespace KimodoBridge.Editor
             KimodoRawMotionData baseline,
             KimodoRawMotionData constrained,
             KimodoClipConstraintMask mask,
+            Avatar characterAvatar,
             string modelName,
             out KimodoRawMotionData merged,
             out string error)
@@ -34,7 +35,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            Avatar avatar = null;
             RetargetSkeleton cache = null;
             AnimationClip baselineClip = null;
             AnimationClip constrainedClip = null;
@@ -42,20 +42,13 @@ namespace KimodoBridge.Editor
             KimodoRetargetClipSamplingUtility.ClipSamplingContext samplingContext = null;
             try
             {
-                if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                        modelName,
-                        out avatar,
-                        out error) ||
-                    !KimodoRetargetCoreUtility.IsValidHumanoid(avatar))
+                if (!KimodoRetargetCoreUtility.IsValidHumanoid(characterAvatar))
                 {
-                    if (string.IsNullOrWhiteSpace(error))
-                    {
-                        error = $"Model '{modelName}' has no valid Humanoid avatar.";
-                    }
+                    error = "ClipConstraint FootT/Q merge requires the bound character Animator avatar.";
                     return false;
                 }
                 if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
-                        avatar,
+                        characterAvatar,
                         "KimodoClipConstraintFootTQ",
                         out cache,
                         out error))

@@ -619,3 +619,12 @@
 - 已完成：Generate/Retarget 删除 Timeline planar offset 补偿及通用 humanScale 参数；全仓生产代码仅 FootTQ 局部公式读取 `Animator.humanScale`。
 - 检查：`git diff --check` 通过；Unity package probe 编译成功，日志 `C:\tmp\kimodo-compile-cleanup2.log`。
 - 保持：Command/旧 Editor 测试中的协议字段仍需后续批量迁移或按破坏性升级屏蔽；当前未修改用户已有 `Command/command_core.cs` 其他工作内容。
+
+## CP79 — 上层统一使用绑定角色 Avatar
+
+- 已修正：Timeline sampling session 的 source/target skeleton 统一使用 `context.Animator.avatar`，不再通过 `modelName` 自动加载 profile Avatar。
+- 已修正：通用 marker clip sampling 在未提供显式 target 时回退到调用方传入的角色 Avatar；`TryResolveTargetAvatar` 不再提供 profile Avatar fallback。
+- 已修正：ClipConstraint FootT/Q 合并改为接收 Timeline 绑定 `Animator.avatar`；移除按 modelName 加载 profile Avatar 的上层路径。
+- 已移除：`KimodoRetargetToolsEditor` 中无实际使用的 profile Avatar bake 残留加载。
+- 保持：`KimodoRuntimeConstraintExportProjector`/`ConstraintInternal` 内部仍可按 modelName 使用 profile Avatar，作为唯一协议投影边界。
+- 检查：`git diff --check` 通过；Unity package probe 编译待执行。

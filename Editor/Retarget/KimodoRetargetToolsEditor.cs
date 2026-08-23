@@ -86,7 +86,7 @@ namespace KimodoBridge.Editor
                 frameRate = fps
             };
 
-            BakeMotionCurvesDirect(rawClip, data, fps, frameCount, ResolveProfileAvatarForBake(modelName));
+            BakeMotionCurvesDirect(rawClip, data, fps, frameCount);
             KimodoFootContactTrackUtility.Apply(rawClip, data.foot_contacts, frameCount, fps);
             KimodoEditorClipUtility.CopyClipData(rawClip, targetClip, forceNoLoopKeepY: true);
             UnityEngine.Object.DestroyImmediate(rawClip);
@@ -325,9 +325,11 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            Avatar requestedTargetAvatar = KimodoRetargetCoreUtility.IsValidHumanoid(explicitTargetAvatar)
+                ? explicitTargetAvatar
+                : sourceAvatar;
             if (!KimodoRetargetMarkerSamplingUtility.TryResolveTargetAvatar(
-                    explicitTargetAvatar,
-                    modelName,
+                    requestedTargetAvatar,
                     out Avatar targetAvatar,
                     out error))
             {
@@ -1229,7 +1231,7 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        private static void BakeMotionCurvesDirect(AnimationClip targetClip, MotionJsonData data, float fps, int frameCount, Avatar profileAvatar)
+        private static void BakeMotionCurvesDirect(AnimationClip targetClip, MotionJsonData data, float fps, int frameCount)
         {
             int jointCount = Mathf.Min(data.joint_names.Length, data.num_joints > 0 ? data.num_joints : data.joint_names.Length);
             bool hasPositions = data.positions != null && data.positions.Count > 0;
@@ -1303,41 +1305,6 @@ namespace KimodoBridge.Editor
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalRotation.w", qw);
                 }
             }
-        }
-
-        private static Avatar ResolveProfileAvatarForBake(string modelName)
-        {
-            if (KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar avatar, out _))
-            {
-                return avatar;
-            }
-
-            return null;
-        }
-
-        private static Vector3 ResolveProfilePelvisPosition(Avatar profileAvatar)
-        {
-            if (profileAvatar == null || !profileAvatar.isValid || !profileAvatar.isHuman)
-            {
-                return Vector3.zero;
-            }
-
-            SkeletonBone[] skeleton = profileAvatar.humanDescription.skeleton;
-            if (skeleton == null || skeleton.Length == 0)
-            {
-                return Vector3.zero;
-            }
-
-            for (int i = 0; i < skeleton.Length; i++)
-            {
-                if (string.Equals(skeleton[i].name, "Hips", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(skeleton[i].name, "pelvis", StringComparison.OrdinalIgnoreCase))
-                {
-                    return skeleton[i].position;
-                }
-            }
-
-            return skeleton[0].position;
         }
 
         private static Vector3 ReadPos(MotionJsonData data, int frame, int joint)

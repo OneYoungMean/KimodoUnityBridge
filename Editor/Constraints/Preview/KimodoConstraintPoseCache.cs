@@ -16,6 +16,7 @@ namespace KimodoBridge.Editor
         public readonly int TrackId;
         public readonly string ModelName;
         public readonly KimodoConstraintRigType RigType;
+        public readonly Avatar SourceAvatar;
         public readonly string ContextKey;
 
         public PoseCacheRenderContext(
@@ -23,17 +24,19 @@ namespace KimodoBridge.Editor
             int animatorId,
             int trackId,
             string modelName,
-            KimodoConstraintRigType rigType)
+            KimodoConstraintRigType rigType,
+            Avatar sourceAvatar = null)
         {
             ClipId = clipId;
             AnimatorId = animatorId;
             TrackId = trackId;
             ModelName = string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim();
             RigType = rigType;
+            SourceAvatar = sourceAvatar;
             ContextKey = KimodoConstraintMarkerEditorUtility.GetCachedIntString(clipId) + ":" +
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(animatorId) + ":" +
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(trackId) + ":" +
-                KimodoConstraintMarkerEditorUtility.GetCachedIntString((int)rigType);
+                KimodoConstraintMarkerEditorUtility.GetCachedIntString(KimodoUnityObjectIdUtility.IdHash(sourceAvatar));
             }
         }
 
@@ -893,6 +896,7 @@ namespace KimodoBridge.Editor
                         context.ModelName,
                         context.ClipId,
                         context.AnimatorId,
+                        context.SourceAvatar,
                         out KimodoConstraintPoseRigFactory.PoseRigInstance rig,
                         out error))
                 {
@@ -1242,6 +1246,7 @@ namespace KimodoBridge.Editor
                     context.ModelName,
                     context.ClipId,
                     context.AnimatorId,
+                    context.SourceAvatar,
                     out KimodoConstraintPoseRigFactory.PoseRigInstance rigInstance,
                     out error))
             {
