@@ -19,19 +19,10 @@ namespace KimodoBridge.Editor
             KimodoConstraintMarkerEditorUtility.HandleDeleteCommand(marker);
             serializedObject.Update();
 
-            EditorGUILayout.HelpBox(
-                "Edit the canonical Constraint SampleResult. Scene targets are edited with handles in the Scene view.",
-                MessageType.Info);
             EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField("Kimodo Constraint Marker (Constraint)", EditorStyles.boldLabel);
             KimodoConstraintMarkerEditorUtility.DrawEnabledField(serializedObject);
-            if (isWindow)
-            {
-                EditorGUILayout.HelpBox(
-                    "Scene handles are active for the preview character. Drag Root2D or effectors in the Scene view.",
-                    MessageType.None);
-            }
-            else
+            if (!isWindow)
             {
                 KimodoConstraintMarkerEditorUtility.DrawEditButton(serializedObject, marker);
             }

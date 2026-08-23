@@ -10,10 +10,7 @@ namespace KimodoBridge.Editor
     {
         private static readonly Dictionary<string, bool> FoldoutStates =
             new Dictionary<string, bool>(StringComparer.Ordinal);
-        private static readonly string[] AxisLabels = { "X", "Y", "Z" };
-        private const float BoneLabelWidth = 104f;
-        private const float AxisLabelWidth = 14f;
-        private const float AxisFieldWidth = 58f;
+        private const float MuscleLabelWidth = 190f;
 
         internal static void Draw(SerializedProperty muscles)
         {
@@ -21,7 +18,7 @@ namespace KimodoBridge.Editor
 
             string foldoutKey = KimodoUnityObjectIdUtility.StableKey(
                 muscles.serializedObject.targetObject) + ":" + muscles.propertyPath;
-            bool expanded = !FoldoutStates.TryGetValue(foldoutKey, out bool savedExpanded) || savedExpanded;
+            bool expanded = FoldoutStates.TryGetValue(foldoutKey, out bool savedExpanded) && savedExpanded;
             expanded = EditorGUILayout.Foldout(expanded, "Muscle Values", true);
             FoldoutStates[foldoutKey] = expanded;
             if (!expanded) return;
@@ -50,26 +47,29 @@ namespace KimodoBridge.Editor
             {
                 int bone = order[groupIndex];
                 List<int> values = groups[bone];
-                EditorGUILayout.BeginHorizontal();
                 string boneLabel = bone >= 0 && bone < (int)HumanBodyBones.LastBone
                     ? ObjectNames.NicifyVariableName(((HumanBodyBones)bone).ToString())
                     : "Other";
-                EditorGUILayout.LabelField(boneLabel, GUILayout.Width(BoneLabelWidth));
                 for (int axis = 0; axis < values.Count; axis++)
                 {
-                    SerializedProperty value = muscles.GetArrayElementAtIndex(values[axis]);
-                    string axisLabel = axis < AxisLabels.Length ? AxisLabels[axis] : $"C{axis + 1}";
+                    int canonicalIndex = values[axis];
+                    int traitIndex = canonicalIndex < KimodoMuscleSampleHumanPoseAdapter.UnityBodyMuscleIndices.Length
+                        ? KimodoMuscleSampleHumanPoseAdapter.UnityBodyMuscleIndices[canonicalIndex]
+                        : -1;
+                    string muscleLabel = traitIndex >= 0 && traitIndex < HumanTrait.MuscleName.Length
+                        ? HumanTrait.MuscleName[traitIndex]
+                        : $"{boneLabel} Muscle {canonicalIndex}";
+                    SerializedProperty value = muscles.GetArrayElementAtIndex(canonicalIndex);
                     EditorGUI.BeginChangeCheck();
                     float previousLabelWidth = EditorGUIUtility.labelWidth;
-                    EditorGUIUtility.labelWidth = AxisLabelWidth;
+                    EditorGUIUtility.labelWidth = MuscleLabelWidth;
                     float edited = EditorGUILayout.FloatField(
-                        axisLabel,
+                        muscleLabel,
                         value.floatValue,
-                        GUILayout.Width(AxisFieldWidth));
+                        GUILayout.ExpandWidth(true));
                     EditorGUIUtility.labelWidth = previousLabelWidth;
                     if (EditorGUI.EndChangeCheck()) value.floatValue = edited;
                 }
-                EditorGUILayout.EndHorizontal();
             }
             EditorGUI.indentLevel--;
         }

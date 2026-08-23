@@ -109,6 +109,7 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
                 OnSampleChanged = changedSample =>
                 {
                     if (marker.autoSample || changedSample == null) return;
+                    Undo.RecordObject(marker, "Edit Kimodo Constraint Handle");
                     if (KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
                             marker, changedSample, out _))
                     {

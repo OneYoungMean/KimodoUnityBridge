@@ -23,12 +23,6 @@ namespace KimodoBridge.Editor
             if (autoSample != null)
             {
                 EditorGUILayout.PropertyField(autoSample, new GUIContent("Auto Sample"));
-                if (!autoSample.boolValue)
-                {
-                    EditorGUILayout.HelpBox(
-                        "Auto Sample is disabled. Enable it to synchronize the scene pose.",
-                        MessageType.Info);
-                }
             }
             if (mode == null) return;
 
@@ -41,19 +35,19 @@ namespace KimodoBridge.Editor
                 KimodoConstraintMarkerEditorUtility.DrawMarkerTimeField(so, marker);
             }
 
-            // Root2D is part of the canonical constraint payload and remains
-            // visible in every mode, including FullBody and Effector.
-            DrawRoot2D(so);
-
             switch ((KimodoConstraintMode)mode.enumValueIndex)
             {
                 case KimodoConstraintMode.Root2D:
+                    DrawRoot2D(so);
                     break;
                 case KimodoConstraintMode.Effector:
+                    DrawRoot2D(so);
                     DrawEffectors(so, "sampleData");
                     break;
                 default:
                     DrawFullBody(so);
+                    DrawRoot2D(so);
+                    DrawEffectorPanels(so, "sampleData", "Effectors", IsAutoSample(so), showEnable: false);
                     break;
             }
         }
@@ -64,9 +58,6 @@ namespace KimodoBridge.Editor
             if (so == null) return;
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             DrawConstraintPanels(so, marker);
-            EditorGUILayout.HelpBox(
-                "Muscle values are the authoritative body-pose data. Scene target drags write back to the same canonical pose.",
-                MessageType.None);
             EditorGUILayout.EndVertical();
         }
 
@@ -77,8 +68,7 @@ namespace KimodoBridge.Editor
             using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
                 if (DrawTransform(
-                        so.FindProperty("sampleData.root2DOverride.position"),
-                        so.FindProperty("sampleData.root2DOverride.rotation"),
+                        so.FindProperty("sampleData.root2DOverride"),
                         "Root Position / Rotation"))
                 {
                     SerializedProperty positionEnabled = so.FindProperty("sampleData.enableMask.root2DPosition");
@@ -94,9 +84,6 @@ namespace KimodoBridge.Editor
                         new GUIContent("Allow Heading", "Export Root2D heading and use it as FullBody yaw overlay."));
                 }
             }
-            EditorGUILayout.HelpBox(
-                "Root2D position/rotation is always part of the constraint payload and is applied before mode-specific data.",
-                MessageType.None);
             EditorGUILayout.EndVertical();
         }
 
@@ -108,17 +95,12 @@ namespace KimodoBridge.Editor
             {
                 DrawMuscleValues(pose);
             }
-            EditorGUILayout.HelpBox(
-                "FullBody edits the muscle pose. Root2D remains available above; effector values are edited in Effector mode.",
-                MessageType.None);
             EditorGUILayout.EndVertical();
         }
 
         private static void DrawEffectors(SerializedObject so, string root)
         {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             DrawEffectorPanels(so, root, "Effectors", IsAutoSample(so), showEnable: true);
-            EditorGUILayout.EndVertical();
         }
 
         private static void DrawEffectorPanels(
@@ -169,9 +151,8 @@ namespace KimodoBridge.Editor
             using (new EditorGUI.DisabledScope(autoSample))
             {
                 DrawTransform(
-                    so.FindProperty(transformPath + ".position"),
-                    so.FindProperty(transformPath + ".rotation"),
-                    "Target Position / Rotation");
+                    so.FindProperty(transformPath),
+                    label);
             }
             EditorGUILayout.EndVertical();
         }
@@ -181,19 +162,24 @@ namespace KimodoBridge.Editor
             KimodoConstraintMuscleValueGUI.Draw(muscles);
         }
 
-        private static bool DrawTransform(
-            SerializedProperty position,
-            SerializedProperty rotation,
-            string label)
+        private static bool DrawTransform(SerializedProperty transform, string label)
         {
+            if (transform == null) return false;
+            SerializedProperty position = transform.FindPropertyRelative("position");
+            SerializedProperty rotation = transform.FindPropertyRelative("rotation");
             if (position == null && rotation == null) return false;
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
             EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
             EditorGUI.BeginChangeCheck();
-            if (position != null) EditorGUILayout.PropertyField(position, new GUIContent("Position"));
-            if (rotation != null) EditorGUILayout.PropertyField(rotation, new GUIContent("Rotation"));
+            if (position != null)
+            {
+                EditorGUILayout.PropertyField(position, new GUIContent("Position"));
+            }
+            if (rotation != null)
+            {
+                EditorGUILayout.PropertyField(rotation, new GUIContent("Rotation"));
+            }
             bool changed = EditorGUI.EndChangeCheck();
-            EditorGUILayout.EndVertical();
             return changed;
         }
     }

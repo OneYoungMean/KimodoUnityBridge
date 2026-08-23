@@ -66,9 +66,7 @@ namespace KimodoBridge.Editor
         public Transform Root;
         public RetargetSkeleton TargetCache;
         public List<Material> GeneratedMaterials;
-        [Obsolete("Scene handles now edit SampleData directly.")]
         public GameObject EndEffectorMarker;
-        [Obsolete("Scene handles now edit SampleData directly.")]
         public Dictionary<HumanBodyBones, GameObject> FullBodyTargets;
         public KimodoConstraintMode ConstraintMode = KimodoConstraintMode.FullBody;
         public bool AutoSample = true;
@@ -506,83 +504,24 @@ namespace KimodoBridge.Editor
 
         internal static bool HasAnyTransformChanges(PoseCacheRenderContext context, string entryId = null)
         {
-            if (!TryGetSession(context, out ConstraintPosePreviewSession session) ||
-                !TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) ||
-                entry?.Root == null)
-            {
-                return false;
-            }
-
-            Transform[] transforms = entry.Root.GetComponentsInChildren<Transform>(true);
-            for (int i = 0; i < transforms.Length; i++)
-            {
-                Transform t = transforms[i];
-                if (t != null && t.hasChanged && !IsAuxiliaryTransform(entry, t))
-                {
-                    return true;
-                }
-            }
-
-            if (entry.EndEffectorMarker != null && entry.EndEffectorMarker.transform.hasChanged)
-            {
-                return true;
-            }
-            return HasFullBodyTargetTransformChanges(entry);
+            return false;
         }
 
         internal static void ClearTransformChanges(PoseCacheRenderContext context, string entryId = null)
         {
-            if (!TryGetSession(context, out ConstraintPosePreviewSession session) ||
-                !TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) ||
-                entry?.Root == null)
-            {
-                return;
-            }
-
-            Transform[] transforms = entry.Root.GetComponentsInChildren<Transform>(true);
-            for (int i = 0; i < transforms.Length; i++)
-            {
-                Transform t = transforms[i];
-                if (t != null)
-                {
-                    t.hasChanged = false;
-                }
-            }
-
-            if (entry.EndEffectorMarker != null)
-            {
-                entry.EndEffectorMarker.transform.hasChanged = false;
-            }
-            ClearFullBodyTargetTransformChanges(entry);
         }
 
         internal static bool HasEndEffectorTargetTransformChanges(
             PoseCacheRenderContext context,
             string entryId)
         {
-            return TryGetSession(context, out ConstraintPosePreviewSession session) &&
-                TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) &&
-                ((entry?.EndEffectorMarker != null && entry.EndEffectorMarker.transform.hasChanged) ||
-                 HasFullBodyTargetTransformChanges(entry));
+            return false;
         }
 
         internal static bool HasEffectorTransformChanges(
             PoseCacheRenderContext context,
             string entryId)
         {
-            if (!TryGetSession(context, out ConstraintPosePreviewSession session) ||
-                !TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry))
-            {
-                return false;
-            }
-            if (entry?.EndEffectorMarker != null && entry.EndEffectorMarker.transform.hasChanged) return true;
-            if (entry?.FullBodyTargets == null) return false;
-            KimodoConstraintMask mask = KimodoConstraintMask.FromSample(entry.SampleData);
-            foreach (KeyValuePair<HumanBodyBones, GameObject> item in entry.FullBodyTargets)
-            {
-                if (item.Key != HumanBodyBones.Hips &&
-                    HasFullBodyTargetTransformChanged(entry, item.Key, item.Value, mask)) return true;
-            }
             return false;
         }
 
@@ -590,11 +529,7 @@ namespace KimodoBridge.Editor
             PoseCacheRenderContext context,
             string entryId)
         {
-            return TryGetSession(context, out ConstraintPosePreviewSession session) &&
-                TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) &&
-                 (entry?.FullBodyTargets != null &&
-                   entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject target) &&
-                   target != null && target.transform.hasChanged);
+            return false;
         }
 
         internal static void EnableChangedConstraintChannels(
@@ -602,31 +537,8 @@ namespace KimodoBridge.Editor
             string entryId,
             KimodoMarkerSampleResult sample)
         {
-            if (sample == null ||
-                !TryGetSession(context, out ConstraintPosePreviewSession session) ||
-                !TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry))
-            {
-                return;
-            }
-
-            KimodoConstraintMask mask = KimodoConstraintMask.FromSample(sample);
-            bool rootChanged = entry.FullBodyTargets != null &&
-                entry.FullBodyTargets.TryGetValue(HumanBodyBones.Hips, out GameObject rootTarget) &&
-                HasFullBodyTargetTransformChanged(entry, HumanBodyBones.Hips, rootTarget, mask);
-            EnableChangedConstraintChannels(entry, mask);
-            sample.enableMask ??= new KimodoSampleChannelMask();
-            sample.enableMask.root2DPosition |= mask.rootPosition;
-            sample.enableMask.root2DHeading |= mask.rootHeading;
-            sample.enableMask.leftHandEffector |= mask.leftHand;
-            sample.enableMask.rightHandEffector |= mask.rightHand;
-            sample.enableMask.leftFootEffector |= mask.leftFoot;
-            sample.enableMask.rightFootEffector |= mask.rightFoot;
-            if (rootChanged)
-            {
-                sample.enableMask ??= new KimodoSampleChannelMask();
-                sample.enableMask.root2DPosition = true;
-                sample.enableMask.root2DHeading = true;
-            }
+            // Channel enablement is authored by the Handle's direct SampleResult
+            // callback; no Transform-diff promotion is needed.
         }
 
         private static void EnableChangedConstraintChannels(
@@ -1437,6 +1349,9 @@ namespace KimodoBridge.Editor
             SetEntrySelectable(entry, selectable);
         }
 
+        private static void SetEndEffectorMarkerSelectable(ConstraintPosePreviewEntry entry, bool selectable) { }
+        private static void SetEffectorGizmoSelectable(GameObject target, bool selectable) { }
+
         private static void ApplyConstraintColoring(
             ConstraintPosePreviewEntry entry,
             HashSet<string> highlightedJoints,
@@ -1671,6 +1586,9 @@ namespace KimodoBridge.Editor
             string constraintType,
             KimodoConstraintMode mode)
         {
+            // Scene handles now draw directly from entry.SampleData. The
+            return;
+#pragma warning disable CS0162
             if (mode == KimodoConstraintMode.Root2D)
             {
                 if (entry?.EndEffectorMarker != null)
@@ -1764,10 +1682,15 @@ namespace KimodoBridge.Editor
             SetEndEffectorMarkerSelectable(entry, entry.PickingEnabled && !entry.AutoSample);
             entry.EndEffectorMarker.SetActive(true);
             marker.hasChanged = false;
+#pragma warning restore CS0162
         }
 
         private static void UpdateFullBodyTargets(ConstraintPosePreviewEntry entry)
         {
+            // RetargetSkeleton remains the avatar display rig; controller
+            // targets are no longer mirrored as GameObjects.
+            return;
+#pragma warning disable CS0162
             if (entry?.TargetCache == null)
             {
                 DestroyFullBodyTargets(entry);
@@ -1861,6 +1784,7 @@ namespace KimodoBridge.Editor
                 target.SetActive(true);
                 target.transform.hasChanged = false;
             }
+#pragma warning restore CS0162
         }
 
         private static GameObject CreateEffectorGizmo(
@@ -1869,15 +1793,9 @@ namespace KimodoBridge.Editor
             PrimitiveType primitive = PrimitiveType.Cube,
             Color? color = null)
         {
-            GameObject target = GameObject.CreatePrimitive(primitive);
-            target.name = name;
-            Collider collider = target.GetComponent<Collider>();
-            if (collider != null)
-            {
-                UnityEngine.Object.DestroyImmediate(collider);
-            }
-            target.hideFlags = HideFlags.HideInHierarchy | HideFlags.NotEditable | HideFlags.DontSave;
-            return target;
+            // Controller objects were the old data bridge. Handles now edit
+            // SampleResult directly, so no auxiliary Transform is created.
+            return null;
         }
 
         private static void PreserveIndependentRoot2D(

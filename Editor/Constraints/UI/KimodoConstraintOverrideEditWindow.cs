@@ -275,32 +275,6 @@ namespace KimodoBridge.Editor
                 }
             }
 
-            if (sceneDragActive &&
-                KimodoConstraintPoseCache.HasEffectorTransformChanges(context, editEntryId))
-            {
-                if (KimodoConstraintPoseCache.TryPreviewEndEffectorTargetPose(
-                        context,
-                        editEntryId,
-                        marker.ConstraintType,
-                        out string previewError))
-                {
-                    pendingEndEffectorWriteback = true;
-                    lastError = string.Empty;
-                }
-                else
-                {
-                    lastError = string.IsNullOrWhiteSpace(previewError)
-                        ? "end-effector preview failed."
-                        : previewError;
-                }
-            }
-
-            if (sceneDragActive &&
-                KimodoConstraintPoseCache.HasRootTargetTransformChanges(context, editEntryId))
-            {
-                pendingRootWriteback = true;
-            }
-
             if (!sceneDragActive &&
                 (Tools.current == Tool.Move || Tools.current == Tool.Transform) &&
                 KimodoConstraintPoseCache.IsNonRootPoseTransform(
@@ -309,12 +283,6 @@ namespace KimodoBridge.Editor
                     Selection.activeTransform))
             {
                 Tools.current = Tool.Rotate;
-            }
-
-            if (pendingEndEffectorWriteback || pendingRootWriteback ||
-                KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId))
-            {
-                WriteBackPoseChanges(context);
             }
 
             if (!sceneDragActive && refreshSceneAfterDrag)
@@ -389,7 +357,6 @@ namespace KimodoBridge.Editor
         private void DrawHeader()
         {
             EditorGUILayout.LabelField("Constraint Edit", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox("Edit raw Muscle values or Scene targets. Marker data updates immediately; bone Euler angles are intentionally not editable.", MessageType.Info);
             EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField("Marker", marker != null ? marker.name : "(null)");
             EditorGUILayout.Space(6f);
@@ -583,22 +550,17 @@ namespace KimodoBridge.Editor
 
         private void CommitPoseChangesFromPreview()
         {
-            if (invalidContext ||
-                marker == null ||
-                !TryGetEditContext(out PoseCacheRenderContext context, out _) ||
-                (!pendingEndEffectorWriteback &&
-                 !pendingRootWriteback &&
-                 !KimodoConstraintPoseCache.HasAnyTransformChanges(context, editEntryId)))
-            {
-                return;
-            }
-
-            WriteBackPoseChanges(context);
+            // Handles write the marker's SampleResult directly. There is no
+            // Transform-cache commit phase anymore.
+            pendingEndEffectorWriteback = false;
+            pendingRootWriteback = false;
             CollapseSceneDragUndo();
         }
 
         private void WriteBackPoseChanges(PoseCacheRenderContext context)
         {
+            return;
+#pragma warning disable CS0162
             // AutoSample is a read-only projection: Timeline -> SampleResult ->
             // target skeleton -> rig. Only authored (non-auto) markers may
             // write world-space rig edits back into SampleResult.
@@ -613,11 +575,11 @@ namespace KimodoBridge.Editor
                 }
                 return;
             }
+            if (!TryGetEditContext(out PoseCacheRenderContext resolvedContext, out _)) return;
             EnsureSceneDragUndo();
-            KimodoConstraintPoseCache.RestoreNonRootBoneTranslations(context, editEntryId);
             string sampleError = string.Empty;
             if (KimodoConstraintPoseCache.TryBuildSampleFromContext(
-                    context,
+                    resolvedContext,
                     editEntryId,
                     marker.ConstraintType,
                     marker.time,
@@ -628,7 +590,7 @@ namespace KimodoBridge.Editor
                 {
                     selectedConstraint.SetEffectors(sample.effectors);
                 }
-                KimodoConstraintPoseCache.EnableChangedConstraintChannels(context, editEntryId, sample);
+                KimodoConstraintPoseCache.EnableChangedConstraintChannels(resolvedContext, editEntryId, sample);
                 if (!KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
                         marker,
                         sample,
@@ -643,10 +605,10 @@ namespace KimodoBridge.Editor
                     // recreate the target and reset the handle mid-drag.
                     string poseError = string.Empty;
                     if (sceneDragActive ||
-                        KimodoConstraintSelectionPreviewTool.TryRenderEditPreview(marker, context, out poseError))
+                        KimodoConstraintSelectionPreviewTool.TryRenderEditPreview(marker, resolvedContext, out poseError))
                     {
-                        KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                        RestoreEndEffectorTargetSelection(context, editEntryId);
+                        KimodoConstraintPoseCache.SetGroupState(resolvedContext, visible: true, selectable: true);
+                        RestoreEndEffectorTargetSelection(resolvedContext, editEntryId);
                         lastError = string.Empty;
                         refreshSceneAfterDrag |= sceneDragActive;
                     }
@@ -662,9 +624,10 @@ namespace KimodoBridge.Editor
             }
 
             EditorUtility.SetDirty(marker);
-            KimodoConstraintPoseCache.ClearTransformChanges(context, editEntryId);
+            KimodoConstraintPoseCache.ClearTransformChanges(resolvedContext, editEntryId);
             pendingEndEffectorWriteback = false;
             pendingRootWriteback = false;
+#pragma warning restore CS0162
         }
 
         private void EnsureSceneDragUndo()

@@ -162,10 +162,10 @@ namespace KimodoBridge.Editor
             refreshQueued = false;
             var groups = new Dictionary<string, List<PoseCacheRenderItem>>(StringComparer.Ordinal);
             var contexts = new Dictionary<string, PoseCacheRenderContext>(StringComparer.Ordinal);
-            UnityEngine.Object[] selected = Selection.objects;
-            for (int i = 0; i < selected.Length; i++)
+            List<KimodoConstraintMarker> selectedMarkers = CollectSelectedConstraintMarkers();
+            for (int i = 0; i < selectedMarkers.Count; i++)
             {
-                KimodoConstraintMarker marker = selected[i] as KimodoConstraintMarker;
+                KimodoConstraintMarker marker = selectedMarkers[i];
                 if (marker == null || !marker.constraintEnabled ||
                     KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker) ||
                     !KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(marker, out _ ) ||
@@ -210,6 +210,52 @@ namespace KimodoBridge.Editor
                 }
             }
             SceneView.RepaintAll();
+        }
+
+        private static List<KimodoConstraintMarker> CollectSelectedConstraintMarkers()
+        {
+            var result = new List<KimodoConstraintMarker>();
+            var seen = new HashSet<int>();
+
+            UnityEngine.Object[] selected = Selection.objects;
+            for (int i = 0; i < selected.Length; i++)
+            {
+                if (selected[i] is KimodoConstraintMarker marker &&
+                    seen.Add(marker.GetInstanceID()))
+                {
+                    result.Add(marker);
+                }
+            }
+
+            TimelineClip[] selectedClips = TimelineEditor.selectedClips;
+            if (selectedClips == null)
+            {
+                return result;
+            }
+
+            for (int i = 0; i < selectedClips.Length; i++)
+            {
+                TimelineClip clip = selectedClips[i];
+                KimodoPlayableClip playable = clip?.asset as KimodoPlayableClip;
+                TrackAsset track = clip?.GetParentTrack();
+                if (playable == null || !playable.ConstraintPreviewEnabled || track == null)
+                {
+                    continue;
+                }
+
+                List<KimodoConstraintMarker> references =
+                    KimodoTimelineConstraintMarkerSampler.CollectMarkersForClip(track, clip);
+                for (int markerIndex = 0; markerIndex < references.Count; markerIndex++)
+                {
+                    KimodoConstraintMarker marker = references[markerIndex];
+                    if (marker != null && seen.Add(marker.GetInstanceID()))
+                    {
+                        result.Add(marker);
+                    }
+                }
+            }
+
+            return result;
         }
 
         private static void OnSceneClosing(Scene _, bool __)
