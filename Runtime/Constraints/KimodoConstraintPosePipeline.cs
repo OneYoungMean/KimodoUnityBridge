@@ -1,5 +1,6 @@
 using System;
 using CharacterAnimationCli.Unity;
+using TimelineInject;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
@@ -170,9 +171,22 @@ namespace KimodoBridge
                 return string.IsNullOrEmpty(error);
             }
 
-            BoneSample input = KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
-            if (!KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
-                    new[] { input },
+            if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                    cache,
+                    out MuscleSample inputMuscle,
+                    out error) ||
+                inputMuscle == null ||
+                !inputMuscle.IsValid)
+            {
+                if (string.IsNullOrEmpty(error))
+                {
+                    error = "Failed to capture a valid retargeted MuscleSample before IK.";
+                }
+                return false;
+            }
+
+            if (!KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
+                    new[] { inputMuscle },
                     frameRate,
                     out AnimationClip clip,
                     out error))
@@ -180,8 +194,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            Vector3 rootPosition = cache.skeletonRoot.position;
-            Quaternion rootRotation = cache.skeletonRoot.rotation;
+        
             PlayableGraph graph = default;
             Avatar originalAvatar = null;
             bool restoreAvatar = false;
@@ -197,27 +210,29 @@ namespace KimodoBridge
                 {
                     return false;
                 }
-
-                cache.skeletonRoot.SetPositionAndRotation(rootPosition, rootRotation);
                 graph = PlayableGraph.Create("KimodoConstraintIkGraph");
                 graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
                 AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
                 clipPlayable.SetApplyFootIK(false);
                 clipPlayable.SetApplyPlayableIK(false);
+                Playable sourcePlayable = AnimationOffsetPlayableAccess.CreateMotionXToDeltaAndConnect(
+                    graph,
+                    clipPlayable);
                 AnimationScriptPlayable ikPlayable = AnimationScriptPlayable.Create(
                     graph,
                     job,
                     1);
-                graph.Connect(clipPlayable, 0, ikPlayable, 0);
+                graph.Connect(sourcePlayable, 0, ikPlayable, 0);
                 ikPlayable.SetInputWeight(0, 1f);
                 AnimationPlayableOutput output = AnimationPlayableOutput.Create(
                     graph,
                     "KimodoConstraintIkOutput",
                     cache.animator);
                 output.SetSourcePlayable(ikPlayable);
+                clipPlayable.SetTime(0f);
                 graph.Play();
                 graph.Evaluate(0f);
-                cache.skeletonRoot.SetPositionAndRotation(rootPosition, rootRotation);
+
                 solved = KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
             }
             catch (Exception ex)
@@ -238,7 +253,7 @@ namespace KimodoBridge
                         originalAvatar);
                 }
                 UnityEngine.Object.DestroyImmediate(clip);
-                cache.skeletonRoot.SetPositionAndRotation(rootPosition, rootRotation);
+               
             }
 
             return solved != null &&

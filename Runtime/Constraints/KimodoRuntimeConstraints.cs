@@ -14,13 +14,12 @@ namespace KimodoBridge
         internal const string RightFootType = "right-foot";
         internal const string Root2DType = "root2d";
 
-        private readonly List<KimodoConstraintInternalData> overlap = new List<KimodoConstraintInternalData>();
+        private KimodoConstraintInternalData terminal;
         private readonly List<KimodoMarkerSampleResult> staged = new List<KimodoMarkerSampleResult>();
         private readonly List<KimodoMarkerSampleResult> pending = new List<KimodoMarkerSampleResult>();
 
         internal int StagedCount => staged.Count;
         internal int PendingCount => pending.Count;
-        internal int OverlapCount => overlap.Count;
         internal int PendingRevision { get; private set; }
 
         internal void Stage(KimodoMarkerSampleResult sample, double absoluteTimeOffset = 0.0)
@@ -62,32 +61,19 @@ namespace KimodoBridge
         internal void Clear()
         {
             ClearUser();
-            overlap.Clear();
+            terminal = null;
         }
 
-        internal void SetOverlap(IReadOnlyList<KimodoConstraintInternalData> samples)
+        internal void SetTerminal(KimodoConstraintInternalData value)
         {
-            overlap.Clear();
-            if (samples == null)
-            {
-                return;
-            }
-
-            for (int i = 0; i < samples.Count; i++)
-            {
-                if (samples[i] != null)
-                {
-                    overlap.Add(samples[i].Clone());
-                }
-            }
+            terminal = value?.Clone();
         }
 
-        internal void ClearOverlap() => overlap.Clear();
+        internal void ClearTerminal() => terminal = null;
 
         internal List<KimodoMarkerSampleResult> BuildForGeneration(
             bool isArdy,
             double playbackTime,
-            bool includeOverlap,
             float duration)
         {
             var result = new List<KimodoMarkerSampleResult>();
@@ -107,25 +93,16 @@ namespace KimodoBridge
             return merged;
         }
 
-        internal List<KimodoConstraintInternalData> BuildOverlapForGeneration(bool includeOverlap)
+        internal KimodoConstraintInternalData BuildTerminalForGeneration(bool isArdy)
         {
-            if (!includeOverlap || overlap.Count == 0)
+            if (isArdy || terminal == null)
             {
-                return new List<KimodoConstraintInternalData>();
+                return null;
             }
 
-            KimodoConstraintInternalData earliest = overlap[0];
-            for (int i = 1; i < overlap.Count; i++)
-            {
-                if (overlap[i].sampleTime < earliest.sampleTime)
-                {
-                    earliest = overlap[i];
-                }
-            }
-
-            KimodoConstraintInternalData result = earliest.Clone();
+            KimodoConstraintInternalData result = terminal.Clone();
             result.sampleTime = 0.0;
-            return new List<KimodoConstraintInternalData> { result };
+            return result;
         }
 
         internal void CompleteGeneration(bool isArdy) => CompleteGeneration(isArdy, PendingRevision);

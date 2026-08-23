@@ -16,7 +16,6 @@ namespace KimodoBridge
             int segmentIndex,
             bool isArdy,
             KimodoSegmentTrimTrailSettings trimTrail,
-            KimodoSegmentOverlapHeadSettings overlapHead,
             bool allowPartialJoints,
             CancellationToken token)
         {
@@ -41,20 +40,23 @@ namespace KimodoBridge
                     $"Failed to read effective tail root position for frame {effectiveLastFrameIndex}.");
             }
 
-            List<KimodoConstraintInternalData> overlap = isArdy
-                ? new List<KimodoConstraintInternalData>()
-                : BuildOverlap(
+            KimodoConstraintInternalData terminalConstraint = null;
+            if (!isArdy && !KimodoRawMotionUtility.TryBuildConstraintInternalData(
                     metadata.Motion,
                     modelName,
                     effectiveLastFrameIndex,
-                    overlapHead);
+                    out terminalConstraint,
+                    out string terminalError))
+            {
+                throw new InvalidOperationException(terminalError);
+            }
 
             return new KimodoRuntimeGeneratedSegment
             {
                 Index = segmentIndex,
                 PromptText = prompt,
                 Motion = metadata.Motion,
-                ConstraintOverlapInternalData = overlap,
+                TerminalConstraint = terminalConstraint,
                 FirstRootPosition = metadata.FirstRootPosition,
                 LastRootPosition = effectiveLastRootPosition,
                 WorldAccumulatedOffset = Vector3.zero,
@@ -159,37 +161,5 @@ namespace KimodoBridge
                 return metadata;
             }, token);
 
-        private static List<KimodoConstraintInternalData> BuildOverlap(
-            KimodoRawMotionData motion,
-            string modelName,
-            int effectiveLastFrameIndex,
-            KimodoSegmentOverlapHeadSettings overlapHead)
-        {
-            List<KimodoConstraintInternalData> overlap =
-                KimodoRuntimeSegmentAnalysisUtility.BuildConstraintOverlapInternalData(
-                    motion,
-                    modelName,
-                    effectiveLastFrameIndex,
-                    overlapHead);
-            if (overlap.Count == 0)
-            {
-                if (KimodoRawMotionUtility.TryBuildConstraintInternalData(
-                        motion,
-                        modelName,
-                        effectiveLastFrameIndex,
-                        out KimodoConstraintInternalData tail,
-                        out string error))
-                {
-                    tail.sampleTime = 0.0;
-                    overlap.Add(tail);
-                }
-                else
-                {
-                    throw new InvalidOperationException(error);
-                }
-            }
-
-            return overlap;
-        }
     }
 }

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using TimelineInject;
 using UnityEngine;
 
@@ -9,7 +8,7 @@ namespace KimodoBridge
         public int Index;
         public string PromptText;
         public KimodoRawMotionData Motion;
-        public List<KimodoConstraintInternalData> ConstraintOverlapInternalData;
+        public KimodoConstraintInternalData TerminalConstraint;
         public Vector3 FirstRootPosition;
         public Vector3 LastRootPosition;
         public Vector3 WorldAccumulatedOffset;

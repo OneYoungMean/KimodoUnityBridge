@@ -45,8 +45,6 @@ namespace KimodoBridge
         private float ardyMaxSpeed = 1.25f;
         [SerializeField, Min(0.01f), Tooltip("ARDY Root2D planning acceleration limit in meters per second squared.")]
         private float ardyMaxAcceleration = 1.5f;
-        [SerializeField] private bool loopHint = true;
-        [SerializeField] private KimodoSegmentOverlapHeadSettings segmentOverlapHeadSettings = new KimodoSegmentOverlapHeadSettings();
         [SerializeField] private bool allowPartialJoints;
         [SerializeField] private KimodoSegmentTrimTrailSettings segmentTrimTrailSettings = new KimodoSegmentTrimTrailSettings();
 
@@ -70,7 +68,6 @@ namespace KimodoBridge
         public string StatusMessage => statusMessage;
         public bool IsRunning => generationSession.Running;
         public KimodoSegmentTrimTrailSettings SegmentTrimTrailSettings => segmentTrimTrailSettings;
-        public KimodoSegmentOverlapHeadSettings SegmentOverlapHeadSettings => segmentOverlapHeadSettings;
         public event Action<KimodoRuntimeSegmentReport> SegmentReady;
         public event Action<KimodoRuntimeSegmentReport> SegmentStarted;
         public event Action<KimodoRuntimeSegmentReport> SegmentCompleted;
@@ -145,13 +142,13 @@ namespace KimodoBridge
                 return;
             }
 
-            if (loopHint && !KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
+            if (!KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
             {
-                constraints.SetOverlap(startedSegment.ConstraintOverlapInternalData);
+                constraints.SetTerminal(startedSegment.TerminalConstraint);
             }
             else
             {
-                constraints.ClearOverlap();
+                constraints.ClearTerminal();
             }
 
             // Publish this segment's terminal pose before starting the next
@@ -654,7 +651,6 @@ namespace KimodoBridge
                         requestSegmentIndex,
                         isArdy,
                         segmentTrimTrailSettings,
-                        segmentOverlapHeadSettings,
                         allowPartialJoints,
                         generationToken);
                 if (isArdy)
@@ -709,11 +705,9 @@ namespace KimodoBridge
             List<KimodoMarkerSampleResult> activeConstraints = constraints.BuildForGeneration(
                 isArdy,
                 isArdy ? motionPlayer.PlaybackTimeAsDouble : 0.0,
-                includeOverlap: false,
                 generationDuration);
-            List<KimodoConstraintInternalData> overlap = constraints.BuildOverlapForGeneration(
-                includeOverlap: loopHint && !isArdy);
-            if (activeConstraints.Count == 0 && overlap.Count == 0)
+            KimodoConstraintInternalData terminal = constraints.BuildTerminalForGeneration(isArdy);
+            if (activeConstraints.Count == 0 && terminal == null)
             {
                 return string.Empty;
             }
@@ -729,7 +723,7 @@ namespace KimodoBridge
                     0.0,
                     generationDuration,
                     isArdy ? ardyProfile.SourceFps : KimodoMotionModelProfiles.DefaultFrameRate);
-            if (overlap.Count == 0)
+            if (terminal == null)
             {
                 return futureConstraints;
             }
@@ -738,7 +732,7 @@ namespace KimodoBridge
                 ? new JArray()
                 : JArray.Parse(futureConstraints);
             JArray internalConstraints = KimodoConstraintInternalJsonExporter.ToJsonArray(
-                overlap,
+                new[] { terminal },
                 isArdy ? ardyProfile.SourceFps : KimodoMotionModelProfiles.DefaultFrameRate,
                 generationDuration);
             foreach (JToken constraint in internalConstraints)

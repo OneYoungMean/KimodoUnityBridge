@@ -80,29 +80,27 @@ namespace KimodoBridge
                 return false;
             }
 
-            // Kimodo generation normalizes constraints to the earliest anchor
-            // (normally the overlap FullBody frame 0). Keep this target in
+            // Kimodo generation anchors this target against the terminal
+            // FullBody frame 0. Keep it in
             // absolute model space; subtracting NextSegmentRootOrigin here
             // would apply the same translation a second time during generation.
             sample.constraintMode = "constraint";
-            if (sample.enableMask?.root2DPosition == true)
+            sample.enableMask.root2DPosition = true;
+            sample.validMask.rootPosition = true;
+            sample.rootOverride ??= CharacterAnimationCli.Unity.KimodoRigidTransform.Identity;
+            Quaternion capturedRootRotation = sample.rootOverride.q;
+            sample.rootOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
             {
-                Quaternion capturedRootRotation = sample.rootOverride != null
-                    ? sample.rootOverride.q
-                    : Quaternion.identity;
-                sample.rootOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
-                {
-                    t = new Vector3(
-                        targetWorldPosition.x,
-                        currentWorldPosition.y,
-                        targetWorldPosition.y),
-                    // Keep the complete sampled hips rotation. Root2D's
-                    // heading projection is applied only by protocol export.
-                    q = capturedRootRotation
-                };
-                sample.enableMask.root2DPosition = true;
-            }
+                t = new Vector3(
+                    targetWorldPosition.x,
+                    currentWorldPosition.y,
+                    targetWorldPosition.y),
+                // Keep the complete sampled hips rotation. Root2D's
+                // heading projection is applied only by protocol export.
+                q = capturedRootRotation
+            };
             sample.enableMask.root2DHeading = worldHeading.HasValue && sample.enableMask.root2DPosition;
+            sample.validMask.rootHeading = sample.enableMask.root2DHeading;
             if (worldHeading.HasValue)
             {
                 if (sample.enableMask?.root2DPosition == true)

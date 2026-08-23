@@ -189,7 +189,6 @@ namespace KimodoBridge.Editor.Tests
                 3,
                 true,
                 new KimodoSegmentTrimTrailSettings(),
-                new KimodoSegmentOverlapHeadSettings(),
                 false,
                 System.Threading.CancellationToken.None).GetAwaiter().GetResult();
 
@@ -366,7 +365,6 @@ namespace KimodoBridge.Editor.Tests
             List<KimodoMarkerSampleResult> active = buffer.BuildForGeneration(
                 isArdy: false,
                 playbackTime: 0.0,
-                includeOverlap: false,
                 duration: 5f);
             Assert.That(active, Has.Count.EqualTo(2));
             Assert.That(active[0].sampleTime, Is.EqualTo(2.0).Within(1e-6));
@@ -392,7 +390,6 @@ namespace KimodoBridge.Editor.Tests
             List<KimodoMarkerSampleResult> merged = buffer.BuildForGeneration(
                 isArdy: false,
                 playbackTime: 0.0,
-                includeOverlap: false,
                 duration: 5f);
             Assert.That(merged, Has.Count.EqualTo(1));
             Assert.That(merged[0].mask.leftHand && merged[0].mask.rightFoot, Is.True);
@@ -407,7 +404,6 @@ namespace KimodoBridge.Editor.Tests
             List<KimodoMarkerSampleResult> active = buffer.BuildForGeneration(
                 isArdy: false,
                 playbackTime: 0.0,
-                includeOverlap: false,
                 duration: 5f);
 
             Assert.That(active, Has.Count.EqualTo(2));
@@ -432,7 +428,6 @@ namespace KimodoBridge.Editor.Tests
             List<KimodoMarkerSampleResult> ardyActive = buffer.BuildForGeneration(
                 isArdy: true,
                 playbackTime: 11.0,
-                includeOverlap: false,
                 duration: 5f);
             Assert.That(ardyActive, Has.Count.EqualTo(1));
             Assert.That(ardyActive[0].sampleTime, Is.EqualTo(1.0).Within(1e-6));
@@ -442,7 +437,6 @@ namespace KimodoBridge.Editor.Tests
             List<KimodoMarkerSampleResult> normalActive = buffer.BuildForGeneration(
                 isArdy: false,
                 playbackTime: 0.0,
-                includeOverlap: false,
                 duration: 5f);
             Assert.That(normalActive, Has.Count.EqualTo(1));
             Assert.That(normalActive[0].sampleTime, Is.EqualTo(5.0).Within(1e-6));
@@ -475,62 +469,29 @@ namespace KimodoBridge.Editor.Tests
             List<KimodoMarkerSampleResult> active = buffer.BuildForGeneration(
                 isArdy: false,
                 playbackTime: 0.0,
-                includeOverlap: false,
                 duration: 5f);
             Assert.That(active.Select(sample => sample.sampleTime), Is.EqualTo(new[] { 1.0, 2.0 }));
         }
 
-        [Test, Ignore("RawData was removed from SampleResult; rewrite against sampleData protocol.")]
-        public void RuntimeConstraints_UsesTerminalFullBodyOverlapWithoutRoot2D()
+        [Test]
+        public void RuntimeConstraints_UsesSingleKimodoTerminalAnchor()
         {
             var buffer = new KimodoRuntimeConstraints();
-            buffer.SetOverlap(new[]
+            var terminal = new KimodoConstraintInternalData
             {
-                new KimodoMarkerSampleResult
-                {
-                    constraintType = "left-hand",
-                    sampleTime = 0.2,
-                },
-                new KimodoMarkerSampleResult
-                {
-                    constraintType = "fullbody",
-                    sampleTime = 0.0,
-                    characterPose = new CharacterAnimationCli.Unity.CharacterPose
-                    {
-                        root = new CharacterAnimationCli.Unity.KimodoRigidTransform
-                        {
-                            t = new Vector3(2f, 3f, 4f),
-                            q = Quaternion.identity
-                        }
-                    },
-                }
-            });
+                rootPosition = new Vector3(2f, 3f, 4f),
+                localJointAxisAngles = new List<Vector3> { Vector3.zero },
+                sampleTime = 7.0
+            };
 
-            List<KimodoMarkerSampleResult> normalActive = buffer.BuildForGeneration(
-                isArdy: false,
-                playbackTime: 0.0,
-                includeOverlap: true,
-                duration: 5f);
-            Assert.That(normalActive, Has.Count.EqualTo(1));
-            Assert.That(normalActive[0].constraintType, Is.EqualTo("fullbody"));
-            Assert.That(normalActive[0].mask.muscle, Is.True);
-            Assert.That(normalActive[0].sampleTime, Is.Zero);
-            Assert.That(normalActive[0].characterPose.root.t, Is.EqualTo(new Vector3(2f, 3f, 4f)));
+            buffer.SetTerminal(terminal);
+            terminal.rootPosition = Vector3.zero;
 
-            JArray json = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(
-                normalActive,
-                new KimodoConstraintExportContext()));
-            Assert.That(json, Has.Count.EqualTo(1));
-            Assert.That(json[0].Value<string>("type"), Is.EqualTo("fullbody"));
-            Assert.That(json[0]["root_positions"][0].Values<float>(), Is.EqualTo(new[] { -2f, 3f, 4f }));
-
-            Assert.That(
-                buffer.BuildForGeneration(
-                    isArdy: true,
-                    playbackTime: 0.0,
-                    includeOverlap: false,
-                    duration: 5f),
-                Is.Empty);
+            KimodoConstraintInternalData anchor = buffer.BuildTerminalForGeneration(isArdy: false);
+            Assert.That(anchor, Is.Not.Null);
+            Assert.That(anchor.sampleTime, Is.Zero);
+            Assert.That(anchor.rootPosition, Is.EqualTo(new Vector3(2f, 3f, 4f)));
+            Assert.That(buffer.BuildTerminalForGeneration(isArdy: true), Is.Null);
         }
 
         [Test]

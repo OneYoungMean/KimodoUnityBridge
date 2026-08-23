@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using TimelineInject;
 using UnityEngine;
 
@@ -55,99 +54,6 @@ namespace KimodoBridge
             return Mathf.Clamp(effectiveLastFrameIndex, 1, lastFrameIndex);
         }
 
-        internal static List<KimodoConstraintInternalData> BuildConstraintOverlapInternalData(
-            KimodoRawMotionData motion,
-            string modelName,
-            int effectiveLastFrameIndex,
-            KimodoSegmentOverlapHeadSettings settings)
-        {
-            var frames = new List<KimodoConstraintInternalData>();
-            if (motion == null || motion.FrameCount <= 0)
-            {
-                return frames;
-            }
-
-            settings ??= new KimodoSegmentOverlapHeadSettings();
-            float frameRate = ResolveFrameRate(motion);
-            int overlapStart = ResolveOverlapStartFrameIndex(motion, effectiveLastFrameIndex, settings, frameRate);
-            int windowCount = Mathf.Max(1, effectiveLastFrameIndex - overlapStart + 1);
-            int sampleCount = Mathf.Clamp(settings.SampleCount, 1, windowCount);
-            for (int sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++)
-            {
-                int sourceFrame = sampleCount == 1
-                    ? effectiveLastFrameIndex
-                    : Mathf.RoundToInt(Mathf.Lerp(
-                        overlapStart,
-                        effectiveLastFrameIndex,
-                        sampleIndex / (float)(sampleCount - 1)));
-                sourceFrame = Mathf.Clamp(sourceFrame, overlapStart, effectiveLastFrameIndex);
-                if (!KimodoRawMotionUtility.TryBuildConstraintInternalData(
-                        motion,
-                        modelName,
-                        sourceFrame,
-                        out KimodoConstraintInternalData frame,
-                        out string _))
-                {
-                    continue;
-                }
-
-                frame.sampleTime = (effectiveLastFrameIndex - sourceFrame) /
-                    Mathf.Max(1e-6f, frameRate);
-                if (frames.Count > 0 && Mathf.Approximately(
-                        (float)frames[frames.Count - 1].sampleTime,
-                        (float)frame.sampleTime))
-                {
-                    continue;
-                }
-                frames.Add(frame);
-            }
-
-            return frames;
-        }
-
-        private static int ResolveOverlapStartFrameIndex(
-            KimodoRawMotionData motion,
-            int effectiveLastFrameIndex,
-            KimodoSegmentOverlapHeadSettings settings,
-            float frameRate)
-        {
-            effectiveLastFrameIndex = Mathf.Clamp(effectiveLastFrameIndex, 0, Mathf.Max(0, motion.FrameCount - 1));
-            if (settings.Mode == KimodoSegmentSamplingMode.ByTime)
-            {
-                int overlapFrames = KimodoFrameTimeUtility.SecondsToFrameCount(settings.OverlapTimeSeconds, frameRate);
-                return Mathf.Clamp(effectiveLastFrameIndex - overlapFrames, 0, effectiveLastFrameIndex);
-            }
-
-            int maxOverlapFrames = Mathf.Clamp(
-                KimodoFrameTimeUtility.SecondsToFrameCount(settings.MaxOverlapTimeSeconds, frameRate),
-                0,
-                effectiveLastFrameIndex);
-            if (maxOverlapFrames <= 0)
-            {
-                return effectiveLastFrameIndex;
-            }
-
-            float thresholdSq = settings.DeltaThresholdMeters * settings.DeltaThresholdMeters;
-            int overlapStartFrameIndex = effectiveLastFrameIndex;
-            int scannedFrames = 0;
-            for (int frameIndex = effectiveLastFrameIndex; frameIndex > 0 && scannedFrames < maxOverlapFrames; frameIndex--, scannedFrames++)
-            {
-                if (!TryReadRootDeltaXZSquared(motion, frameIndex - 1, frameIndex, out float deltaSq))
-                {
-                    break;
-                }
-
-                if (deltaSq < thresholdSq)
-                {
-                    break;
-                }
-
-                overlapStartFrameIndex = frameIndex - 1;
-            }
-
-            return Mathf.Clamp(overlapStartFrameIndex, 0, effectiveLastFrameIndex);
-        }
-
         private static bool TryReadRootDeltaXZSquared(
             KimodoRawMotionData motion,
             int frameIndex0,
@@ -173,5 +79,6 @@ namespace KimodoBridge
                 ? motion.FrameRate
                 : KimodoMotionModelProfiles.DefaultFrameRate;
         }
+
     }
 }
