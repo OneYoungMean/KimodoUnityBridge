@@ -740,7 +740,10 @@ namespace CharacterAnimationCli.Unity.Command
 
             var result = new KimodoMarkerSampleResult
             {
-                constraintMode = "root2d",
+                // Command constraints are canonical mix samples. The lower
+                // protocol composer selects root2d from these enable/valid
+                // channels instead of branching in the command layer.
+                constraintMode = "mix",
                 sampleTime = sampleTime,
                 root2DOverride = new KimodoRigidTransform
                 {
@@ -790,7 +793,12 @@ namespace CharacterAnimationCli.Unity.Command
             {
                 throw new InvalidOperationException($"Convert constraints[{constraintIndex}] failed: {convertError}");
             }
-            converted.constraintMode = constraintType;
+            // FullBody keeps its internal IK target mask but is not a mix
+            // wire sample. Explicit end-effectors use mix so the captured
+            // body remains available to the lower protocol composer.
+            bool fullBodyConstraint = string.Equals(
+                constraintType, "fullbody", StringComparison.OrdinalIgnoreCase);
+            converted.constraintMode = fullBodyConstraint ? "fullbody" : "mix";
             // Retarget sampling already returned the canonical 70D payload,
             // including the evaluated body-relative footTQ channels. Do not
             // round-trip through CharacterPose, whose cached foot fields are
@@ -801,6 +809,25 @@ namespace CharacterAnimationCli.Unity.Command
             converted.enableMask.rootTQ = true;
             converted.enableMask.leftFootTQ = true;
             converted.enableMask.rightFootTQ = true;
+            bool leftHandConstraint = string.Equals(
+                constraintType, "left-hand", StringComparison.OrdinalIgnoreCase);
+            bool rightHandConstraint = string.Equals(
+                constraintType, "right-hand", StringComparison.OrdinalIgnoreCase);
+            bool leftFootConstraint = string.Equals(
+                constraintType, "left-foot", StringComparison.OrdinalIgnoreCase);
+            bool rightFootConstraint = string.Equals(
+                constraintType, "right-foot", StringComparison.OrdinalIgnoreCase);
+            if (!fullBodyConstraint)
+            {
+                converted.enableMask.leftHandEffector = leftHandConstraint;
+                converted.enableMask.rightHandEffector = rightHandConstraint;
+                converted.enableMask.leftFootEffector = leftFootConstraint;
+                converted.enableMask.rightFootEffector = rightFootConstraint;
+                converted.validMask.leftHand &= leftHandConstraint;
+                converted.validMask.rightHand &= rightHandConstraint;
+                converted.validMask.leftFoot &= leftFootConstraint;
+                converted.validMask.rightFoot &= rightFootConstraint;
+            }
             converted.sampleTime = sampleTime;
             return converted;
         }

@@ -254,7 +254,7 @@
 ## CP31 — BoneSample 到 world SampleResult
 
 - 已完成：`TryBuildMarkerSampleResultFromBoneSample` 在 BoneSample 应用到目标 SkeletonCache 后，统一捕获 Hips、手、脚的世界 Transform，写入 `root2DOverride` 和四个 world effector。
-- 已完成：手部旋转按 root 空间相对 rest 姿势计算；脚部旋转不经过 pelvis，使用脚部当前旋转与初始脚旋转的相对值；预览使用同一转换函数还原显示旋转。
+- 已完成：手部旋转使用 `currentInRoot * inverse(bindWorldRotation)`；显示时还原为 `rootCurrent * transport * bindWorldRotation`。脚部旋转不经过 pelvis，使用脚部当前旋转与初始脚旋转的相对值；预览使用同一转换函数还原显示旋转。
 - 已完成：预览 hips 直接读取 `SampleResult.root2DOverride` 的 world position/rotation，不再把 `HumanPose.bodyPosition` 当作世界 hips。
 - 已完成：删除 Editor AutoSample 的旧 CharacterPose 合并旁路；AutoSample 结果整体写回同一份 SampleResult。
 - 检查：Unity 2022.3.62f3c1 CLI 编译成功，日志：`C:\tmp\unity-compile-phase2-worldcanonical2.log`；无 `error CS`；`git diff --check` 通过。
@@ -683,5 +683,5 @@
 - Preview 与 Runtime Constraint projector 共同调用该 Pipeline，避免两侧产生不同姿态。
 - IK job 只接收 `SampleResult` 中的 world target position 与 transport rotation，未绑定 `TransformSceneHandle`，也不读取或写回外部 Rig。
 - Root2D position 与 heading 保持独立：`root2DPosition` 控制 hips world 位移，`root2DHeading` 控制旋转覆盖。
-- 手/脚 transport rotation 在进入 IK job 前统一还原为内部骨架 world rotation。
+- 手/脚 q 按各自 bind-world 规则生成后，直接作为 IKGoal rotation 使用；进入 IK job 前不再做 world-space 反解。
 - 检查：Unity 2022.3.62f3c1 独立临时工程编译通过，日志：`C:\tmp\kimodo-compile-ik-pipeline-2.log`。

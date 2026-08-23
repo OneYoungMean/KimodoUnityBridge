@@ -24,6 +24,7 @@ namespace KimodoBridge.Editor
         private SerializedProperty diffusionSteps;
         private SerializedProperty randomSeed;
         private SerializedProperty seed;
+        private SerializedProperty drawDebugSkeleton;
         private SerializedProperty verboseLogging;
 
         private void OnEnable()
@@ -43,6 +44,7 @@ namespace KimodoBridge.Editor
             diffusionSteps = serializedObject.FindProperty("diffusionSteps");
             randomSeed = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("fixedSeed");
+            drawDebugSkeleton = serializedObject.FindProperty("drawDebugSkeleton");
             verboseLogging = serializedObject.FindProperty("verboseLogging");
         }
 
@@ -215,6 +217,13 @@ namespace KimodoBridge.Editor
         {
             EditorGUILayout.LabelField("Debug", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.PropertyField(drawDebugSkeleton, new GUIContent("Draw Debug Skeleton"));
+            if (drawDebugSkeleton.boolValue)
+            {
+                EditorGUILayout.LabelField(
+                    "Editor-only profile model driven by the current source pose.",
+                    EditorStyles.wordWrappedMiniLabel);
+            }
             EditorGUILayout.PropertyField(verboseLogging, new GUIContent("Verbose Logging"));
             EditorGUILayout.EndVertical();
         }

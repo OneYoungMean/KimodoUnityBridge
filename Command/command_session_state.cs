@@ -455,7 +455,9 @@ namespace CharacterAnimationCli.Unity.Command
                 }
 
                 KimodoMarkerSampleResult markerSample = sample.Clone();
-                markerSample.constraintMode = "constraint";
+                // Preserve the canonical mode inferred by the lower
+                // composer; command code does not choose a protocol family.
+                markerSample.constraintMode = sample.constraintMode;
                 marker.SampleData = markerSample;
                 if (createdMarker)
                 {

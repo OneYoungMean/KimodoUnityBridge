@@ -18,7 +18,7 @@ BoneSample(local bones) → SkeletonCache 重建 → 读取 Hips/手/脚 world T
 
 `root2DOverride` 始终是角色 hips 的完整 world position + world rotation，与 rootTQ 无关，优先级高于 rootTQ；无有效 override 时才使用 rootTQ。
 
-四个 effector 的 position 始终是 world position。手使用 `q-rig = q-current-in-root * inverse(q-initial-in-root)`，显示时 `q-current = q-rig * q-initial`；脚不经过 pelvis/root 空间，使用 `q-current = q-cube * q-initialFoot`。
+四个 effector 的 position 始终是 world position。手使用 `q-rig = q-current-in-root * inverse(q-bind-world)`；该 q 直接发送给 IKGoal，不再做任何 world-space 反解。脚使用 `q-cube = q-current-world * inverse(q-bind-world)`，同样直接发送给 IKGoal。
 
 姿势顺序：`70D FK → root2DOverride 覆盖 hips → 保留 world effector targets → display/export`。底层协议保持不变，但 IK 中间解算全部移除。
 

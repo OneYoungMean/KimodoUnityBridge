@@ -104,8 +104,50 @@ namespace KimodoBridge.Editor.Tests
                 60.0);
 
             Assert.That(expanded, Is.Not.Empty);
-            Assert.That(expanded.Exists(item => item.constraintType == "fullbody"), Is.True);
-            Assert.That(expanded.Exists(item => item.constraintType == "root2d"), Is.True);
+            Assert.That(expanded.Exists(item => item.constraintMode == "fullbody"), Is.True);
+            Assert.That(expanded.Exists(item => item.constraintMode == "root2d"), Is.True);
+        }
+
+        [Test]
+        public void Composer_FullBodyDoesNotExpandInternalEffectorMask()
+        {
+            KimodoMarkerSampleResult sample = CreateFullBody(1, 0.5f, true);
+            sample.enableMask.leftHandEffector = true;
+            sample.enableMask.rightHandEffector = true;
+            sample.enableMask.leftFootEffector = true;
+            sample.enableMask.rightFootEffector = true;
+            sample.validMask = KimodoConstraintMask.ForType("fullbody");
+            sample.effectors.leftHand.t = new Vector3(1f, 2f, 3f);
+            sample.effectors.rightHand.t = new Vector3(4f, 5f, 6f);
+            sample.effectors.leftFoot.t = new Vector3(7f, 8f, 9f);
+            sample.effectors.rightFoot.t = new Vector3(10f, 11f, 12f);
+
+            var expanded = KimodoConstraintSampleComposer.ExpandProtocolSamples(
+                new[] { sample }, 60.0);
+
+            Assert.That(expanded, Has.Count.EqualTo(1));
+            Assert.That(expanded[0].constraintMode, Is.EqualTo("fullbody"));
+        }
+
+        [Test]
+        public void Composer_MixEmitsExplicitEffectorMask()
+        {
+            KimodoMarkerSampleResult sample = CreateFullBody(1, 0.5f, true);
+            sample.constraintMode = "mix";
+            sample.enableMask.leftHandEffector = true;
+            sample.validMask = new KimodoConstraintMask
+            {
+                muscle = true,
+                leftHand = true
+            };
+            sample.effectors.leftHand.t = new Vector3(1f, 2f, 3f);
+
+            var expanded = KimodoConstraintSampleComposer.ExpandProtocolSamples(
+                new[] { sample }, 60.0);
+
+            Assert.That(expanded.Exists(item => item.constraintMode == "fullbody"), Is.True);
+            Assert.That(expanded.Exists(item => item.constraintMode == "left-hand"), Is.True);
+            Assert.That(expanded.Count, Is.EqualTo(2));
         }
 
         private static KimodoMarkerSampleResult CreateFullBody(
@@ -126,7 +168,7 @@ namespace KimodoBridge.Editor.Tests
                     rightFootTQ = valid
                 },
                 constraintMode = "fullbody",
-                constraintType = "fullbody",
+                constraintMode = "fullbody",
                 sampleTime = 0,
                 creationOrder = creationOrder,
                 enabled = true

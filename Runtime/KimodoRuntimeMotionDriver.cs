@@ -49,6 +49,8 @@ namespace KimodoBridge
         [SerializeField] private KimodoSegmentTrimTrailSettings segmentTrimTrailSettings = new KimodoSegmentTrimTrailSettings();
 
         [Header("Debug")]
+        [SerializeField, Tooltip("Editor only. Show the model's profile-skeleton FBX driven by the current source pose.")]
+        private bool drawDebugSkeleton;
         [SerializeField] private bool verboseLogging = true;
 
         private const string IdlePrompt = "idle";
@@ -64,10 +66,24 @@ namespace KimodoBridge
         private readonly List<Animator> resolvedTargetAnimatorBuffer = new List<Animator>();
         private KimodoBridgeService bridgeService;
         private KimodoRuntimeMotionPlayer motionPlayer;
+        private KimodoRuntimeInterruptionPlan interruptionPlan;
+
+        private sealed class KimodoRuntimeInterruptionPlan
+        {
+            public float SwitchTimeSeconds;
+            public KimodoConstraintInternalData FirstFrameConstraint;
+        }
 
         public string StatusMessage => statusMessage;
         public bool IsRunning => generationSession.Running;
         public KimodoSegmentTrimTrailSettings SegmentTrimTrailSettings => segmentTrimTrailSettings;
+        public bool DrawDebugSkeleton
+        {
+            get => drawDebugSkeleton;
+            set => drawDebugSkeleton = value;
+        }
+        internal string DebugModelName => modelName;
+        internal Transform DebugProfileSkeletonRoot => motionPlayer?.DebugProfileSkeletonRoot;
         public event Action<KimodoRuntimeSegmentReport> SegmentReady;
         public event Action<KimodoRuntimeSegmentReport> SegmentStarted;
         public event Action<KimodoRuntimeSegmentReport> SegmentCompleted;
@@ -130,9 +146,11 @@ namespace KimodoBridge
                 UpdateStatus($"Playback failed: {playbackError}");
             }
 
+            ExpireMissedInterruptionPlan();
+
             if (startedSegment == null)
             {
-                MaybeQueueNextGeneration(generationSession.LifetimeToken);
+                MaybeStartNextGeneration(generationSession.LifetimeToken);
 
                 if (completedSegment != null)
                 {
@@ -153,7 +171,7 @@ namespace KimodoBridge
 
             // Publish this segment's terminal pose before starting the next
             // generation request; the request snapshots constraints immediately.
-            MaybeQueueNextGeneration(generationSession.LifetimeToken);
+            MaybeStartNextGeneration(generationSession.LifetimeToken);
 
             UpdateStatus($"Playing segment {startedSegment.Index}.");
             SegmentStarted?.Invoke(CreateSegmentReport(startedSegment));
@@ -215,7 +233,7 @@ namespace KimodoBridge
             CaptureAppliedRuntimeSettings();
             await RefreshUpcomingGenerationAsync(
                 "Generation settings applied.",
-                "Generation settings applied. Waiting for current generation to finish.",
+                "Generation settings applied. Cancelling current generation.",
                 "Generation settings applied. Generating fresh segment.");
         }
 
@@ -361,7 +379,7 @@ namespace KimodoBridge
         {
             ApplyStagedConstraintsInternal(
                 "Constraints queued.",
-                "Constraints queued. Waiting for current generation to finish.",
+                "Constraints queued. Cancelling current generation.",
                 "Constraints queued. Generating constrained segment.");
         }
 
@@ -371,7 +389,7 @@ namespace KimodoBridge
             generationSession.MarkArdyConstraintsDirty();
             _ = RefreshUpcomingGenerationAsync(
                 "Constraints cleared.",
-                "Constraints cleared. Waiting for current generation to finish.",
+                "Constraints cleared. Cancelling current generation.",
                 "Constraints cleared. Regenerating future motion.");
         }
 
@@ -402,7 +420,8 @@ namespace KimodoBridge
 
             motionPlayer.Stop();
             motionPlayer.ResetCompletionState();
-            motionPlayer.ClearQueue();
+            motionPlayer.ClearNextSegment();
+            interruptionPlan = null;
             if (bridgeService != null && !bridgeService.IsDisposed)
             {
                 await bridgeService.StopAsync(CancellationToken.None);
@@ -440,7 +459,8 @@ namespace KimodoBridge
                 constraints.Clear();
                 motionPlayer.Stop();
                 motionPlayer.ResetCompletionState();
-                motionPlayer.ClearQueue();
+                motionPlayer.ClearNextSegment();
+                interruptionPlan = null;
                 ResetArdySessionState();
                 CaptureAppliedRuntimeSettings();
 
@@ -467,7 +487,8 @@ namespace KimodoBridge
             constraints.Clear();
             motionPlayer.Stop();
             motionPlayer.ResetCompletionState();
-            motionPlayer.ClearQueue();
+            motionPlayer.ClearNextSegment();
+            interruptionPlan = null;
             ResetArdySessionState();
             if (bridgeService != null && !bridgeService.IsDisposed)
             {
@@ -476,7 +497,7 @@ namespace KimodoBridge
             UpdateStatus("Stopped.");
         }
 
-        private void MaybeQueueNextGeneration(CancellationToken token)
+        private void MaybeStartNextGeneration(CancellationToken token)
         {
             if (!generationSession.Running || generationSession.GenerationInFlight || generationSession.GenerationBlocked)
             {
@@ -487,46 +508,17 @@ namespace KimodoBridge
             if (isArdy && !KimodoRuntimeGenerationSession.ShouldRequestArdyGeneration(
                     motionPlayer.BufferedDurationSeconds,
                     generationSession.ArdyPlaybackReserveSeconds,
-                    generationSession.ArdyRefreshPending))
+                    generationSession.RefreshPending))
             {
                 return;
             }
 
-            if (!isArdy && motionPlayer.QueuedSegmentCount > 0)
+            if (generationSession.RefreshPending || (!isArdy && motionPlayer.HasNextSegment))
             {
                 return;
             }
 
-            if (isArdy)
-            {
-                _ = GenerateNextSegmentAsync(token);
-                return;
-            }
-
-            if (!CanStartGenerationForCurrentSegment(out int waitingForSegment))
-            {
-                if (generationSession.ShouldReportWait())
-                {
-                    UpdateStatus($"Waiting for segment {waitingForSegment} to finish before generating segment {generationSession.SegmentIndex}.");
-                }
-
-                return;
-            }
-
-            generationSession.ClearWaitStatus();
             _ = GenerateNextSegmentAsync(token);
-        }
-
-        private bool CanStartGenerationForCurrentSegment(out int waitingForSegment)
-        {
-            int requiredCompletedSegment = generationSession.SegmentIndex - 2;
-            waitingForSegment = requiredCompletedSegment;
-            if (requiredCompletedSegment < 0)
-            {
-                return true;
-            }
-
-            return motionPlayer.LastCompletedSegmentIndex >= requiredCompletedSegment;
         }
 
         private async Task GenerateNextSegmentAsync(CancellationToken token)
@@ -543,21 +535,25 @@ namespace KimodoBridge
             try
             {
                 CancellationToken generationToken = generationCts.Token;
+                float generationStartedAt = Time.realtimeSinceStartup;
 
                 string prompt = ResolvePrompt();
                 bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out KimodoMotionModelProfile ardyProfile);
+                KimodoRuntimeInterruptionPlan requestInterruptionPlan = isArdy
+                    ? null
+                    : interruptionPlan;
                 bool sendPrompt = !isArdy || !generationSession.ArdyStarted || generationSession.ArdyPromptDirty;
                 bool sendConstraints = !isArdy || !generationSession.ArdyStarted || generationSession.ArdyConstraintsDirty;
                 bool sendSettings = isArdy && (!generationSession.ArdyStarted || generationSession.ArdySettingsDirty);
                 int consumedPendingRevision = constraints.PendingRevision;
                 float generationDuration = ResolveGenerationDurationSeconds();
                 string constraintsJson = sendConstraints
-                    ? BuildNextConstraintsJson(isArdy, ardyProfile, generationDuration)
+                    ? BuildNextConstraintsJson(
+                        isArdy,
+                        ardyProfile,
+                        generationDuration,
+                        requestInterruptionPlan?.FirstFrameConstraint)
                     : string.Empty;
-                if (isArdy)
-                {
-                    generationSession.BeginArdyRequest();
-                }
                 int resolvedRequestSeed = generationSession.ResolveRequestSeed(isArdy, randomSeed, fixedSeed);
                 bool sessionUpdateOnly = isArdy && generationSession.ArdyStarted && !sendSettings;
                 string resolvedModelName = isArdy
@@ -653,6 +649,19 @@ namespace KimodoBridge
                         segmentTrimTrailSettings,
                         allowPartialJoints,
                         generationToken);
+                staleRequest = requestVersion != generationSession.RequestVersion || generationToken.IsCancellationRequested;
+                if (KimodoRuntimeGenerationSession.ShouldDiscardResult(
+                        isArdy,
+                        staleRequest,
+                        token.IsCancellationRequested))
+                {
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[KimodoRuntimeMotionDriver] Discard stale segment {requestSegmentIndex} after build.", this);
+                    }
+
+                    return;
+                }
                 if (isArdy)
                 {
                     if (!motionPlayer.ReplaceArdy(
@@ -671,7 +680,24 @@ namespace KimodoBridge
                 }
                 else
                 {
-                    motionPlayer.Enqueue(generatedSegment, verboseLogging);
+                    float? switchTimeSeconds = requestInterruptionPlan != null &&
+                        ReferenceEquals(requestInterruptionPlan, interruptionPlan)
+                        ? requestInterruptionPlan.SwitchTimeSeconds
+                        : (float?)null;
+                    if (!motionPlayer.TrySetNextSegment(generatedSegment, switchTimeSeconds, verboseLogging))
+                    {
+                        if (verboseLogging)
+                        {
+                            Debug.Log(
+                                $"[KimodoRuntimeMotionDriver] Discard segment {generatedSegment.Index}: next segment already exists.",
+                                this);
+                        }
+
+                        return;
+                    }
+                    interruptionPlan = null;
+                    generationSession.RecordKimodoGenerationDuration(
+                        Mathf.Max(0f, Time.realtimeSinceStartup - generationStartedAt));
                 }
                 SegmentReady?.Invoke(CreateSegmentReport(generatedSegment));
 
@@ -700,13 +726,18 @@ namespace KimodoBridge
         private string BuildNextConstraintsJson(
             bool isArdy,
             KimodoMotionModelProfile ardyProfile,
-            float generationDuration)
+            float generationDuration,
+            KimodoConstraintInternalData firstFrameOverride)
         {
             List<KimodoMarkerSampleResult> activeConstraints = constraints.BuildForGeneration(
                 isArdy,
                 isArdy ? motionPlayer.PlaybackTimeAsDouble : 0.0,
                 generationDuration);
-            KimodoConstraintInternalData terminal = constraints.BuildTerminalForGeneration(isArdy);
+            // The interruption pose is request-local. Do not assign it back to
+            // RuntimeConstraints: that object owns the preceding segment's
+            // tail pose for ordinary first-frame continuity.
+            KimodoConstraintInternalData terminal = firstFrameOverride ??
+                constraints.BuildTerminalForGeneration(isArdy);
             if (activeConstraints.Count == 0 && terminal == null)
             {
                 return string.Empty;
@@ -748,7 +779,16 @@ namespace KimodoBridge
             string generatingStatus)
         {
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
-            generationSession.RequestRefresh(isArdy);
+            if (!isArdy)
+            {
+                interruptionPlan = TryCreateInterruptionPlan();
+            }
+            generationSession.RequestRefresh();
+
+            if (!isArdy)
+            {
+                motionPlayer.ClearNextSegment();
+            }
 
             if (!generationSession.IsActive)
             {
@@ -758,11 +798,12 @@ namespace KimodoBridge
 
             if (generationSession.GenerationInFlight)
             {
+                generationSession.CancelGeneration();
                 UpdateStatus(waitingStatus);
                 return;
             }
 
-            if (!isArdy && motionPlayer.QueuedSegmentCount > 0)
+            if (!isArdy && motionPlayer.HasNextSegment)
             {
                 UpdateStatus(waitingStatus);
                 return;
@@ -770,6 +811,44 @@ namespace KimodoBridge
 
             UpdateStatus(generatingStatus);
             await GenerateNextSegmentAsync(generationSession.LifetimeToken);
+        }
+
+        private KimodoRuntimeInterruptionPlan TryCreateInterruptionPlan()
+        {
+            if (!generationSession.TryGetKimodoGenerationEstimate(out float estimatedSeconds) ||
+                motionPlayer == null ||
+                !motionPlayer.TryBuildInterruptionConstraint(
+                    motionPlayer.CurrentSegmentTimeSeconds + estimatedSeconds,
+                    modelName,
+                    out KimodoConstraintInternalData firstFrameConstraint,
+                    out float switchTimeSeconds))
+            {
+                return null;
+            }
+
+            return new KimodoRuntimeInterruptionPlan
+            {
+                SwitchTimeSeconds = switchTimeSeconds,
+                FirstFrameConstraint = firstFrameConstraint
+            };
+        }
+
+        private void ExpireMissedInterruptionPlan()
+        {
+            if (interruptionPlan == null || motionPlayer == null || motionPlayer.HasNextSegment ||
+                motionPlayer.CurrentSegmentTimeSeconds < interruptionPlan.SwitchTimeSeconds)
+            {
+                return;
+            }
+
+            interruptionPlan = null;
+            generationSession.RequestRefresh();
+            generationSession.CancelGeneration();
+            UpdateStatus("Predicted interruption point passed. Regenerating from the next segment start.");
+            if (!generationSession.GenerationInFlight)
+            {
+                _ = GenerateNextSegmentAsync(generationSession.LifetimeToken);
+            }
         }
 
         private async Task WaitForGenerationSlotAsync(CancellationToken token)
@@ -848,7 +927,7 @@ namespace KimodoBridge
             }
             _ = RefreshUpcomingGenerationAsync(
                 $"Prompt updated: {promptDraft}",
-                $"Prompt updated: {promptDraft}. Waiting for current generation to finish.",
+                $"Prompt updated: {promptDraft}. Cancelling current generation.",
                 $"Prompt updated: {promptDraft}. Generating fresh segment.");
             return promptDraft;
         }

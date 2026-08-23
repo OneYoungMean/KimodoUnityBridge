@@ -78,6 +78,7 @@ namespace KimodoBridge
                 CopyEffectorChannel(ordered, result, SampleChannel.LeftFootEffector);
                 CopyEffectorChannel(ordered, result, SampleChannel.RightFootEffector);
                 result.enableMask.NormalizeDependencies();
+                result.constraintMode = ResolveComposedMode(ordered, result);
                 output.Add(result);
             }
             return output;
@@ -99,20 +100,53 @@ namespace KimodoBridge
                 if (canonical == null) continue;
                 KimodoConstraintMask valid = KimodoConstraintMask.FromSample(canonical);
                 KimodoSampleChannelMask enabled = canonical.enableMask;
-                AppendProtocolSample(output, canonical,
-                    enabled?.muscle49 == true && valid.muscle, "fullbody");
-                AppendProtocolSample(output, canonical,
-                    enabled?.root2DPosition == true && valid.rootPosition ||
-                    enabled?.root2DHeading == true && valid.rootHeading,
-                    "root2d");
-                AppendProtocolSample(output, canonical,
-                    enabled?.leftHandEffector == true && valid.leftHand, "left-hand");
-                AppendProtocolSample(output, canonical,
-                    enabled?.rightHandEffector == true && valid.rightHand, "right-hand");
-                AppendProtocolSample(output, canonical,
-                    enabled?.leftFootEffector == true && valid.leftFoot, "left-foot");
-                AppendProtocolSample(output, canonical,
-                    enabled?.rightFootEffector == true && valid.rightFoot, "right-foot");
+                string mode = NormalizeMode(canonical.constraintMode);
+                if (mode == "mix")
+                {
+                    AppendProtocolSample(output, canonical,
+                        enabled?.muscle49 == true && valid.muscle, "fullbody");
+                    AppendProtocolSample(output, canonical,
+                        enabled?.root2DPosition == true && valid.rootPosition ||
+                        enabled?.root2DHeading == true && valid.rootHeading,
+                        "root2d");
+                    AppendProtocolSample(output, canonical,
+                        enabled?.leftHandEffector == true && valid.leftHand, "left-hand");
+                    AppendProtocolSample(output, canonical,
+                        enabled?.rightHandEffector == true && valid.rightHand, "right-hand");
+                    AppendProtocolSample(output, canonical,
+                        enabled?.leftFootEffector == true && valid.leftFoot, "left-foot");
+                    AppendProtocolSample(output, canonical,
+                        enabled?.rightFootEffector == true && valid.rightFoot, "right-foot");
+                }
+                else if (mode == "fullbody" || mode == "constraint")
+                {
+                    AppendProtocolSample(output, canonical,
+                        enabled?.muscle49 == true && valid.muscle, "fullbody");
+                }
+                else if (mode == "root2d")
+                {
+                    AppendProtocolSample(output, canonical,
+                        enabled?.root2DPosition == true && valid.rootPosition ||
+                        enabled?.root2DHeading == true && valid.rootHeading,
+                        "root2d");
+                }
+                else if (mode == "left-hand" || mode == "right-hand" ||
+                         mode == "left-foot" || mode == "right-foot")
+                {
+                    AppendProtocolSample(output, canonical,
+                        IsEffectorEnabled(enabled, valid, mode), mode);
+                }
+                else
+                {
+                    AppendProtocolSample(output, canonical,
+                        enabled?.leftHandEffector == true && valid.leftHand, "left-hand");
+                    AppendProtocolSample(output, canonical,
+                        enabled?.rightHandEffector == true && valid.rightHand, "right-hand");
+                    AppendProtocolSample(output, canonical,
+                        enabled?.leftFootEffector == true && valid.leftFoot, "left-foot");
+                    AppendProtocolSample(output, canonical,
+                        enabled?.rightFootEffector == true && valid.rightFoot, "right-foot");
+                }
             }
             return output;
         }
@@ -195,17 +229,18 @@ namespace KimodoBridge
         {
             KimodoConstraintMask valid = KimodoConstraintMask.FromSample(sample);
             KimodoSampleChannelMask enabled = sample.enableMask;
-            string mode = (sample.constraintMode ?? string.Empty)
-                .Trim().ToLowerInvariant().Replace('_', '-');
-            bool fullBody = mode == "fullbody" || mode == "constraint" || mode == "mix" ||
-                enabled?.muscle49 == true && valid.muscle;
-            bool root2D = mode == "root2d" || mode == "mix" ||
-                enabled?.root2DPosition == true && valid.rootPosition;
+            string mode = NormalizeMode(sample.constraintMode);
+            bool fullBody = mode == "fullbody" || mode == "constraint" ||
+                mode == "mix" && (enabled?.muscle49 == true && valid.muscle ||
+                    enabled?.rootTQ == true && valid.rootTQ ||
+                    enabled?.leftFootTQ == true && valid.leftFootTQ ||
+                    enabled?.rightFootTQ == true && valid.rightFootTQ);
+            bool root2D = mode == "root2d" ||
+                mode == "mix" && (enabled?.root2DPosition == true && valid.rootPosition ||
+                    enabled?.root2DHeading == true && valid.rootHeading);
             bool effector = mode == "effector" || mode == "ik" ||
-                enabled?.leftHandEffector == true && valid.leftHand ||
-                enabled?.rightHandEffector == true && valid.rightHand ||
-                enabled?.leftFootEffector == true && valid.leftFoot ||
-                enabled?.rightFootEffector == true && valid.rightFoot;
+                mode == "mix" || mode == "left-hand" || mode == "right-hand" ||
+                mode == "left-foot" || mode == "right-foot";
             return channel switch
             {
                 SampleChannel.Muscle49 => fullBody,
@@ -214,13 +249,58 @@ namespace KimodoBridge
                 SampleChannel.RightFootTQ => fullBody,
                 SampleChannel.Root2DPosition => root2D,
                 SampleChannel.Root2DHeading => root2D,
-                SampleChannel.LeftHandEffector => effector && enabled?.leftHandEffector == true && valid.leftHand,
-                SampleChannel.RightHandEffector => effector && enabled?.rightHandEffector == true && valid.rightHand,
-                SampleChannel.LeftFootEffector => effector && enabled?.leftFootEffector == true && valid.leftFoot,
-                SampleChannel.RightFootEffector => effector && enabled?.rightFootEffector == true && valid.rightFoot,
+                SampleChannel.LeftHandEffector => effector && mode != "right-hand" && mode != "left-foot" &&
+                    mode != "right-foot" && enabled?.leftHandEffector == true && valid.leftHand,
+                SampleChannel.RightHandEffector => effector && mode != "left-hand" && mode != "left-foot" &&
+                    mode != "right-foot" && enabled?.rightHandEffector == true && valid.rightHand,
+                SampleChannel.LeftFootEffector => effector && mode != "left-hand" && mode != "right-hand" &&
+                    mode != "right-foot" && enabled?.leftFootEffector == true && valid.leftFoot,
+                SampleChannel.RightFootEffector => effector && mode != "left-hand" && mode != "right-hand" &&
+                    mode != "left-foot" && enabled?.rightFootEffector == true && valid.rightFoot,
                 _ => false
             };
         }
+
+        private static string ResolveComposedMode(
+            List<KimodoMarkerSampleResult> ordered,
+            KimodoMarkerSampleResult sample)
+        {
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                if (NormalizeMode(ordered[i]?.constraintMode) == "mix") return "mix";
+            }
+            KimodoConstraintMask valid = KimodoConstraintMask.FromSample(sample);
+            KimodoSampleChannelMask enabled = sample.enableMask;
+            bool fullBody = enabled?.muscle49 == true && valid.muscle ||
+                enabled?.rootTQ == true && valid.rootTQ ||
+                enabled?.leftFootTQ == true && valid.leftFootTQ ||
+                enabled?.rightFootTQ == true && valid.rightFootTQ;
+            bool root2D = enabled?.root2DPosition == true && valid.rootPosition ||
+                enabled?.root2DHeading == true && valid.rootHeading;
+            bool effector = enabled?.leftHandEffector == true && valid.leftHand ||
+                enabled?.rightHandEffector == true && valid.rightHand ||
+                enabled?.leftFootEffector == true && valid.leftFoot ||
+                enabled?.rightFootEffector == true && valid.rightFoot;
+            int familyCount = (fullBody ? 1 : 0) + (root2D ? 1 : 0) + (effector ? 1 : 0);
+            if (familyCount > 1) return "mix";
+            if (fullBody) return "fullbody";
+            if (root2D) return "root2d";
+            if (effector) return "effector";
+            return "fullbody";
+        }
+
+        private static string NormalizeMode(string mode) =>
+            (mode ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-');
+
+        private static bool IsEffectorEnabled(
+            KimodoSampleChannelMask enabled, KimodoConstraintMask valid, string type) => type switch
+        {
+            "left-hand" => enabled?.leftHandEffector == true && valid.leftHand,
+            "right-hand" => enabled?.rightHandEffector == true && valid.rightHand,
+            "left-foot" => enabled?.leftFootEffector == true && valid.leftFoot,
+            "right-foot" => enabled?.rightFootEffector == true && valid.rightFoot,
+            _ => false
+        };
 
         private static bool IsEnabled(KimodoSampleChannelMask mask, SampleChannel channel) => channel switch
         {

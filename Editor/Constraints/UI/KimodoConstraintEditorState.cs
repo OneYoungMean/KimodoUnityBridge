@@ -23,10 +23,10 @@ namespace KimodoBridge.Editor
             if (autoSample != null)
             {
                 EditorGUILayout.PropertyField(autoSample, new GUIContent("Auto Sample"));
-                if (autoSample.boolValue)
+                if (!autoSample.boolValue)
                 {
                     EditorGUILayout.HelpBox(
-                        "拖动 Scene Handle 将自动切换为手动采样。",
+                        "Enabling Auto Sample will overwrite the current effectors and motion.",
                         MessageType.Info);
                 }
             }

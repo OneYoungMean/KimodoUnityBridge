@@ -6,8 +6,6 @@ namespace KimodoBridge
 {
     internal sealed class KimodoRuntimeMotionPlayer
     {
-        private readonly Queue<KimodoRuntimeGeneratedSegment> queuedSegments = new Queue<KimodoRuntimeGeneratedSegment>();
-
         private KimodoRawMotionPlaybackBinding sourceBinding;
         private RetargetSkeleton sourceCache;
         private string sourceCacheModelName;
@@ -16,13 +14,20 @@ namespace KimodoBridge
         private Vector3 currentSegmentRootBaseline;
         private Vector3 lastCompletedWorldOffset;
         private KimodoRuntimeGeneratedSegment currentSegment;
+        private KimodoRuntimeGeneratedSegment nextSegment;
+        private float? nextSegmentSwitchTimeSeconds;
         private KimodoRuntimeGeneratedSegment ardySegment;
         private KimodoArdyMotionBuffer ardyBuffer;
         private readonly KimodoRuntimeHumanoidRetargeter retargeter = new KimodoRuntimeHumanoidRetargeter();
         private float timeSeconds;
         private bool playing;
+        private bool hasCompletedSegment;
 
         public bool HasCurrentSegment => currentSegment != null;
+        public float CurrentSegmentTimeSeconds => timeSeconds;
+        public float CurrentSegmentDurationSeconds => currentSegment != null
+            ? Mathf.Max(0f, currentSegment.EffectiveLastFrameTimeSeconds)
+            : 0f;
         public string CurrentPromptText => currentSegment != null ? currentSegment.PromptText : string.Empty;
         public Vector3 CurrentRootPosition => sourceRootJoint != null ? sourceRootJoint.position : Vector3.zero;
         public Vector3 NextSegmentRootOrigin => currentSegment != null
@@ -32,8 +37,8 @@ namespace KimodoBridge
                 currentSegment.LastRootPosition.z - currentSegment.FirstRootPosition.z)
             : lastCompletedWorldOffset;
         public Transform ConstraintSkeletonRoot => sourceCache != null ? sourceCache.skeletonRoot : null;
+        internal Transform DebugProfileSkeletonRoot => sourceCache != null ? sourceCache.skeletonRoot : null;
         internal RetargetSkeleton ConstraintRetargetSkeleton => sourceCache;
-        public int LastCompletedSegmentIndex { get; private set; } = -1;
         public double PlaybackTimeAsDouble => timeSeconds;
         public float BufferedDurationSeconds
         {
@@ -46,28 +51,39 @@ namespace KimodoBridge
                 float total = currentSegment != null
                     ? Mathf.Max(0f, currentSegment.EffectiveLastFrameTimeSeconds - timeSeconds)
                     : 0f;
-                foreach (KimodoRuntimeGeneratedSegment segment in queuedSegments)
+                if (nextSegment != null)
                 {
-                    total += Mathf.Max(0f, segment?.EffectiveLastFrameTimeSeconds ?? 0f);
+                    total += Mathf.Max(0f, nextSegment.EffectiveLastFrameTimeSeconds);
                 }
                 return total;
             }
         }
 
-        public int QueuedSegmentCount => queuedSegments.Count;
+        public bool HasNextSegment => nextSegment != null;
 
-        public void Enqueue(KimodoRuntimeGeneratedSegment segment, bool verboseLogging)
+        public bool TrySetNextSegment(KimodoRuntimeGeneratedSegment segment, bool verboseLogging) =>
+            TrySetNextSegment(segment, null, verboseLogging);
+
+        public bool TrySetNextSegment(
+            KimodoRuntimeGeneratedSegment segment,
+            float? switchTimeSeconds,
+            bool verboseLogging)
         {
-            if (segment == null)
+            if (segment == null || nextSegment != null)
             {
-                return;
+                return false;
             }
 
-            queuedSegments.Enqueue(segment);
+            nextSegment = segment;
+            nextSegmentSwitchTimeSeconds = switchTimeSeconds;
             if (verboseLogging)
             {
-                Debug.Log($"[KimodoRuntimeMotionDriver] Enqueue segment {segment.Index}. queueCount={queuedSegments.Count}");
+                string switchDescription = switchTimeSeconds.HasValue
+                    ? $" at {switchTimeSeconds.Value:0.###}s"
+                    : string.Empty;
+                Debug.Log($"[KimodoRuntimeMotionDriver] Set next segment {segment.Index}{switchDescription}.");
             }
+            return true;
         }
 
         public bool ReplaceArdy(
@@ -131,15 +147,61 @@ namespace KimodoBridge
             return true;
         }
 
-        public void ClearQueue()
+        public void ClearNextSegment()
         {
-            queuedSegments.Clear();
+            nextSegment = null;
+            nextSegmentSwitchTimeSeconds = null;
+        }
+
+        public bool TryBuildInterruptionConstraint(
+            float predictedTimeSeconds,
+            string modelName,
+            out KimodoConstraintInternalData constraint,
+            out float resolvedTimeSeconds)
+        {
+            constraint = null;
+            resolvedTimeSeconds = 0f;
+            if (!playing || currentSegment?.Motion == null || currentSegment.UseRawRootPosition ||
+                currentSegment.EffectiveLastFrameIndex <= 0)
+            {
+                return false;
+            }
+
+            float duration = CurrentSegmentDurationSeconds;
+            float frameDuration = currentSegment.Motion.FrameRate > 0f
+                ? 1f / currentSegment.Motion.FrameRate
+                : 0f;
+            if (predictedTimeSeconds <= timeSeconds || predictedTimeSeconds >= duration - frameDuration)
+            {
+                return false;
+            }
+
+            int frameIndex = KimodoFrameTimeUtility.SecondsToFrameIndex(
+                predictedTimeSeconds,
+                currentSegment.Motion.FrameRate);
+            frameIndex = Mathf.Clamp(frameIndex, 0, currentSegment.EffectiveLastFrameIndex - 1);
+            if (!KimodoRawMotionUtility.TryBuildConstraintInternalData(
+                    currentSegment.Motion,
+                    modelName,
+                    frameIndex,
+                    out constraint,
+                    out _))
+            {
+                constraint = null;
+                return false;
+            }
+
+            resolvedTimeSeconds = currentSegment.Motion.FrameRate > 0f
+                ? frameIndex / currentSegment.Motion.FrameRate
+                : predictedTimeSeconds;
+            constraint.sampleTime = 0.0;
+            return true;
         }
 
         public void ResetCompletionState()
         {
-            LastCompletedSegmentIndex = -1;
             lastCompletedWorldOffset = Vector3.zero;
+            hasCompletedSegment = false;
         }
 
         public void Update(
@@ -164,6 +226,13 @@ namespace KimodoBridge
                 }
             }
 
+            if (playing && nextSegment != null && nextSegmentSwitchTimeSeconds.HasValue &&
+                timeSeconds >= nextSegmentSwitchTimeSeconds.Value)
+            {
+                completedSegment = MarkCurrentSegmentCompleted(timeSeconds);
+                StopActiveMotion();
+            }
+
             if (!playing && ardyBuffer != null && ardySegment != null)
             {
                 if (!Play(
@@ -180,11 +249,11 @@ namespace KimodoBridge
                 return;
             }
 
-            if (!playing && TryDequeue(out KimodoRuntimeGeneratedSegment next))
+            if (!playing && TakeNextSegment(out KimodoRuntimeGeneratedSegment next))
             {
                 if (verboseLogging)
                 {
-                    Debug.Log($"[KimodoRuntimeMotionDriver] Attempting to play dequeued segment {next.Index}.");
+                    Debug.Log($"[KimodoRuntimeMotionDriver] Attempting to play next segment {next.Index}.");
                 }
 
                 if (!Play(
@@ -277,7 +346,7 @@ namespace KimodoBridge
             bool isArdy = segment.UseRawRootPosition && ardyBuffer != null && ReferenceEquals(segment, ardySegment);
             currentSegment.WorldAccumulatedOffset = lastCompletedWorldOffset;
             // Keep ordinary segment joins continuous in Y as well as X/Z.
-            if (!isArdy && LastCompletedSegmentIndex < 0)
+            if (!isArdy && !hasCompletedSegment)
             {
                 currentSegment.WorldAccumulatedOffset.y = segment.FirstRootPosition.y;
             }
@@ -340,29 +409,40 @@ namespace KimodoBridge
             }
         }
 
-        private bool TryDequeue(out KimodoRuntimeGeneratedSegment segment)
+        private bool TakeNextSegment(out KimodoRuntimeGeneratedSegment segment)
         {
-            if (queuedSegments.Count == 0)
+            if (nextSegment == null)
             {
                 segment = null;
                 return false;
             }
 
-            segment = queuedSegments.Dequeue();
+            segment = nextSegment;
+            nextSegment = null;
+            nextSegmentSwitchTimeSeconds = null;
             return true;
         }
 
-        private KimodoRuntimeGeneratedSegment MarkCurrentSegmentCompleted()
+        private KimodoRuntimeGeneratedSegment MarkCurrentSegmentCompleted(float? completedTimeSeconds = null)
         {
             KimodoRuntimeGeneratedSegment completedSegment = currentSegment;
-            if (currentSegment != null && currentSegment.Index > LastCompletedSegmentIndex)
+            if (currentSegment != null)
             {
-                LastCompletedSegmentIndex = currentSegment.Index;
-                Vector3 completedDelta = currentSegment.LastRootPosition - currentSegment.FirstRootPosition;
+                Vector3 completedRootPosition = currentSegment.LastRootPosition;
+                if (completedTimeSeconds.HasValue)
+                {
+                    KimodoRawMotionUtility.ResolveInterpolatedRootPosition(
+                        currentSegment.Motion,
+                        completedTimeSeconds.Value,
+                        false,
+                        out completedRootPosition);
+                }
+                Vector3 completedDelta = completedRootPosition - currentSegment.FirstRootPosition;
                 lastCompletedWorldOffset = currentSegment.WorldAccumulatedOffset + new Vector3(
                     completedDelta.x,
                     completedDelta.y,
                     completedDelta.z);
+                hasCompletedSegment = true;
             }
 
             return completedSegment;

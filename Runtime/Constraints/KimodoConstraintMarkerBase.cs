@@ -102,6 +102,7 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     {
         if (string.Equals(value, "root2d", StringComparison.OrdinalIgnoreCase)) return KimodoConstraintMode.Root2D;
         if (string.Equals(value, "effector", StringComparison.OrdinalIgnoreCase)) return KimodoConstraintMode.Effector;
+        if (string.Equals(value, "mix", StringComparison.OrdinalIgnoreCase)) return KimodoConstraintMode.Mix;
         if (string.Equals(value, "fullbody", StringComparison.OrdinalIgnoreCase)) return KimodoConstraintMode.FullBody;
         return fallback;
     }
@@ -110,6 +111,7 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     {
         KimodoConstraintMode.Root2D => "root2d",
         KimodoConstraintMode.Effector => "effector",
+        KimodoConstraintMode.Mix => "mix",
         _ => "fullbody"
     };
 
@@ -117,6 +119,7 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     {
         KimodoConstraintMode.Root2D => "Root2D Constraint",
         KimodoConstraintMode.Effector => "Effector Constraint",
+        KimodoConstraintMode.Mix => "Mixed Constraint",
         _ => "FullBody Constraint"
     };
 }

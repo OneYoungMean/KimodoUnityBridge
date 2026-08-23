@@ -168,8 +168,7 @@ namespace KimodoBridge
 
             if (rotationMode == 1)
             {
-                // Foot cube rotation is independent of pelvis space. The
-                // consumer reconstructs q-current = q-cube * q-initialFoot.
+                // Foot q is the final rotation sent directly to IKGoal.
                 return currentWorld * Quaternion.Inverse(initialWorld);
             }
 
@@ -179,30 +178,8 @@ namespace KimodoBridge
             }
 
             Quaternion currentInRoot = Quaternion.Inverse(cache.skeletonRoot.rotation) * currentWorld;
-            Quaternion initialInRoot = Quaternion.Inverse(cache.bindSkeletonRootWorldRotation) * initialWorld;
-            // Hand transport rotation is q-current-in-root * inverse(q-initial-in-root).
-            return currentInRoot * Quaternion.Inverse(initialInRoot);
-        }
-
-        internal static Quaternion ResolveEffectorWorldRotation(
-            RetargetSkeleton cache,
-            HumanBodyBones bone,
-            Quaternion transport,
-            int rotationMode)
-        {
-            if (cache == null ||
-                !cache.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
-            {
-                return transport.normalized;
-            }
-
-            if (rotationMode == 1 || cache.skeletonRoot == null)
-            {
-                return (transport * initialWorld).normalized;
-            }
-
-            Quaternion initialInRoot = Quaternion.Inverse(cache.bindSkeletonRootWorldRotation) * initialWorld;
-            return (cache.skeletonRoot.rotation * transport * initialInRoot).normalized;
+            // Hand q is the final rotation sent directly to IKGoal.
+            return currentInRoot * Quaternion.Inverse(initialWorld);
         }
 
         private static KimodoMarkerSampleResult CreateSampleShell(

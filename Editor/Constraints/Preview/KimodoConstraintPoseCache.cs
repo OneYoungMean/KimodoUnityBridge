@@ -277,6 +277,9 @@ namespace KimodoBridge.Editor
                     GUIUtility.hotControl == controlId)
                 {
                     selectedHandleKey = handleKey;
+                    // Repaint so this value changes from FreeMoveHandle to
+                    // the combined TransformHandle on the next SceneView pass.
+                    SceneView.RepaintAll();
                 }
                 if (EditorGUI.EndChangeCheck())
                 {
@@ -294,28 +297,18 @@ namespace KimodoBridge.Editor
                     size,
                     EventType.Repaint);
 
-                if (Tools.current == Tool.Move || Tools.current == Tool.Transform)
+                // This is a value-backed handle, not a selected Transform, so
+                // use Unity's combined native Transform gizmo explicitly.
+                EditorGUI.BeginChangeCheck();
+                Quaternion previousRotation = rotation;
+                Handles.TransformHandle(ref position, ref rotation);
+                if (EditorGUI.EndChangeCheck())
                 {
-                    EditorGUI.BeginChangeCheck();
-                    Vector3 moved = Handles.PositionHandle(position, rotation);
-                    if (EditorGUI.EndChangeCheck())
-                    {
-                        value.position = moved;
-                        PromoteHandleChannel(entry.SampleData, bone, rotationChanged: false);
-                        entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
-                    }
-                }
-
-                if (Tools.current == Tool.Rotate || Tools.current == Tool.Transform)
-                {
-                    EditorGUI.BeginChangeCheck();
-                    Quaternion rotated = Handles.RotationHandle(rotation, position);
-                    if (EditorGUI.EndChangeCheck())
-                    {
-                        value.rotation = rotated.normalized;
-                        PromoteHandleChannel(entry.SampleData, bone, rotationChanged: true);
-                        entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
-                    }
+                    bool rotationChanged = Quaternion.Angle(previousRotation, rotation) > 1e-4f;
+                    value.position = position;
+                    value.rotation = rotation.normalized;
+                    PromoteHandleChannel(entry.SampleData, bone, rotationChanged);
+                    entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
                 }
             }
 
@@ -1978,25 +1971,9 @@ namespace KimodoBridge.Editor
                 bone,
                 bodyPart.rotation,
                 bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot ? 1 : 0);
-            if (bone == HumanBodyBones.LeftFoot || bone == HumanBodyBones.RightFoot)
-            {
-                return entry.TargetCache.GetBoneBindWorldRotation(
-                    bone,
-                    out Quaternion initialFoot)
-                    ? (transport * initialFoot).normalized
-                    : transport;
-            }
-
-            Transform root = entry.TargetCache.skeletonRoot;
-            if (root == null ||
-                !entry.TargetCache.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
-            {
-                return transport;
-            }
-
-            Quaternion initialInRoot =
-                Quaternion.Inverse(entry.TargetCache.bindSkeletonRootWorldRotation) * initialWorld;
-            return (root.rotation * transport * initialInRoot).normalized;
+            // The handle uses the same effector coordinate that is serialized
+            // and sent directly to AnimationHumanStream.SetGoalRotation.
+            return transport;
         }
 
         private static KimodoConstraintEffectors CaptureEffectorsFromEntry(

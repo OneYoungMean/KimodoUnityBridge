@@ -97,11 +97,20 @@ namespace KimodoBridge
                 {
                     result.Add(new KimodoFullBodyConstraintInternal(sample, modelType, exportContext));
                 }
-                AddEffectors(result, sample, modelType, exportContext);
             }
             else
             {
-                AddEffectors(result, sample, modelType, exportContext);
+                if (string.Equals(mode, "left-hand", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(mode, "right-hand", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(mode, "left-foot", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(mode, "right-foot", StringComparison.OrdinalIgnoreCase))
+                {
+                    AddEffector(result, sample, modelType, exportContext, mode);
+                }
+                else
+                {
+                    AddEffectors(result, sample, modelType, exportContext);
+                }
             }
             return result.ToArray();
         }
@@ -128,6 +137,21 @@ namespace KimodoBridge
                 result.Add(new KimodoEndEffectorConstraintInternal(sample, modelType, exportContext, "left-foot"));
             if (KimodoConstraintMask.IsActive(sample, "rightfoot"))
                 result.Add(new KimodoEndEffectorConstraintInternal(sample, modelType, exportContext, "right-foot"));
+        }
+
+        private static void AddEffector(
+            List<KimodoConstraintInternal> result,
+            KimodoMarkerSampleResult sample,
+            KimodoConstraintRigType modelType,
+            KimodoConstraintExportContext exportContext,
+            string type)
+        {
+            string channel = type.Replace("-", string.Empty);
+            if (KimodoConstraintMask.IsActive(sample, channel))
+            {
+                result.Add(new KimodoEndEffectorConstraintInternal(
+                    sample, modelType, exportContext, type));
+            }
         }
 
         private static string ResolveMode(KimodoMarkerSampleResult sample)

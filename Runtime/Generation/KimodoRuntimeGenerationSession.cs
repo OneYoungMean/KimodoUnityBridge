@@ -46,20 +46,21 @@ namespace KimodoBridge
         internal bool GenerationBlocked { get; private set; }
         internal int SegmentIndex { get; private set; }
         internal int RequestVersion { get; private set; }
-        internal int LastWaitStatusSegment { get; private set; } = -1;
 
         internal int? ArdyResolvedSeed { get; private set; }
         internal bool ArdyStarted { get; private set; }
         internal bool ArdyPromptDirty { get; private set; } = true;
         internal bool ArdyConstraintsDirty { get; private set; } = true;
         internal bool ArdySettingsDirty { get; private set; } = true;
-        internal bool ArdyRefreshPending { get; private set; }
+        internal bool RefreshPending { get; private set; }
         internal float ArdyPlaybackReserveSeconds { get; private set; } = 1f;
+        internal int CompletedKimodoGenerationCount { get; private set; }
+        internal float EstimatedKimodoGenerationSeconds { get; private set; }
 
         internal bool IsActive =>
             Running && lifetimeCts != null && !lifetimeCts.IsCancellationRequested;
         internal CancellationToken LifetimeToken => lifetimeCts?.Token ?? CancellationToken.None;
-        internal bool ShouldRunPendingRefresh => IsActive && !GenerationBlocked && ArdyRefreshPending;
+        internal bool ShouldRunPendingRefresh => IsActive && !GenerationBlocked && RefreshPending;
 
         internal bool TryBeginStart()
         {
@@ -82,7 +83,9 @@ namespace KimodoBridge
             RequestVersion = 0;
             GenerationInFlight = false;
             GenerationBlocked = false;
-            LastWaitStatusSegment = -1;
+            RefreshPending = false;
+            CompletedKimodoGenerationCount = 0;
+            EstimatedKimodoGenerationSeconds = 0f;
             Running = true;
         }
 
@@ -99,14 +102,13 @@ namespace KimodoBridge
             generation?.Dispose();
             GenerationInFlight = false;
             GenerationBlocked = false;
-            LastWaitStatusSegment = -1;
+            RefreshPending = false;
         }
 
         internal void BeginMotionReset()
         {
             SegmentIndex = 0;
             RequestVersion++;
-            LastWaitStatusSegment = -1;
             GenerationBlocked = true;
         }
 
@@ -129,6 +131,7 @@ namespace KimodoBridge
             generationCts = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
             activeGenerationCts = generationCts;
             GenerationInFlight = true;
+            RefreshPending = false;
             return true;
         }
 
@@ -147,32 +150,30 @@ namespace KimodoBridge
 
         internal void AdvanceSegment(int completedSegment) => SegmentIndex = completedSegment + 1;
 
-        internal bool ShouldReportWait()
+        internal bool TryGetKimodoGenerationEstimate(out float seconds)
         {
-            if (LastWaitStatusSegment == SegmentIndex)
-            {
-                return false;
-            }
-
-            LastWaitStatusSegment = SegmentIndex;
-            return true;
+            seconds = EstimatedKimodoGenerationSeconds;
+            return CompletedKimodoGenerationCount > 1 && seconds > 0f;
         }
 
-        internal void ClearWaitStatus() => LastWaitStatusSegment = -1;
-
-        internal void RequestRefresh(bool isArdy)
+        internal void RecordKimodoGenerationDuration(float seconds)
         {
-            LastWaitStatusSegment = -1;
-            if (!isArdy)
+            float clamped = Mathf.Max(0f, seconds);
+            if (CompletedKimodoGenerationCount > 0)
             {
-                return;
+                EstimatedKimodoGenerationSeconds = EstimatedKimodoGenerationSeconds <= 0f
+                    ? clamped
+                    : Mathf.Lerp(EstimatedKimodoGenerationSeconds, clamped, 0.5f);
             }
 
+            CompletedKimodoGenerationCount++;
+        }
+
+        internal void RequestRefresh()
+        {
             RequestVersion++;
-            ArdyRefreshPending = true;
+            RefreshPending = true;
         }
-
-        internal void BeginArdyRequest() => ArdyRefreshPending = false;
 
         internal int ResolveRequestSeed(bool isArdy, bool randomSeed, int fixedSeed)
         {
@@ -221,7 +222,7 @@ namespace KimodoBridge
             ArdyPromptDirty = true;
             ArdyConstraintsDirty = true;
             ArdySettingsDirty = true;
-            ArdyRefreshPending = false;
+            RefreshPending = false;
             SetArdyPlaybackReserve(playbackReserveSeconds);
         }
 
@@ -254,6 +255,7 @@ namespace KimodoBridge
             Running = false;
             StartRequested = false;
             GenerationInFlight = false;
+            RefreshPending = false;
             TryCancel(lifetimeCts);
             TryCancel(activeGenerationCts);
             lifetimeCts?.Dispose();

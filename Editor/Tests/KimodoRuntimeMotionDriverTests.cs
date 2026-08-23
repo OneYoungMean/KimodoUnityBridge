@@ -519,21 +519,43 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void RuntimeMotionPlayer_QueueOwnsBufferedDuration()
+        public void RuntimeMotionPlayer_StoresOnlyOneNextSegment()
         {
             var player = new KimodoRuntimeMotionPlayer();
-            player.Enqueue(
+            Assert.That(player.TrySetNextSegment(
                 new KimodoRuntimeGeneratedSegment { EffectiveLastFrameTimeSeconds = 2f },
-                verboseLogging: false);
-            player.Enqueue(
+                verboseLogging: false), Is.True);
+            Assert.That(player.TrySetNextSegment(
                 new KimodoRuntimeGeneratedSegment { EffectiveLastFrameTimeSeconds = 3.5f },
-                verboseLogging: false);
+                verboseLogging: false), Is.False);
 
-            Assert.That(player.QueuedSegmentCount, Is.EqualTo(2));
-            Assert.That(player.BufferedDurationSeconds, Is.EqualTo(5.5f));
+            Assert.That(player.HasNextSegment, Is.True);
+            Assert.That(player.BufferedDurationSeconds, Is.EqualTo(2f));
 
-            player.ClearQueue();
-            Assert.That(player.QueuedSegmentCount, Is.Zero);
+            player.ClearNextSegment();
+            Assert.That(player.HasNextSegment, Is.False);
+        }
+
+        [Test]
+        public void RuntimeGenerationSession_IgnoresFirstKimodoDurationWhenEstimatingInterruptions()
+        {
+            var session = new KimodoRuntimeGenerationSession();
+            try
+            {
+                session.RecordKimodoGenerationDuration(8f);
+                Assert.That(session.TryGetKimodoGenerationEstimate(out _), Is.False);
+
+                session.RecordKimodoGenerationDuration(2f);
+                Assert.That(session.TryGetKimodoGenerationEstimate(out float estimate), Is.True);
+                Assert.That(estimate, Is.EqualTo(2f));
+
+                session.RecordKimodoGenerationDuration(4f);
+                Assert.That(session.EstimatedKimodoGenerationSeconds, Is.EqualTo(3f));
+            }
+            finally
+            {
+                session.Dispose();
+            }
         }
 
         [Test]
@@ -685,7 +707,7 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(session.ArdyPromptDirty, Is.True);
                 Assert.That(session.ArdyConstraintsDirty, Is.True);
                 Assert.That(session.ArdySettingsDirty, Is.True);
-                Assert.That(session.ArdyRefreshPending, Is.False);
+                Assert.That(session.RefreshPending, Is.False);
                 Assert.That(session.ArdyPlaybackReserveSeconds, Is.EqualTo(0.2f));
 
                 session.Stop();

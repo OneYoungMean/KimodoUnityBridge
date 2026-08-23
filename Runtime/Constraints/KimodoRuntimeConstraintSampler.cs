@@ -31,7 +31,9 @@ namespace KimodoBridge
                 return false;
             }
 
-            sample.constraintMode = "constraint";
+            // Runtime command samples combine the captured body with the
+            // explicitly enabled target channel.
+            sample.constraintMode = "mix";
             sample.effectors ??= new KimodoConstraintEffectors();
             sample.effectors.leftHand ??= KimodoRigidTransform.Identity;
             sample.effectors.rightHand ??= KimodoRigidTransform.Identity;
@@ -50,10 +52,26 @@ namespace KimodoBridge
                 };
                 switch (bone)
                 {
-                    case HumanBodyBones.LeftHand: sample.effectors.leftHand = target; break;
-                    case HumanBodyBones.RightHand: sample.effectors.rightHand = target; break;
-                    case HumanBodyBones.LeftFoot: sample.effectors.leftFoot = target; break;
-                    case HumanBodyBones.RightFoot: sample.effectors.rightFoot = target; break;
+                    case HumanBodyBones.LeftHand:
+                        sample.effectors.leftHand = target;
+                        sample.enableMask.leftHandEffector = true;
+                        sample.validMask.leftHand = true;
+                        break;
+                    case HumanBodyBones.RightHand:
+                        sample.effectors.rightHand = target;
+                        sample.enableMask.rightHandEffector = true;
+                        sample.validMask.rightHand = true;
+                        break;
+                    case HumanBodyBones.LeftFoot:
+                        sample.effectors.leftFoot = target;
+                        sample.enableMask.leftFootEffector = true;
+                        sample.validMask.leftFoot = true;
+                        break;
+                    case HumanBodyBones.RightFoot:
+                        sample.effectors.rightFoot = target;
+                        sample.enableMask.rightFootEffector = true;
+                        sample.validMask.rightFoot = true;
+                        break;
                 }
             }
             return true;
@@ -84,7 +102,7 @@ namespace KimodoBridge
             // FullBody frame 0. Keep it in
             // absolute model space; subtracting NextSegmentRootOrigin here
             // would apply the same translation a second time during generation.
-            sample.constraintMode = "constraint";
+            sample.constraintMode = "mix";
             sample.enableMask.root2DPosition = true;
             sample.validMask.rootPosition = true;
             sample.rootOverride ??= CharacterAnimationCli.Unity.KimodoRigidTransform.Identity;

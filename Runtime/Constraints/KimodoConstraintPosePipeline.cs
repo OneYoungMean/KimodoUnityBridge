@@ -284,14 +284,14 @@ namespace KimodoBridge
             any |= job.solveLeftFoot = mask?.leftFootEffector == true;
             any |= job.solveRightFoot = mask?.rightFootEffector == true;
 
-            if (!TryResolveTarget(sample.effectors.leftHand, job.solveLeftHand, cache,
-                    HumanBodyBones.LeftHand, false, out job.leftHandPosition, out job.leftHandRotation, out error) ||
-                !TryResolveTarget(sample.effectors.rightHand, job.solveRightHand, cache,
-                    HumanBodyBones.RightHand, false, out job.rightHandPosition, out job.rightHandRotation, out error) ||
-                !TryResolveTarget(sample.effectors.leftFoot, job.solveLeftFoot, cache,
-                    HumanBodyBones.LeftFoot, true, out job.leftFootPosition, out job.leftFootRotation, out error) ||
-                !TryResolveTarget(sample.effectors.rightFoot, job.solveRightFoot, cache,
-                    HumanBodyBones.RightFoot, true, out job.rightFootPosition, out job.rightFootRotation, out error))
+            if (!TryResolveTarget(sample.effectors.leftHand, job.solveLeftHand,
+                    HumanBodyBones.LeftHand, out job.leftHandPosition, out job.leftHandRotation, out error) ||
+                !TryResolveTarget(sample.effectors.rightHand, job.solveRightHand,
+                    HumanBodyBones.RightHand, out job.rightHandPosition, out job.rightHandRotation, out error) ||
+                !TryResolveTarget(sample.effectors.leftFoot, job.solveLeftFoot,
+                    HumanBodyBones.LeftFoot, out job.leftFootPosition, out job.leftFootRotation, out error) ||
+                !TryResolveTarget(sample.effectors.rightFoot, job.solveRightFoot,
+                    HumanBodyBones.RightFoot, out job.rightFootPosition, out job.rightFootRotation, out error))
             {
                 return false;
             }
@@ -301,9 +301,7 @@ namespace KimodoBridge
         private static bool TryResolveTarget(
             KimodoRigidTransform value,
             bool enabled,
-            RetargetSkeleton cache,
             HumanBodyBones bone,
-            bool foot,
             out Vector3 position,
             out Quaternion rotation,
             out string error)
@@ -321,11 +319,9 @@ namespace KimodoBridge
                 return false;
             }
             position = value.t;
-            rotation = KimodoRetargetMarkerSamplingUtility.ResolveEffectorWorldRotation(
-                cache,
-                bone,
-                value.q,
-                foot ? 1 : 0);
+            // Effector q is already the final IKGoal rotation. Do not convert
+            // it back through skeleton-root or bind space here.
+            rotation = value.q;
             return true;
         }
     }
