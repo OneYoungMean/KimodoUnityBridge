@@ -1,4 +1,5 @@
 using TimelineInject;
+using KimodoUnityBridge;
 using UnityEngine;
 
 namespace KimodoBridge
@@ -12,6 +13,7 @@ namespace KimodoBridge
         public Vector3 FirstRootPosition;
         public Vector3 LastRootPosition;
         public Vector3 WorldAccumulatedOffset;
+        public KimodoRigidTransform RootGoalLoss;
         public int EffectiveLastFrameIndex;
         public float EffectiveLastFrameTimeSeconds;
         public byte[] MotionBytes;

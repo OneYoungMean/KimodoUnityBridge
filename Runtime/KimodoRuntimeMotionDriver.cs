@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using KimodoUnityBridge;
 using TimelineInject;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -311,6 +312,42 @@ namespace KimodoBridge
                 KimodoRoot2DPlanner.NormalizeHeading(new Vector2(worldHeadingX, worldHeadingZ)));
         }
 
+        /// <summary>
+        /// Stages a complete world-space root goal. Generation receives its
+        /// Root2D projection while the omitted transform is applied only to
+        /// the next segment's profile skeleton during playback.
+        /// </summary>
+        public void SetRootGoal(
+            Vector3 worldPosition,
+            Quaternion worldRotation,
+            float duration = 1f)
+        {
+            if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
+            {
+                UpdateStatus("RootGoal requires segmented Kimodo generation; ARDY does not use a first-frame terminal constraint.");
+                return;
+            }
+
+            if (!KimodoRuntimeConstraintSampler.TryCreateRootGoal(
+                    motionPlayer,
+                    modelName,
+                    worldPosition,
+                    worldRotation,
+                    GetCurrentPositionInternal(),
+                    ClampConstraintTime(duration),
+                    out KimodoMarkerSampleResult sample,
+                    out KimodoUnityBridge.KimodoRigidTransform root2DLoss,
+                    out string error))
+            {
+                UpdateStatus(error);
+                return;
+            }
+
+            StageConstraintSample(sample);
+            constraints.StageRootGoalLoss(root2DLoss);
+            UpdateStatus($"RootGoal staged at {FormatVector3(worldPosition)}.");
+        }
+
         public void SetRoot2DTarget(
             float worldX,
             float worldZ,
@@ -547,12 +584,15 @@ namespace KimodoBridge
                 bool sendSettings = isArdy && (!generationSession.ArdyStarted || generationSession.ArdySettingsDirty);
                 int consumedPendingRevision = constraints.PendingRevision;
                 float generationDuration = ResolveGenerationDurationSeconds();
+                KimodoUnityBridge.KimodoRigidTransform requestRootGoalLoss =
+                    constraints.BuildRootGoalLossForGeneration(isArdy);
                 string constraintsJson = sendConstraints
                     ? BuildNextConstraintsJson(
                         isArdy,
                         ardyProfile,
                         generationDuration,
-                        requestInterruptionPlan?.FirstFrameConstraint)
+                        requestInterruptionPlan?.FirstFrameConstraint,
+                        requestRootGoalLoss)
                     : string.Empty;
                 int resolvedRequestSeed = generationSession.ResolveRequestSeed(isArdy, randomSeed, fixedSeed);
                 bool sessionUpdateOnly = isArdy && generationSession.ArdyStarted && !sendSettings;
@@ -649,6 +689,7 @@ namespace KimodoBridge
                         segmentTrimTrailSettings,
                         allowPartialJoints,
                         generationToken);
+                generatedSegment.RootGoalLoss = requestRootGoalLoss?.Clone();
                 staleRequest = requestVersion != generationSession.RequestVersion || generationToken.IsCancellationRequested;
                 if (KimodoRuntimeGenerationSession.ShouldDiscardResult(
                         isArdy,
@@ -727,7 +768,8 @@ namespace KimodoBridge
             bool isArdy,
             KimodoMotionModelProfile ardyProfile,
             float generationDuration,
-            KimodoConstraintInternalData firstFrameOverride)
+            KimodoConstraintInternalData firstFrameOverride,
+            KimodoUnityBridge.KimodoRigidTransform rootGoalLoss)
         {
             List<KimodoMarkerSampleResult> activeConstraints = constraints.BuildForGeneration(
                 isArdy,
@@ -738,6 +780,9 @@ namespace KimodoBridge
             // tail pose for ordinary first-frame continuity.
             KimodoConstraintInternalData terminal = firstFrameOverride ??
                 constraints.BuildTerminalForGeneration(isArdy);
+            terminal = KimodoRuntimeConstraints.ApplyInverseRootGoalLoss(
+                terminal,
+                rootGoalLoss);
             if (activeConstraints.Count == 0 && terminal == null)
             {
                 return string.Empty;

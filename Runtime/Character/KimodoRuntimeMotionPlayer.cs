@@ -546,6 +546,8 @@ namespace KimodoBridge
                 return false;
             }
 
+            ApplyRootGoalLoss();
+
             return TryApplyHumanoidPose(out error);
         }
 
@@ -561,6 +563,8 @@ namespace KimodoBridge
             {
                 return false;
             }
+
+            ApplyRootGoalLoss();
 
             return TryApplyHumanoidPose(out error);
         }
@@ -666,6 +670,20 @@ namespace KimodoBridge
         private bool TryApplyHumanoidPose(out string error)
         {
             return retargeter.TryApplyPose(sourceCache, sourceHipsBone, out error);
+        }
+
+        private void ApplyRootGoalLoss()
+        {
+            if (sourceRootJoint == null || currentSegment?.RootGoalLoss == null)
+            {
+                return;
+            }
+
+            Quaternion rotation = currentSegment.RootGoalLoss.q.normalized;
+            sourceRootJoint.localPosition =
+                rotation * sourceRootJoint.localPosition + currentSegment.RootGoalLoss.t;
+            sourceRootJoint.localRotation =
+                (rotation * sourceRootJoint.localRotation).normalized;
         }
 
     }

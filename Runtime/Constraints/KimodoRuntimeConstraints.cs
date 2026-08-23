@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using KimodoUnityBridge;
 using TimelineInject;
 using UnityEngine;
 
@@ -15,6 +16,8 @@ namespace KimodoBridge
         internal const string Root2DType = "root2d";
 
         private KimodoConstraintInternalData terminal;
+        private KimodoRigidTransform stagedRootGoalLoss;
+        private KimodoRigidTransform pendingRootGoalLoss;
         private readonly List<KimodoMarkerSampleResult> staged = new List<KimodoMarkerSampleResult>();
         private readonly List<KimodoMarkerSampleResult> pending = new List<KimodoMarkerSampleResult>();
 
@@ -34,6 +37,11 @@ namespace KimodoBridge
             Upsert(staged, owned);
         }
 
+        internal void StageRootGoalLoss(KimodoRigidTransform loss)
+        {
+            stagedRootGoalLoss = loss?.Clone();
+        }
+
         internal bool Commit()
         {
             if (staged.Count == 0)
@@ -46,7 +54,13 @@ namespace KimodoBridge
                 Upsert(pending, staged[i]);
             }
 
+            if (stagedRootGoalLoss != null)
+            {
+                pendingRootGoalLoss = stagedRootGoalLoss.Clone();
+            }
+
             staged.Clear();
+            stagedRootGoalLoss = null;
             PendingRevision++;
             return true;
         }
@@ -55,6 +69,8 @@ namespace KimodoBridge
         {
             staged.Clear();
             pending.Clear();
+            stagedRootGoalLoss = null;
+            pendingRootGoalLoss = null;
             PendingRevision++;
         }
 
@@ -105,6 +121,9 @@ namespace KimodoBridge
             return result;
         }
 
+        internal KimodoRigidTransform BuildRootGoalLossForGeneration(bool isArdy) =>
+            isArdy ? null : pendingRootGoalLoss?.Clone();
+
         internal void CompleteGeneration(bool isArdy) => CompleteGeneration(isArdy, PendingRevision);
 
         internal void CompleteGeneration(bool isArdy, int consumedRevision)
@@ -112,7 +131,31 @@ namespace KimodoBridge
             if (!isArdy && consumedRevision == PendingRevision)
             {
                 pending.Clear();
+                pendingRootGoalLoss = null;
             }
+        }
+
+        internal static KimodoConstraintInternalData ApplyInverseRootGoalLoss(
+            KimodoConstraintInternalData source,
+            KimodoRigidTransform loss)
+        {
+            KimodoConstraintInternalData result = source?.Clone();
+            if (result == null || loss == null)
+            {
+                return result;
+            }
+
+            Quaternion inverseRotation = Quaternion.Inverse(loss.q.normalized);
+            result.rootPosition = inverseRotation * (result.rootPosition - loss.t);
+            if (result.localJointAxisAngles != null && result.localJointAxisAngles.Count > 0)
+            {
+                Quaternion rootRotation = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(
+                    result.localJointAxisAngles[0]);
+                result.localJointAxisAngles[0] =
+                    KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(
+                        (inverseRotation * rootRotation).normalized);
+            }
+            return result;
         }
 
         private static void Upsert(
