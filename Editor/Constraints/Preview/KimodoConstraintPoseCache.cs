@@ -1852,6 +1852,7 @@ namespace KimodoBridge.Editor
                     }
                 }
                 else if (entry.SourceMarker?.autoSample == false &&
+                    IsEffectorChannelEnabled(mask, bone) &&
                     TryGetEffector(entry.SampleData?.effectors, bone,
                         out Vector3 savedPosition, out Quaternion savedRotation))
                 {
@@ -2115,6 +2116,25 @@ namespace KimodoBridge.Editor
             position = value != null ? value.t : Vector3.zero;
             rotation = value != null ? value.q : Quaternion.identity;
             return value != null;
+        }
+
+        private static bool IsEffectorChannelEnabled(
+            KimodoConstraintMask mask,
+            HumanBodyBones bone)
+        {
+            if (mask == null)
+            {
+                return false;
+            }
+
+            return bone switch
+            {
+                HumanBodyBones.LeftHand => mask.leftHand,
+                HumanBodyBones.RightHand => mask.rightHand,
+                HumanBodyBones.LeftFoot => mask.leftFoot,
+                HumanBodyBones.RightFoot => mask.rightFoot,
+                _ => false
+            };
         }
 
         private static HumanBodyBones ResolveEndEffectorBone(string constraintType)

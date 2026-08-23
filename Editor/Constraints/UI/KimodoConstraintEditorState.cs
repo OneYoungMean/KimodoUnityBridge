@@ -135,13 +135,32 @@ namespace KimodoBridge.Editor
         private static void DrawFullBodyEffectors(SerializedObject so, bool autoSample)
         {
             EditorGUILayout.LabelField("FullBody Effectors", EditorStyles.boldLabel);
+            DrawFullBodyEffector(so, "leftHand", "Left Hand Effector", autoSample);
+            DrawFullBodyEffector(so, "rightHand", "Right Hand Effector", autoSample);
+            DrawFullBodyEffector(so, "leftFoot", "Left Foot Effector", autoSample);
+            DrawFullBodyEffector(so, "rightFoot", "Right Foot Effector", autoSample);
+        }
+
+        private static void DrawFullBodyEffector(
+            SerializedObject so,
+            string channel,
+            string label,
+            bool autoSample)
+        {
+            SerializedProperty enabled = so.FindProperty("sampleData.enableMask." + channel + "Effector");
+            SerializedProperty transform = so.FindProperty("sampleData.effectors." + channel);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            if (enabled != null)
+            {
+                EditorGUILayout.PropertyField(enabled, new GUIContent(label + " Enable"));
+            }
+            // Non-AutoSample exposes every authored value, even when a channel
+            // is currently disabled; the enable flag controls export only.
             using (new EditorGUI.DisabledScope(autoSample))
             {
-                DrawTransform(so.FindProperty("sampleData.effectors.leftHand"), "Left Hand Effector");
-                DrawTransform(so.FindProperty("sampleData.effectors.rightHand"), "Right Hand Effector");
-                DrawTransform(so.FindProperty("sampleData.effectors.leftFoot"), "Left Foot Effector");
-                DrawTransform(so.FindProperty("sampleData.effectors.rightFoot"), "Right Foot Effector");
+                DrawTransform(transform, "Target Position / Rotation");
             }
+            EditorGUILayout.EndVertical();
         }
 
         private static void DrawEffectors(SerializedObject so, string root)

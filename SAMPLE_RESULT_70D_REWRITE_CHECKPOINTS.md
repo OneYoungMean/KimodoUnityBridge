@@ -628,3 +628,11 @@
 - 已移除：`KimodoRetargetToolsEditor` 中无实际使用的 profile Avatar bake 残留加载。
 - 保持：`KimodoRuntimeConstraintExportProjector`/`ConstraintInternal` 内部仍可按 modelName 使用 profile Avatar，作为唯一协议投影边界。
 - 检查：`git diff --check` 通过；Unity package probe 编译待执行。
+
+## CP80 — Constraint 编辑窗口聚焦 Hips 与 FullBody 全字段编辑
+
+- 已修正：打开 Constraint Edit Window 时统一将 Scene selection/focus 指向 Preview 角色的 `HumanBodyBones.Hips` target；Preview 创建完成后通过一次延迟回调再次聚焦，避免首次打开时目标尚未生成而落到根 GameObject。
+- 已修正：FullBody 非 AutoSample 的 effectors 在没有启用 channel 或旧数据缺失时初始化到当前角色骨骼位置，不再显示在 world origin；已有启用 channel 的 authored position/rotation 仍被保留。
+- 已修正：FullBody UI 为四个手/脚 effector 分别显示 Enable 开关；非 AutoSample 下所有 position/rotation 字段均可编辑，Enable 仅控制通道导出，AutoSample 继续保持只读。
+- 已补充：SceneView 聚焦在 Unity 域重载期间对暂未初始化 Inspector 的 `NullReferenceException` 安全忽略，保留正常编辑器中的 Hips focus。
+- 检查：`git diff --check` 通过；Unity package probe 已完成脚本重编译且未发现 C# 编译错误（临时项目已有 Unity 实例占用，完整 batch 退出由锁等待）。

@@ -85,8 +85,9 @@ namespace KimodoBridge.Editor
             if (marker != null && KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(marker, out PoseCacheRenderContext context, out _))
             {
                 KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
-                FocusSelectionOnEditTarget(marker, context, window.editEntryId, window.selectedFullBodyTarget);
+                FocusSelectionOnEditTarget(marker, context, window.editEntryId, HumanBodyBones.Hips);
             }
+            QueueHipFocus(window, marker);
         }
 
         internal static KimodoConstraintOverrideEditWindow GetOpenWindow()
@@ -865,7 +866,7 @@ namespace KimodoBridge.Editor
                 Selection.activeGameObject = selectedTargetObject;
                 EditorGUIUtility.PingObject(selectedTargetObject);
                 Tools.current = Tool.Move;
-                SceneView.lastActiveSceneView?.FrameSelected();
+                FrameSelectedSceneView();
                 return;
             }
 
@@ -879,7 +880,7 @@ namespace KimodoBridge.Editor
                 Selection.activeGameObject = pelvisTarget;
                 EditorGUIUtility.PingObject(pelvisTarget);
                 Tools.current = Tool.Move;
-                SceneView.lastActiveSceneView?.FrameSelected();
+                FrameSelectedSceneView();
                 return;
             }
 
@@ -893,7 +894,7 @@ namespace KimodoBridge.Editor
                 Selection.activeGameObject = endEffectorTarget;
                 EditorGUIUtility.PingObject(endEffectorTarget);
                 Tools.current = Tool.Move;
-                SceneView.lastActiveSceneView?.FrameSelected();
+                FrameSelectedSceneView();
                 return;
             }
 
@@ -906,6 +907,50 @@ namespace KimodoBridge.Editor
 
             Selection.activeGameObject = rootBone.gameObject;
             EditorGUIUtility.PingObject(rootBone.gameObject);
+        }
+
+        private static void FrameSelectedSceneView()
+        {
+            if (Application.isBatchMode)
+            {
+                return;
+            }
+
+            SceneView sceneView = SceneView.lastActiveSceneView;
+            if (sceneView == null)
+            {
+                return;
+            }
+
+            try
+            {
+                sceneView.FrameSelected();
+            }
+            catch (NullReferenceException)
+            {
+                // Unity can expose a SceneView before its Inspector editors
+                // exist during domain reload; selection remains valid.
+            }
+        }
+
+        private static void QueueHipFocus(
+            KimodoConstraintOverrideEditWindow window,
+            KimodoConstraintMarker marker)
+        {
+            EditorApplication.delayCall += () =>
+            {
+                if (window == null || window.marker != marker || marker == null || !marker.constraintEnabled ||
+                    !KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(
+                        marker,
+                        out PoseCacheRenderContext context,
+                        out _))
+                {
+                    return;
+                }
+
+                KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
+                FocusSelectionOnEditTarget(marker, context, window.editEntryId, HumanBodyBones.Hips);
+            };
         }
 
         private static void RestoreEndEffectorTargetSelection(
