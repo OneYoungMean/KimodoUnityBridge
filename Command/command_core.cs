@@ -777,15 +777,9 @@ namespace KimodoUnityBridge.Command
             CharacterPose sourcePose = ReadCharacterPose(value?["pose"] as JObject,
                 $"constraints[{constraintIndex}].{constraintType.Replace('-', '_')}");
             MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToBodyMuscleSample(sourcePose);
-            KimodoConstraintMask mask = KimodoConstraintMask.ForType(constraintType);
             if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                     sourceSample, frameRate, targetCache,
-                    out BoneSample boneSample, out MuscleSample targetMuscleSample, out string retargetError,
-                    includeLeftHandEffector: mask.leftHand,
-                    includeRightHandEffector: mask.rightHand,
-                    includeFootEffectors: mask.leftFoot || mask.rightFoot,
-                    includeLeftFootEffector: mask.leftFoot,
-                    includeRightFootEffector: mask.rightFoot))
+                    out BoneSample boneSample, out MuscleSample targetMuscleSample, out string retargetError))
             {
                 throw new InvalidOperationException($"Retarget constraints[{constraintIndex}] failed: {retargetError}");
             }
