@@ -77,7 +77,7 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         sampleData.effectors.rightHand ??= KimodoRigidTransform.Identity;
         sampleData.effectors.leftFoot ??= KimodoRigidTransform.Identity;
         sampleData.effectors.rightFoot ??= KimodoRigidTransform.Identity;
-        sampleData.root2DOverride ??= KimodoRigidTransform.Identity;
+        sampleData.rootOverride ??= KimodoRigidTransform.Identity;
         sampleData.constraintMode = ModeProtocolName(constraintMode);
         sampleData.sampleTime = Math.Max(0.0, time);
         if (initializeDefaults)

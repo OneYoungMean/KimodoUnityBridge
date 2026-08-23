@@ -182,9 +182,18 @@ namespace KimodoBridge
         // separate from the muscle pose; no intermediate solver interprets them.
         [UnityEngine.Serialization.FormerlySerializedAs("worldIkTargets")]
         public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
-        // FullBody owns rootTQ in sampleData. Root2D is kept separately so its
-        // X/Z and heading override cannot destroy FullBody Y, pitch or roll.
-        public KimodoRigidTransform root2DOverride = KimodoRigidTransform.Identity;
+        // Complete world-space hips override. Root2D X/Z and heading
+        // projection is applied only when building the protocol constraint.
+        [UnityEngine.Serialization.FormerlySerializedAs("root2DOverride")]
+        public KimodoRigidTransform rootOverride = KimodoRigidTransform.Identity;
+
+        // Source compatibility for older editor/test callers. This alias is
+        // not a second serialized value.
+        public KimodoRigidTransform root2DOverride
+        {
+            get => rootOverride;
+            set => rootOverride = value;
+        }
         // One mode is the only persisted constraint semantic. Protocol
         // expansion uses transient clones with this same field set to the
         // emitted family (fullbody/root2d/left-foot, etc.).
@@ -198,7 +207,7 @@ namespace KimodoBridge
             enabled = enabled,
             creationOrder = creationOrder,
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
-            root2DOverride = root2DOverride?.Clone() ?? KimodoRigidTransform.Identity,
+            rootOverride = rootOverride?.Clone() ?? KimodoRigidTransform.Identity,
             constraintMode = this.constraintMode,
             sampleTime = sampleTime
         };

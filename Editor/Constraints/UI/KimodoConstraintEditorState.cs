@@ -23,6 +23,12 @@ namespace KimodoBridge.Editor
             if (autoSample != null)
             {
                 EditorGUILayout.PropertyField(autoSample, new GUIContent("Auto Sample"));
+                if (autoSample.boolValue)
+                {
+                    EditorGUILayout.HelpBox(
+                        "拖动 Scene Handle 将自动切换为手动采样。",
+                        MessageType.Info);
+                }
             }
             if (mode == null) return;
 
@@ -68,7 +74,7 @@ namespace KimodoBridge.Editor
             using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
                 if (DrawTransform(
-                        so.FindProperty("sampleData.root2DOverride"),
+                        so.FindProperty("sampleData.rootOverride"),
                         "Root Position / Rotation"))
                 {
                     SerializedProperty positionEnabled = so.FindProperty("sampleData.enableMask.root2DPosition");

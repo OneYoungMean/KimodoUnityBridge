@@ -124,11 +124,11 @@ namespace KimodoBridge
             }
 
             // The canonical rootTQ channel is not a hips/world transform.
-            // Only an explicit world-space Root2D override may provide the
+            // Only the explicit world-space root override may provide the
             // protocol root when no skeleton projector is available.
             rootPositionMeters = sample.enableMask?.root2DPosition == true &&
-                sample.root2DOverride != null
-                ? sample.root2DOverride.t
+                sample.rootOverride != null
+                ? sample.rootOverride.t
                 : Vector3.zero;
             return TryBuildLocalJointAngles(sample, out localAngles, out error);
         }
@@ -284,11 +284,11 @@ namespace KimodoBridge
             double exportFps)
         {
             if (sample != null && sample.enableMask?.root2DPosition == true &&
-                sample.root2DOverride != null)
+                sample.rootOverride != null)
             {
                 _ = exportContext ?? throw new ArgumentNullException(nameof(exportContext));
-                Vector3 root = sample.root2DOverride.t;
-                Vector3 forward = sample.root2DOverride.q * Vector3.forward;
+                Vector3 root = sample.rootOverride.t;
+                Vector3 forward = sample.rootOverride.q * Vector3.forward;
                 var canonical = new KimodoConstraintJson
                 {
                     type = "root2d",

@@ -114,16 +114,25 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
                     if (switchedFromAutoSample)
                     {
                         marker.autoSample = false;
-                        SceneView.lastActiveSceneView?.ShowNotification(
-                            new GUIContent("Auto Sample 已关闭；重新勾选 Auto Sample 可恢复自动采样。"));
                     }
                     if (KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
-                            marker,
-                            changedSample,
-                            out _,
-                            writeSampledCharacterPose: switchedFromAutoSample))
+                        marker,
+                        changedSample,
+                        out _,
+                        writeSampledCharacterPose: switchedFromAutoSample))
                     {
-                        KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
+                        // Selection previews are intentionally suppressed while
+                        // the edit window is open. Re-render that registered
+                        // entry immediately so handle edits feed FK -> root
+                        // override -> IK on the same drag event.
+                        if (!KimodoConstraintSelectionPreviewTool.TryRenderEditPreview(
+                                marker,
+                                context,
+                                out _))
+                        {
+                            KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
+                        }
+                        SceneView.RepaintAll();
                     }
                 },
             };

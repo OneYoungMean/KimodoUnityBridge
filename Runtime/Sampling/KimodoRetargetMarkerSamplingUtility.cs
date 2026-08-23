@@ -77,9 +77,10 @@ namespace KimodoBridge
 
         /// <summary>
         /// Captures the scene-facing targets from the rebuilt skeleton. This is
-        /// deliberately the only production path that creates root2DOverride
-        /// and effector positions for an AutoSample result: all values are
-        /// Transform world values, never HumanPose body-space values.
+        /// deliberately the only production path that creates the serialized
+        /// root override (legacy field name: root2DOverride) and effector
+        /// positions for an AutoSample result: all values are Transform world
+        /// values, never HumanPose body-space values.
         /// </summary>
         internal static void CaptureWorldTargets(
             RetargetSkeleton cache,
@@ -100,8 +101,8 @@ namespace KimodoBridge
                 position = Vector3.zero;
                 rotation = Quaternion.identity;
             }
-            result.root2DOverride.t = position;
-            result.root2DOverride.q = rotation;
+            result.rootOverride.t = position;
+            result.rootOverride.q = rotation;
             result.enableMask.root2DPosition = true;
             result.enableMask.root2DHeading = true;
 
@@ -204,7 +205,7 @@ namespace KimodoBridge
                 sampleTime = sampleTime,
                 enableMask = new KimodoSampleChannelMask(),
                 effectors = new KimodoConstraintEffectors(),
-                root2DOverride = KimodoRigidTransform.Identity
+                rootOverride = KimodoRigidTransform.Identity
             };
         }
     }

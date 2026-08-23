@@ -8,7 +8,8 @@ namespace KimodoBridge
 {
     /// <summary>
     /// One canonical constraint pose path shared by preview and protocol
-    /// projection: FK, world Root2D override, then SampleResult IK targets.
+    /// projection: FK, complete world root override, then SampleResult IK
+    /// targets. Root2D is projected only at its protocol boundary.
     /// </summary>
     internal static class KimodoConstraintPosePipeline
     {
@@ -41,7 +42,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!TryApplyRoot2D(sample, cache, out error))
+            if (!TryApplyRootOverride(sample, cache, out error))
             {
                 return false;
             }
@@ -63,14 +64,17 @@ namespace KimodoBridge
             return true;
         }
 
-        private static bool TryApplyRoot2D(
+        private static bool TryApplyRootOverride(
             KimodoMarkerSampleResult sample,
             RetargetSkeleton cache,
             out string error)
         {
             error = string.Empty;
+            // The field was renamed from root2DOverride with a serialization
+            // migration, but stores the complete world hips override. Do not
+            // apply Root2D's XZ/Y projection in the pose pipeline.
             if (sample.enableMask?.root2DPosition != true ||
-                sample.root2DOverride == null)
+                sample.rootOverride == null)
             {
                 return true;
             }
@@ -81,17 +85,14 @@ namespace KimodoBridge
             Transform root = cache.skeletonRoot;
             if (hips == null || root == null)
             {
-                error = "Constraint Root2D requires Hips and skeleton root transforms.";
+                error = "Constraint root override requires Hips and skeleton root transforms.";
                 return false;
             }
 
-            if (sample.enableMask.root2DHeading)
-            {
-                Quaternion desiredRotation = sample.root2DOverride.q.normalized;
-                Quaternion deltaRotation = desiredRotation * Quaternion.Inverse(hips.rotation);
-                root.rotation = (deltaRotation * root.rotation).normalized;
-            }
-            root.position += sample.root2DOverride.t - hips.position;
+            Quaternion desiredRotation = sample.rootOverride.q.normalized;
+            Quaternion deltaRotation = desiredRotation * Quaternion.Inverse(hips.rotation);
+            root.rotation = (deltaRotation * root.rotation).normalized;
+            root.position += sample.rootOverride.t - hips.position;
             return true;
         }
     }

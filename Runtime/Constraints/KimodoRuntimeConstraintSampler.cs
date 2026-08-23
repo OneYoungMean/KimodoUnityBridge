@@ -87,13 +87,18 @@ namespace KimodoBridge
             sample.constraintMode = "constraint";
             if (sample.enableMask?.root2DPosition == true)
             {
-                sample.root2DOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
+                Quaternion capturedRootRotation = sample.rootOverride != null
+                    ? sample.rootOverride.q
+                    : Quaternion.identity;
+                sample.rootOverride = new CharacterAnimationCli.Unity.KimodoRigidTransform
                 {
                     t = new Vector3(
                         targetWorldPosition.x,
                         currentWorldPosition.y,
                         targetWorldPosition.y),
-                    q = Quaternion.identity
+                    // Keep the complete sampled hips rotation. Root2D's
+                    // heading projection is applied only by protocol export.
+                    q = capturedRootRotation
                 };
                 sample.enableMask.root2DPosition = true;
             }
@@ -102,9 +107,20 @@ namespace KimodoBridge
             {
                 if (sample.enableMask?.root2DPosition == true)
                 {
-                    sample.root2DOverride.q = Quaternion.LookRotation(
+                    Vector3 currentForward = sample.rootOverride.q * Vector3.forward;
+                    currentForward.y = 0f;
+                    if (currentForward.sqrMagnitude < 1e-6f)
+                    {
+                        currentForward = Vector3.forward;
+                    }
+                    Quaternion currentYaw = Quaternion.LookRotation(
+                        currentForward.normalized,
+                        Vector3.up);
+                    Quaternion desiredYaw = Quaternion.LookRotation(
                         new Vector3(worldHeading.Value.x, 0f, worldHeading.Value.y),
                         Vector3.up);
+                    sample.rootOverride.q =
+                        (desiredYaw * Quaternion.Inverse(currentYaw) * sample.rootOverride.q).normalized;
                 }
             }
 

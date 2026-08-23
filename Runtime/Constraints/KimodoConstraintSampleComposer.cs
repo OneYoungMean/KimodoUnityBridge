@@ -60,9 +60,9 @@ namespace KimodoBridge
                     KimodoSampleDataLayout.RightFootTqOffset, KimodoSampleDataLayout.FootTqCount);
 
                 KimodoMarkerSampleResult rootPosition = FindLatest(ordered, SampleChannel.Root2DPosition);
-                if (rootPosition?.root2DOverride != null)
+                if (rootPosition?.rootOverride != null)
                 {
-                    result.root2DOverride = rootPosition.root2DOverride.Clone();
+                    result.rootOverride = rootPosition.rootOverride.Clone();
                     result.enableMask.root2DPosition = rootPosition.enableMask?.root2DPosition == true;
                 }
                 KimodoMarkerSampleResult rootHeading = FindLatest(ordered, SampleChannel.Root2DHeading);

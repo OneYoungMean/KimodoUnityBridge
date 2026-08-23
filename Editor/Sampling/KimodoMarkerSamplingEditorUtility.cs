@@ -73,10 +73,10 @@ namespace KimodoBridge.Editor
             // effectors. Preserve that edit explicitly because normalization
             // starts from the marker's authored sample for non-AutoSample
             // markers.
-            if (sample.root2DOverride != null &&
+            if (sample.rootOverride != null &&
                 (!marker.autoSample || sample.enableMask?.root2DPosition == true))
             {
-                normalized.root2DOverride = sample.root2DOverride.Clone();
+                normalized.rootOverride = sample.rootOverride.Clone();
             }
 
             bool changed = !AreSamplesEquivalent(marker.SampleData, normalized);

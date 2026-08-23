@@ -158,6 +158,7 @@ namespace KimodoBridge.Editor
         private static readonly Dictionary<string, ConstraintPosePreviewSession> Sessions =
             new Dictionary<string, ConstraintPosePreviewSession>(StringComparer.Ordinal);
         private static bool invalidContextCleanupQueued;
+        private static string selectedHandleKey;
 
         private const float NonConstraintAlpha = 1.0f;
         private const float HighlightAlpha = 1.0f;
@@ -199,14 +200,14 @@ namespace KimodoBridge.Editor
                     }
 
                     KimodoSampleChannelMask mask = entry.SampleData.enableMask;
-                    if (entry.SampleData.root2DOverride != null)
+                    if (entry.SampleData.rootOverride != null)
                     {
                         DrawSampleHandle(
                             entry,
                             HumanBodyBones.Hips,
-                            entry.SampleData.root2DOverride,
+                            entry.SampleData.rootOverride,
                             Color.white,
-                            "Root2D",
+                            "Root Override",
                             isRoot: true);
                     }
 
@@ -256,17 +257,66 @@ namespace KimodoBridge.Editor
             Handles.CapFunction cap = isRoot || bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand
                 ? Handles.SphereHandleCap
                 : Handles.CubeHandleCap;
+            string handleKey = (entry.Key ?? string.Empty) + ":" + bone;
+            bool selected = string.Equals(selectedHandleKey, handleKey, StringComparison.Ordinal);
 
-            // Keep the control hot in AutoSample too. The first drag is the
-            // explicit transition to authored/manual data; the callback owns
-            // disabling AutoSample and persisting the sampled pose.
-            EditorGUI.BeginChangeCheck();
-            Vector3 moved = Handles.FreeMoveHandle(position, size, Vector3.zero, cap);
-            if (EditorGUI.EndChangeCheck())
+            if (!selected)
             {
-                value.position = moved;
-                PromoteHandleChannel(entry.SampleData, bone, rotationChanged: false);
-                entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
+                // The first click selects the value; subsequent events draw
+                // Unity's native position/rotation tools for that value.
+                int controlId = GUIUtility.GetControlID(FocusType.Passive);
+                EditorGUI.BeginChangeCheck();
+                Vector3 moved = Handles.FreeMoveHandle(
+                    controlId,
+                    position,
+                    size,
+                    Vector3.zero,
+                    cap);
+                if (Event.current != null &&
+                    Event.current.type == EventType.MouseDown &&
+                    GUIUtility.hotControl == controlId)
+                {
+                    selectedHandleKey = handleKey;
+                }
+                if (EditorGUI.EndChangeCheck())
+                {
+                    value.position = moved;
+                    PromoteHandleChannel(entry.SampleData, bone, rotationChanged: false);
+                    entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
+                }
+            }
+            else
+            {
+                cap(
+                    GUIUtility.GetControlID(FocusType.Passive),
+                    position,
+                    rotation,
+                    size,
+                    EventType.Repaint);
+
+                if (Tools.current == Tool.Move || Tools.current == Tool.Transform)
+                {
+                    EditorGUI.BeginChangeCheck();
+                    Vector3 moved = Handles.PositionHandle(position, rotation);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        value.position = moved;
+                        PromoteHandleChannel(entry.SampleData, bone, rotationChanged: false);
+                        entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
+                    }
+                }
+
+                if (Tools.current == Tool.Rotate || Tools.current == Tool.Transform)
+                {
+                    EditorGUI.BeginChangeCheck();
+                    Quaternion rotated = Handles.RotationHandle(rotation, position);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        value.rotation = rotated.normalized;
+                        PromoteHandleChannel(entry.SampleData, bone, rotationChanged: true);
+                        entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
+                    }
+                }
             }
 
             Handles.Label(position + Vector3.up * size, label);
@@ -1555,7 +1605,7 @@ namespace KimodoBridge.Editor
                     if (rootTargetChanged && entry.FullBodyTargets.TryGetValue(
                             HumanBodyBones.Hips, out GameObject rootTarget) && rootTarget != null)
                     {
-                        sample.root2DOverride = new KimodoRigidTransform
+                        sample.rootOverride = new KimodoRigidTransform
                         {
                             t = rootTarget.transform.position,
                             q = rootTarget.transform.rotation
@@ -1754,18 +1804,18 @@ namespace KimodoBridge.Editor
                 {
                     target.transform.SetParent(null, true);
                     if (entry.SampleData?.enableMask?.root2DPosition == true &&
-                             entry.SampleData.root2DOverride != null)
+                             entry.SampleData.rootOverride != null)
                     {
                         target.transform.SetPositionAndRotation(
-                            entry.SampleData.root2DOverride.t,
-                            entry.SampleData.root2DOverride.q);
+                            entry.SampleData.rootOverride.t,
+                            entry.SampleData.rootOverride.q);
                     }
                     else if (solvedSample?.enableMask?.root2DPosition == true &&
-                             solvedSample.root2DOverride != null)
+                             solvedSample.rootOverride != null)
                     {
                         target.transform.SetPositionAndRotation(
-                            solvedSample.root2DOverride.t,
-                            solvedSample.root2DOverride.q);
+                            solvedSample.rootOverride.t,
+                            solvedSample.rootOverride.q);
                     }
                 }
                 else if (!entry.AutoSample &&
@@ -1814,16 +1864,16 @@ namespace KimodoBridge.Editor
         {
             KimodoMarkerSampleResult authored = entry?.SampleData;
             if (authored?.enableMask?.root2DPosition != true ||
-                authored.root2DOverride == null ||
+                authored.rootOverride == null ||
                 captured == null)
             {
                 return;
             }
 
-            captured.root2DOverride = new KimodoRigidTransform
+            captured.rootOverride = new KimodoRigidTransform
             {
-                t = authored.root2DOverride.t,
-                q = authored.root2DOverride.q
+                t = authored.rootOverride.t,
+                q = authored.rootOverride.q
             };
             captured.enableMask.root2DPosition = true;
         }
@@ -1852,7 +1902,7 @@ namespace KimodoBridge.Editor
         {
             if (entry?.TargetCache == null ||
                 entry.SampleData?.enableMask?.root2DPosition != true ||
-                entry.SampleData.root2DOverride == null)
+                entry.SampleData.rootOverride == null)
             {
                 return;
             }
@@ -1878,8 +1928,8 @@ namespace KimodoBridge.Editor
             if (createdTarget || !target.transform.hasChanged)
             {
                 target.transform.SetPositionAndRotation(
-                    entry.SampleData.root2DOverride.t,
-                    entry.SampleData.root2DOverride.q);
+                    entry.SampleData.rootOverride.t,
+                    entry.SampleData.rootOverride.q);
                 target.transform.hasChanged = false;
             }
             target.transform.localScale = Vector3.one * 0.1f;
