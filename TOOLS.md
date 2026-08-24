@@ -21,11 +21,11 @@ Use `animation_analyze` with one or two explicit `{character,clip,role?}` entrie
 
 Analysis is evidence, not semantic proof. Compare key poses, ghost root path, pelvis trajectory, foot contacts, direction, phase, object contact, and ending state with the requested motion. `animation_compare` can compare two ranges without mutating the Session.
 
-### 4. Pose cache and generation constraints
+### 4. Materialized poses and generation constraints
 
-`pose_get({"source":"<clip>","frame":<local frame>})` reads a source pose and returns a writable Pose Cache marker. Preserve that cache locator. Modify it only with `pose_set_root_transform` or `pose_set_muscle`; use `pose_contract` to align selected end-effectors and record its `residual_error`.
+`pose_get({"source":{"character":"<character>","clip":"<clip>","frame":<local frame>}})` materializes the sampled frame as an External Pose Marker and returns its `{track,index}` reference. Root/muscle editing commands update that materialized pose; `pose_contract` creates another one. Preserve the returned reference and record `residual_error` when contracting.
 
-Generation constraints use sparse same-frame objects. Use `fullbody` for a complete pose, `root2d` for planar root position/heading, and pose-based `left_hand`, `right_hand`, `left_foot`, or `right_foot` for contacts. The exact shape comes from `kimodo_help({"section":"constraints"})`. There is no standalone Root2D path command; prepare the root samples/poses yourself or use the surrounding Unity tooling.
+Generation constraints use sparse same-frame objects. Use `fullbody` for a complete pose, `root2d` for planar root position/heading, and pose-based `left_hand`, `right_hand`, `left_foot`, or `right_foot` for contacts. A `root_path` constraint describes a cubic Bezier path over a frame range and is compiled to Root2D samples during generation; an explicit `root2d` wins at the same frame. The exact shape comes from `kimodo_help({"section":"constraints"})`.
 
 ### 5. Quality gate and loop seam
 
@@ -64,11 +64,11 @@ Visual status is `passed`, `needs_revision`, or `not_verified`. `passed` require
 
 Analysis 是证据，不是语义证明。将关键姿势、ghost 根路径、骨盆轨迹、脚接触、方向、相位、对象接触和结束状态与动作要求对照。`animation_compare` 可以在不修改 Session 的情况下比较两个区间。
 
-### 4. Pose Cache 与生成约束
+### 4. 实体化 Pose 与生成约束
 
-`pose_get({"source":"<clip>","frame":<局部帧>})` 读取源姿势并返回可写 Pose Cache marker。保存该 cache locator；只用 `pose_set_root_transform` 或 `pose_set_muscle` 修改；使用 `pose_contract` 对齐指定末端，并记录 `residual_error`。
+`pose_get({"source":{"character":"<角色>","clip":"<Clip>","frame":<局部帧>}})` 将采样帧实体化为 External Pose Marker，并返回 `{track,index}` 引用。Root/Muscle 编辑命令修改该实体化 Pose，`pose_contract` 则创建另一个；应保存返回的引用，并记录 Contract 的 `residual_error`。
 
-生成约束使用按帧稀疏对象：`fullbody` 表示完整姿势，`root2d` 表示平面 Root 位置/朝向，`left_hand`、`right_hand`、`left_foot`、`right_foot` 使用 Pose 表示接触。准确结构以 `kimodo_help({"section":"constraints"})` 为准。本 command surface 没有独立 Root2D path 命令；请自行准备根采样/姿势，或使用外围 Unity 工具。
+生成约束使用按帧稀疏对象：`fullbody` 表示完整姿势，`root2d` 表示单帧平面 Root 位置/朝向，`left_hand`、`right_hand`、`left_foot`、`right_foot` 使用 Pose 表示接触。`root_path` 在一个帧区间内描述三次贝塞尔轨迹，生成时编译为 Root2D 采样；同帧显式 `root2d` 优先。准确结构以 `kimodo_help({"section":"constraints"})` 为准。
 
 ### 5. 质量门与循环接缝
 

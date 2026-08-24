@@ -36,6 +36,39 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        public void GenerationSchema_UsesCurrentSessionAndSupportsRootPath()
+        {
+            JObject json = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+            JObject generate = json["tools"].Values<JObject>()
+                .Single(value => value.Value<string>("name") == "kimodo_generate_animation")["inputSchema"] as JObject;
+            JObject get = json["tools"].Values<JObject>()
+                .Single(value => value.Value<string>("name") == "kimodo_get_generation")["inputSchema"] as JObject;
+
+            Assert.That(generate?["properties"]?["session_id"], Is.Null);
+            Assert.That(get?["properties"]?["session_id"], Is.Null);
+            Assert.That(generate?["properties"]?["constraints"]?.ToString(), Does.Contain("root_path"));
+            Assert.That(generate?["properties"]?["constraints"]?.ToString(), Does.Contain("bezier"));
+        }
+
+        [Test]
+        public void PoseSchema_UsesMaterializedTrackAndIndexReferences()
+        {
+            JObject json = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+            JObject poseGet = json["tools"].Values<JObject>()
+                .Single(value => value.Value<string>("name") == "pose_get")["inputSchema"] as JObject;
+            JObject poseSet = json["tools"].Values<JObject>()
+                .Single(value => value.Value<string>("name") == "pose_set_root_transform")["inputSchema"] as JObject;
+
+            CollectionAssert.AreEquivalent(
+                new[] { "character", "clip", "frame" },
+                poseGet?["properties"]?["source"]?["required"]?.Values<string>());
+            CollectionAssert.AreEquivalent(
+                new[] { "track", "index" },
+                poseSet?["properties"]?["pose"]?["required"]?.Values<string>());
+            Assert.That(poseSet?["properties"]?["pose"]?["properties"]?["marker_id"], Is.Null);
+        }
+
+        [Test]
         public void UnknownCommand_UsesTheVNextFailureEnvelope()
         {
             JObject response = JObject.Parse(command_dispatcher.Invoke("pose_copy", "{}"));
