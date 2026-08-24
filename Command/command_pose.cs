@@ -67,6 +67,48 @@ namespace KimodoUnityBridge.Command
             return Ok(result);
         });
 
+        public static string PoseCreatePath(string argumentsJson) => Execute(argumentsJson, arguments =>
+        {
+            TimelineSessionRecord session = RequireCurrentTimelineSession();
+            TimelineCharacterRecord character = ResolveSessionCharacterByReference(
+                session,
+                RequiredStringValue(arguments, "character"),
+                addIfMissing: false);
+            string type = RequiredStringValue(arguments, "type").Trim().ToLowerInvariant();
+            if (type != "forward" && type != "turn_left" && type != "turn_right" && type != "bezier")
+            {
+                throw new InvalidOperationException("type must be forward, turn_left, turn_right, or bezier.");
+            }
+            float length = ReadFiniteFloat(arguments["length"], "length");
+            if (length <= 0f)
+            {
+                throw new InvalidOperationException("length must be greater than zero.");
+            }
+
+            List<KimodoRootPathKnot> knots = type == "bezier"
+                ? ReadPathKnots(arguments["knots"] as JArray)
+                : BuildPresetPathKnots(type);
+            if (type != "bezier" && arguments["knots"] != null)
+            {
+                throw new InvalidOperationException("knots is only valid when type is bezier.");
+            }
+
+            int index = AllocatePoseIndex(character.PoseCacheTrack);
+            KimodoConstraintMarker marker = StoreExternalPath(character, index, new KimodoRootPathData
+            {
+                type = type,
+                length = length,
+                inverse = arguments.Value<bool?>("inverse") ?? false,
+                knots = knots
+            });
+            SaveTimelineSession(session);
+            return Ok(new JObject
+            {
+                ["path"] = PoseReferenceJson(character.PoseCacheTrack.name, index),
+                ["data"] = BuildPathJson(marker.PathData)
+            });
+        });
+
         public static string PoseSetRootTransform(string argumentsJson) => Execute(argumentsJson, arguments =>
         {
             TimelineSessionRecord session = RequireCurrentTimelineSession();
@@ -572,6 +614,102 @@ namespace KimodoUnityBridge.Command
             return marker;
         }
 
+        private static KimodoConstraintMarker StoreExternalPath(
+            TimelineCharacterRecord character,
+            int index,
+            KimodoRootPathData path)
+        {
+            if (character?.PoseCacheTrack == null)
+            {
+                throw new InvalidOperationException("Character does not have a Pose Track.");
+            }
+            if (FindPoseMarker(character.PoseCacheTrack, index) != null)
+            {
+                throw new InvalidOperationException(
+                    $"Pose track '{character.PoseCacheTrack.name}' already contains index {index}.");
+            }
+            KimodoConstraintMarker marker = character.PoseCacheTrack.CreateMarker<KimodoConstraintMarker>(
+                index / SessionFrameRate);
+            marker.name = $"Path_{index}";
+            marker.MarkerType = KimodoConstraintMarkerType.ExternalPath;
+            marker.autoSample = false;
+            marker.constraintEnabled = false;
+            marker.PathData = path;
+            marker.CommitSampleData();
+            EditorUtility.SetDirty(marker);
+            EditorUtility.SetDirty(character.PoseCacheTrack);
+            return marker;
+        }
+
+        private static List<KimodoRootPathKnot> ReadPathKnots(JArray values)
+        {
+            if (values == null || values.Count < 2)
+            {
+                throw new InvalidOperationException("knots requires at least two items when type is bezier.");
+            }
+            var knots = new List<KimodoRootPathKnot>(values.Count);
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (values[i] is not JObject value)
+                {
+                    throw new InvalidOperationException($"knots[{i}] must be an object.");
+                }
+                knots.Add(new KimodoRootPathKnot
+                {
+                    position = RequiredVector2(value, "position"),
+                    hasTangentIn = value["tangent_in"] != null,
+                    tangentIn = value["tangent_in"] == null ? Vector2.zero : RequiredVector2(value, "tangent_in"),
+                    hasTangentOut = value["tangent_out"] != null,
+                    tangentOut = value["tangent_out"] == null ? Vector2.zero : RequiredVector2(value, "tangent_out")
+                });
+            }
+            return knots;
+        }
+
+        private static List<KimodoRootPathKnot> BuildPresetPathKnots(string type)
+        {
+            if (type == "forward")
+            {
+                return new List<KimodoRootPathKnot>
+                {
+                    new KimodoRootPathKnot { position = Vector2.zero },
+                    new KimodoRootPathKnot { position = Vector2.up }
+                };
+            }
+
+            const float quarterCircleHandle = 0.5522848f;
+            float side = type == "turn_left" ? -1f : 1f;
+            return new List<KimodoRootPathKnot>
+            {
+                new KimodoRootPathKnot
+                {
+                    position = Vector2.zero,
+                    hasTangentOut = true,
+                    tangentOut = new Vector2(0f, quarterCircleHandle)
+                },
+                new KimodoRootPathKnot
+                {
+                    position = new Vector2(side, 1f),
+                    hasTangentIn = true,
+                    tangentIn = new Vector2(-side * quarterCircleHandle, 0f)
+                }
+            };
+        }
+
+        private static JObject BuildPathJson(KimodoRootPathData path) => new JObject
+        {
+            ["type"] = path.type,
+            ["length"] = path.length,
+            ["inverse"] = path.inverse,
+            ["knots"] = new JArray((path.knots ?? new List<KimodoRootPathKnot>()).Select(knot =>
+            {
+                var result = new JObject { ["position"] = new JArray(knot.position.x, knot.position.y) };
+                if (knot.hasTangentIn) result["tangent_in"] = new JArray(knot.tangentIn.x, knot.tangentIn.y);
+                if (knot.hasTangentOut) result["tangent_out"] = new JArray(knot.tangentOut.x, knot.tangentOut.y);
+                return result;
+            }))
+        };
+
         private static int AllocatePoseIndex(AnimationTrack track)
         {
             var occupied = new HashSet<int>(track.GetMarkers()
@@ -593,10 +731,27 @@ namespace KimodoUnityBridge.Command
             KimodoConstraintMarker marker = FindPoseMarker(character.PoseCacheTrack, reference.Index)
                 ?? throw new InvalidOperationException(
                     $"Pose track '{reference.Track}' does not contain index {reference.Index}.");
-            if (!marker.IsExternal)
+            if (marker.MarkerType != KimodoConstraintMarkerType.External)
             {
                 throw new InvalidOperationException(
                     $"Pose track '{reference.Track}' index {reference.Index} is not an External Pose.");
+            }
+            return marker;
+        }
+
+        private static KimodoConstraintMarker RequirePathMarker(PoseReference reference)
+        {
+            TimelineSessionRecord session = RequireCurrentTimelineSession();
+            TimelineCharacterRecord character = session.Characters.FirstOrDefault(item => item.PoseCacheTrack != null &&
+                string.Equals(item.PoseCacheTrack.name, reference.Track, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException($"Pose track '{reference.Track}' was not found in the current Session.");
+            KimodoConstraintMarker marker = FindPoseMarker(character.PoseCacheTrack, reference.Index)
+                ?? throw new InvalidOperationException(
+                    $"Pose track '{reference.Track}' does not contain index {reference.Index}.");
+            if (!marker.IsExternalPath || marker.PathData == null)
+            {
+                throw new InvalidOperationException(
+                    $"Pose track '{reference.Track}' index {reference.Index} is not an External Path.");
             }
             return marker;
         }

@@ -46,7 +46,44 @@ namespace KimodoBridge
     public enum KimodoConstraintMarkerType
     {
         Constraint = 0,
-        External = 1
+        External = 1,
+        ExternalPath = 2
+    }
+
+    [Serializable]
+    public sealed class KimodoRootPathKnot
+    {
+        public Vector2 position;
+        public bool hasTangentIn;
+        public Vector2 tangentIn;
+        public bool hasTangentOut;
+        public Vector2 tangentOut;
+
+        public KimodoRootPathKnot Clone() => new KimodoRootPathKnot
+        {
+            position = position,
+            hasTangentIn = hasTangentIn,
+            tangentIn = tangentIn,
+            hasTangentOut = hasTangentOut,
+            tangentOut = tangentOut
+        };
+    }
+
+    [Serializable]
+    public sealed class KimodoRootPathData
+    {
+        public string type = "forward";
+        public float length = 1f;
+        public bool inverse;
+        public List<KimodoRootPathKnot> knots = new List<KimodoRootPathKnot>();
+
+        public KimodoRootPathData Clone() => new KimodoRootPathData
+        {
+            type = type,
+            length = length,
+            inverse = inverse,
+            knots = knots?.ConvertAll(knot => knot?.Clone()) ?? new List<KimodoRootPathKnot>()
+        };
     }
 
     [Serializable]

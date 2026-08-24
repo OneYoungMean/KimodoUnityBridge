@@ -32,6 +32,7 @@ namespace KimodoUnityBridge.Command
         public const string RecordRangeCommand = "kimodo_record_range";
         public const string RetargetAnimationCommand = "kimodo_retarget_animation";
         public const string PoseGetCommand = "pose_get";
+        public const string PoseCreatePathCommand = "pose_create_path";
         public const string PoseContractCommand = "pose_contract";
         public const string PoseSetRootTransformCommand = "pose_set_root_transform";
         public const string PoseSetMuscleCommand = "pose_set_muscle";
@@ -127,6 +128,14 @@ namespace KimodoUnityBridge.Command
                         Properties(
                             RequiredPoseSource("source"),
                             Optional("full_data", "boolean", "Return all 49 muscles and TQ channels; defaults to false."))),
+                    CommandDefinition(PoseCreatePathCommand,
+                        "Create a reusable External Path Marker on a character Pose Track.",
+                        Properties(
+                            Required("character", "string", "Safe character name in the current Session."),
+                            RequiredEnum("type", "forward", "turn_left", "turn_right", "bezier"),
+                            Required("length", "number", "Positive path length in Track-space meters."),
+                            Optional("inverse", "boolean", "Traverse the path backwards; defaults to false."),
+                            OptionalPathKnots("knots"))),
                     CommandDefinition(PoseContractCommand,
                         "Align a target External Pose end-effector to an origin External Pose and create a new External Pose slot.",
                         Properties(
@@ -182,6 +191,8 @@ namespace KimodoUnityBridge.Command
                     return RetargetAnimation(argumentsJson);
                 case PoseGetCommand:
                     return PoseGet(argumentsJson);
+                case PoseCreatePathCommand:
+                    return PoseCreatePath(argumentsJson);
                 case PoseContractCommand:
                     return PoseContract(argumentsJson);
                 case PoseSetRootTransformCommand:
@@ -273,6 +284,7 @@ namespace KimodoUnityBridge.Command
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
                         Route("analyze and render motion", AnimationAnalyzeCommand, "returns one composite picture and self-describing tiles"),
                         Route("materialize or edit a pose", PoseGetCommand, "then pose_set_root_transform / pose_set_muscle / pose_contract"),
+                        Route("create a reusable root trajectory", PoseCreatePathCommand, "then reference path from a generation root_path constraint"),
                         Route("record or retarget", RecordRangeCommand, "or " + RetargetAnimationCommand)
                     },
                     ["handles"] = new JObject
@@ -280,7 +292,8 @@ namespace KimodoUnityBridge.Command
                         ["session_id"] = "Pass to any Session-scoped command; omission selects the current Session.",
                         ["request_id"] = "Pass only to kimodo_get_generation or kimodo_cancel_generation.",
                         ["pictures.image_path"] = "Read the composite PNG returned by animation_analyze.",
-                        ["pose"] = "A {track,index} reference returned by pose_get or a pose editing command."
+                        ["pose"] = "A {track,index} reference returned by pose_get or a pose editing command.",
+                        ["path"] = "A {track,index} reference returned by pose_create_path; pass it only as root_path.path."
                     },
                     ["workflow"] = new JArray
                     {
@@ -339,24 +352,18 @@ namespace KimodoUnityBridge.Command
                     new JObject
                     {
                         ["type"] = "root_path",
-                        ["description"] = "A cubic Bezier root path compiled to per-frame root2d constraints during generation.",
+                        ["description"] = "A reusable External Path compiled to per-frame root2d constraints during generation.",
                         ["shape"] = new JObject
                         {
-                            ["root_path"] = new JObject
-                            {
-                                ["type"] = "bezier",
-                                ["start_frame"] = "Inclusive relative frame.",
-                                ["end_frame"] = "Inclusive relative frame.",
-                                ["knots"] = "Two or more {frame,position,tangent_in?,tangent_out?} objects.",
-                                ["heading"] = "tangent"
-                            }
+                            ["frame"] = "Optional first path frame; defaults to 0.",
+                            ["root_path"] = new JObject { ["path"] = "{track,index} from pose_create_path" }
                         }
                     }
                 },
                 ["rules"] = new JArray
                 {
                     "At the same frame, fullbody supplies the base pose, root2d overrides RootTQ, and hand/foot effector channels override their matching protocol fields.",
-                    "Use fullbody for a complete pose, root2d for one root sample, and root_path for a continuous Bezier trajectory.",
+                    "Use pose_create_path once, then reference its {track,index} path from root_path.",
                     "An explicit root2d at a frame overrides root_path at that frame."
                 }
             };
@@ -659,9 +666,17 @@ namespace KimodoUnityBridge.Command
                 {
                     if (constraints[i] is JObject item && item["root_path"] is JObject rootPath)
                     {
+                        int startFrame = item.Value<int?>("frame") ?? 0;
+                        if (startFrame < 0 || startFrame >= durationFrames)
+                        {
+                            throw new InvalidOperationException(
+                                $"constraints[{i}].frame must be within [0,{durationFrames}).");
+                        }
+                        PoseReference reference = RequirePoseReference(rootPath["path"] as JObject);
                         samples.AddRange(BuildRootPathConstraints(
-                            rootPath,
+                            RequirePathMarker(reference).PathData,
                             i,
+                            startFrame,
                             durationFrames,
                             targetRootHeight,
                             explicitRootFrames,
@@ -677,7 +692,8 @@ namespace KimodoUnityBridge.Command
                     }
                     if (constraint["root_path"] is JObject)
                     {
-                        if (constraint.Properties().Count() != 1)
+                        if (constraint.Properties().Any(property =>
+                            property.Name != "frame" && property.Name != "root_path"))
                         {
                             throw new InvalidOperationException(
                                 $"constraints[{i}] root_path cannot be combined with point constraint fields.");
@@ -736,60 +752,28 @@ namespace KimodoUnityBridge.Command
         }
 
         private static IEnumerable<KimodoMarkerSampleResult> BuildRootPathConstraints(
-            JObject value,
+            KimodoRootPathData path,
             int constraintIndex,
+            int startFrame,
             int durationFrames,
             float targetRootHeight,
             ISet<int> explicitRootFrames,
             ISet<int> occupiedPathFrames)
         {
-            string type = RequiredStringValue(value, "type").Trim().ToLowerInvariant();
-            if (type != "bezier")
-            {
-                throw new InvalidOperationException($"constraints[{constraintIndex}].root_path.type must be bezier.");
-            }
-            string heading = (value.Value<string>("heading") ?? "tangent").Trim().ToLowerInvariant();
-            if (heading != "tangent")
-            {
-                throw new InvalidOperationException($"constraints[{constraintIndex}].root_path.heading must be tangent.");
-            }
-            int startFrame = RequiredNonNegativeFrame(value, "start_frame");
-            int endFrame = RequiredNonNegativeFrame(value, "end_frame");
-            if (startFrame >= endFrame || endFrame >= durationFrames)
+            List<KimodoRootPathKnot> knots = path?.knots;
+            if (path == null || path.length <= 0f || knots == null || knots.Count < 2 || knots.Any(knot => knot == null))
             {
                 throw new InvalidOperationException(
-                    $"constraints[{constraintIndex}].root_path must satisfy 0 <= start_frame < end_frame < duration_frames.");
+                    $"constraints[{constraintIndex}].root_path references invalid path data.");
             }
-            if (value["knots"] is not JArray knotValues || knotValues.Count < 2)
-            {
-                throw new InvalidOperationException($"constraints[{constraintIndex}].root_path.knots requires at least two knots.");
-            }
-
-            var knots = new List<RootPathKnot>(knotValues.Count);
-            for (int i = 0; i < knotValues.Count; i++)
-            {
-                if (knotValues[i] is not JObject knot)
-                {
-                    throw new InvalidOperationException($"constraints[{constraintIndex}].root_path.knots[{i}] must be an object.");
-                }
-                int frame = RequiredNonNegativeFrame(knot, "frame");
-                if (frame < startFrame || frame > endFrame ||
-                    (knots.Count > 0 && frame <= knots[knots.Count - 1].Frame))
-                {
-                    throw new InvalidOperationException(
-                        $"constraints[{constraintIndex}].root_path knot frames must be strictly increasing inside the path range.");
-                }
-                knots.Add(new RootPathKnot(
-                    frame,
-                    RequiredVector2(knot, "position"),
-                    OptionalVector2(knot, "tangent_in"),
-                    OptionalVector2(knot, "tangent_out")));
-            }
-            if (knots[0].Frame != startFrame || knots[knots.Count - 1].Frame != endFrame)
+            float sourceLength = EstimatePathLength(knots);
+            if (sourceLength <= 1e-6f)
             {
                 throw new InvalidOperationException(
-                    $"constraints[{constraintIndex}].root_path first and last knot frames must match start_frame and end_frame.");
+                    $"constraints[{constraintIndex}].root_path has zero source length.");
             }
+            float scale = path.length / sourceLength;
+            int endFrame = durationFrames - 1;
             for (int frame = startFrame; frame <= endFrame; frame++)
             {
                 if (!occupiedPathFrames.Add(frame))
@@ -798,22 +782,15 @@ namespace KimodoUnityBridge.Command
                 }
             }
 
-            var result = new List<KimodoMarkerSampleResult>(endFrame - startFrame + 1);
-            int segment = 0;
+            int frameCount = endFrame - startFrame + 1;
+            var result = new List<KimodoMarkerSampleResult>(frameCount);
             for (int frame = startFrame; frame <= endFrame; frame++)
             {
-                while (segment < knots.Count - 2 && frame > knots[segment + 1].Frame) segment++;
-                RootPathKnot first = knots[segment];
-                RootPathKnot second = knots[segment + 1];
-                float t = Mathf.InverseLerp(first.Frame, second.Frame, frame);
-                Vector2 chord = second.Position - first.Position;
-                Vector2 p0 = first.Position;
-                Vector2 p1 = p0 + (first.TangentOut ?? chord / 3f);
-                Vector2 p3 = second.Position;
-                Vector2 p2 = p3 + (second.TangentIn ?? -chord / 3f);
-                Vector2 position = EvaluateBezier(p0, p1, p2, p3, t);
-                Vector2 tangent = EvaluateBezierTangent(p0, p1, p2, p3, t);
-                if (tangent.sqrMagnitude <= 1e-8f) tangent = chord;
+                float progress = frameCount <= 1 ? 0f : (frame - startFrame) / (float)(frameCount - 1);
+                float pathTime = path.inverse ? 1f - progress : progress;
+                EvaluatePath(knots, pathTime, out Vector2 position, out Vector2 tangent);
+                position *= scale;
+                if (path.inverse) tangent = -tangent;
                 if (tangent.sqrMagnitude <= 1e-8f)
                 {
                     throw new InvalidOperationException(
@@ -828,6 +805,42 @@ namespace KimodoUnityBridge.Command
                 }
             }
             return result;
+        }
+
+        private static float EstimatePathLength(IReadOnlyList<KimodoRootPathKnot> knots)
+        {
+            const int samplesPerSegment = 16;
+            float length = 0f;
+            EvaluatePath(knots, 0f, out Vector2 previous, out _);
+            int sampleCount = (knots.Count - 1) * samplesPerSegment;
+            for (int i = 1; i <= sampleCount; i++)
+            {
+                EvaluatePath(knots, i / (float)sampleCount, out Vector2 position, out _);
+                length += Vector2.Distance(previous, position);
+                previous = position;
+            }
+            return length;
+        }
+
+        private static void EvaluatePath(
+            IReadOnlyList<KimodoRootPathKnot> knots,
+            float time,
+            out Vector2 position,
+            out Vector2 tangent)
+        {
+            float scaled = Mathf.Clamp01(time) * (knots.Count - 1);
+            int segment = Mathf.Min(Mathf.FloorToInt(scaled), knots.Count - 2);
+            float t = segment == knots.Count - 2 && time >= 1f ? 1f : scaled - segment;
+            KimodoRootPathKnot first = knots[segment];
+            KimodoRootPathKnot second = knots[segment + 1];
+            Vector2 chord = second.position - first.position;
+            Vector2 p0 = first.position;
+            Vector2 p1 = p0 + (first.hasTangentOut ? first.tangentOut : chord / 3f);
+            Vector2 p3 = second.position;
+            Vector2 p2 = p3 + (second.hasTangentIn ? second.tangentIn : -chord / 3f);
+            position = EvaluateBezier(p0, p1, p2, p3, t);
+            tangent = EvaluateBezierTangent(p0, p1, p2, p3, t);
+            if (tangent.sqrMagnitude <= 1e-8f) tangent = chord;
         }
 
         private static KimodoMarkerSampleResult CreateRoot2DSample(
@@ -864,26 +877,6 @@ namespace KimodoUnityBridge.Command
             return 3f * oneMinus * oneMinus * (p1 - p0) +
                 6f * oneMinus * t * (p2 - p1) +
                 3f * t * t * (p3 - p2);
-        }
-
-        private static Vector2? OptionalVector2(JObject value, string name)
-        {
-            return value?[name] == null ? null : RequiredVector2(value, name);
-        }
-
-        private readonly struct RootPathKnot
-        {
-            public RootPathKnot(int frame, Vector2 position, Vector2? tangentIn, Vector2? tangentOut)
-            {
-                Frame = frame;
-                Position = position;
-                TangentIn = tangentIn;
-                TangentOut = tangentOut;
-            }
-            public int Frame { get; }
-            public Vector2 Position { get; }
-            public Vector2? TangentIn { get; }
-            public Vector2? TangentOut { get; }
         }
 
         private static KimodoMarkerSampleResult BuildRoot2DConstraint(
@@ -1913,48 +1906,28 @@ namespace KimodoUnityBridge.Command
                     new JObject { ["required"] = new JArray("left_foot") },
                     new JObject { ["required"] = new JArray("right_foot") })
             };
-            var knot = new JObject
-            {
-                ["type"] = "object",
-                ["additionalProperties"] = false,
-                ["properties"] = new JObject
-                {
-                    ["frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 },
-                    ["position"] = vector2.DeepClone(),
-                    ["tangent_in"] = vector2.DeepClone(),
-                    ["tangent_out"] = vector2.DeepClone()
-                },
-                ["required"] = new JArray("frame", "position")
-            };
             var rootPathItem = new JObject
             {
                 ["type"] = "object",
                 ["additionalProperties"] = false,
                 ["properties"] = new JObject
                 {
+                    ["frame"] = new JObject
+                    {
+                        ["type"] = "integer",
+                        ["minimum"] = 0,
+                        ["default"] = 0,
+                        ["description"] = "First path frame; defaults to the clip start."
+                    },
                     ["root_path"] = new JObject
                     {
                         ["type"] = "object",
                         ["additionalProperties"] = false,
                         ["properties"] = new JObject
                         {
-                            ["type"] = new JObject { ["type"] = "string", ["enum"] = new JArray("bezier") },
-                            ["start_frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 },
-                            ["end_frame"] = new JObject { ["type"] = "integer", ["minimum"] = 1 },
-                            ["knots"] = new JObject
-                            {
-                                ["type"] = "array",
-                                ["minItems"] = 2,
-                                ["items"] = knot
-                            },
-                            ["heading"] = new JObject
-                            {
-                                ["type"] = "string",
-                                ["enum"] = new JArray("tangent"),
-                                ["default"] = "tangent"
-                            }
+                            ["path"] = poseReference.DeepClone()
                         },
-                        ["required"] = new JArray("type", "start_frame", "end_frame", "knots")
+                        ["required"] = new JArray("path")
                     }
                 },
                 ["required"] = new JArray("root_path")
@@ -1981,6 +1954,34 @@ namespace KimodoUnityBridge.Command
                 },
                 ["required"] = new JArray("character", "clip", "frame")
             }, true);
+        }
+
+        private static PropertyDefinition OptionalPathKnots(string name)
+        {
+            JObject vector2 = new JObject
+            {
+                ["type"] = "array",
+                ["items"] = new JObject { ["type"] = "number" },
+                ["minItems"] = 2,
+                ["maxItems"] = 2
+            };
+            return new PropertyDefinition(name, new JObject
+            {
+                ["type"] = "array",
+                ["minItems"] = 2,
+                ["items"] = new JObject
+                {
+                    ["type"] = "object",
+                    ["additionalProperties"] = false,
+                    ["properties"] = new JObject
+                    {
+                        ["position"] = vector2.DeepClone(),
+                        ["tangent_in"] = vector2.DeepClone(),
+                        ["tangent_out"] = vector2.DeepClone()
+                    },
+                    ["required"] = new JArray("position")
+                }
+            }, false);
         }
 
         private static PropertyDefinition RequiredPoseReference(string name)

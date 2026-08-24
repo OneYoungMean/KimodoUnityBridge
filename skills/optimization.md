@@ -6,7 +6,7 @@ Use this when an existing Session Clip needs diagnosis and a corrected appended 
 
 1. Analyze the source with `animation_analyze` (`high` when foot transitions matter) and open `pictures.image_path`.
 2. Use `pose_get` on local frames `0`, `1`, `N-2`, and `N-1` when the Clip length is `N`; compare analysis tiles and root/foot evidence.
-3. Decide in-place versus locomotion. Repair the smallest supported cause with materialized Pose edits, `pose_contract`, point constraints, a Bezier `root_path`, or replacement generation.
+3. Decide in-place versus locomotion. Repair the smallest supported cause with materialized Pose edits, `pose_contract`, point constraints, a `pose_create_path` trajectory, or replacement generation.
 4. Append a new Clip, analyze it again, open its PNG, and report temporal qualities as `not_verified` without playback/dense samples.
 
 ## General correction
@@ -19,4 +19,4 @@ Use `animation_compare` and endpoint `pose_get` to compare root, heading, pose, 
 
 ## 中文
 
-用于诊断并修正已有 Session Clip。先用 `animation_analyze` 分析并打开 `pictures.image_path`；需要脚切换时使用 `high`。长度为 `N` 时，用 `pose_get` 检查局部帧 `0`、`1`、`N-2`、`N-1`。区分原地/位移循环；通过实体化 Pose、`pose_contract`、点约束、贝塞尔 `root_path` 或替代生成修正，追加新 Clip，再次分析和打开 PNG。未提供播放/密集采样时，时间质量报告 `not_verified`。不得覆盖源 Clip，也不得声称不存在的原地编辑。
+用于诊断并修正已有 Session Clip。先用 `animation_analyze` 分析并打开 `pictures.image_path`；需要脚切换时使用 `high`。长度为 `N` 时，用 `pose_get` 检查局部帧 `0`、`1`、`N-2`、`N-1`。区分原地/位移循环；通过实体化 Pose、`pose_contract`、点约束、`pose_create_path` 轨迹或替代生成修正，追加新 Clip，再次分析和打开 PNG。未提供播放/密集采样时，时间质量报告 `not_verified`。不得覆盖源 Clip，也不得声称不存在的原地编辑。

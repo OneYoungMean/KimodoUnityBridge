@@ -267,14 +267,22 @@ namespace KimodoUnityBridge.Command
                 {
                     foreach (KimodoConstraintMarker marker in character.PoseCacheTrack.GetMarkers().OfType<KimodoConstraintMarker>())
                     {
-                        poses.Add(new JObject
+                        var markerJson = new JObject
                         {
                             ["character"] = character.Name,
                             ["track"] = character.PoseCacheTrack.name,
                             ["index"] = Mathf.RoundToInt((float)(marker.time * SessionFrameRate)),
-                            ["marker_type"] = marker.ConstraintType,
-                            ["sample_result"] = SampleResultJson(marker.SampleData)
-                        });
+                            ["marker_type"] = marker.ConstraintType
+                        };
+                        if (marker.IsExternalPath)
+                        {
+                            markerJson["path_data"] = BuildPathJson(marker.PathData);
+                        }
+                        else
+                        {
+                            markerJson["sample_result"] = SampleResultJson(marker.SampleData);
+                        }
+                        poses.Add(markerJson);
                     }
                 }
                 characters.Add(characterJson);
