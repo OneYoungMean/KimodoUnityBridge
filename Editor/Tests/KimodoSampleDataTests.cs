@@ -211,6 +211,34 @@ namespace KimodoBridge.Editor.Tests
             CollectionAssert.AreEqual(new[] { "fullbody" }, ResolveTypes(defaultMode));
         }
 
+        [Test]
+        public void Root2DMode_IgnoresStaleEffectorMasks()
+        {
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintMode = "root2d",
+                rootOverride = KimodoUnityBridge.KimodoRigidTransform.Identity,
+                enableMask = new KimodoConstraintMask
+                {
+                    rootPosition = true,
+                    leftHand = true,
+                    rightHand = true,
+                    leftFoot = true,
+                    rightFoot = true
+                },
+                validMask = new KimodoConstraintMask
+                {
+                    rootPosition = true,
+                    leftHand = true,
+                    rightHand = true,
+                    leftFoot = true,
+                    rightFoot = true
+                }
+            };
+
+            Assert.That(KimodoConstraintPosePipeline.IsRootOnlySample(sample), Is.True);
+        }
+
         private static KimodoMarkerSampleResult CreateFullBody(
             long creationOrder,
             float firstMuscle,

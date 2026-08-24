@@ -7,8 +7,9 @@ using UnityEngine;
 namespace KimodoBridge
 {
     /// <summary>
-    /// Projects the canonical 70D MuscleSample onto the model's protocol skeleton.
-    /// Generate never reconstructs the command-layer CharacterPose here.
+    /// Projects constraint samples onto the model's protocol skeleton.
+    /// FullBody uses its canonical 70D MuscleSample; Root2D-only samples use
+    /// the profile skeleton initial pose while preserving their world target.
     /// </summary>
     public static class KimodoRuntimeConstraintExportProjector
     {
@@ -23,8 +24,15 @@ namespace KimodoBridge
             KimodoMarkerSampleResult sample,
             string modelName)
         {
-            if (sample?.sampleData == null || !sample.sampleData.IsValid ||
-                !KimodoConstraintMask.FromSample(sample).muscle)
+            KimodoConstraintMask mask = KimodoConstraintMask.FromSample(sample);
+            string mode = KimodoConstraintInternal.NormalizeMode(sample?.constraintMode);
+            bool rootOnly = (mode == "root2d" || mode == "mix") &&
+                mask.rootPosition &&
+                sample?.rootOverride != null &&
+                !mask.muscle &&
+                !mask.leftHand && !mask.rightHand &&
+                !mask.leftFoot && !mask.rightFoot;
+            if (!rootOnly && (sample?.sampleData == null || !sample.sampleData.IsValid || !mask.muscle))
             {
                 throw new InvalidOperationException("Constraint MuscleSample is invalid.");
             }

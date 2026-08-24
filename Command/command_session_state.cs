@@ -1584,7 +1584,7 @@ namespace KimodoUnityBridge.Command
                 Debug.LogWarning("[Kimodo][Command] Timeline preview could not be enabled automatically.");
             }
             window.Focus();
-            TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+            KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsAddedOrRemoved);
         }
 
         private static void CloseTimelineWindow(TimelineAsset timelineAsset)
@@ -1602,7 +1602,7 @@ namespace KimodoUnityBridge.Command
                     window.ClearTimeline();
                 }
             }
-            TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved | RefreshReason.SceneNeedsUpdate | RefreshReason.WindowNeedsRedraw);
+            KimodoTimelinePreviewRefreshUtility.RefreshEditorWorkflow(RefreshReason.ContentsAddedOrRemoved);
         }
 
         private static bool HasRunningTimelineGeneration(Guid timelineSessionId)

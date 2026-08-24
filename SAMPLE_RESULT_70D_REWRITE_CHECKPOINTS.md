@@ -685,3 +685,14 @@
 - Root2D position 与 heading 保持独立：`root2DPosition` 控制 hips world 位移，`root2DHeading` 控制旋转覆盖。
 - 手/脚 q 按各自 bind-world 规则生成后，直接作为 IKGoal rotation 使用；进入 IK job 前不再做 world-space 反解。
 - 检查：Unity 2022.3.62f3c1 独立临时工程编译通过，日志：`C:\tmp\kimodo-compile-ik-pipeline-2.log`。
+
+## CP87 — External Pose Marker 改造基线（仅计划，未改代码）
+
+- 已确认：当前 PoseGet 的持久化轨道实际名为 `TimelineCharacterRecord.PoseCacheTrack`，创建为角色的子 `AnimationTrack`，通常命名为 `{character}.Poses`；代码中没有独立的 `OverrideTrack` 类型。
+- 已确认：PoseGet 当前会在 `PoseCacheTrack` 上创建/更新 `KimodoConstraintMarker`，并通过 `session_id/track/frame/marker_id` 返回 Marker locator。
+- 已确认：当前 Marker 内部保存 `KimodoMarkerSampleResult`；PoseGet 仍先经过 `CharacterPose` 和 `KimodoSampleResultPoseUtility`，这是下一阶段要切断的兼容旁路。
+- 已确认：现有 `KimodoConstraintMarker.ConstraintType` 固定返回 `constraint`；`constraintMode` 只支持 `root2d/fullbody/effector/mix`，不能直接复用为 `external`。
+- 已确认：`KimodoAnalysisKeyframeMarker` 只记录 `frame/saliency/reasons`，不作为 PoseGet 数据容器；本改造不把它引入 SampleResult。
+- 目标语义：增加独立的 Marker 类型 `external`。External Marker 可持久化、读取、编辑，但默认不参与 Constraint 求解、Preview、Bake 和 Export。
+- 当前代码状态：本 checkpoint 只记录行为和计划，未修改运行时代码；仓库已有未提交修改，后续必须保留。
+- 下一步：CP88 只改 Marker 类型边界和 PoseGet 的直接 SampleResult 创建，先不删除 CharacterPose 兼容文件。

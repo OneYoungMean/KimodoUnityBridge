@@ -10,7 +10,8 @@ namespace KimodoBridge
     /// <summary>
     /// One canonical constraint pose path shared by preview and protocol
     /// projection: FK, complete world hips override, then SampleResult IK
-    /// targets. Root2D is projected only at its protocol boundary.
+    /// targets. Root2D-only samples use the profile skeleton's initial pose
+    /// as their FK input and follow this same path.
     /// </summary>
     internal static class KimodoConstraintPosePipeline
     {
@@ -32,8 +33,21 @@ namespace KimodoBridge
                 return false;
             }
 
+            // A Root2D constraint has no authored MuscleSample, but it still
+            // follows the same profile-skeleton path as FullBody: use the
+            // target avatar's initial pose as the FK input, apply the explicit
+            // world-space hips override, then run the common IK stage.
+            KimodoMarkerSampleResult pipelineSample = sample;
+            if (IsRootOnlySample(sample))
+            {
+                if (!TryBuildRootOnlyPipelineSample(sample, cache, out pipelineSample, out error))
+                {
+                    return false;
+                }
+            }
+
             if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                    sample.sampleData,
+                    pipelineSample.sampleData,
                     frameRate,
                     cache,
                     out boneSample,
@@ -43,12 +57,12 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!TryApplyRootOverride(sample, cache, out error))
+            if (!TryApplyRootOverride(pipelineSample, cache, out error))
             {
                 return false;
             }
 
-            if (!KimodoConstraintIkSolver.TryApply(sample, frameRate, cache, out error))
+            if (!KimodoConstraintIkSolver.TryApply(pipelineSample, frameRate, cache, out error))
             {
                 return false;
             }
@@ -62,6 +76,89 @@ namespace KimodoBridge
                 return false;
             }
 
+            return true;
+        }
+
+        internal static bool IsRootOnlySample(KimodoMarkerSampleResult sample)
+        {
+            if (sample == null || !KimodoConstraintMask.IsActive(sample, "rootposition"))
+            {
+                return false;
+            }
+
+            string mode = KimodoConstraintInternal.NormalizeMode(sample.constraintMode);
+            if (mode == "root2d")
+            {
+                return sample.rootOverride != null;
+            }
+            if (mode != "mix")
+            {
+                return false;
+            }
+
+            if (KimodoConstraintMask.IsActive(sample, "muscle") ||
+                KimodoConstraintMask.IsActive(sample, "lefthand") ||
+                KimodoConstraintMask.IsActive(sample, "righthand") ||
+                KimodoConstraintMask.IsActive(sample, "leftfoot") ||
+                KimodoConstraintMask.IsActive(sample, "rightfoot"))
+            {
+                return false;
+            }
+
+            return sample.rootOverride != null;
+        }
+
+        private static bool TryBuildRootOnlyPipelineSample(
+            KimodoMarkerSampleResult source,
+            RetargetSkeleton cache,
+            out KimodoMarkerSampleResult result,
+            out string error)
+        {
+            result = null;
+            error = string.Empty;
+            if (source == null || cache == null || source.rootOverride == null)
+            {
+                error = "Root2D pipeline input is invalid.";
+                return false;
+            }
+
+            KimodoRetargetClipSamplingUtility.ResetRetargetSkeletonPose(cache);
+            if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                    cache,
+                    out MuscleSample initialPose,
+                    out error) ||
+                initialPose == null ||
+                !initialPose.IsValid)
+            {
+                if (string.IsNullOrEmpty(error))
+                {
+                    error = "Failed to capture the profile skeleton initial pose for Root2D.";
+                }
+                return false;
+            }
+
+            result = source.Clone();
+            result.sampleData = initialPose;
+            result.constraintMode = "root2d";
+            result.enableMask ??= new KimodoConstraintMask();
+            result.validMask ??= new KimodoConstraintMask();
+            result.enableMask.muscle = false;
+            result.enableMask.rootTQ = false;
+            result.enableMask.leftFootTQ = false;
+            result.enableMask.rightFootTQ = false;
+            result.validMask.muscle = false;
+            result.validMask.rootTQ = false;
+            result.validMask.leftFootTQ = false;
+            result.validMask.rightFootTQ = false;
+            result.enableMask.leftHand = false;
+            result.enableMask.rightHand = false;
+            result.enableMask.leftFoot = false;
+            result.enableMask.rightFoot = false;
+            result.validMask.leftHand = false;
+            result.validMask.rightHand = false;
+            result.validMask.leftFoot = false;
+            result.validMask.rightFoot = false;
+            result.effectors = new KimodoConstraintEffectors();
             return true;
         }
 
@@ -147,18 +244,16 @@ namespace KimodoBridge
                 Vector3 position,
                 Quaternion rotation)
             {
-                bool isHand = goal!=AvatarIKGoal.LeftHand || goal!= AvatarIKGoal.RightHand;
+                bool isHand = goal == AvatarIKGoal.LeftHand || goal == AvatarIKGoal.RightHand;
 
                 human.SetGoalWeightPosition(goal, enabled ? 1f : 0f);
-                human.SetGoalWeightRotation(goal, enabled&& !isHand ? 1f : 0f);
+                human.SetGoalWeightRotation(goal, enabled && !isHand ? 1f : 0f);
                 if (!enabled)
                 {
                     return;
                 }
-                var currentRotation= human.GetGoalRotation(goal );
 
                 human.SetGoalPosition(goal, position);
- 
                 human.SetGoalRotation(goal, rotation);
             }
         }

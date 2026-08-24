@@ -85,3 +85,118 @@ Get-Content SAMPLE_RESULT_70D_REWRITE_CHECKPOINTS.md -Tail 120
 ```
 
 每个阶段必须先编译、记录 checkpoint、单独提交，再进入下一阶段。
+
+---
+
+## External Pose Marker 增量改造计划（从 CP87 开始）
+
+### 目标
+
+将 `PoseGet` 的结果定义为可持久化、可编辑、可再次读取的外部姿势 Marker：
+
+```text
+当前帧采样
+→ KimodoMarkerSampleResult
+→ PoseCacheTrack 上的 KimodoConstraintMarker(type=external)
+→ 返回 marker locator
+```
+
+`CharacterPose` 不再参与 PoseGet、PoseSet、PoseContract、PoseCache 和 Constraint 主链路；如果仍需兼容旧 JSON，只允许停留在 Command 输入/输出边界。
+
+### 固定语义
+
+- `KimodoMarkerSampleResult.sampleData` 是唯一的 70D 基础姿势来源。
+- `sampleData` 的 RootTQ/FootTQ 保持 body-relative canonical 语义。
+- `effectors` 保持 world-space hand/foot target 语义。
+- `constraintMode` 只表示 `root2d/fullbody/effector/mix`，不承载 Marker 类型。
+- 新增的 `external` 是 Marker 语义类型，不是 Constraint mode。
+- external Marker 可被 PoseGet/Read/Edit 访问，但默认不进入 Constraint 求解、协议导出或普通 Constraint 预览集合。
+- PoseGet 以采样帧为 Marker 时间，重复 Get 时按稳定 locator 更新同一个 Marker，而不是无条件创建重复 Marker。
+
+### 分批实施
+
+#### Phase A / CP87：冻结行为并定义 External Marker 边界
+
+只做类型和入口盘点，不改变行为：
+
+1. 确认 `PoseCacheTrack` 是 PoseGet 的持久化轨道。
+2. 确认 `KimodoConstraintMarker` 是现有 Marker 容器。
+3. 定义 `markerType = constraint | external` 的持久化语义。
+4. 列出所有 Marker 收集、Preview、Composer、Exporter 入口，标记 external 必须跳过的位置。
+5. 保留现有 PoseGet 行为作为回归基线。
+
+验收：编译不变；现有 PoseGet/pose_set/pose_contract 行为不变；checkpoint 记录所有入口。
+
+#### Phase B / CP88：直接生成 External SampleResult Marker
+
+改造 `PoseGet`：
+
+1. 直接从当前帧得到 `KimodoMarkerSampleResult`。
+2. 直接写入 `sampleData`、`enableMask`、`validMask`、`effectors`、`sampleTime`。
+3. 在 `PoseCacheTrack` 创建或更新 `KimodoConstraintMarker`。
+4. 标记 `markerType=external`，关闭 `autoSample`。
+5. 返回 `session_id/track/frame/marker_id` 和可选的 JSON 投影。
+
+禁止路径：`SampleResult → CharacterPose → JSON → CharacterPose → SampleResult`。
+
+验收：FootTQ 不发生 world-space 覆盖；重复 PoseGet 得到稳定 Marker；Marker 重载后数据一致。
+
+#### Phase C / CP89：迁移读取和编辑命令
+
+迁移：
+
+- `ReadPose` 直接读取 external Marker 的 SampleResult。
+- `PoseSetRootTransform` 直接修改 `rootOverride` 和对应 mask。
+- `PoseSetMuscle` 直接修改 `sampleData.data[0..48]`。
+- `PoseContract` 直接读写 SampleResult 的 effectors/root。
+- session persistence 直接保存/恢复 external Marker，不再解码 CharacterPose。
+
+验收：编辑前后 70D、FootTQ、effectors、mask 均可 round-trip；旧 locator 仍能定位。
+
+#### Phase D / CP90：隔离并删除 CharacterPose 主链路
+
+1. 将 `CharacterPoseJson` 限定为旧 Command JSON 兼容边界。
+2. 删除 PoseGet/PoseSet/PoseContract 对 `CharacterPose` 的依赖。
+3. 删除 `CharacterPose.muscleSample` 以及重复的 root/foot/muscle 存储。
+4. 将需要显示的属性改为 SampleResult 的显式访问器。
+5. 处理 `float[] muscles` 的可变数组调用，避免用副本伪装为实时视图。
+
+验收：Runtime/Editor 主链路无 CharacterPose 引用；只剩明确标注的 JSON/HumanPose 兼容边界。
+
+#### Phase E / CP91：统一消费端和过滤规则
+
+1. Preview、Bake、Generate、Constraint Composer 统一消费 SampleResult。
+2. 所有普通 Constraint 收集器显式过滤 `markerType=external`。
+3. PoseCache/External Marker 编辑器只负责数据编辑，不隐式启动 Constraint 求解。
+4. 需要把 external 用作 Constraint 时，显式执行 `External → Constraint` 的复制/转换动作。
+
+验收：external Marker 可编辑/读取但不会偷偷参与导出；显式转换后才进入 Constraint 管线。
+
+#### Phase F / CP92：回归与删除旧兼容转换
+
+验证：
+
+- PoseGet → 读取 → 编辑 → 再读取数据一致。
+- 所有 effector mask 关闭时基础姿势不变。
+- Root2D 修改只影响 `rootOverride`，不改 RootTQ/FootTQ。
+- FootTQ 在 PoseGet 及 Marker 重载前后保持 canonical body-relative 语义。
+- external Marker 不进入普通 Constraint Preview/Bake/Export。
+- Unity 编译、Command schema、Example 场景回归通过。
+
+只有本阶段通过后，才删除 `KimodoSampleResultPoseUtility` 中面向 PoseGet 的兼容转换；旧 JSON 兼容是否保留另行决定。
+
+### 每批提交和回滚规则
+
+每个 CP 只完成一个阶段，顺序固定：
+
+```text
+静态引用扫描
+→ 最小代码改动
+→ git diff --check
+→ Unity package probe 编译
+→ Example/Command 回归
+→ 更新 checkpoint
+→ 单独提交
+```
+
+任何阶段失败，回退到上一个 CP；不跨阶段混合清理 CharacterPose、Marker 类型和 Preview 行为。

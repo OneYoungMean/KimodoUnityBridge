@@ -83,11 +83,9 @@ namespace KimodoBridge
         }
 
         /// <summary>
-        /// Captures the scene-facing targets from the rebuilt skeleton. This is
-        /// deliberately the only production path that creates the serialized
-        /// root override (legacy field name: root2DOverride) and effector
-        /// positions for an AutoSample result: all values are Transform world
-        /// values, never HumanPose body-space values.
+        /// Captures the scene-facing targets from the rebuilt skeleton. The
+        /// caller establishes whether that Transform space is world or track;
+        /// values are never HumanPose body-space values.
         /// </summary>
         internal static void CaptureWorldTargets(
             RetargetSkeleton cache,

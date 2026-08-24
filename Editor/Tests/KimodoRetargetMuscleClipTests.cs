@@ -194,40 +194,6 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
-        [Test]
-        public void TrackOffsetNormalization_ConvertsTargetOffsetToSourceScale()
-        {
-            MuscleSample sample = CreateRootRotationSample(Quaternion.identity);
-            sample.SetRoot(new Vector3(100f, 0f, 100f), Quaternion.identity);
-
-            KimodoRetargetToolsEditor.RemoveTrackOffsetFromMuscleSamples(
-                new[] { sample },
-                new Vector3(100f, 0f, 100f),
-                sourceHumanScale: 2f,
-                targetHumanScale: 1f);
-
-            sample.GetRoot(out Vector3 position, out _);
-            Assert.That(Vector3.Distance(position, Vector3.zero), Is.LessThan(1e-5f));
-        }
-
-        [Test]
-        public void TrackOffsetNormalization_PreservesRootRotation()
-        {
-            Quaternion rootRotation = Quaternion.Euler(0f, 90f, 0f) * Quaternion.Euler(0f, 25f, 0f);
-            MuscleSample sample = CreateRootRotationSample(rootRotation);
-            sample.SetRoot(new Vector3(110f, 2f, 120f), rootRotation);
-
-            KimodoRetargetToolsEditor.RemoveTrackOffsetFromMuscleSamples(
-                new[] { sample },
-                new Vector3(10f, 50f, 20f),
-                sourceHumanScale: 1f,
-                targetHumanScale: 1f);
-
-            sample.GetRoot(out Vector3 position, out Quaternion resultRotation);
-            Assert.That(Vector3.Distance(position, new Vector3(100f, -48f, 100f)), Is.LessThan(1e-5f));
-            Assert.That(Quaternion.Angle(resultRotation, rootRotation), Is.LessThan(1e-4f));
-        }
-
         private static MuscleSample CreateRootRotationSample(Quaternion rootRotation)
         {
             MuscleSample sample = new MuscleSample();

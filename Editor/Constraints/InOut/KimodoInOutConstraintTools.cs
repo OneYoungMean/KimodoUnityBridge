@@ -304,7 +304,6 @@ namespace KimodoBridge.Editor
                     sourceAvatar,
                     null,
                     KimodoMotionModelProfiles.NormalizeName(modelName),
-                    forceRefresh: false,
                     out KimodoMarkerSampleResult sampledPose,
                     out error))
             {

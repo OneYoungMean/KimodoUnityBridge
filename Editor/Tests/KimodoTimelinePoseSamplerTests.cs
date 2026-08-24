@@ -1723,6 +1723,38 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void TrackOffset_ConvertsWorldPoseToTrackSpace()
+        {
+            Vector3 trackPosition = new Vector3(100f, 2f, -40f);
+            Quaternion trackRotation = Quaternion.Euler(0f, 35f, 0f);
+            Vector3 trackLocalPosition = new Vector3(3f, 1f, 7f);
+            Quaternion trackLocalRotation = Quaternion.Euler(10f, 20f, 30f);
+            Vector3 worldPosition = trackPosition + trackRotation * trackLocalPosition;
+            Quaternion worldRotation = trackRotation * trackLocalRotation;
+
+            KimodoTimelineTrackOffsetUtility.WorldToTrackPose(
+                worldPosition,
+                worldRotation,
+                trackPosition,
+                trackRotation,
+                out Vector3 resultPosition,
+                out Quaternion resultRotation);
+
+            Assert.That(Vector3.Distance(resultPosition, trackLocalPosition), Is.LessThan(1e-4f));
+            Assert.That(Quaternion.Angle(resultRotation, trackLocalRotation), Is.LessThan(1e-4f));
+
+            KimodoTimelineTrackOffsetUtility.TrackToWorldPose(
+                resultPosition,
+                resultRotation,
+                trackPosition,
+                trackRotation,
+                out Vector3 roundTripPosition,
+                out Quaternion roundTripRotation);
+            Assert.That(Vector3.Distance(roundTripPosition, worldPosition), Is.LessThan(1e-4f));
+            Assert.That(Quaternion.Angle(roundTripRotation, worldRotation), Is.LessThan(1e-4f));
+        }
+
+        [Test]
         public void SceneOffset_UsesTimelinePreviewFields()
         {
             AnimationTrack track = ScriptableObject.CreateInstance<AnimationTrack>();

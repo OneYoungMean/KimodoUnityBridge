@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using TimelineInject;
 using UnityEngine;
+using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
@@ -121,35 +123,81 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
-                request.TimelineContext.Track,
-                request.TimelineContext.Animator,
-                out Vector3 worldPosition,
-                out Quaternion worldRotation);
-            Quaternion worldPlanarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(worldRotation);
-            Vector3 forward = worldPlanarRotation * Vector3.forward;
-
-            sample = new KimodoMarkerSampleResult
+            TimelineClip sourceClip = request.TimelineContext.SourceClip;
+            bool hasTimelineSamplingContext = sourceClip != null &&
+                request.TimelineContext.Director != null &&
+                request.TimelineContext.Animator != null;
+            double timelineStart = sourceClip != null
+                ? Math.Max(0.0, sourceClip.start)
+                : 0.0;
+            if (hasTimelineSamplingContext)
             {
-                root2DOverride = new KimodoUnityBridge.KimodoRigidTransform
-                { t = new Vector3(worldPosition.x, 0f, worldPosition.z), q = worldPlanarRotation },
-                constraintMode = "root2d",
-                sampleTime = 0.0,
-                enableMask = new KimodoConstraintMask
+                if (!KimodoTimelineConstraintSampler.TrySampleMarker(
+                        request.TimelineContext,
+                        timelineStart,
+                        0.0,
+                        Root2DConstraintType,
+                        request.ModelName,
+                        out sample,
+                        out error))
                 {
-                    rootPosition = true,
-                    rootHeading = true
-                },
-                validMask = new KimodoConstraintMask
-                {
-                    rootPosition = true,
-                    rootHeading = true
+                    return false;
                 }
+            }
+            else
+            {
+                // Keep the lightweight construction usable for editor/test
+                // callers that only provide an AnimationTrack. Real Timeline
+                // generation always has a complete sampling context above.
+                KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                    request.TimelineContext.Track,
+                    request.TimelineContext.Animator,
+                    out Vector3 worldPosition,
+                    out Quaternion worldRotation);
+                sample = new KimodoMarkerSampleResult
+                {
+                    rootOverride = new KimodoUnityBridge.KimodoRigidTransform
+                    {
+                        t = worldPosition,
+                        q = worldRotation
+                    },
+                    enableMask = new KimodoConstraintMask { rootPosition = true, rootHeading = true },
+                    validMask = new KimodoConstraintMask { rootPosition = true, rootHeading = true }
+                };
+                KimodoTimelineTrackOffsetUtility.ConvertSampleToTrackSpace(
+                    sample,
+                    worldPosition,
+                    worldRotation);
+            }
+
+            if (sample?.rootOverride == null)
+            {
+                error = "Auto Begin Root2D sampling returned no track root.";
+                return false;
+            }
+
+            // AutoBegin is a pure Root2D anchor. Keep the evaluated Hips X/Z
+            // track-space position, preserve the planar Root2D contract, and
+            // do not advertise the sampled FK payload as an active channel.
+            sample.rootOverride.t = new Vector3(
+                sample.rootOverride.t.x,
+                0f,
+                sample.rootOverride.t.z);
+            sample.rootOverride.q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(
+                sample.rootOverride.q);
+            sample.constraintMode = Root2DConstraintType;
+            sample.sampleTime = 0.0;
+            sample.enableMask = new KimodoConstraintMask
+            {
+                rootPosition = true,
+                rootHeading = true
             };
-            sample.enableMask.muscle = false;
-            sample.enableMask.rootTQ = false;
-            sample.enableMask.leftFootTQ = false;
-            sample.enableMask.rightFootTQ = false;
+            sample.validMask = new KimodoConstraintMask
+            {
+                rootPosition = true,
+                rootHeading = true
+            };
+            sample.effectors = new KimodoConstraintEffectors();
             return true;
         }
 

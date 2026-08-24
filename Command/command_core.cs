@@ -812,17 +812,14 @@ namespace KimodoUnityBridge.Command
                 constraintType, "left-foot", StringComparison.OrdinalIgnoreCase);
             bool rightFootConstraint = string.Equals(
                 constraintType, "right-foot", StringComparison.OrdinalIgnoreCase);
-            if (!fullBodyConstraint)
-            {
-                converted.enableMask.leftHand = leftHandConstraint;
-                converted.enableMask.rightHand = rightHandConstraint;
-                converted.enableMask.leftFoot = leftFootConstraint;
-                converted.enableMask.rightFoot = rightFootConstraint;
-                converted.validMask.leftHand &= leftHandConstraint;
-                converted.validMask.rightHand &= rightHandConstraint;
-                converted.validMask.leftFoot &= leftFootConstraint;
-                converted.validMask.rightFoot &= rightFootConstraint;
-            }
+            converted.enableMask.leftHand = leftHandConstraint;
+            converted.enableMask.rightHand = rightHandConstraint;
+            converted.enableMask.leftFoot = leftFootConstraint;
+            converted.enableMask.rightFoot = rightFootConstraint;
+            converted.validMask.leftHand &= leftHandConstraint;
+            converted.validMask.rightHand &= rightHandConstraint;
+            converted.validMask.leftFoot &= leftFootConstraint;
+            converted.validMask.rightFoot &= rightFootConstraint;
             converted.sampleTime = sampleTime;
             return converted;
         }

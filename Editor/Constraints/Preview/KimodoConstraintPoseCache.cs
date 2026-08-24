@@ -128,12 +128,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (sample.sampleData == null || !sample.sampleData.IsValid)
-            {
-                error = "SampleResult MuscleSample is invalid.";
-                return false;
-            }
-
             if (!KimodoConstraintPosePipeline.TryApply(
                     sample,
                     frameRate,
@@ -458,7 +452,6 @@ namespace KimodoBridge.Editor
                 entry.HandlesEnabled = item.HandlesEnabled;
                 entry.Visible = item.Visible;
                 entry.OnSampleChanged = item.OnSampleChanged;
-                KimodoConstraintMode renderMode = ResolveRenderMode(item);
                 entry.ShowVirtualAvatar = true;
 
                 {
@@ -499,11 +492,6 @@ namespace KimodoBridge.Editor
                             error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
                             return false;
                         }
-                    }
-
-                    if (renderMode == KimodoConstraintMode.Root2D)
-                    {
-                        ApplyInitialPoseWithRoot2D(entry, renderSample);
                     }
 
                     ApplyConstraintColoring(entry, highlightedJoints, item.PreviewColor);
@@ -1140,31 +1128,6 @@ namespace KimodoBridge.Editor
                 }
                 entry.TargetCache.root.SetActive(wasActive);
             }
-        }
-
-        private static void ApplyInitialPoseWithRoot2D(
-            ConstraintPosePreviewEntry entry,
-            KimodoMarkerSampleResult sample)
-        {
-            KimodoRetargetClipSamplingUtility.ResetRetargetSkeletonPose(entry.TargetCache);
-            Transform hips = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(
-                entry.TargetCache,
-                HumanBodyBones.Hips);
-            if (hips != null && sample?.rootOverride != null)
-            {
-                hips.SetPositionAndRotation(
-                    sample.rootOverride.t,
-                    sample.rootOverride.q.normalized);
-            }
-        }
-
-        private static KimodoConstraintMode ResolveRenderMode(PoseCacheRenderItem item)
-        {
-            if (string.Equals(item?.ConstraintType, "root2d", StringComparison.OrdinalIgnoreCase))
-            {
-                return KimodoConstraintMode.Root2D;
-            }
-            return item?.ConstraintMode ?? KimodoConstraintMode.FullBody;
         }
 
         private static Color TargetColor(HumanBodyBones bone) =>

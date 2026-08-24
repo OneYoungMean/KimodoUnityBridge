@@ -64,6 +64,7 @@ namespace KimodoBridge.Editor
             showAdvancedFoldout = KimodoPlayableClipGenerationSettings.instance.AdvancedCurveFilterFoldout;
             PullBridgeStatusSnapshot();
             SyncRequestHandleState();
+            KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
         }
 
         private void ApplyProjectPromptDefault()
@@ -271,7 +272,7 @@ namespace KimodoBridge.Editor
                     if (showConstraint.boolValue && !showConstraint.hasMultipleDifferentValues)
                     {
                         refreshClicked = GUILayout.Button(
-                            new GUIContent("Refresh", "Clear cached poses and force constraint re-sampling."),
+                            new GUIContent("Refresh", "Force constraint re-sampling."),
                             EditorStyles.miniButton,
                             GUILayout.Width(54f));
                     }
@@ -288,8 +289,6 @@ namespace KimodoBridge.Editor
                     KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
                 }
             }
-            KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
-
             DrawSplinePathSection(timelineClip);
 
             DrawConstraintReferenceList();

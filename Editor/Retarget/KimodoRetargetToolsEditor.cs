@@ -104,23 +104,6 @@ namespace KimodoBridge.Editor
             AnimationClip targetClip,
             out string error)
         {
-            return TryBakeMuscleClipToClip(
-                sourceClip,
-                sourceAvatar,
-                targetClip,
-                Vector3.zero,
-                1f,
-                out error);
-        }
-
-        internal static bool TryBakeMuscleClipToClip(
-            AnimationClip sourceClip,
-            Avatar sourceAvatar,
-            AnimationClip targetClip,
-            Vector3 trackOffsetWorld,
-            float targetHumanScale,
-            out string error)
-        {
             error = string.Empty;
             if (sourceClip == null || targetClip == null)
             {
@@ -140,9 +123,6 @@ namespace KimodoBridge.Editor
                 if (!TryGetOrCreateEditorMuscleClipInternal(
                         sourceClip,
                         sourceAvatar,
-                        trackOffsetWorld,
-                        targetHumanScale,
-                        forceRefresh: false,
                         out muscleClip,
                         out float muscleFrameRate,
                         out error))
@@ -173,7 +153,6 @@ namespace KimodoBridge.Editor
             AnimationClip sourceClip,
             Avatar sourceAvatar,
             Avatar targetAvatar,
-            bool forceRefresh,
             out AnimationClip boneCacheClip,
             out float frameRate,
             out string error)
@@ -198,7 +177,6 @@ namespace KimodoBridge.Editor
                     sourceClip,
                     KimodoRetargetEditorCacheUtility.BoneCacheType,
                     targetAvatar,
-                    forceRefresh,
                     out string cacheName,
                     out boneCacheClip,
                     out frameRate,
@@ -231,9 +209,6 @@ namespace KimodoBridge.Editor
             if (!TryGetOrCreateEditorMuscleClipInternal(
                     sourceClip,
                     sourceAvatar,
-                    Vector3.zero,
-                    1f,
-                    forceRefresh,
                     out sourceHumanoidClip,
                     out float sourceFrameRate,
                     out error))
@@ -327,7 +302,6 @@ namespace KimodoBridge.Editor
             Avatar sourceAvatar,
             Avatar explicitTargetAvatar,
             string modelName,
-            bool forceRefresh,
             out KimodoMarkerSampleResult sample,
             out string error)
         {
@@ -361,7 +335,6 @@ namespace KimodoBridge.Editor
                     sourceClip,
                     sourceAvatar,
                     targetAvatar,
-                    forceRefresh,
                     out AnimationClip targetClip,
                     out _,
                     out error))
@@ -406,9 +379,6 @@ namespace KimodoBridge.Editor
         private static bool TryGetOrCreateEditorMuscleClipInternal(
             AnimationClip sourceClip,
             Avatar sourceAvatar,
-            Vector3 trackOffsetWorld,
-            float targetHumanScale,
-            bool forceRefresh,
             out AnimationClip muscleClip,
             out float frameRate,
             out string error)
@@ -429,19 +399,15 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            bool hasTrackOffset = trackOffsetWorld.sqrMagnitude > 1e-8f;
-            bool persist = KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips &&
-                !hasTrackOffset;
+            bool persist = KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips;
             if (!TryPrepareEditorClipCache(
                     sourceClip,
                     KimodoRetargetEditorCacheUtility.MuscleCacheType,
                     null,
-                    forceRefresh,
                     out string cacheName,
                     out muscleClip,
                     out frameRate,
-                    out error,
-                    allowCacheRead: !hasTrackOffset))
+                    out error))
             {
                 return false;
             }
@@ -482,12 +448,6 @@ namespace KimodoBridge.Editor
                 {
                     return false;
                 }
-
-                RemoveTrackOffsetFromMuscleSamples(
-                    samples,
-                    trackOffsetWorld,
-                    sourceCache.humanScale,
-                    targetHumanScale);
 
                 AnimationClip writableClip;
                 if (persist)
@@ -534,39 +494,6 @@ namespace KimodoBridge.Editor
                 sourceCache?.Dispose();
             }
         }
-
-        internal static void RemoveTrackOffsetFromMuscleSamples(
-            IReadOnlyList<MuscleSample> samples,
-            Vector3 trackOffsetWorld,
-            float sourceHumanScale,
-            float targetHumanScale)
-        {
-            if (samples == null || samples.Count == 0 ||
-                trackOffsetWorld.sqrMagnitude <= 1e-8f)
-            {
-                return;
-            }
-
-            float sourceScale = Mathf.Max(1e-6f, sourceHumanScale);
-            float targetScale = Mathf.Max(1e-6f, targetHumanScale);
-            // RootTQ stores HumanPose body-space units. The Timeline offset is
-            // world-space, so convert it through the character scale first.
-            Vector3 sourceOffset = trackOffsetWorld / targetScale * sourceScale;
-
-            for (int i = 0; i < samples.Count; i++)
-            {
-                MuscleSample sample = samples[i];
-                if (sample == null)
-                {
-                    continue;
-                }
-
-                sample.GetRoot(out Vector3 rootPosition, out Quaternion rootRotation);
-                rootPosition = (rootPosition * sourceScale - sourceOffset) / sourceScale;
-                sample.SetRoot(rootPosition, rootRotation);
-            }
-        }
-
 
         public static bool TryApplyCurveFilterToClip(
             AnimationClip sourceClip,
@@ -877,12 +804,10 @@ namespace KimodoBridge.Editor
             AnimationClip sourceClip,
             string cacheType,
             Avatar targetAvatar,
-            bool forceRefresh,
             out string cacheName,
             out AnimationClip cachedClip,
             out float frameRate,
-            out string error,
-            bool allowCacheRead = true)
+            out string error)
         {
             cacheName = string.Empty;
             cachedClip = null;
@@ -890,16 +815,10 @@ namespace KimodoBridge.Editor
             error = string.Empty;
             cacheName = KimodoRetargetEditorCacheUtility.BuildNamedCacheName(sourceClip, cacheType, targetAvatar);
             frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoMotionModelProfiles.DefaultFrameRate;
-            if (!KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips ||
-                !allowCacheRead)
+            if (!KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips)
             {
                 return true;
             }
-            if (forceRefresh && !KimodoEditorClipWritebackService.TryInvalidateNamedClipCache(cacheName, out error))
-            {
-                return false;
-            }
-
             if (KimodoRetargetEditorCacheUtility.TryLoadStrictNamedCache(
                     cacheName,
                     out cachedClip,

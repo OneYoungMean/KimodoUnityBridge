@@ -79,9 +79,10 @@ namespace KimodoBridge
         }
     }
 
-    /// <summary>Result of projecting a canonical pose through the profile
-    /// humanoid. RootPositionMeters is the world-space position of the profile
-    /// Hips joint after the muscle clip has been evaluated.</summary>
+    /// <summary>Result of projecting a constraint pose through the profile
+    /// humanoid. RootPositionMeters is the projected profile Hips world
+    /// position; an explicit Root2D override remains authoritative at export.
+    /// </summary>
     public sealed class KimodoConstraintProjectedPose
     {
         public Vector3 rootPositionMeters;
@@ -118,7 +119,14 @@ namespace KimodoBridge
                     return false;
                 }
 
-                rootPositionMeters = projected.rootPositionMeters;
+                // An explicit Root2D/root override is an authored world
+                // target. The profile projection supplies retargeted pose
+                // rotations, but must not replace that target with a derived
+                // Hips position.
+                rootPositionMeters = KimodoConstraintMask.IsActive(sample, "rootposition") &&
+                    sample.rootOverride != null
+                    ? sample.rootOverride.t
+                    : projected.rootPositionMeters;
                 localAngles = projected.localJointAngles;
                 return true;
             }
@@ -287,6 +295,21 @@ namespace KimodoBridge
                 sample.rootOverride != null)
             {
                 _ = exportContext ?? throw new ArgumentNullException(nameof(exportContext));
+
+                // Root2D has no authored MuscleSample, but it still follows
+                // the profile-skeleton FK/root/IK projection used by
+                // FullBody. The explicit world target remains authoritative;
+                // the projected pose is evaluated for the profile skeleton.
+                if (!exportContext.TryBuildProjectedPose(
+                        sample,
+                        out _,
+                        out _,
+                        out string projectionError))
+                {
+                    throw new InvalidOperationException(
+                        $"Root2D constraint pose projection failed: {projectionError}");
+                }
+
                 Vector3 root = sample.rootOverride.t;
                 Vector3 forward = sample.rootOverride.q * Vector3.forward;
                 var canonical = new KimodoConstraintJson

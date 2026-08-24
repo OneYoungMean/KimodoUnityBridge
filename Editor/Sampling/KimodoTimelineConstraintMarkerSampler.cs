@@ -41,6 +41,135 @@ namespace KimodoBridge.Editor
                 out rotation,
                 out isSceneOffset);
         }
+
+        internal static void WorldToTrackPose(
+            Vector3 worldPosition,
+            Quaternion worldRotation,
+            Vector3 trackPosition,
+            Quaternion trackRotation,
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            Quaternion normalizedTrackRotation = NormalizeTrackRotation(trackRotation);
+            Quaternion inverseTrackRotation = Quaternion.Inverse(normalizedTrackRotation);
+            position = inverseTrackRotation * (worldPosition - trackPosition);
+            rotation = (inverseTrackRotation * worldRotation).normalized;
+        }
+
+        internal static void TrackToWorldPose(
+            Vector3 trackLocalPosition,
+            Quaternion trackLocalRotation,
+            Vector3 trackPosition,
+            Quaternion trackRotation,
+            out Vector3 position,
+            out Quaternion rotation)
+        {
+            Quaternion normalizedTrackRotation = NormalizeTrackRotation(trackRotation);
+            position = trackPosition + normalizedTrackRotation * trackLocalPosition;
+            rotation = (normalizedTrackRotation * trackLocalRotation).normalized;
+        }
+
+        internal static void ConvertSampleToTrackSpace(
+            KimodoMarkerSampleResult sample,
+            Vector3 trackPosition,
+            Quaternion trackRotation)
+        {
+            ConvertSampleSpace(sample, trackPosition, trackRotation, toWorld: false);
+        }
+
+        internal static void ConvertSampleFromTrackSpace(
+            KimodoMarkerSampleResult sample,
+            Vector3 trackPosition,
+            Quaternion trackRotation)
+        {
+            ConvertSampleSpace(sample, trackPosition, trackRotation, toWorld: true);
+        }
+
+        private static void ConvertSampleSpace(
+            KimodoMarkerSampleResult sample,
+            Vector3 trackPosition,
+            Quaternion trackRotation,
+            bool toWorld)
+        {
+            if (sample == null)
+            {
+                return;
+            }
+
+            if (KimodoConstraintMask.IsActive(sample, "rootposition") && sample.rootOverride != null)
+            {
+                ConvertRigidTransform(
+                    sample.rootOverride,
+                    trackPosition,
+                    trackRotation,
+                    toWorld);
+            }
+
+            ConvertRigidTransformIfActive(sample, "lefthand", sample.effectors?.leftHand, trackPosition, trackRotation, toWorld);
+            ConvertRigidTransformIfActive(sample, "righthand", sample.effectors?.rightHand, trackPosition, trackRotation, toWorld);
+            ConvertRigidTransformIfActive(sample, "leftfoot", sample.effectors?.leftFoot, trackPosition, trackRotation, toWorld);
+            ConvertRigidTransformIfActive(sample, "rightfoot", sample.effectors?.rightFoot, trackPosition, trackRotation, toWorld);
+        }
+
+        private static void ConvertRigidTransformIfActive(
+            KimodoMarkerSampleResult sample,
+            string channel,
+            KimodoRigidTransform target,
+            Vector3 trackPosition,
+            Quaternion trackRotation,
+            bool toWorld)
+        {
+            if (target != null && KimodoConstraintMask.IsActive(sample, channel))
+            {
+                ConvertRigidTransform(target, trackPosition, trackRotation, toWorld);
+            }
+        }
+
+        private static void ConvertRigidTransform(
+            KimodoRigidTransform target,
+            Vector3 trackPosition,
+            Quaternion trackRotation,
+            bool toWorld)
+        {
+            Vector3 position;
+            Quaternion rotation;
+            if (toWorld)
+            {
+                TrackToWorldPose(
+                    target.t,
+                    target.q,
+                    trackPosition,
+                    trackRotation,
+                    out position,
+                    out rotation);
+            }
+            else
+            {
+                WorldToTrackPose(
+                    target.t,
+                    target.q,
+                    trackPosition,
+                    trackRotation,
+                    out position,
+                    out rotation);
+            }
+            target.t = position;
+            target.q = rotation;
+        }
+
+        private static Quaternion NormalizeTrackRotation(Quaternion rotation)
+        {
+            if (rotation.x * rotation.x +
+                rotation.y * rotation.y +
+                rotation.z * rotation.z +
+                rotation.w * rotation.w <= 1e-8f)
+            {
+                return Quaternion.identity;
+            }
+
+            rotation.Normalize();
+            return rotation;
+        }
     }
 
     internal static class KimodoTimelineConstraintSampler
@@ -151,6 +280,8 @@ namespace KimodoBridge.Editor
         private readonly Transform[] sourceBoneTransforms;
         private readonly KimodoTimelineEvaluationScope evaluationScope;
         private readonly DirectorWrapMode originalWrapMode;
+        private readonly Vector3 trackOffsetPosition;
+        private readonly Quaternion trackOffsetRotation;
         private bool disposed;
 
         private KimodoTimelineSamplingSession(
@@ -160,7 +291,9 @@ namespace KimodoBridge.Editor
             Transform[] sourceBoneTransforms,
             RetargetSkeleton targetCache,
             KimodoTimelineEvaluationScope evaluationScope,
-            DirectorWrapMode originalWrapMode)
+            DirectorWrapMode originalWrapMode,
+            Vector3 trackOffsetPosition,
+            Quaternion trackOffsetRotation)
         {
             this.context = context;
             this.sourceSamplingCache = sourceSamplingCache;
@@ -169,6 +302,8 @@ namespace KimodoBridge.Editor
             TargetCache = targetCache;
             this.evaluationScope = evaluationScope;
             this.originalWrapMode = originalWrapMode;
+            this.trackOffsetPosition = trackOffsetPosition;
+            this.trackOffsetRotation = trackOffsetRotation;
         }
 
         internal RetargetSkeleton TargetCache { get; }
@@ -242,6 +377,11 @@ namespace KimodoBridge.Editor
                 }
 
                 context.Director.extrapolationMode = DirectorWrapMode.Hold;
+                KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                    context.Track,
+                    context.Animator,
+                    out Vector3 trackOffsetPosition,
+                    out Quaternion trackOffsetRotation);
                 sampler = new KimodoTimelineSamplingSession(
                     context,
                     sourceSamplingCache,
@@ -249,7 +389,9 @@ namespace KimodoBridge.Editor
                     sourceBoneTransforms,
                     targetCache,
                     evaluationScope,
-                    originalWrapMode);
+                    originalWrapMode,
+                    trackOffsetPosition,
+                    trackOffsetRotation);
                 return true;
             }
             catch (Exception ex)
@@ -287,9 +429,9 @@ namespace KimodoBridge.Editor
             }
 
             // RootTQ is not part of the muscle sampling transport. The
-            // canonical world root is captured later from RetargetSkeleton and
-            // written to root2DOverride; legacy anchor normalization is kept
-            // in the signature only for call-site compatibility.
+            // canonical track-space root is captured later from RetargetSkeleton
+            // and written to root2DOverride; legacy anchor normalization is
+            // kept in the signature only for call-site compatibility.
             sample = samples[0];
             return true;
         }
@@ -336,6 +478,8 @@ namespace KimodoBridge.Editor
                             sourceSamplingCache,
                             sourceBonePaths,
                             sourceBoneTransforms,
+                            trackOffsetPosition,
+                            trackOffsetRotation,
                             out poseSamples[i],
                             out error))
                     {
@@ -543,6 +687,8 @@ namespace KimodoBridge.Editor
             RetargetSkeleton sourceSamplingCache,
             string[] sourceBonePaths,
             Transform[] sourceBoneTransforms,
+            Vector3 trackOffsetPosition,
+            Quaternion trackOffsetRotation,
             out BoneSample sample,
             out string error)
         {
@@ -576,8 +722,21 @@ namespace KimodoBridge.Editor
                 }
 
                 bool isRoot = i == 0;
-                sample.localPositions[i] = isRoot ? sourceRoot.position : sourceBone.localPosition;
-                sample.localRotations[i] = isRoot ? sourceRoot.rotation : sourceBone.localRotation;
+                if (isRoot)
+                {
+                    KimodoTimelineTrackOffsetUtility.WorldToTrackPose(
+                        sourceRoot.position,
+                        sourceRoot.rotation,
+                        trackOffsetPosition,
+                        trackOffsetRotation,
+                        out sample.localPositions[i],
+                        out sample.localRotations[i]);
+                }
+                else
+                {
+                    sample.localPositions[i] = sourceBone.localPosition;
+                    sample.localRotations[i] = sourceBone.localRotation;
+                }
             }
 
             return true;
@@ -724,6 +883,12 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                context.Track,
+                context.Animator,
+                out Vector3 trackOffsetPosition,
+                out Quaternion trackOffsetRotation);
+
             var resolvedSamples = new KimodoMarkerSampleResult[markers.Count];
             var sampledMarkerIndices = new List<int>();
             for (int i = 0; i < markers.Count; i++)
@@ -741,6 +906,10 @@ namespace KimodoBridge.Editor
                     {
                         return false;
                     }
+                    KimodoTimelineTrackOffsetUtility.ConvertSampleToTrackSpace(
+                        resolvedSamples[i],
+                        trackOffsetPosition,
+                        trackOffsetRotation);
                 }
                 else
                 {
