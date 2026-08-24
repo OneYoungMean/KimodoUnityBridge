@@ -161,7 +161,7 @@ Get-Content SAMPLE_RESULT_70D_REWRITE_CHECKPOINTS.md -Tail 120
 4. 将需要显示的属性改为 SampleResult 的显式访问器。
 5. 处理 `float[] muscles` 的可变数组调用，避免用副本伪装为实时视图。
 
-验收：Runtime/Editor 主链路无 CharacterPose 引用；只剩明确标注的 JSON/HumanPose 兼容边界。
+验收：Runtime/Editor/Command 代码无 CharacterPose 引用；命令 JSON 由 SampleResult 直接投影。
 
 #### Phase E / CP91：统一消费端和过滤规则
 
@@ -181,13 +181,15 @@ Get-Content SAMPLE_RESULT_70D_REWRITE_CHECKPOINTS.md -Tail 120
 
 ### 实施状态（CP92）
 
-CP87–CP92 已完成：External Marker 类型、PoseGet 直接 SampleResult、读取/编辑/Contract、分析与预览消费端迁移、普通 Constraint 过滤以及独立 Unity package probe 编译验证均已落地。`CharacterPose` 仅保留在旧 Command JSON/HumanPose 适配边界；没有创建或复用 `KimodoAnalysisKeyframeMarker` 作为姿势容器。当前未创建 Git commit，以保留仓库中用户已有的未提交修改。
+CP87–CP92 已完成：External Marker 类型、PoseGet 直接 SampleResult、读取/编辑/Contract、分析与预览消费端迁移、普通 Constraint 过滤以及独立 Unity package probe 编译验证均已落地。没有创建或复用 `KimodoAnalysisKeyframeMarker` 作为姿势容器。随后按用户确认执行 CP93，彻底删除 CharacterPose 兼容类型；当前未创建 Git commit，以保留仓库中用户已有的未提交修改。
+
+### CP93 — CharacterPose 全量删除
+
+用户确认仓库尚未发布，直接删除旧语义。已移除 `CharacterPose`、`CharacterPoseJson`、`CharacterPoseMuscleAdapter`、`KimodoSampleResultPoseUtility` 及其 `.meta` 文件；命令 JSON 由 `KimodoMarkerSampleResult` 直接投影，Session persistence 只保存 `sample_result`。同时删除 4 个已由 `#if false` 禁用的旧 CharacterPose 测试文件及其 `.meta`，并清理旧 Editor 参数和 Runtime 注释。
 - Root2D 修改只影响 `rootOverride`，不改 RootTQ/FootTQ。
 - FootTQ 在 PoseGet 及 Marker 重载前后保持 canonical body-relative 语义。
 - external Marker 不进入普通 Constraint Preview/Bake/Export。
-- Unity 编译、Command schema、Example 场景回归通过。
-
-只有本阶段通过后，才删除 `KimodoSampleResultPoseUtility` 中面向 PoseGet 的兼容转换；旧 JSON 兼容是否保留另行决定。
+- Unity package probe 编译与 Command schema 静态检查通过；`C:\tuanjie\Example` 场景回归未执行，仍受已有 Unity/ArtifactDB 锁影响。
 
 ### 每批提交和回滚规则
 

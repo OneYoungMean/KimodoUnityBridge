@@ -267,10 +267,6 @@ namespace KimodoUnityBridge.Command
                 {
                     foreach (KimodoConstraintMarker marker in character.PoseCacheTrack.GetMarkers().OfType<KimodoConstraintMarker>())
                     {
-                        CharacterPose markerPose = marker.SampleData != null &&
-                            KimodoSampleResultPoseUtility.TryDecode(marker.SampleData, out CharacterPose decodedPose, out _)
-                            ? decodedPose
-                            : null;
                         poses.Add(new JObject
                         {
                             ["character"] = character.Name,
@@ -278,10 +274,7 @@ namespace KimodoUnityBridge.Command
                             ["marker_id"] = marker.name ?? string.Empty,
                             ["frame"] = Mathf.RoundToInt((float)(marker.time * SessionFrameRate)),
                             ["marker_type"] = marker.ConstraintType,
-                            ["sample_result"] = SampleResultJson(marker.SampleData),
-                            ["data"] = markerPose != null
-                                ? CharacterPoseJson.ToJson(markerPose)
-                                : new JObject()
+                            ["sample_result"] = SampleResultJson(marker.SampleData)
                         });
                     }
                 }

@@ -733,3 +733,11 @@
 - 已检查：Unity 2022.3.62f3c1 独立临时工程脚本编译通过，无 `error CS`/`Compilation failed`；日志：`C:\tmp\kimodo-compile-external-pose-marker-cp92-probe4.log`。
 - 已保留：`C:\tuanjie\Example` 未强行启动/关闭 Unity；该工程仍受已有 `Library/ArtifactDB` 实例锁影响，未把锁等待误判为代码编译结果。
 - 未执行：没有提交 Git commit，避免覆盖仓库中用户已有的未提交修改；如需按阶段提交，需单独指定提交范围。
+
+## CP93 — CharacterPose 全量删除
+
+- 已删除：`Command/CharacterPose.cs`、`CharacterPoseJson.cs`、`CharacterPoseMuscleAdapter.cs`、`KimodoSampleResultPoseUtility.cs` 及对应 `.meta`。
+- 已改造：PoseGet/PoseSet 的 JSON 输出直接从 `KimodoMarkerSampleResult` 生成；不再有 `SampleResult → CharacterPose → JSON` 旁路。Session JSON 只记录原始 `sample_result`。
+- 已删除：4 个 `#if false` 的旧 CharacterPose 测试文件及对应 `.meta`，并移除 `writeSampledCharacterPose` 旧参数。
+- 已清理：Runtime/Editor 生产代码中的 CharacterPose 兼容注释和引用；当前代码扫描不再发现 `CharacterPose`、`characterPose` 或 `KimodoSampleResultPoseUtility`。
+- 检查：`git diff --check` 通过；Unity 2022.3.62f3c1 独立临时工程编译通过，无 `error CS`/`Compilation failed`；日志：`C:\tmp\kimodo-compile-characterpose-clean.log`。

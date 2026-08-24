@@ -5,8 +5,7 @@ using KimodoUnityBridge;
 namespace KimodoBridge
 {
     /// <summary>
-    /// Runtime composition for canonical SampleResult channels. Command-layer
-    /// CharacterPose is not used by animation sampling or retarget evaluation.
+    /// Runtime composition for canonical SampleResult channels.
     /// </summary>
     public static class KimodoConstraintSampleComposer
     {

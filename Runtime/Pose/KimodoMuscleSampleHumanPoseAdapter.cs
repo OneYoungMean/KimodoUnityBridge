@@ -4,8 +4,8 @@ namespace KimodoBridge
 {
     /// <summary>
     /// Runtime-only conversion between the canonical 70D MuscleSample and
-    /// Unity's HumanPose API boundary. Command-layer CharacterPose is not
-    /// involved in animation sampling or retarget evaluation.
+    /// Unity's HumanPose API boundary. Command DTOs are not involved in
+    /// animation sampling or retarget evaluation.
     /// </summary>
     internal static class KimodoMuscleSampleHumanPoseAdapter
     {

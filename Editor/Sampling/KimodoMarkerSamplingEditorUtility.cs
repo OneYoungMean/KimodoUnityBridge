@@ -10,8 +10,7 @@ namespace KimodoBridge.Editor
         public static bool TryWriteConstraintMarkerSample(
             KimodoConstraintMarker marker,
             KimodoMarkerSampleResult sample,
-            out string error,
-            bool writeSampledCharacterPose = false)
+            out string error)
         {
             error = string.Empty;
             if (marker == null)
@@ -62,13 +61,6 @@ namespace KimodoBridge.Editor
                 normalized.validMask.leftFoot |= sourceValid.leftFoot;
                 normalized.enableMask.rightFoot |= sample.enableMask.rightFoot;
                 normalized.validMask.rightFoot |= sourceValid.rightFoot;
-            }
-
-            if (writeSampledCharacterPose && KimodoSampleDataLayout.IsValid(sample.sampleData))
-            {
-                normalized.sampleData = sample.sampleData.Clone();
-                normalized.enableMask = sample.enableMask?.Clone() ?? new KimodoConstraintMask();
-                normalized.validMask = KimodoConstraintMask.FromSample(sample);
             }
 
             // Scene edits author effector targets separately from the canonical pose.

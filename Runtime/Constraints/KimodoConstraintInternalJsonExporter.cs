@@ -8,7 +8,7 @@ namespace KimodoBridge
     /// <summary>
     /// Converts raw-motion FullBody frames directly at the protocol boundary.
     /// It deliberately accepts only the internal representation; no
-    /// SampleResult or CharacterPose is created on this path.
+    /// SampleResult object is created on this path.
     /// </summary>
     internal static class KimodoConstraintInternalJsonExporter
     {
@@ -24,7 +24,6 @@ namespace KimodoBridge
             }
 
             var frameIndices = new JArray();
-            var smoothRoot = new JArray();
             var rootPositions = new JArray();
             var localRotations = new JArray();
             float fps = frameRate > 0f ? frameRate : KimodoMotionModelProfiles.DefaultFrameRate;
@@ -44,7 +43,6 @@ namespace KimodoBridge
                 index = Mathf.Clamp(index, 0, maxFrame);
                 Vector3 root = new Vector3(-frame.rootPosition.x, frame.rootPosition.y, frame.rootPosition.z);
                 frameIndices.Add(index);
-                smoothRoot.Add(new JArray(root.x, root.z));
                 rootPositions.Add(new JArray(root.x, root.y, root.z));
 
                 var joints = new JArray();
@@ -68,7 +66,6 @@ namespace KimodoBridge
             {
                 ["type"] = "fullbody",
                 ["frame_indices"] = frameIndices,
-                ["smooth_root_2d"] = smoothRoot,
                 ["root_positions"] = rootPositions,
                 ["local_joints_rot"] = localRotations
             });

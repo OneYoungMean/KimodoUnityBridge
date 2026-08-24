@@ -118,8 +118,7 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
                     if (KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
                         marker,
                         changedSample,
-                        out _,
-                        writeSampledCharacterPose: switchedFromAutoSample))
+                        out _))
                     {
                         // Selection previews are intentionally suppressed while
                         // the edit window is open. Re-render that registered

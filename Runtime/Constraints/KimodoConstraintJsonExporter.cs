@@ -352,10 +352,6 @@ namespace KimodoBridge
             {
                 type = "fullbody",
                 frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
-                smooth_root_2d = new List<float[]>
-                {
-                    new[] { kimodoRoot.x, kimodoRoot.z }
-                },
                 root_positions = new List<float[]>
                 {
                     new[] { kimodoRoot.x, kimodoRoot.y, kimodoRoot.z }
@@ -606,7 +602,8 @@ namespace KimodoBridge
                 }
             }
 
-            if (isRoot2D || isFullBody || isEndEffectorFamily)
+            bool hasFullBodySmoothRoot = isFullBody && group.Any(item => item?.smooth_root_2d != null);
+            if (isRoot2D || isEndEffectorFamily || hasFullBodySmoothRoot)
             {
                 merged.smooth_root_2d = new List<float[]>();
             }

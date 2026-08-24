@@ -240,9 +240,8 @@ namespace KimodoBridge
             }
 
             // The evaluated sampler already owns the canonical 70D payload,
-            // including body-relative footTQ. Do not round-trip through
-            // CharacterPose, which exposes scene/world foot values and would
-            // overwrite the transport channels.
+            // including body-relative footTQ. Keep it intact so scene-space
+            // effector values cannot overwrite transport channels.
             sample.sampleData = muscleSample.Clone();
             sample.enableMask.muscle = true;
             sample.enableMask.rootTQ = true;

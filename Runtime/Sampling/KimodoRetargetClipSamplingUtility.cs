@@ -943,9 +943,8 @@ namespace KimodoBridge
             }
 
             // The retarget sampler already produced the canonical 70D payload,
-            // including the legacy body-relative footTQ transport. Do not pass
-            // it through CharacterPose, whose scene-facing foot fields are
-            // world-space display/effector values and would overwrite footTQ.
+            // including the body-relative footTQ transport. Keep it intact;
+            // world-space effectors remain separate SampleResult channels.
             sampleData.data = (float[])sample.data.Clone();
 
             enableMask.muscle = true;

@@ -10,7 +10,7 @@ namespace KimodoBridge
         /// Captures the canonical 70D sample from one already evaluated
         /// retarget skeleton. HumanPose and the world bones are read from the
         /// same evaluation, so rootTQ and footTQ cannot come from different
-        /// frames or from a later CharacterPose conversion.
+        /// frames or from a later compatibility conversion.
         /// </summary>
         internal static bool TryCaptureEvaluatedMuscleSample(
             RetargetSkeleton cache,

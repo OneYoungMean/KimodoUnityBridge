@@ -38,7 +38,7 @@ namespace KimodoUnityBridge.Command
                             sourceAnimator.runtimeAnimatorController.name))
                     });
                 }
-                throw new InvalidOperationException("The source Animator must use an AnimatorController.");
+                return AddAnimatorRecordWithoutController(session, character, sourceAnimator);
             }
 
             var stateDescriptors = new List<AnimatorStateDescriptor>();
@@ -142,6 +142,46 @@ namespace KimodoUnityBridge.Command
                 ["transition_clip_count"] = projectedTransitionCount,
                 ["animations"] = new JArray(addedAnimations.Select(DescribeAnimation)),
                 ["skipped"] = warnings
+            });
+        }
+
+        private static string AddAnimatorRecordWithoutController(
+            TimelineSessionRecord session,
+            TimelineCharacterRecord character,
+            Animator sourceAnimator)
+        {
+            string sourceRef = GetObjectReference(sourceAnimator);
+            AnimatorImportRecord imported = character.AnimatorImports.FirstOrDefault(item =>
+                string.Equals(item.SourceAnimatorRef, sourceRef, StringComparison.Ordinal));
+            bool refreshed = imported != null;
+            if (imported == null)
+            {
+                string baseName = KimodoRuntimeUtility.SanitizeName(sourceAnimator.gameObject.name, "Animator");
+                string name = baseName;
+                for (int suffix = 1; character.AnimatorImports.Any(item =>
+                    string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)); suffix++)
+                {
+                    name = $"{baseName}_{suffix}";
+                }
+                imported = new AnimatorImportRecord(sourceRef, name);
+                character.AnimatorImports.Add(imported);
+            }
+
+            SaveTimelineSession(session);
+            return Ok(new JObject
+            {
+                ["added"] = true,
+                ["refreshed"] = refreshed,
+                ["kind"] = "animator",
+                ["character"] = character.Name,
+                ["animator"] = imported.Name,
+                ["transition_clip_count"] = 0,
+                ["animations"] = new JArray(),
+                ["skipped"] = new JArray(new JObject
+                {
+                    ["kind"] = "animator_without_controller",
+                    ["reason"] = "Animator has no AnimatorController; it was added without clip or transition records."
+                })
             });
         }
 

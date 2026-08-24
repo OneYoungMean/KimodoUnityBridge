@@ -34,13 +34,14 @@ namespace KimodoUnityBridge.Command
                 sourceSample,
                 overwriteExisting: true);
             SaveTimelineSession(session);
-            CharacterPose pose = RequireCommandPose(marker.SampleData);
             JObject result = new JObject
             {
                 ["source_pose"] = PoseLocatorJson(source.Source, source.Frame),
                 ["cache_pose"] = PoseCacheLocatorJson(session, character, marker, source.Frame)
             };
-            result["pose"] = fullData ? CharacterPoseJson.ToJson(pose) : BuildCompactPose(pose);
+            result["pose"] = fullData
+                ? BuildPoseJson(marker.SampleData)
+                : BuildCompactPose(marker.SampleData);
             return Ok(result);
         });
 
@@ -77,15 +78,10 @@ namespace KimodoUnityBridge.Command
             marker.CommitSampleData();
             EditorUtility.SetDirty(marker);
             SaveTimelineSession(session);
-            CharacterPose pose = RequireCommandPose(sample);
-            if (hasPosition || hasRotation)
-            {
-                pose.root = sample.rootOverride.Clone();
-            }
             return Ok(new JObject
             {
                 ["cache_pose"] = PoseCacheLocatorJson(session, character, marker, frame),
-                ["pose"] = CharacterPoseJson.ToJson(pose)
+                ["pose"] = BuildPoseJson(sample)
             });
         });
 
@@ -112,11 +108,10 @@ namespace KimodoUnityBridge.Command
             marker.CommitSampleData();
             EditorUtility.SetDirty(marker);
             SaveTimelineSession(session);
-            CharacterPose pose = RequireCommandPose(sample);
             return Ok(new JObject
             {
                 ["cache_pose"] = PoseCacheLocatorJson(session, character, marker, frame),
-                ["pose"] = CharacterPoseJson.ToJson(pose)
+                ["pose"] = BuildPoseJson(sample)
             });
         });
 
@@ -206,43 +201,6 @@ namespace KimodoUnityBridge.Command
             });
         });
 
-        private static JObject ReadPose(PoseLocator locator, string command = GenerateAnimationCommand)
-        {
-            TimelineSessionRecord session = RequireCurrentTimelineSession();
-            TimelineCharacterRecord cacheOwner = ResolvePoseCacheOwner(locator.Source);
-            if (cacheOwner != null)
-            {
-                KimodoConstraintMarker marker = FindCachedPose(cacheOwner.PoseCacheTrack, locator.Frame, locator.MarkerId)
-                    ?? throw new InvalidOperationException("Pose Cache source does not contain the requested marker.");
-                CharacterPose cachedPose = RequireCommandPose(marker.SampleData);
-                return new JObject
-                {
-                    ["pose"] = PoseLocatorJson(cacheOwner.PoseCacheTrack.name, locator.Frame),
-                    ["data"] = CharacterPoseJson.ToJson(cachedPose)
-                };
-            }
-            if (TryResolveAnimationPoseSource(session, locator, out TimelineCharacterRecord animationCharacter, out int absoluteFrame))
-            {
-                ThrowIfGenerationRangeLocked(session, animationCharacter, absoluteFrame, absoluteFrame + 1, command);
-                return new JObject
-                {
-                    ["pose"] = PoseLocatorJson(locator.Source, locator.Frame),
-                    ["data"] = CharacterPoseJson.ToJson(CaptureCharacterPose(animationCharacter, absoluteFrame))
-                };
-            }
-            KimodoConstraintMarker constraint = session.Characters
-                .SelectMany(item => item.Track.GetMarkers().OfType<KimodoConstraintMarker>())
-                .FirstOrDefault(item => string.Equals(item.name, locator.Source, StringComparison.OrdinalIgnoreCase) &&
-                    Mathf.RoundToInt((float)(item.time * SessionFrameRate)) == locator.Frame)
-                ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
-            CharacterPose constraintPose = RequireCommandPose(constraint.SampleData);
-            return new JObject
-            {
-                ["pose"] = PoseLocatorJson(constraint.name, locator.Frame),
-                ["data"] = CharacterPoseJson.ToJson(constraintPose)
-            };
-        }
-
         private static KimodoMarkerSampleResult ReadSampleResult(
             PoseLocator locator,
             string command = GenerateAnimationCommand)
@@ -271,15 +229,6 @@ namespace KimodoUnityBridge.Command
                     Mathf.RoundToInt((float)(item.time * SessionFrameRate)) == locator.Frame)
                 ?? throw new InvalidOperationException($"Pose source '{locator.Source}' was not found.");
             return constraint.SampleData.Clone();
-        }
-
-        private static CharacterPose RequireCommandPose(KimodoMarkerSampleResult sample)
-        {
-            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose pose, out string error))
-            {
-                throw new InvalidOperationException(error);
-            }
-            return pose;
         }
 
         private static KimodoMarkerSampleResult CaptureSampleResult(
@@ -471,11 +420,6 @@ namespace KimodoUnityBridge.Command
             return true;
         }
 
-        private static CharacterPose CaptureCharacterPose(TimelineCharacterRecord character, int frame)
-        {
-            return RequireCommandPose(CaptureSampleResult(character, frame));
-        }
-
         private static KimodoMarkerSampleResult[] CaptureSampleResults(
             TimelineCharacterRecord character,
             int startFrame,
@@ -563,7 +507,7 @@ namespace KimodoUnityBridge.Command
             {
                 if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         character.Avatar,
-                        "KimodoCharacterPoseSampler",
+                        "KimodoSampleResultSampler",
                         out cache,
                         out string error))
                 {
@@ -572,7 +516,7 @@ namespace KimodoUnityBridge.Command
                 if (!KimodoRetargetClipSamplingUtility.ClipSamplingSession.TryCreate(
                         sourceAnimation,
                         cache,
-                        "KimodoCharacterPoseSampler",
+                        "KimodoSampleResultSampler",
                         KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(sourceAnimation),
                         out session,
                         out error))
@@ -713,26 +657,60 @@ namespace KimodoUnityBridge.Command
                 ["marker_id"] = marker.name ?? string.Empty
             };
 
-        private static JObject BuildCompactPose(CharacterPose pose) => new JObject
+        private static JObject BuildPoseJson(KimodoMarkerSampleResult sample)
         {
-            ["root"] = new JObject
+            ValidateCommandSample(sample);
+            return new JObject
             {
-                ["position"] = new JArray(pose.root.t.x, pose.root.t.y, pose.root.t.z),
-                ["rotation"] = new JArray(pose.root.q.x, pose.root.q.y, pose.root.q.z, pose.root.q.w)
-            },
+                ["muscles"] = new JArray(sample.sampleData.data.Take(KimodoSampleDataLayout.BodyMuscleCount)),
+                ["root"] = FullTransformJson(GetRootTransform(sample)),
                 ["hands"] = new JObject
                 {
-                ["left"] = TransformJson(pose.leftHand),
-                ["right"] = TransformJson(pose.rightHand)
+                    ["left"] = FullTransformJson(GetEndEffector(sample, "left_hand")),
+                    ["right"] = FullTransformJson(GetEndEffector(sample, "right_hand"))
                 },
                 ["feet"] = new JObject
                 {
-                ["left"] = TransformJson(pose.leftFoot),
-                ["right"] = TransformJson(pose.rightFoot)
+                    ["left"] = FullTransformJson(GetEndEffector(sample, "left_foot")),
+                    ["right"] = FullTransformJson(GetEndEffector(sample, "right_foot"))
                 }
+            };
+        }
+
+        private static JObject BuildCompactPose(KimodoMarkerSampleResult sample)
+        {
+            ValidateCommandSample(sample);
+            return new JObject
+            {
+                ["root"] = CompactTransformJson(GetRootTransform(sample)),
+                ["hands"] = new JObject
+                {
+                    ["left"] = CompactTransformJson(GetEndEffector(sample, "left_hand")),
+                    ["right"] = CompactTransformJson(GetEndEffector(sample, "right_hand"))
+                },
+                ["feet"] = new JObject
+                {
+                    ["left"] = CompactTransformJson(GetEndEffector(sample, "left_foot")),
+                    ["right"] = CompactTransformJson(GetEndEffector(sample, "right_foot"))
+                }
+            };
+        }
+
+        private static void ValidateCommandSample(KimodoMarkerSampleResult sample)
+        {
+            if (sample?.sampleData == null || !sample.sampleData.IsValid)
+            {
+                throw new InvalidOperationException("Pose source has no valid 70-value sampleData payload.");
+            }
+        }
+
+        private static JObject FullTransformJson(KimodoRigidTransform transform) => new JObject
+        {
+            ["t"] = new JArray(transform.t.x, transform.t.y, transform.t.z),
+            ["q"] = new JArray(transform.q.x, transform.q.y, transform.q.z, transform.q.w)
         };
 
-        private static JObject TransformJson(KimodoRigidTransform transform) => new JObject
+        private static JObject CompactTransformJson(KimodoRigidTransform transform) => new JObject
         {
             ["position"] = new JArray(transform.t.x, transform.t.y, transform.t.z),
             ["rotation"] = new JArray(transform.q.x, transform.q.y, transform.q.z, transform.q.w)
