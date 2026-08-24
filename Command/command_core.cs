@@ -2093,6 +2093,7 @@ namespace KimodoUnityBridge.Command
 
             public bool TryGet(string name, out CommandRegistration registration)
             {
+                registration = null;
                 return name != null && byName.TryGetValue(name, out registration);
             }
 
