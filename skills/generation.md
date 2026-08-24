@@ -24,10 +24,10 @@ jog_arc_cw_loop
 
 1. `kimodo_help({})`, `session_get_or_create`, then `session_add(kind:"character")` if needed.
 2. Use `pose_get` to materialize endpoint/key poses as `{track,index}` references. Use `pose_contract` for end-effector alignment when appropriate.
-3. Prepare sparse `fullbody`, `root2d`, pose-based hand/foot constraints, and optional Bezier `root_path` ranges according to the live constraints help.
+3. Prepare sparse `fullbody`, `root2d`, and pose-based hand/foot constraints. For a trajectory, call `pose_create_path` and reference its returned `{track,index}` as `root_path.path`.
 4. Call `kimodo_generate_animation`, preserve `request_id`, and poll to a terminal status.
 5. Pass the completed Clip to [Optimization](optimization.md): run `animation_analyze`, open the returned PNG, and append a revised Clip if needed.
 
 ## 中文
 
-用于创建新的 Session Clip。按“起始状态 → 主动作 → 阶段 → 路径/方向 → 速度/能量 → 身体/接触 → 结束或循环条件”将名称改写为英文 Prompt；去掉 take/演员/镜像/内部变体元数据，保留确认过的动作 token 和数值角度，不猜测未知缩写。当前流程为：`kimodo_help` → `session_get_or_create` → `session_add` → 用 `pose_get` 实体化 `{track,index}` Pose 并按需 `pose_contract` → 准备 sparse fullbody/root2d/手脚 Pose 约束与可选贝塞尔 `root_path` → `kimodo_generate_animation` → 轮询终态 → 转到优化流程分析、打开 PNG 并追加修正版。
+用于创建新的 Session Clip。按“起始状态 → 主动作 → 阶段 → 路径/方向 → 速度/能量 → 身体/接触 → 结束或循环条件”将名称改写为英文 Prompt；去掉 take/演员/镜像/内部变体元数据，保留确认过的动作 token 和数值角度，不猜测未知缩写。当前流程为：`kimodo_help` → `session_get_or_create` → `session_add` → 用 `pose_get` 实体化 Pose 并按需 `pose_contract` → 需要轨迹时用 `pose_create_path` 创建 Path 并作为 `root_path.path` 引用 → `kimodo_generate_animation` → 轮询终态 → 分析、打开 PNG 并追加修正版。

@@ -17,13 +17,22 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     [SerializeField] private KimodoConstraintMode constraintMode = KimodoConstraintMode.FullBody;
     [SerializeField] private KimodoConstraintMarkerType markerType = KimodoConstraintMarkerType.Constraint;
     [SerializeField] private KimodoMarkerSampleResult sampleData = new KimodoMarkerSampleResult();
+    [SerializeField] private KimodoRootPathData pathData;
 
-    public string ConstraintType => markerType == KimodoConstraintMarkerType.External ? "external" : "constraint";
-    public bool ConstraintPreviewEnabled => constraintEnabled && markerType != KimodoConstraintMarkerType.External;
+    public string ConstraintType => markerType switch
+    {
+        KimodoConstraintMarkerType.External => "external",
+        KimodoConstraintMarkerType.ExternalPath => "external-path",
+        _ => "constraint"
+    };
+    public bool ConstraintPreviewEnabled => constraintEnabled && markerType == KimodoConstraintMarkerType.Constraint;
     public int ConstraintPreviewPriority => 0;
-    public string ConstraintPreviewName => markerType == KimodoConstraintMarkerType.External
-        ? "External Pose"
-        : ModeLabel(constraintMode);
+    public string ConstraintPreviewName => markerType switch
+    {
+        KimodoConstraintMarkerType.External => "External Pose",
+        KimodoConstraintMarkerType.ExternalPath => "External Path",
+        _ => ModeLabel(constraintMode)
+    };
 
     public KimodoConstraintMarkerType MarkerType
     {
@@ -31,7 +40,14 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         set => markerType = value;
     }
 
-    public bool IsExternal => markerType == KimodoConstraintMarkerType.External;
+    public bool IsExternal => markerType != KimodoConstraintMarkerType.Constraint;
+    public bool IsExternalPath => markerType == KimodoConstraintMarkerType.ExternalPath;
+
+    public KimodoRootPathData PathData
+    {
+        get => pathData?.Clone();
+        set => pathData = value?.Clone();
+    }
 
     public KimodoConstraintMode ConstraintMode
     {

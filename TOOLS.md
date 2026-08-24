@@ -25,7 +25,7 @@ Analysis is evidence, not semantic proof. Compare key poses, ghost root path, pe
 
 `pose_get({"source":{"character":"<character>","clip":"<clip>","frame":<local frame>}})` materializes the sampled frame as an External Pose Marker and returns its `{track,index}` reference. Root/muscle editing commands update that materialized pose; `pose_contract` creates another one. Preserve the returned reference and record `residual_error` when contracting.
 
-Generation constraints use sparse same-frame objects. Use `fullbody` for a complete pose, `root2d` for planar root position/heading, and pose-based `left_hand`, `right_hand`, `left_foot`, or `right_foot` for contacts. A `root_path` constraint describes a cubic Bezier path over a frame range and is compiled to Root2D samples during generation; an explicit `root2d` wins at the same frame. The exact shape comes from `kimodo_help({"section":"constraints"})`.
+Generation constraints use sparse same-frame objects. Use `fullbody` for a complete pose, `root2d` for planar root position/heading, and pose-based `left_hand`, `right_hand`, `left_foot`, or `right_foot` for contacts. Create a reusable preset or Bezier path with `pose_create_path`, then pass its `{track,index}` result as `root_path.path`; it starts at frame 0 unless the constraint supplies `frame`. The path occupies the remaining generated clip, and an explicit `root2d` wins at the same frame. The exact shape comes from `kimodo_help({"section":"constraints"})`.
 
 ### 5. Quality gate and loop seam
 
@@ -68,7 +68,7 @@ Analysis 是证据，不是语义证明。将关键姿势、ghost 根路径、�
 
 `pose_get({"source":{"character":"<角色>","clip":"<Clip>","frame":<局部帧>}})` 将采样帧实体化为 External Pose Marker，并返回 `{track,index}` 引用。Root/Muscle 编辑命令修改该实体化 Pose，`pose_contract` 则创建另一个；应保存返回的引用，并记录 Contract 的 `residual_error`。
 
-生成约束使用按帧稀疏对象：`fullbody` 表示完整姿势，`root2d` 表示单帧平面 Root 位置/朝向，`left_hand`、`right_hand`、`left_foot`、`right_foot` 使用 Pose 表示接触。`root_path` 在一个帧区间内描述三次贝塞尔轨迹，生成时编译为 Root2D 采样；同帧显式 `root2d` 优先。准确结构以 `kimodo_help({"section":"constraints"})` 为准。
+生成约束使用按帧稀疏对象：`fullbody` 表示完整姿势，`root2d` 表示单帧平面 Root 位置/朝向，手脚字段使用 Pose 表示接触。先用 `pose_create_path` 创建可复用的预设或贝塞尔 Path，再把返回的 `{track,index}` 作为 `root_path.path`；未指定约束 `frame` 时从第 0 帧开始并占满剩余 Clip，同帧显式 `root2d` 优先。准确结构以 `kimodo_help({"section":"constraints"})` 为准。
 
 ### 5. 质量门与循环接缝
 
