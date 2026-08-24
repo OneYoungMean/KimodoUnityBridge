@@ -79,7 +79,13 @@ namespace KimodoUnityBridge.Command
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredAnalysisClips(),
                              OptionalEnumWithDefault("level", "middle", "low", "middle", "high", "-test"),
-                             Optional("resolution", "integer", "Final picture tile resolution in pixels; rendering uses a 2x supersample and downsamples to this size. Defaults to 512."))),
+                            new PropertyDefinition("resolution", new JObject
+                            {
+                                ["type"] = "integer",
+                                ["minimum"] = 64,
+                                ["maximum"] = 4096,
+                                ["description"] = "Final picture tile resolution in pixels; accepts 64 through 4096. Rendering uses a 2x supersample and downsamples to this size. Defaults to 512."
+                            }, false))),
                     CommandDefinition(AnimationCompareCommand,
                         "Compare two animation ranges or transition-like clip ranges without modifying the Session.",
                         Properties(

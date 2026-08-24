@@ -33,7 +33,9 @@ Runtime diagnostics are written to `NvlabKimodoQuickServer~/log/setup.log` and `
 
 ## AI agents
 
-Install the package into the target project, then read the English section of [TOOLS.md](TOOLS.md). Discover current commands through `KimodoUnityBridge.Command.command_dispatcher` and `kimodo_help` before execution.
+Install the package into the target project, then read [AGENTS.md](AGENTS.md), [SKILL.md](SKILL.md), and [TOOLS.md](TOOLS.md). Discover current commands through `KimodoUnityBridge.Command.command_dispatcher` and `kimodo_help`; the live schema and returned values outrank this README.
+
+For asset-backed validation, use the maintained [AnimationEval](../AnimationEval/Assets/EvalBank/README.md) bank. Its active suites are semantic recognition (A), quality comparison (B), and generation/workflow compliance (C); the current B data is not yet blind/anonymous, and suite-specific public/private files define what the evaluator may see.
 
 ## Links
 
