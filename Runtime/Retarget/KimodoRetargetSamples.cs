@@ -147,6 +147,8 @@ namespace KimodoBridge
     public sealed class RetargetSkeleton : IDisposable
     {
         public Avatar avatar;
+        /// <summary>Avatar-derived scale used only for HumanPose RootTQ/FootTQ transport conversion.</summary>
+        public float humanScale = 1f;
         public GameObject root;
         public Transform skeletonRoot;
         public Vector3 rootLocalPosition;
@@ -258,6 +260,7 @@ namespace KimodoBridge
             }
 
             avatar = null;
+            humanScale = 1f;
             root = null;
             skeletonRoot = null;
             canonicalRootBoneName = null;

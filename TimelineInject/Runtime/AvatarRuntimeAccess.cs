@@ -24,6 +24,7 @@ namespace TimelineInject
                 return 0f;
             }
             return avatar.GetAxisLength(humanId);
+
         }
 
         public static string GetSkeletonBoneParentNameOrEmpty(SkeletonBone bone)

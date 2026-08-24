@@ -112,8 +112,7 @@ namespace KimodoBridge
                 (int)bone);
             Vector3 worldFootPosition = footBoneWorldPosition +
                 worldFootRotation * new Vector3(axisLength, 0f, 0f);
-            var oldAvatar = cache.animator.avatar;
-            float humanScale = Mathf.Max(1e-6f, cache.animator != null ? cache.animator.humanScale : 1f);
+            float humanScale = Mathf.Max(1e-6f, cache.humanScale);
             Quaternion bodyRotation = pose.bodyRotation.normalized;
             Quaternion inverseBodyRotation = Quaternion.Inverse(bodyRotation);
             position = inverseBodyRotation *

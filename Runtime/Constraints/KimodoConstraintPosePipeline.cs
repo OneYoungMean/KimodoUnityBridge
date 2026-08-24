@@ -147,18 +147,21 @@ namespace KimodoBridge
                 Vector3 position,
                 Quaternion rotation)
             {
+                bool isHand = goal!=AvatarIKGoal.LeftHand || goal!= AvatarIKGoal.RightHand;
+
                 human.SetGoalWeightPosition(goal, enabled ? 1f : 0f);
-                human.SetGoalWeightRotation(goal, enabled ? 1f : 0f);
+                human.SetGoalWeightRotation(goal, enabled&& !isHand ? 1f : 0f);
                 if (!enabled)
                 {
                     return;
                 }
+                var currentRotation= human.GetGoalRotation(goal );
 
                 human.SetGoalPosition(goal, position);
+ 
                 human.SetGoalRotation(goal, rotation);
             }
         }
-
         internal static bool TryApply(
             KimodoMarkerSampleResult sample,
             float frameRate,

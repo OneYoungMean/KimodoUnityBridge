@@ -178,9 +178,16 @@ namespace KimodoBridge
                 return false;
             }
 
+            if (!TryResolveHumanScale(avatar, root, out float humanScale, out error))
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                return false;
+            }
+
             cache = new RetargetSkeleton
             {
                 avatar = avatar,
+                humanScale = humanScale,
                 root = root,
                 skeletonRoot = root.transform,
                 rootLocalPosition = root.transform.localPosition,
@@ -200,6 +207,51 @@ namespace KimodoBridge
 
             KimodoRetargetClipSamplingUtility.CaptureSkeletonBindPose(cache);
             return true;
+        }
+
+        private static bool TryResolveHumanScale(
+            Avatar avatar,
+            GameObject root,
+            out float humanScale,
+            out string error)
+        {
+            humanScale = 1f;
+            error = string.Empty;
+            GameObject probe = null;
+            try
+            {
+                probe = UnityEngine.Object.Instantiate(root);
+                probe.name = "__KimodoHumanScaleProbe";
+                probe.hideFlags = HideFlags.HideAndDontSave;
+                probe.SetActive(true);
+                Animator scaleAnimator = probe.GetComponent<Animator>() ?? probe.AddComponent<Animator>();
+                scaleAnimator.avatar = avatar;
+                scaleAnimator.runtimeAnimatorController = null;
+                scaleAnimator.enabled = true;
+                scaleAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                scaleAnimator.Rebind();
+                scaleAnimator.Update(0f);
+
+                humanScale = scaleAnimator.humanScale;
+                if (float.IsNaN(humanScale) || float.IsInfinity(humanScale) || humanScale <= 1e-6f)
+                {
+                    error = "Humanoid scale probe returned an invalid value.";
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = $"Resolve humanoid scale failed: {ex.Message}";
+                return false;
+            }
+            finally
+            {
+                if (probe != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(probe);
+                }
+            }
         }
 
         internal static bool ValidateRetargetSkeleton(RetargetSkeleton cache, out string error)

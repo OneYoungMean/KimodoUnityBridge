@@ -2237,8 +2237,11 @@ namespace KimodoBridge.Editor.Tests
                 error);
             try
             {
+                float expectedHumanScale = cache.animator.humanScale;
+                Assert.That(cache.humanScale, Is.EqualTo(expectedHumanScale).Within(1e-6f));
                 BoneSample sample = KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
                 cache.animator.avatar = null;
+                Assert.That(cache.humanScale, Is.EqualTo(expectedHumanScale).Within(1e-6f));
 
                 Assert.That(
                     KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
