@@ -107,10 +107,9 @@ namespace KimodoUnityBridge.Command
                             Optional("name", "string", "Requested safe output animation name."),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
                     CommandDefinition(GenerateAnimationCommand,
-                        "Start asynchronous generation for a character already added to the selected Session. The accepted request is recorded in session.json and must be polled by request_id.",
+                        "Start asynchronous generation for a character in the current Session. The accepted request is recorded in session.json and must be polled by request_id.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Required("character", "string", "Safe character name in the selected Session."),
+                            Required("character", "string", "Safe character name in the current Session."),
                             Required("prompt", "string", "Motion prompt."),
                             Optional("duration_frames", "integer", "Duration in 60 FPS Session frames; defaults to 300."),
                             Optional("loop", "boolean", "Enable bounded loop preprocessing; over-limit requests fall back to normal generation."),
@@ -122,44 +121,37 @@ namespace KimodoUnityBridge.Command
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."),
                             Optional("name", "string", "Requested safe animation name; defaults to the prompt."),
                             Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
-                            OptionalConstraints("constraints", "One sparse constraint object per frame; combine fullbody, root2d, and pose-based hand/foot constraints in the same object."))),
+                            OptionalConstraints("constraints", "Point constraints and continuous root_path constraints for the generated clip."))),
                     CommandDefinition(PoseGetCommand,
-                        "Read a canonical pose from a source locator, creating or reusing a Pose Cache marker. full_data=true returns all muscles and TQ channels.",
+                        "Sample one current-Session clip frame into a new External Pose slot. Returns the only reusable pose identity: {track,index}.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Required("source", "string", "Animation or Pose Cache source name."),
-                            Required("frame", "integer", "Animation-local frame for an animation source, or the returned frame for a Pose Cache source."),
+                            RequiredPoseSource("source"),
                             Optional("full_data", "boolean", "Return all 49 muscles and TQ channels; defaults to false."))),
                     CommandDefinition(PoseContractCommand,
-                        "Align a target Pose end-effector to an origin Pose and create a cached constraint description.",
+                        "Align a target External Pose end-effector to an origin External Pose and create a new External Pose slot.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Required("origin", "object", "Origin Pose locator."),
-                            Required("target", "object", "Target Pose locator."),
+                            RequiredPoseReference("origin"),
+                            RequiredPoseReference("target"),
                             RequiredEnumArray("endeffectors", "End effectors to align.", "left_hand", "right_hand", "left_foot", "right_foot"),
                             RequiredEnumArray("components", "Components to align.", "position", "rotation"),
                             RequiredEnum("mode", "align_target_root", "least_squares_root_fit"))),
                     CommandDefinition(PoseSetRootTransformCommand,
-                        "Modify the root transform of a cached Pose marker.",
+                        "Modify the root transform of an External Pose slot.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Required("pose", "object", "Pose Cache marker locator."),
+                            RequiredPoseReference("pose"),
                             Required("root", "object", "Root position and rotation."))),
                     CommandDefinition(PoseSetMuscleCommand,
-                        "Modify one or more muscles of a cached Pose marker.",
+                        "Modify one or more muscles of an External Pose slot.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Required("pose", "object", "Pose Cache marker locator."),
+                            RequiredPoseReference("pose"),
                             Required("muscles", "object", "Map of muscle channel names to values."))),
                     CommandDefinition(GetGenerationCommand,
                         "Get generation progress and the generated animation safe name.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             Required("request_id", "string", "Request id returned by a generate tool."))),
                     CommandDefinition(CancelGenerationCommand,
                         "Cancel an active Kimodo generation request.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             Required("request_id", "string", "Request id returned by a generate tool."),
                             Optional("reason", "string", "Optional cancellation reason.")))
                 }
@@ -269,7 +261,7 @@ namespace KimodoUnityBridge.Command
                     {
                         "A command may omit session_id only when a current Session exists; otherwise it fails with session_required.",
                         "session_get_or_create is the only command that creates Sessions. New Sessions are empty; add scene content explicitly with session_add.",
-                        "Treat names, request_id, picture paths, and Pose Cache locators as opaque values returned by Kimodo.",
+                        "Treat names, request_id, picture paths, and pose references as opaque values returned by Kimodo.",
                         "Generation is asynchronous: save request_id and poll kimodo_get_generation until completed, failed, or canceled.",
                         "Read session_json_path after Session-changing commands for the complete AI-readable Session state."
                     },
@@ -280,7 +272,7 @@ namespace KimodoUnityBridge.Command
                         Route("add a character, clip, or Animator", SessionAddCommand),
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
                         Route("analyze and render motion", AnimationAnalyzeCommand, "returns one composite picture and self-describing tiles"),
-                        Route("sample or edit a cached pose", PoseGetCommand, "then pose_set_root_transform / pose_set_muscle / pose_contract"),
+                        Route("materialize or edit a pose", PoseGetCommand, "then pose_set_root_transform / pose_set_muscle / pose_contract"),
                         Route("record or retarget", RecordRangeCommand, "or " + RetargetAnimationCommand)
                     },
                     ["handles"] = new JObject
@@ -288,7 +280,7 @@ namespace KimodoUnityBridge.Command
                         ["session_id"] = "Pass to any Session-scoped command; omission selects the current Session.",
                         ["request_id"] = "Pass only to kimodo_get_generation or kimodo_cancel_generation.",
                         ["pictures.image_path"] = "Read the composite PNG returned by animation_analyze.",
-                        ["Pose Cache locator"] = "Pass only to pose_set_root_transform, pose_set_muscle, or pose_contract."
+                        ["pose"] = "A {track,index} reference returned by pose_get or a pose editing command."
                     },
                     ["workflow"] = new JArray
                     {
@@ -322,11 +314,11 @@ namespace KimodoUnityBridge.Command
                     new JObject
                     {
                         ["type"] = "fullbody",
-                        ["description"] = "A complete body pose constraint from a pose locator. It constrains the full-body joints and also includes the root bone position and heading.",
+                        ["description"] = "A complete body pose constraint from a materialized pose. It constrains the full-body joints and also includes the root bone position and heading.",
                         ["shape"] = new JObject
                         {
                             ["frame"] = "Relative frame in the generated clip.",
-                            ["fullbody"] = new JObject { ["pose"] = "{source,frame} pose locator" }
+                            ["fullbody"] = new JObject { ["pose"] = "{track,index}" }
                         }
                     },
                     new JObject
@@ -338,9 +330,25 @@ namespace KimodoUnityBridge.Command
                             ["frame"] = "Relative frame in the generated clip.",
                             ["root2d"] = new JObject
                             {
-                                ["pose"] = "{source,frame} pose locator, or direct position + heading",
+                                ["pose"] = "{track,index}, or direct position + heading",
                                 ["position"] = "[x,z]",
                                 ["heading"] = "[x,z] forward direction"
+                            }
+                        }
+                    },
+                    new JObject
+                    {
+                        ["type"] = "root_path",
+                        ["description"] = "A cubic Bezier root path compiled to per-frame root2d constraints during generation.",
+                        ["shape"] = new JObject
+                        {
+                            ["root_path"] = new JObject
+                            {
+                                ["type"] = "bezier",
+                                ["start_frame"] = "Inclusive relative frame.",
+                                ["end_frame"] = "Inclusive relative frame.",
+                                ["knots"] = "Two or more {frame,position,tangent_in?,tangent_out?} objects.",
+                                ["heading"] = "tangent"
                             }
                         }
                     }
@@ -348,7 +356,8 @@ namespace KimodoUnityBridge.Command
                 ["rules"] = new JArray
                 {
                     "At the same frame, fullbody supplies the base pose, root2d overrides RootTQ, and hand/foot effector channels override their matching protocol fields.",
-                    "Use fullbody for a complete pose and root2d when only the root trajectory or heading should be constrained."
+                    "Use fullbody for a complete pose, root2d for one root sample, and root_path for a continuous Bezier trajectory.",
+                    "An explicit root2d at a frame overrides root_path at that frame."
                 }
             };
         }
@@ -383,7 +392,7 @@ namespace KimodoUnityBridge.Command
         {
             return Execute(argumentsJson, arguments =>
             {
-                TimelineSessionRecord session = RequireTimelineSession(arguments);
+                TimelineSessionRecord session = RequireCurrentTimelineSession();
                 Guid requestId = RequiredRequestId(arguments);
                 if (!TryGetJob(requestId, out JobRecord record))
                 {
@@ -402,7 +411,7 @@ namespace KimodoUnityBridge.Command
         {
             return Execute(argumentsJson, arguments =>
             {
-                TimelineSessionRecord session = RequireTimelineSession(arguments);
+                TimelineSessionRecord session = RequireCurrentTimelineSession();
                 Guid requestId = RequiredRequestId(arguments);
                 if (!TryGetJob(requestId, out JobRecord record))
                 {
@@ -427,7 +436,7 @@ namespace KimodoUnityBridge.Command
             return Execute(argumentsJson, arguments =>
             {
                 EnsureCanGenerate();
-                TimelineSessionRecord session = RequireTimelineSession(arguments);
+                TimelineSessionRecord session = RequireCurrentTimelineSession();
                 string prompt = RequiredStringValue(arguments, "prompt");
                 ResolvedCharacter character = ResolveCharacter(session, RequiredStringValue(arguments, "character"));
                 string outputMode = ParseOutputMode(arguments.Value<string>("output_mode"));
@@ -641,17 +650,39 @@ namespace KimodoUnityBridge.Command
                 // inherit the previous fullbody pose's transient hips height.
                 float targetRootHeight = ResolveTargetRootHeight(targetCache);
 
+                var explicitRootFrames = new HashSet<int>(constraints
+                    .OfType<JObject>()
+                    .Where(item => item["root2d"] is JObject)
+                    .Select(item => RequiredNonNegativeFrame(item, "frame")));
+                var occupiedPathFrames = new HashSet<int>();
+                for (int i = 0; i < constraints.Count; i++)
+                {
+                    if (constraints[i] is JObject item && item["root_path"] is JObject rootPath)
+                    {
+                        samples.AddRange(BuildRootPathConstraints(
+                            rootPath,
+                            i,
+                            durationFrames,
+                            targetRootHeight,
+                            explicitRootFrames,
+                            occupiedPathFrames));
+                    }
+                }
+
                 for (int i = 0; i < constraints.Count; i++)
                 {
                     if (constraints[i] is not JObject constraint)
                     {
                         throw new InvalidOperationException($"constraints[{i}] must be an object.");
                     }
-                    if (constraint["type"] != null || constraint["pose"] != null ||
-                        constraint["position"] != null || constraint["heading"] != null)
+                    if (constraint["root_path"] is JObject)
                     {
-                        throw new InvalidOperationException(
-                            $"constraints[{i}] uses the removed legacy shape; use fullbody, root2d, or end-effector fields.");
+                        if (constraint.Properties().Count() != 1)
+                        {
+                            throw new InvalidOperationException(
+                                $"constraints[{i}] root_path cannot be combined with point constraint fields.");
+                        }
+                        continue;
                     }
                     int relativeFrame = RequiredNonNegativeFrame(constraint, "frame");
                     if (relativeFrame >= durationFrames)
@@ -704,6 +735,157 @@ namespace KimodoUnityBridge.Command
             return samples;
         }
 
+        private static IEnumerable<KimodoMarkerSampleResult> BuildRootPathConstraints(
+            JObject value,
+            int constraintIndex,
+            int durationFrames,
+            float targetRootHeight,
+            ISet<int> explicitRootFrames,
+            ISet<int> occupiedPathFrames)
+        {
+            string type = RequiredStringValue(value, "type").Trim().ToLowerInvariant();
+            if (type != "bezier")
+            {
+                throw new InvalidOperationException($"constraints[{constraintIndex}].root_path.type must be bezier.");
+            }
+            string heading = (value.Value<string>("heading") ?? "tangent").Trim().ToLowerInvariant();
+            if (heading != "tangent")
+            {
+                throw new InvalidOperationException($"constraints[{constraintIndex}].root_path.heading must be tangent.");
+            }
+            int startFrame = RequiredNonNegativeFrame(value, "start_frame");
+            int endFrame = RequiredNonNegativeFrame(value, "end_frame");
+            if (startFrame >= endFrame || endFrame >= durationFrames)
+            {
+                throw new InvalidOperationException(
+                    $"constraints[{constraintIndex}].root_path must satisfy 0 <= start_frame < end_frame < duration_frames.");
+            }
+            if (value["knots"] is not JArray knotValues || knotValues.Count < 2)
+            {
+                throw new InvalidOperationException($"constraints[{constraintIndex}].root_path.knots requires at least two knots.");
+            }
+
+            var knots = new List<RootPathKnot>(knotValues.Count);
+            for (int i = 0; i < knotValues.Count; i++)
+            {
+                if (knotValues[i] is not JObject knot)
+                {
+                    throw new InvalidOperationException($"constraints[{constraintIndex}].root_path.knots[{i}] must be an object.");
+                }
+                int frame = RequiredNonNegativeFrame(knot, "frame");
+                if (frame < startFrame || frame > endFrame ||
+                    (knots.Count > 0 && frame <= knots[knots.Count - 1].Frame))
+                {
+                    throw new InvalidOperationException(
+                        $"constraints[{constraintIndex}].root_path knot frames must be strictly increasing inside the path range.");
+                }
+                knots.Add(new RootPathKnot(
+                    frame,
+                    RequiredVector2(knot, "position"),
+                    OptionalVector2(knot, "tangent_in"),
+                    OptionalVector2(knot, "tangent_out")));
+            }
+            if (knots[0].Frame != startFrame || knots[knots.Count - 1].Frame != endFrame)
+            {
+                throw new InvalidOperationException(
+                    $"constraints[{constraintIndex}].root_path first and last knot frames must match start_frame and end_frame.");
+            }
+            for (int frame = startFrame; frame <= endFrame; frame++)
+            {
+                if (!occupiedPathFrames.Add(frame))
+                {
+                    throw new InvalidOperationException("root_path frame ranges cannot overlap.");
+                }
+            }
+
+            var result = new List<KimodoMarkerSampleResult>(endFrame - startFrame + 1);
+            int segment = 0;
+            for (int frame = startFrame; frame <= endFrame; frame++)
+            {
+                while (segment < knots.Count - 2 && frame > knots[segment + 1].Frame) segment++;
+                RootPathKnot first = knots[segment];
+                RootPathKnot second = knots[segment + 1];
+                float t = Mathf.InverseLerp(first.Frame, second.Frame, frame);
+                Vector2 chord = second.Position - first.Position;
+                Vector2 p0 = first.Position;
+                Vector2 p1 = p0 + (first.TangentOut ?? chord / 3f);
+                Vector2 p3 = second.Position;
+                Vector2 p2 = p3 + (second.TangentIn ?? -chord / 3f);
+                Vector2 position = EvaluateBezier(p0, p1, p2, p3, t);
+                Vector2 tangent = EvaluateBezierTangent(p0, p1, p2, p3, t);
+                if (tangent.sqrMagnitude <= 1e-8f) tangent = chord;
+                if (tangent.sqrMagnitude <= 1e-8f)
+                {
+                    throw new InvalidOperationException(
+                        $"constraints[{constraintIndex}].root_path has a zero heading at frame {frame}.");
+                }
+                if (!explicitRootFrames.Contains(frame))
+                {
+                    result.Add(CreateRoot2DSample(
+                        frame,
+                        new Vector3(position.x, targetRootHeight, position.y),
+                        new Vector3(tangent.x, 0f, tangent.y).normalized));
+                }
+            }
+            return result;
+        }
+
+        private static KimodoMarkerSampleResult CreateRoot2DSample(
+            int frame,
+            Vector3 position,
+            Vector3 heading)
+        {
+            return new KimodoMarkerSampleResult
+            {
+                constraintMode = "root2d",
+                sampleTime = frame / SessionFrameRate,
+                root2DOverride = new KimodoRigidTransform
+                {
+                    t = position,
+                    q = Quaternion.LookRotation(heading, Vector3.up)
+                },
+                enableMask = new KimodoConstraintMask { rootPosition = true, rootHeading = true },
+                validMask = new KimodoConstraintMask { rootPosition = true, rootHeading = true }
+            };
+        }
+
+        private static Vector2 EvaluateBezier(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
+        {
+            float oneMinus = 1f - t;
+            return oneMinus * oneMinus * oneMinus * p0 +
+                3f * oneMinus * oneMinus * t * p1 +
+                3f * oneMinus * t * t * p2 +
+                t * t * t * p3;
+        }
+
+        private static Vector2 EvaluateBezierTangent(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
+        {
+            float oneMinus = 1f - t;
+            return 3f * oneMinus * oneMinus * (p1 - p0) +
+                6f * oneMinus * t * (p2 - p1) +
+                3f * t * t * (p3 - p2);
+        }
+
+        private static Vector2? OptionalVector2(JObject value, string name)
+        {
+            return value?[name] == null ? null : RequiredVector2(value, name);
+        }
+
+        private readonly struct RootPathKnot
+        {
+            public RootPathKnot(int frame, Vector2 position, Vector2? tangentIn, Vector2? tangentOut)
+            {
+                Frame = frame;
+                Position = position;
+                TangentIn = tangentIn;
+                TangentOut = tangentOut;
+            }
+            public int Frame { get; }
+            public Vector2 Position { get; }
+            public Vector2? TangentIn { get; }
+            public Vector2? TangentOut { get; }
+        }
+
         private static KimodoMarkerSampleResult BuildRoot2DConstraint(
             JObject value,
             float targetRootHeight,
@@ -711,8 +893,8 @@ namespace KimodoUnityBridge.Command
             int constraintIndex)
         {
             KimodoMarkerSampleResult poseSample = value?["pose"] is JObject locator
-                ? ReadSampleResult(
-                    RequirePoseLocator(locator),
+                ? ReadPoseSample(
+                    RequirePoseReference(locator),
                     $"constraints[{constraintIndex}].root2d")
                 : null;
             Vector3 rootPosition = Vector3.zero;
@@ -780,12 +962,12 @@ namespace KimodoUnityBridge.Command
             double sampleTime,
             int constraintIndex)
         {
-            if (value?["pose"] is not JObject poseLocator)
+            if (value?["pose"] is not JObject poseReference)
             {
                 throw new InvalidOperationException($"constraints[{constraintIndex}].{constraintType.Replace('-', '_')}.pose is required.");
             }
-            KimodoMarkerSampleResult sourceResult = ReadSampleResult(
-                RequirePoseLocator(poseLocator),
+            KimodoMarkerSampleResult sourceResult = ReadPoseSample(
+                RequirePoseReference(poseReference),
                 $"constraints[{constraintIndex}].{constraintType.Replace('-', '_')}");
             if (sourceResult.sampleData == null || !sourceResult.sampleData.IsValid)
             {
@@ -1672,17 +1854,7 @@ namespace KimodoUnityBridge.Command
 
         private static PropertyDefinition OptionalConstraints(string name, string description)
         {
-            var poseLocator = new JObject
-            {
-                ["type"] = "object",
-                ["additionalProperties"] = false,
-                ["properties"] = new JObject
-                {
-                    ["source"] = new JObject { ["type"] = "string" },
-                    ["frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 }
-                },
-                ["required"] = new JArray("source", "frame")
-            };
+            JObject poseReference = PoseReferenceSchema();
             var vector2 = new JObject
             {
                 ["type"] = "array",
@@ -1694,7 +1866,7 @@ namespace KimodoUnityBridge.Command
             {
                 ["type"] = "object",
                 ["additionalProperties"] = false,
-                ["properties"] = new JObject { ["pose"] = poseLocator.DeepClone() },
+                ["properties"] = new JObject { ["pose"] = poseReference.DeepClone() },
                 ["required"] = new JArray("pose")
             };
             var root2D = new JObject
@@ -1703,7 +1875,7 @@ namespace KimodoUnityBridge.Command
                 ["additionalProperties"] = false,
                 ["properties"] = new JObject
                 {
-                    ["pose"] = poseLocator.DeepClone(),
+                    ["pose"] = poseReference.DeepClone(),
                     ["position"] = vector2.DeepClone(),
                     ["heading"] = vector2.DeepClone()
                 },
@@ -1715,7 +1887,7 @@ namespace KimodoUnityBridge.Command
             {
                 ["type"] = "object",
                 ["additionalProperties"] = false,
-                ["properties"] = new JObject { ["pose"] = poseLocator.DeepClone() },
+                ["properties"] = new JObject { ["pose"] = poseReference.DeepClone() },
                 ["required"] = new JArray("pose")
             };
             var sparseItem = new JObject
@@ -1741,48 +1913,95 @@ namespace KimodoUnityBridge.Command
                     new JObject { ["required"] = new JArray("left_foot") },
                     new JObject { ["required"] = new JArray("right_foot") })
             };
-            return new PropertyDefinition(name, new JObject
+            var knot = new JObject
             {
-                ["type"] = "array",
-                ["description"] = description,
-                ["items"] = sparseItem
-            }, false);
-        }
-
-        private static PropertyDefinition OptionalPoseLocators(string name, string description)
-        {
-            return new PropertyDefinition(name, new JObject
-            {
-                ["type"] = "array",
-                ["description"] = description,
-                ["items"] = new JObject
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
                 {
-                    ["type"] = "object",
-                    ["additionalProperties"] = false,
-                    ["properties"] = new JObject
+                    ["frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 },
+                    ["position"] = vector2.DeepClone(),
+                    ["tangent_in"] = vector2.DeepClone(),
+                    ["tangent_out"] = vector2.DeepClone()
+                },
+                ["required"] = new JArray("frame", "position")
+            };
+            var rootPathItem = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["root_path"] = new JObject
                     {
-                        ["source"] = new JObject { ["type"] = "string" },
-                        ["frame"] = new JObject { ["type"] = "integer" }
-                    },
-                    ["required"] = new JArray("source", "frame")
-                }
+                        ["type"] = "object",
+                        ["additionalProperties"] = false,
+                        ["properties"] = new JObject
+                        {
+                            ["type"] = new JObject { ["type"] = "string", ["enum"] = new JArray("bezier") },
+                            ["start_frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 },
+                            ["end_frame"] = new JObject { ["type"] = "integer", ["minimum"] = 1 },
+                            ["knots"] = new JObject
+                            {
+                                ["type"] = "array",
+                                ["minItems"] = 2,
+                                ["items"] = knot
+                            },
+                            ["heading"] = new JObject
+                            {
+                                ["type"] = "string",
+                                ["enum"] = new JArray("tangent"),
+                                ["default"] = "tangent"
+                            }
+                        },
+                        ["required"] = new JArray("type", "start_frame", "end_frame", "knots")
+                    }
+                },
+                ["required"] = new JArray("root_path")
+            };
+            return new PropertyDefinition(name, new JObject
+            {
+                ["type"] = "array",
+                ["description"] = description,
+                ["items"] = new JObject { ["oneOf"] = new JArray(sparseItem, rootPathItem) }
             }, false);
         }
 
-        private static PropertyDefinition RequiredPoseLocator(string name)
+        private static PropertyDefinition RequiredPoseSource(string name)
         {
             return new PropertyDefinition(name, new JObject
             {
                 ["type"] = "object",
-                ["description"] = "Pose locator at fixed 60 FPS.",
                 ["additionalProperties"] = false,
                 ["properties"] = new JObject
                 {
-                    ["source"] = new JObject { ["type"] = "string" },
+                    ["character"] = new JObject { ["type"] = "string" },
+                    ["clip"] = new JObject { ["type"] = "string" },
                     ["frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 }
                 },
-                ["required"] = new JArray("source", "frame")
+                ["required"] = new JArray("character", "clip", "frame")
             }, true);
+        }
+
+        private static PropertyDefinition RequiredPoseReference(string name)
+        {
+            return new PropertyDefinition(name, PoseReferenceSchema(), true);
+        }
+
+        private static JObject PoseReferenceSchema()
+        {
+            return new JObject
+            {
+                ["type"] = "object",
+                ["description"] = "External Pose slot in the current Session.",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["track"] = new JObject { ["type"] = "string" },
+                    ["index"] = new JObject { ["type"] = "integer", ["minimum"] = 0 }
+                },
+                ["required"] = new JArray("track", "index")
+            };
         }
 
         private static PropertyDefinition RequiredSamples(string name)

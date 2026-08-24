@@ -271,8 +271,7 @@ namespace KimodoUnityBridge.Command
                         {
                             ["character"] = character.Name,
                             ["track"] = character.PoseCacheTrack.name,
-                            ["marker_id"] = marker.name ?? string.Empty,
-                            ["frame"] = Mathf.RoundToInt((float)(marker.time * SessionFrameRate)),
+                            ["index"] = Mathf.RoundToInt((float)(marker.time * SessionFrameRate)),
                             ["marker_type"] = marker.ConstraintType,
                             ["sample_result"] = SampleResultJson(marker.SampleData)
                         });

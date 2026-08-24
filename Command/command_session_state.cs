@@ -997,12 +997,11 @@ namespace KimodoUnityBridge.Command
                             analysis = BuildMeshAnalysis(animation);
                             analysisMotionBytes = null;
                         }
-                        JArray poses = BuildAnalysisPoses(character, startFrame, endFrame, analysis, animation.Name, startFrame);
-                        NormalizeAnalysisContract(analysis, poses);
+                        NormalizeAnalysisContract(analysis, startFrame, endFrame);
                         if (!IsHumanoidCharacter(character)) analysis["source"] = "mesh_only_pose_sampling";
                         string id = CacheAnalysisResult(
                             session, character, startFrame / SessionFrameRate, endFrame / SessionFrameRate,
-                            poses, analysis, analysisMotionBytes, animation, inputSignature);
+                            new JArray(), analysis, analysisMotionBytes, animation, inputSignature);
                         record = GetCachedAnalysis(session, id);
                     }
                     subjects.Add(new AnalysisSubject(role, character, animation, record, startFrame, endFrame));
@@ -1052,15 +1051,10 @@ namespace KimodoUnityBridge.Command
             return resolution;
         }
 
-        private static JArray BuildAnalysisPoses(
-            TimelineCharacterRecord character,
-            int startFrame,
-            int endFrame,
-            JObject analysis,
-            string source,
-            int sourceStartFrame)
+        private static void NormalizeAnalysisContract(JObject analysis, int startFrame, int endFrame)
         {
-            var poses = new JArray();
+            analysis ??= new JObject();
+            var keyframes = new JArray();
             foreach (JObject keyframe in (analysis?["keyframes"] as JArray ?? new JArray()).OfType<JObject>())
             {
                 // QuickServer analysis is always relative to the requested
@@ -1072,25 +1066,8 @@ namespace KimodoUnityBridge.Command
                 JObject annotation = (JObject)keyframe.DeepClone();
                 annotation.Remove("time");
                 annotation.Remove("session_time");
-                annotation["frame"] = frame;
-                poses.Add(new JObject
-                {
-                    ["pose"] = new JObject { ["source"] = source, ["frame"] = frame - sourceStartFrame },
-                    ["analysis"] = annotation
-                });
-            }
-            return poses;
-        }
-
-        private static void NormalizeAnalysisContract(JObject analysis, JArray poses)
-        {
-            analysis ??= new JObject();
-            var keyframes = new JArray();
-            foreach (JObject item in (poses ?? new JArray()).OfType<JObject>())
-            {
-                JObject keyframe = item["analysis"] is JObject details ? (JObject)details.DeepClone() : new JObject();
-                keyframe["frame"] = item["pose"]?.Value<int?>("frame") ?? 0;
-                keyframes.Add(keyframe);
+                annotation["frame"] = frame - startFrame;
+                keyframes.Add(annotation);
             }
             JArray contacts = analysis["foot_contacts"] as JArray
                 ?? analysis["foot_contact_changes"] as JArray
@@ -1607,7 +1584,7 @@ namespace KimodoUnityBridge.Command
             }
             else
             {
-                result["pose"] = PoseLocatorJson(marker.name, globalFrame);
+                result["sample_result"] = SampleResultJson(marker.SampleData);
             }
             return result;
         }
