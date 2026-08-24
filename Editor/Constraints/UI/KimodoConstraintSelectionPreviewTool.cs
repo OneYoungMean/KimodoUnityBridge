@@ -221,6 +221,7 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < selected.Length; i++)
             {
                 if (selected[i] is KimodoConstraintMarker marker &&
+                    !marker.IsExternal &&
                     seen.Add(marker.GetInstanceID()))
                 {
                     result.Add(marker);

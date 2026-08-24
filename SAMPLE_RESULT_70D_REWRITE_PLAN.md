@@ -178,6 +178,10 @@ Get-Content SAMPLE_RESULT_70D_REWRITE_CHECKPOINTS.md -Tail 120
 
 - PoseGet → 读取 → 编辑 → 再读取数据一致。
 - 所有 effector mask 关闭时基础姿势不变。
+
+### 实施状态（CP92）
+
+CP87–CP92 已完成：External Marker 类型、PoseGet 直接 SampleResult、读取/编辑/Contract、分析与预览消费端迁移、普通 Constraint 过滤以及独立 Unity package probe 编译验证均已落地。`CharacterPose` 仅保留在旧 Command JSON/HumanPose 适配边界；没有创建或复用 `KimodoAnalysisKeyframeMarker` 作为姿势容器。当前未创建 Git commit，以保留仓库中用户已有的未提交修改。
 - Root2D 修改只影响 `rootOverride`，不改 RootTQ/FootTQ。
 - FootTQ 在 PoseGet 及 Marker 重载前后保持 canonical body-relative 语义。
 - external Marker 不进入普通 Constraint Preview/Bake/Export。

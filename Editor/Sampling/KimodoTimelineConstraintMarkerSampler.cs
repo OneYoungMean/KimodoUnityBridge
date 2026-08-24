@@ -1020,7 +1020,7 @@ namespace KimodoBridge.Editor
             {
                 if (marker is KimodoConstraintMarker kimodoMarker)
                 {
-                    if (!kimodoMarker.constraintEnabled)
+                    if (!kimodoMarker.constraintEnabled || kimodoMarker.IsExternal)
                     {
                         continue;
                     }

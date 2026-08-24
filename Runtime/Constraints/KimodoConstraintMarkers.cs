@@ -43,6 +43,12 @@ namespace KimodoBridge
         Mix = 3
     }
 
+    public enum KimodoConstraintMarkerType
+    {
+        Constraint = 0,
+        External = 1
+    }
+
     [Serializable]
     public class KimodoConstraintEffectors
     {

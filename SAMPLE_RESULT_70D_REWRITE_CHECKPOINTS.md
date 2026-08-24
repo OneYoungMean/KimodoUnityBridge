@@ -696,3 +696,40 @@
 - 目标语义：增加独立的 Marker 类型 `external`。External Marker 可持久化、读取、编辑，但默认不参与 Constraint 求解、Preview、Bake 和 Export。
 - 当前代码状态：本 checkpoint 只记录行为和计划，未修改运行时代码；仓库已有未提交修改，后续必须保留。
 - 下一步：CP88 只改 Marker 类型边界和 PoseGet 的直接 SampleResult 创建，先不删除 CharacterPose 兼容文件。
+
+## CP88 — External Marker 类型与 PoseGet 直接采样
+
+- 已新增：`KimodoConstraintMarkerType.Constraint/External`，`KimodoConstraintMarker.ConstraintType` 持久化返回 `constraint/external`；`constraintMode` 仍只表示 `root2d/fullbody/effector/mix`。
+- 已新增：`KimodoConstraintMarker.IsExternal` 与 `ConstraintPreviewEnabled` 隔离语义；External 默认关闭 Constraint 预览。
+- 已改造：`PoseGet` 直接从动画/约束 Marker 读取或捕获 `KimodoMarkerSampleResult`，写入 `PoseCacheTrack` 的 External Marker；稳定 locator 重复 Get 时更新同一 Marker。
+- 已保持：`sampleData` 的 canonical RootTQ/FootTQ 不再经过 CharacterPose world-foot 覆盖；`CaptureWorldTargets` 单独填充 world-space root/effectors。
+- 检查：独立 Unity package probe 首轮编译通过，日志：`C:\tmp\kimodo-compile-external-pose-marker-cp88-probe.log`。
+
+## CP89 — SampleResult 读取、编辑与 Contract
+
+- 已改造：`ReadSampleResult` 成为 PoseGet/PoseSet/PoseContract 的主读取入口；`PoseSetRootTransform` 直接写 `rootOverride`/mask，`PoseSetMuscle` 直接写 canonical 70D body channel。
+- 已改造：`PoseContract` 直接读写 `SampleResult.effectors` 与 root，保持 effector world-space 语义；不再通过 CharacterPose 做中间转换。
+- 已修正：Profile pose constraint 直接消费 source `sampleData`，保留 retarget 生成的 body-relative FootTQ，消除旧 CharacterPose 折叠路径。
+- 已补充：session JSON 为 PoseCache marker 记录 `sample_result` 原始 70D/mask/effectors/root 数据，同时保留旧 `data` JSON 投影作为兼容输出。
+- 已过滤：Timeline marker collector 跳过 External，避免进入普通 Constraint sampling。
+- 检查：独立 Unity package probe 编译通过，日志：`C:\tmp\kimodo-compile-external-pose-marker-cp89-probe2.log`。
+
+## CP90 — CharacterPose 主链路隔离
+
+- 已改造：分析图片采样、测试姿势快照、预览和 `AnimationCompare` 直接使用 `KimodoMarkerSampleResult`/`MuscleSample`，不再生成 CharacterPose 数组再回写 SampleResult。
+- 已改造：Preview 的 HumanPose API 边界直接调用 `KimodoMuscleSampleHumanPoseAdapter`；CharacterPose 只留在旧 Command JSON 输出/输入适配边界。
+- 已删除：`CharacterPose.muscleSample` 非序列化重复缓存及其适配器写入。
+- 已过滤：被直接选中的 External Marker 不加入普通 Constraint selection preview；External 仍可由 PoseGet/Read/Edit locator 访问。
+
+## CP91 — 消费端与 External 隔离
+
+- 已确认：普通 Constraint 采样入口 `KimodoTimelineConstraintMarkerSampler.CollectMarkersForClip`、Selection Preview 和 Playable Clip references 都通过统一 collector，External 不会进入这些集合。
+- 已确认：PoseCacheTrack 只作为 External 的持久化/编辑轨道，不被 generation trace 的 character Track collector 扫描。
+- 已保持：显式把 External SampleResult 复制到 character Track 后，仍可按普通 Constraint 进入求解；没有隐式 External→Constraint 转换。
+
+## CP92 — 回归与验证
+
+- 已检查：`git diff --check` 通过（仅保留 Git 的 LF/CRLF 提示）。
+- 已检查：Unity 2022.3.62f3c1 独立临时工程脚本编译通过，无 `error CS`/`Compilation failed`；日志：`C:\tmp\kimodo-compile-external-pose-marker-cp92-probe4.log`。
+- 已保留：`C:\tuanjie\Example` 未强行启动/关闭 Unity；该工程仍受已有 `Library/ArtifactDB` 实例锁影响，未把锁等待误判为代码编译结果。
+- 未执行：没有提交 Git commit，避免覆盖仓库中用户已有的未提交修改；如需按阶段提交，需单独指定提交范围。

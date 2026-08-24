@@ -348,21 +348,16 @@ namespace KimodoUnityBridge.Command
             bool hasPoseBounds = false;
             double originalTime = session.Director.time;
             GameObject posePreview = null;
-            CharacterPose[] poses;
+            KimodoMarkerSampleResult[] samples;
             try
             {
-                poses = CaptureCharacterPoses(subject.Character, subject.StartFrame, frameCount);
+                samples = CaptureSampleResults(subject.Character, subject.StartFrame, frameCount);
                 posePreview = CreateCanonicalPosePreview(subject.Character);
                 Animator poseAnimator = posePreview.GetComponentInChildren<Animator>(true)
                     ?? throw new InvalidOperationException($"Character '{subject.Character.Name}' pose preview has no Animator.");
                 for (int localFrame = 0; localFrame < frameCount; localFrame++)
                 {
-                    CharacterPose pose = poses[localFrame];
-                    var sample = new KimodoMarkerSampleResult
-                    {
-                        sampleTime = (subject.StartFrame + localFrame) / SessionFrameRate
-                    };
-                    SetCanonicalPose(sample, pose, subject.Character);
+                    KimodoMarkerSampleResult sample = samples[localFrame];
                     ApplyCanonicalPoseToPreview(posePreview, subject.Character, sample);
 
                     Transform hips = poseAnimator.GetBoneTransform(HumanBodyBones.Hips);
@@ -430,7 +425,7 @@ namespace KimodoUnityBridge.Command
             foreach (Vector3 point in pelvis) testBounds.Encapsulate(point);
             return new SubjectPictureData(
                 subject,
-                poses,
+                samples,
                 pelvis,
                 leftHand,
                 rightHand,
@@ -874,11 +869,12 @@ namespace KimodoUnityBridge.Command
                 tile.Subject.RightKnee[frame],
                 tile.Subject.Head[frame]
             };
-            CharacterPose sampledPose = tile.Subject.GetPose(frame);
+            KimodoMarkerSampleResult sampledSample = tile.Subject.GetSample(frame);
+            sampledSample.sampleData.GetRoot(out _, out Quaternion sampledRootRotation);
             viewPoints = ExpandPosePointsAwayFromHipsInCameraSpace(
                 viewPoints,
                 tile.Direction,
-                sampledPose.root.q * Vector3.forward);
+                sampledRootRotation * Vector3.forward);
             CalculateTestViewExtents(viewPoints, tile.Direction, out _, out float horizontal, out float vertical, out _);
             float aspect = horizontal / Mathf.Max(.0001f, vertical);
             int sourceHeight = TestPoseSupersampleHeight;
@@ -1041,12 +1037,7 @@ namespace KimodoUnityBridge.Command
             {
                 foreach (int frame in frames.Distinct().OrderBy(item => item))
                 {
-                    CharacterPose pose = subject.GetPose(frame);
-                    var sample = new KimodoMarkerSampleResult
-                    {
-                        sampleTime = (subject.Subject.StartFrame + frame) / SessionFrameRate
-                    };
-                    SetCanonicalPose(sample, pose, subject.Subject.Character);
+                    KimodoMarkerSampleResult sample = subject.GetSample(frame);
                     ApplyCanonicalPoseToPreview(source, subject.Subject.Character, sample);
                     snapshots[frame] = TestPoseSnapshot.Capture(source);
                 }
@@ -1119,9 +1110,7 @@ namespace KimodoUnityBridge.Command
         {
             TimelineCharacterRecord character = subject.Subject.Character;
             GameObject preview = CreateCanonicalPosePreview(character);
-            CharacterPose pose = subject.GetPose(localFrame);
-            var sample = new KimodoMarkerSampleResult { sampleTime = (subject.Subject.StartFrame + localFrame) / SessionFrameRate };
-            SetCanonicalPose(sample, pose, character);
+            KimodoMarkerSampleResult sample = subject.GetSample(localFrame);
             ApplyCanonicalPoseToPreview(preview, character, sample);
             return preview;
         }
@@ -1157,11 +1146,10 @@ namespace KimodoUnityBridge.Command
             TimelineCharacterRecord character,
             KimodoMarkerSampleResult sample)
         {
-            if (!KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose canonicalPose, out _) ||
-                !canonicalPose.TryValidate(out _)) return;
+            if (sample?.sampleData == null || !sample.sampleData.IsValid) return;
             Animator animator = preview.GetComponentInChildren<Animator>(true);
             if (animator == null || !KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar)) return;
-            HumanPose pose = CharacterPoseMuscleAdapter.ToBodyMuscleSample(canonicalPose).pose;
+            HumanPose pose = KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(sample.sampleData);
             using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
             {
                 handler.SetHumanPose(ref pose);
@@ -1886,12 +1874,11 @@ namespace KimodoUnityBridge.Command
             Animator animator = preview.GetComponentInChildren<Animator>(true)
                 ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
             animator.runtimeAnimatorController = null;
-            bool hasPose = KimodoSampleResultPoseUtility.TryDecode(sample, out CharacterPose canonicalPose, out _) &&
-                canonicalPose.TryValidate(out _);
+            bool hasPose = sample?.sampleData != null && sample.sampleData.IsValid;
             bool hasRoot2D = TryGetRoot2DWorld(sample, out Vector3 position, out Quaternion rotation);
             if (!root2DOnly && hasPose)
             {
-                HumanPose pose = CharacterPoseMuscleAdapter.ToBodyMuscleSample(canonicalPose).pose;
+                HumanPose pose = KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(sample.sampleData);
                 using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
                 {
                     handler.SetHumanPose(ref pose);
@@ -2252,7 +2239,7 @@ namespace KimodoUnityBridge.Command
         {
             public SubjectPictureData(
                 AnalysisSubject subject,
-                CharacterPose[] poses,
+                KimodoMarkerSampleResult[] samples,
                 Vector3[] pelvis,
                 Vector3[] leftHand,
                 Vector3[] rightHand,
@@ -2271,7 +2258,7 @@ namespace KimodoUnityBridge.Command
                 Bounds testBounds)
             {
                 Subject = subject;
-                Poses = poses;
+                Samples = samples;
                 Pelvis = pelvis;
                 LeftHand = leftHand;
                 RightHand = rightHand;
@@ -2293,7 +2280,7 @@ namespace KimodoUnityBridge.Command
                     .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, Math.Max(0, pelvis.Length - 1))));
             }
             public AnalysisSubject Subject { get; }
-            public CharacterPose[] Poses { get; }
+            public KimodoMarkerSampleResult[] Samples { get; }
             public Vector3[] Pelvis { get; }
             public Vector3[] LeftHand { get; }
             public Vector3[] RightHand { get; }
@@ -2312,13 +2299,13 @@ namespace KimodoUnityBridge.Command
             public Bounds TestBounds { get; }
             public HashSet<int> KeyFrameSet { get; }
 
-            public CharacterPose GetPose(int localFrame)
+            public KimodoMarkerSampleResult GetSample(int localFrame)
             {
-                if (Poses == null || Poses.Length == 0)
+                if (Samples == null || Samples.Length == 0)
                 {
                     throw new InvalidOperationException($"Character '{Subject.Character.Name}' has no sampled poses.");
                 }
-                return Poses[Mathf.Clamp(localFrame, 0, Poses.Length - 1)];
+                return Samples[Mathf.Clamp(localFrame, 0, Samples.Length - 1)];
             }
         }
 

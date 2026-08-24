@@ -682,7 +682,7 @@ namespace KimodoUnityBridge.Command
                     }
                     if (root2D != null)
                     {
-                        samples.Add(BuildRoot2DConstraint(root2D, targetRootHeight, targetCache, at, i));
+                        samples.Add(BuildRoot2DConstraint(root2D, targetRootHeight, at, i));
                     }
 
                     for (int part = 0; part < endEffectors.Length; part++)
@@ -708,13 +708,20 @@ namespace KimodoUnityBridge.Command
         private static KimodoMarkerSampleResult BuildRoot2DConstraint(
             JObject value,
             float targetRootHeight,
-            RetargetSkeleton targetCache,
             double sampleTime,
             int constraintIndex)
         {
-            CharacterPose pose = value?["pose"] is JObject locator
-                ? ReadCharacterPose(locator, $"constraints[{constraintIndex}].root2d")
-                : new CharacterPose();
+            KimodoMarkerSampleResult poseSample = value?["pose"] is JObject locator
+                ? ReadSampleResult(
+                    RequirePoseLocator(locator),
+                    $"constraints[{constraintIndex}].root2d")
+                : null;
+            Vector3 rootPosition = Vector3.zero;
+            Quaternion rootRotation = Quaternion.identity;
+            if (poseSample != null)
+            {
+                GetRootTransform(poseSample, out rootPosition, out rootRotation);
+            }
             bool hasPosition = value?["position"] != null;
             bool hasHeading = value?["heading"] != null;
             bool hasRootPose = value?["pose"] is JObject;
@@ -730,8 +737,8 @@ namespace KimodoUnityBridge.Command
                 {
                     throw new InvalidOperationException($"constraints[{constraintIndex}].root2d.heading must be non-zero.");
                 }
-                pose.root.t = new Vector3(position.x, targetRootHeight, position.y);
-                pose.root.q = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up);
+                rootPosition = new Vector3(position.x, targetRootHeight, position.y);
+                rootRotation = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up);
             }
             else if (value?["pose"] == null)
             {
@@ -744,8 +751,8 @@ namespace KimodoUnityBridge.Command
                 sampleTime = sampleTime,
                 root2DOverride = new KimodoRigidTransform
                 {
-                    t = pose.root.t,
-                    q = pose.root.q
+                    t = rootPosition,
+                    q = rootRotation
                 },
                 enableMask = new KimodoConstraintMask
                 {
@@ -774,9 +781,18 @@ namespace KimodoUnityBridge.Command
             double sampleTime,
             int constraintIndex)
         {
-            CharacterPose sourcePose = ReadCharacterPose(value?["pose"] as JObject,
+            if (value?["pose"] is not JObject poseLocator)
+            {
+                throw new InvalidOperationException($"constraints[{constraintIndex}].{constraintType.Replace('-', '_')}.pose is required.");
+            }
+            KimodoMarkerSampleResult sourceResult = ReadSampleResult(
+                RequirePoseLocator(poseLocator),
                 $"constraints[{constraintIndex}].{constraintType.Replace('-', '_')}");
-            MuscleSample sourceSample = CharacterPoseMuscleAdapter.ToBodyMuscleSample(sourcePose);
+            if (sourceResult.sampleData == null || !sourceResult.sampleData.IsValid)
+            {
+                throw new InvalidOperationException($"constraints[{constraintIndex}] pose has no valid 70-value sampleData payload.");
+            }
+            MuscleSample sourceSample = sourceResult.sampleData.Clone();
             if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
                     sourceSample, frameRate, targetCache,
                     out BoneSample boneSample, out MuscleSample targetMuscleSample, out string retargetError))
@@ -795,9 +811,9 @@ namespace KimodoUnityBridge.Command
                 constraintType, "fullbody", StringComparison.OrdinalIgnoreCase);
             converted.constraintMode = fullBodyConstraint ? "fullbody" : "effector";
             // Retarget sampling already returned the canonical 70D payload,
-            // including the evaluated body-relative footTQ channels. Do not
-            // round-trip through CharacterPose, whose cached foot fields are
-            // scene/world values and would overwrite footTQ.
+            // including the evaluated body-relative footTQ channels. Keep it
+            // intact; effector transport remains a separate SampleResult
+            // channel.
             converted.sampleData = targetMuscleSample?.Clone() ?? new MuscleSample();
             converted.enableMask ??= new KimodoConstraintMask();
             converted.enableMask.muscle = true;
@@ -822,18 +838,6 @@ namespace KimodoUnityBridge.Command
             converted.validMask.rightFoot &= rightFootConstraint;
             converted.sampleTime = sampleTime;
             return converted;
-        }
-
-        private static CharacterPose ReadCharacterPose(JObject value, string path)
-        {
-            if (value == null)
-            {
-                throw new InvalidOperationException($"{path}.pose is required.");
-            }
-            PoseLocator locator = RequirePoseLocator(value);
-            JObject poseResult = ReadPose(locator);
-            return CharacterPoseJson.Parse(poseResult["data"] as JObject
-                ?? throw new InvalidOperationException($"{path}.pose data is unavailable."));
         }
 
         internal static float ResolveTargetRootHeight(RetargetSkeleton targetCache)

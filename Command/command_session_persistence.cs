@@ -258,7 +258,7 @@ namespace KimodoUnityBridge.Command
                 if (character.Track != null)
                 {
                     foreach (KimodoConstraintMarker marker in character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
-                        .Where(item => item.constraintEnabled))
+                        .Where(item => item.constraintEnabled && !item.IsExternal))
                     {
                         ((JArray)characterJson["constraints"]).Add(DescribeTimelineConstraint(marker, 0));
                     }
@@ -277,6 +277,8 @@ namespace KimodoUnityBridge.Command
                             ["track"] = character.PoseCacheTrack.name,
                             ["marker_id"] = marker.name ?? string.Empty,
                             ["frame"] = Mathf.RoundToInt((float)(marker.time * SessionFrameRate)),
+                            ["marker_type"] = marker.ConstraintType,
+                            ["sample_result"] = SampleResultJson(marker.SampleData),
                             ["data"] = markerPose != null
                                 ? CharacterPoseJson.ToJson(markerPose)
                                 : new JObject()
@@ -287,6 +289,53 @@ namespace KimodoUnityBridge.Command
             }
 
             WriteJsonAtomically(GetSessionJsonAbsolutePath(session), json);
+        }
+
+        private static JObject SampleResultJson(KimodoMarkerSampleResult sample)
+        {
+            sample ??= new KimodoMarkerSampleResult();
+            return new JObject
+            {
+                ["sample_data"] = new JArray(sample.sampleData?.data ?? Array.Empty<float>()),
+                ["enable_mask"] = ConstraintMaskJson(sample.enableMask),
+                ["valid_mask"] = ConstraintMaskJson(sample.validMask),
+                ["effectors"] = new JObject
+                {
+                    ["left_hand"] = RigidTransformJson(sample.effectors?.leftHand),
+                    ["right_hand"] = RigidTransformJson(sample.effectors?.rightHand),
+                    ["left_foot"] = RigidTransformJson(sample.effectors?.leftFoot),
+                    ["right_foot"] = RigidTransformJson(sample.effectors?.rightFoot)
+                },
+                ["root_override"] = RigidTransformJson(sample.rootOverride),
+                ["enabled"] = sample.enabled,
+                ["creation_order"] = sample.creationOrder,
+                ["constraint_mode"] = sample.constraintMode ?? string.Empty,
+                ["sample_time"] = sample.sampleTime
+            };
+        }
+
+        private static JObject ConstraintMaskJson(KimodoConstraintMask mask) => new JObject
+        {
+            ["muscle"] = mask?.muscle == true,
+            ["root_tq"] = mask?.rootTQ == true,
+            ["left_foot_tq"] = mask?.leftFootTQ == true,
+            ["right_foot_tq"] = mask?.rightFootTQ == true,
+            ["root_position"] = mask?.rootPosition == true,
+            ["root_heading"] = mask?.rootHeading == true,
+            ["left_foot"] = mask?.leftFoot == true,
+            ["right_foot"] = mask?.rightFoot == true,
+            ["left_hand"] = mask?.leftHand == true,
+            ["right_hand"] = mask?.rightHand == true
+        };
+
+        private static JObject RigidTransformJson(KimodoRigidTransform transform)
+        {
+            transform ??= KimodoRigidTransform.Identity;
+            return new JObject
+            {
+                ["position"] = new JArray(transform.t.x, transform.t.y, transform.t.z),
+                ["rotation"] = new JArray(transform.q.x, transform.q.y, transform.q.z, transform.q.w)
+            };
         }
 
         internal static void WriteJsonAtomically(string path, JObject json)

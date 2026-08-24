@@ -19,7 +19,6 @@ namespace KimodoUnityBridge
         // payload used by Runtime/Retarget.
         [NonSerialized] public string sampledTrack;
         [NonSerialized] public double sampledTime;
-        [NonSerialized] public MuscleSample muscleSample;
 
         public float[] muscles = new float[MuscleCount];
         public KimodoRigidTransform root = KimodoRigidTransform.Identity;
@@ -39,8 +38,7 @@ namespace KimodoUnityBridge
                 leftFoot = leftFoot?.Clone() ?? KimodoRigidTransform.Identity,
                 rightFoot = rightFoot?.Clone() ?? KimodoRigidTransform.Identity,
                 sampledTrack = sampledTrack,
-                sampledTime = sampledTime,
-                muscleSample = muscleSample?.Clone()
+                sampledTime = sampledTime
             };
             return copy;
         }

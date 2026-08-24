@@ -442,6 +442,7 @@ namespace KimodoUnityBridge.Command
                 KimodoConstraintMarker marker = trace.Character.Track.GetMarkers()
                     .OfType<KimodoConstraintMarker>()
                     .FirstOrDefault(existing =>
+                        !existing.IsExternal &&
                         Mathf.RoundToInt((float)(existing.time * frameRate)) == markerFrame);
                 bool createdMarker = marker == null;
                 if (marker != null)
@@ -473,7 +474,8 @@ namespace KimodoUnityBridge.Command
         private static string MakeUniqueConstraintPoseSource(TimelineSessionRecord session, string requestedName)
         {
             var names = new HashSet<string>(session.Characters
-                .SelectMany(character => character.Track.GetMarkers().OfType<KimodoConstraintMarker>())
+                .SelectMany(character => character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
+                    .Where(marker => !marker.IsExternal))
                 .Select(marker => marker.name), StringComparer.OrdinalIgnoreCase);
             string name = requestedName;
             for (int suffix = 1; names.Contains(name); suffix++) name = $"{requestedName}_{suffix}";
@@ -486,7 +488,7 @@ namespace KimodoUnityBridge.Command
             bool changed = false;
             foreach (TimelineCharacterRecord character in session.Characters)
             foreach (KimodoConstraintMarker marker in character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
-                .Where(item => item.constraintEnabled))
+                .Where(item => item.constraintEnabled && !item.IsExternal))
             {
                 string prefix = $"{character.Name}.Constraint";
                 if (!string.IsNullOrWhiteSpace(marker.name) &&
@@ -809,17 +811,19 @@ namespace KimodoUnityBridge.Command
                 TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
                 AnimationRange origin = ResolveAnimationRange(arguments["origin"] as JObject, character, "origin");
                 AnimationRange target = ResolveAnimationRange(arguments["target"] as JObject, character, "target");
-                CharacterPose originPose = CaptureCharacterPose(character, origin.EndFrameExclusive - 1);
-                CharacterPose targetPose = CaptureCharacterPose(character, target.StartFrame);
+                KimodoMarkerSampleResult originPose = CaptureSampleResult(character, origin.EndFrameExclusive - 1);
+                KimodoMarkerSampleResult targetPose = CaptureSampleResult(character, target.StartFrame);
+                GetRootTransform(originPose, out Vector3 originRootPosition, out Quaternion originRootRotation);
+                GetRootTransform(targetPose, out Vector3 targetRootPosition, out Quaternion targetRootRotation);
 
-                Vector3 rootDelta = targetPose.root.t - originPose.root.t;
-                float yawDelta = Mathf.DeltaAngle(originPose.root.q.eulerAngles.y, targetPose.root.q.eulerAngles.y);
+                Vector3 rootDelta = targetRootPosition - originRootPosition;
+                float yawDelta = Mathf.DeltaAngle(originRootRotation.eulerAngles.y, targetRootRotation.eulerAngles.y);
                 float poseDelta = 0f;
-                for (int index = 0; index < CharacterPose.MuscleCount; index++)
+                for (int index = 0; index < KimodoSampleDataLayout.BodyMuscleCount; index++)
                 {
-                    poseDelta += Mathf.Abs(targetPose.muscles[index] - originPose.muscles[index]);
+                    poseDelta += Mathf.Abs(targetPose.sampleData.data[index] - originPose.sampleData.data[index]);
                 }
-                poseDelta /= CharacterPose.MuscleCount;
+                poseDelta /= KimodoSampleDataLayout.BodyMuscleCount;
                 var endEffectorDeltas = new JObject();
                 string recommended = "left_foot";
                 float smallest = float.MaxValue;
@@ -827,7 +831,7 @@ namespace KimodoUnityBridge.Command
                 {
                     KimodoRigidTransform originTransform = GetEndEffector(originPose, endEffector);
                     KimodoRigidTransform targetTransform = GetEndEffector(targetPose, endEffector);
-                    Vector3 delta = (targetPose.root.t + targetTransform.t) - (originPose.root.t + originTransform.t);
+                    Vector3 delta = targetTransform.t - originTransform.t;
                     float distance = delta.magnitude;
                     if (distance < smallest)
                     {
@@ -1518,19 +1522,15 @@ namespace KimodoUnityBridge.Command
             {
                 result["global_frame"] = globalFrame;
             }
-            bool hasPose = KimodoSampleResultPoseUtility.TryDecode(
-                marker.SampleData,
-                out CharacterPose pose,
-                out _);
             if (marker.ConstraintType == "constraint" &&
                 !KimodoConstraintMask.FromSample(marker.SampleData).muscle &&
-                !KimodoConstraintMask.FromSample(marker.SampleData).AnyEndEffector &&
-                hasPose)
+                !KimodoConstraintMask.FromSample(marker.SampleData).AnyEndEffector)
             {
-                Vector3 forward = pose.root.q * Vector3.forward;
+                GetRootTransform(marker.SampleData, out Vector3 rootPosition, out Quaternion rootRotation);
+                Vector3 forward = rootRotation * Vector3.forward;
                 result["position"] = new JArray(
-                    pose.root.t.x,
-                    pose.root.t.z);
+                    rootPosition.x,
+                    rootPosition.z);
                 result["heading"] = new JArray(forward.x, forward.z);
             }
             else

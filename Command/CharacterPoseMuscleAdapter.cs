@@ -54,7 +54,6 @@ namespace KimodoBridge
 
             var result = new CharacterPose
             {
-                muscleSample = sample.Clone(),
                 root = new KimodoRigidTransform
                 {
                     t = ReadRootPosition(sample),
@@ -172,13 +171,7 @@ namespace KimodoBridge
                 return false;
             }
 
-            pose = new CharacterPose
-            {
-                // CharacterPose is a command/JSON boundary DTO, but retain
-                // the canonical atomic payload so callers do not need to
-                // reconstruct it from the legacy split fields.
-                muscleSample = sample.Clone()
-            };
+            pose = new CharacterPose();
             Array.Copy(
                 sample.data,
                 KimodoSampleDataLayout.BodyMuscleOffset,

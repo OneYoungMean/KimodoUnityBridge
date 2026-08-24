@@ -15,12 +15,23 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     public bool autoSample = true;
 
     [SerializeField] private KimodoConstraintMode constraintMode = KimodoConstraintMode.FullBody;
+    [SerializeField] private KimodoConstraintMarkerType markerType = KimodoConstraintMarkerType.Constraint;
     [SerializeField] private KimodoMarkerSampleResult sampleData = new KimodoMarkerSampleResult();
 
-    public string ConstraintType => "constraint";
-    public bool ConstraintPreviewEnabled => constraintEnabled;
+    public string ConstraintType => markerType == KimodoConstraintMarkerType.External ? "external" : "constraint";
+    public bool ConstraintPreviewEnabled => constraintEnabled && markerType != KimodoConstraintMarkerType.External;
     public int ConstraintPreviewPriority => 0;
-    public string ConstraintPreviewName => ModeLabel(constraintMode);
+    public string ConstraintPreviewName => markerType == KimodoConstraintMarkerType.External
+        ? "External Pose"
+        : ModeLabel(constraintMode);
+
+    public KimodoConstraintMarkerType MarkerType
+    {
+        get => markerType;
+        set => markerType = value;
+    }
+
+    public bool IsExternal => markerType == KimodoConstraintMarkerType.External;
 
     public KimodoConstraintMode ConstraintMode
     {
