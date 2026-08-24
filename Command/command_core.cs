@@ -42,8 +42,14 @@ namespace KimodoUnityBridge.Command
         private const int MaxRememberedJobs = 128;
         private static readonly Dictionary<Guid, JobRecord> Jobs = new Dictionary<Guid, JobRecord>();
         private static readonly object JobsLock = new object();
+        private static readonly Lazy<CommandCatalog> Commands = new Lazy<CommandCatalog>(BuildCommandCatalog, LazyThreadSafetyMode.ExecutionAndPublication);
 
         public static string GetCommandDefinitionsJson()
+        {
+            return Commands.Value.ToJson();
+        }
+
+        private static string BuildCommandDocumentJson()
         {
             return new JObject
             {
@@ -175,45 +181,12 @@ namespace KimodoUnityBridge.Command
 
         public static string Invoke(string toolName, string argumentsJson = "{}")
         {
-            switch (toolName?.Trim())
+            string commandName = toolName?.Trim();
+            if (Commands.Value.TryGet(commandName, out CommandRegistration command))
             {
-                case HelpCommand:
-                    return GetCommandHelp(argumentsJson);
-                case InstallServerCommand:
-                    return InstallServer(argumentsJson);
-                case SessionGetOrCreateCommand:
-                    return SessionGetOrCreate(argumentsJson);
-                case SessionCloseCommand:
-                    return SessionClose(argumentsJson);
-                case SessionAddCommand:
-                    return SessionAdd(argumentsJson);
-                case AnimationAnalyzeCommand:
-                    return AnimationAnalyze(argumentsJson);
-                case AnimationCompareCommand:
-                    return AnimationCompare(argumentsJson);
-                case RecordRangeCommand:
-                    return RecordRange(argumentsJson);
-                case RetargetAnimationCommand:
-                    return RetargetAnimation(argumentsJson);
-                case PoseGetCommand:
-                    return PoseGet(argumentsJson);
-                case PoseCreatePathCommand:
-                    return PoseCreatePath(argumentsJson);
-                case PoseContractCommand:
-                    return PoseContract(argumentsJson);
-                case PoseSetRootTransformCommand:
-                    return PoseSetRootTransform(argumentsJson);
-                case PoseSetMuscleCommand:
-                    return PoseSetMuscle(argumentsJson);
-                case GenerateAnimationCommand:
-                    return GenerateAnimationAsset(argumentsJson);
-                case GetGenerationCommand:
-                    return GetGeneration(argumentsJson);
-                case CancelGenerationCommand:
-                    return CancelGeneration(argumentsJson);
-                default:
-                    return Error("unknown_command", $"Unknown Kimodo command '{toolName ?? string.Empty}'.");
+                return command.Handler(argumentsJson);
             }
+            return Error("unknown_command", $"Unknown Kimodo command '{toolName ?? string.Empty}'.");
         }
 
         public static string ListModels(string argumentsJson = "{}")
@@ -243,16 +216,13 @@ namespace KimodoUnityBridge.Command
                 string command = arguments.Value<string>("command")?.Trim();
                 if (!string.IsNullOrWhiteSpace(command))
                 {
-                    JObject definitions = JObject.Parse(GetCommandDefinitionsJson());
-                    JObject definition = definitions["tools"]?.Children<JObject>()
-                        .FirstOrDefault(item => string.Equals(item.Value<string>("name"), command, StringComparison.Ordinal));
-                    if (definition == null)
+                    if (!Commands.Value.TryGet(command, out CommandRegistration registration))
                     {
                         throw new InvalidOperationException($"Unknown Kimodo command '{command}'.");
                     }
                     return Ok(new JObject
                     {
-                        ["manual"] = definition.DeepClone(),
+                        ["manual"] = registration.ToJson(),
                         ["usage"] = $"{command}(<arguments matching inputSchema>)"
                     });
                 }
@@ -269,7 +239,7 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException("section must be commands, models, or constraints.");
                 }
 
-                JObject all = JObject.Parse(GetCommandDefinitionsJson());
+                JObject all = JObject.Parse(Commands.Value.ToJson());
                 JObject constraintManual = BuildConstraintManual();
                 return Ok(new JObject
                 {
@@ -1739,6 +1709,48 @@ namespace KimodoUnityBridge.Command
             }
         }
 
+        private static CommandCatalog BuildCommandCatalog()
+        {
+            JObject document = JObject.Parse(BuildCommandDocumentJson());
+            var handlers = new Dictionary<string, Func<string, string>>(StringComparer.Ordinal)
+            {
+                [HelpCommand] = GetCommandHelp,
+                [InstallServerCommand] = InstallServer,
+                [SessionGetOrCreateCommand] = SessionGetOrCreate,
+                [SessionCloseCommand] = SessionClose,
+                [SessionAddCommand] = SessionAdd,
+                [AnimationAnalyzeCommand] = AnimationAnalyze,
+                [AnimationCompareCommand] = AnimationCompare,
+                [RecordRangeCommand] = RecordRange,
+                [RetargetAnimationCommand] = RetargetAnimation,
+                [GenerateAnimationCommand] = GenerateAnimationAsset,
+                [PoseGetCommand] = PoseGet,
+                [PoseCreatePathCommand] = PoseCreatePath,
+                [PoseContractCommand] = PoseContract,
+                [PoseSetRootTransformCommand] = PoseSetRootTransform,
+                [PoseSetMuscleCommand] = PoseSetMuscle,
+                [GetGenerationCommand] = GetGeneration,
+                [CancelGenerationCommand] = CancelGeneration
+            };
+
+            var registrations = new List<CommandRegistration>();
+            foreach (JObject definition in document["tools"]?.Values<JObject>() ?? Enumerable.Empty<JObject>())
+            {
+                string name = definition.Value<string>("name");
+                if (string.IsNullOrWhiteSpace(name) || !handlers.TryGetValue(name, out Func<string, string> handler))
+                {
+                    throw new InvalidOperationException($"Command definition '{name ?? string.Empty}' has no handler.");
+                }
+                registrations.Add(new CommandRegistration(definition, handler));
+            }
+
+            if (registrations.Count != handlers.Count)
+            {
+                throw new InvalidOperationException("Command definitions and handlers are out of sync.");
+            }
+            return new CommandCatalog(registrations);
+        }
+
         private static JObject CommandDefinition(string name, string description, JObject inputSchema)
         {
             return new JObject
@@ -2058,6 +2070,61 @@ namespace KimodoUnityBridge.Command
                 ["type"] = "string",
                 ["enum"] = new JArray(values)
             }, true);
+        }
+
+        private sealed class CommandCatalog
+        {
+            private readonly IReadOnlyList<CommandRegistration> registrations;
+            private readonly Dictionary<string, CommandRegistration> byName;
+
+            public CommandCatalog(IEnumerable<CommandRegistration> registrations)
+            {
+                this.registrations = registrations.ToList();
+                byName = new Dictionary<string, CommandRegistration>(StringComparer.Ordinal);
+                foreach (CommandRegistration registration in this.registrations)
+                {
+                    if (byName.ContainsKey(registration.Name))
+                    {
+                        throw new InvalidOperationException($"Duplicate Kimodo command '{registration.Name}'.");
+                    }
+                    byName.Add(registration.Name, registration);
+                }
+            }
+
+            public bool TryGet(string name, out CommandRegistration registration)
+            {
+                return name != null && byName.TryGetValue(name, out registration);
+            }
+
+            public string ToJson()
+            {
+                var tools = new JArray();
+                foreach (CommandRegistration registration in registrations)
+                {
+                    tools.Add(registration.ToJson());
+                }
+                return new JObject { ["tools"] = tools }.ToString(Formatting.None);
+            }
+        }
+
+        private sealed class CommandRegistration
+        {
+            private readonly JObject definition;
+
+            public CommandRegistration(JObject definition, Func<string, string> handler)
+            {
+                this.definition = (JObject)definition.DeepClone();
+                Handler = handler ?? throw new ArgumentNullException(nameof(handler));
+                Name = this.definition.Value<string>("name");
+            }
+
+            public string Name { get; }
+            public Func<string, string> Handler { get; }
+
+            public JObject ToJson()
+            {
+                return (JObject)definition.DeepClone();
+            }
         }
 
         private sealed class JobRecord
