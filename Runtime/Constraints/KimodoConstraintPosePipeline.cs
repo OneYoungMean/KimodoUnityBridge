@@ -8,10 +8,8 @@ using UnityEngine.Playables;
 namespace KimodoBridge
 {
     /// <summary>
-    /// Constraint pose paths used by preview and protocol projection. Preview
-    /// applies FK, an optional world hips override, and SampleResult IK;
-    /// protocol projection can use the FK-only path below so its snapshot is
-    /// sourced entirely from the profile skeleton.
+    /// Canonical constraint pose path shared by preview and protocol
+    /// projection: FK, optional world hips override, and SampleResult IK.
     /// </summary>
     internal static class KimodoConstraintPosePipeline
     {
@@ -187,57 +185,6 @@ namespace KimodoBridge
                 sample.rootOverride.t,
                 sample.rootOverride.q.normalized);
             return true;
-        }
-
-        /// <summary>
-        /// Projects only the canonical MuscleSample through the target avatar.
-        /// Root overrides and scene IK targets are deliberately excluded: the
-        /// profile exporter must sample its coordinates from the solved profile
-        /// skeleton, not copy SampleResult scene transforms into it.
-        /// </summary>
-        internal static bool TryApplyFk(
-            KimodoMarkerSampleResult sample,
-            float frameRate,
-            RetargetSkeleton cache,
-            out BoneSample boneSample,
-            out MuscleSample muscleSample,
-            out string error)
-        {
-            boneSample = null;
-            muscleSample = null;
-            error = string.Empty;
-
-            if (sample == null || cache == null)
-            {
-                error = "Constraint pose input is null.";
-                return false;
-            }
-
-            KimodoMarkerSampleResult pipelineSample = sample;
-            if (IsRootOnlySample(sample))
-            {
-                if (!TryBuildRootOnlyPipelineSample(sample, cache, out pipelineSample, out error))
-                {
-                    return false;
-                }
-            }
-
-            if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                    pipelineSample.sampleData,
-                    frameRate,
-                    cache,
-                    out boneSample,
-                    out _,
-                    out error))
-            {
-                return false;
-            }
-
-            boneSample = KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
-            return KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                cache,
-                out muscleSample,
-                out error);
         }
 
     }

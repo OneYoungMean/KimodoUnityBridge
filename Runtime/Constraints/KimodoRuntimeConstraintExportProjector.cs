@@ -9,8 +9,8 @@ namespace KimodoBridge
     /// <summary>
     /// Projects constraint samples onto the model's protocol skeleton.
     /// FullBody uses its canonical 70D MuscleSample; Root2D-only samples use
-    /// the profile skeleton initial pose. Source root overrides and effector
-    /// targets are not copied into this projection.
+    /// the profile skeleton initial pose. Root overrides and effector targets
+    /// are solved on the same profile skeleton used for the exported snapshot.
     /// </summary>
     public static class KimodoRuntimeConstraintExportProjector
     {
@@ -54,7 +54,7 @@ namespace KimodoBridge
             try
             {
                 float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
-                if (!KimodoConstraintPosePipeline.TryApplyFk(
+                if (!KimodoConstraintPosePipeline.TryApply(
                         sample,
                         frameRate,
                         cache,
