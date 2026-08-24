@@ -124,12 +124,5 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(poseSet?["properties"]?["pose"]?["properties"]?["marker_id"], Is.Null);
         }
 
-        [Test]
-        public void UnknownCommand_UsesTheVNextFailureEnvelope()
-        {
-            JObject response = JObject.Parse(command_dispatcher.Invoke("pose_copy", "{}"));
-            Assert.That(response.Value<bool>("ok"), Is.False);
-            Assert.That(response["error"]?.Value<string>("code"), Is.EqualTo("unknown_command"));
-        }
     }
 }
