@@ -7,8 +7,8 @@ namespace KimodoUnityBridge.Command
         public const string AddCommand = command_context.SessionAddCommand;
         public const string CloseCommand = command_context.SessionCloseCommand;
 
-        public static string GetOrCreate(string argumentsJson = "{}") => command_context.SessionGetOrCreate(argumentsJson);
-        public static string Add(string argumentsJson) => command_context.SessionAdd(argumentsJson);
-        public static string Close(string argumentsJson = "{}") => command_context.SessionClose(argumentsJson);
+        public static string GetOrCreate(string argumentsJson = "{}") => command_dispatcher.Invoke(GetOrCreateCommand, argumentsJson);
+        public static string Add(string argumentsJson) => command_dispatcher.Invoke(AddCommand, argumentsJson);
+        public static string Close(string argumentsJson = "{}") => command_dispatcher.Invoke(CloseCommand, argumentsJson);
     }
 }

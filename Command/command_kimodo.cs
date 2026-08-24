@@ -13,14 +13,14 @@ namespace KimodoUnityBridge.Command
         public const string GetGenerationCommand = command_context.GetGenerationCommand;
         public const string CancelGenerationCommand = command_context.CancelGenerationCommand;
 
-        public static string Help(string argumentsJson = "{}") => command_context.GetCommandHelp(argumentsJson);
-        public static string InstallServer(string argumentsJson = "{}") => command_context.InstallServer(argumentsJson);
-        public static string GenerateAnimation(string argumentsJson) => command_context.GenerateAnimationAsset(argumentsJson);
-        public static string Analyze(string argumentsJson) => command_context.AnimationAnalyze(argumentsJson);
-        public static string Compare(string argumentsJson) => command_context.AnimationCompare(argumentsJson);
-        public static string RecordRange(string argumentsJson) => command_context.RecordRange(argumentsJson);
-        public static string RetargetAnimation(string argumentsJson) => command_context.RetargetAnimation(argumentsJson);
-        public static string GetGeneration(string argumentsJson) => command_context.GetGeneration(argumentsJson);
-        public static string CancelGeneration(string argumentsJson) => command_context.CancelGeneration(argumentsJson);
+        public static string Help(string argumentsJson = "{}") => command_dispatcher.Invoke(HelpCommand, argumentsJson);
+        public static string InstallServer(string argumentsJson = "{}") => command_dispatcher.Invoke(InstallServerCommand, argumentsJson);
+        public static string GenerateAnimation(string argumentsJson) => command_dispatcher.Invoke(GenerateAnimationCommand, argumentsJson);
+        public static string Analyze(string argumentsJson) => command_dispatcher.Invoke(AnalyzeCommand, argumentsJson);
+        public static string Compare(string argumentsJson) => command_dispatcher.Invoke(CompareCommand, argumentsJson);
+        public static string RecordRange(string argumentsJson) => command_dispatcher.Invoke(RecordRangeCommand, argumentsJson);
+        public static string RetargetAnimation(string argumentsJson) => command_dispatcher.Invoke(RetargetAnimationCommand, argumentsJson);
+        public static string GetGeneration(string argumentsJson) => command_dispatcher.Invoke(GetGenerationCommand, argumentsJson);
+        public static string CancelGeneration(string argumentsJson) => command_dispatcher.Invoke(CancelGenerationCommand, argumentsJson);
     }
 }
