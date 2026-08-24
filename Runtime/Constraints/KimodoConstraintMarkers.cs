@@ -240,12 +240,13 @@ namespace KimodoBridge
         // When unset, input order remains the deterministic fallback.
         public long creationOrder;
 
-        // Effectors are absolute scene-space transport values. They are kept
-        // separate from the muscle pose; no intermediate solver interprets them.
+        // Explicit targets must use the Transform space of the skeleton passed
+        // to the pose pipeline. Timeline samples store Character world space;
+        // runtime APIs convert world goals once to neutral model space.
         [UnityEngine.Serialization.FormerlySerializedAs("worldIkTargets")]
         public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
-        // Complete world-space hips override. Root2D X/Z and heading
-        // projection is applied only when building the protocol constraint.
+        // Complete hips override in the same explicit-target space. Root2D X/Z
+        // and heading projection is applied only at protocol export.
         [UnityEngine.Serialization.FormerlySerializedAs("root2DOverride")]
         public KimodoRigidTransform rootOverride = KimodoRigidTransform.Identity;
 

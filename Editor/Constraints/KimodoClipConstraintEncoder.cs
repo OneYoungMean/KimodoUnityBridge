@@ -33,7 +33,7 @@ namespace KimodoBridge.Editor
             {
                 throw new InvalidOperationException($"ClipConstraint requires Timeline sampling: {error}");
             }
-            if (!KimodoTimelineSamplingSession.TryCreate(
+            if (!KimodoTimelineSamplingSession.TryCreateForProfileEncoding(
                     context,
                     modelName,
                     out KimodoTimelineSamplingSession sampler,

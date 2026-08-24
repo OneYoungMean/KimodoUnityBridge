@@ -12,6 +12,9 @@ namespace KimodoBridge
             string constraintType,
             string jointName,
             Vector3 targetWorldPosition,
+            Vector3 currentWorldPosition,
+            Quaternion modelToWorldRotation,
+            float targetHumanScale,
             float sampleTime,
             out KimodoMarkerSampleResult sample,
             out string error)
@@ -45,10 +48,19 @@ namespace KimodoBridge
             {
                 KimodoUnityBridge.KimodoRigidTransform target = new KimodoUnityBridge.KimodoRigidTransform
                 {
-                    // Effector positions are protocol world coordinates. They
-                    // must not be reconstructed from rootTQ or root-local data.
-                    t = targetWorldPosition,
-                    q = targetJoint.rotation
+                    // Convert the public world-space target once into the
+                    // neutral model space consumed by the shared pipeline.
+                    t = ResolveNeutralTargetPosition(
+                        player,
+                        targetWorldPosition,
+                        currentWorldPosition,
+                        modelToWorldRotation,
+                        player.ConstraintRetargetSkeleton.humanScale,
+                        targetHumanScale),
+                    q = KimodoRetargetMarkerSamplingUtility.ResolveEffectorTransportRotation(
+                        player.ConstraintRetargetSkeleton,
+                        bone,
+                        targetJoint.rotation)
                 };
                 switch (bone)
                 {
@@ -83,6 +95,8 @@ namespace KimodoBridge
             Vector2 targetWorldPosition,
             Vector2? worldHeading,
             Vector3 currentWorldPosition,
+            Quaternion modelToWorldRotation,
+            float targetHumanScale,
             float sampleTime,
             out KimodoMarkerSampleResult sample,
             out string error)
@@ -98,23 +112,27 @@ namespace KimodoBridge
                 return false;
             }
 
-            // Kimodo generation anchors this target against the terminal
-            // FullBody frame 0. Keep it in
-            // absolute model space; subtracting NextSegmentRootOrigin here
-            // would apply the same translation a second time during generation.
             sample.constraintMode = "root2d";
             sample.enableMask.rootPosition = true;
             sample.validMask.rootPosition = true;
             sample.rootOverride ??= KimodoUnityBridge.KimodoRigidTransform.Identity;
-            Quaternion capturedRootRotation = sample.rootOverride.q;
+            Vector3 neutralRootPosition = ResolveNeutralRootPosition(
+                player,
+                sample,
+                out Quaternion capturedRootRotation);
             sample.rootOverride = new KimodoUnityBridge.KimodoRigidTransform
             {
-                t = new Vector3(
-                    targetWorldPosition.x,
-                    currentWorldPosition.y,
-                    targetWorldPosition.y),
-                // Keep the complete sampled hips rotation. Root2D's
-                // heading projection is applied only by protocol export.
+                t = neutralRootPosition + ResolveNeutralWorldDelta(
+                    new Vector3(
+                        targetWorldPosition.x,
+                        currentWorldPosition.y,
+                        targetWorldPosition.y),
+                    currentWorldPosition,
+                    modelToWorldRotation,
+                    player.ConstraintRetargetSkeleton.humanScale,
+                    targetHumanScale),
+                // Keep the complete sampled hips rotation when no heading is
+                // authored; Root2D heading changes only its planar yaw.
                 q = capturedRootRotation
             };
             sample.enableMask.rootHeading = worldHeading.HasValue && sample.enableMask.rootPosition;
@@ -132,8 +150,16 @@ namespace KimodoBridge
                     Quaternion currentYaw = Quaternion.LookRotation(
                         currentForward.normalized,
                         Vector3.up);
+                    Vector3 modelHeading = Quaternion.Inverse(
+                        NormalizeModelRotation(modelToWorldRotation)) *
+                        new Vector3(worldHeading.Value.x, 0f, worldHeading.Value.y);
+                    modelHeading.y = 0f;
+                    if (modelHeading.sqrMagnitude < 1e-6f)
+                    {
+                        modelHeading = Vector3.forward;
+                    }
                     Quaternion desiredYaw = Quaternion.LookRotation(
-                        new Vector3(worldHeading.Value.x, 0f, worldHeading.Value.y),
+                        modelHeading.normalized,
                         Vector3.up);
                     sample.rootOverride.q =
                         (desiredYaw * Quaternion.Inverse(currentYaw) * sample.rootOverride.q).normalized;
@@ -143,12 +169,84 @@ namespace KimodoBridge
             return true;
         }
 
+        private static Vector3 ResolveNeutralTargetPosition(
+            KimodoRuntimeMotionPlayer player,
+            Vector3 targetWorldPosition,
+            Vector3 currentWorldPosition,
+            Quaternion modelToWorldRotation,
+            float sourceHumanScale,
+            float targetHumanScale)
+        {
+            return ResolveNeutralRootPosition(
+                       player,
+                       null,
+                       out _) +
+                ResolveNeutralWorldDelta(
+                    targetWorldPosition,
+                    currentWorldPosition,
+                    modelToWorldRotation,
+                    sourceHumanScale,
+                    targetHumanScale);
+        }
+
+        private static Vector3 ResolveNeutralRootPosition(
+            KimodoRuntimeMotionPlayer player,
+            KimodoMarkerSampleResult sample,
+            out Quaternion rotation)
+        {
+            rotation = Quaternion.identity;
+            if (player?.ConstraintRetargetSkeleton != null &&
+                player.ConstraintRetargetSkeleton.GetBonePose(
+                    HumanBodyBones.Hips,
+                    out Vector3 position,
+                    out rotation))
+            {
+                return position;
+            }
+
+            if (sample?.sampleData != null && sample.sampleData.IsValid)
+            {
+                sample.sampleData.GetRoot(out Vector3 rootPosition, out rotation);
+                return rootPosition;
+            }
+
+            return Vector3.zero;
+        }
+
+        private static Vector3 ResolveNeutralWorldDelta(
+            Vector3 targetWorldPosition,
+            Vector3 currentWorldPosition,
+            Quaternion modelToWorldRotation,
+            float sourceHumanScale,
+            float targetHumanScale)
+        {
+            Vector3 worldDelta = targetWorldPosition - currentWorldPosition;
+            float scale = Mathf.Max(1e-6f, sourceHumanScale) /
+                Mathf.Max(1e-6f, targetHumanScale);
+            return Quaternion.Inverse(NormalizeModelRotation(modelToWorldRotation)) *
+                (worldDelta * scale);
+        }
+
+        private static Quaternion NormalizeModelRotation(Quaternion rotation)
+        {
+            if (rotation.x * rotation.x + rotation.y * rotation.y +
+                rotation.z * rotation.z + rotation.w * rotation.w <= 1e-8f)
+            {
+                return Quaternion.identity;
+            }
+
+            rotation.Normalize();
+            return rotation;
+        }
+
         internal static bool TryCreateRootGoal(
             KimodoRuntimeMotionPlayer player,
             string modelName,
             Vector3 targetWorldPosition,
             Quaternion targetWorldRotation,
             Vector3 currentWorldPosition,
+            Quaternion modelToWorldRotation,
+            float targetHumanScale,
             float sampleTime,
             out KimodoMarkerSampleResult sample,
             out KimodoRigidTransform root2DLoss,
@@ -184,6 +282,8 @@ namespace KimodoBridge
                     new Vector2(planarPosition.x, planarPosition.z),
                     new Vector2(planarForward.x, planarForward.z),
                     currentWorldPosition,
+                    modelToWorldRotation,
+                    targetHumanScale,
                     sampleTime,
                     out sample,
                     out error))

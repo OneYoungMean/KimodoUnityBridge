@@ -9,7 +9,10 @@ namespace KimodoBridge
 {
     /// <summary>
     /// Canonical constraint pose path shared by preview and protocol
-    /// projection: FK, optional world hips override, and SampleResult IK.
+    /// projection: FK, optional hips override, and SampleResult IK. Explicit
+    /// targets use the Transform space occupied by the supplied skeleton.
+    /// Timeline generation supplies its track-to-world FK placement; preview
+    /// and model-native projection use the identity overload.
     /// </summary>
     internal static class KimodoConstraintPosePipeline
     {
@@ -17,6 +20,27 @@ namespace KimodoBridge
             KimodoMarkerSampleResult sample,
             float frameRate,
             RetargetSkeleton cache,
+            out BoneSample boneSample,
+            out MuscleSample muscleSample,
+            out string error)
+        {
+            return TryApply(
+                sample,
+                frameRate,
+                cache,
+                Vector3.zero,
+                Quaternion.identity,
+                out boneSample,
+                out muscleSample,
+                out error);
+        }
+
+        internal static bool TryApply(
+            KimodoMarkerSampleResult sample,
+            float frameRate,
+            RetargetSkeleton cache,
+            Vector3 fkToTargetPosition,
+            Quaternion fkToTargetRotation,
             out BoneSample boneSample,
             out MuscleSample muscleSample,
             out string error)
@@ -34,7 +58,7 @@ namespace KimodoBridge
             // A Root2D constraint has no authored MuscleSample, but it still
             // follows the same profile-skeleton path as FullBody: use the
             // target avatar's initial pose as the FK input, apply the explicit
-            // world-space hips override, then run the common IK stage.
+            // hips override, then run the common IK stage.
             KimodoMarkerSampleResult pipelineSample = sample;
             if (IsRootOnlySample(sample))
             {
@@ -50,6 +74,15 @@ namespace KimodoBridge
                     cache,
                     out boneSample,
                     out _,
+                    out error))
+            {
+                return false;
+            }
+
+            if (!TryPlaceFkPoseInTargetSpace(
+                    cache,
+                    fkToTargetPosition,
+                    fkToTargetRotation,
                     out error))
             {
                 return false;
@@ -74,6 +107,36 @@ namespace KimodoBridge
                 return false;
             }
 
+            return true;
+        }
+
+        private static bool TryPlaceFkPoseInTargetSpace(
+            RetargetSkeleton cache,
+            Vector3 position,
+            Quaternion rotation,
+            out string error)
+        {
+            error = string.Empty;
+            float rotationLength = rotation.x * rotation.x + rotation.y * rotation.y +
+                rotation.z * rotation.z + rotation.w * rotation.w;
+            rotation = rotationLength > 1e-8f ? rotation.normalized : Quaternion.identity;
+            if (position == Vector3.zero && rotation == Quaternion.identity)
+            {
+                return true;
+            }
+
+            Transform hips = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(
+                cache,
+                HumanBodyBones.Hips);
+            if (hips == null)
+            {
+                error = "Constraint FK target-space placement requires an Hips transform.";
+                return false;
+            }
+
+            hips.SetPositionAndRotation(
+                position + rotation * hips.position,
+                rotation * hips.rotation);
             return true;
         }
 
@@ -130,7 +193,7 @@ namespace KimodoBridge
             {
                 if (string.IsNullOrEmpty(error))
                 {
-                    error = "Failed to capture the profile skeleton initial pose for Root2D.";
+                    error = "Failed to capture the target skeleton initial pose for Root2D.";
                 }
                 return false;
             }

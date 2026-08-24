@@ -334,6 +334,8 @@ namespace KimodoBridge
                     worldPosition,
                     worldRotation,
                     GetCurrentPositionInternal(),
+                    ResolveModelToWorldRotation(),
+                    ResolveTargetHumanScale(),
                     ClampConstraintTime(duration),
                     out KimodoMarkerSampleResult sample,
                     out KimodoUnityBridge.KimodoRigidTransform root2DLoss,
@@ -992,6 +994,9 @@ namespace KimodoBridge
                     constraintType,
                     jointName,
                     new Vector3(x, y, z),
+                    GetCurrentPositionInternal(),
+                    ResolveModelToWorldRotation(),
+                    ResolveTargetHumanScale(),
                     ClampConstraintTime(durationSeconds),
                     out KimodoMarkerSampleResult sample,
                     out string error))
@@ -1018,6 +1023,8 @@ namespace KimodoBridge
                     new Vector2(worldX, worldZ),
                     worldHeading,
                     GetCurrentPositionInternal(),
+                    ResolveModelToWorldRotation(),
+                    ResolveTargetHumanScale(),
                     ClampConstraintTime(durationSeconds),
                     out KimodoMarkerSampleResult sample,
                     out string error))
@@ -1095,6 +1102,25 @@ namespace KimodoBridge
         private float ClampConstraintTime(float durationSeconds)
         {
             return Mathf.Clamp(durationSeconds, 0f, ResolveGenerationDurationSeconds());
+        }
+
+        private Quaternion ResolveModelToWorldRotation()
+        {
+            Animator primaryTarget = ResolvePrimaryTargetAnimator();
+            Transform modelRoot = primaryTarget != null ? primaryTarget.transform : transform;
+            Vector3 forward = Vector3.ProjectOnPlane(modelRoot.forward, Vector3.up);
+            return forward.sqrMagnitude > 1e-8f
+                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
+                : Quaternion.identity;
+        }
+
+        private float ResolveTargetHumanScale()
+        {
+            Animator primaryTarget = ResolvePrimaryTargetAnimator();
+            return primaryTarget != null &&
+                KimodoRetargetCoreUtility.IsValidHumanoid(primaryTarget.avatar)
+                ? Mathf.Max(1e-6f, primaryTarget.humanScale)
+                : 1f;
         }
 
         private void OnProgress(string message)

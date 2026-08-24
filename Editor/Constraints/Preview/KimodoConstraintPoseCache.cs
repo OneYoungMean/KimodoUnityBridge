@@ -46,7 +46,6 @@ namespace KimodoBridge.Editor
         public KimodoMarkerSampleResult SampleData;
         public string ConstraintType;
         public KimodoConstraintMode ConstraintMode = KimodoConstraintMode.FullBody;
-        public bool AutoSample = true;
         public bool HandlesEnabled;
         public List<string> HighlightJoints;
         public Color PreviewColor = Color.white;
@@ -67,7 +66,6 @@ namespace KimodoBridge.Editor
         public RetargetSkeleton TargetCache;
         public List<Material> GeneratedMaterials;
         public KimodoConstraintMode ConstraintMode = KimodoConstraintMode.FullBody;
-        public bool AutoSample = true;
         public bool HandlesEnabled;
         // Current frame sample used to rebuild the preview rig. This is not a
         // sampling cache; it is replaced on every RenderBatch pass.
@@ -111,37 +109,6 @@ namespace KimodoBridge.Editor
         {
             IsDisposed = true;
         }
-    }
-
-    internal static class KimodoConstraintSampleApplier
-    {
-        internal static bool TryApplyToTargetSkeleton(
-            KimodoMarkerSampleResult sample,
-            float frameRate,
-            RetargetSkeleton targetCache,
-            out string error)
-        {
-            error = string.Empty;
-            if (sample == null || targetCache == null)
-            {
-                error = "Constraint target skeleton cache is unavailable.";
-                return false;
-            }
-
-            if (!KimodoConstraintPosePipeline.TryApply(
-                    sample,
-                    frameRate,
-                    targetCache,
-                    out _,
-                    out _,
-                    out error))
-            {
-                return false;
-            }
-
-            return true;
-        }
-
     }
 
     [InitializeOnLoad]
@@ -448,56 +415,25 @@ namespace KimodoBridge.Editor
                 }
 
                 entry.ConstraintMode = item.ConstraintMode;
-                entry.AutoSample = item.AutoSample;
                 entry.HandlesEnabled = item.HandlesEnabled;
                 entry.Visible = item.Visible;
                 entry.OnSampleChanged = item.OnSampleChanged;
                 entry.ShowVirtualAvatar = true;
 
+                entry.SampleData = item.SampleData.Clone();
+                KimodoMarkerSampleResult renderSample =
+                    KimodoConstraintSampleComposer.ResolveUnifiedSample(item.SampleData);
+                var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
+
+                if (!ApplySampleToRig(renderSample, context.ModelName, entry, out error))
                 {
-                    entry.SampleData = item.SampleData.Clone();
-                    KimodoMarkerSampleResult renderSample =
-                        KimodoConstraintSampleComposer.ResolveUnifiedSample(item.SampleData);
-                    var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
-
-                    if (entry.AutoSample)
-                    {
-                        // AutoSample flow is deliberately two-phase:
-                        // timeline/muscles -> FK avatar -> rig transforms ->
-                        // scene-handle effector processing. Solving before refreshing the
-                        // rig would feed the previous frame's targets.
-                        KimodoMarkerSampleResult fkSample = renderSample.Clone();
-                        fkSample.effectors = null;
-                        if (!ApplySampleToRig(
-                                fkSample,
-                                context.ModelName,
-                                entry,
-                                out error,
-                                applySceneTargets: false))
-                        {
-                            error = $"pose cache FK render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
-                            return false;
-                        }
-                        if (!ApplySampleToRig(renderSample, context.ModelName, entry, out error))
-                        {
-                            error = $"pose cache effector render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
-                            return false;
-                        }
-                    }
-                    else
-                    {
-                        if (!ApplySampleToRig(renderSample, context.ModelName, entry, out error))
-                        {
-                            error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
-                            return false;
-                        }
-                    }
-
-                    ApplyConstraintColoring(entry, highlightedJoints, item.PreviewColor);
-                    changed = true;
+                    error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
+                    return false;
                 }
 
+                ApplyConstraintColoring(entry, highlightedJoints, item.PreviewColor);
+                changed = true;
                 changed |= SetEntryVisible(entry, true);
             }
 
@@ -1100,8 +1036,7 @@ namespace KimodoBridge.Editor
             KimodoMarkerSampleResult sample,
             string modelName,
             ConstraintPosePreviewEntry entry,
-            out string error,
-            bool applySceneTargets = true)
+            out string error)
         {
             error = string.Empty;
             if (sample == null || entry?.TargetCache == null)
@@ -1114,10 +1049,12 @@ namespace KimodoBridge.Editor
             entry.TargetCache.root.SetActive(true);
             try
             {
-                return KimodoConstraintSampleApplier.TryApplyToTargetSkeleton(
+                return KimodoConstraintPosePipeline.TryApply(
                     sample,
                     KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
                     entry.TargetCache,
+                    out _,
+                    out _,
                     out error);
             }
             finally

@@ -50,23 +50,7 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
-            int firstAdditionalSample = manualSamples.Count;
             KimodoInOutConstraintComposer.AppendSamples(additionalManualSamples, manualSamples);
-            if (additionalManualSamples != null && additionalManualSamples.Count > 0)
-            {
-                KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
-                    context.Track,
-                    context.Animator,
-                    out Vector3 trackOffsetPosition,
-                    out Quaternion trackOffsetRotation);
-                for (int i = firstAdditionalSample; i < manualSamples.Count; i++)
-                {
-                    KimodoTimelineTrackOffsetUtility.ConvertSampleToTrackSpace(
-                        manualSamples[i],
-                        trackOffsetPosition,
-                        trackOffsetRotation);
-                }
-            }
 
             KimodoInOutConstraintRequest request = BuildTimelineRequest(
                 context,

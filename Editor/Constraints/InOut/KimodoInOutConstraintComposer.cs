@@ -77,11 +77,18 @@ namespace KimodoBridge.Editor
             double clipDurationSeconds = KimodoInOutConstraintTools.ResolveConstraintClipDurationSeconds(
                 request.GenerationFrames,
                 generationFrameRate);
+            Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> projectedPoseProjector =
+                request.TimelineContext?.Animator != null
+                    ? KimodoConstraintExportProjector.Create(request.TimelineContext)
+                    : KimodoConstraintExportProjector.CreateProfileNative(request.ModelName);
             built.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                 built.CombinedSamples,
                 new KimodoConstraintExportContext
                 {
-                    projectedPoseProjector = KimodoConstraintExportProjector.Create(request.ModelName)
+                    // Lightweight editor/tests can construct a track-only
+                    // Root2D request. Real Timeline generation always uses the
+                    // bound Character projector above.
+                    projectedPoseProjector = projectedPoseProjector
                 },
                 clipStartSeconds: 0.0,
                 clipDurationSeconds: clipDurationSeconds,
@@ -164,20 +171,16 @@ namespace KimodoBridge.Editor
                     enableMask = new KimodoConstraintMask { rootPosition = true, rootHeading = true },
                     validMask = new KimodoConstraintMask { rootPosition = true, rootHeading = true }
                 };
-                KimodoTimelineTrackOffsetUtility.ConvertSampleToTrackSpace(
-                    sample,
-                    worldPosition,
-                    worldRotation);
             }
 
             if (sample?.rootOverride == null)
             {
-                error = "Auto Begin Root2D sampling returned no track root.";
+                error = "Auto Begin Root2D sampling returned no world root.";
                 return false;
             }
 
             // AutoBegin is a pure Root2D anchor. Keep the evaluated Hips X/Z
-            // track-space position, preserve the planar Root2D contract, and
+            // world-space position, preserve the planar Root2D contract, and
             // do not advertise the sampled FK payload as an active channel.
             sample.rootOverride.t = new Vector3(
                 sample.rootOverride.t.x,

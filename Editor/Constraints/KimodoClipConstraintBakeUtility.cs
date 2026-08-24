@@ -733,7 +733,7 @@ namespace KimodoBridge.Editor
         {
             return new KimodoConstraintExportContext
             {
-                projectedPoseProjector = KimodoConstraintExportProjector.Create(modelName)
+                projectedPoseProjector = KimodoConstraintExportProjector.CreateProfileNative(modelName)
             };
         }
 }

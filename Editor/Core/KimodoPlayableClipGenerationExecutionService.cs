@@ -714,7 +714,7 @@ namespace KimodoBridge.Editor
             {
                 return new KimodoConstraintExportContext
                 {
-                    projectedPoseProjector = KimodoConstraintExportProjector.Create(context.ModelName)
+                    projectedPoseProjector = KimodoConstraintExportProjector.Create(context)
                 };
             }
             return new KimodoConstraintExportContext();

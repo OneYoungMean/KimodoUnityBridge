@@ -75,16 +75,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
-                track,
-                animator,
-                out Vector3 trackOffsetPosition,
-                out Quaternion trackOffsetRotation);
-            KimodoTimelineTrackOffsetUtility.ConvertSampleFromTrackSpace(
-                sample,
-                trackOffsetPosition,
-                trackOffsetRotation);
-
             float timelineFrameRate = KimodoTimelineConstraintSampler.ResolveTimelineFrameRate(timelineContext);
             int timelineFrame = KimodoTimelineConstraintSampler.ResolveTimelineSampleFrame(
                 sampleTime,

@@ -7,10 +7,9 @@ using UnityEngine;
 namespace KimodoBridge
 {
     /// <summary>
-    /// Projects constraint samples onto the model's protocol skeleton.
-    /// FullBody uses its canonical 70D MuscleSample; Root2D-only samples use
-    /// the profile skeleton initial pose. Root overrides and effector targets
-    /// are solved on the same profile skeleton used for the exported snapshot.
+    /// Projects model-native constraint samples onto the protocol skeleton.
+    /// Timeline character samples use ProjectSolvedMuscle after their
+    /// Character FK/root/IK pass has completed.
     /// </summary>
     public static class KimodoRuntimeConstraintExportProjector
     {
@@ -18,10 +17,10 @@ namespace KimodoBridge
             string modelName)
         {
             string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
-            return sample => Project(sample, resolvedModelName);
+            return sample => ProjectProfileNative(sample, resolvedModelName);
         }
 
-        private static KimodoConstraintProjectedPose Project(
+        private static KimodoConstraintProjectedPose ProjectProfileNative(
             KimodoMarkerSampleResult sample,
             string modelName)
         {
@@ -38,15 +37,7 @@ namespace KimodoBridge
                 throw new InvalidOperationException("Constraint MuscleSample is invalid.");
             }
 
-            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
-                    modelName,
-                    out Avatar avatar,
-                    out string error) ||
-                !KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
-                    avatar,
-                    "KimodoRuntimeConstraintExportProfile",
-                    out RetargetSkeleton cache,
-                    out error))
+            if (!TryBuildProfileCache(modelName, out RetargetSkeleton cache, out string error))
             {
                 throw new InvalidOperationException($"Constraint pose projection failed: {error}");
             }
@@ -65,47 +56,111 @@ namespace KimodoBridge
                     throw new InvalidOperationException($"Constraint pose projection failed: {error}");
                 }
 
-                if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
-                        modelName,
-                        cache,
-                        out string[] jointNames,
-                        out _,
-                        out Transform[] joints,
-                        out error))
-                {
-                    throw new InvalidOperationException($"Constraint profile skeleton failed: {error}");
-                }
-
-                if (joints == null || joints.Length == 0 || joints[0] == null)
-                {
-                    throw new InvalidOperationException("Constraint profile skeleton has no Hips joint after projection.");
-                }
-
-                var jointPositions = new Vector3[joints.Length];
-                var jointRotations = new Quaternion[joints.Length];
-                var result = new List<Vector3>(joints.Length);
-                for (int i = 0; i < joints.Length; i++)
-                {
-                    Transform joint = joints[i];
-                    Quaternion rotation = i == 0 ? joint.rotation : joint.localRotation;
-                    jointPositions[i] = joint.position;
-                    jointRotations[i] = joint.rotation;
-                    result.Add(KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(rotation));
-                }
-
-                return new KimodoConstraintProjectedPose
-                {
-                    profileRootPosition = joints[0].position,
-                    jointNames = jointNames,
-                    jointPositions = jointPositions,
-                    jointRotations = jointRotations,
-                    localJointAngles = result,
-                };
+                return CaptureProfilePose(modelName, cache);
             }
             finally
             {
                 cache.Dispose();
             }
+        }
+
+        internal static KimodoConstraintProjectedPose ProjectSolvedMuscle(
+            MuscleSample solvedTrackPose,
+            string modelName)
+        {
+            if (solvedTrackPose == null || !solvedTrackPose.IsValid)
+            {
+                throw new InvalidOperationException("Solved Character MuscleSample is invalid.");
+            }
+
+            string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
+            if (!TryBuildProfileCache(resolvedModelName, out RetargetSkeleton cache, out string error))
+            {
+                throw new InvalidOperationException($"Constraint profile projection failed: {error}");
+            }
+
+            try
+            {
+                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                        solvedTrackPose,
+                        KimodoMotionModelProfiles.ResolveGenerationFrameRate(resolvedModelName),
+                        cache,
+                        out _,
+                        out _,
+                        out error))
+                {
+                    throw new InvalidOperationException($"Constraint profile retarget failed: {error}");
+                }
+
+                return CaptureProfilePose(resolvedModelName, cache);
+            }
+            finally
+            {
+                cache.Dispose();
+            }
+        }
+
+        private static bool TryBuildProfileCache(
+            string modelName,
+            out RetargetSkeleton cache,
+            out string error)
+        {
+            cache = null;
+            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    modelName,
+                    out Avatar avatar,
+                    out error))
+            {
+                return false;
+            }
+
+            return KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
+                avatar,
+                "KimodoRuntimeConstraintExportProfile",
+                out cache,
+                out error);
+        }
+
+        private static KimodoConstraintProjectedPose CaptureProfilePose(
+            string modelName,
+            RetargetSkeleton cache)
+        {
+            if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
+                    modelName,
+                    cache,
+                    out string[] jointNames,
+                    out _,
+                    out Transform[] joints,
+                    out string error))
+            {
+                throw new InvalidOperationException($"Constraint profile skeleton failed: {error}");
+            }
+
+            if (joints == null || joints.Length == 0 || joints[0] == null)
+            {
+                throw new InvalidOperationException("Constraint profile skeleton has no Hips joint after projection.");
+            }
+
+            var jointPositions = new Vector3[joints.Length];
+            var jointRotations = new Quaternion[joints.Length];
+            var localJointAngles = new List<Vector3>(joints.Length);
+            for (int i = 0; i < joints.Length; i++)
+            {
+                Transform joint = joints[i];
+                Quaternion rotation = i == 0 ? joint.rotation : joint.localRotation;
+                jointPositions[i] = joint.position;
+                jointRotations[i] = joint.rotation;
+                localJointAngles.Add(KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(rotation));
+            }
+
+            return new KimodoConstraintProjectedPose
+            {
+                profileRootPosition = joints[0].position,
+                jointNames = jointNames,
+                jointPositions = jointPositions,
+                jointRotations = jointRotations,
+                localJointAngles = localJointAngles,
+            };
         }
 
     }
