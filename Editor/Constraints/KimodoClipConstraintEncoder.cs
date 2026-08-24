@@ -46,7 +46,7 @@ namespace KimodoBridge.Editor
             {
                 if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
                         modelName,
-                        sampler.TargetCache.skeletonRoot,
+                        sampler.TargetCache,
                         out string[] jointNames,
                         out int[] jointParents,
                         out Transform[] joints,

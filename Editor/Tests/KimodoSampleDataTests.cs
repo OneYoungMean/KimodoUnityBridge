@@ -282,7 +282,7 @@ namespace KimodoBridge.Editor.Tests
         {
             var context = new KimodoConstraintExportContext
             {
-                localJointAngleProjector = _ => new List<Vector3> { Vector3.zero }
+                projectedPoseProjector = sample => CreateProjectedTestPose(sample)
             };
             KimodoConstraintInternal[] internals = KimodoConstraintInternal.GetConstraintInternal(
                 sample,
@@ -291,6 +291,33 @@ namespace KimodoBridge.Editor.Tests
             return Array.ConvertAll(
                 internals,
                 item => item.ToJsonObject(0.0, null, 30.0).type);
+        }
+
+        private static KimodoConstraintProjectedPose CreateProjectedTestPose(
+            KimodoMarkerSampleResult sample)
+        {
+            return new KimodoConstraintProjectedPose
+            {
+                profileRootPosition = sample.rootOverride?.t ?? Vector3.zero,
+                jointNames = new[] { "Hips", "LeftHand", "RightHand", "LeftFoot", "RightFoot" },
+                jointPositions = new[]
+                {
+                    sample.rootOverride?.t ?? Vector3.zero,
+                    sample.effectors?.leftHand?.t ?? Vector3.zero,
+                    sample.effectors?.rightHand?.t ?? Vector3.zero,
+                    sample.effectors?.leftFoot?.t ?? Vector3.zero,
+                    sample.effectors?.rightFoot?.t ?? Vector3.zero
+                },
+                jointRotations = new[]
+                {
+                    Quaternion.identity,
+                    Quaternion.identity,
+                    Quaternion.identity,
+                    Quaternion.identity,
+                    Quaternion.identity
+                },
+                localJointAngles = new List<Vector3> { Vector3.zero }
+            };
         }
     }
 }

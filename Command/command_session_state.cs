@@ -199,6 +199,22 @@ namespace KimodoUnityBridge.Command
                 .ToArray();
         }
 
+        private static IEnumerable<GameObject> FindSceneMeshObjects()
+        {
+            return Resources.FindObjectsOfTypeAll<GameObject>()
+                .Where(gameObject => gameObject != null && !EditorUtility.IsPersistent(gameObject) &&
+                    gameObject.scene.IsValid() && HasRenderableMesh(gameObject))
+                .GroupBy(gameObject => KimodoUnityObjectIdUtility.IdHash(gameObject))
+                .Select(group => group.First())
+                .ToArray();
+        }
+
+        private static bool HasRenderableMesh(GameObject root)
+        {
+            return root != null && root.GetComponentsInChildren<Renderer>(true)
+                .Any(renderer => renderer is MeshRenderer || renderer is SkinnedMeshRenderer);
+        }
+
         private static string GetSceneHierarchyPath(GameObject gameObject)
         {
             return gameObject == null
@@ -216,12 +232,18 @@ namespace KimodoUnityBridge.Command
             bool requireAvatar = false)
         {
             error = string.Empty;
-            if (session == null || session.TimelineAsset == null || root == null || animator == null)
+            if (session == null || session.TimelineAsset == null || root == null)
             {
-                error = "Session, character root, and Animator are required.";
+                error = "Session and character root are required.";
                 return false;
             }
-            if (session.Characters.Any(character => character.Animator == animator))
+            if (animator == null && !HasRenderableMesh(root))
+            {
+                error = "character_requires_humanoid_or_mesh: the scene object has neither a valid Animator nor a renderable Mesh.";
+                return false;
+            }
+            if (session.Characters.Any(character => character.Root == root ||
+                (animator != null && character.Animator == animator)))
             {
                 error = "Character is already in the current Session.";
                 return false;
@@ -249,7 +271,10 @@ namespace KimodoUnityBridge.Command
             AnimationTrack poseCacheTrack = session.TimelineAsset.CreateTrack<AnimationTrack>(
                 track,
                 MakeUniqueSessionObjectName(session, $"{characterName}.Poses"));
-            session.Director.SetGenericBinding(track, animator);
+            if (animator != null)
+            {
+                session.Director.SetGenericBinding(track, animator);
+            }
             var character = new TimelineCharacterRecord(
                 GetObjectReference(root), root, animator, avatar, track, poseCacheTrack, avatarError);
             session.Characters.Add(character);
@@ -713,29 +738,22 @@ namespace KimodoUnityBridge.Command
                 if (kind == "character")
                 {
                     string requestedName = RequiredStringValue(arguments, "character");
-                    IEnumerable<Animator> candidates = FindSceneAnimators().Where(item =>
-                        session.Characters.All(character => character.Animator != item));
                     bool isPath = requestedName.Contains("/");
-                    Animator[] matches = candidates.Where(item => isPath
-                        ? string.Equals(GetSceneHierarchyPath(item.gameObject), requestedName, StringComparison.OrdinalIgnoreCase)
-                        : string.Equals(item.gameObject.name, requestedName, StringComparison.OrdinalIgnoreCase)).ToArray();
+                    GameObject[] matches = FindSceneMeshObjects()
+                        .Where(item => isPath
+                            ? string.Equals(GetSceneHierarchyPath(item), requestedName, StringComparison.OrdinalIgnoreCase)
+                            : string.Equals(item.name, requestedName, StringComparison.OrdinalIgnoreCase))
+                        .Where(item => session.Characters.All(character => character.Root != item))
+                        .ToArray();
                     if (matches.Length != 1)
                     {
                         throw new InvalidOperationException(matches.Length == 0
-                            ? $"Scene character '{requestedName}' was not found."
+                            ? $"Scene character or Mesh object '{requestedName}' was not found."
                             : $"Scene character name '{requestedName}' is ambiguous; rename it before adding.");
                     }
-                    Animator animator = matches[0];
-                    GameObject root = animator.gameObject;
-                    if (animator == null)
-                    {
-                        throw new InvalidOperationException("avatar_required: character has no Animator.");
-                    }
-                    if (session.Characters.Any(item => item.Animator == animator))
-                    {
-                        throw new InvalidOperationException("Character is already in the current Session.");
-                    }
-                    if (!AddCharacterTrack(session, root, animator, true, out string error, requireAvatar: true))
+                    GameObject root = matches[0];
+                    Animator animator = root.GetComponentInChildren<Animator>(true);
+                    if (!AddCharacterTrack(session, root, animator, true, out string error, requireAvatar: false))
                     {
                         throw new InvalidOperationException(error);
                     }
@@ -748,7 +766,13 @@ namespace KimodoUnityBridge.Command
                     TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
                     AnimationClip clip = ResolveAnimationClip(RequiredStringValue(arguments, "clip"));
                     bool retargeted = false;
-                    if (!clip.isHumanMotion)
+                    bool humanoid = KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar);
+                    if (!humanoid && clip.isHumanMotion)
+                    {
+                        throw new InvalidOperationException(
+                            $"Mesh-only character '{character.Name}' requires a generic (non-humanoid) AnimationClip.");
+                    }
+                    if (humanoid && !clip.isHumanMotion)
                     {
                         clip = RetargetAddedClipToMuscle(character, clip);
                         retargeted = true;
@@ -956,9 +980,26 @@ namespace KimodoUnityBridge.Command
                     AnalysisCacheRecord record;
                     if (!TryFindCachedAnimationAnalysis(session, character, animation, inputSignature, out record))
                     {
-                        JObject analysis = AnalyzeAnimation(session, animation, analysisOptions, out byte[] analysisMotionBytes);
+                        if (!IsHumanoidCharacter(character) && !HasRenderableMesh(character.Root))
+                        {
+                            throw new InvalidOperationException(
+                                $"Character '{character.Name}' is neither a valid humanoid nor a renderable Mesh object.");
+                        }
+
+                        JObject analysis;
+                        byte[] analysisMotionBytes;
+                        if (IsHumanoidCharacter(character))
+                        {
+                            analysis = AnalyzeAnimation(session, animation, analysisOptions, out analysisMotionBytes);
+                        }
+                        else
+                        {
+                            analysis = BuildMeshAnalysis(animation);
+                            analysisMotionBytes = null;
+                        }
                         JArray poses = BuildAnalysisPoses(character, startFrame, endFrame, analysis, animation.Name, startFrame);
                         NormalizeAnalysisContract(analysis, poses);
+                        if (!IsHumanoidCharacter(character)) analysis["source"] = "mesh_only_pose_sampling";
                         string id = CacheAnalysisResult(
                             session, character, startFrame / SessionFrameRate, endFrame / SessionFrameRate,
                             poses, analysis, analysisMotionBytes, animation, inputSignature);
@@ -977,6 +1018,7 @@ namespace KimodoUnityBridge.Command
                         ["role"] = subject.Role,
                         ["character"] = subject.Character.Name,
                         ["clip"] = subject.Animation.Name,
+                        ["analysis_mode"] = IsHumanoidCharacter(subject.Character) ? "humanoid" : "mesh",
                         ["keyframes"] = subject.Record.Analysis?["keyframes"]?.DeepClone() ?? new JArray(),
                         ["foot_contacts"] = subject.Record.Analysis?["foot_contacts"]?.DeepClone() ?? new JArray()
                     })),
@@ -1079,6 +1121,36 @@ namespace KimodoUnityBridge.Command
                 ["keyframe_count"] = keyframeCount,
                 ["keyframes"] = new JObject { ["enabled"] = true, ["max_count"] = keyframeCount }
             };
+        }
+
+        private static JObject BuildMeshAnalysis(TimelineAnimationRecord animation)
+        {
+            int frameCount = Math.Max(1, animation?.EndFrameExclusive > animation?.StartFrame
+                ? animation.EndFrameExclusive - animation.StartFrame
+                : Mathf.Max(1, Mathf.RoundToInt((float)((animation?.TimelineDurationSeconds ?? 0.0) * SessionFrameRate))));
+            int count = Math.Min(AnalysisKeyframeCount, frameCount);
+            var keyframes = new JArray();
+            for (int index = 0; index < count; index++)
+            {
+                keyframes.Add(new JObject
+                {
+                    ["frame"] = count <= 1
+                        ? 0
+                        : Mathf.RoundToInt(Mathf.Lerp(0f, frameCount - 1, index / (float)(count - 1))),
+                    ["kind"] = "mesh_pose"
+                });
+            }
+            return new JObject
+            {
+                ["keyframes"] = keyframes,
+                ["foot_contacts"] = new JArray(),
+                ["source"] = "mesh_only_pose_sampling"
+            };
+        }
+
+        private static bool IsHumanoidCharacter(TimelineCharacterRecord character)
+        {
+            return character != null && KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar);
         }
 
         private static JObject AnalyzeAnimation(
@@ -1447,13 +1519,13 @@ namespace KimodoUnityBridge.Command
                 GameObject root = resolved as GameObject ?? (resolved as Animator)?.gameObject;
                 Animator animator = root != null ? root.GetComponentInChildren<Animator>(true) : null;
                 string error = string.Empty;
-                bool added = root != null && root.scene.IsValid() && !EditorUtility.IsPersistent(root) && animator != null &&
-                    AddCharacterTrack(session, root, animator, true, out error, requireAvatar: true);
+                bool added = root != null && root.scene.IsValid() && !EditorUtility.IsPersistent(root) &&
+                    AddCharacterTrack(session, root, animator, true, out error, requireAvatar: false);
                 if (added)
                 {
-                    match = session.Characters.FirstOrDefault(character => character.Animator == animator);
+                    match = session.Characters.FirstOrDefault(character => character.Root == root);
                 }
-                else if (root != null && animator != null)
+                else if (root != null)
                 {
                     throw new InvalidOperationException($"Could not create a target AnimationTrack: {error}");
                 }

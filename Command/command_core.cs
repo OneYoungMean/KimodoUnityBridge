@@ -64,7 +64,7 @@ namespace KimodoUnityBridge.Command
                         "Close the selected animation editing Session while preserving its Timeline, assets, and AI-readable Session JSON.",
                         Properties(Optional("session_id", "string", "Session id; omitted uses the current Session."))),
                     CommandDefinition(SessionAddCommand,
-                        "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator; kind=clip appends one project AnimationClip to a Session character; kind=animator imports same-Layer State-to-State transitions as Timeline-composed transition_clip records without baking transition assets. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
+                        "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator or renderable Mesh object; kind=clip appends one project AnimationClip to a Session character; kind=animator imports same-Layer State-to-State transitions as Timeline-composed transition_clip records without baking transition assets. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredEnum("kind", "character", "clip", "animator"),
@@ -73,7 +73,7 @@ namespace KimodoUnityBridge.Command
                              Optional("animator", "string", "Scene Animator name/path for kind=animator."),
                              Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),
                     CommandDefinition(AnimationAnalyzeCommand,
-                        "Analyze one or two immutable Session clips and render their visual evidence synchronously. Each clip explicitly names its Session character. Returns sparse keyframes, foot contacts, and self-describing picture tiles; completed Clips are never modified.",
+                        "Analyze one or two immutable Session clips and render their visual evidence synchronously. Humanoid characters use HumanBodyBones and return keyframes/foot contacts; non-humanoid renderable Mesh objects use a Mesh-only pose-sampling path and return pose pictures without humanoid contact data. Each clip explicitly names its Session character. Completed Clips are never modified.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredAnalysisClips(),

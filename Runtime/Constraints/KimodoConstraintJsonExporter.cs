@@ -79,88 +79,25 @@ namespace KimodoBridge
         }
     }
 
-    /// <summary>Result of projecting a constraint pose through the profile
-    /// humanoid. RootPositionMeters is the projected profile Hips world
-    /// position; an explicit Root2D override remains authoritative at export.
-    /// </summary>
+    /// <summary>Snapshot of the solved Kimodo profile skeleton. Exporters must
+    /// read all protocol pose/target coordinates from this snapshot rather
+    /// than reusing the source SampleResult transforms.</summary>
     public sealed class KimodoConstraintProjectedPose
     {
-        public Vector3 rootPositionMeters;
+        public Vector3 profileRootPosition;
+        public string[] jointNames;
+        public Vector3[] jointPositions;
+        public Quaternion[] jointRotations;
         public List<Vector3> localJointAngles;
     }
 
-    /// <summary>Retarget projection callbacks used at the internal protocol
-    /// boundary. Root2D and end-effector transforms are already world-space;
-    /// World-space constraint export context. FootTQ scale conversion is kept
-    /// inside the retarget sampling boundary and is not part of this context.</summary>
+    /// <summary>Retarget projection callback used at the protocol boundary.
+    /// The callback returns the complete solved profile-skeleton snapshot.</summary>
     public sealed class KimodoConstraintExportContext
     {
-        public Func<KimodoMarkerSampleResult, List<Vector3>> localJointAngleProjector;
         public Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> projectedPoseProjector;
 
         public KimodoConstraintExportContext() { }
-
-        internal bool TryBuildProjectedPose(
-            KimodoMarkerSampleResult sample,
-            out Vector3 rootPositionMeters,
-            out List<Vector3> localAngles,
-            out string error)
-        {
-            rootPositionMeters = Vector3.zero;
-            localAngles = null;
-            error = string.Empty;
-
-            if (projectedPoseProjector != null)
-            {
-                KimodoConstraintProjectedPose projected = projectedPoseProjector(sample);
-                if (projected == null || projected.localJointAngles == null || projected.localJointAngles.Count == 0)
-                {
-                    error = "Model skeleton projector returned no projected pose.";
-                    return false;
-                }
-
-                // An explicit Root2D/root override is an authored world
-                // target. The profile projection supplies retargeted pose
-                // rotations, but must not replace that target with a derived
-                // Hips position.
-                rootPositionMeters = KimodoConstraintMask.IsActive(sample, "rootposition") &&
-                    sample.rootOverride != null
-                    ? sample.rootOverride.t
-                    : projected.rootPositionMeters;
-                localAngles = projected.localJointAngles;
-                return true;
-            }
-
-            // The canonical rootTQ channel is not a hips/world transform.
-            // Only the explicit world-space root override may provide the
-            // protocol root when no skeleton projector is available.
-            rootPositionMeters = KimodoConstraintMask.IsActive(sample, "rootposition") &&
-                sample.rootOverride != null
-                ? sample.rootOverride.t
-                : Vector3.zero;
-            return TryBuildLocalJointAngles(sample, out localAngles, out error);
-        }
-
-        internal bool TryBuildLocalJointAngles(KimodoMarkerSampleResult sample, out List<Vector3> localAngles, out string error)
-        {
-            localAngles = null;
-            error = string.Empty;
-            if (localJointAngleProjector == null)
-            {
-                localAngles = new List<Vector3>
-                {
-                    Vector3.zero
-                };
-                return true;
-            }
-            localAngles = localJointAngleProjector(sample);
-            if (localAngles == null || localAngles.Count == 0)
-            {
-                error = "Model skeleton projector returned no joints.";
-                return false;
-            }
-            return true;
-        }
     }
 
     public static class KimodoConstraintJsonExporter
@@ -294,24 +231,13 @@ namespace KimodoBridge
             if (KimodoConstraintMask.IsActive(sample, "rootposition") &&
                 sample.rootOverride != null)
             {
-                _ = exportContext ?? throw new ArgumentNullException(nameof(exportContext));
-
-                // Root2D has no authored MuscleSample, but it still follows
-                // the profile-skeleton FK/root/IK projection used by
-                // FullBody. The explicit world target remains authoritative;
-                // the projected pose is evaluated for the profile skeleton.
-                if (!exportContext.TryBuildProjectedPose(
-                        sample,
-                        out _,
-                        out _,
-                        out string projectionError))
-                {
-                    throw new InvalidOperationException(
-                        $"Root2D constraint pose projection failed: {projectionError}");
-                }
-
-                Vector3 root = sample.rootOverride.t;
-                Vector3 forward = sample.rootOverride.q * Vector3.forward;
+                KimodoConstraintProjectedPose projected = RequireProfileSkeletonPose(
+                    sample,
+                    exportContext,
+                    "Root2D");
+                Vector3 root = projected.profileRootPosition;
+                Quaternion rootRotation = ResolveJointRotation(projected, 0);
+                Vector3 forward = rootRotation * Vector3.forward;
                 var canonical = new KimodoConstraintJson
                 {
                     type = "root2d",
@@ -335,19 +261,11 @@ namespace KimodoBridge
             double? clipDurationSeconds,
             double exportFps)
         {
-            Vector3 rootPositionMeters;
-            List<Vector3> localAxisAngles;
-            string error;
-            if (!TryBuildProjectedProtocolPose(
-                    sample,
-                    exportContext,
-                    out rootPositionMeters,
-                    out localAxisAngles,
-                    out error))
-            {
-                throw new InvalidOperationException($"FullBody constraint pose projection failed: {error}");
-            }
-            Vector3 kimodoRoot = new Vector3(-rootPositionMeters.x, rootPositionMeters.y, rootPositionMeters.z);
+            KimodoConstraintProjectedPose projected = RequireProfileSkeletonPose(
+                sample,
+                exportContext,
+                "FullBody");
+            Vector3 kimodoRoot = ToKimodoPosition(projected.profileRootPosition);
             var json = new KimodoConstraintJson
             {
                 type = "fullbody",
@@ -358,21 +276,11 @@ namespace KimodoBridge
                 },
                 local_joints_rot = new List<float[][]>
                 {
-                    BuildLocalJointFrame(localAxisAngles)
+                    BuildLocalJointFrame(projected.localJointAngles)
                 }
             };
 
             return json;
-        }
-
-        private static bool IsFinite(Vector3 value)
-        {
-            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
-        }
-
-        private static bool IsFinite(float value)
-        {
-            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         internal static KimodoConstraintJson BuildEndEffectorInternal(
@@ -383,24 +291,11 @@ namespace KimodoBridge
             double? clipDurationSeconds,
             double exportFps)
         {
-            KimodoConstraintProjectedPose projected = exportContext?.projectedPoseProjector != null
-                ? exportContext.projectedPoseProjector(sample)
-                : null;
-            Vector3 rootPositionMeters;
-            List<Vector3> localAxisAngles;
-            string error;
-            if (projected != null && projected.localJointAngles != null && projected.localJointAngles.Count > 0)
-            {
-                rootPositionMeters = projected.rootPositionMeters;
-                localAxisAngles = projected.localJointAngles;
-                error = string.Empty;
-            }
-            else if (!TryBuildProjectedProtocolPose(sample, exportContext, out rootPositionMeters, out localAxisAngles, out error))
-            {
-                throw new InvalidOperationException($"End-effector constraint pose projection failed: {error}");
-            }
-            _ = exportContext ?? throw new ArgumentNullException(nameof(exportContext));
-            Vector3 kimodoRoot = new Vector3(-rootPositionMeters.x, rootPositionMeters.y, rootPositionMeters.z);
+            KimodoConstraintProjectedPose projected = RequireProfileSkeletonPose(
+                sample,
+                exportContext,
+                "End-effector");
+            Vector3 kimodoRoot = ToKimodoPosition(projected.profileRootPosition);
             var json = new KimodoConstraintJson
             {
                 type = jointType,
@@ -416,17 +311,15 @@ namespace KimodoBridge
                 },
                 local_joints_rot = new List<float[][]>
                 {
-                    BuildLocalJointFrame(localAxisAngles)
+                    BuildLocalJointFrame(projected.localJointAngles)
                 }
             };
 
-            KimodoUnityBridge.KimodoRigidTransform goal = ResolveEndEffectorGoal(
-                sample,
-                jointType);
-            if (goal == null)
-                throw new InvalidOperationException($"{jointType} is valid but its target payload is missing.");
-            Vector3 worldTarget = goal.t;
-            json.target_positions = new List<float[]> { new[] { -worldTarget.x, worldTarget.y, worldTarget.z } };
+            Vector3 profileTarget = ResolveProjectedJointPosition(projected, ResolveEndEffectorJointName(jointType));
+            json.target_positions = new List<float[]>
+            {
+                new[] { -profileTarget.x, profileTarget.y, profileTarget.z }
+            };
 
             return json;
         }
@@ -443,42 +336,70 @@ namespace KimodoBridge
             }
         }
 
-        private static KimodoUnityBridge.KimodoRigidTransform ResolveEndEffectorGoal(
-            KimodoMarkerSampleResult sample,
-            string type)
-        {
-            if (sample?.effectors == null) return null;
-            switch ((type ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
-            {
-                case "left-hand": return sample.effectors.leftHand;
-                case "right-hand": return sample.effectors.rightHand;
-                case "left-foot": return sample.effectors.leftFoot;
-                case "right-foot": return sample.effectors.rightFoot;
-                default: return null;
-            }
-        }
-
-        private static bool TryBuildProjectedProtocolPose(
+        private static KimodoConstraintProjectedPose RequireProfileSkeletonPose(
             KimodoMarkerSampleResult sample,
             KimodoConstraintExportContext exportContext,
-            out Vector3 rootPositionMeters,
-            out List<Vector3> localAxisAngles,
-            out string error)
+            string constraintName)
         {
-            rootPositionMeters = Vector3.zero;
-            localAxisAngles = null;
-            error = string.Empty;
-            if (sample?.sampleData == null || !sample.sampleData.IsValid)
+            if (exportContext?.projectedPoseProjector == null)
             {
-                error = "Constraint MuscleSample is invalid.";
-                return false;
+                throw new InvalidOperationException(
+                    $"{constraintName} constraint export requires the Kimodo profile skeleton projector.");
             }
 
-            return exportContext != null && exportContext.TryBuildProjectedPose(
-                sample,
-                out rootPositionMeters,
-                out localAxisAngles,
-                out error);
+            KimodoConstraintProjectedPose projected = exportContext.projectedPoseProjector(sample);
+            if (projected == null ||
+                projected.localJointAngles == null ||
+                projected.localJointAngles.Count == 0 ||
+                projected.jointNames == null ||
+                projected.jointPositions == null ||
+                projected.jointRotations == null ||
+                projected.jointNames.Length != projected.jointPositions.Length ||
+                projected.jointNames.Length != projected.jointRotations.Length)
+            {
+                throw new InvalidOperationException(
+                    $"{constraintName} constraint profile skeleton projector returned an incomplete pose.");
+            }
+
+            return projected;
+        }
+
+        private static Vector3 ToKimodoPosition(Vector3 profilePosition)
+        {
+            return new Vector3(-profilePosition.x, profilePosition.y, profilePosition.z);
+        }
+
+        private static Quaternion ResolveJointRotation(
+            KimodoConstraintProjectedPose projected,
+            int index)
+        {
+            if (projected?.jointRotations == null ||
+                index < 0 ||
+                index >= projected.jointRotations.Length)
+            {
+                throw new InvalidOperationException("Profile skeleton root rotation is missing.");
+            }
+
+            return projected.jointRotations[index].normalized;
+        }
+
+        private static Vector3 ResolveProjectedJointPosition(
+            KimodoConstraintProjectedPose projected,
+            string jointName)
+        {
+            if (projected?.jointNames != null && projected.jointPositions != null)
+            {
+                for (int i = 0; i < projected.jointNames.Length; i++)
+                {
+                    if (string.Equals(projected.jointNames[i], jointName, StringComparison.Ordinal))
+                    {
+                        return projected.jointPositions[i];
+                    }
+                }
+            }
+
+            throw new InvalidOperationException(
+                $"Profile skeleton joint '{jointName}' is missing from the projected pose.");
         }
 
         private static List<int> BuildFrameIndices(double sampleTime, double? clipDurationSeconds, double exportFps)

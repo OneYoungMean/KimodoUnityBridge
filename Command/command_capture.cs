@@ -20,7 +20,7 @@ namespace KimodoUnityBridge.Command
         private static readonly Dictionary<string, AnalysisCacheRecord> AnalysisCache =
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
-        private const string AnalysisPictureRenderVersion = "20-urp-lit-bounds";
+        private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
         private const string TestAnalysisPictureRenderVersion = "23-depth-occlusion";
         private const int PictureSupersample = 2;
         private const int AnalysisKeyframeCount = 8;
@@ -331,6 +331,11 @@ namespace KimodoUnityBridge.Command
 
         private static SubjectPictureData BuildSubjectPictureData(TimelineSessionRecord session, AnalysisSubject subject)
         {
+            if (!IsHumanoidCharacter(subject.Character))
+            {
+                return BuildMeshSubjectPictureData(subject);
+            }
+
             int frameCount = Math.Max(1, subject.EndFrameExclusive - subject.StartFrame);
             var pelvis = new Vector3[frameCount];
             var leftHand = new Vector3[frameCount];
@@ -444,6 +449,62 @@ namespace KimodoUnityBridge.Command
                 testBounds);
         }
 
+        private static SubjectPictureData BuildMeshSubjectPictureData(AnalysisSubject subject)
+        {
+            int frameCount = Math.Max(1, subject.EndFrameExclusive - subject.StartFrame);
+            var positions = new Vector3[frameCount];
+            Bounds firstBounds = default;
+            Bounds lastBounds = default;
+            Bounds allBounds = default;
+            bool hasBounds = false;
+            for (int localFrame = 0; localFrame < frameCount; localFrame++)
+            {
+                GameObject preview = CreateMeshPosePreview(subject, localFrame);
+                try
+                {
+                    positions[localFrame] = preview.transform.position;
+                    Bounds current = CalculateSkinnedBounds(preview);
+                    if (localFrame == 0) firstBounds = current;
+                    if (localFrame == frameCount - 1) lastBounds = current;
+                    if (!hasBounds)
+                    {
+                        allBounds = current;
+                        hasBounds = true;
+                    }
+                    else
+                    {
+                        allBounds.Encapsulate(current);
+                    }
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(preview);
+                }
+            }
+
+            Bounds bounds = hasBounds ? allBounds : CalculateBounds(subject.Character.Root);
+            bounds.Expand(new Vector3(1f, .5f, 1f));
+            return new SubjectPictureData(
+                subject,
+                null,
+                positions,
+                positions,
+                positions,
+                positions,
+                positions,
+                positions,
+                positions,
+                positions,
+                positions,
+                positions,
+                new bool[frameCount],
+                new bool[frameCount],
+                firstBounds,
+                lastBounds,
+                bounds,
+                bounds);
+        }
+
         private static Vector3 ReadHumanoidBonePosition(Animator animator, HumanBodyBones bone, string characterName)
         {
             if (animator == null)
@@ -469,6 +530,13 @@ namespace KimodoUnityBridge.Command
 
         private static List<PictureTile> BuildPictureTiles(SubjectPictureData subject, string level)
         {
+            if (!IsHumanoidCharacter(subject.Subject.Character))
+            {
+                return SelectKeyFrames(subject, AnalysisKeyframeCount)
+                    .Select(frame => PictureTile.MeshPose(subject, frame, "mesh_pose"))
+                    .ToList();
+            }
+
             if (level == "-test" || level == "low" || level == "middle" || level == "high")
             {
                 var result = new List<PictureTile>
@@ -584,6 +652,27 @@ namespace KimodoUnityBridge.Command
 
         private static Texture2D RenderPictureTile(PictureTile tile, int width, int height, TrajectoryScale trajectoryScale)
         {
+            if (tile.Presentation == "mesh_pose")
+            {
+                Bounds meshBounds = CalculatePreviewPoseBounds(tile.Subject, tile.Frame);
+                var meshEnvironment = new List<GameObject>();
+                CreatePictureEnvironment(meshEnvironment, meshBounds);
+                Camera meshCamera = CreateAnalysisPictureCamera(meshBounds, tile.Direction, true);
+                try
+                {
+                    Texture2D result = RenderCamera(meshCamera, width, height, new Color(.12f, .12f, .12f, 1f));
+                    RenderPoseOnto(result, meshCamera, meshEnvironment, tile.Subject, tile.Frame, Color.white, 1f);
+                    return result;
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(meshCamera.gameObject);
+                    foreach (GameObject item in meshEnvironment)
+                    {
+                        if (item != null) UnityEngine.Object.DestroyImmediate(item);
+                    }
+                }
+            }
             if (tile.Presentation == "test_foot_transitions" || tile.Presentation == "test_keyframes")
             {
                 return RenderTestPictureTile(tile, width, height, trajectoryScale);
@@ -600,10 +689,6 @@ namespace KimodoUnityBridge.Command
                 : tile.Subject.Bounds;
             var environment = new List<GameObject>();
             CreatePictureEnvironment(environment, tileBounds);
-            if (tile.Presentation == "trajectory")
-            {
-                CreatePelvisTrajectory(environment, tile.Subject.Pelvis, trajectoryScale);
-            }
             Camera camera = CreateAnalysisPictureCamera(tileBounds, tile.Direction, tile.Orthographic);
             try
             {
@@ -623,14 +708,6 @@ namespace KimodoUnityBridge.Command
                 {
                     Color tint = tile.Presentation == "key" ? Color.yellow : FootTint(tile.Subject, tile.Frame);
                     RenderPoseOnto(result, camera, environment, tile.Subject, tile.Frame, tint, 1f);
-                }
-                else if (tile.Presentation == "trajectory")
-                {
-                    foreach (int frame in tile.TrajectoryFrames)
-                    {
-                        bool key = tile.Subject.KeyFrameSet.Contains(frame);
-                        RenderPoseOnto(result, camera, environment, tile.Subject, frame, key ? Color.yellow : Color.gray, 1f);
-                    }
                 }
                 return result;
             }
@@ -1108,10 +1185,52 @@ namespace KimodoUnityBridge.Command
 
         private static GameObject CreateAnalysisPosePreview(SubjectPictureData subject, int localFrame)
         {
+            if (!IsHumanoidCharacter(subject.Subject.Character))
+            {
+                return CreateMeshPosePreview(subject.Subject, localFrame);
+            }
+
             TimelineCharacterRecord character = subject.Subject.Character;
             GameObject preview = CreateCanonicalPosePreview(character);
             KimodoMarkerSampleResult sample = subject.GetSample(localFrame);
             ApplyCanonicalPoseToPreview(preview, character, sample);
+            return preview;
+        }
+
+        private static GameObject CreateMeshPosePreview(AnalysisSubject subject, int localFrame)
+        {
+            if (subject?.Character?.Root == null)
+            {
+                throw new InvalidOperationException("Mesh-only analysis has no scene object to preview.");
+            }
+            GameObject preview = UnityEngine.Object.Instantiate(subject.Character.Root);
+            preview.name = "Kimodo Mesh Pose Preview";
+            preview.hideFlags = HideFlags.HideAndDontSave;
+            foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
+            {
+                transform.gameObject.layer = 31;
+            }
+
+            foreach (Animator animator in preview.GetComponentsInChildren<Animator>(true))
+            {
+                animator.enabled = false;
+                animator.runtimeAnimatorController = null;
+            }
+
+            AnimationClip clip = subject.Animation?.Clip;
+            if (clip != null)
+            {
+                double timelineTime = (subject.StartFrame + Mathf.Max(0, localFrame)) / SessionFrameRate;
+                float sourceTime = (float)KimodoMarkerSamplingUtility.ResolveAnimationSourceTime(
+                    subject.Animation.TimelineClip,
+                    timelineTime);
+                clip.SampleAnimation(preview, Mathf.Clamp(sourceTime, 0f, clip.length));
+            }
+            foreach (SkinnedMeshRenderer renderer in preview.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                renderer.updateWhenOffscreen = true;
+                renderer.localBounds = new Bounds(Vector3.zero, Vector3.one * 100f);
+            }
             return preview;
         }
 
@@ -1637,16 +1756,6 @@ namespace KimodoUnityBridge.Command
             return values[Mathf.Clamp(Mathf.RoundToInt((values.Count - 1) * percent), 0, values.Count - 1)];
         }
 
-        private static void CreatePelvisTrajectory(
-            List<GameObject> objects,
-            Vector3[] points,
-            TrajectoryScale scale,
-            float lineWidth = .045f,
-            bool unlit = false)
-        {
-            CreateMotionTrajectory(objects, points, scale, lineWidth, unlit, 1f);
-        }
-
         private static void CreateTestBodyTrajectories(
             List<GameObject> objects,
             SubjectPictureData subject)
@@ -1675,28 +1784,6 @@ namespace KimodoUnityBridge.Command
             line.sharedMaterial = MakeUnlitMaterial(color);
             line.startColor = line.endColor = color;
             objects.Add(lineObject);
-        }
-
-        private static void CreateMotionTrajectory(
-            List<GameObject> objects,
-            Vector3[] points,
-            TrajectoryScale scale,
-            float lineWidth,
-            bool unlit,
-            float alphaMultiplier)
-        {
-            float previousSpeed = 0f;
-            for (int index = 1; index < points.Length; index++)
-            {
-                float speed = (points[index] - points[index - 1]).magnitude * (float)SessionFrameRate;
-                float acceleration = Mathf.Abs(speed - previousSpeed) * (float)SessionFrameRate;
-                previousSpeed = speed;
-                float speedWeight = Mathf.InverseLerp(scale.MinSpeed, Mathf.Max(scale.MinSpeed + .0001f, scale.MaxSpeed), speed);
-                float accelerationWeight = Mathf.InverseLerp(scale.MinAcceleration, Mathf.Max(scale.MinAcceleration + .0001f, scale.MaxAcceleration), acceleration);
-                Color color = Color.Lerp(Color.red, Color.green, speedWeight);
-                color.a = Mathf.Lerp(1f, .2f, accelerationWeight) * alphaMultiplier;
-                CreateWorldLine(objects, points[index - 1] + Vector3.up * .02f, points[index] + Vector3.up * .02f, lineWidth, color, unlit);
-            }
         }
 
         private static void Fill(Texture2D texture, Color color)
@@ -1818,14 +1905,13 @@ namespace KimodoUnityBridge.Command
             TimelineAnimationRecord animation = null,
             string inputSignature = null)
         {
-            if (motionBytes == null || motionBytes.Length == 0)
-            {
-                throw new InvalidOperationException("Analysis cannot be cached without dense KMB motion.");
-            }
             string id = Guid.NewGuid().ToString("D");
             string motionPath = AnalysisMotionCachePath(session, id);
             Directory.CreateDirectory(Path.GetDirectoryName(motionPath));
-            File.WriteAllBytes(motionPath, motionBytes);
+            if (motionBytes != null && motionBytes.Length > 0)
+            {
+                File.WriteAllBytes(motionPath, motionBytes);
+            }
             var record = new AnalysisCacheRecord
             {
                 Id = id,
@@ -1839,7 +1925,9 @@ namespace KimodoUnityBridge.Command
                 CreatedAtUtc = DateTime.UtcNow,
                 Poses = poses != null ? (JArray)poses.DeepClone() : new JArray(),
                 Analysis = analysis != null ? (JObject)analysis.DeepClone() : new JObject(),
-                MotionPath = ToProjectRelativePath(motionPath),
+                MotionPath = motionBytes != null && motionBytes.Length > 0
+                    ? ToProjectRelativePath(motionPath)
+                    : string.Empty,
                 AnimationId = animation?.Id.ToString("D") ?? string.Empty,
                 AnimationName = animation?.Name ?? string.Empty,
                 InputSignature = inputSignature ?? string.Empty
@@ -2169,8 +2257,9 @@ namespace KimodoUnityBridge.Command
         {
             var signature = new JObject
             {
-                ["contract"] = "animation_analysis_picture_v2",
+                ["contract"] = "animation_analysis_picture_v3",
                 ["character_ref"] = character?.CharacterRef ?? string.Empty,
+                ["rig_type"] = IsHumanoidCharacter(character) ? "humanoid" : "mesh",
                 ["animation_id"] = animation?.Id.ToString("D") ?? string.Empty,
                 ["start_frame"] = animation?.StartFrame ?? 0,
                 ["end_frame_exclusive"] = animation?.EndFrameExclusive ?? 0,
@@ -2369,6 +2458,26 @@ namespace KimodoUnityBridge.Command
                 };
             }
 
+            public static PictureTile MeshPose(
+                SubjectPictureData subject,
+                int frame,
+                string poseKind)
+            {
+                int clampedFrame = Mathf.Clamp(frame, 0, Math.Max(0, subject.Pelvis.Length - 1));
+                return new PictureTile(subject, "mesh_pose", new JObject
+                {
+                    ["presentation"] = "mesh_pose",
+                    ["frame"] = clampedFrame,
+                    ["pose_kind"] = poseKind
+                })
+                {
+                    Direction = new Vector3(1f, .75f, -1f),
+                    Orthographic = true,
+                    Frame = clampedFrame,
+                    PoseKind = poseKind
+                };
+            }
+
             private static PictureTile TestFrameSet(
                 SubjectPictureData subject,
                 string presentation,
@@ -2419,17 +2528,6 @@ namespace KimodoUnityBridge.Command
                     ["frame"] = frame
                 }) { Frame = frame };
 
-            public static PictureTile Trajectory(SubjectPictureData subject, IEnumerable<int> keyFrames)
-            {
-                var frames = new SortedSet<int> { 0, Math.Max(0, subject.Pelvis.Length - 1) };
-                foreach (int frame in keyFrames) frames.Add(frame);
-                return new PictureTile(subject, "trajectory", new JObject
-                {
-                    ["presentation"] = "pelvis_trajectory",
-                    ["bone"] = "hips",
-                    ["frames"] = new JArray(frames)
-                }) { TrajectoryFrames = frames.ToList() };
-            }
         }
 
         private static void TintPreview(GameObject preview, Color tint, List<Material> transientMaterials)

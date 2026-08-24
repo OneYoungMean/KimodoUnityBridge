@@ -465,17 +465,14 @@ namespace KimodoUnityBridge.Command
                         .FirstOrDefault(item => string.Equals(item.name, savedCharacter.trackName, StringComparison.Ordinal));
                     AnimationTrack poseTrack = track?.GetChildTracks().OfType<AnimationTrack>()
                         .FirstOrDefault(item => string.Equals(item.name, savedCharacter.poseCacheTrackName, StringComparison.Ordinal));
-                    if (root == null || animator == null || track == null || poseTrack == null)
+                    if (root == null || track == null || poseTrack == null ||
+                        (animator == null && !HasRenderableMesh(root)))
                     {
                         continue;
                     }
                     KimodoLocalAvatarUtility.AvatarResolveResult avatarResult = KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(root);
-                    if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatarResult.Avatar))
-                    {
-                        continue;
-                    }
                     var character = new TimelineCharacterRecord(savedCharacter.characterRef, root, animator, avatarResult.Avatar, track, poseTrack, avatarResult.Error);
-                    director.SetGenericBinding(track, animator);
+                    if (animator != null) director.SetGenericBinding(track, animator);
                     session.Characters.Add(character);
                 }
                 foreach (KimodoCommandAnimatorImportMetadata imported in metadata.animatorImports ?? new List<KimodoCommandAnimatorImportMetadata>())

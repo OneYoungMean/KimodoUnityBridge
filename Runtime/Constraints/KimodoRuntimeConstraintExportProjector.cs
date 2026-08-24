@@ -9,7 +9,8 @@ namespace KimodoBridge
     /// <summary>
     /// Projects constraint samples onto the model's protocol skeleton.
     /// FullBody uses its canonical 70D MuscleSample; Root2D-only samples use
-    /// the profile skeleton initial pose while preserving their world target.
+    /// the profile skeleton initial pose. Source root overrides and effector
+    /// targets are not copied into this projection.
     /// </summary>
     public static class KimodoRuntimeConstraintExportProjector
     {
@@ -53,7 +54,7 @@ namespace KimodoBridge
             try
             {
                 float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
-                if (!KimodoConstraintPosePipeline.TryApply(
+                if (!KimodoConstraintPosePipeline.TryApplyFk(
                         sample,
                         frameRate,
                         cache,
@@ -67,7 +68,7 @@ namespace KimodoBridge
                 if (!KimodoProfileSkeletonUtility.TryResolveProfileSkeleton(
                         modelName,
                         cache,
-                        out _,
+                        out string[] jointNames,
                         out _,
                         out Transform[] joints,
                         out error))
@@ -80,17 +81,24 @@ namespace KimodoBridge
                     throw new InvalidOperationException("Constraint profile skeleton has no Hips joint after projection.");
                 }
 
+                var jointPositions = new Vector3[joints.Length];
+                var jointRotations = new Quaternion[joints.Length];
                 var result = new List<Vector3>(joints.Length);
                 for (int i = 0; i < joints.Length; i++)
                 {
                     Transform joint = joints[i];
                     Quaternion rotation = i == 0 ? joint.rotation : joint.localRotation;
+                    jointPositions[i] = joint.position;
+                    jointRotations[i] = joint.rotation;
                     result.Add(KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(rotation));
                 }
 
                 return new KimodoConstraintProjectedPose
                 {
-                    rootPositionMeters = joints[0].position,
+                    profileRootPosition = joints[0].position,
+                    jointNames = jointNames,
+                    jointPositions = jointPositions,
+                    jointRotations = jointRotations,
                     localJointAngles = result,
                 };
             }

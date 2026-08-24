@@ -1157,9 +1157,10 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ConstraintJson_EndEffectorExportsExplicitWorldTarget()
+        public void ConstraintJson_EndEffectorExportsProjectedProfileTarget()
         {
             Vector3 target = new Vector3(1f, 2f, 3f);
+            Vector3 profileTarget = new Vector3(4f, 5f, 6f);
             var targeted = new KimodoMarkerSampleResult
             {
                 constraintMode = "effector",
@@ -1176,16 +1177,23 @@ namespace KimodoBridge.Editor.Tests
                     new[] { targeted },
                     new KimodoConstraintExportContext
                     {
-                        localJointAngleProjector = _ => new List<Vector3> { Vector3.zero }
+                        projectedPoseProjector = _ => new KimodoConstraintProjectedPose
+                        {
+                            profileRootPosition = Vector3.zero,
+                            jointNames = new[] { "Hips", "LeftHand" },
+                            jointPositions = new[] { Vector3.zero, profileTarget },
+                            jointRotations = new[] { Quaternion.identity, Quaternion.identity },
+                            localJointAngles = new List<Vector3> { Vector3.zero }
+                        }
                     },
                     clipDurationSeconds: 4.0,
                     exportFps: 30.0));
 
             JToken positions = constraints[0]["target_positions"];
             Assert.That(positions, Is.Not.Null);
-            Assert.That((float)positions[0][0], Is.EqualTo(-target.x));
-            Assert.That((float)positions[0][1], Is.EqualTo(target.y));
-            Assert.That((float)positions[0][2], Is.EqualTo(target.z));
+            Assert.That((float)positions[0][0], Is.EqualTo(-profileTarget.x));
+            Assert.That((float)positions[0][1], Is.EqualTo(profileTarget.y));
+            Assert.That((float)positions[0][2], Is.EqualTo(profileTarget.z));
         }
 
         [Test]
