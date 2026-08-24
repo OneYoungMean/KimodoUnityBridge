@@ -11,25 +11,11 @@ using Debug = UnityEngine.Debug;
 
 namespace KimodoBridge
 {
-    public sealed class KimodoBridgeGenerationResult
+    // Runtime bridge result marker.  Result storage and compatibility aliases
+    // live on KimodoGenerationResultDto so bridge and pipeline boundaries share
+    // one representation.
+    public sealed class KimodoBridgeGenerationResult : KimodoGenerationResultDto
     {
-        public string MotionJsonCompact { get; set; }
-        public KimodoRawMotionData MotionData { get; set; }
-        public string MotionFormat { get; set; }
-        public string RawStatus { get; set; }
-        public string Message { get; set; }
-        public byte[] MotionBytes { get; set; }
-        public string MotionRepFingerprint { get; set; }
-        public int? ResolvedSeed { get; set; }
-        public int StartFrame { get; set; }
-        public int EndFrameExclusive { get; set; }
-        public double? ArdyPlaybackReserveSeconds { get; set; }
-        public string AnalysisJson { get; set; }
-        // `kmb_attachments_v1` is used by analysis-only generate requests.  Each
-        // attachment stays independently parseable so callers can preserve the
-        // original clip boundaries instead of treating the concatenated wire
-        // payload as one KMB file.
-        public IReadOnlyList<KimodoBridgeKmbAttachment> KmbAttachments { get; set; }
     }
 
     public sealed class KimodoBridgeKmbAttachment

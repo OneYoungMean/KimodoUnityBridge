@@ -137,17 +137,8 @@ namespace KimodoBridge
             CancellationToken token) =>
             Task.Run(() =>
             {
-                var generationResult = new KimodoGenerationResultDto
-                {
-                    motionJsonCompact = bridgeResult?.MotionJsonCompact,
-                    motionData = bridgeResult?.MotionData,
-                    motionFormat = bridgeResult?.MotionFormat,
-                    rawStatus = bridgeResult?.RawStatus,
-                    message = bridgeResult?.Message
-                };
-
                 if (!KimodoRawMotionUtility.TryAnalyzeGenerationResult(
-                        generationResult,
+                        bridgeResult,
                         modelName,
                         out KimodoRawMotionMetadata metadata,
                         out string error,

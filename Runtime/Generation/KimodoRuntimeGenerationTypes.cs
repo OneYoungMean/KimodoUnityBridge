@@ -62,12 +62,17 @@ namespace KimodoBridge
         }
     }
 
+    // Single storage model for generation results crossing the runtime pipeline.
+    // Bridge and command results expose PascalCase compatibility aliases over
+    // these fields; keeping the payload here avoids a second copy of every
+    // result value at each pipeline boundary.
     [Serializable]
-    public sealed class KimodoGenerationResultDto
+    public class KimodoGenerationResultDto
     {
         public string motionJsonCompact;
         [NonSerialized] public KimodoRawMotionData motionData;
         [NonSerialized] public byte[] motionBytes;
+        // `kmb_attachments_v1` keeps each analysis clip independently parseable.
         [NonSerialized] public IReadOnlyList<KimodoBridgeKmbAttachment> kmbAttachments;
         public string motionFormat;
         public string rawStatus;
@@ -76,6 +81,87 @@ namespace KimodoBridge
         public int? resolvedSeed;
         public int startFrame;
         public int endFrameExclusive;
+        public double? ardyPlaybackReserveSeconds;
         public string analysisJson;
+
+        // PascalCase aliases preserve the existing Bridge/Command result API
+        // without storing a second copy of the result fields.
+        public string MotionJsonCompact
+        {
+            get => motionJsonCompact;
+            set => motionJsonCompact = value;
+        }
+
+        public KimodoRawMotionData MotionData
+        {
+            get => motionData;
+            set => motionData = value;
+        }
+
+        public string MotionFormat
+        {
+            get => motionFormat;
+            set => motionFormat = value;
+        }
+
+        public string RawStatus
+        {
+            get => rawStatus;
+            set => rawStatus = value;
+        }
+
+        public string Message
+        {
+            get => message;
+            set => message = value;
+        }
+
+        public byte[] MotionBytes
+        {
+            get => motionBytes;
+            set => motionBytes = value;
+        }
+
+        public IReadOnlyList<KimodoBridgeKmbAttachment> KmbAttachments
+        {
+            get => kmbAttachments;
+            set => kmbAttachments = value;
+        }
+
+        public string MotionRepFingerprint
+        {
+            get => motionRepFingerprint;
+            set => motionRepFingerprint = value;
+        }
+
+        public int? ResolvedSeed
+        {
+            get => resolvedSeed;
+            set => resolvedSeed = value;
+        }
+
+        public int StartFrame
+        {
+            get => startFrame;
+            set => startFrame = value;
+        }
+
+        public int EndFrameExclusive
+        {
+            get => endFrameExclusive;
+            set => endFrameExclusive = value;
+        }
+
+        public double? ArdyPlaybackReserveSeconds
+        {
+            get => ardyPlaybackReserveSeconds;
+            set => ardyPlaybackReserveSeconds = value;
+        }
+
+        public string AnalysisJson
+        {
+            get => analysisJson;
+            set => analysisJson = value;
+        }
     }
 }
