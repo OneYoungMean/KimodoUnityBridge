@@ -35,17 +35,13 @@ namespace KimodoBridge.Editor.Tests
                     pose.muscles[i] = i;
                 }
 
-                var samples = new List<MuscleSample>
+                MuscleSample sample = new MuscleSample();
+                sample.SetRoot(pose.bodyPosition, pose.bodyRotation);
+                for (int i = 0; i < KimodoSampleDataLayout.BodyMuscleCount; i++)
                 {
-                    new MuscleSample
-                    {
-                        pose = pose,
-                        leftFootRotation = Quaternion.identity,
-                        rightFootRotation = Quaternion.identity,
-                        leftHandRotation = Quaternion.identity,
-                        rightHandRotation = Quaternion.identity
-                    }
-                };
+                    sample.data[i] = pose.muscles[KimodoMuscleSampleHumanPoseAdapter.UnityBodyMuscleIndices[i]];
+                }
+                var samples = new List<MuscleSample> { sample };
 
                 Assert.That(
                     KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(samples, clip, out string error),
@@ -89,10 +85,6 @@ namespace KimodoBridge.Editor.Tests
             try
             {
                 MuscleSample sample = CreateRootRotationSample(Quaternion.identity);
-                sample.leftHandPosition = new Vector3(1f, 2f, 3f);
-                sample.leftHandRotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f);
-                sample.rightHandPosition = new Vector3(4f, 5f, 6f);
-                sample.rightHandRotation = new Quaternion(0.4f, 0.5f, 0.6f, 0.7f);
 
                 Assert.That(
                     KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(new[] { sample }, clip, out string error),
@@ -117,10 +109,12 @@ namespace KimodoBridge.Editor.Tests
             try
             {
                 MuscleSample sample = CreateRootRotationSample(Quaternion.identity);
-                sample.leftFootPosition = new Vector3(1f, 2f, 3f);
-                sample.leftFootRotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f);
-                sample.rightFootPosition = new Vector3(4f, 5f, 6f);
-                sample.rightFootRotation = new Quaternion(0.4f, 0.5f, 0.6f, 0.7f);
+                sample.SetLeftFoot(
+                    new Vector3(1f, 2f, 3f),
+                    new Quaternion(0.1f, 0.2f, 0.3f, 0.9f));
+                sample.SetRightFoot(
+                    new Vector3(4f, 5f, 6f),
+                    new Quaternion(0.4f, 0.5f, 0.6f, 0.7f));
 
                 Assert.That(
                     KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(new[] { sample }, clip, out string error),
@@ -145,10 +139,8 @@ namespace KimodoBridge.Editor.Tests
             try
             {
                 MuscleSample sample = CreateRootRotationSample(Quaternion.identity);
-                sample.leftFootPosition = new Vector3(10f, 20f, 30f);
-                sample.rightFootPosition = new Vector3(-10f, -20f, -30f);
-                sample.leftHandPosition = new Vector3(40f, 50f, 60f);
-                sample.rightHandPosition = new Vector3(-40f, -50f, -60f);
+                sample.SetLeftFoot(new Vector3(10f, 20f, 30f), Quaternion.identity);
+                sample.SetRightFoot(new Vector3(-10f, -20f, -30f), Quaternion.identity);
 
                 Assert.That(
                     KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
@@ -203,55 +195,44 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void RemoveTimelinePlanarOffset_ConvertsTargetOffsetToSourceScale()
+        public void TrackOffsetNormalization_ConvertsTargetOffsetToSourceScale()
         {
             MuscleSample sample = CreateRootRotationSample(Quaternion.identity);
-            sample.pose.bodyPosition = new Vector3(100f, 0f, 100f);
+            sample.SetRoot(new Vector3(100f, 0f, 100f), Quaternion.identity);
 
-            KimodoRetargetToolsEditor.RemoveTimelinePlanarOffsetFromMuscleSamples(
+            KimodoRetargetToolsEditor.RemoveTrackOffsetFromMuscleSamples(
                 new[] { sample },
                 new Vector3(100f, 0f, 100f),
-                Quaternion.identity,
                 sourceHumanScale: 2f,
                 targetHumanScale: 1f);
 
-            Assert.That(Vector3.Distance(sample.pose.bodyPosition, Vector3.zero), Is.LessThan(1e-5f));
+            sample.GetRoot(out Vector3 position, out _);
+            Assert.That(Vector3.Distance(position, Vector3.zero), Is.LessThan(1e-5f));
         }
 
         [Test]
-        public void RemoveTimelinePlanarOffset_SubtractsOffsetBeforeInverseYaw()
+        public void TrackOffsetNormalization_PreservesRootRotation()
         {
-            Quaternion targetYaw = Quaternion.Euler(0f, 90f, 0f);
-            Vector3 expectedPosition = new Vector3(3f, 2f, 4f);
-            MuscleSample sample = CreateRootRotationSample(targetYaw * Quaternion.Euler(0f, 25f, 0f));
-            sample.pose.bodyPosition = new Vector3(10f, 0f, 20f) + targetYaw * expectedPosition;
+            Quaternion rootRotation = Quaternion.Euler(0f, 90f, 0f) * Quaternion.Euler(0f, 25f, 0f);
+            MuscleSample sample = CreateRootRotationSample(rootRotation);
+            sample.SetRoot(new Vector3(110f, 2f, 120f), rootRotation);
 
-            KimodoRetargetToolsEditor.RemoveTimelinePlanarOffsetFromMuscleSamples(
+            KimodoRetargetToolsEditor.RemoveTrackOffsetFromMuscleSamples(
                 new[] { sample },
                 new Vector3(10f, 50f, 20f),
-                targetYaw,
                 sourceHumanScale: 1f,
                 targetHumanScale: 1f);
 
-            Assert.That(Vector3.Distance(sample.pose.bodyPosition, expectedPosition), Is.LessThan(1e-5f));
-            Assert.That(Quaternion.Angle(sample.pose.bodyRotation, Quaternion.Euler(0f, 25f, 0f)), Is.LessThan(1e-4f));
+            sample.GetRoot(out Vector3 position, out Quaternion resultRotation);
+            Assert.That(Vector3.Distance(position, new Vector3(100f, -48f, 100f)), Is.LessThan(1e-5f));
+            Assert.That(Quaternion.Angle(resultRotation, rootRotation), Is.LessThan(1e-4f));
         }
 
         private static MuscleSample CreateRootRotationSample(Quaternion rootRotation)
         {
-            return new MuscleSample
-            {
-                pose = new HumanPose
-                {
-                    bodyPosition = Vector3.zero,
-                    bodyRotation = rootRotation,
-                    muscles = new float[HumanTrait.MuscleCount]
-                },
-                leftFootRotation = Quaternion.identity,
-                rightFootRotation = Quaternion.identity,
-                leftHandRotation = Quaternion.identity,
-                rightHandRotation = Quaternion.identity
-            };
+            MuscleSample sample = new MuscleSample();
+            sample.SetRoot(Vector3.zero, rootRotation);
+            return sample;
         }
 
         private static Quaternion ReadRootQuaternion(AnimationClip clip, int keyIndex)

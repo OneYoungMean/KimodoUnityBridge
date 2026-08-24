@@ -104,6 +104,24 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [Test]
+        public void TrackOffsetNormalization_SubtractsOffsetInTargetHumanScale()
+        {
+            MuscleSample sample = new MuscleSample();
+            Quaternion rotation = Quaternion.Euler(10f, 20f, 30f);
+            sample.SetRoot(new Vector3(50f, 4f, 60f), rotation);
+
+            KimodoRetargetToolsEditor.RemoveTrackOffsetFromMuscleSamples(
+                new[] { sample },
+                new Vector3(100f, 10f, 120f),
+                sourceHumanScale: 2f,
+                targetHumanScale: 4f);
+
+            sample.GetRoot(out Vector3 position, out Quaternion resultRotation);
+            Assert.That(position, Is.EqualTo(new Vector3(25f, 1.5f, 30f)));
+            Assert.That(Quaternion.Angle(resultRotation, rotation), Is.LessThan(1e-4f));
+        }
+
         private static AnimationTrack CreateAutoBeginTrack(Vector3 position, Quaternion rotation)
         {
             AnimationTrack track = ScriptableObject.CreateInstance<AnimationTrack>();

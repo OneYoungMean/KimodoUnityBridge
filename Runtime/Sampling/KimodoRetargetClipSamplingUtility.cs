@@ -290,9 +290,7 @@ namespace KimodoBridge
 
                 graph = PlayableGraph.Create(rootName + "Graph");
                 graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
-                AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
-                clipPlayable.SetApplyFootIK(false);
-                clipPlayable.SetApplyPlayableIK(false);
+                AnimationClipPlayable clipPlayable = CreateClipPlayable(graph, clip);
                 Playable sourcePlayable = clipPlayable;
                 if (applyMotionXToDelta)
                 {
@@ -335,6 +333,16 @@ namespace KimodoBridge
 
                 return false;
             }
+        }
+
+        internal static AnimationClipPlayable CreateClipPlayable(
+            PlayableGraph graph,
+            AnimationClip clip)
+        {
+            AnimationClipPlayable playable = AnimationClipPlayable.Create(graph, clip);
+            playable.SetApplyFootIK(true);
+            playable.SetApplyPlayableIK(false);
+            return playable;
         }
 
         internal static bool TryEvaluateClipSamplingContext(ClipSamplingContext context, float sampleTime, out string error)

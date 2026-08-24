@@ -8,6 +8,7 @@ using Newtonsoft.Json.Linq;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
@@ -114,10 +115,17 @@ namespace KimodoBridge.Editor
 
             ThrowIfCanceled(request);
             request.Progress?.Invoke(KimodoBridgeCommandStage.Retarget, "Retargeting...");
+            ResolveTimelineTrackOffset(
+                request,
+                outputPlan,
+                out Vector3 trackOffsetWorld,
+                out float targetHumanScale);
             if (!KimodoRetargetToolsEditor.TryBakeMuscleClipToClip(
                     request.TargetClip,
                     outputPlan.OriginRetargetAvatar,
                     request.TargetClip,
+                    trackOffsetWorld,
+                    targetHumanScale,
                     out string muscleCacheError))
             {
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(muscleCacheError)
@@ -167,6 +175,41 @@ namespace KimodoBridge.Editor
             ThrowIfCanceled(request);
 
             return CompleteBakedOutput(request, prompt, modelName, runtimeResult, outputPlan, rawBoneClip);
+        }
+
+        private static void ResolveTimelineTrackOffset(
+            KimodoEditorGenerateRequest request,
+            KimodoEditorGenerateOutputPlan outputPlan,
+            out Vector3 trackOffsetWorld,
+            out float targetHumanScale)
+        {
+            trackOffsetWorld = Vector3.zero;
+            targetHumanScale = 1f;
+
+            TrackAsset track = request?.TimelineClipSnapshot?.GetParentTrack();
+            if (track != null)
+            {
+                Animator animator = null;
+                PlayableDirector director = request.TimelineDirectorSnapshot;
+                if (director != null)
+                {
+                    UnityEngine.Object binding = director.GetGenericBinding(track);
+                    animator = binding as Animator ??
+                        (binding as GameObject)?.GetComponentInChildren<Animator>(true);
+                }
+
+                KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                    track,
+                    animator,
+                    out trackOffsetWorld,
+                    out _);
+            }
+
+            if (trackOffsetWorld.sqrMagnitude > 1e-8f)
+            {
+                targetHumanScale = KimodoConstraintNormalizationUtility.ResolveHumanScale(
+                    outputPlan?.TargetRetargetAvatar);
+            }
         }
 
 

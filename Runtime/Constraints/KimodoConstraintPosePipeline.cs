@@ -215,9 +215,8 @@ namespace KimodoBridge
                 }
                 graph = PlayableGraph.Create("KimodoConstraintIkGraph");
                 graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
-                AnimationClipPlayable clipPlayable = AnimationClipPlayable.Create(graph, clip);
-                clipPlayable.SetApplyFootIK(false);
-                clipPlayable.SetApplyPlayableIK(false);
+                AnimationClipPlayable clipPlayable =
+                    KimodoRetargetClipSamplingUtility.CreateClipPlayable(graph, clip);
                 Playable sourcePlayable = AnimationOffsetPlayableAccess.CreateMotionXToDeltaAndConnect(
                     graph,
                     clipPlayable);

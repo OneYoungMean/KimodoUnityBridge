@@ -51,6 +51,28 @@ namespace KimodoBridge.Editor
                 : Quaternion.identity;
         }
 
+        internal static float ResolveHumanScale(Avatar avatar)
+        {
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(avatar) ||
+                !KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
+                    avatar,
+                    "KimodoRetargetClipScaleProbe",
+                    out RetargetSkeleton cache,
+                    out _))
+            {
+                return 1f;
+            }
+
+            try
+            {
+                return Mathf.Max(1e-6f, cache.humanScale);
+            }
+            finally
+            {
+                cache.Dispose();
+            }
+        }
+
         internal static void NormalizeRootPose(
             Vector3 anchorRootPosition,
             Quaternion anchorRootRotation,
