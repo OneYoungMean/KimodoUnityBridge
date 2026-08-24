@@ -12,8 +12,8 @@ Use `KimodoUnityBridge.Command.command_dispatcher`. Start with `kimodo_help({})`
 
 - Public time is 60 FPS integer frames; ranges are half-open `[start_frame,end_frame)` and animation Pose frames are local to the Clip.
 - A completed Session Clip is immutable. Generate, record, retarget, or correct by appending a new Clip; never overwrite or retime the source.
+- Before the normal Command workflow, call `kimodo_install_server({})` once after Unity finishes compiling/importing. It installs or refreshes the QuickServer runtime, preserves models and the Python environment, and restarts the server.
 - `kimodo_generate_animation` is asynchronous. Save `request_id` and poll `kimodo_get_generation` until `completed`, `failed`, or `canceled`.
-- Use `kimodo_install_server` only for explicit runtime repair/diagnosis. Wait for Unity compilation/import to finish before mutating commands.
 
 ### 3. Analyze and inspect visual evidence
 
@@ -55,7 +55,8 @@ Visual status is `passed`, `needs_revision`, or `not_verified`. `passed` require
 - 公开时间为 60 FPS 整数帧；区间为半开区间 `[start_frame,end_frame)`，动画 Pose 帧是 Clip 局部帧。
 - 已完成的 Session Clip 不可变。生成、Record、Retarget 或修正都追加新 Clip，不覆盖或重定时源 Clip。
 - `kimodo_generate_animation` 是异步的。保存 `request_id`，轮询 `kimodo_get_generation` 直到 `completed`、`failed` 或 `canceled`。
-- `kimodo_install_server` 只用于用户明确要求的运行时修复/诊断。Unity 编译或导入期间等待后再执行变更命令。
+- 正常 Command 流程开始前，Unity 编译/导入完成后先调用一次 `kimodo_install_server({})`。它会安装或刷新 QuickServer runtime，保留模型和 Python 环境，然后重启服务器。
+- `kimodo_generate_animation` 是异步的。保存 `request_id`，轮询 `kimodo_get_generation` 直到 `completed`、`failed` 或 `canceled`。
 
 ### 3. 分析与视觉证据
 

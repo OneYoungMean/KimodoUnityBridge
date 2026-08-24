@@ -54,9 +54,8 @@ namespace KimodoUnityBridge.Command
                             Optional("command", "string", "Command name whose full manual entry should be returned."),
                             Enum("section", "commands", "models", "constraints"))),
                     CommandDefinition(InstallServerCommand,
-                        "[debug-only] Incrementally install the QuickServer runtime from the package template, preserving models and the Python environment, then restart it.",
-                        Properties(),
-                        debugOnly: true),
+                        "Install or refresh the QuickServer runtime before starting the normal Command workflow. This preserves models and the Python environment, then restarts the server.",
+                        Properties()),
                     CommandDefinition(SessionGetOrCreateCommand,
                         "Create an empty current animation Session, or reopen an existing named Session. Add a scene humanoid before using character-scoped commands in a new Session.",
                         Properties(
@@ -293,6 +292,7 @@ namespace KimodoUnityBridge.Command
                     },
                     ["workflow"] = new JArray
                     {
+                        new JObject { ["command"] = InstallServerCommand, ["arguments"] = new JObject(), ["before"] = "all other Commands" },
                         new JObject { ["command"] = SessionGetOrCreateCommand, ["arguments"] = new JObject { ["name"] = "Locomotion" } },
                         new JObject { ["command"] = SessionAddCommand, ["arguments"] = new JObject { ["kind"] = "character", ["character"] = "<scene name or path>" } },
                         new JObject { ["command"] = GenerateAnimationCommand, ["arguments"] = new JObject { ["character"] = "<character>", ["prompt"] = "stand still and breathe naturally", ["duration_frames"] = 60 }, ["save"] = "request_id" },
@@ -304,8 +304,7 @@ namespace KimodoUnityBridge.Command
                     {
                         ["name"] = item.Value<string>("name"),
                         ["description"] = item.Value<string>("description"),
-                        ["required"] = item["inputSchema"]?["required"]?.DeepClone() ?? new JArray(),
-                        ["debug_only"] = item.Value<bool?>("debug_only") ?? false
+                        ["required"] = item["inputSchema"]?["required"]?.DeepClone() ?? new JArray()
                     })),
                     ["constraints"] = constraintManual["constraints"].DeepClone(),
                     ["constraint_rules"] = constraintManual["rules"].DeepClone()
@@ -1559,19 +1558,14 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static JObject CommandDefinition(string name, string description, JObject inputSchema, bool debugOnly = false)
+        private static JObject CommandDefinition(string name, string description, JObject inputSchema)
         {
-            var definition = new JObject
+            return new JObject
             {
                 ["name"] = name,
                 ["description"] = description,
                 ["inputSchema"] = inputSchema
             };
-            if (debugOnly)
-            {
-                definition["debug_only"] = true;
-            }
-            return definition;
         }
 
         private static JObject Properties(params PropertyDefinition[] definitions)

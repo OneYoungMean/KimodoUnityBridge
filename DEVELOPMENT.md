@@ -8,7 +8,7 @@
 
 The maintained public commands are:
 
-- Discovery and runtime repair: `kimodo_help`, `kimodo_install_server`
+- Startup and discovery: `kimodo_install_server`, `kimodo_help` (`kimodo_install_server` must run first after Unity is ready)
 - Session/content: `session_get_or_create`, `session_add`, `session_close`
 - Generation jobs: `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation`
 - Analysis/evidence: `animation_analyze`, `animation_compare`
