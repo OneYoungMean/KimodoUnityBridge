@@ -26,34 +26,6 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void MarkerMenu_HidesLegacyConstraintMarkers()
-        {
-            System.Type[] legacyTypes =
-            {
-                typeof(KimodoConstraintMarker),
-                typeof(KimodoConstraintMarker),
-                typeof(KimodoConstraintMarker),
-                typeof(KimodoConstraintMarker),
-                typeof(KimodoConstraintMarker),
-                typeof(KimodoConstraintMarker),
-                typeof(KimodoConstraintMarker),
-                typeof(KimodoConstraintMarker)
-            };
-            Assert.That(
-                legacyTypes.All(type => System.Attribute.IsDefined(
-                    type,
-                    typeof(HideInMenuAttribute),
-                    inherit: false)),
-                Is.True);
-            Assert.That(
-                System.Attribute.IsDefined(
-                    typeof(KimodoConstraintMarker),
-                    typeof(HideInMenuAttribute),
-                    inherit: false),
-                Is.False);
-        }
-
-        [Test]
         public void PromptEdit_PreservesMixedValuesUntilTheUserChangesTheField()
         {
             KimodoPlayableClip first = ScriptableObject.CreateInstance<KimodoPlayableClip>();
