@@ -2606,17 +2606,22 @@ namespace KimodoUnityBridge.Command
             Shader fallbackShader = null;
             foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
             {
-                Material[] materials = renderer.materials;
-                if (materials == null || materials.Length == 0)
+                Material[] sourceMaterials = renderer.sharedMaterials;
+                if (sourceMaterials == null || sourceMaterials.Length == 0)
                 {
-                    materials = new[] { (Material)null };
+                    sourceMaterials = new[] { (Material)null };
                 }
-                for (int index = 0; index < materials.Length; index++)
+                var replacements = new Material[sourceMaterials.Length];
+                for (int index = 0; index < sourceMaterials.Length; index++)
                 {
-                    Material material = materials[index];
+                    Material material = sourceMaterials[index];
                     if (IsUsablePoseMaterial(material))
                     {
-                        SetMaterialTint(material, flatTint);
+                        Material replacement = UnityEngine.Object.Instantiate(material);
+                        replacement.hideFlags = HideFlags.HideAndDontSave;
+                        SetMaterialTint(replacement, flatTint);
+                        replacements[index] = replacement;
+                        transientMaterials?.Add(replacement);
                         continue;
                     }
 
@@ -2626,12 +2631,12 @@ namespace KimodoUnityBridge.Command
                         throw new InvalidOperationException("No compatible pose fallback shader is available.");
                     }
 
-                    Material replacement = new Material(fallbackShader) { hideFlags = HideFlags.HideAndDontSave };
-                    SetMaterialTint(replacement, flatTint);
-                    materials[index] = replacement;
-                    transientMaterials?.Add(replacement);
+                    Material fallbackMaterial = new Material(fallbackShader) { hideFlags = HideFlags.HideAndDontSave };
+                    SetMaterialTint(fallbackMaterial, flatTint);
+                    replacements[index] = fallbackMaterial;
+                    transientMaterials?.Add(fallbackMaterial);
                 }
-                renderer.materials = materials;
+                renderer.sharedMaterials = replacements;
             }
         }
 

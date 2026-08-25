@@ -5,6 +5,7 @@ using KimodoBridge;
 using KimodoUnityBridge.Command;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 namespace KimodoUnityBridge.Command.Tests
@@ -15,6 +16,36 @@ namespace KimodoUnityBridge.Command.Tests
     /// </summary>
     public sealed class CommandBoundaryTests
     {
+        private const string HelpAssetPath = "Packages/com.unity.kimodo_unity_motion_tools/Command/help.json";
+
+        [Test]
+        public void HelpJson_IsLoadableAndParseable()
+        {
+            TextAsset help = AssetDatabase.LoadAssetAtPath<TextAsset>(HelpAssetPath);
+
+            Assert.That(help, Is.Not.Null, HelpAssetPath);
+            Assert.DoesNotThrow(() => JObject.Parse(help.text));
+        }
+
+        [Test]
+        public void Definitions_AreLoadedFromHelpJsonAndMatchDispatcherSurface()
+        {
+            TextAsset help = AssetDatabase.LoadAssetAtPath<TextAsset>(HelpAssetPath);
+            JObject published = JObject.Parse(help.text);
+            JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+
+            Assert.That(JToken.DeepEquals(definitions, published), Is.True);
+            CollectionAssert.AreEquivalent(new[]
+            {
+                "kimodo_help", "kimodo_install_server",
+                "session_get_or_create", "session_add", "session_close",
+                "kimodo_generate_animation", "kimodo_get_generation", "kimodo_cancel_generation",
+                "animation_analyze", "animation_compare",
+                "pose_get", "pose_create_path", "pose_contract", "pose_set_root_transform", "pose_set_muscle",
+                "kimodo_record_range", "kimodo_retarget_animation"
+            }, definitions["tools"].Values<JObject>().Select(tool => tool.Value<string>("name")));
+        }
+
         [Test]
         public void Invoke_NullOrUnknownCommand_ReturnsStableFailureEnvelope()
         {
@@ -90,6 +121,13 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(analyze["properties"]["clips"]["maxItems"]?.Value<int>(), Is.EqualTo(2));
             Assert.That(analyze["properties"]["resolution"]["minimum"]?.Value<int>(), Is.EqualTo(64));
             Assert.That(analyze["properties"]["resolution"]["maximum"]?.Value<int>(), Is.EqualTo(4096));
+            Assert.That(analyze["properties"]["resolution"]?.Value<string>("type"), Is.EqualTo("integer"));
+            Assert.That(analyze["properties"]["level"]["enum"]?.Values<string>(),
+                Is.EquivalentTo(new[] { "low", "middle", "high", "-test" }));
+
+            JObject generate = (JObject)Tool("kimodo_generate_animation")["inputSchema"];
+            Assert.That(generate["properties"]["output_mode"]["enum"]?.Values<string>(),
+                Is.EquivalentTo(new[] { "humanoid_muscle", "character_bone", "model_bone" }));
 
             JObject path = (JObject)Tool("pose_create_path")["inputSchema"];
             Assert.That(path["properties"]["knots"]["minItems"]?.Value<int>(), Is.EqualTo(2));
