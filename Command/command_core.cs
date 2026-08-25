@@ -713,7 +713,7 @@ namespace KimodoUnityBridge.Command
 
                     if (fullBody != null)
                     {
-                        samples.Add(BuildProfilePoseConstraint(
+                        samples.Add(BuildReferencedPoseConstraint(
                             fullBody, "fullbody", targetCache, modelName, frameRate, at, i));
                     }
                     if (root2D != null)
@@ -727,7 +727,7 @@ namespace KimodoUnityBridge.Command
                         {
                             continue;
                         }
-                        samples.Add(BuildProfilePoseConstraint(
+                        samples.Add(BuildReferencedPoseConstraint(
                             endEffectors[part], endEffectorTypes[part], targetCache, modelName, frameRate, at, i));
                     }
                 }
@@ -936,7 +936,7 @@ namespace KimodoUnityBridge.Command
             return result;
         }
 
-        private static KimodoMarkerSampleResult BuildProfilePoseConstraint(
+        private static KimodoMarkerSampleResult BuildReferencedPoseConstraint(
             JObject value,
             string constraintType,
             RetargetSkeleton targetCache,
@@ -952,56 +952,69 @@ namespace KimodoUnityBridge.Command
             KimodoMarkerSampleResult sourceResult = ReadPoseSample(
                 RequirePoseReference(poseReference),
                 $"constraints[{constraintIndex}].{constraintType.Replace('-', '_')}");
-            if (sourceResult.sampleData == null || !sourceResult.sampleData.IsValid)
+            return BuildModelNativeConstraintSample(
+                sourceResult, constraintType, targetCache, modelName, frameRate, sampleTime);
+        }
+
+        private static KimodoMarkerSampleResult BuildModelNativeConstraintSample(
+            KimodoMarkerSampleResult sourceResult,
+            string constraintType,
+            RetargetSkeleton modelSkeleton,
+            string modelName,
+            float frameRate,
+            double sampleTime)
+        {
+            if (sourceResult?.sampleData == null || !sourceResult.sampleData.IsValid)
             {
-                throw new InvalidOperationException($"constraints[{constraintIndex}] pose has no valid 70-value sampleData payload.");
+                throw new InvalidOperationException("Pose constraint has no valid 70-value sampleData payload.");
             }
-            MuscleSample sourceSample = sourceResult.sampleData.Clone();
-            if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                    sourceSample, frameRate, targetCache,
+            KimodoMarkerSampleResult solveInput = sourceResult.Clone();
+            ConfigureConstraintIntent(solveInput, constraintType, sampleTime);
+            if (!KimodoConstraintPosePipeline.TryApply(
+                    solveInput, frameRate, modelSkeleton,
                     out BoneSample boneSample, out MuscleSample targetMuscleSample, out string retargetError))
             {
-                throw new InvalidOperationException($"Retarget constraints[{constraintIndex}] failed: {retargetError}");
+                throw new InvalidOperationException($"Retarget pose constraint failed: {retargetError}");
             }
             if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
-                    boneSample, targetCache, modelName, constraintType, sampleTime,
+                    boneSample, modelSkeleton, modelName, constraintType, sampleTime,
                     out KimodoMarkerSampleResult converted, out string convertError))
             {
-                throw new InvalidOperationException($"Convert constraints[{constraintIndex}] failed: {convertError}");
+                throw new InvalidOperationException($"Convert pose constraint failed: {convertError}");
             }
-            // Captured body data remains available for projection, while mode
-            // alone prevents it from becoming a wire-level FullBody family.
-            bool fullBodyConstraint = string.Equals(
-                constraintType, "fullbody", StringComparison.OrdinalIgnoreCase);
-            converted.constraintMode = fullBodyConstraint ? "fullbody" : "effector";
-            // Retarget sampling already returned the canonical 70D payload,
-            // including the evaluated body-relative footTQ channels. Keep it
-            // intact; effector transport remains a separate SampleResult
-            // channel.
             converted.sampleData = targetMuscleSample?.Clone() ?? new MuscleSample();
-            converted.enableMask ??= new KimodoConstraintMask();
-            converted.enableMask.muscle = true;
-            converted.enableMask.rootTQ = true;
-            converted.enableMask.leftFootTQ = true;
-            converted.enableMask.rightFootTQ = true;
-            bool leftHandConstraint = string.Equals(
-                constraintType, "left-hand", StringComparison.OrdinalIgnoreCase);
-            bool rightHandConstraint = string.Equals(
-                constraintType, "right-hand", StringComparison.OrdinalIgnoreCase);
-            bool leftFootConstraint = string.Equals(
-                constraintType, "left-foot", StringComparison.OrdinalIgnoreCase);
-            bool rightFootConstraint = string.Equals(
-                constraintType, "right-foot", StringComparison.OrdinalIgnoreCase);
-            converted.enableMask.leftHand = leftHandConstraint;
-            converted.enableMask.rightHand = rightHandConstraint;
-            converted.enableMask.leftFoot = leftFootConstraint;
-            converted.enableMask.rightFoot = rightFootConstraint;
-            converted.validMask.leftHand &= leftHandConstraint;
-            converted.validMask.rightHand &= rightHandConstraint;
-            converted.validMask.leftFoot &= leftFootConstraint;
-            converted.validMask.rightFoot &= rightFootConstraint;
-            converted.sampleTime = sampleTime;
+            ConfigureConstraintIntent(converted, constraintType, sampleTime);
             return converted;
+        }
+
+        private static void ConfigureConstraintIntent(
+            KimodoMarkerSampleResult sample,
+            string constraintType,
+            double sampleTime)
+        {
+            string type = (constraintType ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-');
+            KimodoConstraintMask valid = KimodoConstraintMask.FromSample(sample);
+            if (type == "fullbody" && !valid.muscle)
+            {
+                throw new InvalidOperationException("FullBody pose constraint requires valid muscle data.");
+            }
+            bool effectorValid = type switch
+            {
+                "left-hand" => valid.leftHand,
+                "right-hand" => valid.rightHand,
+                "left-foot" => valid.leftFoot,
+                "right-foot" => valid.rightFoot,
+                "fullbody" => true,
+                _ => false
+            };
+            if (!effectorValid)
+            {
+                throw new InvalidOperationException($"Pose constraint '{type}' has no valid target data.");
+            }
+            sample.constraintMode = type;
+            sample.enableMask = KimodoConstraintMask.ForType(type);
+            sample.sampleTime = sampleTime;
+            sample.enabled = true;
         }
 
         internal static float ResolveTargetRootHeight(RetargetSkeleton targetCache)

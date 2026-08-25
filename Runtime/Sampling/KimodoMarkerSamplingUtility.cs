@@ -22,6 +22,10 @@ namespace KimodoBridge
             KimodoMarkerSampleResult normalized = useSampledValues && sample != null
                 ? sample.Clone()
                 : authored?.Clone() ?? new KimodoMarkerSampleResult();
+            if (useSampledValues)
+            {
+                normalized.enableMask = authored?.enableMask?.Clone() ?? new KimodoConstraintMask();
+            }
             normalized.sampleTime = marker.time;
             normalized.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
                 ? "root2d"

@@ -116,6 +116,23 @@ namespace KimodoUnityBridge.Command
             KimodoConstraintMarker marker = RequirePoseMarker(reference, out TimelineCharacterRecord character);
             JObject root = arguments["root"] as JObject ?? throw new InvalidOperationException("root must be an object.");
             KimodoMarkerSampleResult sample = marker.SampleData;
+            ApplyPoseRootTransform(sample, root);
+            marker.CommitSampleData();
+            EditorUtility.SetDirty(marker);
+            SaveTimelineSession(session);
+            return Ok(new JObject
+            {
+                ["pose"] = PoseReferenceJson(character.PoseCacheTrack.name, reference.Index),
+                ["data"] = BuildPoseJson(sample)
+            });
+        });
+
+        private static void ApplyPoseRootTransform(KimodoMarkerSampleResult sample, JObject root)
+        {
+            if (sample == null) throw new ArgumentNullException(nameof(sample));
+            if (root == null) throw new InvalidOperationException("root must be an object.");
+            sample.rootOverride ??= KimodoRigidTransform.Identity;
+            sample.validMask ??= new KimodoConstraintMask();
             if (root["position"] is JArray position)
             {
                 sample.root2DOverride.t = ReadVector3(position, "root.position");
@@ -130,25 +147,13 @@ namespace KimodoUnityBridge.Command
             }
             bool hasPosition = root["position"] is JArray;
             bool hasRotation = root["rotation"] is JArray;
-            sample.enableMask ??= new KimodoConstraintMask();
-            if (hasRotation && !hasPosition && !KimodoConstraintMask.IsActive(sample, "rootposition"))
+            if (hasRotation && !hasPosition && !sample.validMask.rootPosition)
             {
                 throw new InvalidOperationException("root.rotation requires an existing or supplied root.position.");
             }
-            sample.enableMask.rootPosition |= hasPosition;
-            sample.enableMask.rootHeading = hasRotation && sample.enableMask.rootPosition;
-            sample.validMask ??= new KimodoConstraintMask();
             sample.validMask.rootPosition |= hasPosition;
-            sample.validMask.rootHeading = hasRotation && sample.validMask.rootPosition;
-            marker.CommitSampleData();
-            EditorUtility.SetDirty(marker);
-            SaveTimelineSession(session);
-            return Ok(new JObject
-            {
-                ["pose"] = PoseReferenceJson(character.PoseCacheTrack.name, reference.Index),
-                ["data"] = BuildPoseJson(sample)
-            });
-        });
+            sample.validMask.rootHeading |= hasRotation && sample.validMask.rootPosition;
+        }
 
         public static string PoseSetMuscle(string argumentsJson) => Execute(argumentsJson, arguments =>
         {
@@ -224,7 +229,7 @@ namespace KimodoUnityBridge.Command
             GetRootTransform(contracted, out Vector3 contractedRootPosition, out Quaternion contractedRootRotation);
             if (components.Contains("position")) contractedRootPosition += positionDelta;
             if (components.Contains("rotation")) contractedRootRotation = (rotationDelta * contractedRootRotation).normalized;
-            if (KimodoConstraintMask.IsActive(contracted, "rootposition"))
+            if (contracted.validMask?.rootPosition == true && contracted.rootOverride != null)
             {
                 contracted.rootOverride.t = contractedRootPosition;
                 contracted.rootOverride.q = contractedRootRotation;
@@ -412,24 +417,19 @@ namespace KimodoUnityBridge.Command
             RetargetSkeleton cache,
             double sampleTime)
         {
+            bool hasSampleData = sample?.IsValid == true;
             var result = new KimodoMarkerSampleResult
             {
                 sampleData = sample?.Clone() ?? new MuscleSample(),
-                enableMask = new KimodoConstraintMask
-                {
-                    muscle = true,
-                    rootTQ = true,
-                    leftFootTQ = true,
-                    rightFootTQ = true
-                },
+                enableMask = new KimodoConstraintMask(),
                 validMask = new KimodoConstraintMask
                 {
-                    muscle = true,
-                    rootTQ = true,
-                    leftFootTQ = true,
-                    rightFootTQ = true
+                    muscle = hasSampleData,
+                    rootTQ = hasSampleData,
+                    leftFootTQ = hasSampleData,
+                    rightFootTQ = hasSampleData
                 },
-                constraintMode = "fullbody",
+                constraintMode = "constraint",
                 sampleTime = sampleTime,
                 enabled = true
             };
@@ -890,7 +890,7 @@ namespace KimodoUnityBridge.Command
             {
                 throw new ArgumentNullException(nameof(sample));
             }
-            if (KimodoConstraintMask.IsActive(sample, "rootposition") && sample.rootOverride != null)
+            if (sample.validMask?.rootPosition == true && sample.rootOverride != null)
             {
                 position = sample.rootOverride.t;
                 rotation = sample.rootOverride.q;

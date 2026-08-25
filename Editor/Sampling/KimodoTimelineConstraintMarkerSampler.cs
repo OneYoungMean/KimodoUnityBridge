@@ -207,6 +207,7 @@ namespace KimodoBridge.Editor
                 {
                     return false;
                 }
+                sample.enableMask = KimodoConstraintMask.ForType(markerType);
 
                 KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
                     context.Track,

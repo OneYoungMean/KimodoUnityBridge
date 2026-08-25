@@ -124,10 +124,24 @@ namespace KimodoBridge
         public static KimodoConstraintMask ForType(string type)
         {
             var result = new KimodoConstraintMask();
-            switch ((type ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-'))
+            string normalized = (type ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-');
+            switch (normalized)
             {
                 case "fullbody":
                     result.muscle = true;
+                    result.rootTQ = true;
+                    result.leftFootTQ = true;
+                    result.rightFootTQ = true;
+                    result.rootPosition = true;
+                    result.rootHeading = true;
+                    break;
+                case "root2d": result.rootPosition = true; result.rootHeading = true; break;
+                case "effector":
+                case "mix":
+                    result.muscle = normalized == "mix";
+                    result.rootTQ = true;
+                    result.leftFootTQ = true;
+                    result.rightFootTQ = true;
                     result.rootPosition = true;
                     result.rootHeading = true;
                     result.leftHand = true;
@@ -135,13 +149,21 @@ namespace KimodoBridge
                     result.leftFoot = true;
                     result.rightFoot = true;
                     break;
-                case "root2d": result.rootPosition = true; result.rootHeading = true; break;
-                case "left-hand": result.leftHand = true; break;
-                case "right-hand": result.rightHand = true; break;
-                case "left-foot": result.leftFoot = true; break;
-                case "right-foot": result.rightFoot = true; break;
+                case "left-hand": EnableEffectorSupport(result); result.leftHand = true; break;
+                case "right-hand": EnableEffectorSupport(result); result.rightHand = true; break;
+                case "left-foot": EnableEffectorSupport(result); result.leftFoot = true; break;
+                case "right-foot": EnableEffectorSupport(result); result.rightFoot = true; break;
             }
             return result;
+        }
+
+        private static void EnableEffectorSupport(KimodoConstraintMask result)
+        {
+            result.rootTQ = true;
+            result.leftFootTQ = true;
+            result.rightFootTQ = true;
+            result.rootPosition = true;
+            result.rootHeading = true;
         }
 
         public bool AnyEndEffector => leftFoot || rightFoot || leftHand || rightHand;

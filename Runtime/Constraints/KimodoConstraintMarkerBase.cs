@@ -113,19 +113,14 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         sampleData.sampleTime = Math.Max(0.0, time);
         if (initializeDefaults)
         {
+            sampleData.enableMask = KimodoConstraintMask.ForType(ModeProtocolName(constraintMode));
             if (constraintMode == KimodoConstraintMode.Root2D)
             {
-                sampleData.enableMask.rootPosition = true;
-                sampleData.enableMask.rootHeading = true;
                 sampleData.validMask.rootPosition = true;
                 sampleData.validMask.rootHeading = true;
             }
             else
             {
-                sampleData.enableMask.muscle = constraintMode == KimodoConstraintMode.FullBody;
-                sampleData.enableMask.rootTQ = true;
-                sampleData.enableMask.leftFootTQ = true;
-                sampleData.enableMask.rightFootTQ = true;
                 sampleData.validMask.muscle = constraintMode == KimodoConstraintMode.FullBody;
                 sampleData.validMask.rootTQ = true;
                 sampleData.validMask.leftFootTQ = true;

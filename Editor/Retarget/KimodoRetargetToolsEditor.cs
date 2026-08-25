@@ -360,14 +360,19 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                return KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
                     targetSample,
                     targetCache,
                     modelName,
                     markerType,
                     sampleTime,
                     out sample,
-                    out error);
+                    out error))
+                {
+                    return false;
+                }
+                sample.enableMask = KimodoConstraintMask.ForType(markerType);
+                return true;
             }
             finally
             {

@@ -2216,7 +2216,7 @@ namespace KimodoUnityBridge.Command
         {
             position = Vector3.zero;
             rotation = Quaternion.identity;
-            if (!KimodoConstraintMask.IsActive(sample, "rootposition"))
+            if (sample?.validMask?.rootPosition != true || sample.root2DOverride == null)
             {
                 return false;
             }

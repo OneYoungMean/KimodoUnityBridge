@@ -58,6 +58,65 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void AutoSample_UsesMarkerEnableIntentAndSampleValidity()
+        {
+            KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
+            try
+            {
+                marker.autoSample = true;
+                marker.ConstraintMode = KimodoConstraintMode.FullBody;
+                marker.SampleData.enableMask = new KimodoConstraintMask
+                {
+                    muscle = true,
+                    rootPosition = true,
+                    rootHeading = true
+                };
+                var sampled = new KimodoMarkerSampleResult
+                {
+                    sampleData = new MuscleSample(),
+                    enableMask = new KimodoConstraintMask(),
+                    validMask = new KimodoConstraintMask
+                    {
+                        muscle = true,
+                        rootPosition = true,
+                        rootHeading = true,
+                        leftHand = true
+                    }
+                };
+
+                KimodoMarkerSampleResult normalized =
+                    KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(marker, sampled);
+
+                Assert.That(normalized.enableMask.muscle, Is.True);
+                Assert.That(normalized.enableMask.rootPosition, Is.True);
+                Assert.That(normalized.enableMask.rootHeading, Is.True);
+                Assert.That(normalized.enableMask.leftHand, Is.False);
+                Assert.That(normalized.validMask.leftHand, Is.True);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(marker);
+            }
+        }
+
+        [Test]
+        public void NewConstraintMarker_DefaultsOnlyItsFullBodyIntent()
+        {
+            KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
+            try
+            {
+                Assert.That(marker.SampleData.enableMask.muscle, Is.True);
+                Assert.That(marker.SampleData.enableMask.rootPosition, Is.True);
+                Assert.That(marker.SampleData.enableMask.rootHeading, Is.True);
+                Assert.That(marker.SampleData.enableMask.AnyEndEffector, Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(marker);
+            }
+        }
+
+        [Test]
         public void ConstraintWriteback_PreservesDraggedRoot2DOverride()
         {
             KimodoConstraintMarker marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();

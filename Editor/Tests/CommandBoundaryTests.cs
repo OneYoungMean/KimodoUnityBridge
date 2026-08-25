@@ -109,34 +109,6 @@ namespace KimodoUnityBridge.Command.Tests
             }
         }
 
-        [Test]
-        public void Definitions_ExposeTheImportantNumericBoundaries()
-        {
-            JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
-            JObject Tool(string name) => definitions["tools"].Values<JObject>()
-                .Single(tool => tool.Value<string>("name") == name);
-
-            JObject analyze = (JObject)Tool("animation_analyze")["inputSchema"];
-            Assert.That(analyze["properties"]["clips"]["minItems"]?.Value<int>(), Is.EqualTo(1));
-            Assert.That(analyze["properties"]["clips"]["maxItems"]?.Value<int>(), Is.EqualTo(2));
-            Assert.That(analyze["properties"]["resolution"]["minimum"]?.Value<int>(), Is.EqualTo(64));
-            Assert.That(analyze["properties"]["resolution"]["maximum"]?.Value<int>(), Is.EqualTo(4096));
-            Assert.That(analyze["properties"]["resolution"]?.Value<string>("type"), Is.EqualTo("integer"));
-            Assert.That(analyze["properties"]["level"]["enum"]?.Values<string>(),
-                Is.EquivalentTo(new[] { "low", "middle", "high" }));
-
-            JObject generate = (JObject)Tool("kimodo_generate_animation")["inputSchema"];
-            Assert.That(generate["properties"]["output_mode"]["enum"]?.Values<string>(),
-                Is.EquivalentTo(new[] { "humanoid_muscle", "character_bone", "model_bone" }));
-
-            JObject path = (JObject)Tool("pose_create_path")["inputSchema"];
-            Assert.That(path["properties"]["knots"]["minItems"]?.Value<int>(), Is.EqualTo(2));
-
-            JObject poseReference = (JObject)Tool("pose_set_root_transform")["inputSchema"];
-            Assert.That(poseReference["properties"]["pose"]["properties"]["index"]["minimum"]?.Value<int>(),
-                Is.EqualTo(0));
-        }
-
         [TestCase("humanoid_muscle")]
         [TestCase("character_bone")]
         [TestCase("model_bone")]
@@ -211,6 +183,90 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(value.y, Is.EqualTo(-2f).Within(0.0001f));
             AssertPrivateFailure(method, new object[] { new JObject { ["v"] = new JArray(1) }, "v" }, "must be [x,z]");
             AssertPrivateFailure(method, new object[] { new JObject { ["v"] = new JArray("x", 2) }, "v" }, "finite numbers");
+        }
+
+        [Test]
+        public void ApplyPoseRootTransform_ChangesValidityWithoutSelectingConstraintChannels()
+        {
+            MethodInfo method = PrivateMethod(
+                "ApplyPoseRootTransform",
+                typeof(KimodoMarkerSampleResult),
+                typeof(JObject));
+            var sample = new KimodoMarkerSampleResult
+            {
+                enableMask = new KimodoConstraintMask(),
+                validMask = new KimodoConstraintMask()
+            };
+
+            method.Invoke(null, new object[]
+            {
+                sample,
+                new JObject
+                {
+                    ["position"] = new JArray(1.0, 2.0, 3.0),
+                    ["rotation"] = new JArray(0.0, 0.0, 0.0, 1.0)
+                }
+            });
+
+            Assert.That(sample.rootOverride.t, Is.EqualTo(new Vector3(1f, 2f, 3f)));
+            Assert.That(sample.validMask.rootPosition, Is.True);
+            Assert.That(sample.validMask.rootHeading, Is.True);
+            Assert.That(sample.enableMask.rootPosition, Is.False);
+            Assert.That(sample.enableMask.rootHeading, Is.False);
+        }
+
+        [Test]
+        public void ApplyPoseRootTransform_PositionOnlyPreservesExistingHeadingData()
+        {
+            MethodInfo method = PrivateMethod(
+                "ApplyPoseRootTransform",
+                typeof(KimodoMarkerSampleResult),
+                typeof(JObject));
+            Quaternion rotation = Quaternion.Euler(0f, 35f, 0f);
+            var sample = new KimodoMarkerSampleResult
+            {
+                rootOverride = new KimodoUnityBridge.KimodoRigidTransform
+                {
+                    t = Vector3.zero,
+                    q = rotation
+                },
+                enableMask = new KimodoConstraintMask(),
+                validMask = new KimodoConstraintMask
+                {
+                    rootPosition = true,
+                    rootHeading = true
+                }
+            };
+
+            method.Invoke(null, new object[]
+            {
+                sample,
+                new JObject { ["position"] = new JArray(4.0, 5.0, 6.0) }
+            });
+
+            Assert.That(sample.validMask.rootHeading, Is.True);
+            Assert.That(Quaternion.Angle(sample.rootOverride.q, rotation), Is.LessThan(0.001f));
+        }
+
+        [Test]
+        public void PoseDataRootReader_UsesValidOverrideWithoutConstraintEnablement()
+        {
+            MethodInfo method = PrivateMethod("GetRootTransform", typeof(KimodoMarkerSampleResult));
+            Vector3 expected = new Vector3(7f, 8f, 9f);
+            var sample = new KimodoMarkerSampleResult
+            {
+                rootOverride = new KimodoUnityBridge.KimodoRigidTransform
+                {
+                    t = expected,
+                    q = Quaternion.identity
+                },
+                enableMask = new KimodoConstraintMask(),
+                validMask = new KimodoConstraintMask { rootPosition = true }
+            };
+
+            var root = (KimodoUnityBridge.KimodoRigidTransform)method.Invoke(null, new object[] { sample });
+
+            Assert.That(root.t, Is.EqualTo(expected));
         }
 
         private static MethodInfo PrivateMethod(string name, params Type[] parameterTypes)

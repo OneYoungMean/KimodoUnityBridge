@@ -251,9 +251,11 @@ namespace KimodoBridge
                 return false;
             }
 
-            hips.SetPositionAndRotation(
-                sample.rootOverride.t,
-                sample.rootOverride.q.normalized);
+            hips.position = sample.rootOverride.t;
+            if (KimodoConstraintMask.IsActive(sample, "rootheading"))
+            {
+                hips.rotation = sample.rootOverride.q.normalized;
+            }
             return true;
         }
 

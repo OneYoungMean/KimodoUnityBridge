@@ -56,8 +56,8 @@ namespace KimodoBridge
 
             if (!KimodoRetargetSamplingUtility.TryCaptureSampleData(
                     targetCache,
-                out MuscleSample sampleData,
-                    out KimodoConstraintMask enableMask,
+                    out MuscleSample sampleData,
+                    out KimodoConstraintMask validMask,
                     out error))
             {
                 result = null;
@@ -65,20 +65,9 @@ namespace KimodoBridge
             }
 
             result.sampleData = sampleData;
-            result.enableMask = enableMask;
-            result.validMask = new KimodoConstraintMask
-            {
-                muscle = enableMask.muscle,
-                rootTQ = enableMask.rootTQ,
-                leftFootTQ = enableMask.leftFootTQ,
-                rightFootTQ = enableMask.rightFootTQ
-            };
+            result.validMask = validMask;
             CaptureWorldTargets(targetCache, result);
             result.enabled = true;
-            if (!string.Equals(markerType, "fullbody", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
             return true;
         }
 
@@ -97,42 +86,46 @@ namespace KimodoBridge
             result.effectors.rightHand ??= KimodoRigidTransform.Identity;
             result.effectors.leftFoot ??= KimodoRigidTransform.Identity;
             result.effectors.rightFoot ??= KimodoRigidTransform.Identity;
+            result.rootOverride ??= KimodoRigidTransform.Identity;
             result.enableMask ??= new KimodoConstraintMask();
             result.validMask ??= new KimodoConstraintMask();
 
-            Vector3 position;
-            Quaternion rotation;
-            if (!cache.GetBonePose(HumanBodyBones.Hips, out position, out rotation))
+            Vector3 position = Vector3.zero;
+            Quaternion rotation = Quaternion.identity;
+            bool rootValid = cache != null &&
+                cache.GetBonePose(HumanBodyBones.Hips, out position, out rotation);
+            if (!rootValid)
             {
                 position = Vector3.zero;
                 rotation = Quaternion.identity;
             }
             result.rootOverride.t = position;
             result.rootOverride.q = rotation;
-            result.enableMask.rootPosition = true;
-            result.enableMask.rootHeading = true;
-            result.validMask.rootPosition = true;
-            result.validMask.rootHeading = true;
+            result.validMask.rootPosition = rootValid;
+            result.validMask.rootHeading = rootValid;
 
             CaptureEffector(cache, HumanBodyBones.LeftHand, result.effectors.leftHand,
-                result.enableMask, result.validMask, 0);
+                result.validMask, 0);
             CaptureEffector(cache, HumanBodyBones.RightHand, result.effectors.rightHand,
-                result.enableMask, result.validMask, 1);
+                result.validMask, 1);
             CaptureEffector(cache, HumanBodyBones.LeftFoot, result.effectors.leftFoot,
-                result.enableMask, result.validMask, 2);
+                result.validMask, 2);
             CaptureEffector(cache, HumanBodyBones.RightFoot, result.effectors.rightFoot,
-                result.enableMask, result.validMask, 3);
+                result.validMask, 3);
         }
 
         private static void CaptureEffector(
             RetargetSkeleton cache,
             HumanBodyBones bone,
             KimodoRigidTransform target,
-            KimodoConstraintMask enableMask,
             KimodoConstraintMask validMask,
             int index)
         {
-            if (cache != null && cache.GetBonePose(bone, out Vector3 position, out Quaternion rotation))
+            Vector3 position = Vector3.zero;
+            Quaternion rotation = Quaternion.identity;
+            bool valid = cache != null &&
+                cache.GetBonePose(bone, out position, out rotation);
+            if (valid)
             {
                 target.t = position;
                 target.q = ResolveEffectorTransportRotation(cache, bone, rotation);
@@ -144,10 +137,10 @@ namespace KimodoBridge
             }
             switch (index)
             {
-                case 0: enableMask.leftHand = true; validMask.leftHand = true; break;
-                case 1: enableMask.rightHand = true; validMask.rightHand = true; break;
-                case 2: enableMask.leftFoot = true; validMask.leftFoot = true; break;
-                case 3: enableMask.rightFoot = true; validMask.rightFoot = true; break;
+                case 0: validMask.leftHand = valid; break;
+                case 1: validMask.rightHand = valid; break;
+                case 2: validMask.leftFoot = valid; break;
+                case 3: validMask.rightFoot = valid; break;
             }
         }
 

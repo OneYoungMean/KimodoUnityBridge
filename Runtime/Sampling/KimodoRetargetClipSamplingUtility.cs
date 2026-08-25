@@ -922,11 +922,11 @@ namespace KimodoBridge
         internal static bool TryCaptureSampleData(
             RetargetSkeleton cache,
             out MuscleSample sampleData,
-            out KimodoConstraintMask enableMask,
+            out KimodoConstraintMask validMask,
             out string error)
         {
             sampleData = new MuscleSample();
-            enableMask = new KimodoConstraintMask();
+            validMask = new KimodoConstraintMask();
             error = string.Empty;
 
             if (!TryCaptureMuscleSample(cache, out MuscleSample sample, out error))
@@ -947,10 +947,10 @@ namespace KimodoBridge
             // world-space effectors remain separate SampleResult channels.
             sampleData.data = (float[])sample.data.Clone();
 
-            enableMask.muscle = true;
-            enableMask.rootTQ = true;
-            enableMask.leftFootTQ = true;
-            enableMask.rightFootTQ = true;
+            validMask.muscle = true;
+            validMask.rootTQ = true;
+            validMask.leftFootTQ = true;
+            validMask.rightFootTQ = true;
             return true;
         }
 

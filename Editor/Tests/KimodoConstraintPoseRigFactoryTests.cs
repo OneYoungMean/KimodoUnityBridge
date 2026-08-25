@@ -1,10 +1,266 @@
+using System;
+using System.Reflection;
+using KimodoUnityBridge.Command;
 using NUnit.Framework;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace KimodoBridge.Editor.Tests
 {
     public sealed class KimodoConstraintPoseRigFactoryTests
     {
+        [Test]
+        public void CaptureWorldTargets_ReportsValidityWithoutEnablingChannels()
+        {
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoMotionModelProfiles.DefaultModelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
+                    avatar,
+                    "KimodoCaptureAvailabilityTest",
+                    out RetargetSkeleton skeleton,
+                    out error),
+                Is.True,
+                error);
+
+            try
+            {
+                var sample = new KimodoMarkerSampleResult();
+
+                KimodoRetargetMarkerSamplingUtility.CaptureWorldTargets(skeleton, sample);
+
+                Assert.That(sample.validMask.rootPosition, Is.True);
+                Assert.That(sample.validMask.rootHeading, Is.True);
+                Assert.That(sample.validMask.leftHand, Is.True);
+                Assert.That(sample.validMask.rightHand, Is.True);
+                Assert.That(sample.validMask.leftFoot, Is.True);
+                Assert.That(sample.validMask.rightFoot, Is.True);
+                Assert.That(sample.enableMask.IsEmpty, Is.True);
+            }
+            finally
+            {
+                skeleton.Dispose();
+            }
+        }
+
+        [Test]
+        public void CaptureWorldTargets_DoesNotAdvertiseMissingSkeletonChannels()
+        {
+            var sample = new KimodoMarkerSampleResult
+            {
+                enableMask = new KimodoConstraintMask(),
+                validMask = new KimodoConstraintMask
+                {
+                    rootPosition = true,
+                    rootHeading = true,
+                    leftHand = true,
+                    rightHand = true,
+                    leftFoot = true,
+                    rightFoot = true
+                }
+            };
+
+            KimodoRetargetMarkerSamplingUtility.CaptureWorldTargets(null, sample);
+
+            Assert.That(sample.validMask.rootPosition, Is.False);
+            Assert.That(sample.validMask.rootHeading, Is.False);
+            Assert.That(sample.validMask.AnyEndEffector, Is.False);
+        }
+
+        [Test]
+        public void ModelNativeConstraintPipeline_AppliesExplicitRootAndCommandMask()
+        {
+            const string modelName = KimodoMotionModelProfiles.DefaultModelName;
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    modelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
+                    avatar,
+                    "KimodoCommandConstraintPipelineTest",
+                    out RetargetSkeleton skeleton,
+                    out error),
+                Is.True,
+                error);
+
+            try
+            {
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                        skeleton,
+                        out MuscleSample pose,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    skeleton.GetBonePose(
+                        HumanBodyBones.Hips,
+                        out Vector3 hipsPosition,
+                        out Quaternion hipsRotation),
+                    Is.True);
+                Vector3 expectedRoot = hipsPosition + new Vector3(1.5f, 2f, -0.75f);
+                var source = new KimodoMarkerSampleResult
+                {
+                    sampleData = pose,
+                    rootOverride = new KimodoUnityBridge.KimodoRigidTransform
+                    {
+                        t = expectedRoot,
+                        q = hipsRotation
+                    },
+                    enableMask = new KimodoConstraintMask(),
+                    validMask = new KimodoConstraintMask
+                    {
+                        muscle = true,
+                        rootTQ = true,
+                        leftFootTQ = true,
+                        rightFootTQ = true,
+                        rootPosition = true,
+                        rootHeading = true
+                    }
+                };
+                Type context = typeof(command_dispatcher).Assembly
+                    .GetType("KimodoUnityBridge.Command.command_context");
+                MethodInfo method = context?.GetMethod(
+                    "BuildModelNativeConstraintSample",
+                    BindingFlags.Static | BindingFlags.NonPublic,
+                    null,
+                    new[]
+                    {
+                        typeof(KimodoMarkerSampleResult),
+                        typeof(string),
+                        typeof(RetargetSkeleton),
+                        typeof(string),
+                        typeof(float),
+                        typeof(double)
+                    },
+                    null);
+
+                Assert.That(method, Is.Not.Null);
+                var result = (KimodoMarkerSampleResult)method.Invoke(null, new object[]
+                {
+                    source,
+                    "fullbody",
+                    skeleton,
+                    modelName,
+                    KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
+                    2.0
+                });
+
+                Assert.That(Vector3.Distance(result.rootOverride.t, expectedRoot), Is.LessThan(0.01f));
+                Assert.That(result.constraintMode, Is.EqualTo("fullbody"));
+                Assert.That(result.enableMask.muscle, Is.True);
+                Assert.That(result.enableMask.rootPosition, Is.True);
+                Assert.That(result.enableMask.rootHeading, Is.True);
+                Assert.That(result.enableMask.AnyEndEffector, Is.False);
+            }
+            finally
+            {
+                skeleton.Dispose();
+            }
+        }
+
+        [Test]
+        public void PosePipeline_PositionOnlyRootOverridePreservesFkHeading()
+        {
+            const string modelName = KimodoMotionModelProfiles.DefaultModelName;
+            Assert.That(
+                KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    modelName,
+                    out Avatar avatar,
+                    out string error),
+                Is.True,
+                error);
+            Assert.That(
+                KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
+                    avatar,
+                    "KimodoPositionOnlyRootTest",
+                    out RetargetSkeleton skeleton,
+                    out error),
+                Is.True,
+                error);
+
+            try
+            {
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                        skeleton,
+                        out MuscleSample pose,
+                        out error),
+                    Is.True,
+                    error);
+                pose.GetRoot(out Vector3 sourceRoot, out _);
+                pose.SetRoot(sourceRoot, Quaternion.Euler(0f, 40f, 0f));
+                Assert.That(
+                    KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                        pose,
+                        KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
+                        skeleton,
+                        out _,
+                        out _,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    skeleton.GetBonePose(
+                        HumanBodyBones.Hips,
+                        out Vector3 baselinePosition,
+                        out Quaternion baselineRotation),
+                    Is.True);
+                var sample = new KimodoMarkerSampleResult
+                {
+                    sampleData = pose,
+                    rootOverride = new KimodoUnityBridge.KimodoRigidTransform
+                    {
+                        t = baselinePosition + Vector3.up * 2f,
+                        q = Quaternion.identity
+                    },
+                    enableMask = KimodoConstraintMask.ForType("fullbody"),
+                    validMask = new KimodoConstraintMask
+                    {
+                        muscle = true,
+                        rootTQ = true,
+                        leftFootTQ = true,
+                        rightFootTQ = true,
+                        rootPosition = true,
+                        rootHeading = false
+                    }
+                };
+
+                Assert.That(
+                    KimodoConstraintPosePipeline.TryApply(
+                        sample,
+                        KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
+                        skeleton,
+                        out _,
+                        out _,
+                        out error),
+                    Is.True,
+                    error);
+                Assert.That(
+                    skeleton.GetBonePose(
+                        HumanBodyBones.Hips,
+                        out Vector3 solvedPosition,
+                        out Quaternion solvedRotation),
+                    Is.True);
+
+                Assert.That(Vector3.Distance(solvedPosition, sample.rootOverride.t), Is.LessThan(0.01f));
+                Assert.That(Quaternion.Angle(solvedRotation, baselineRotation), Is.LessThan(0.5f));
+            }
+            finally
+            {
+                skeleton.Dispose();
+            }
+        }
+
         [Test]
         public void PoseRigClone_CopiesStaticMeshRenderer()
         {

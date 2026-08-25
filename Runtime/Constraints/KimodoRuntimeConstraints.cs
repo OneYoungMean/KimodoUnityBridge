@@ -110,7 +110,7 @@ namespace KimodoBridge
 
         internal void CompleteGeneration(bool isArdy, int consumedRevision)
         {
-            if (!isArdy && consumedRevision == PendingRevision)
+            if ( consumedRevision == PendingRevision)
             {
                 pending.Clear();
             }
